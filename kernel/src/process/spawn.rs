@@ -66,6 +66,28 @@ pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {
     }
 }
 
+/// The gate every native-side program start passes before a byte of the
+/// image is read, as the current task: the `noexec` mount check first, then
+/// `EXECUTE` on the file (root needs an `x` bit too) and a regular file.
+/// `linux` selects the `linux:` lookup, which lets a synthetic applet name
+/// through ([`exec_perm::linux_spawn`]). `Err` is a negative errno: `EACCES`
+/// when refused, `ENOENT` when a native program is missing.
+pub(crate) fn check_exec(path: &str, linux: bool) -> Result<(), i64> {
+    if fs::mount_flags(path).noexec {
+        return Err(-EACCES);
+    }
+    let allowed = if linux {
+        exec_perm::linux_spawn(path)
+    } else {
+        exec_perm::native(path)
+    };
+    match allowed {
+        Ok(()) => Ok(()),
+        Err(fs::vfs::FsError::NotFound) => Err(-ENOENT),
+        Err(_) => Err(-EACCES),
+    }
+}
+
 /// The shared body of syscalls 6 and 10 (`spawn` and the credentialed spawn).
 ///
 /// `cred` is `Some` only on the credential-gate path, where the caller has
@@ -86,20 +108,8 @@ pub(super) fn spawn_program(cmdline_ptr: u64, cred: Option<Cred>, assign_label: 
     let Some(spawn_line::SpawnLine { linux, path, args }) = spawn_line::parse(&line) else {
         return -EINVAL;
     };
-    if fs::mount_flags(path).noexec {
-        return -EACCES;
-    }
-    // Execute permission before a byte is read: `EACCES` for a missing `x`
-    // bit (root included) or a non-file, `ENOENT` for a missing native file.
-    let allowed = if linux {
-        exec_perm::linux_spawn(path)
-    } else {
-        exec_perm::native(path)
-    };
-    match allowed {
-        Ok(()) => {}
-        Err(fs::vfs::FsError::NotFound) => return -ENOENT,
-        Err(_) => return -EACCES,
+    if let Err(errno) = check_exec(path, linux) {
+        return errno;
     }
     // A Linux program may be a BusyBox applet alias (`sh`, `/bin/ls`), which the
     // Linux loader resolves to the `BUSYBOX` file; a native program is always a
