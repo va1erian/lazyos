@@ -39,6 +39,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Play sound through the speakers",
     ),
     (
+        "os.lazy.audio.mixer.v1",
+        MEDIUM,
+        "Change the volume of every app's sound and the master volume",
+    ),
+    (
         "os.lazy.clipboard.v1",
         MEDIUM,
         "Read and change what you copy and paste",

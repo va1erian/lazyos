@@ -137,7 +137,8 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   the userspace `dev_*` surface (`D3`) and DMA (`D4`) followed. The first
   userspace driver, `sndd` for virtio-sound, landed in D6
   ([`architecture/audio.md`](architecture/audio.md)) with the modern virtio
-  transport it needs.
+  transport it needs; the system mixer `audiod` and the client library sit
+  on top of it ([`audio-plan.md`](audio-plan.md)).
 - **SMP:** AP bring-up, spinlocks per subsystem, IPIs; designed now, enabled
   later.
 

@@ -45,6 +45,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "audioclient"
+version = "0.1.0"
+dependencies = [
+ "audiomix",
+ "fuzzkit",
+ "messenger-generated",
+ "virtio-snd",
+]
+
+[[package]]
+name = "audiomix"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "messenger-generated",
+ "virtio-snd",
+]
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1130,6 +1149,8 @@ version = "0.1.0"
 name = "user"
 version = "0.1.0"
 dependencies = [
+ "audioclient",
+ "audiomix",
  "confd",
  "devinspect",
  "fhs",

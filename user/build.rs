@@ -69,6 +69,9 @@ fn main() {
     // `LAZYOS_SOUND_MODPLAY=1` makes `sndd demo=1` run the `modplay` self-test
     // instead of the `beep` clients (`tools/sound/run.py --modplay`).
     println!("cargo:rerun-if-env-changed=LAZYOS_SOUND_MODPLAY");
+    // `LAZYOS_SOUND_MIX=1` makes `audiod demo=1` play two tones at once and a
+    // half-volume tone instead (`tools/sound/run.py --mix`).
+    println!("cargo:rerun-if-env-changed=LAZYOS_SOUND_MIX");
     println!("cargo:rustc-check-cfg=cfg(lazyos_sound)");
     // The desktop profile ships the sound stack too (`beep` is a shell command).
     if env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"))

@@ -69,6 +69,16 @@
         "name": "CloseStream",
         "id": 973774059,
         "oneway": false
+      },
+      {
+        "name": "SetVolume",
+        "id": 1919741053,
+        "oneway": false
+      },
+      {
+        "name": "SetMute",
+        "id": 1285443642,
+        "oneway": false
       }
     ],
     "topics": [
@@ -82,6 +92,33 @@
         "subscribe_permission": "subscribe:system/audio/+/event"
       }
     ]
+  },
+  {
+    "interface": "os.lazy.audio.mixer.v1",
+    "interface_id": "0x39a0c9a99b23a265",
+    "methods": [
+      {
+        "name": "ListStreams",
+        "id": 711680798,
+        "oneway": false
+      },
+      {
+        "name": "SetStreamVolume",
+        "id": 953940373,
+        "oneway": false
+      },
+      {
+        "name": "GetMaster",
+        "id": 1362695053,
+        "oneway": false
+      },
+      {
+        "name": "SetMaster",
+        "id": 301176513,
+        "oneway": false
+      }
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.clipboard.v1",

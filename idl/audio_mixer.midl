@@ -1,0 +1,60 @@
+/// The system mixer's control interface (docs/audio-plan.md stage A2).
+///
+/// `audiod` serves it next to `os.lazy.audio.v1` under the same name,
+/// `os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its
+/// own stream, this interface is the volume control panel of the machine: it
+/// lists every stream and sets any stream's volume and the master volume.
+///
+/// It never exposes samples, rings or the stream calls themselves, so holding
+/// it lets a task change *how loud* others are, never *what* they play or hear.
+/// Who may hold it is the Messenger policy's decision (an installed app needs
+/// the permission explicitly); the service itself does not ask.
+///
+/// Gains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144
+/// (four times unity). Failures are returned as the shared
+/// structured error field (see `services::error_field`): an unknown stream is
+/// `ENOENT`, an out-of-range gain `EINVAL`.
+interface os.lazy.audio.mixer.v1 {
+    /// Every open stream, in opening order.
+    method ListStreams() -> (streams: Array<StreamStatus>);
+    /// Set one stream's gain and mute flag, whoever owns it.
+    method SetStreamVolume(stream: U32, gain_q16: U32, mute: Bool) -> ();
+    /// The master gain, the mute flag and what the card runs at.
+    method GetMaster() -> (master: Master);
+    /// Set the master gain and mute flag, applied after mixing.
+    method SetMaster(gain_q16: U32, mute: Bool) -> ();
+
+    /// What one open stream is doing.
+    struct StreamStatus {
+        stream: U32,
+        /// The owner's task id (the kernel-stamped sender of `OpenStream`).
+        owner: U64,
+        /// A `StreamState` ordinal.
+        state: U32,
+        rate: U32,
+        channels: U32,
+        gain_q16: U32,
+        mute: Bool,
+        /// Frames played so far (the owner's `Position`).
+        frames: U64,
+        /// Times the stream ran dry while playing.
+        underruns: U32
+    }
+
+    /// The output side of the mixer.
+    struct Master {
+        gain_q16: U32,
+        mute: Bool,
+        /// Whether a card is attached; without one, opens fail with `ENODEV`.
+        card: Bool,
+        /// The mix rate and channel count (the card's grant).
+        rate: U32,
+        channels: U32,
+        /// Streams open now, and the most the mixer accepts.
+        streams: U32,
+        max_streams: U32
+    }
+
+    /// A stream's lifecycle, as `os.lazy.audio.v1` drives it.
+    enum StreamState { Idle, Running, Stopped, Draining, Drained }
+}

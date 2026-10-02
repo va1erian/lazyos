@@ -4,11 +4,15 @@ Interface id: `0x536f1f4639cf07f0`
 
 An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 
-A userspace audio driver (`sndd`, virtio-sound first) owns one card and
-serves this interface. Control is request/reply; sample data flows through a
-shared ring buffer per stream, so the wire never carries audio. Mixing,
-resampling and per-app volume are a later `audiod` service, not the
-driver's job: a stream has exactly one owner, the task that opened it.
+Two services serve it (docs/audio-plan.md). The system mixer `audiod`
+serves it under `os.lazy.audio`, the name applications resolve: any number
+of streams from any number of clients, each resampled to the card's rate,
+scaled by its own volume and the master volume, and mixed. A userspace
+audio driver (`sndd`, virtio-sound first) serves it for one card under
+`os.lazy.audio.card`; its one stream belongs to the mixer. Control is
+request/reply; sample data flows through a shared ring buffer per stream,
+so the wire never carries audio. A stream has exactly one owner, the task
+that opened it.
 
 **The client owns the ring.** Replies cannot carry buffers (the kernel
 refuses transfers in a reply), and the driver must not trust memory a
@@ -37,7 +41,8 @@ The driver grants the closest supported parameters and reports them in the
 reply, never failing for a merely unsupported rate or period size. A
 request outside `AudioInfo` (unknown format, zero or oversized channel
 count, a zero period) fails with `EINVAL`; a stream the card cannot provide
-(capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream
+(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream
+limit, with `EBUSY`. Calls on a stream
 by anyone but its owner fail with `EACCES`. Failures are returned as the
 shared structured error field (see `services::error_field`) instead of the
 declared reply fields.
@@ -55,6 +60,8 @@ declared reply fields.
 | Drain | 101727161 | sync | `(stream: U32) -> (ok: Bool)` |
 | Position | 1652503594 | sync | `(stream: U32) -> (frames: U64)` |
 | CloseStream | 973774059 | sync | `(stream: U32) -> ()` |
+| SetVolume | 1919741053 | sync | `(stream: U32, gain_q16: U32) -> ()` |
+| SetMute | 1285443642 | sync | `(stream: U32, mute: Bool) -> ()` |
 
 ## Topics
 

@@ -1,8 +1,10 @@
 name: sound
 
-# virtio-sound driver (docs/driver-plan.md D6): host unit tests for the driver
-# libraries and the WAV detector, then the end-to-end harness, which boots QEMU
-# with `-audiodev wav` and checks the *recording*, not just the serial markers.
+# virtio-sound driver (docs/driver-plan.md D6) and the system mixer
+# (docs/audio-plan.md): host unit tests for the driver libraries, the mixer
+# engine, the client library and the detectors, then the end-to-end harness,
+# which boots QEMU with `-audiodev wav` and checks the *recording*, not just
+# the serial markers.
 
 on:
   push:
@@ -43,8 +45,20 @@ jobs:
       - name: Driver libraries (host)
         run: cargo test -p virtio -p virtio-snd -p pcm
 
-      - name: WAV detector
-        run: python tools/sound/test_analyze_wav.py
+      # The engine's tests include a seeded script fuzz; CI runs a longer soak.
+      - name: Mixer engine and client library (host)
+        run: |
+          cargo test -p audiomix -p audioclient -p sndpolicy
+          FUZZ_CASES=3000 cargo test -p audiomix -p audioclient seeded
+          cargo test -p messenger-generated --test audio
+
+      - name: Clippy (mixer engine and client library)
+        run: cargo clippy -p audiomix -p audioclient --all-targets -- -D warnings
+
+      - name: WAV and mix detectors
+        run: |
+          python tools/sound/test_analyze_wav.py
+          python tools/sound/test_mixcheck.py
 
   harness:
     name: harness (${{ matrix.name }})
@@ -55,10 +69,16 @@ jobs:
       matrix:
         include:
           # The default machine: the kernel boots `sndd`, which plays its own
-          # tone and then runs the `beep` clients (tone, probe, intruder, soak).
+          # tone, and `audiod`, which then runs the clients through the mixer
+          # (tone, probe, intruder, soak, control-panel probe).
           - name: default
             args: ""
-          # `init` supervises the driver as the unprivileged _snd user (uid 901).
+          # Two clients at once must sound as one chord at unity level, and a
+          # stream at half volume at half the amplitude.
+          - name: mix
+            args: "--mix"
+          # `init` supervises the driver as _snd (uid 901) and the mixer as
+          # _audio (uid 905, no capabilities).
           - name: services
             args: "--services"
           # q35 has no IDE controller the kernel drives: virtio-blk boot disk.

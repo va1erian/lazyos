@@ -11,10 +11,11 @@
 
 use core::ptr;
 
+use audiomix::gain::{self, Gain};
 use libmessenger::BufferDesc;
 use user::messenger::{errno, Error as MsgError};
 use user::sys;
-use virtio_snd::params::Request;
+use virtio_snd::params::{audio_format, Request};
 use virtio_snd::wire::PcmInfo;
 
 use super::card::Card;
@@ -54,6 +55,9 @@ pub(super) struct Session {
     consumed: u64,
     state: State,
     last_active: u64,
+    /// `SetVolume` / `SetMute`, applied as each period is staged.
+    gain: Gain,
+    muted: bool,
 }
 
 type Result<T> = core::result::Result<T, MsgError>;
@@ -103,6 +107,8 @@ impl Session {
             consumed: 0,
             state: State::Idle,
             last_active: sys::clock(),
+            gain: Gain::UNITY,
+            muted: false,
         })
     }
 
@@ -224,6 +230,23 @@ impl Session {
         self.stream.frames_done
     }
 
+    /// Scale what is staged from now on. Only `S16Le` can be scaled here; any
+    /// other granted format accepts unity alone (`ENOTSUP` otherwise).
+    pub(super) fn set_volume(&mut self, gain_q16: u32) -> Result<()> {
+        let gain = Gain::new(gain_q16).ok_or_else(invalid)?;
+        if !gain.is_unity() && self.stream.grant.format != audio_format::S16_LE {
+            return Err(MsgError::Errno(-errno::ENOTSUP));
+        }
+        self.gain = gain;
+        Ok(())
+    }
+
+    /// Stage silence instead of the client's samples; the stream keeps
+    /// consuming and its position keeps moving.
+    pub(super) fn set_mute(&mut self, mute: bool) {
+        self.muted = mute;
+    }
+
     /// Copy committed periods into free DMA slots and queue them. With
     /// `flush` a final short period is sent too.
     pub(super) fn pump(&mut self, card: &mut Card, flush: bool) -> Result<()> {
@@ -257,6 +280,8 @@ impl Session {
             if src_offset + len > ring.bytes || len > period_bytes {
                 return Err(invalid());
             }
+            let scalable = self.stream.grant.format == audio_format::S16_LE;
+            let (gain, muted) = (self.gain, self.muted);
             let dst = self.stream.slot_bytes(slot).map_err(|e| errno_of(&e))?;
             // SAFETY: `src_offset + len <= ring.bytes`, the mapped extent the
             // kernel validated for this buffer, and `len <= period_bytes` is
@@ -265,6 +290,14 @@ impl Session {
             // source concurrently, which yields noise, not UB (raw copy, no
             // reference to client memory is ever formed).
             unsafe { ptr::copy_nonoverlapping(ring.base.add(src_offset), dst.as_mut_ptr(), len) };
+            // Volume is applied to the driver's own copy, so a client
+            // rewriting its ring cannot undo it.
+            let staged = &mut dst[..len];
+            if muted {
+                staged.fill(0);
+            } else if scalable {
+                gain::scale_s16le(staged, gain);
+            }
             self.stream
                 .submit_slot(card, slot, take as u32)
                 .map_err(|e| errno_of(&e))?;

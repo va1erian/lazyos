@@ -56,7 +56,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.v1",
         id: 0x536f1f4639cf07f0,
-        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nA userspace audio driver (`sndd`, virtio-sound first) owns one card and\nserves this interface. Control is request/reply; sample data flows through a\nshared ring buffer per stream, so the wire never carries audio. Mixing,\nresampling and per-app volume are a later `audiod` service, not the\ndriver's job: a stream has exactly one owner, the task that opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses transfers in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(`buffers[0]` of the request), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
+        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nTwo services serve it (docs/audio-plan.md). The system mixer `audiod`\nserves it under `os.lazy.audio`, the name applications resolve: any number\nof streams from any number of clients, each resampled to the card's rate,\nscaled by its own volume and the master volume, and mixed. A userspace\naudio driver (`sndd`, virtio-sound first) serves it for one card under\n`os.lazy.audio.card`; its one stream belongs to the mixer. Control is\nrequest/reply; sample data flows through a shared ring buffer per stream,\nso the wire never carries audio. A stream has exactly one owner, the task\nthat opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses transfers in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(`buffers[0]` of the request), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream\nlimit, with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -130,6 +130,22 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "stream", ty: Ty::U32 }],
                 returns: &[],
             },
+            Method {
+                name: "SetVolume",
+                id: 1919741053,
+                oneway: false,
+                doc: "Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0\nsilent, at most 262144, four times unity); larger values fail with\n`EINVAL`. Samples are scaled as they are copied out of the ring and\nsaturate instead of wrapping. A driver that cannot scale the granted\nformat fails with `ENOTSUP`.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }],
+                returns: &[],
+            },
+            Method {
+                name: "SetMute",
+                id: 1285443642,
+                oneway: false,
+                doc: "Silence the stream (`mute`) or restore its volume, without losing it.\nA muted stream keeps consuming and its position keeps moving.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -162,6 +178,61 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "An `EventKind` ordinal.\nXruns and drain completion, for clients that would rather not poll\n`Position`. `{card}` is the driver's card name (`virtio-snd0`).",
             },
         ],
+    },
+    Interface {
+        name: "os.lazy.audio.mixer.v1",
+        id: 0x39a0c9a99b23a265,
+        doc: "The system mixer's control interface (docs/audio-plan.md stage A2).\n\n`audiod` serves it next to `os.lazy.audio.v1` under the same name,\n`os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its\nown stream, this interface is the volume control panel of the machine: it\nlists every stream and sets any stream's volume and the master volume.\n\nIt never exposes samples, rings or the stream calls themselves, so holding\nit lets a task change *how loud* others are, never *what* they play or hear.\nWho may hold it is the Messenger policy's decision (an installed app needs\nthe permission explicitly); the service itself does not ask.\n\nGains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144\n(four times unity). Failures are returned as the shared\nstructured error field (see `services::error_field`): an unknown stream is\n`ENOENT`, an out-of-range gain `EINVAL`.",
+        methods: &[
+            Method {
+                name: "ListStreams",
+                id: 711680798,
+                oneway: false,
+                doc: "Every open stream, in opening order.",
+                params: &[],
+                returns: &[Field { name: "streams", ty: Ty::Array(&Ty::Struct("StreamStatus")) }],
+            },
+            Method {
+                name: "SetStreamVolume",
+                id: 953940373,
+                oneway: false,
+                doc: "Set one stream's gain and mute flag, whoever owns it.",
+                params: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+            },
+            Method {
+                name: "GetMaster",
+                id: 1362695053,
+                oneway: false,
+                doc: "The master gain, the mute flag and what the card runs at.",
+                params: &[],
+                returns: &[Field { name: "master", ty: Ty::Struct("Master") }],
+            },
+            Method {
+                name: "SetMaster",
+                id: 301176513,
+                oneway: false,
+                doc: "Set the master gain and mute flag, applied after mixing.",
+                params: &[Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }],
+                returns: &[],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "StreamStatus",
+                doc: "What one open stream is doing.",
+                fields: &[Field { name: "stream", ty: Ty::U32 }, Field { name: "owner", ty: Ty::U64 }, Field { name: "state", ty: Ty::U32 }, Field { name: "rate", ty: Ty::U32 }, Field { name: "channels", ty: Ty::U32 }, Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }, Field { name: "frames", ty: Ty::U64 }, Field { name: "underruns", ty: Ty::U32 }],
+            },
+            Struct {
+                name: "Master",
+                doc: "The owner's task id (the kernel-stamped sender of `OpenStream`).\nA `StreamState` ordinal.\nFrames played so far (the owner's `Position`).\nTimes the stream ran dry while playing.\nThe output side of the mixer.",
+                fields: &[Field { name: "gain_q16", ty: Ty::U32 }, Field { name: "mute", ty: Ty::Bool }, Field { name: "card", ty: Ty::Bool }, Field { name: "rate", ty: Ty::U32 }, Field { name: "channels", ty: Ty::U32 }, Field { name: "streams", ty: Ty::U32 }, Field { name: "max_streams", ty: Ty::U32 }],
+            },
+        ],
+        enums: &[
+            Enum { name: "StreamState", variants: &["Idle", "Running", "Stopped", "Draining", "Drained"] },
+        ],
+        topics: &[],
     },
     Interface {
         name: "os.lazy.clipboard.v1",

@@ -726,6 +726,10 @@ pub mod os_lazy_audio_v1 {
     pub const METHOD_POSITION: u32 = 1652503594;
     /// `CloseStream` method id.
     pub const METHOD_CLOSESTREAM: u32 = 973774059;
+    /// `SetVolume` method id.
+    pub const METHOD_SETVOLUME: u32 = 1919741053;
+    /// `SetMute` method id.
+    pub const METHOD_SETMUTE: u32 = 1285443642;
 
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
@@ -1106,6 +1110,73 @@ pub mod os_lazy_audio_v1 {
         Ok(out)
     }
 
+    /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
+    /// silent, at most 262144, four times unity); larger values fail with
+    /// `EINVAL`. Samples are scaled as they are copied out of the ring and
+    /// saturate instead of wrapping. A driver that cannot scale the granted
+    /// format fails with `ENOTSUP`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetVolumeArgs {
+        pub stream: u32,
+        pub gain_q16: u32,
+    }
+
+    pub fn encode_set_volume_args(value: &SetVolumeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u32(2, value.gain_q16)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_volume_args(body: &[u8]) -> Result<SetVolumeArgs, Error> {
+        let mut out = SetVolumeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.gain_q16 = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Silence the stream (`mute`) or restore its volume, without losing it.
+    /// A muted stream keeps consuming and its position keeps moving.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetMuteArgs {
+        pub stream: u32,
+        pub mute: bool,
+    }
+
+    pub fn encode_set_mute_args(value: &SetMuteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.bool(2, value.mute)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_mute_args(body: &[u8]) -> Result<SetMuteArgs, Error> {
+        let mut out = SetMuteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.mute = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// An `EventKind` ordinal.
     /// Xruns and drain completion, for clients that would rather not poll
     /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
@@ -1152,6 +1223,289 @@ pub mod os_lazy_audio_v1 {
         let filter = topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)
+    }
+}
+
+/// `os.lazy.audio.mixer.v1` (interface id `0x39a0c9a99b23a265`).
+#[rustfmt::skip]
+pub mod os_lazy_audio_mixer_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x39a0c9a99b23a265;
+
+    /// `StreamState::Idle` wire value.
+    pub const STREAM_STATE_IDLE: u32 = 0;
+    /// `StreamState::Running` wire value.
+    pub const STREAM_STATE_RUNNING: u32 = 1;
+    /// `StreamState::Stopped` wire value.
+    pub const STREAM_STATE_STOPPED: u32 = 2;
+    /// `StreamState::Draining` wire value.
+    pub const STREAM_STATE_DRAINING: u32 = 3;
+    /// `StreamState::Drained` wire value.
+    pub const STREAM_STATE_DRAINED: u32 = 4;
+
+    /// What one open stream is doing.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StreamStatus {
+        pub stream: u32,
+        pub owner: u64,
+        pub state: u32,
+        pub rate: u32,
+        pub channels: u32,
+        pub gain_q16: u32,
+        pub mute: bool,
+        pub frames: u64,
+        pub underruns: u32,
+    }
+
+    pub fn encode_stream_status(value: &StreamStatus) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u64(2, value.owner)?;
+        target.u32(3, value.state)?;
+        target.u32(4, value.rate)?;
+        target.u32(5, value.channels)?;
+        target.u32(6, value.gain_q16)?;
+        target.bool(7, value.mute)?;
+        target.u64(8, value.frames)?;
+        target.u32(9, value.underruns)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stream_status(body: &[u8]) -> Result<StreamStatus, Error> {
+        let mut out = StreamStatus::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.owner = field.as_u64()?;
+                }
+                3 => {
+                    out.state = field.as_u32()?;
+                }
+                4 => {
+                    out.rate = field.as_u32()?;
+                }
+                5 => {
+                    out.channels = field.as_u32()?;
+                }
+                6 => {
+                    out.gain_q16 = field.as_u32()?;
+                }
+                7 => {
+                    out.mute = field.as_bool()?;
+                }
+                8 => {
+                    out.frames = field.as_u64()?;
+                }
+                9 => {
+                    out.underruns = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The owner's task id (the kernel-stamped sender of `OpenStream`).
+    /// A `StreamState` ordinal.
+    /// Frames played so far (the owner's `Position`).
+    /// Times the stream ran dry while playing.
+    /// The output side of the mixer.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Master {
+        pub gain_q16: u32,
+        pub mute: bool,
+        pub card: bool,
+        pub rate: u32,
+        pub channels: u32,
+        pub streams: u32,
+        pub max_streams: u32,
+    }
+
+    pub fn encode_master(value: &Master) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.gain_q16)?;
+        target.bool(2, value.mute)?;
+        target.bool(3, value.card)?;
+        target.u32(4, value.rate)?;
+        target.u32(5, value.channels)?;
+        target.u32(6, value.streams)?;
+        target.u32(7, value.max_streams)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_master(body: &[u8]) -> Result<Master, Error> {
+        let mut out = Master::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.gain_q16 = field.as_u32()?;
+                }
+                2 => {
+                    out.mute = field.as_bool()?;
+                }
+                3 => {
+                    out.card = field.as_bool()?;
+                }
+                4 => {
+                    out.rate = field.as_u32()?;
+                }
+                5 => {
+                    out.channels = field.as_u32()?;
+                }
+                6 => {
+                    out.streams = field.as_u32()?;
+                }
+                7 => {
+                    out.max_streams = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `ListStreams` method id.
+    pub const METHOD_LISTSTREAMS: u32 = 711680798;
+    /// `SetStreamVolume` method id.
+    pub const METHOD_SETSTREAMVOLUME: u32 = 953940373;
+    /// `GetMaster` method id.
+    pub const METHOD_GETMASTER: u32 = 1362695053;
+    /// `SetMaster` method id.
+    pub const METHOD_SETMASTER: u32 = 301176513;
+
+    /// Every open stream, in opening order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListStreamsReply {
+        pub streams: alloc::vec::Vec<StreamStatus>,
+    }
+
+    pub fn encode_list_streams_reply(value: &ListStreamsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.streams {
+            nested.raw(Kind::Struct, 1, &encode_stream_status(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_streams_reply(body: &[u8]) -> Result<ListStreamsReply, Error> {
+        let mut out = ListStreamsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.streams.push(decode_stream_status(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Set one stream's gain and mute flag, whoever owns it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetStreamVolumeArgs {
+        pub stream: u32,
+        pub gain_q16: u32,
+        pub mute: bool,
+    }
+
+    pub fn encode_set_stream_volume_args(value: &SetStreamVolumeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.stream)?;
+        target.u32(2, value.gain_q16)?;
+        target.bool(3, value.mute)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_stream_volume_args(body: &[u8]) -> Result<SetStreamVolumeArgs, Error> {
+        let mut out = SetStreamVolumeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.gain_q16 = field.as_u32()?;
+                }
+                3 => {
+                    out.mute = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The master gain, the mute flag and what the card runs at.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetMasterReply {
+        pub master: Master,
+    }
+
+    pub fn encode_get_master_reply(value: &GetMasterReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_master(&value.master)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_master_reply(body: &[u8]) -> Result<GetMasterReply, Error> {
+        let mut out = GetMasterReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.master = decode_master(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Set the master gain and mute flag, applied after mixing.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetMasterArgs {
+        pub gain_q16: u32,
+        pub mute: bool,
+    }
+
+    pub fn encode_set_master_args(value: &SetMasterArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.gain_q16)?;
+        target.bool(2, value.mute)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_master_args(body: &[u8]) -> Result<SetMasterArgs, Error> {
+        let mut out = SetMasterArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.gain_q16 = field.as_u32()?;
+                }
+                2 => {
+                    out.mute = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
     }
 }
 

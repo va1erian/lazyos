@@ -31,7 +31,7 @@ used only where the line is a stable anchor.
 | Filesystem (VFS/ramfs/FAT/ext2) | [filesystem.md](architecture/filesystem.md) | `kernel/src/fs/{mod,vfs,ramfs,fat,ext2}.rs` | #98, #99, S3 |
 | Block devices (ATA/virtio) | [block-devices.md](architecture/block-devices.md) | `kernel/src/block/{mod,ata,virtio}.rs` | #100, S3 |
 | Device core (enumeration/resources/drivers) | [devices.md](architecture/devices.md) | `kernel/src/dev/{mod,pci,bus,table,driver,resources}.rs` | #239, D1 |
-| Audio (virtio-sound driver, `os.lazy.audio.v1`) | [audio.md](architecture/audio.md) | `libs/{virtio,virtio-snd,pcm}`, `user/src/bin/{sndd,beep}*`, `idl/audio.midl`, `tools/sound/` | D5/D6 |
+| Audio (virtio-sound driver, `audiod` mixer, `os.lazy.audio.v1`) | [audio.md](architecture/audio.md) | `libs/{virtio,virtio-snd,pcm,audiomix,audioclient}`, `user/src/bin/{sndd,audiod,beep,mixer}*`, `idl/audio*.midl`, `tools/sound/` | D5/D6, [audio-plan](audio-plan.md) |
 | Networking (NIC interface, frame ring, virtio-net; driver and `netd` as they land) | [networking.md](architecture/networking.md) | `libs/{framering,virtio-net,fuzzkit}`, `idl/net.midl`, `fuzz/`, `tools/net/` | N0-N2, D5 |
 | Display, input & mux | [display.md](architecture/display.md) | `kernel/src/{display,mux,console,gfx,surface,text,cursor}.rs`, `user/src/bin/{xuid,xdemo,dragdemo,shellprobe}.rs`, `xui-app/` | #113, #114, #143, #145, #167, #168, S4/S5 |
 | Userland runtime, shared libs & services | [userland.md](architecture/userland.md) | `user/src/*`, `libs/*`, `user/src/bin/*` | #69, #90-#93, #101-#116, S1-S3 |

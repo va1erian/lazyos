@@ -54,6 +54,9 @@ pub const FLAKY_ELF: &str = "FLAKY.ELF";
 /// `sndd`, the virtio-sound driver. Written by the image build. Target (F3): "/system/bin/sndd".
 pub const SNDD_ELF: &str = "SNDD.ELF";
 
+/// `audiod`, the system mixer. Written by the image build. Target (F3): "/system/bin/audiod".
+pub const AUDIOD_ELF: &str = "AUDIOD.ELF";
+
 /// `netdrv`, the NIC driver. Written by the image build. Target (F3): "/system/bin/netdrv".
 pub const NETDRV_ELF: &str = "NETDRV.ELF";
 
@@ -152,6 +155,9 @@ pub const BEEP_ELF: &str = "BEEP.ELF";
 
 /// `modplay`, the tracker-module player. Written by the image build. Target (F3): "/system/bin/modplay".
 pub const MODPLAY_ELF: &str = "MODPLAY.ELF";
+
+/// `mixer`, the volume control command. Written by the image build. Target (F3): "/system/bin/mixer".
+pub const MIXER_ELF: &str = "MIXER.ELF";
 
 /// `pkgctl`, the package manager command line. Written by the image build. Target (F3): "/system/bin/pkgctl".
 pub const PKGCTL_ELF: &str = "PKGCTL.ELF";
