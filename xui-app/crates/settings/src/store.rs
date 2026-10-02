@@ -15,6 +15,9 @@ pub struct AppChoice {
     pub id: String,
     /// The display name.
     pub name: String,
+    /// A desktop app (installed, or a built-in with a menu category), as
+    /// opposed to a console program the start menu never lists.
+    pub desktop: bool,
 }
 
 /// Typed key/value access. `&self` methods: the LazyOS implementation talks to

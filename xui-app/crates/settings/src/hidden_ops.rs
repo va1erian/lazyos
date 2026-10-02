@@ -46,8 +46,9 @@ pub struct HiddenList {
     pub rows: Vec<HiddenRow>,
 }
 
-/// Read both layers for every registry app with a well-formed id, in
-/// registry order. Fails when the store cannot say who the user is: the
+/// Read both layers for every desktop app with a well-formed id, in registry
+/// order (console programs never appear in the start menu, so there is
+/// nothing to hide). Fails when the store cannot say who the user is: the
 /// user's keys cannot be named then.
 pub fn load(store: &dyn ConfigStore) -> Result<HiddenList, StoreError> {
     let uid = store
@@ -56,6 +57,7 @@ pub fn load(store: &dyn ConfigStore) -> Result<HiddenList, StoreError> {
     let rows = store
         .apps()
         .into_iter()
+        .filter(|app| app.desktop)
         .filter_map(|app| {
             let user_key = hidden::user_key(uid, &app.id)?;
             let sys_key = hidden::sys_key(&app.id)?;
@@ -128,6 +130,7 @@ mod tests {
             .map(|id| AppChoice {
                 id: (*id).into(),
                 name: id.rsplit('.').next().unwrap().to_uppercase(),
+                desktop: *id != "top",
             })
             .collect();
         store
@@ -146,7 +149,13 @@ mod tests {
 
     #[test]
     fn load_reads_both_layers_and_skips_malformed_ids() {
-        let store = store_with(&["os.lazy.paint", "os.lazy.files", "Bad Id", "terminal"]);
+        let store = store_with(&[
+            "os.lazy.paint",
+            "os.lazy.files",
+            "Bad Id",
+            "top",
+            "terminal",
+        ]);
         store
             .set("sys/menu/hidden/os.lazy.paint", Value::Bool(true))
             .unwrap();

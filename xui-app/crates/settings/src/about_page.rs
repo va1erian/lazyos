@@ -31,9 +31,7 @@ pub fn uptime_text(secs: u64) -> String {
 /// The persistence line for `status`.
 pub fn persistence_text(status: Option<&StoreStatus>) -> String {
     match status {
-        Some(status) if status.persistent => {
-            String::from("Settings survive a reboot (/conf).")
-        }
+        Some(status) if status.persistent => String::from("Settings survive a reboot (/conf)."),
         Some(_) => String::from("Settings are lost at reboot: /conf is not writable."),
         None => String::from("The configuration service is not running."),
     }

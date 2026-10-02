@@ -143,6 +143,7 @@ mod tests {
         AppChoice {
             id: id.into(),
             name: id.to_uppercase(),
+            desktop: true,
         }
     }
 

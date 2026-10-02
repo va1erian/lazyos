@@ -161,6 +161,7 @@ impl ConfigStore for ConfdStore {
                 list.apps
                     .into_iter()
                     .map(|app| AppChoice {
+                        desktop: app.installed || !app.category.is_empty(),
                         id: app.id,
                         name: app.name,
                     })
