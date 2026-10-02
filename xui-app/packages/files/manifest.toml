@@ -33,5 +33,10 @@ type = "application/octet-stream"
 verbs = ["reveal"]
 
 [permissions]
-# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+# Derived from runs of the app under its label (`LAZYOS_LABEL_TRACE=1`, which
+# prints every refused call); see docs/packages.md, core packages.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.mimed.v1",
+]
