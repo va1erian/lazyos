@@ -10,6 +10,8 @@ use alloc::boxed::Box;
 
 /// Sectors of the scratch disk the runner attaches (16 MiB).
 const SCRATCH_SECTORS: u64 = 32 * 1024;
+/// Files the cached-volume test writes (about 3 MB).
+const FILES: u32 = 24;
 /// Where this suite's half of the scratch disk starts.
 const HALF: u64 = 16 * 1024 + 64;
 
@@ -120,24 +122,26 @@ pub fn cached_volume() -> Result<(), String> {
     let mut vfs = Vfs::new();
     vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
         .map_err(fs_error)?;
-    let files: Vec<(String, Vec<u8>)> = (0..24u32)
-        .map(|n| {
-            (
-                format!("/pkg/f{n}"),
-                pattern_bytes(n, 2_000 + n as usize * 11_000),
-            )
-        })
-        .collect();
+    // Generated on demand: the full suite runs this with a fragmented heap,
+    // which cannot hold the whole tree at once.
+    let file = |n: u32| {
+        (
+            format!("/pkg/f{n}"),
+            pattern_bytes(n, 2_000 + n as usize * 11_000),
+        )
+    };
     vfs.mkdir(Id::ROOT, "/pkg", 0o755).map_err(fs_error)?;
-    for (path, data) in &files {
-        write_file(&mut vfs, path, data)?;
+    let mut bytes = 0;
+    for n in 0..FILES {
+        let (path, data) = file(n);
+        write_file(&mut vfs, &path, &data)?;
+        bytes += data.len();
     }
     vfs.sync_all().map_err(fs_error)?;
     let after = disk
         .stats()
         .map(|stats| stats.snapshot())
         .unwrap_or_default();
-    let bytes: usize = files.iter().map(|(_, data)| data.len()).sum();
     let blocks = bytes.div_ceil(4096) as u64;
     let writes = after.writes - before.writes;
     serial_println!(
@@ -153,9 +157,10 @@ pub fn cached_volume() -> Result<(), String> {
     let mut vfs = Vfs::new();
     vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
         .map_err(fs_error)?;
-    for (path, data) in &files {
+    for n in 0..FILES {
+        let (path, data) = file(n);
         check!(
-            read_file(&mut vfs, path)? == *data,
+            read_file(&mut vfs, &path)? == data,
             "{path} after a remount"
         );
     }
