@@ -35,9 +35,11 @@ LazyOS already has the hard parts, which is the reason the plan is short:
 
 What is **missing** and is the real work:
 
-- **No dynamic app registry.** `init`'s registry is a compile-time table
-  (`user/src/bin/init/apps.rs` `APPS`); `/system/etc/xapps.lst` only decides which of those
-  rows the image ships. A user-produced app has nowhere to register (P2).
+- **App registry (done in F5).** `init`'s compile-time table
+  (`user/src/bin/init/apps.rs` `APPS`) now holds only the built-ins; every
+  desktop app, LazyRAD-made ones included, is a package `pkgd` installed and
+  `init` reads from confd's `sys/apps/*` (issue #509), so a user-produced app
+  registers by being installed (P2).
 - **No per-app sandbox profile for user apps** beyond what the security model
   describes (manifest -> profile compiled by `messengerd`/`init`, not built yet).
 - **Version skew.** LazyRAD pins xui `1487ae1`; `xui-app` pins `58c1a6e`. Rhai
@@ -151,8 +153,9 @@ dev-install fallback.
    (dev-dependency on `libs/lazypkg`, which is `no_std` + `alloc` and usable on
    host), plus a cross-check that `tools/pkg/build.py` accepts the same tree.
 2. **Permissions.** The manifest's `[permissions]` is derived from what the
-   project uses: `files = ["read:/home/*/.apps/<id>", "write:/home/*/.apps/<id>"]`
-   (private storage, D5; F5 turns them into `$HOME/.apps/<id>`), `interfaces = ["os.lazy.clipboard.v1"]` only if the stdlib
+   project uses: `files = ["read:$HOME/.apps/<id>", "write:$HOME/.apps/<id>"]`
+   (private storage, D5; since F5 an absolute `/home/...` rule is refused, see
+   va1erian/lazyrad#87), `interfaces = ["os.lazy.clipboard.v1"]` only if the stdlib
    `clipboard` module is used, `network = []`. The player enforces the `files`
    list itself (fs sandbox from P0) until `messengerd` compiles profiles.
 3. **Install.** `trait Installer { fn install(&self, lzp: &[u8]) -> Result<InstalledApp, _> }`:

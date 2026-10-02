@@ -1,5 +1,7 @@
 # Track B: system side of the Editor / Paint / Files migration
 
+> **History.** This describes the layout before filesystem F5 (issue #509): the 8.3 `X*.ELF` names and the app list `init` read are gone, and the desktop apps are core packages (`docs/packages.md`, core packages).
+
 Branch `xui-apps-system`. Everything outside `xui-app/` that
 `docs/xui-apps-migration.md` needs. Track A owns `xui-app/**`.
 

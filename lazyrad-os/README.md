@@ -26,7 +26,7 @@ passes to every session app; filesystem plan F4). Nothing is written under
 | IDE settings | `$HOME/.apps/lazyrad/config/` |
 | projects (the file dialog's first stop) | `$HOME/projects/`, created by the IDE |
 | data of a project run from the IDE or a shell | `$HOME/.apps/lazyrad/data/` |
-| data of an installed app | `$HOME/.apps/<system_name>/` (manifest `read:`/`write:/home/*/.apps/<system_name>`) |
+| data of an installed app | `$HOME/.apps/<system_name>/` (manifest `read:`/`write:$HOME/.apps/<system_name>`) |
 | packages staged for `pkgd` | `/transient/lazyrad-<system_name>-<version>.lzp`, deleted afterwards |
 
 Without `$HOME` (a program started outside a session) the home is

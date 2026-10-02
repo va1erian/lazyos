@@ -24,7 +24,7 @@ pub struct MimeHandler {
 pub struct Permission {
     /// `interface`, `topic`, `file` or `network`.
     pub kind: String,
-    /// The concrete value (`os.lazy.clipboard.v1`, `read:/home/*`, ...).
+    /// The concrete value (`os.lazy.clipboard.v1`, `read:$HOME/*`, ...).
     pub value: String,
     /// `high`, `medium`, `low`, or anything else (treated as "other").
     pub risk: String,

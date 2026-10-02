@@ -148,11 +148,14 @@ show them all at once.
   starts with `$HOME/`, the home directory of the user running the app.
   `$HOME` may only be the **first** segment: `read:$HOME/Documents/*` is fine,
   `read:/x/$HOME/y`, `read:$HOME/$HOME/y` and a bare `read:$HOME` are errors.
-  An app's own per-user folder is `$HOME/.apps/<system_name>/`. Absolute paths
-  under a home directory (`/home/...`) are still accepted;
-  the F5 cleanup turns them into errors pointing at `$HOME` (one switch,
-  `REJECT_ABSOLUTE_HOME`, in `libs/lazypkg/src/files.rs` and
-  `tools/pkg/pkgmanifest.py`).
+  An app's own per-user folder is `$HOME/.apps/<system_name>/`. A rule
+  naming a directory covers everything inside it, so
+  `write:$HOME/.apps/<system_name>` grants the whole folder without a
+  wildcard (there is no `**`). An absolute path under a home directory
+  (`/home/...`, or the legacy `/data/home/...`) is an error pointing at
+  `$HOME` (`REJECT_ABSOLUTE_HOME`, on in both `libs/lazypkg/src/files.rs` and
+  `tools/pkg/pkgmanifest.py` since F5; LazyRAD's packager writes
+  `$HOME/.apps/<id>`).
 * **`network`** — empty or exactly `["outbound"]`.
 * **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
   program from a static musl one (both are static x86_64 executables), so the
@@ -469,8 +472,17 @@ label `app:<system_name>`, with the manifest's `entry.args`, in the Linux
 personality when `entry.abi = "linux"`, as the launching session's user with no
 capabilities. A restarted app is stamped again, so a crash does not launder the
 sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
-read back from the kernel. The desktop right-click menu appends the installed
-apps after its configured entries, re-read each time it opens.
+read back from the kernel.
+
+LazyShell's start menu is re-read each time it opens: the configured
+`sys/ui/menu` entries keep their order and positions at the bottom, and the
+installed apps no entry pins sit above them, grouped under one header per
+`category` (at most 16 apps per category; the section scrolls with the wheel
+when it does not fit). Apps `ListApps` marks `hidden` leave the menu and the
+desktop launchers, nothing else. Each installed app's `AppInfo.icon` is its
+`icons/app-32.png` in the install directory, which the desktop launchers draw
+(read with a size cap and a PNG header check; a missing one falls back to the
+built-in picture).
 
 `ListApps` lists the core apps first, then the others by `system_name`, each
 with its `origin` (`core`, `user`, or `system` for a built-in program),
@@ -563,8 +575,9 @@ and stays core.
 (`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the two
 interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
 `python tools/pkg/build_samples.py` (run by `tools/xui/build.py`) builds it into
-`target/pkg/PKGDEMO.LZP`, which the root `build.rs` embeds as
-`/system/share/samples/pkgdemo.lzp`.
+`target/pkg/pkgdemo.lzp`, which the root `build.rs` embeds as
+`/system/share/samples/pkgdemo.lzp`. It is a user package, not a core one, so it
+can be installed next to the core Counter (`os.lazy.counter`) and removed.
 `tools/pkg/make_icons.py` generates its icons. The visual check is
 `tools/screenshot/examples/pkg_install.json`.
 
@@ -583,16 +596,22 @@ interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
 
 The GUI installer (`xui-installer`, `xui-app/src/bin/installer.rs`) is an
 unprivileged `pkgd` client. It opens on the installed list: one row per app
-(name, version, system name) with a `Remove` button, an "open a package" text
-field and an `Inspect` button (there is no file picker in v1). Opening a `.lzp`
-from Files or the desktop passes its path as the app's argument, so the consent
-screen appears immediately.
+(name, version, system name) with a `Remove` button, the apps the user
+installed first; a core app (`Installed.origin = core`) shows a "Built-in"
+badge instead, and the model refuses a removal request for it whatever sent it
+(`INSTALLER:REMOVE:REFUSED <system_name>`, with `pkgd`'s wording). Below the
+list are an "open a package" text field and an `Inspect` button (there is no
+file picker in v1). Opening a `.lzp` from Files or the desktop passes its path
+as the app's argument: the Installer lists, then shows the consent screen.
 
 The consent screen is the whole point: it shows the package's name, version and
 `Author (unverified)`, its description, the MIME types it handles, and its
 requested permissions **grouped by risk (high first)** with the friendly
 explanation `pkgd` supplied. The install directory and the short archive digest
-are shown too, so the same archive can be recognised later. `Install` forwards
+are shown too, so the same archive can be recognised later. A package that
+replaces a core app says "Updates built-in app <name>" (a lower version than
+the shipped one is refused by `pkgd`, whose error the screen shows), and one
+whose manifest sets `autostart` says "Starts when you log in". `Install` forwards
 the user's yes to `pkgd`; `Cancel` (or `Esc`) returns to the list. When
 `PackageInfo.problems` is non-empty the package cannot be installed, so the
 screen lists every problem and offers only `Close`.
@@ -614,6 +633,7 @@ INSTALLER:INSPECT:PASS <system_name>     INSTALLER:INSPECT:FAIL <reason>
 INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
 INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
+INSTALLER:REMOVE:REFUSED <system_name>   (a core app; nothing is sent to pkgd)
 ```
 
 `tools/screenshot/examples/xui_installer.json` waits for `INSTALLER:UP:PASS`,

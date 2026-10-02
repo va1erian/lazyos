@@ -95,10 +95,16 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   Several apps can share one `xuid` session (issues #215/#216): `sysmon`,
   `fabricmon` and `counter` call `LazyOSBackend::connect` (`xui-app/src/launch.rs`),
   which is client mode with `--client` and otherwise tries the grant and falls
-  back to client mode when `xuid` holds it. `LAZYOS_XUI_APPS` embeds a list of
-  apps (`/system/bin/{terminal,sysmon,fabricmon,counter,editor,files,paint}` + `/system/etc/xapps.lst`) and `init`'s app
-  registry launches the `autostart` ones with `argv` `[PATH, --client, ...]`
-  under the Linux personality (`spawnv`, `kernel/src/process/spawnv.rs`). The whole recipe is the single
+  back to client mode when `xuid` holds it. Since F5 (issue #509) the desktop
+  apps are core packages (`xui-app/packages/<short>/`, built into
+  `/system/packages/os.lazy.<short>.lzp`), which `pkgd` installs into `/apps`
+  at boot; `init` lists them in `ListApps` (origin, category, hidden for the
+  caller, icon) and launches them from there, `autostart` ones at login, with
+  the manifest's `argv` (`[PATH, --client, ...]`) under the Linux personality
+  (`spawnv`, `kernel/src/process/spawnv.rs`) and their `app:<system_name>`
+  label. The Terminal, Devices, the Installer and LazyShell stay unlabelled
+  programs in `/system/bin`. `LAZYOS_XUI_APPS` narrows which apps are built in.
+  The whole recipe is the single
   `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
   programs. The **Terminal** (`xui-term`) is a client
   that spawns BusyBox `sh` as a real child over a pipe pair and parses its

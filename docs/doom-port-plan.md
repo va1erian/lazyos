@@ -22,7 +22,7 @@ persistence beyond what `/data` gives for free, fullscreen scanout.
 | Language split | C engine compiled to a static lib, linked into a **small Rust binary** that implements the `DG_*` hooks | The display client (`LazyOSBackend`, raw syscall-5 shim, MIDL stubs from `messenger-generated`) is Rust. Hand-porting it to C would violate the "every Messenger interface goes through `midlc`" rule and duplicate the protocol. The Rust `main` owns the loop and calls `doomgeneric_Create`/`doomgeneric_Tick`. |
 | Toolchain | `cc` crate driving **Alpine/`musl-gcc`** (Docker on Windows, as `tools/abi/busybox.py` does), falling back to `zig cc -target x86_64-linux-musl` | musl-native C toolchain is already an accepted host requirement for BusyBox. `zig cc` is the only Windows-native option with no Docker and no linker fiddling. |
 | Where | New crate `doom/` beside `xui-app/` (not in the OS workspace), built by `tools/doom/build.py` -> `target/doom/lazydoom.elf` | Mirrors `tools/xui/build.py`; keeps the C build out of the `no_std` workspace. |
-| Packaging | ELF embedded as `XDOOM.ELF` via the existing `LAZYOS_XUI_APPS` list; WAD fetched, hash-checked, and placed on the image (see phase 4) | Reuses `embed_xui_apps` and `init`'s app registry. |
+| Packaging | a package (`.lzp`, `docs/packages.md`) holding the ELF; WAD fetched, hash-checked, and placed on the image (see phase 4) | `pkgd` installs it into `/apps` and `init` launches it like any installed app (F5, #509). |
 
 ## Architecture
 
@@ -155,9 +155,10 @@ not with a Doom-side workaround.
      gives writable saves; needs the data disk attached in the demo/CI runs.
   Recommendation: (1) behind `LAZYOS_DOOM=1` for the first landing, (2) once a
   demo data disk is standard.
-- Register `XDOOM.ELF` in the app registry (`XAPPS.LST` / `init`), *not*
-  autostarted; appears in the start menu. Command line:
-  `linux:/XDOOM.ELF -iwad /FREEDOOM1.WAD -savedir /tmp/doom --client`.
+- Ship it as a package (`[entry] binary = "bin/doom.elf"`, `abi = "linux"`,
+  `args` naming the WAD and `--client`; saves in the user's
+  `$HOME/.apps/<system_name>`), *not* autostarted: `pkgd` installs it and
+  `init` lists it in the start menu (F5, #509).
 - Fail soft: if the WAD is missing, show a message in-window (or exit with a
   clear serial line) instead of aborting.
 - `LAZYOS_DESKTOP=1` build recipe stays unchanged unless `LAZYOS_DOOM=1`.

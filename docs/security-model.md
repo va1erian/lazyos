@@ -225,7 +225,7 @@ id = "com.example.editor"
 version = "1.2.0"
 publisher = "Example Inc"
 [permissions]
-files = ["read:/home/*/docs", "write:~/.config/editor"]
+files = ["read:$HOME/docs", "write:$HOME/.config/editor"]
 interfaces = ["os.lazy.fs.reader.v1:call", "os.lazy.clipboard.v1:read"]
 topics = ["publish:session/*/editor", "subscribe:system/events/*"]
 network = []

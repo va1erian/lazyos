@@ -7,7 +7,7 @@ an in-memory ramfs mounted at `/tmp`.
 **Paths.** Every well-known path (`/tmp`, `/data`, the confd store, installed
 apps, home directories, `/docs`) and every file the image build places
 (`fhs::bin::INIT` = `/system/bin/init`, `fhs::etc::PASSWD`,
-`fhs::system::XAPPS_LST`, ...) is a constant in `libs/fhs`, with its target value
+`fhs::system::PACKAGES_INDEX`, ...) is a constant in `libs/fhs`, with its target value
 from [`filesystem-plan.md`](../filesystem-plan.md) in the doc comment, so the
 filesystem overhaul changes a constant instead of chasing literals. Never write
 one as a string literal: `python tools/fhs/check_literals.py` (run by CI, tested
@@ -389,7 +389,8 @@ the owners follow. F4 stopped seeding `/data/home/<user>` and `/data/tmp`: an
 update removes them only when empty, so a user's files there survive until F7
 (`build_support/tests/f4_layout_tests.rs`). Since F3
 every file sits below one of these directories: programs in `/system/bin`
-(`fhs::bin`), `passwd` and `xapps.lst` in `/system/etc`, `mime.types`, the
+(`fhs::bin`), the core packages in `/system/packages` (F5: the desktop apps,
+which `pkgd` installs into `/apps`), `passwd` in `/system/etc`, `mime.types`, the
 samples (`/system/share/samples`) and the lazyrad projects
 (`/system/share/lazyrad`) in `/system/share`, the documentation in
 `/docs/os`. The root holds directories only; an update of an F2 image deletes

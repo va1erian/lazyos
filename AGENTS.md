@@ -141,6 +141,25 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl   
 
 `python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
 
+## Packages and the label-policy trace
+
+Every desktop app except the Terminal, Devices, the Installer and LazyShell is
+a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+`pkgd` installs it into `/apps` at boot and the kernel confines it to the
+permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
+debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
+`lazyos_label_trace`; off by default, and nothing else changes) prints one
+`LABEL:DENY label=<label> iface=<id> method=<id>` (or `resolve=<name>`,
+`topic=<name>`) serial line per refused call. Use it to derive a package's
+permissions from a run instead of by hand:
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_LABEL_TRACE=1 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/core_apps --script tools/screenshot/examples/core_apps.json
+grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
+```
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a
