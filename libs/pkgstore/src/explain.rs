@@ -82,7 +82,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.lifecycle.v1",
         HIGH,
-        "Tell system services to save their state and stop",
+        "Ask system services to save their state and stop, which they only obey from the system supervisor",
     ),
     (
         "os.lazy.logd.v1",
@@ -133,7 +133,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.shell.v1",
         MEDIUM,
-        "See your open windows and open apps or switch windows as you would",
+        "See your open windows, switch between them, open the start menu, launch apps and refresh the menu and desktop icons",
     ),
     ("os.lazy.sysmond.v1", LOW, "Read CPU and memory statistics"),
     ("os.lazy.timed.v1", LOW, "Read the time and the time zone"),
