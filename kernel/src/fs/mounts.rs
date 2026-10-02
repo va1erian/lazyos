@@ -142,6 +142,7 @@ fn configured(
         );
         return None;
     };
+    serial_println!("fs: root {} is {}", fmt_uuid(&uuid), root_device.name());
     reclaim_orphans(&root, fhs::mount::ROOT);
     let mut root_flags = cfg.root_flags;
     if !root_device.is_writable() {

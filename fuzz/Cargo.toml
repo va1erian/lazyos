@@ -24,6 +24,7 @@ modplay = { path = "../libs/modplay", features = ["fuzz"] }
 netstack = { path = "../libs/netstack", features = ["fuzz"] }
 inputmap = { path = "../libs/inputmap", features = ["fuzz"] }
 usbhid = { path = "../libs/usbhid", features = ["fuzz"] }
+ext2fs = { path = "../libs/ext2fs", features = ["fuzz"] }
 
 [workspace]
 
@@ -100,6 +101,13 @@ bench = false
 [[bin]]
 name = "hidreportdesc"
 path = "fuzz_targets/hidreportdesc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ext2fs"
+path = "fuzz_targets/ext2fs.rs"
 test = false
 doc = false
 bench = false

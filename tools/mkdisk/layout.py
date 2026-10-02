@@ -14,7 +14,7 @@ from .accounts import Account, demo_accounts
 
 MODE_MAX = 0o7777
 # The driver keeps only the low 16 bits of i_uid/i_gid (`check_owner` in
-# kernel/src/fs/ext2/layout.rs refuses more), so the formatter must too.
+# libs/ext2fs/src/layout.rs refuses more), so the formatter must too.
 ID_MAX = 0xFFFF
 NAME_MAX = 255
 STICKY_WORLD_WRITABLE = 0o1777
@@ -115,6 +115,22 @@ def seeded(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     users = demo_accounts() if accounts is None else accounts
     dirs = [DirSpec(HOMES), *home_dirs(users), DirSpec("/tmp", STICKY_WORLD_WRITABLE)]
     return Layout(root_mode, root_uid, root_gid, tuple(dirs))
+
+
+def home_volume(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
+                accounts: list[Account] | None = None) -> Layout:
+    """The home volume: ``<user>/`` at the volume root, no ``/home`` and no ``/tmp``.
+
+    The volume is mounted at ``/home``, so the volume root *is* ``/home`` and each
+    user directory has the owner and mode of today's ``/home/<user>``. ``/tmp``
+    belongs to the OS volume (``libs/fhs``), never to a home volume.
+    """
+    users = demo_accounts() if accounts is None else accounts
+    dirs = tuple(
+        DirSpec(f"/{account.name}", 0o755, account.uid, account.gid)
+        for account in users
+        if account.home == f"{HOMES}/{account.name}")
+    return Layout(root_mode, root_uid, root_gid, dirs)
 
 
 def describe(layout: Layout) -> str:

@@ -450,7 +450,71 @@ def hidreportdesc_seeds():
     }
 
 
+# ---- ext2fs script grammar ----------------------------------------------------
+# `libs/ext2fs/src/fuzz.rs`: a head byte (bit 0 picks corruption mode, bit 1 the
+# block size: clear 1 KiB, set 4 KiB), then either four-byte operations
+# `kind a b c` (model mode) or three-byte `hi lo value` byte overwrites of the
+# image's first 48 KiB (corruption mode).
+
+MKDIR, CREATE, WRITE, TRUNCATE, UNLINK, RMDIR, RENAME, READ = range(8)
+
+
+def e2_op(kind, a=0, b=0, c=0):
+    return bytes([kind, a, b, c])
+
+
+def e2_poke(at, value):
+    return bytes([at >> 8, at & 0xFF, value])
+
+
+def ext2fs_seeds():
+    # a=1 names /d0, a=2 /d1, a=0 the root; b picks the file (b % 4) or the directory (b % 2).
+    tree = e2_op(MKDIR, 0, 0) + e2_op(MKDIR, 0, 1)
+    workout = (
+        tree
+        + e2_op(CREATE, 1, 0) + e2_op(CREATE, 1, 1) + e2_op(CREATE, 0, 2)
+        + e2_op(WRITE, 1, 0, 40) + e2_op(WRITE, 1, 1, 200) + e2_op(WRITE, 0, 2, 255)
+        + e2_op(READ, 1, 0) + e2_op(TRUNCATE, 1, 0, 3) + e2_op(WRITE, 1, 100, 80)
+        + e2_op(RENAME, 1, 1, 2) + e2_op(READ, 2, 1) + e2_op(UNLINK, 0, 2)
+        + e2_op(RMDIR, 0, 1) + e2_op(UNLINK, 2, 1) + e2_op(RMDIR, 0, 1)
+    )
+    # 1 KiB blocks: the second file crosses into the single-indirect range.
+    indirect = tree + e2_op(CREATE, 1, 0) + e2_op(WRITE, 1, 0, 250) + e2_op(WRITE, 1, 200, 250) + e2_op(READ, 1, 0)
+    churn = tree + b"".join(
+        e2_op(CREATE, 1 + i % 2, i) + e2_op(WRITE, 1 + i % 2, i, 60 + i) + e2_op(UNLINK, 1 + i % 2, i)
+        for i in range(24)
+    )
+    errors = (
+        e2_op(CREATE, 1, 0)  # no /d0 yet
+        + e2_op(UNLINK, 0, 0) + e2_op(RMDIR, 0, 0) + e2_op(READ, 0, 0) + e2_op(TRUNCATE, 0, 0, 5)
+        + tree + e2_op(MKDIR, 0, 0) + e2_op(RENAME, 1, 0, 0) + e2_op(RENAME, 1, 0, 1)
+    )
+    sb = 1024  # superblock byte offset; descriptors follow in block 2 (1 KiB blocks)
+    gdt = 2048
+    return {
+        "model_workout_1k": bytes([0]) + workout,
+        "model_workout_4k": bytes([2]) + workout,
+        "model_indirect_1k": bytes([0]) + indirect,
+        "model_indirect_4k": bytes([2]) + indirect,
+        "model_churn": bytes([0]) + churn,
+        "model_errors": bytes([0]) + errors,
+        "corrupt_magic": bytes([1]) + e2_poke(sb + 0x38, 0),
+        "corrupt_log_block_size": bytes([1]) + e2_poke(sb + 0x18, 3),
+        "corrupt_counts": bytes([1]) + e2_poke(sb + 0x07, 0x7F) + e2_poke(sb + 0x0F, 0xFF),
+        # Groups with more bits than one bitmap block holds (must be refused at mount).
+        "corrupt_blocks_per_group": bytes([1]) + e2_poke(sb + 0x21, 0xFF) + e2_poke(sb + 0x22, 0x01),
+        "corrupt_inodes_per_group": bytes([1]) + e2_poke(sb + 0x29, 0x80),
+        "corrupt_incompat": bytes([1]) + e2_poke(sb + 0x60, 0x42),
+        "corrupt_inode_table": bytes([1]) + e2_poke(gdt + 8, 0xFF) + e2_poke(gdt + 11, 0x7F),
+        "corrupt_bitmaps": bytes([1]) + e2_poke(gdt + 0, 0x01) + e2_poke(gdt + 4, 0x01),
+        "corrupt_dir_records": bytes([1]) + e2_poke(2048 + 32 * 4 + 4, 0) + e2_poke(2048 + 32 * 4 + 6, 0xC8),
+        "corrupt_none": bytes([1]),
+        "empty": b"",
+    }
+
+
 TARGETS = {
+    "ext2fs": ext2fs_seeds,
     "framering": framering_seeds,
     "framering_header": header_seeds,
     "virtio_net": virtio_net_seeds,

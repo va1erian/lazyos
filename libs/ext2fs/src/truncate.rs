@@ -18,7 +18,6 @@
 //! grow can never resurrect it.
 
 use super::*;
-use crate::fs::fallible;
 
 /// The run of logical blocks one inode slot covers.
 struct SlotSpan {
@@ -39,20 +38,20 @@ struct ShrinkPlan {
 }
 
 impl Ext2 {
-    /// [`Filesystem::truncate`]: set a regular file's size, freeing blocks on a
-    /// shrink and leaving a sparse hole on a grow.
-    pub(super) fn truncate_file(&self, path: &str, size: u64) -> Result<(), FsError> {
+    /// Set a regular file's size, freeing blocks on a shrink and leaving a
+    /// sparse hole on a grow.
+    pub fn truncate(&self, path: &str, size: u64) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
         if self.read_only {
-            return Err(FsError::ReadOnly);
+            return Err(Ext2Error::ReadOnly);
         }
         let ino = self.resolve(path)?;
         let mut inode = self.read_inode(ino)?;
         if kind_from_mode(le16(&inode, INO_MODE)) != Some(FileKind::File) {
-            return Err(FsError::IsDir);
+            return Err(Ext2Error::IsDir);
         }
         if size > MAX_FILE_SIZE {
-            return Err(FsError::NoSpace);
+            return Err(Ext2Error::NoSpace);
         }
         let old_size = self.file_size(&inode);
         if size > old_size {
@@ -60,7 +59,7 @@ impl Ext2 {
             // zeros. Shrinks zero the tail of the last block, so no stale bytes
             // lurk past the old end of file.
             self.set_file_size(&mut inode, size);
-            touch(&mut inode, now());
+            touch(&mut inode, self.now());
             return self.write_inode(ino, &inode);
         }
         if size == old_size {
@@ -68,7 +67,7 @@ impl Ext2 {
         }
         self.zero_tail(&inode, size)?;
         self.set_file_size(&mut inode, size);
-        touch(&mut inode, now());
+        touch(&mut inode, self.now());
         self.shrink_blocks(ino, &mut inode, size.div_ceil(u64::from(self.block_size)))
     }
 
@@ -87,7 +86,7 @@ impl Ext2 {
         &self,
         ino: u32,
         inode: &mut [u8; INODE_CORE_SIZE],
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         self.shrink_blocks(ino, inode, 0)
     }
 
@@ -98,7 +97,7 @@ impl Ext2 {
         ino: u32,
         inode: &mut [u8; INODE_CORE_SIZE],
         keep: u64,
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         let plan = self.plan_shrink(inode, keep);
         self.write_inode(ino, inode)?; // the commit point: detached, not yet freed
         let mut freed = 0u32;
@@ -165,7 +164,7 @@ impl Ext2 {
     /// its first `keep` data blocks, `0 < keep < capacity`. The table's own
     /// dropped pointers are zeroed on disk before the blocks they named are
     /// freed. Returns how many blocks were freed.
-    fn trim_tree(&self, block: u32, depth: usize, keep: u64) -> Result<u32, FsError> {
+    fn trim_tree(&self, block: u32, depth: usize, keep: u64) -> Result<u32, Ext2Error> {
         let mut table = self.read_table(block)?;
         let child_capacity = u64::from(self.ptrs_per_block).pow(depth as u32 - 1);
         let boundary = (keep / child_capacity) as usize; // first not wholly kept
@@ -195,7 +194,7 @@ impl Ext2 {
     /// recursion is at most [`MAX_DEPTH`] deep and each level scans one table,
     /// and a corrupt pointer ends in [`Ext2::free_block`]'s bounds and
     /// double-free checks. Returns how many blocks were freed.
-    fn free_tree(&self, block: u32, depth: usize) -> Result<u32, FsError> {
+    fn free_tree(&self, block: u32, depth: usize) -> Result<u32, Ext2Error> {
         let mut freed = 0;
         if depth > 0 {
             for child in self.read_table(block)? {
@@ -210,7 +209,7 @@ impl Ext2 {
 
     /// Zero the bytes of the block holding offset `size` from `size` to the end
     /// of that block, so a later grow reads zeros there.
-    fn zero_tail(&self, inode: &[u8; INODE_CORE_SIZE], size: u64) -> Result<(), FsError> {
+    fn zero_tail(&self, inode: &[u8; INODE_CORE_SIZE], size: u64) -> Result<(), Ext2Error> {
         let inner = (size % u64::from(self.block_size)) as usize;
         if inner == 0 {
             return Ok(()); // the cut is on a block boundary
@@ -228,8 +227,8 @@ impl Ext2 {
 
     /// Read a pointer table into host order. Heap-backed: the recursion above
     /// would otherwise stack up a 4 KiB buffer per level on a 32 KiB stack.
-    pub(super) fn read_table(&self, block: u32) -> Result<Vec<u32>, FsError> {
-        let mut raw = fallible::zeroed(u64::from(self.block_size))?;
+    pub(super) fn read_table(&self, block: u32) -> Result<Vec<u32>, Ext2Error> {
+        let mut raw = zeroed(u64::from(self.block_size))?;
         self.read_block(u64::from(block), &mut raw)?;
         Ok(raw
             .as_chunks::<4>()
@@ -240,8 +239,8 @@ impl Ext2 {
     }
 
     /// Write a pointer table back.
-    fn write_table(&self, block: u32, table: &[u32]) -> Result<(), FsError> {
-        let mut raw = fallible::zeroed(u64::from(self.block_size))?;
+    fn write_table(&self, block: u32, table: &[u32]) -> Result<(), Ext2Error> {
+        let mut raw = zeroed(u64::from(self.block_size))?;
         for (word, pointer) in raw.as_chunks_mut::<4>().0.iter_mut().zip(table) {
             *word = pointer.to_le_bytes();
         }

@@ -13,18 +13,23 @@ Examples
     python tools/run_demo.py --release       # optimized build for real hardware
     python tools/run_demo.py --no-build      # boot the existing target/lazyos.img
     python tools/run_demo.py -- --cpu max    # pass extra args to QEMU
-    python tools/run_demo.py --reset-data    # wipe the persistent data disk first
-    python tools/run_demo.py --no-data-disk  # boot with only the boot disk
+    python tools/run_demo.py --reset-home    # wipe the home volume (target/home.img) first
+    python tools/run_demo.py --reset-os      # wipe the OS volume too (asks first; LAZYOS_RESET_OS=1 build)
+    python tools/run_demo.py --no-home-disk  # boot with only the boot disk
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
 
-A persistent ext2 data disk (default ``target/data.img``, 64 MiB) is attached as
-a second virtio-blk device. It is created on first use and never regenerated
-unless you pass ``--reset-data``. A fresh volume is seeded with ``/data/home/<user>``
-for the demo accounts (owned by them) and a sticky ``/data/tmp``; everything else
-under ``/data`` is root-only, so log in as ``alice`` to write to your own home.
+The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
+updates in place (installed apps, settings and logs survive); ``--reset-os``
+recreates it from scratch. A persistent ext2 home volume (default
+``target/home.img``, label ``lazyhome``, 64 MiB) is attached as a second
+virtio-blk device and mounted at ``/home``. It is created on first use and never
+regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
+for the demo accounts (owned by them) and nothing else, so log in as ``alice``
+to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
+data volume (not mounted anywhere new); it is off by default.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
 interpreter). Press Tab to move focus (green border); typed input goes to the
@@ -40,7 +45,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import accel_args, data_disk_args, find_qemu  # noqa: E402
+from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
@@ -67,7 +72,23 @@ def confirm(question: str) -> bool:
 
 
 def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
-    """Make sure the data volume exists, resetting it only when asked to.
+    """Make sure the legacy data volume exists, resetting it only when asked to."""
+    return prepare_volume("data disk", path, reset, assume_yes, mkdisk.seeded,
+                          mkdisk.DEFAULT_LABEL)
+
+
+def prepare_home_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
+    """Make sure the home volume exists, resetting it only when asked to."""
+    return prepare_volume("home disk", path, reset, assume_yes, mkdisk.home_volume,
+                          mkdisk.HOME_LABEL)
+
+
+def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
+                   label: str) -> bool:
+    """Make sure a persistent volume exists, resetting it only when asked to.
+
+    ``plan`` is a :class:`mkdisk.Layout`, or a callable returning one (so a
+    layout that reads the accounts source fails inside the error handling).
 
     Returns ``False`` when the user declined an explicit reset or the volume
     could not be planned or written (reported on stderr, so the demo exits
@@ -75,26 +96,30 @@ def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     volume implicitly: that would destroy user data.
     """
     try:
-        return _prepare_data_disk(path, reset, assume_yes)
+        return _prepare_volume(what, path, reset, assume_yes, plan, label)
     except (OSError, ValueError) as error:
         # The plan reads the accounts source and the volume is a file on disk,
         # so either can legitimately fail (missing source, unwritable target).
-        print(f"data disk {path}: {error}", file=sys.stderr)
+        print(f"{what} {path}: {error}", file=sys.stderr)
         return False
 
 
-def _prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
-    if reset and path.exists():
-        plan = mkdisk.seeded()
+def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
+                    label: str) -> bool:
+    exists = path.exists()
+    if exists and not reset:
+        return True  # nothing to create or reset: do not even read the plan
+    layout = plan() if callable(plan) else plan  # only now, so a bad source cannot block a boot
+    if reset and exists:
         question = (f"Erase {path} and format a fresh volume containing:\n"
-                    f"{mkdisk.describe(plan)}\nProceed?")
+                    f"{mkdisk.describe(layout)}\nProceed?")
         if not assume_yes and not confirm(question):
-            print("data disk left untouched; aborting.", file=sys.stderr)
+            print(f"{what} left untouched; aborting.", file=sys.stderr)
             return False
-        mkdisk.format_image(path, layout=plan)
-        print(f"reset data disk: {mkdisk.status(path).describe()}", flush=True)
-    elif mkdisk.ensure_volume(path):
-        print(f"created data disk: {mkdisk.status(path).describe()}", flush=True)
+        mkdisk.format_image(path, label=label, layout=layout)
+        print(f"reset {what}: {mkdisk.status(path).describe()}", flush=True)
+    elif mkdisk.ensure_volume(path, label=label, layout=layout):
+        print(f"created {what}: {mkdisk.status(path).describe()}", flush=True)
     return True
 
 
@@ -197,16 +222,31 @@ def main(argv: list[str]) -> int:
                              "(many times faster than TCG)")
     parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
                         help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
-    parser.add_argument("--data-disk", default=str(mkdisk.DEFAULT_PATH), metavar="PATH",
-                        help="persistent ext2 data volume, attached as a second virtio-blk "
-                             "device and created if missing (default: %(default)s)")
+    parser.add_argument("--home-disk", default=str(mkdisk.DEFAULT_HOME_PATH), metavar="PATH",
+                        help="persistent ext2 home volume (label lazyhome, mounted at /home), "
+                             "attached as a second virtio-blk device and created if missing "
+                             "(default: %(default)s)")
+    parser.add_argument("--no-home-disk", action="store_true",
+                        help="do not attach a home volume (/home is then a directory on /)")
+    parser.add_argument("--reset-home", action="store_true",
+                        help="regenerate the home volume (asks first unless --yes)")
+    parser.add_argument("--reset-os", action="store_true",
+                        help="recreate the OS volume inside the image instead of updating it "
+                             "in place: builds with LAZYOS_RESET_OS=1, which erases installed "
+                             "apps, settings, logs and /data (home.img is not touched)")
+    parser.add_argument("--data-disk", metavar="PATH", nargs="?",
+                        const=str(mkdisk.DEFAULT_PATH),
+                        help="also attach a legacy ext2 data volume as a virtio-blk device, "
+                             "created if missing (off by default; no path means "
+                             f"{mkdisk.DEFAULT_PATH}). Mounted nowhere new")
     parser.add_argument("--no-data-disk", action="store_true",
-                        help="do not attach a data volume")
+                        help="do not attach a data volume (the default; kept for older callers)")
     parser.add_argument("--reset-data", action="store_true",
                         help="regenerate the data volume with the seeded layout "
-                             "(asks first unless --yes)")
+                             "(asks first unless --yes; attaches it if --data-disk is unset)")
     parser.add_argument("--yes", "-y", action="store_true",
-                        help="answer yes to the --reset-data confirmation")
+                        help="answer yes to the --reset-home / --reset-data / --reset-os "
+                             "confirmation")
     parser.add_argument("--desktop", action="store_true",
                         help="build the desktop profile (LAZYOS_DESKTOP=1; needs the xui apps "
                              "from `python tools/xui/build.py`)")
@@ -242,8 +282,12 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     # The Devices app is a desktop app: `--devices` implies `--desktop`.
     args.desktop = args.desktop or args.devices
-    if args.no_data_disk and args.reset_data:
-        parser.error("--reset-data conflicts with --no-data-disk")
+    if args.no_data_disk and (args.reset_data or args.data_disk):
+        parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
+    if args.no_home_disk and args.reset_home:
+        parser.error("--reset-home conflicts with --no-home-disk")
+    if args.reset_os and args.no_build:
+        parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
 
     if not args.no_build:
         cargo = ["cargo", "build"]
@@ -252,6 +296,15 @@ def main(argv: list[str]) -> int:
             cargo.append("--release")
             profile = "release (optimized for real hardware)"
         env = dict(os.environ)
+        if args.reset_os:
+            if Path(args.image).exists() and not args.yes and not confirm(
+                    f"Recreate the OS volume in {args.image}? Installed apps, settings, "
+                    "logs and /data are erased.\nProceed?"):
+                print("OS volume left untouched; aborting.", file=sys.stderr)
+                return 1
+            env["LAZYOS_RESET_OS"] = "1"
+            print("--reset-os: the OS volume will be recreated "
+                  "(apps, settings, logs and /data are erased)", flush=True)
         # The console shell (issue #254): cached after the first build, and a
         # git worktree reuses the main checkout's; `build.rs` warns if absent.
         busybox.ensure_busybox()
@@ -285,9 +338,14 @@ def main(argv: list[str]) -> int:
         print(f"disk image not found: {image}\nRun without --no-build to build it.", file=sys.stderr)
         return 1
 
-    data_disk = None if args.no_data_disk else Path(args.data_disk)
-    if data_disk and not prepare_data_disk(data_disk, args.reset_data, args.yes):
+    home_disk = None if args.no_home_disk else Path(args.home_disk)
+    if home_disk and not prepare_home_disk(home_disk, args.reset_home, args.yes):
         return 1
+    data_disk = None
+    if not args.no_data_disk and (args.data_disk or args.reset_data):
+        data_disk = Path(args.data_disk or mkdisk.DEFAULT_PATH)
+        if not prepare_data_disk(data_disk, args.reset_data, args.yes):
+            return 1
 
     qemu = find_qemu(args.qemu)
     command = [
@@ -303,8 +361,11 @@ def main(argv: list[str]) -> int:
                     "-device", "virtio-blk-pci,drive=boot"]
     else:
         command += ["-drive", f"format=raw,file={image}"]
+    # Same order as the screenshot tools: boot, data, then home.
     if data_disk:
         command += data_disk_args(data_disk)
+    if home_disk:
+        command += home_disk_args(home_disk)
     if args.sound:
         command += sound_args(args.sound)
     if args.net:

@@ -139,6 +139,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f4c2ef60a76c1858ef43c30b6b95c2f5ee4d7c4f9bc47409c3a8dc8910adb9"
 
 [[package]]
+name = "build-support-tests"
+version = "0.1.0"
+dependencies = [
+ "ext2fs",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -290,6 +297,14 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "ext2fs"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "spin",
 ]
 
 [[package]]
@@ -495,6 +510,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "confd",
+ "ext2fs",
  "fhs",
  "font-atlas",
  "lazyos-crypto",
@@ -519,6 +535,7 @@ name = "lazyos"
 version = "0.1.0"
 dependencies = [
  "bootloader",
+ "ext2fs",
  "kernel",
  "user",
 ]

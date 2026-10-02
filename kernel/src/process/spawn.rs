@@ -33,10 +33,12 @@ pub(super) fn intern_service_name(name: &str) -> &'static str {
     if let Some(known) = names.iter().find(|known| **known == name) {
         return known;
     }
-    // The path is caller-supplied and the file system is case-insensitive
-    // (`A.ELF`, `a.elf`, `./A.ELF` name one file), so distinct spellings are
-    // not bounded by the manifest. Past the cap every new spelling shares one
-    // generic name instead of leaking another string.
+    // The path is caller-supplied, so distinct spellings are not bounded by
+    // the manifest: `./A.ELF` and `A.ELF` name one file but intern twice, and
+    // a caller can invent spellings that fail to resolve. (The root volume is
+    // ext2, which is case-sensitive, so `a.elf` is a different, missing file.)
+    // Past the cap every new spelling shares one generic name instead of
+    // leaking another string.
     if names.len() >= MAX_INTERNED_NAMES {
         return OVERFLOW_NAME;
     }
@@ -48,7 +50,7 @@ pub(super) fn intern_service_name(name: &str) -> &'static str {
 /// syscall 6: start `"PATH.ELF [args...]"` as a child of the calling task.
 ///
 /// The command line is NUL-terminated. The first whitespace-separated token is
-/// the FAT file name, the remainder is stored for syscall 9. Returns the new
+/// the file name (a path on the root volume), the remainder is stored for syscall 9. Returns the new
 /// task's pid (its slot), or `u64::MAX` when the file is missing, the ELF is
 /// invalid, or no slot/frame is free.
 pub(super) fn sys_spawn(cmdline_ptr: u64) -> u64 {

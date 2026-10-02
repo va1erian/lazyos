@@ -12,8 +12,9 @@
 | Kernel tests | `tools/test/run.py`, `kernel/src/tests/` | Boot a `LAZYOS_TESTS=1` image headless, parse `TEST:*` lines, write `docs/test/report.md` + `.json`; exits non-zero on failure/missing summary | `.github/workflows/kernel-tests.yml` |
 | Screenshots | `tools/screenshot/qemu_shot.py`, `qemu_session.py`, `qemu_qmp.py`, `pngstats.py`, `tools/screenshot/examples/*.json` | Headless screenshot capture, scripted input injection (QMP `input-send-event`), programmatic PNG assertions | `.github/workflows/screenshots.yml` |
 | Parcel codec tests | `libs/messenger/src/lib.rs`, `libs/generated/tests/echo.rs` | Host cargo tests (round-trip, limits, fuzz; generated-stub round trips) | `.github/workflows/messenger.yml`, `midlc.yml` |
-| Demo runner | `tools/run_demo.py`, `src/main.rs` | One command to build and boot the image (`--headless`, `--no-build`, `--accel none`, `--cpu max`); attaches the persistent ext2 data disk (`--data-disk`, `--no-data-disk`, `--reset-data`) | - |
-| Data volume | `tools/mkdisk/`, `tools/lazygui/datavol.py` | Pure-Python ext2 formatter (`python -m tools.mkdisk`) for the persistent `target/data.img`, seeded with `/home/<user>` (owned by the demo accounts) and a sticky `/tmp`; unit tests plus an `e2fsck -fn` pass | `.github/workflows/mkdisk.yml` |
+| Demo runner | `tools/run_demo.py`, `src/main.rs` | One command to build and boot the image (`--headless`, `--no-build`, `--accel none`, `--cpu max`); attaches the persistent ext2 home disk (`--home-disk`, `--no-home-disk`, `--reset-home`); `--reset-os` recreates the OS volume (`LAZYOS_RESET_OS=1`); `--data-disk` still attaches a legacy data volume | - |
+| OS image | `build.rs`, `build_support/os_{image,layout,manifest,disk}.rs`, `build_support/tests/`, `libs/ext2fs/`, `tools/ci/check_os_image.sh` | `cargo build` writes `target/lazyos.img`: the bootloader's MBR, stage 2 and FAT `/boot` (kernel + `lazyos.cfg`) plus an ext2 OS volume (MBR entry 3, 0x83, at LBA 131072) holding everything else, written by `libs/ext2fs`. A rebuild updates the volume in place, guided by `/system/.image-manifest`; `LAZYOS_RESET_OS=1` recreates it, `LAZYOS_OS_SIZE` (default `512M`, min `128M`) sizes it. Host tests (`cargo test -p build-support-tests`) plus `e2fsck -fn`/`debugfs` on fresh and updated images | `.github/workflows/image.yml`, `ci.yml` |
+| Home volume | `tools/mkdisk/`, `tools/lazygui/datavol.py` | Pure-Python ext2 formatter (`python -m tools.mkdisk --home-volume`) for the persistent `target/home.img` (label `lazyhome`, mounted at `/home`), seeded with `<user>/` owned by the demo accounts; unit tests plus an `e2fsck -fn` pass | `.github/workflows/mkdisk.yml` |
 | xui app build | `tools/xui/build.py`, `xui-app/` | Build the static-musl xui binaries (`m0`, `counter`, `client`, `sysmon`, `fabricmon`, `term`) for `LAZYOS_XUI_APP` / the desktop profile | `.github/workflows/xui.yml` |
 | MCP debug bridge | `tools/mcp/debug_bridge.py`, `test_debug_bridge.py` | Host MCP server that drives `messengerctl stats-json`/`tasks-json` over QMP + serial and parses the `MCP:<NAME>:` JSON lines ([design](../mcp-debug-bridge.md)) | `.github/workflows/mcp-bridge.yml` |
 | Service evidence | `tools/services/evidence.py` | Grep a services serial log for the service/health/login markers; `--desktop` checks the `LAZYOS_DESKTOP=1` profile, which omits the evidence programs | `ci.yml`, `xui.yml` |
@@ -25,6 +26,10 @@
   `TEST:SUMMARY:PASS=<n> FAIL=<n>`.
 - The ABI bench isolates one fixture per boot through the `LAZYOS_INIT` hook
   (embedded as `INIT.ELF`); BusyBox uses the `LAZYOS_BUSYBOX` hook and the `rhai` command (#319, `tools/rhai/build.py`) the `LAZYOS_RHAI` hook (embedded as `RHAI.ELF`).
+- Every CI workflow that builds an image sets `LAZYOS_RESET_OS=1`, so CI never
+  updates a stale image in place; locally a rebuild keeps the OS volume's
+  installed apps, settings and logs (docs/architecture/filesystem.md, the OS
+  image).
 - Screenshot tooling discovers QEMU from `--qemu`, then `PATH`, then
   `C:\Program Files\qemu` on Windows; input injection works headless via QMP.
 - Generated output is git-ignored (`.gitignore`): `shots/`, `docs/compat/`,
@@ -35,6 +40,7 @@
 
 | Workflow | Jobs |
 |---|---|
+| `image.yml` | Builds a fresh and then an in-place-updated OS image and checks both with `e2fsck -fn`, `debugfs` and the kept UUID (`tools/ci/check_os_image.sh`) |
 | `kernel-tests.yml` | `tools/test/run.py` (KVM when usable); appends the report to the job summary; uploads `docs/test/**`, `shots/kernel-tests/**` |
 | `abi-compat.yml` | Builds fixtures, runs the bench, uploads `docs/compat/**` + `shots/abi/**`, publishes the matrix/coverage to the wiki, comments on PRs |
 | `screenshots.yml` | Captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch, comments images on PRs |

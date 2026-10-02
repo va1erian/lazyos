@@ -63,6 +63,11 @@ concurrency:
   group: xui-app-${{ github.ref }}
   cancel-in-progress: true
 
+# F2 (docs/filesystem-plan.md): `cargo build` updates target/lazyos.img in place when it
+# exists; CI is hermetic, so every image is created fresh.
+env:
+  LAZYOS_RESET_OS: "1"
+
 jobs:
   xui:
     runs-on: ubuntu-latest

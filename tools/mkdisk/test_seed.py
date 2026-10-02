@@ -189,6 +189,39 @@ class LayoutRuleTests(unittest.TestCase):
                          ["/home/alice"])
 
 
+class HomeVolumeLayoutTests(unittest.TestCase):
+    """`--home-volume`: <user>/ at the root, the same owners and modes as /home/<user>."""
+
+    def test_users_sit_at_the_volume_root(self) -> None:
+        plan = layout.home_volume(accounts=[ALICE, BOB])
+        self.assertEqual([(d.path, d.mode, d.uid, d.gid) for d in plan.dirs],
+                         [("/alice", 0o755, 1000, 1000), ("/bob", 0o755, 1001, 100)])
+
+    def test_no_home_or_tmp_directory(self) -> None:
+        paths = {d.path for d in layout.home_volume().dirs}
+        self.assertFalse({"/home", "/tmp"} & paths)
+
+    def test_same_owner_and_mode_as_the_seeded_homes(self) -> None:
+        seeded = {d.path.removeprefix("/home"): (d.mode, d.uid, d.gid)
+                  for d in layout.seeded().dirs if d.path.startswith("/home/")}
+        home = {d.path: (d.mode, d.uid, d.gid) for d in layout.home_volume().dirs}
+        self.assertEqual(home, seeded)
+
+    def test_services_and_foreign_homes_are_skipped(self) -> None:
+        root = accounts.Account("root", 0, 0, "/root", "sh")
+        odd = accounts.Account("svc", 5, 5, "/var/svc", "sh")
+        self.assertEqual(layout.home_volume(accounts=[root, ALICE, odd]).dirs[0].path, "/alice")
+        self.assertEqual(len(layout.home_volume(accounts=[root, ALICE, odd]).dirs), 1)
+
+    def test_formatted_tree_is_exactly_lost_found_plus_the_users(self) -> None:
+        plan = layout.home_volume(accounts=[ALICE, BOB])
+        v = Volume(format_bytes(8 * MIB, layout=plan))
+        tree = walk(v)
+        self.assertEqual(set(tree), {"/", "/lost+found", "/alice", "/bob"})
+        node = v.inode(tree["/bob"])
+        self.assertEqual((node["mode"], node["uid"], node["gid"]), (0o040755, 1001, 100))
+
+
 class DemoAccountsTests(unittest.TestCase):
     """The seed reads ``accountsd.rs``; these fail if the copies drift apart."""
 
@@ -259,6 +292,32 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual((root["mode"], root["uid"], root["gid"]), (0o041777, 1000, 1000))
         self.assertEqual(set(walk(v)), {"/", "/lost+found"})
 
+    def test_home_volume_flag(self) -> None:
+        code, out, _ = self.run_main("--home-volume")
+        self.assertEqual(code, 0)
+        self.assertIn("label 'lazyhome'", out)
+        self.assertIn("/alice (mode 0755, uid 1000, gid 1000)", out)
+        image = self.path.read_bytes()
+        self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")  # s_volume_name
+        self.assertEqual(set(walk(Volume(image))), {"/", "/lost+found", "/alice"})
+
+    def test_home_volume_label_can_be_overridden(self) -> None:
+        code, out, _ = self.run_main("--home-volume", "--label", "other")
+        self.assertEqual(code, 0)
+        self.assertIn("label 'other'", out)
+
+    def test_empty_label_is_an_error_not_a_silent_default(self) -> None:
+        for label in ("", "  "):
+            code, _, err = self.run_main("--label", label)
+            self.assertEqual(code, 1)
+            self.assertIn("--label must not be empty", err)
+            self.assertFalse(self.path.exists())
+
+    def test_default_label_without_home_volume(self) -> None:
+        code, out, _ = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertIn("label 'lazyos-data'", out)
+
     def test_bad_ids_are_a_clean_error(self) -> None:
         code, _, err = self.run_main("--root-uid", "99999")
         self.assertEqual(code, 1)
@@ -280,6 +339,16 @@ class E2fsckSeededTests(unittest.TestCase):
                     tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "data.img"
                 path.write_bytes(format_bytes(size, block_size, layout=demo_layout()))
+                done = subprocess.run(["e2fsck", "-fn", str(path)], capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_e2fsck_reports_clean_for_home_volumes(self) -> None:
+        for size, block_size in SHAPES:
+            with self.subTest(size=size, block_size=block_size), \
+                    tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "home.img"
+                plan = layout.home_volume(accounts=[ALICE, BOB])
+                path.write_bytes(format_bytes(size, block_size, layout=plan, label="lazyhome"))
                 done = subprocess.run(["e2fsck", "-fn", str(path)], capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 

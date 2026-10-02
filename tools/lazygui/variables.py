@@ -10,7 +10,7 @@ import os
 import shutil
 import tkinter as tk
 
-from .catalog import DATA_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES
+from .catalog import DATA_IMAGE, HOME_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES
 
 
 def make_vars() -> dict:
@@ -22,6 +22,7 @@ def make_vars() -> dict:
         "profile": s(value="dev"),
         "accel": s(value="auto"),
         "disk": s(value="virtio"),
+        "home_path": s(value=HOME_IMAGE),
         "data_path": s(value=DATA_IMAGE),
         "memory": s(value="256M"),
         "times": s(value="10,14,18"),
@@ -37,7 +38,9 @@ def make_vars() -> dict:
         "tablet": b(value=False),
         "sound": b(value=True),
         "abi_build": b(value=False),
-        "data_disk": b(value=True),
+        "home_disk": b(value=True),
+        "data_disk": b(value=False),
+        "reset_os": b(value=False),
         "desktop": b(value=False),
         "services": b(value=False),
         "xuid": b(value=False),

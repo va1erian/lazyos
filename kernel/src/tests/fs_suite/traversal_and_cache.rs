@@ -151,8 +151,9 @@ pub fn cache_invalidation() -> Result<(), String> {
     Ok(())
 }
 
-/// The FAT boot volume is mounted at `/` through the VFS: reads work, and
-/// every mutating call answers EROFS with the friendly message.
+/// The FAT boot volume is mounted read-only through the VFS (`/boot`; at `/` in
+/// the legacy layout): reads work, and every mutating call answers EROFS with
+/// the friendly message.
 pub fn fat_read_only_erofs() -> Result<(), String> {
     task::register_kernel();
     check!(
@@ -190,24 +191,34 @@ pub fn fat_read_only_erofs() -> Result<(), String> {
         "umask did not return the previous value"
     );
 
+    // The FAT volume is `/boot` in the configured layout (the OS volume is the
+    // writable root) and the root itself in the legacy one.
+    let (dir, file) = if crate::fs::vfs_stat(root, "/boot/lazyos.cfg").is_ok() {
+        ("/boot", "/boot/lazyos.cfg")
+    } else {
+        ("", "/HELLO.TXT")
+    };
     check!(
-        crate::fs::vfs_write(root, "/HELLO.TXT", 0, b"x").err() == Some(FsError::ReadOnly),
+        crate::fs::vfs_write(root, file, 0, b"x").err() == Some(FsError::ReadOnly),
         "a FAT write was not EROFS"
     );
     check!(
-        crate::fs::vfs_create(root, "/NEW.TXT", 0o644).err() == Some(FsError::ReadOnly),
+        crate::fs::vfs_create(root, &format!("{dir}/NEW.TXT"), 0o644).err()
+            == Some(FsError::ReadOnly),
         "a FAT create was not EROFS"
     );
     check!(
-        crate::fs::vfs_mkdir(root, "/newdir", 0o755).err() == Some(FsError::ReadOnly),
+        crate::fs::vfs_mkdir(root, &format!("{dir}/newdir"), 0o755).err()
+            == Some(FsError::ReadOnly),
         "a FAT mkdir was not EROFS"
     );
     check!(
-        crate::fs::vfs_unlink(root, "/HELLO.TXT").err() == Some(FsError::ReadOnly),
+        crate::fs::vfs_unlink(root, file).err() == Some(FsError::ReadOnly),
         "a FAT unlink was not EROFS"
     );
     check!(
-        crate::fs::vfs_rename(root, "/HELLO.TXT", "/HI.TXT").err() == Some(FsError::ReadOnly),
+        crate::fs::vfs_rename(root, file, &format!("{dir}/HI.TXT")).err()
+            == Some(FsError::ReadOnly),
         "a FAT rename was not EROFS"
     );
     check!(

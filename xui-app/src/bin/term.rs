@@ -23,6 +23,7 @@
 
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 
 use xui_app::backend::LazyOSBackend;
@@ -37,8 +38,9 @@ use grid::{is_prompt, Grid, COLS, ROWS};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// The shell to host: a bare applet name the kernel's Linux loader aliases to
-/// the shipped `BUSYBOX`.
+/// The shell to host: the shipped `BUSYBOX`, started as `busybox sh -i`. The
+/// root is case-sensitive, so the path spells the stored name and `argv[0]`
+/// (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox dispatches on.
 const SHELL: &str = fhs::boot::BUSYBOX_PATH;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
@@ -226,6 +228,7 @@ fn main() {
     backend.on_first_frame(|| println!("TERM:UP:PASS"));
 
     let mut child = match Command::new(SHELL)
+        .arg0(fhs::boot::BUSYBOX_ARGV0)
         .args(["sh", "-i"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -2,7 +2,7 @@
 
 Everything here is derived from the requested size and block size alone, so
 the encoder (:mod:`mkdisk.ext2`) never has to make a layout decision. The
-constants mirror what the kernel driver (``kernel/src/fs/ext2/layout.rs`` and
+constants mirror what the kernel driver (``libs/ext2fs/src/layout.rs`` and
 ``Ext2::open``) accepts; ``test_mkdisk.py`` re-checks them against the
 driver's own validation rules.
 """

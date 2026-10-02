@@ -1,13 +1,13 @@
-//! Embed the desktop's xui apps (issues #215/#216) and the LazyShell desktop
-//! shell (issue #157) in the disk image, and write `XAPPS.LST`, the list of
-//! shipped apps `init`'s registry reads at boot.
-//!
-//! Split out of `build.rs`, which is past the file-size budget.
+//! The xui desktop apps, the LazyShell desktop shell (issue #157) and the
+//! sample packages embedded in the OS volume (issues #215/#216): which
+//! binaries ship, their flat uppercase names, and the `XAPPS.LST` manifest
+//! `init` reads. Split out of `build.rs`.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use crate::lazyrad_embed;
+use crate::os_image::Sink;
 
 /// LazyShell's binary under `target/xui/` (`tools/xui/build.py` builds it from
 /// `xui-app/src/bin/lazyshell.rs`); stored as `XSHELL.ELF`.
@@ -40,7 +40,7 @@ pub fn shell_enabled(desktop: bool, services: bool, xuid: bool) -> bool {
 /// (that switch lists the *apps*): `init` opens it first, as the desktop's
 /// shell, and restarts it when it dies. A missing binary fails the build: a
 /// desktop that asked for its shell must not boot without one.
-fn embed_shell(builder: &mut bootloader::DiskImageBuilder) -> String {
+fn embed_shell(sink: &mut dyn Sink) -> String {
     let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .join("target")
         .join("xui")
@@ -58,15 +58,15 @@ fn embed_shell(builder: &mut bootloader::DiskImageBuilder) -> String {
         "cargo:warning=LazyShell embedded: {} as {disk}",
         path.display()
     );
-    builder.set_file(disk.clone(), path);
+    sink.add_file(&disk, path);
     format!("{disk} autostart\n")
 }
 
-/// The 8.3 on-disk name for an xui app binary (`xui-sysmon.elf` ->
-/// `XSYSMON.ELF`): the kernel's FAT reader only resolves short names, and
-/// `init`'s app registry (`user/src/bin/init/apps.rs`) refers to these names.
+/// The on-disk name for an xui app binary (`xui-sysmon.elf` -> `XSYSMON.ELF`),
+/// which `init`'s app registry (`user/src/bin/init/apps.rs`) refers to by that
+/// exact (uppercase) spelling.
 /// Returns `(stem, disk_name)`.
-pub fn xui_disk_name(path: &std::path::Path) -> (String, String) {
+fn xui_disk_name(path: &std::path::Path) -> (String, String) {
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -147,14 +147,14 @@ const DEFAULT_AUTOSTART_STEM: &str = "term";
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
 /// of binaries built by `tools/xui/build.py`. With `LAZYOS_DESKTOP=1` and no
 /// explicit list, the [`DESKTOP_XUI_APPS`] defaults under `target/xui/` are
-/// used, so one switch is enough. Each is stored under its 8.3 name, and
+/// used, so one switch is enough. Each is stored under its flat uppercase name, and
 /// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
 /// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
 /// default is the Terminal only, `none` disables it) are tagged `autostart`,
 /// and `init` launches them at boot as `xuid` clients. With `shell`, LazyShell
 /// is embedded too and listed first (see [`embed_shell`]).
-pub fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool, shell: bool) {
+pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
     let explicit = std::env::var_os("LAZYOS_XUI_APPS");
@@ -206,7 +206,7 @@ pub fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool,
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };
     let mut manifest = if shell {
-        embed_shell(builder)
+        embed_shell(sink)
     } else {
         String::new()
     };
@@ -236,10 +236,38 @@ pub fn embed_xui_apps(builder: &mut bootloader::DiskImageBuilder, desktop: bool,
         );
         let suffix = if wanted(&stem) { " autostart" } else { "" };
         manifest.push_str(&format!("{disk}{suffix}\n"));
-        builder.set_file(disk, app);
+        sink.add_file(&disk, app);
     }
     // The IDE is embedded by `lazyrad_embed` under its own 8.3 name, not as an
     // `xui-*` app, so its manifest line is added here.
     manifest.push_str(lazyrad_embed::manifest_lines());
-    builder.set_file_contents(String::from("XAPPS.LST"), manifest.into_bytes());
+    sink.add_bytes("XAPPS.LST", manifest.into_bytes());
+}
+
+/// Embed the sample `.lzp` packages in the volume root, when
+/// `tools/pkg/build_samples.py` produced them (`tools/xui/build.py` runs it
+/// after building the xui apps): `PKGDEMO.LZP` is the Counter demo as an
+/// installable package, installed with `pkgctl install /PKGDEMO.LZP`. A missing
+/// sample only means a smaller image, so it warns instead of failing.
+pub fn embed_sample_packages(sink: &mut dyn Sink) {
+    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+        .join("target")
+        .join("pkg");
+    for disk_name in ["PKGDEMO.LZP"] {
+        let path = dir.join(disk_name);
+        // Tracked even when missing, so building it later is picked up.
+        println!("cargo:rerun-if-changed={}", path.display());
+        if path.is_file() {
+            println!(
+                "cargo:warning=sample package embedded: {} as {disk_name}",
+                path.display()
+            );
+            sink.add_file(disk_name, path);
+        } else {
+            println!(
+                "cargo:warning=sample package {disk_name} not built \
+                 (`python tools/xui/build.py` or `python tools/pkg/build_samples.py`)"
+            );
+        }
+    }
 }

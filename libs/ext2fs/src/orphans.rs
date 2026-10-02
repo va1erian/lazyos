@@ -1,7 +1,7 @@
 //! Reclaiming orphaned `.unlinked-<n>` files after an unclean stop.
 //!
 //! `unlink` of an open file parks it under a hidden name in its directory
-//! (see [`crate::fs::hidden`]) and deletes it at the last close. A stop in
+//! (a reserved name prefix the host owns) and deletes it at the last close. A stop in
 //! between leaves the entry, its inode and its blocks behind. The hidden name
 //! is this filesystem's orphan list: as long as any part of the file exists,
 //! the name still leads to it, so a mount can always find and finish the job.
@@ -45,61 +45,99 @@
 //! consistency, and the next unclean mount collects it.
 
 use super::*;
-use crate::fs::hidden;
 
 /// Most directories one reclaim walk visits.
-const MAX_SCAN_DIRS: usize = 4096;
+pub const MAX_SCAN_DIRS: usize = 4096;
 /// Deepest directory nesting the walk enters (the root is depth 0).
 const MAX_SCAN_DEPTH: usize = 32;
+/// Most failures [`OrphanReport::failed`] records; the rest are dropped.
+pub const MAX_FAILED: usize = 256;
+
+/// What one [`Ext2::reclaim_orphans`] walk did, for the host to report (the
+/// library has no log of its own).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct OrphanReport {
+    /// Parked files deleted.
+    pub reclaimed: usize,
+    /// Parked files that could not be deleted, with why; left for the next
+    /// mount. At most [`MAX_FAILED`] are listed.
+    pub failed: Vec<(String, Ext2Error)>,
+    /// Set when the walk hit [`MAX_SCAN_DIRS`] and stopped early.
+    pub scan_truncated: bool,
+}
 
 impl Ext2 {
-    /// Delete every parked orphan and return how many were reclaimed.
+    /// Delete every parked orphan, the files whose name starts with
+    /// `reserved_prefix` (the namespace the host reserves for parking).
     ///
     /// Does nothing on a read-only device or a volume that was cleanly
     /// unmounted. A file that cannot be reclaimed (an I/O error, a malformed
     /// entry) is reported and left for the next mount; it never fails the mount.
-    pub fn reclaim_orphans(&self) -> usize {
-        if self.read_only || self.was_clean_at_mount() {
-            return 0;
+    pub fn reclaim_orphans(&self, reserved_prefix: &str) -> OrphanReport {
+        let mut report = OrphanReport::default();
+        // An empty prefix would name every file in the volume as an orphan.
+        if reserved_prefix.is_empty() || self.read_only || self.was_clean_at_mount() {
+            return report;
         }
-        let mut reclaimed = 0;
         let mut pending = alloc::vec![(String::from("/"), 0usize)];
         let mut visited = 0;
         while let Some((dir, depth)) = pending.pop() {
             if visited == MAX_SCAN_DIRS {
-                crate::serial_println!("ext2: orphan scan stopped at {MAX_SCAN_DIRS} directories");
+                report.scan_truncated = true;
                 break;
             }
             visited += 1;
-            reclaimed += self.scan_dir(&dir, depth, &mut pending);
+            // Room left in the queue before the walk's directory budget is spent.
+            let room = MAX_SCAN_DIRS.saturating_sub(visited + pending.len());
+            self.scan_dir(
+                &dir,
+                depth,
+                reserved_prefix,
+                room,
+                &mut pending,
+                &mut report,
+            );
         }
-        reclaimed
+        report
     }
 
     /// Reclaim the orphans directly inside `dir` and queue its subdirectories.
-    fn scan_dir(&self, dir: &str, depth: usize, pending: &mut Vec<(String, usize)>) -> usize {
+    fn scan_dir(
+        &self,
+        dir: &str,
+        depth: usize,
+        prefix: &str,
+        mut room: usize,
+        pending: &mut Vec<(String, usize)>,
+        report: &mut OrphanReport,
+    ) {
         let Ok(entries) = self.readdir(dir) else {
-            return 0; // unreadable: leave it, the mount goes on
+            return; // unreadable: leave it, the mount goes on
         };
-        let mut reclaimed = 0;
         for entry in entries {
             let path = child_path(dir, &entry.name);
-            let reserved = hidden::is_reserved(&entry.name);
+            let reserved = entry.name.starts_with(prefix);
             match entry.kind {
-                FileKind::File if reserved => match self.unlink(&path) {
-                    Ok(()) => reclaimed += 1,
+                FileKind::File if reserved => match self.unlink_parked(&path) {
+                    Ok(()) => report.reclaimed += 1,
                     Err(error) => {
-                        crate::serial_println!("ext2: could not reclaim {path}: {error:?}");
+                        if report.failed.len() < MAX_FAILED {
+                            report.failed.push((path, error));
+                        }
                     }
                 },
                 // A reserved *directory* is not ours to look inside.
                 FileKind::Dir if !reserved && depth < MAX_SCAN_DEPTH => {
-                    pending.push((path, depth + 1));
+                    if room == 0 {
+                        report.scan_truncated = true; // never queue past the budget
+                    } else {
+                        room -= 1;
+                        pending.push((path, depth + 1));
+                    }
                 }
                 _ => {}
             }
         }
-        reclaimed
     }
 
     /// Delete the parked file `name` (inode `ino`, already read as `child`)
@@ -111,10 +149,10 @@ impl Ext2 {
         name: &str,
         ino: u32,
         child: &mut [u8; INODE_CORE_SIZE],
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         // A crafted entry must not reach the reserved inodes (journal, resize).
         if ino < self.first_ino {
-            return Err(FsError::Invalid);
+            return Err(Ext2Error::Invalid);
         }
         if self.inode_allocated(ino)? {
             self.release_orphan_blocks(child)?;
@@ -125,11 +163,14 @@ impl Ext2 {
     }
 
     /// Free every block `inode` reaches that is still allocated (step 1).
-    fn release_orphan_blocks(&self, inode: &[u8; INODE_CORE_SIZE]) -> Result<(), FsError> {
+    fn release_orphan_blocks(&self, inode: &[u8; INODE_CORE_SIZE]) -> Result<(), Ext2Error> {
+        // One budget for the whole inode: a hostile image cannot make a
+        // table visit more blocks than the volume has.
+        let mut budget = self.blocks_count;
         for slot in 0..BLOCK_SLOTS {
             let root = Self::direct_ptr(inode, slot);
             if root != 0 {
-                self.release_tree(root, slot_depth(slot))?;
+                self.release_tree(root, slot_depth(slot), &mut budget)?;
             }
         }
         Ok(())
@@ -138,12 +179,20 @@ impl Ext2 {
     /// Free the tree of pointer tables rooted at `block`, children before the
     /// table that names them, skipping blocks a previous run already freed.
     /// The recursion is at most [`MAX_DEPTH`] deep, so a cyclic pointer in a
-    /// malformed image ends instead of looping.
-    fn release_tree(&self, block: u32, depth: usize) -> Result<(), FsError> {
+    /// malformed image ends instead of looping, and `budget` bounds the total
+    /// number of blocks visited (a table whose entries all name one block
+    /// would otherwise be walked a thousand times per level).
+    fn release_tree(&self, block: u32, depth: usize, budget: &mut u32) -> Result<(), Ext2Error> {
+        *budget = budget.checked_sub(1).ok_or(Ext2Error::Invalid)?;
+        // Children are freed before the table that names them, so a table
+        // that is already free has had its whole subtree released.
+        if !self.block_allocated(block)? {
+            return Ok(());
+        }
         if depth > 0 {
             for child in self.read_table(block)? {
                 if child != 0 {
-                    self.release_tree(child, depth - 1)?;
+                    self.release_tree(child, depth - 1, budget)?;
                 }
             }
         }
@@ -159,9 +208,9 @@ impl Ext2 {
         &self,
         ino: u32,
         inode: &mut [u8; INODE_CORE_SIZE],
-    ) -> Result<(), FsError> {
+    ) -> Result<(), Ext2Error> {
         put16(inode, INO_LINKS, 0);
-        put32(inode, INO_DTIME, now());
+        put32(inode, INO_DTIME, self.now());
         put32(inode, INO_SIZE, 0);
         put32(inode, INO_BLOCKS, 0);
         inode[INO_BLOCK..INO_BLOCK + BLOCK_SLOTS as usize * 4].fill(0);
@@ -169,9 +218,9 @@ impl Ext2 {
     }
 
     /// Whether the block bitmap marks `block` used.
-    fn block_allocated(&self, block: u32) -> Result<bool, FsError> {
+    fn block_allocated(&self, block: u32) -> Result<bool, Ext2Error> {
         if block < self.first_data_block || block >= self.blocks_count {
-            return Err(FsError::Invalid);
+            return Err(Ext2Error::Invalid);
         }
         let group = (block - self.first_data_block) / self.blocks_per_group;
         let index = (block - self.first_data_block) % self.blocks_per_group;
@@ -179,23 +228,20 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
-        Ok(Self::bitmap_test(&bitmap[..size], index))
+        Self::bitmap_test(&bitmap[..size], index)
     }
 
     /// Whether the inode bitmap marks `ino` used.
-    fn inode_allocated(&self, ino: u32) -> Result<bool, FsError> {
+    fn inode_allocated(&self, ino: u32) -> Result<bool, Ext2Error> {
         if ino == 0 || ino > self.inodes_count {
-            return Err(FsError::Invalid);
+            return Err(Ext2Error::Invalid);
         }
         let index = ino - 1;
         let desc = self.read_group(index / self.inodes_per_group)?;
         let size = self.block_size as usize;
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-        Ok(Self::bitmap_test(
-            &bitmap[..size],
-            index % self.inodes_per_group,
-        ))
+        Self::bitmap_test(&bitmap[..size], index % self.inodes_per_group)
     }
 }
 

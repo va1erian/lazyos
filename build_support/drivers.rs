@@ -4,10 +4,12 @@
 //!
 //! Without a supervisor the kernel boots a driver directly; with
 //! `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. The 8.3-safe
-//! on-disk names are what the kernel's FAT reader resolves.
+//! on-disk names are the flat names of the OS volume root.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
+
+use crate::os_image::Sink;
 
 fn enabled(variable: &str) -> bool {
     println!("cargo:rerun-if-env-changed={variable}");
@@ -15,11 +17,11 @@ fn enabled(variable: &str) -> bool {
 }
 
 /// Add the ELF built for the `user` binary `bin` to the image as `name`.
-fn add(builder: &mut bootloader::DiskImageBuilder, name: &str, bin: &str) {
+fn add(sink: &mut dyn Sink, name: &str, bin: &str) {
     let variable = format!("CARGO_BIN_FILE_USER_{bin}");
     let path =
         std::env::var_os(&variable).unwrap_or_else(|| panic!("user {bin} artifact not found"));
-    builder.set_file(String::from(name), PathBuf::from(path));
+    sink.add_file(name, PathBuf::from(path));
 }
 
 /// The `netfix` fixture: `LAZYOS_NETFIX`, or the one `tools/abi/build.py` left
@@ -35,7 +37,7 @@ fn netfix() -> Option<PathBuf> {
 
 /// Embed the drivers this build asked for. The desktop profile always ships the
 /// sound stack, so its shell has `beep`.
-pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
+pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     let sound = desktop || enabled("LAZYOS_SOUND");
     let usb = enabled("LAZYOS_USB");
     let netd = enabled("LAZYOS_NETD");
@@ -43,43 +45,43 @@ pub fn embed(builder: &mut bootloader::DiskImageBuilder, desktop: bool) {
     // `devctl` (issue #481) shows the devices, who owns them and the class
     // rules that confine each driver: wherever there is a driver to look at.
     if sound || usb || net {
-        add(builder, "DEVCTL.ELF", "devctl");
+        add(sink, "DEVCTL.ELF", "devctl");
     }
     if sound {
-        add(builder, "SNDD.ELF", "sndd");
+        add(sink, "SNDD.ELF", "sndd");
         // `beep`, the smallest audio client: `sndd` spawns it under `demo=1`.
-        add(builder, "BEEP.ELF", "beep");
+        add(sink, "BEEP.ELF", "beep");
         // `modplay`, the tracker-module player (docs/tracker-plan.md).
-        add(builder, "MODPLAY.ELF", "modplay");
+        add(sink, "MODPLAY.ELF", "modplay");
     }
     // The USB HID driver (docs/usb-hid-plan.md U2).
     if usb {
-        add(builder, "USBD.ELF", "usbd");
+        add(sink, "USBD.ELF", "usbd");
     }
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
-        add(builder, "NETDRV.ELF", "netdrv");
+        add(sink, "NETDRV.ELF", "netdrv");
         // `nicctl` prints the card and carries the evidence clients the driver
         // spawns under `demo=1`.
-        add(builder, "NICCTL.ELF", "nicctl");
+        add(sink, "NICCTL.ELF", "nicctl");
     }
     if netd {
-        add(builder, "NETD.ELF", "netd");
+        add(sink, "NETD.ELF", "netd");
         // `netctl` and `ping`, the stack's shell commands and evidence clients.
-        add(builder, "NETCTL.ELF", "netctl");
-        add(builder, "PING.ELF", "ping");
+        add(sink, "NETCTL.ELF", "netctl");
+        add(sink, "PING.ELF", "ping");
         // `nc` and `nslookup`: sockets and name lookups (stage N3).
-        add(builder, "NC.ELF", "nc");
-        add(builder, "NSLOOKUP.ELF", "nslookup");
+        add(sink, "NC.ELF", "nc");
+        add(sink, "NSLOOKUP.ELF", "nslookup");
         // `ftp`, the passive-mode client (stage N4).
-        add(builder, "FTP.ELF", "ftp");
+        add(sink, "FTP.ELF", "ftp");
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
         println!("cargo:rerun-if-env-changed=LAZYOS_NETFIX");
         if let Some(path) = netfix() {
             println!("cargo:rerun-if-changed={}", path.display());
-            builder.set_file(String::from("NETFIX.ELF"), path);
+            sink.add_file("NETFIX.ELF", path);
         }
     }
 }
