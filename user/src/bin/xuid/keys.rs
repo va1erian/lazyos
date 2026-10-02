@@ -66,13 +66,10 @@ impl Compositor {
         );
     }
 
-    /// Escape: close the menu, then the Alt+Tab overlay, then act as the
-    /// Ctrl+Esc start-menu chord, then cancel a drag & drop. Returns whether
-    /// the compositor consumed the key.
+    /// Escape: close the Alt+Tab overlay, then act as the Ctrl+Esc
+    /// start-menu chord (sent to the shell, if any), then cancel a drag &
+    /// drop. Returns whether the compositor consumed the key.
     fn escape_pressed(&mut self) -> bool {
-        if self.menu_escape() {
-            return true;
-        }
         // Escape closes the Alt+Tab overlay first...
         if self.alt_tab.take().is_some() {
             self.repaint_full();

@@ -46,8 +46,8 @@ accent title bar keeps light text in light mode.
 **Time & Date.** The clock and zone go through `timed` (`SetTime` needs
 `CAP_SYS_TIME`; `wallclock::set` writes the CMOS RTC back, so a set time survives
 a reboot). The taskbar clock format is `sys/time/clock24` and
-`sys/time/show_seconds`, which `xuid` follows through the same confd change
-topic as the theme (`system/confd/changed/sys/#`).
+`sys/time/show_seconds`, which the LazyShell taskbar (issue #157) re-reads
+with the theme keys every few seconds and lays its clock slot out again.
 
 **About.** Version (`uname`), uptime (`sysinfo` ticks) and the confd store
 directory and persistence (`Info`).
@@ -58,8 +58,9 @@ directory and persistence (`Info`).
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
 (Appearance, Windows & Taskbar, Time & Date, Keyboard, About). Color input is
 preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
-`tools/xui/build.py`, `build.rs`, `user/src/bin/init/apps.rs`,
-`user/src/bin/xuid/menu.rs`.
+`tools/xui/build.py`, `build.rs`, `user/src/bin/init/apps.rs` and the
+`sys/ui/menu` defaults (the start menu is LazyShell's since issue #157; it was
+`user/src/bin/xuid/menu.rs`).
 
 ## Phases
 

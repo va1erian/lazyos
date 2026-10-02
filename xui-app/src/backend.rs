@@ -49,7 +49,7 @@ use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
 use xui_core::{Color, Key, Modifiers, Rect};
 
-use crate::client_window::{ClientState, ClientWindow};
+use crate::client_window::{ClientState, ClientWindow, SurfaceRole};
 use crate::display;
 use crate::sys::{self, DisplayInfo};
 
@@ -93,6 +93,9 @@ pub struct LazyOSBackend {
     /// Pointer position in window pixels, updated by move events; kernel button
     /// records carry no coordinates, so it is also used for presses.
     pointer: Cell<(i32, i32)>,
+    /// The node the last in-window pointer move went to, told `MouseLeave`
+    /// when the pointer leaves the window (a panel's last, outside move).
+    hovered: Cell<Option<(WindowId, WidgetId)>>,
     /// The node keyboard events go to; set by [`Backend::focus`]. Keys target
     /// the focused node, not the node under the pointer.
     focused: Cell<Option<WidgetId>>,
@@ -120,6 +123,10 @@ pub struct LazyOSBackend {
     /// for fixed-size windows. Set before `run_app` with
     /// [`LazyOSBackend::set_size_hints`].
     size_hints: Cell<Option<(u32, u32, u32, u32)>>,
+    /// The role of the next window `open_window` creates (client mode), reset
+    /// to [`SurfaceRole::Window`] once used. Set with
+    /// [`LazyOSBackend::set_next_role`].
+    next_role: Cell<SurfaceRole>,
     /// Source of the shared text shaper. `xui-canvas` keeps its cosmic-text
     /// shaper crate-private, but the headless backend hands out that same
     /// `Send + Sync` shaper (cloning shares one font system, built on first use
@@ -210,6 +217,7 @@ impl LazyOSBackend {
             damage: RefCell::new(HashMap::new()),
             quit: Arc::new(AtomicBool::new(false)),
             pointer: Cell::new((0, 0)),
+            hovered: Cell::new(None),
             focused: Cell::new(None),
             captured: Cell::new(None),
             clicks: RefCell::new(double_click::ClickTracker::new()),
@@ -220,6 +228,7 @@ impl LazyOSBackend {
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
             size_hints: Cell::new(None),
+            next_role: Cell::new(SurfaceRole::Window),
             shaper: OffscreenBackend::new(),
         }
     }
@@ -230,6 +239,35 @@ impl LazyOSBackend {
     /// keep the old fixed-size behaviour.
     pub fn set_size_hints(&self, min_w: u32, min_h: u32, max_w: u32, max_h: u32) {
         self.size_hints.set(Some((min_w, min_h, max_w, max_h)));
+    }
+
+    /// Make the *next* window this app opens a `role` surface (the shell's
+    /// desktop and panels); later windows are ordinary windows again. A
+    /// desktop or panel has no chrome, no size hints and no keyboard session,
+    /// and a panel is placed at its `(x, y)` before its first frame.
+    pub fn set_next_role(&self, role: SurfaceRole) {
+        self.next_role.set(role);
+    }
+
+    /// The compositor connection, in client mode, for the protocol calls the
+    /// toolkit has no words for (the shell's taskbar and work-area calls).
+    pub fn display_client(&self) -> Option<display::Client> {
+        match &self.mode {
+            Mode::Client(state) => Some(state.borrow().client),
+            Mode::Owner { .. } => None,
+        }
+    }
+
+    /// The compositor surface id behind `window`, in client mode.
+    pub fn surface_of(&self, window: xui_core::backend::WindowId) -> Option<u64> {
+        let windows = self.windows.borrow();
+        Some(windows.get(&window.raw())?.client.as_ref()?.surface)
+    }
+
+    /// The pointer's last position in window pixels, as the most recent
+    /// pointer event reported it.
+    pub fn pointer(&self) -> (i32, i32) {
+        self.pointer.get()
     }
 
     /// Ask the compositor to resize this app's window to `width` x `height`

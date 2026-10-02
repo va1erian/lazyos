@@ -17,7 +17,7 @@
   {"mouse_move": [-300, -300]},
   {"mouse_move": [-300, -300]},
   {"mouse_move": [-300, -300]},
-  {"mouse_move": [150, 705]},
+  {"mouse_move": [336, 704]},
   {"wait": 0.3},
   {"mouse_click": "left"},
   {"wait": 1.0},

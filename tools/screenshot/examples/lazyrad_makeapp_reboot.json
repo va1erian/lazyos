@@ -56,14 +56,14 @@
  {
   "at": 1.0,
   "mouse_move": [
-   870,
-   -500
+   44,
+   704
   ]
  },
  {
   "at": 1.0,
-  "mouse_click": "right",
-  "until": "XUID:MENU:OPEN",
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
   "timeout": 30,
   "retries": 2
  },
@@ -74,8 +74,8 @@
  {
   "at": 1.0,
   "mouse_move": [
-   30,
-   233
+   90,
+   -392
   ]
  },
  {
@@ -85,7 +85,7 @@
  {
   "at": 0.5,
   "mouse_click": "left",
-  "until": "XUID:MENU:LAUNCH:user.lazyos.hello",
+  "until": "SHELL:LAUNCH:PASS app=user.lazyos.hello",
   "timeout": 60,
   "retries": 1
  },

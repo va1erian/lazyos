@@ -13,6 +13,8 @@
 //! path releases what was created so far, so no half-built surface stays in the
 //! compositor with nothing able to destroy it.
 
+use messenger_generated::os_lazy_display_v1 as wire;
+
 use crate::display::{self, Client, Event};
 use crate::input;
 use crate::sys::{self, errno};
@@ -29,6 +31,30 @@ const CONFIGURE_WAIT_TICKS: u64 = 5;
 const EVENT_BYTES: usize = 4096;
 /// Most events kept for replay; a flood of pointer moves must not grow it.
 const MAX_KEPT_EVENTS: usize = 256;
+
+/// What kind of surface a window is (`os.lazy.display.v1` `Role`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SurfaceRole {
+    /// A decorated, focusable app window (every app but the shell).
+    #[default]
+    Window,
+    /// The full-screen desktop under every window (shell only).
+    Desktop,
+    /// A chromeless panel above every window at screen `(x, y)` (shell only):
+    /// placed before its first commit, never focused, no keyboard session.
+    Panel { x: i32, y: i32 },
+}
+
+impl SurfaceRole {
+    /// The wire `Role` value.
+    pub const fn wire(self) -> u32 {
+        match self {
+            SurfaceRole::Window => wire::ROLE_WINDOW,
+            SurfaceRole::Desktop => wire::ROLE_DESKTOP,
+            SurfaceRole::Panel { .. } => wire::ROLE_PANEL,
+        }
+    }
+}
 
 /// A live compositor connection, shared by a backend's windows.
 pub struct ClientState {
@@ -70,16 +96,20 @@ pub struct ClientWindow {
 
 impl ClientWindow {
     /// Create the window's surface bound to `client` with its own buffer and
-    /// event channel.
+    /// event channel. A panel is placed before anything is committed, so it
+    /// never flashes at the compositor's default `(0, 0)`.
     pub fn open(
         client: Client,
         width: u32,
         height: u32,
         title: &str,
+        role: SurfaceRole,
     ) -> Result<ClientWindow, String> {
         let (events, peer) =
             sys::msg_create_pair().map_err(|code| format!("event pair: errno {code}"))?;
-        let surface = match client.create_surface(width as u64, height as u64, title, peer) {
+        let created =
+            client.create_surface_with_role(width as u64, height as u64, title, peer, role.wire());
+        let surface = match created {
             Ok(surface) => surface,
             Err(code) => {
                 // The peer may or may not have been consumed; closing a stale
@@ -89,6 +119,13 @@ impl ClientWindow {
                 return Err(format!("create_surface: errno {code}"));
             }
         };
+        if let SurfaceRole::Panel { x, y } = role {
+            if let Err(code) = client.place_surface(surface, x, y) {
+                let _ = client.destroy_surface(surface);
+                let _ = display::close(events);
+                return Err(format!("place_surface: errno {code}"));
+            }
+        }
         let first = match attach_first_buffer(client, events, surface, width, height) {
             Ok(first) => first,
             Err(message) => {
@@ -107,7 +144,10 @@ impl ClientWindow {
         }
         // Best effort: `xuid` registered the surface with `inputd` before it
         // answered `CreateSurface`, so the session can be opened right away.
-        let input = input::Session::open(surface).ok();
+        // The desktop and panels never take keyboard focus.
+        let input = (role == SurfaceRole::Window)
+            .then(|| input::Session::open(surface).ok())
+            .flatten();
         Ok(ClientWindow {
             events,
             surface,

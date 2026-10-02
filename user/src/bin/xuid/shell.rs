@@ -1,11 +1,8 @@
-//! Shell protocol support (issues #167, #175) and the Alt+Tab overlay
-//! (issue #194 split), moved out of `xuid.rs` unchanged: the shell subscriber
-//! and its event notifications, the fallback-taskbar visibility rule, and the
-//! compositor-owned window cycle.
+//! Shell protocol support (issues #167, #175, #157) and the Alt+Tab overlay
+//! (issue #194 split): the shell and observer subscribers and their event
+//! notifications, and the compositor-owned window cycle.
 
-use alloc::string::String;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
 use user::messenger::display::{self, wire};
 use user::messenger::{self, Endpoint};
 
@@ -13,21 +10,26 @@ use super::compositor::Compositor;
 use super::window::{restore, surface_by_id};
 
 // ---------------------------------------------------------------------------
-// Shell protocol (issue #167)
+// Shell protocol
 //
-// LazyShell subscribes with Subscribe(role, events) and receives one-way
-// SurfaceChanged/FocusChanged/StartMenu events; `"shell"` hides the built-in
-// taskbar so the shell owns it. The desktop role is a CreateSurface flag. The
-// Alt+Tab overlay is compositor-owned; the shell only sees the resulting
-// FocusChanged/SurfaceChanged events.
+// LazyShell subscribes with Subscribe("shell", events) and receives one-way
+// SurfaceChanged/FocusChanged/StartMenu/Dismiss events; it draws the whole
+// desktop UI (taskbar, start menu, wallpaper) on its own desktop and panel
+// surfaces (issue #157). A privileged task may also subscribe under any other
+// role as an observer, which gets the same events but never displaces the
+// shell (issue #447). The Alt+Tab overlay is compositor-owned, so focus
+// switching works (and cannot be spoofed) with no shell at all.
 // ---------------------------------------------------------------------------
 
-/// A registered shell subscriber.
+/// A registered subscriber: the shell, or the observer.
 pub(super) struct ShellSub {
-    /// Role string from `Subscribe`; [`display::ROLE_SHELL`] hides the bar.
-    pub(super) role: String,
     /// Event endpoint handle in this task's table.
     pub(super) events: u64,
+    /// The subscribing task (kernel-stamped sender slot).
+    pub(super) task: u64,
+    /// Set when a send to `events` reported `EPIPE`: the subscriber died
+    /// without unsubscribing (issue #175). Dropped by the main loop.
+    pub(super) dead: bool,
 }
 
 /// The modifier keys currently held, tracked from forwarded key codes.
@@ -44,45 +46,42 @@ pub(super) struct Modifiers {
 /// The open Alt+Tab overlay: a snapshot of the window cycle and the current
 /// selection.
 pub(super) struct AltTab {
-    /// Visible window ids in cycle order (creation order).
+    /// Window ids in cycle order (creation order), minimized ones included
+    /// so they stay reachable without a shell.
     pub(super) order: Vec<u64>,
     /// Index into `order` of the highlighted entry.
     pub(super) selected: usize,
 }
 
-/// Whether the built-in taskbar paints: it stays the no-shell fallback and is
-/// hidden once a `"shell"` subscriber registers.
-pub(super) fn taskbar_visible(shell: Option<&ShellSub>) -> bool {
-    shell
-        .map(|shell| shell.role != display::ROLE_SHELL)
-        .unwrap_or(true)
+/// Send one event to `sub`, recording a closed peer (`EPIPE`) as death.
+fn send_to(
+    sub: Option<&mut ShellSub>,
+    scratch: &mut Vec<u8>,
+    method: u32,
+    body: Result<Vec<u8>, libmessenger::Error>,
+) {
+    let Some(sub) = sub else {
+        return;
+    };
+    let result = display::send_event(&Endpoint::from_raw(sub.events), scratch, method, body);
+    if matches!(result, Err(messenger::Error::Errno(code)) if code == -messenger::errno::EPIPE) {
+        sub.dead = true;
+    }
 }
 
-/// Set by [`notify_shell`] when the subscriber's event endpoint reports
-/// `EPIPE` (issue #175): the shell process died without unsubscribing. The
-/// main loop checks this after every event/request batch, drops the stale
-/// subscription and repaints so the fallback taskbar returns.
-static SHELL_DEAD: AtomicBool = AtomicBool::new(false);
-
 impl Compositor {
-    /// Send one shell event to the subscriber. A closed peer (`EPIPE`) is
-    /// recorded in [`SHELL_DEAD`] instead of being silently ignored, so the
-    /// caller can drop the subscription (issue #175).
-    fn notify_shell(&mut self, method: u32, body: Result<Vec<u8>, libmessenger::Error>) {
-        let Some(shell) = self.shell.as_ref() else {
-            return;
-        };
-        let result = display::send_event(
-            &Endpoint::from_raw(shell.events),
-            &mut self.scratch,
-            method,
-            body,
-        );
-        if let Err(messenger::Error::Errno(code)) = result {
-            if code == -messenger::errno::EPIPE {
-                SHELL_DEAD.store(true, Ordering::Relaxed);
-            }
+    /// Send one shell event to the shell and the observer. The body is only
+    /// copied when there is an observer (the bump allocator never reclaims).
+    pub(super) fn notify_shell(&mut self, method: u32, body: Result<Vec<u8>, libmessenger::Error>) {
+        if self.observer.is_some() {
+            send_to(
+                self.observer.as_mut(),
+                &mut self.scratch,
+                method,
+                body.clone(),
+            );
         }
+        send_to(self.shell.as_mut(), &mut self.scratch, method, body);
     }
 
     /// Tell the shell surface `id` changed (created/destroyed/moved/minimized/
@@ -103,7 +102,7 @@ impl Compositor {
             focused: self.focused == Some(surface.id),
             title: matches!(kind, wire::CHANGE_CREATED | wire::CHANGE_TITLE)
                 .then(|| surface.title.clone()),
-            role: surface.role(),
+            role: surface.role,
             maximized: surface.maximized.is_some(),
         };
         self.notify_shell(
@@ -136,23 +135,55 @@ impl Compositor {
         );
     }
 
-    /// Forward the global start-menu hotkey to the shell.
+    /// Forward the global start-menu hotkey to the shell (nothing happens
+    /// without one: `xuid` has no menu of its own since issue #157).
     pub(super) fn notify_start_menu(&mut self) {
         self.notify_shell(wire::METHOD_STARTMENU, Ok(Vec::new()));
     }
 
-    /// If a notification since the last check found the shell subscriber's
-    /// endpoint closed ([`SHELL_DEAD`]), drop the subscription and repaint the
-    /// full screen so the fallback taskbar returns and `GetWorkArea` reports
-    /// the full window rectangle again (issue #175).
+    /// Tell the shell a press landed outside its panels, so it closes any
+    /// popup (the start menu).
+    pub(super) fn notify_dismiss(&mut self) {
+        self.notify_shell(wire::METHOD_DISMISS, Ok(Vec::new()));
+    }
+
+    /// Whether `sender` may use the shell-only calls (`ListSurfaces`, the
+    /// window-management methods, desktop and panel surfaces): the task that
+    /// holds the shell subscription, or a privileged identity.
+    pub(super) fn is_shell_caller(&self, sender: u64) -> bool {
+        self.shell
+            .as_ref()
+            .is_some_and(|shell| shell.task == sender && !shell.dead)
+            || super::protocol::is_privileged(sender)
+    }
+
+    /// Drop the subscribers whose endpoint was found closed. Losing the shell
+    /// returns the work area to the whole screen; its desktop and panels are
+    /// reaped like any dead client's surfaces, and every window stays.
     pub(super) fn reap_dead_shell(&mut self) {
-        if !SHELL_DEAD.swap(false, Ordering::Relaxed) || self.shell.take().is_none() {
-            return;
+        if self.observer.as_ref().is_some_and(|sub| sub.dead) {
+            if let Some(sub) = self.observer.take() {
+                let _ = Endpoint::from_raw(sub.events).close();
+            }
         }
-        // The subscription is already gone, so the fallback taskbar is visible
-        // and the work area shrank: re-fit maximized windows.
-        self.reflow_maximized();
-        self.repaint_full();
+        if self.shell.as_ref().is_some_and(|sub| sub.dead) {
+            self.replace_shell(None);
+        }
+    }
+
+    /// Install `next` as the shell subscriber (or none), closing the endpoint
+    /// it replaces. A different task (or none) taking over resets the work
+    /// area the old shell set and re-fits maximized windows to it.
+    pub(super) fn replace_shell(&mut self, next: Option<ShellSub>) {
+        let next_task = next.as_ref().map(|sub| sub.task);
+        let Some(previous) = core::mem::replace(&mut self.shell, next) else {
+            return;
+        };
+        let _ = Endpoint::from_raw(previous.events).close();
+        if next_task != Some(previous.task) && self.work.take().is_some() {
+            self.reflow_maximized();
+            self.repaint_full();
+        }
     }
 
     /// Focus surface `id` (restoring and raising it), telling the shell about
@@ -174,8 +205,8 @@ impl Compositor {
     }
 
     /// Open (or advance) the Alt+Tab overlay. The first Tab snapshots the
-    /// visible windows and selects the one after the current focus; repeated
-    /// Tabs cycle.
+    /// windows (minimized ones too) and selects the one after the current
+    /// focus; repeated Tabs cycle.
     pub(super) fn alt_tab_open(&mut self) {
         match &mut self.alt_tab {
             Some(tab) if !tab.order.is_empty() => {
@@ -185,7 +216,7 @@ impl Compositor {
                 let order: Vec<u64> = self
                     .surfaces
                     .iter()
-                    .filter(|surface| !surface.desktop && !surface.minimized)
+                    .filter(|surface| surface.is_window())
                     .map(|surface| surface.id)
                     .collect();
                 if order.is_empty() {

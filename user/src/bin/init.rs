@@ -90,6 +90,8 @@ mod protocol;
 mod selftest;
 #[path = "init/service.rs"]
 mod service;
+#[path = "init/sessions.rs"]
+mod sessions;
 #[path = "init/shutdown.rs"]
 mod shutdown;
 #[path = "init/state.rs"]
@@ -110,7 +112,10 @@ use user::sys;
 use autostart::Autostart;
 use installed::InstalledApps;
 use protocol::{serve_pending, StatusCache, Supervisor};
-use selftest::{selftest_launch_args, selftest_launch_cap, selftest_launch_policy, LaunchSelftest};
+use selftest::{
+    selftest_launch_args, selftest_launch_cap, selftest_launch_policy, selftest_shell_supervision,
+    LaunchSelftest,
+};
 use state::{Phase, Service, BOOT_EVIDENCE, BOOT_SELFTESTS, MANIFEST};
 use supervise::{child_exited, spawn_service, start_ready, wake_deadline};
 
@@ -153,6 +158,8 @@ fn run() -> messenger::Result<()> {
         selftest_launch_policy();
         selftest_launch_cap();
         selftest_launch_args();
+        selftest_shell_supervision();
+        sys::write_str(sessions::selftest());
         stop_order::selftest_stop_order();
     }
     start_ready(&mut services, &mut broker);

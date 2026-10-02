@@ -40,16 +40,17 @@ pub(super) fn raise(surfaces: &mut Vec<Surface>, id: u64) {
     }
 }
 
-/// The topmost visible window's id (desktops are never focusable).
+/// The topmost visible window's id (the desktop and panels are never
+/// focusable).
 pub(super) fn topmost_visible(surfaces: &[Surface]) -> Option<u64> {
     surfaces
         .iter()
         .rev()
-        .find(|surface| !surface.desktop && !surface.minimized)
+        .find(|surface| surface.is_window() && !surface.minimized)
         .map(|surface| surface.id)
 }
 
-/// Focus a taskbar entry: restore it if minimized, raise it, and focus it.
+/// Restore a window if minimized, raise it, and focus it.
 pub(super) fn restore(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>, id: u64) {
     if let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) {
         surface.minimized = false;
@@ -153,6 +154,7 @@ impl Compositor {
                 tab.selected = 0;
             }
         }
+        self.forget_layer(id);
         remove_surface(&mut self.surfaces, id);
         if self.focused == Some(id) {
             self.focused = topmost_visible(&self.surfaces);
@@ -179,7 +181,7 @@ pub(super) fn remove_surface(surfaces: &mut Vec<Surface>, id: u64) {
 pub(super) fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>) {
     if surfaces
         .iter()
-        .filter(|surface| !surface.desktop)
+        .filter(|surface| surface.is_window())
         .all(|surface| surface.minimized)
     {
         *focused = None;
@@ -189,7 +191,7 @@ pub(super) fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>
     if let Some(current) = current_id.and_then(|id| surfaces.iter().position(|s| s.id == id)) {
         for step in 1..=surfaces.len() {
             let index = (current + step) % surfaces.len();
-            if !surfaces[index].desktop
+            if surfaces[index].is_window()
                 && !surfaces[index].minimized
                 && Some(surfaces[index].id) != current_id
             {
@@ -203,7 +205,7 @@ pub(super) fn cycle_focus(surfaces: &mut Vec<Surface>, focused: &mut Option<u64>
     // No other visible surface: focus (and raise) the first visible one.
     if let Some(id) = surfaces
         .iter()
-        .find(|surface| !surface.desktop && !surface.minimized)
+        .find(|surface| surface.is_window() && !surface.minimized)
         .map(|surface| surface.id)
     {
         raise(surfaces, id);
@@ -255,6 +257,11 @@ impl Compositor {
 
 /// A bare surface for the create-focus self-test: no buffers, no chrome.
 pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
+    let role = if desktop {
+        wire::ROLE_DESKTOP
+    } else {
+        wire::ROLE_WINDOW
+    };
     Surface {
         id,
         title: String::new(),
@@ -272,7 +279,8 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         maximized: None,
         slots: Default::default(),
         minimized,
-        desktop,
+        role,
+        icon: None,
         input_session: false,
     }
 }

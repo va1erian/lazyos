@@ -10,7 +10,7 @@
   {"at": 2.6, "mouse_move": [-300, -300]},
   {"at": 2.8, "mouse_move": [-300, -300]},
   {"at": 3.0, "mouse_move": [-300, -300]},
-  {"at": 3.4, "mouse_move": [30, 703]},
+  {"at": 3.4, "mouse_move": [172, 704]},
   {"at": 3.8, "mouse_click": "left"},
   {"at": 4.6, "shot": "01b_terminal_focused"},
   {"at": 5.2, "type": "echo $((6*7))"},

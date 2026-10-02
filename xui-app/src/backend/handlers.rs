@@ -12,7 +12,7 @@ use xui_core::backend::{
 use xui_core::router::WidgetHost;
 use xui_core::{Rect, Theme};
 
-use crate::client_window::ClientWindow;
+use crate::client_window::{ClientWindow, SurfaceRole};
 use crate::sys;
 
 use super::geometry::absolute_bounds;
@@ -78,9 +78,11 @@ impl Backend for LazyOSBackend {
         let height = spec.height.to_px(dpi).value().max(1) as u32;
         // A client opens one surface per window, so the Files explorer's
         // one-window-per-folder model works; the connection is shared.
+        // The role applies to this window only (see `set_next_role`).
+        let role = self.next_role.take();
         let client = match &self.mode {
             Mode::Client(state) => Some(
-                ClientWindow::open(state.borrow().client, width, height, &spec.title)
+                ClientWindow::open(state.borrow().client, width, height, &spec.title, role)
                     .map_err(BackendError::Other)?,
             ),
             Mode::Owner { .. } => None,
@@ -91,9 +93,14 @@ impl Backend for LazyOSBackend {
             (window.rect.0 as u32, window.rect.1 as u32)
         });
         // Declare the window resizable (if the app opted in) right after
-        // `CreateSurface`, before any input can reach it.
+        // `CreateSurface`, before any input can reach it. The desktop and
+        // panels are chromeless and fixed-size.
+        let hints = self
+            .size_hints
+            .get()
+            .filter(|_| role == SurfaceRole::Window);
         if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =
-            (self.size_hints.get(), client.as_ref(), &self.mode)
+            (hints, client.as_ref(), &self.mode)
         {
             let _ =
                 state

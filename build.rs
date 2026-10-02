@@ -341,7 +341,10 @@ fn main() {
         }
     }
 
-    xui_embed::embed_xui_apps(&mut files, desktop);
+    // The desktop shell (issue #157), on by default with the desktop profile.
+    println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
+    let shell = xui_embed::shell_enabled(desktop, services, xuid);
+    xui_embed::embed_xui_apps(&mut files, desktop, shell);
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.

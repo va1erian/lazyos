@@ -12,14 +12,16 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
     return dict(SIMPLE_BUILDS)[build_label], iface_label
 
 
-def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, devices_var,
+def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
+                     devices_var,
                      on_start) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
-    ``SIMPLE_BUILDS`` / ``SIMPLE_INTERFACES`` label; ``lazyrad_var`` is a Tk
-    boolean for the LazyRAD IDE, ``devices_var`` one for opening the Devices
-    app at boot; ``on_start`` runs the plan.
+    ``SIMPLE_BUILDS`` / ``SIMPLE_INTERFACES`` label; ``lazyrad_var``,
+    ``shell_var`` and ``devices_var`` are Tk booleans for the LazyRAD IDE, the
+    LazyShell desktop and opening the Devices app at boot; ``on_start`` runs
+    the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -46,6 +48,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, devic
 
     apps = ttk.LabelFrame(parent, text="Extras (Desktop)")
     apps.pack(fill="x", padx=8, pady=6)
+    ttk.Checkbutton(apps, text="LazyShell desktop (taskbar, start menu, desktop icons)",
+                    variable=shell_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="LazyRAD IDE (builds it; add it in Settings -> Menu)",
                     variable=lazyrad_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="Open the Devices app at boot (device owners and driver rules)",

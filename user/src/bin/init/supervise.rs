@@ -186,11 +186,7 @@ pub(super) fn child_exited(
     if launched {
         sys::write_str(&format!("INIT:LAUNCH:EXIT app={name} status={status}\n"));
     }
-    let restart = match desired {
-        Restart::Always => true,
-        Restart::OnFailure => status != 0,
-        Restart::Once => false,
-    };
+    let restart = restarts_after(desired, status);
     if restart {
         services[index].restarts += 1;
     }
@@ -272,6 +268,17 @@ pub(super) fn child_exited(
             status,
             "",
         );
+    }
+}
+
+/// Whether a row with restart policy `policy` comes back after exiting with
+/// `status`. `Always` covers every exit, including a kill (the desktop shell
+/// relies on it: killing LazyShell brings it back).
+pub(super) fn restarts_after(policy: Restart, status: u64) -> bool {
+    match policy {
+        Restart::Always => true,
+        Restart::OnFailure => status != 0,
+        Restart::Once => false,
     }
 }
 

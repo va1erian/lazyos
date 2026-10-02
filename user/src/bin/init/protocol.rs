@@ -15,6 +15,7 @@ use user::sys;
 use super::apps::app_infos;
 use super::installed::InstalledApps;
 use super::launch::{actor, launch};
+use super::sessions;
 use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
 use super::stop::stop_app;
@@ -103,7 +104,12 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
         shutdown,
     } = state;
     match message.interface_id() {
-        router::INTERFACE => broker.handle(message),
+        router::INTERFACE => {
+            // `logind`'s login events also tell the launch path who owns
+            // each session (see `sessions.rs`).
+            sessions::observe(services, message);
+            broker.handle(message)
+        }
         services::INIT_INTERFACE => match message.method() {
             services::init::METHOD_SERVICES => cache.parcel(services),
             services::init::METHOD_LISTAPPS => {

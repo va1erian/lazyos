@@ -17,6 +17,7 @@ members = [
     "crates/settings",
     "crates/confd-editor",
     "crates/testkit",
+    "crates/shell",
 ]
 
 [dependencies]
@@ -62,6 +63,15 @@ xui-settings = { path = "crates/settings" }
 uitheme = { path = "../libs/uitheme" }
 # The Config app core (registry tree editor); the binary supplies confd.
 xui-confd-editor = { path = "crates/confd-editor" }
+# LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
+# `xui-shell` binary paints them and talks to xuid, init, confd and timed.
+lazyshell = { path = "crates/shell" }
+# The shell themes its surfaces from the same `sys/ui/*` palette as xuid
+# (through the `uitheme` dependency above).
+confd = { path = "../libs/confd" }
+deskmenu = { path = "../libs/deskmenu" }
+# The desktop's launcher icons (the Global Village set the Files app ships).
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
 
 [[bin]]
 name = "xui-m0"
@@ -126,3 +136,8 @@ path = "src/bin/confd_editor.rs"
 [[bin]]
 name = "xui-installer"
 path = "src/bin/installer.rs"
+
+# LazyShell (issue #157): desktop, taskbar, start menu and `os.lazy.shell`.
+[[bin]]
+name = "xui-shell"
+path = "src/bin/lazyshell.rs"

@@ -3,7 +3,7 @@
 //!
 //! The clock and the zone go to `timed` ([`System::set_time`] needs
 //! `CAP_SYS_TIME`, [`System::set_zone`] persists to confd); the format
-//! toggles are confd keys `xuid` follows live ([`time_ops`]).
+//! toggles are confd keys the LazyShell taskbar follows live ([`time_ops`]).
 
 use xui_core::app::Ui;
 use xui_core::backend::Result;

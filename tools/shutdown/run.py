@@ -8,7 +8,7 @@ Two boots on one fresh ext2 data disk:
    `shutdown`. QEMU (run with `-no-shutdown`) pauses at the power-off and the
    last frame, the shutting-down overlay, is captured.
 2. **Menu reboot.** The Terminal reads the nonce back (it survived the stop),
-   then the desktop menu's "Restart..." is chosen and confirmed. The
+   then LazyShell's start menu "Restart..." is chosen and confirmed. The
    "Restarting..." overlay is captured once QEMU (`-no-reboot -no-shutdown`)
    pauses on the reset.
 
@@ -53,12 +53,13 @@ def home(start: float) -> list[dict]:
 
 
 def focus_terminal() -> list[dict]:
-    """Wait for the desktop, then click the Terminal's taskbar button."""
+    """Wait for the desktop, then click into the Terminal's window (its
+    taskbar entry would minimize it when it already has the focus)."""
     return [
         {"wait_for": "TERM:UP:PASS", "timeout": 240},
         {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
         *home(2.0),
-        {"at": 3.4, "mouse_move": [30, 703]},
+        {"at": 3.4, "mouse_move": [400, 58]},
         {"at": 3.8, "mouse_click": "left"},
         {"at": 5.0, "type": "echo ready"},
         {"at": 5.5, "key": "enter", "until": "TERM:OUT:ready", "timeout": 30, "retries": 2},
@@ -89,25 +90,31 @@ def power_off_session(nonce: str) -> list[dict]:
 
 
 def reboot_session(nonce: str) -> list[dict]:
-    # The desktop menu opened at (1000, 200): rows are 20 px apart from y=214;
-    # the 12 default entries come first, then "Restart..." (row 12).
+    # LazyShell's start button is at (44, 704); the menu is bottom-anchored on
+    # the taskbar, so "Restart..." (the second-to-last row) is at (134, 648)
+    # whatever the configured rows. The confirmation swaps the power rows in
+    # place: "Restart now" lands under the pointer. Neither click retries, so
+    # a missed marker can never turn into a second, confirming click.
     return [
         *focus_terminal(),
         *command(f"cat {NOTE}", f"TERM:OUT:{nonce}"),
         {"wait_for": f"TERM:OUT:{nonce}", "timeout": 30},
         *home(1.0),
-        {"at": 2.4, "mouse_move": [500, 100]},
-        {"at": 2.6, "mouse_move": [500, 100]},
-        {"at": 3.0, "mouse_click": "right", "until": "XUID:MENU:OPEN", "timeout": 20,
+        {"at": 2.4, "mouse_move": [44, 704]},
+        {"at": 3.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 20,
          "retries": 2},
-        {"wait_for": "XUID:MENU:OPEN", "timeout": 5},
-        {"at": 1.0, "shot": "menu_power_rows"},
-        {"at": 1.4, "mouse_move": [20, 254]},
-        {"at": 1.8, "mouse_click": "left", "until": "XUID:POWER:CONFIRM", "timeout": 20},
-        {"wait_for": "XUID:POWER:CONFIRM", "timeout": 5},
-        {"at": 1.0, "shot": "menu_confirm"},
-        {"at": 1.4, "mouse_move": [0, -240]},
-        {"at": 1.8, "mouse_click": "left", "until": "INIT:SHUTDOWN:BEGIN", "timeout": 20},
+        # `wait`, not `at`: an `until` is no gate, so `at` would fire the
+        # confirming click at once, and a second press that close is a double
+        # click, which the confirmation row ignores on purpose.
+        {"wait": 0.5},
+        {"mouse_move": [90, -56]},
+        {"wait": 1.0},
+        {"shot": "menu_power_rows"},
+        {"mouse_click": "left", "until": "SHELL:POWER:CONFIRM", "timeout": 20},
+        {"wait": 1.5},
+        {"shot": "menu_confirm"},
+        {"mouse_click": "left", "until": "SHELL:POWER:REQUEST mode=1", "timeout": 20},
+        {"wait_for": "INIT:SHUTDOWN:BEGIN", "timeout": 30},
         {"wait_for": "XUID:POWER:OVERLAY", "timeout": 30},
         *final_frame("reboot_overlay"),
     ]
@@ -167,6 +174,10 @@ def main() -> int:
         failures.append("the data volume was not clean after the power-off")
     if f"TERM:OUT:{nonce}" not in log:
         failures.append(f"{NOTE} did not survive the power-off")
+    if "SHELL:POWER:REQUEST mode=1 phase=" not in log:
+        failures.append("LazyShell's start menu did not request the reboot")
+    if "INIT:LAUNCH:PASS app=lazyshell" in log.split("INIT:SHUTDOWN:BEGIN", 1)[-1]:
+        failures.append("LazyShell was started again during the shutdown")
 
     for failure in failures:
         print(f"FAIL: {failure}")

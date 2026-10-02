@@ -47,7 +47,7 @@ Reboot and power-off are the same sequence until that last call.
 |---|---|---|---|
 | 0. Request | caller -> `init` | `init.Shutdown(mode, reason, force)` replies at once with the phase. | - |
 | 1. Freeze | `init` | `stopping()` is set: no restart, no autostart, `Launch` is `EBUSY`. Rows waiting to start or restart are retired. The kernel watchdog is armed (`power(ARM_WATCHDOG, op)`). Phase `stopping` is published. | - |
-| 2. Apps | `init` | Every launched app gets `SIGTERM` (phase `apps`). `xuid` paints the shutting-down overlay as soon as it sees the topic. | 5 s each, then `SIGKILL` |
+| 2. Apps | `init` | Every launched app gets `SIGTERM` (phase `apps`), LazyShell included: its `Restart::Always` row is retired like any other, never restarted. `xuid` paints the shutting-down overlay as soon as it sees the topic. | 5 s each, then `SIGKILL` |
 | 3. Services | `init` | The manifest services in [`stop_order`](../user/src/bin/init/stop_order.rs) order (phase `services`): a row is stopped once no live row depends on it and no lower-tier row is live. A service that serves `os.lazy.lifecycle.v1` (`confd`, `logd`) gets its `Shutdown` message; any other gets `SIGTERM`. Independent rows stop together. | 3 s each, then `SIGKILL` |
 | 4. Persist | `confd`, `logd` | `confd` flushes its store's volume (`CONFD:STOP`); its writes are synchronous, so none is in flight. `logd` drains its feeds and verifies its chain (`LOGD:STOP`). Both are in the persist tier, so they stop after every ordinary service. | (phase 3's) |
 | 5. Quiesced | `init` | Every row is reaped; `init: userspace quiesced (killed=N)`. Phase `power` is published. | - |
@@ -105,9 +105,19 @@ there; the sync is safe regardless (each write is atomic under the VFS lock).
   `CAP_SYS_ADMIN`, checked before the op is decoded.
 - **Clients**: `powerctl` (`POWERCTL.ELF`), run by the shell as `shutdown`,
   `poweroff`, `halt` (`powerctl poweroff`) and `reboot` (`powerctl reboot`);
-  `-f` sets `force`. The desktop menu's "Restart..." and "Shut down..." rows
-  (after a confirmation) call `init.Shutdown` directly. Nothing but `init`
-  calls `power()`.
+  `-f` sets `force`. LazyShell's start menu (`xui-app/src/shell/power.rs`,
+  rows in `xui-app/crates/shell/src/menu/power.rs`) ends with "Restart..." and
+  "Shut down..."; choosing one swaps the two rows in place for "Restart now" /
+  "Shut down now" and "Cancel", and only the confirmation calls `init.Shutdown`
+  (`force = false`, reason "requested from the start menu"; markers
+  `SHELL:POWER:CONFIRM`, `SHELL:POWER:REQUEST mode=<m> phase=<p>`,
+  `SHELL:POWER:REQUEST:FAIL mode=<m> errno=<e>`). The desktop image's
+  LazyShell is autostarted by `init` as root (uid 0, session 0) and is
+  admitted; a LazyShell launched into a user's login session is admitted by
+  its session id; an installed (labelled) app never is. The shell raises no
+  overlay itself: `xuid` follows `init`'s retained `system/power/state`, which
+  `init` publishes before it stops anything. Nothing but `init` calls
+  `power()`.
 
 ## 5. Failure handling
 
@@ -154,7 +164,7 @@ dependency, tiers in order) and on a dependency cycle.
 `python tools/shutdown/run.py` builds the desktop image and boots it twice on a
 fresh data disk: the Terminal writes a file to `/data` and types `shutdown`;
 the second boot reads the file back, finds `/data` clean, and reboots through
-the desktop menu. `judge.py` checks each serial log (below);
+LazyShell's start menu. `judge.py` checks each serial log (below);
 `test_judge.py` proves the judge fails when it should. The two standalone
 session scripts drive the same paths without the judge:
 
@@ -168,8 +178,10 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 ```
 
 `shutdown_shell.json` types `shutdown` in the Terminal; `shutdown_menu.json`
-opens the desktop menu, picks "Restart...", confirms, and captures the
-"Restarting..." overlay. In the serial log the phases appear in order
+opens LazyShell's start menu (the "LazyOS" button at (44, 704)), picks
+"Restart..." at (134, 648) (the power rows are the menu's last two, centred at
+`H - 72` and `H - 48`), confirms with "Restart now" in the same place, and
+captures the "Restarting..." overlay. In the serial log the phases appear in order
 (`INIT:SHUTDOWN:BEGIN`, `PHASE stopping`, `apps`, `services`, `CONFD:STOP`,
 `LOGD:STOP`, `INIT:SHUTDOWN:QUIESCED`, `PHASE power`), then
 `power: filesystems synced` and `power: shutdown requested` (or `reboot
@@ -184,7 +196,7 @@ had the VM not stopped, which the judge rejects.
 |---|---|---|
 | S-a lifecycle plumbing | `Stopping` phase and freeze in `init`, `Shutdown` MIDL method, ordered stop with deadlines, `powerctl` and the shell commands | built |
 | S-b service cooperation | `os.lazy.lifecycle.v1`; `confd` flushes and `logd` drains on stop; `system/power/state` | built |
-| S-c GUI | desktop menu "Restart..." / "Shut down..." with a confirmation, the shutting-down overlay, input ignored under it | built |
+| S-c GUI | start menu "Restart..." / "Shut down..." with a confirmation (in `xuid`'s menu at first, LazyShell's since #157), the shutting-down overlay, input ignored under it | built |
 | S-d kernel hardening | watchdog, triple-fault reboot fallback, live-task warning at sync, `SIGTERM` delivery to native tasks at syscall return | built; FADT ACPI deferred (section 8) |
 | S-e docs | this page, `architecture/processes.md`, `architecture/userland.md`, `platform-plan.md` | built |
 

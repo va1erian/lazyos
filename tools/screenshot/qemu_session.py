@@ -63,6 +63,17 @@ input when it did not (a dropped keystroke or click under load):
 marker already printed by an earlier step does not count. ``timeout`` is per
 attempt; ``retries`` is the number of re-sends after the first (default 0).
 
+A ``wait_for`` gate can also *capture* part of the marker for later steps:
+``"capture": "<name>"`` stores the regex's first group (or the whole match)
+from the matched line, and a later ``type``, ``wait_for`` or ``until``
+substitutes ``${<name>}`` (a captured value used in a regex marker is inserted
+as is, so capture digits or other regex-safe text). That is
+how a script kills a process whose pid only the guest knows:
+
+    {"wait_for": "INIT:LAUNCH:PASS app=lazyshell pid=(\\d+)", "regex": true,
+     "capture": "shell_pid"},
+    {"type": "kill -9 ${shell_pid}"}
+
 Once a ``wait_for`` gate is satisfied, later ``at`` values count from that
 moment instead of from boot, so a timed choreography (e.g. a sequence of
 relative mouse moves that cannot be retried piecemeal) keeps its internal
@@ -159,6 +170,15 @@ class SerialLog:
                 )
             time.sleep(_POLL_SECONDS)
 
+    def nth_match(self, marker: str, regex: bool = False, since: int = 0,
+                  occurrence: int = 1) -> re.Match | None:
+        """The ``occurrence``-th match of ``marker`` at/after ``since``, if any."""
+        pattern = re.compile(marker if regex else re.escape(marker))
+        for count, match in enumerate(pattern.finditer(self.text(), since), 1):
+            if count == occurrence:
+                return match
+        return None
+
     def tail(self, lines: int = 40) -> str:
         return "\n".join(self.text().splitlines()[-lines:])
 
@@ -221,6 +241,24 @@ def perform(qmp: Qmp, action: str, step: dict) -> None:
         qmp.mouse_abs(x, y)
 
 
+_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def substitute(text: str, variables: dict[str, str], index: int) -> str:
+    """Replace each ``${name}`` in ``text`` with a captured value."""
+    def value(match: re.Match) -> str:
+        name = match.group(1)
+        if name not in variables:
+            raise SystemExit(f"step {index}: ${{{name}}} was never captured")
+        return variables[name]
+    return _VARIABLE.sub(value, text)
+
+
+def captured(match: re.Match) -> str:
+    """What a ``capture`` stores: the first group, or the whole match."""
+    return match.group(1) if match.re.groups else match.group(0)
+
+
 def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
               serial: SerialLog | None = None, wait_timeout: float = 240.0,
               timeline: list[dict] | None = None) -> list[str]:
@@ -232,6 +270,8 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
     # `at` counts from boot until a `wait_for` gate is satisfied, then from the
     # moment of the latest gate, so a timed choreography starts from readiness.
     origin = started
+    # Values `wait_for` gates captured, for `${name}` in later `type` steps.
+    variables: dict[str, str] = {}
     for index, step in enumerate(steps):
         if "at" in step:
             remaining = float(step["at"]) - (time.time() - origin)
@@ -243,6 +283,13 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
             raise SystemExit(f"step {index} has no recognised action: {step}")
         if "until" in step and action not in _INPUT_ACTIONS:
             raise SystemExit(f"step {index}: 'until' only applies to input actions: {step}")
+        capture = step.get("capture")
+        if capture is not None and (action != "wait_for" or not isinstance(capture, str)
+                                    or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", capture)):
+            raise SystemExit(f"step {index}: 'capture' must name a variable on a wait_for: {step}")
+        for key in ("type", "wait_for", "until"):
+            if isinstance(step.get(key), str):
+                step = {**step, key: substitute(step[key], variables, index)}
 
         # A --fail-on marker (an app's FAIL line, a kernel panic) ends the
         # session now rather than after every remaining gate times out.
@@ -288,6 +335,11 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
                                 occurrence=occurrence)
             except StepFailed as failure:
                 raise StepFailed(f"step {index} (wait_for): {failure}") from None
+            if capture:
+                match = serial.nth_match(step["wait_for"], bool(step.get("regex")),
+                                         occurrence=occurrence)
+                variables[capture] = captured(match) if match else ""
+                entry["captured"] = {capture: variables[capture]}
             origin = time.time()
             entry["seen"] = round(origin - started, 2)
             print(f"[{entry['seen']:7.2f}s] {step['wait_for']}", flush=True)

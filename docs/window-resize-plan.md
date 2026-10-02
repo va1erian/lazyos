@@ -144,8 +144,9 @@ route into the new modules):
   `Compositor::resize: Option<ResizeDrag>`; `begin_resize`, `resize_move`,
   `finish_resize`, `cancel_resize`.
 - `maximize.rs` — `toggle_maximize(id)`, `maximize(id)`, `unmaximize(id)`,
-  `reflow_maximized()` (re-fit maximized windows when the work area changes,
-  e.g. a `"shell"` subscriber hides/shows the fallback taskbar).
+  `reflow_maximized()` (re-fit maximized windows when the work area changes:
+  the shell's `SetWorkArea`, or the shell going away; issue #157 removed the
+  fallback taskbar this plan was written against).
 
 Constants go in `theme.rs`: `RESIZE_GRIP`, `CORNER_GRIP`, `MIN_CONTENT_W`
 (enough for the three buttons plus some title: ~120), `MIN_CONTENT_H` (~40),
@@ -155,8 +156,8 @@ Constants go in `theme.rs`: `RESIZE_GRIP`, `CORNER_GRIP`, `MIN_CONTENT_W`
 ### 4. Off-screen movement
 
 Replace the clamp in `move_dragged_window` with `geometry::keep_reachable`,
-where `work` is the work area (`GetWorkArea` semantics: screen minus the
-fallback taskbar when it is visible):
+where `work` is the work area (`GetWorkArea` semantics: what the shell set
+with `SetWorkArea`, else the whole screen):
 
 - `x` may range so that at least `TITLE_REACHABLE_W` pixels of the title bar
   stay on screen horizontally: `x in [work.x - window.w + TITLE_REACHABLE_W,
@@ -230,9 +231,8 @@ Audit everything that assumed windows are on screen, and fix what breaks:
   window (optional stretch: drag-to-restore). Minimize/restore from the
   taskbar keeps the maximized state (the iconify/deiconify phases use
   `window()`, so they already animate from/to the maximized rect).
-- **Work-area changes:** when the shell subscribes/unsubscribes (taskbar
-  visibility changes), call `reflow_maximized()` to re-fit maximized windows
-  and send them `Configure`.
+- **Work-area changes:** when the shell sets a work area or goes away, call
+  `reflow_maximized()` to re-fit maximized windows and send them `Configure`.
 - `ListSurfaces` rows report `maximized`.
 
 ### 7. Clients

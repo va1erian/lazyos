@@ -204,7 +204,7 @@ pub struct Theme {
     pub title_bg_inactive: Color,
     /// Window border.
     pub border: Color,
-    /// Fallback taskbar strip.
+    /// The theme's taskbar colour (for the shell's taskbar).
     pub taskbar: Color,
     /// Text on an inactive title bar.
     pub text: Color,
@@ -247,6 +247,8 @@ pub enum ShellEvent {
     FocusChanged(Option<u64>),
     /// The global start-menu hotkey (Ctrl+Esc or Super) fired.
     StartMenu,
+    /// A pointer press landed outside every panel: close popups (issue #157).
+    Dismiss,
 }
 
 /// Decode a shell event from a received message, or `None` when the
@@ -262,6 +264,7 @@ pub fn decode_shell_event(message: &Message) -> Option<ShellEvent> {
             Some(ShellEvent::FocusChanged(args.surface))
         }
         wire::METHOD_STARTMENU => Some(ShellEvent::StartMenu),
+        wire::METHOD_DISMISS => Some(ShellEvent::Dismiss),
         _ => None,
     }
 }

@@ -1,15 +1,20 @@
 //! Drag & drop and shell-protocol requests (issue #194 split): `DragStart`,
-//! `DragCancel`, `Subscribe`, `ListSurfaces`, `GetWorkArea` and `GetTheme`.
+//! `DragCancel`, `Subscribe` (with the shell authorization rule of issues
+//! #157 and #447), `ListSurfaces`, `GetWorkArea` and `GetTheme`. The
+//! LazyShell window-management calls (methods 36-41) live in `shellcalls.rs`.
 
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire};
 use user::messenger::{self, Endpoint, Message};
+use user::sys::Cred;
 
 use super::compositor::Compositor;
 use super::protocol::{
-    color_u32, drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply,
+    color_u32, drop_rejected_handle, empty_reply, error_reply, privileged, sender_cred, typed_reply,
 };
 use super::shell::ShellSub;
+use super::shellcalls::shell_allowed;
+use super::surface::Surface;
 use super::theme::{accent, border_color, mode, taskbar_bg, title_bg, title_bg_focus, title_text};
 use super::window::surface_by_id;
 
@@ -52,7 +57,14 @@ impl Compositor {
         empty_reply(message.method())
     }
 
-    /// `Subscribe`: register the (single) shell event subscriber.
+    /// `Subscribe`: register the shell, or a privileged observer.
+    ///
+    /// The `shell` role is accepted from a privileged identity, or from a
+    /// task of the session that owns the display (the first non-zero
+    /// session accepted as the shell), so the graphical session's
+    /// LazyShell needs no capability and a restarted one replaces its
+    /// predecessor. Any other role is an observer: it needs privilege and
+    /// can never displace the shell (issue #447).
     pub(super) fn subscribe(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let role = wire::decode_subscribe_args(body)
             .unwrap_or_default()
@@ -61,39 +73,51 @@ impl Compositor {
             drop_rejected_handle(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }
-        if role == display::ROLE_SHELL && !is_privileged(message.sender) {
-            // Only an authorized shell identity may hide the fallback taskbar
-            // and receive every surface/focus event (issue #175); anyone
-            // else's claim is refused outright.
+        let cred = sender_cred(message.sender);
+        let sub = ShellSub {
+            events: message.first_handle,
+            task: message.sender,
+            dead: false,
+        };
+        if role != display::ROLE_SHELL {
+            if !cred.is_some_and(|cred| privileged(&cred)) {
+                drop_rejected_handle(message);
+                return error_reply(message.method(), messenger::errno::EACCES);
+            }
+            // A re-subscribe replaces the endpoint, so close the one it
+            // replaces (issue #175: it was leaked).
+            if let Some(previous) = self.observer.replace(sub) {
+                let _ = Endpoint::from_raw(previous.events).close();
+            }
+            return empty_reply(message.method());
+        }
+        let Some(cred) = cred.filter(|cred| self.may_be_shell(cred)) else {
+            // Every window title, geometry and focus change is the shell's
+            // (issue #175): anyone else's claim is refused outright.
             drop_rejected_handle(message);
             return error_reply(message.method(), messenger::errno::EACCES);
+        };
+        if self.display_session.is_none() && cred.session != 0 {
+            self.display_session = Some(cred.session);
         }
-        // One subscriber at a time; a re-subscribe replaces the endpoint, so
-        // close the one it replaces (issue #175: it was leaked).
-        let previous = self.shell.replace(ShellSub {
-            role,
-            events: message.first_handle,
-        });
-        if let Some(previous) = previous {
-            let _ = Endpoint::from_raw(previous.events).close();
-        }
-        // Registering a shell can hide or reveal the fallback taskbar, which
-        // changes the work area: re-fit maximized windows to it.
-        self.reflow_maximized();
-        self.repaint_full();
+        self.replace_shell(Some(sub));
         empty_reply(message.method())
     }
 
-    /// `ListSurfaces`: one row per surface, in z-order (privileged).
+    /// Whether `cred` may hold the shell role (see [`Compositor::subscribe`]
+    /// and [`shell_allowed`]).
+    fn may_be_shell(&self, cred: &Cred) -> bool {
+        let live = self.shell.as_ref().is_some_and(|shell| !shell.dead);
+        shell_allowed(privileged(cred), cred.session, self.display_session, live)
+    }
+
+    /// `ListSurfaces` (shell-only): one row per surface, bottom first: the
+    /// desktop, the windows in z-order, then the panels.
     pub(super) fn list_surfaces(&self, message: &Message) -> Parcel {
-        if !is_privileged(message.sender) {
-            // Every window title and geometry is compositor-privileged (issue
-            // #175); a request from anyone else is refused outright.
-            return error_reply(message.method(), messenger::errno::EACCES);
-        }
-        let surfaces = self
-            .surfaces
-            .iter()
+        let layer = |keep: fn(&Surface) -> bool| self.surfaces.iter().filter(move |s| keep(s));
+        let surfaces = layer(Surface::is_desktop)
+            .chain(layer(Surface::is_window))
+            .chain(layer(Surface::is_panel))
             .map(|surface| wire::SurfaceRow {
                 id: surface.id,
                 title: surface.title.clone(),
@@ -103,7 +127,7 @@ impl Compositor {
                 h: surface.h,
                 minimized: surface.minimized,
                 focused: self.focused == Some(surface.id),
-                role: surface.role(),
+                role: surface.role,
                 maximized: surface.maximized.is_some(),
             })
             .collect();
@@ -113,8 +137,8 @@ impl Compositor {
         )
     }
 
-    /// `GetWorkArea`: with a shell registered the fallback bar is hidden, so
-    /// windows may use the whole screen.
+    /// `GetWorkArea`: the shell's work area, else the whole screen (which is
+    /// how the shell learns the screen size before it sets one).
     pub(super) fn get_work_area(&self, message: &Message) -> Parcel {
         let area = self.work_area();
         typed_reply(

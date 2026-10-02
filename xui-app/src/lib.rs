@@ -26,6 +26,8 @@ pub mod input;
 pub mod installer;
 pub mod launch;
 pub mod platform;
+pub mod server;
 pub mod services;
+pub mod shell;
 pub mod sys;
 pub mod sysinfo;

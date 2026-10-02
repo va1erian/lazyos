@@ -6,8 +6,10 @@
 //!
 //! The feed subscribes on `init`'s own topic broker (not `messengerd`'s, which
 //! `init` stops before the end), retrying quietly while `init` is not there.
-//! The overlay state is two atomics, like the menu's, so [`draw`] needs no
-//! compositor state.
+//! The overlay state is two atomics, so [`draw`] needs no compositor state.
+//! Nothing raises it but the topic: the power rows live in LazyShell's start
+//! menu (`xui-app/src/shell/power.rs`), which asks `init` for the shutdown,
+//! and `init` publishes its first phase before it stops anything.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -36,18 +38,13 @@ pub(super) fn active() -> bool {
 }
 
 /// Raise the overlay for `mode` (a `PowerMode`); `true` when it was not up.
-pub(super) fn show(mode: u32) -> bool {
+fn show(mode: u32) -> bool {
     MODE.store(mode, Ordering::Relaxed);
     let raised = !ACTIVE.swap(true, Ordering::Relaxed);
     if raised {
         sys::write_str("XUID:POWER:OVERLAY\n");
     }
     raised
-}
-
-/// Take the overlay down (the request it was raised for was refused).
-pub(super) fn hide() {
-    ACTIVE.store(false, Ordering::Relaxed);
 }
 
 /// Follows `system/power/state` on `init`'s broker.

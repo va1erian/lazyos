@@ -52,8 +52,14 @@
   "wait": 1.0
  },
  {
-  "mouse_click": "right",
-  "until": "XUID:MENU:OPEN",
+  "mouse_move": [
+   -995,
+   225
+  ]
+ },
+ {
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
   "timeout": 30,
   "retries": 2
  },
@@ -62,8 +68,8 @@
  },
  {
   "mouse_move": [
-   34,
-   53
+   90,
+   -296
   ]
  },
  {
@@ -71,9 +77,15 @@
  },
  {
   "mouse_click": "left",
-  "until": "XUID:MENU:LAUNCH:counter",
+  "until": "SHELL:LAUNCH:PASS app=counter",
   "timeout": 30,
   "retries": 1
+ },
+ {
+  "wait_for": "INIT:LAUNCH:PASS app=counter pid=(\\d+)",
+  "regex": true,
+  "capture": "counter_pid",
+  "timeout": 60
  },
  {
   "wait_for": "XUIAPP:COUNTER:PASS",
@@ -114,8 +126,8 @@
  },
  {
   "mouse_move": [
-   30,
-   703
+   172,
+   704
   ]
  },
  {
@@ -128,19 +140,23 @@
   "wait": 1.5
  },
  {
-  "type": "kill -9 18"
+  "type": "kill -9 ${counter_pid}"
  },
  {
   "wait": 1.0
  },
  {
   "key": "enter",
-  "until": "TERM:CMD:kill -9 18",
+  "until": "TERM:CMD:kill -9 ",
   "timeout": 30,
   "retries": 2
  },
  {
-  "wait_for": "XUID:REAP:SURFACE:2",
+  "wait_for": "XUID:REAP:SURFACE:",
+  "timeout": 30
+ },
+ {
+  "wait_for": "SHELL:TASKBAR:REMOVE",
   "timeout": 30
  },
  {

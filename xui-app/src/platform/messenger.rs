@@ -132,6 +132,21 @@ impl Service {
         self.call_at(interface, method, error_id, body, 0)
     }
 
+    /// [`Service::call`] that gives up at `deadline` (an absolute PIT tick;
+    /// `0` waits forever) with `-ETIMEDOUT`, for a caller whose UI must not
+    /// freeze behind a stalled service (the desktop shell).
+    pub fn call_until(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, i64> {
+        self.call_at(interface, method, error_id, body, deadline)
+            .map_err(|error| error.code)
+    }
+
     /// [`Service::call`] that gives up with `-ETIMEDOUT` after `ticks` PIT
     /// ticks, for a caller on the UI thread that must not wait forever on a
     /// peer that accepted the request but never answers (the Task Manager's

@@ -363,6 +363,41 @@
         "name": "Ping",
         "id": 35,
         "oneway": true
+      },
+      {
+        "name": "PlaceSurface",
+        "id": 36,
+        "oneway": false
+      },
+      {
+        "name": "ActivateSurface",
+        "id": 37,
+        "oneway": false
+      },
+      {
+        "name": "MinimizeSurface",
+        "id": 38,
+        "oneway": false
+      },
+      {
+        "name": "SetWorkArea",
+        "id": 39,
+        "oneway": false
+      },
+      {
+        "name": "SetIconGeometry",
+        "id": 40,
+        "oneway": false
+      },
+      {
+        "name": "HintLaunchOrigin",
+        "id": 41,
+        "oneway": false
+      },
+      {
+        "name": "Dismiss",
+        "id": 42,
+        "oneway": true
       }
     ],
     "topics": []
@@ -1075,6 +1110,38 @@
       {
         "name": "List",
         "id": 220805025,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.shell.v1",
+    "interface_id": "0x591939ff6e05f1c8",
+    "methods": [
+      {
+        "name": "Status",
+        "id": 1,
+        "oneway": false
+      },
+      {
+        "name": "ShowStartMenu",
+        "id": 2,
+        "oneway": false
+      },
+      {
+        "name": "Launch",
+        "id": 3,
+        "oneway": false
+      },
+      {
+        "name": "Refresh",
+        "id": 4,
+        "oneway": false
+      },
+      {
+        "name": "Activate",
+        "id": 5,
         "oneway": false
       }
     ],

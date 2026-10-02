@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import os
 import queue
-import shutil
 import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol
-from .catalog import (ACCELS, CARGO, DATA_IMAGE, DISKS, HOME_IMAGE, MODES, PY, ROOT,
-                      SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES, XUI_VIEWERS, build_env, build_plan,
+from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT,
+                      SCRIPTS, XUI_VIEWERS, build_env, build_plan,
                       cargo_step, format_plan, lazyrad_step, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
+from .variables import make_vars
 
 
 class Launcher:
@@ -26,7 +26,7 @@ class Launcher:
         root.geometry("1020x760")
         root.minsize(880, 620)
         self.runner = Runner()
-        self.v = self._make_vars()
+        self.v = make_vars()
         self._build()
         self._bind()
         self._on_mode()
@@ -37,65 +37,6 @@ class Launcher:
                   "Advanced: pick a mode, set the configuration, then press Run.\n", "dim")
 
     # ---------------------------------------------------------------- state
-    def _make_vars(self) -> dict:
-        """Create every Tk variable backing the controls, with sensible defaults."""
-        s = tk.StringVar
-        b = tk.BooleanVar
-        return {
-            "mode": s(value=MODES[0][0]),
-            "profile": s(value="dev"),
-            "accel": s(value="auto"),
-            "disk": s(value="virtio"),
-            "home_path": s(value=HOME_IMAGE),
-            "data_path": s(value=DATA_IMAGE),
-            "memory": s(value="256M"),
-            "times": s(value="10,14,18"),
-            "timeout": s(value="180"),
-            "abi_time": s(value="8"),
-            "abi_only": s(value=""),
-            "extra": s(value=""),
-            "out": s(value="shots"),
-            "qemu": s(value=self._find_qemu()),
-            "busybox": s(value=""),
-            "skip_build": b(value=False),
-            "headless": b(value=False),
-            "tablet": b(value=False),
-            "sound": b(value=True),
-            "abi_build": b(value=False),
-            "home_disk": b(value=True),
-            "data_disk": b(value=False),
-            "reset_os": b(value=False),
-            "desktop": b(value=False),
-            "services": b(value=False),
-            "xuid": b(value=False),
-            "shellprobe": b(value=False),
-            "msgctl": b(value=False),
-            "msgrd": b(value=False),
-            "xui_client": b(value=False),
-            "xui_app": s(value="(none)"),
-            "xui_autostart": s(value=""),
-            "lazyrad": b(value=False),
-            "lazyrad_samples": s(value=""),
-            "simple_lazyrad": b(value=False),
-            "devices": b(value=False),
-            "simple_devices": b(value=False),
-            "script": s(value=SCRIPTS[0][1]),
-            "simple_build": s(value=SIMPLE_BUILDS[0][0]),
-            "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
-        }
-
-    @staticmethod
-    def _find_qemu() -> str:
-        """Best-effort QEMU path: PATH first, then the usual Windows install."""
-        found = shutil.which("qemu-system-x86_64")
-        if found:
-            return found
-        if os.name == "nt":
-            common = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
-            if os.path.isfile(common):
-                return common
-        return ""
-
     def cfg(self) -> dict:
         """The configuration for the active tab (Simple choices or Advanced controls)."""
         if self.notebook.select() == str(self.tab_simple):
@@ -103,6 +44,7 @@ class Launcher:
                                            self.v["simple_iface"].get())
             return simple_config(self._advanced_cfg(), profile, iface,
                                  self.v["simple_lazyrad"].get(),
+                                 self.v["simple_shell"].get(),
                                  self.v["simple_devices"].get())
         return self._advanced_cfg()
 
@@ -143,6 +85,7 @@ class Launcher:
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
             "lazyrad": self.v["lazyrad"].get(),
+            "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
@@ -169,7 +112,7 @@ class Launcher:
         self.notebook.add(tab_adv, text="Advanced")
         build_simple_tab(self.tab_simple, self.v["simple_build"],
                          self.v["simple_iface"], self.v["simple_lazyrad"],
-                         self.v["simple_devices"], self._run)
+                         self.v["simple_shell"], self.v["simple_devices"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -184,6 +127,7 @@ class Launcher:
 
         g = self._group(parent, "Image configuration (build switches)")
         self._check(g, "Desktop profile (LAZYOS_DESKTOP)", "desktop")
+        self._check(g, "  LazyShell desktop (off = LAZYOS_SHELL=0)", "shell")
         self._check(g, "Services session (LAZYOS_SERVICES)", "services")
         self._check(g, "Compositor (LAZYOS_XUID)", "xuid")
         self._check(g, "Shell probe (+ LAZYOS_SHELLPROBE)", "shellprobe")
@@ -375,6 +319,7 @@ class Launcher:
         _, _, switches, xui = match[0]
         desktop = "desktop" in switches
         self.v["desktop"].set(desktop)
+        self.v["shell"].set(True)
         self.v["xui_autostart"].set(xui if desktop else "")
         self.v["services"].set("services" in switches)
         self.v["xuid"].set("xuid" in switches)

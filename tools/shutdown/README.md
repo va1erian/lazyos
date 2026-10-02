@@ -14,8 +14,9 @@ python tools/shutdown/judge.py shots/shutdown/poweroff/serial.log --mode powerof
 
 1. The Terminal writes a nonce to `/data/tmp/shutdown.txt` and types
    `shutdown`; the shutting-down overlay is captured and QEMU powers off.
-2. The Terminal reads the nonce back, then the desktop menu's "Restart..." is
-   chosen and confirmed; the "Restarting..." overlay is captured and QEMU
+2. The Terminal reads the nonce back, then LazyShell's start menu
+   "Restart..." is chosen and confirmed (`SHELL:POWER:CONFIRM`,
+   `SHELL:POWER:REQUEST mode=1`; LazyShell must not be started again); the "Restarting..." overlay is captured and QEMU
    (run with `-no-reboot`) exits on the reset.
 
 `judge.py` reads a serial log and checks the sequence the shutdown promises:

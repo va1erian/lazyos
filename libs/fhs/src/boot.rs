@@ -126,6 +126,9 @@ pub const XDOCS_ELF: &str = "XDOCS.ELF";
 /// The Package Installer xui app. Written by the image build. Target (F3): "/system/bin/installer".
 pub const XINSTALL_ELF: &str = "XINSTALL.ELF";
 
+/// LazyShell, the desktop shell xui app (issue #157; desktop images unless `LAZYOS_SHELL=0`). Written by the image build. Target (F3): "/system/bin/lazyshell".
+pub const XSHELL_ELF: &str = "XSHELL.ELF";
+
 /// The image viewer (not shipped yet). Written by the image build. Target (F3): "/system/bin/viewer".
 pub const VIEW_ELF: &str = "VIEW.ELF";
 

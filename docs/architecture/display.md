@@ -89,7 +89,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`create_buffer`) as buffer slots, presents per-node damage through the
   pipelined `Present` (see below), and consumes `POINTER_*`, `KEY_*`,
   `WINDOW_CLOSE` and frame events from its event endpoint. The
-  WM (drag, minimize, taskbar, close) runs in `xuid` and works on the app
+  WM (drag, minimize, close) runs in `xuid` and works on the app
   window; the session is scripted in
   `tools/screenshot/examples/xui_client.json` and captured by the workflow.
   Several apps can share one `xuid` session (issues #215/#216): `sysmon`,
@@ -106,10 +106,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   output (CR/LF/BS and the CSI sequences its line editor emits) into a character
   grid (issue #254). There is no controlling tty yet, so it is a pipe-pair
   terminal rather than a kernel pty. Window placement (issue #250) tiles new
-  windows in
-  the first free grid cell and cascades with wraparound once the screen is
-  full, so every window keeps at least its title bar visible; the taskbar and
-  Alt+Tab switch between them.
+  windows in the first free grid cell of the work area (the screen minus the
+  shell's taskbar, see `SetWorkArea`) and cascades with wraparound once it is
+  full, so every window keeps at least its title bar visible; the LazyShell
+  taskbar and Alt+Tab switch between them.
   The two early pointer-payload gaps are closed (issue #287): `PointerDown` and
   `PointerUp` carry the button id, and `PointerMove` is surface-relative like the
   presses (relative to the focused surface, negative or oversized while a
@@ -121,10 +121,11 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   like the protocol below, and queues one `POINTER_WHEEL` record per packet that
   rolled the wheel. A mouse that ignores the handshake keeps 3-byte packets and
   never produces the event. `xuid` forwards it as the one-way `PointerWheel(x,
-  y, delta)` (method 31) to the **topmost window under the pointer**, not the
-  focused one, and only when the pointer is over that window's content (a title
-  bar, a border, an open menu or a drag swallows it; it never falls through to a
-  window below). `xui-app` turns it into `Event::MouseWheel` for the widget under
+  y, delta)` (method 31) to **what is under the pointer**, not the focused
+  window: a shell panel, else the topmost window when the pointer is over its
+  content (a title bar, a border or a drag swallows it; it never falls through
+  to a window below), else the shell's desktop (`xuid/wheel.rs`,
+  `XUID:WHEEL:PASS`). `xui-app` turns it into `Event::MouseWheel` for the widget under
   the pointer, one notch being `120` (Windows' `WHEEL_DELTA`, which xui's
   widgets and `xui-litehtml` expect). Horizontal wheels are not reported.
 - **Pointer from `inputd`** ([../usb-hid-plan.md](../usb-hid-plan.md), P0-P2).
@@ -206,8 +207,8 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `Backspace` are text characters `
 `/`	`/`` by convention. Keys the
   compositor keeps: Alt+Tab, Ctrl+Tab (cycle windows; a plain Tab now goes to
-  the focused client), Ctrl+Esc/Super (start menu), Alt+F4 (close window),
-  Escape while a menu/Alt+Tab/drag is active. `user::messenger::display::key`
+  the focused client), Ctrl+Esc/Super (start menu, sent to the shell), Alt+F4
+  (close window), Escape while Alt+Tab, a drag or a resize is active. `user::messenger::display::key`
   mirrors every constant plus `with_modifiers`/`CODE_MASK`.
 - Issue #153 adds the first windowed system-state viewers on that backend:
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
@@ -222,19 +223,25 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 - Window management (issue #143) lives in `xuid`: the `surfaces` vector is the
   z-order (tail paints last), a title-bar press drags the window (which may hang
   off the left, right and bottom edges, keeping `TITLE_REACHABLE_W` of its
-  title bar on screen), the title bar carries close/minimize buttons, and a
-  bottom taskbar lists live surfaces with the focused entry highlighted.
-  The right end of the bar holds a serif date and time (`xuid/clock.rs`): the
-  instant is the kernel wall clock, the zone comes from `timed`'s retained
-  `time/tick` topic (UTC when `timed` is absent), and only the clock rectangle
-  repaints when the minute changes.
-  Minimized surfaces are hidden and restored from the taskbar; `Tab` cycles
-  focus skipping minimized ones. The close button sends the client a one-way
+  title bar on screen), and the title bar carries close/minimize buttons.
+  `xuid` paints no taskbar, clock or menu of its own (issue #157): those are
+  LazyShell's panels (see *LazyShell* below). Minimized surfaces are hidden and
+  restored from the shell's taskbar (`ActivateSurface`) or from Alt+Tab, which
+  lists them too, so they stay reachable with no shell; `Tab` cycles focus
+  skipping minimized ones. The close button sends the client a one-way
   `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
   `Commit` uses per-surface damage; WM layout changes repaint the full screen
   (a drag repaints the union of the old/new window rectangles). Within the
   damage, repaint paints each layer only where no opaque layer above it (window,
-  taskbar, Alt+Tab panel, menu) lies, so hidden windows cost nothing (#360).
+  panel, Alt+Tab panel) lies, so hidden windows cost nothing (#360).
+- **Input during animations.** The minimize/restore/maximize/open zooms
+  (`xuid/anim.rs`) are a short blocking loop of frames. Each frame reads the
+  pending input itself (the kernel display queue, and `inputd`'s
+  `PointerEvent`s while it owns the pointer) into a preallocated queue on the
+  `Compositor` (`xuid/held.rs`): nothing is dropped or reordered, the main loop
+  handles the held events before any newer input, and the frame draws the
+  cursor, above the wireframe, at the newest pointer position, so the pointer
+  never freezes. Boot self-test `XUID:HELD:PASS`.
 
 **Resize and maximize**
 
@@ -258,7 +265,7 @@ restore, between close and minimize) and interactive resize edges.
   `Configure(width, height, Normal)` (method 33) plus a shell `Resized` event.
   `Escape` cancels and erases the outline; a destroyed surface clears the drag.
   Resize and title-bar drag are mutually exclusive and neither starts during a
-  drag & drop, an open menu or Alt+Tab.
+  drag & drop or Alt+Tab.
 - **Buffer decoupling.** A `Mapping` records the content size it was attached
   for and `Surface` mirrors it in `buf_w`/`buf_h`. `draw_surface` blits the
   buffer at that size (cropped to the content) and fills the uncovered strip
@@ -274,9 +281,9 @@ restore, between close and minimize) and interactive resize edges.
   wireframe zoom as minimize; the client is told with `Configure(.., Maximized)`
   and a shell `Maximized`/`Unmaximized` event. A maximized window has no resize
   edges and does not move on a title drag, and it stays maximized across
-  minimize/restore. When a shell subscribes or its endpoint dies (the fallback
-  taskbar appears or disappears), `reflow_maximized` re-fits every maximized
-  window to the new work area.
+  minimize/restore. When the shell sets a new work area or goes away (the work
+  area returns to the whole screen), `reflow_maximized` re-fits every
+  maximized window to it.
 - **Client-requested size (`RequestSize`, method 34).** A surface that declared
   `SetSizeHints` (and is not maximized/minimized) may ask for a content size;
   `xuid` keeps the top-left corner, clamps to the hints and the screen, and
@@ -347,30 +354,65 @@ older peers, and the no-shell sessions above are unchanged.
 
 | # | Method | Direction | Fields |
 |---|---|---|---|
-| 18 | `ListSurfaces` | shell → compositor | reply: `surfaces`, an `Array<SurfaceRow>` (`id`, `title`, `x`/`y`/`w`/`h`, `minimized`, `focused`, `role`: 0 window, 1 desktop) |
+| 18 | `ListSurfaces` | shell → compositor | reply: `surfaces`, an `Array<SurfaceRow>` (`id`, `title`, `x`/`y`/`w`/`h`, `minimized`, `focused`, `role`: 0 window, 1 desktop, 2 panel), desktop first, panels last |
 | 19 | `GetWorkArea` | shell → compositor | reply: `x`/`y`/`w`/`h` available to windows |
 | 20 | `Subscribe` | shell → compositor | `subscriber_role` string + transferred event endpoint |
 | 21 | `GetTheme` | shell or app → compositor | reply: `title_bg_active`, `title_bg_inactive`, `border`, `taskbar`, `text` (ink on the inactive title) as `0xRRGGBB`, `mode` (`dark`/`light`) and `accent`; xui apps map the last two onto their widget theme |
 | 22 | `SurfaceChanged` | compositor → shell | `surface`, `kind` (`Change`: created/destroyed/moved/minimized/restored/title), geometry + flags, `role`, optional `title` on create |
 | 23 | `FocusChanged` | compositor → shell | `surface` (optional; absent = none) |
 | 24 | `StartMenu` | compositor → shell | – (the Ctrl+Esc/Super hotkey fired) |
+| 36 | `PlaceSurface` | panel creator → compositor | `surface`, `x`/`y` (clamped on screen) |
+| 37 | `ActivateSurface` | shell → compositor | `surface`: restore (zoom), raise, focus |
+| 38 | `MinimizeSurface` | shell → compositor | `surface`: like its minimize button |
+| 39 | `SetWorkArea` | shell → compositor | `x`/`y`/`w`/`h`, clipped to the screen; empty is `EINVAL` |
+| 40 | `SetIconGeometry` | shell → compositor | `surface`, `x`/`y`/`w`/`h`: its taskbar entry, the minimize/restore zoom target |
+| 41 | `HintLaunchOrigin` | shell → compositor | `x`/`y`/`w`/`h`: the next window any task opens within 2 s zooms from it |
+| 42 | `Dismiss` | compositor → shell | – (a press landed outside every panel) |
 
-- **Desktop role.** `CreateSurface` gains a `role` (`0` window, the
-  default when absent; `1` desktop). A desktop surface paints at the bottom of
-  the z-order — above the background colour, below every window — with no
-  chrome, no taskbar or Alt+Tab entry, and it never takes focus or hit-tests.
-  Creating a new desktop replaces the previous one.
-- **Authorization.** Claiming the `"shell"` role, creating a desktop surface
-  and `ListSurfaces` are compositor-privileged: xuid reads the sender's
-  kernel-stamped credentials and requires uid 0 or `CAP_SETUID`; anyone else
-  gets `-EACCES` (a transferred handle is closed). A shell that dies (`EPIPE` on
-  an event) is dropped, the fallback taskbar returns and the screen repaints;
-  replacing a desktop or subscription closes the old endpoint.
-- **Taskbar fallback.** The bottom taskbar stays xuid's no-shell fallback.
-  `Subscribe` with role `"shell"` hides it and expands `GetWorkArea` to the
-  whole screen; without a subscriber (or with any other role) the bar paints
-  and `GetWorkArea` excludes its strip. Existing WM and drag & drop sessions
-  run with no shell and are unaffected.
+- **Roles.** `CreateSurface` gains a `role` (`0` window, the default when
+  absent; `1` desktop; `2` panel, issue #157). A desktop surface paints at the
+  bottom of the z-order — above the background colour, below every window —
+  with no chrome, no Alt+Tab entry, and it never takes focus. Creating a new
+  desktop replaces the previous one. A panel (the shell's taskbar, start menu)
+  is chromeless and painted above every window, below the Alt+Tab overlay, the
+  drag ghost and the cursor; panels stack in creation order, open at `(0, 0)`
+  and are moved with `PlaceSurface` (creator only). Panels are never focused,
+  never in Alt+Tab and not registered with `inputd` for keys; at most 16 exist
+  (`EBUSY`).
+- **Pointer on the shell's layers** (`xuid/layers.rs`). A panel or the
+  desktop (where no window covers it) gets the pointer events while the
+  pointer is over it, hover moves included; when the pointer leaves it gets one
+  last `PointerMove(-1, -1)` so hover clears. A press on one grabs the pointer
+  to it until every button is released. A press on a panel never changes
+  window focus; any other press sends the shell `Dismiss`, so it closes its
+  popups.
+- **Authorization** (issues #157, #447). `Subscribe("shell")` is accepted
+  from uid 0 or `CAP_SETUID`, or from a task whose kernel-stamped
+  `cred.session` is non-zero and is the session that owns the display: the
+  first one accepted as the shell, recorded then. Before any session owns it,
+  an unprivileged claim is only taken while no live shell holds the role. A
+  shell from the owning session replaces the previous one (a restarted
+  LazyShell). Any other role is a separate observer slot (same events) that
+  needs uid 0 or `CAP_SETUID` and never displaces the shell. Desktop and panel
+  `CreateSurface`, `ListSurfaces` and methods 37-41 are shell-only (the task
+  holding the subscription, or a privileged one); anyone else gets `-EACCES`
+  (a transferred handle is closed). The pure rules are boot-tested
+  (`XUID:SHELLCALLS:PASS`).
+- **When the shell goes away.** The shell and observer endpoints are pinged
+  with the surfaces about once a second; a dead (`EPIPE`) or replaced-by-another
+  task shell is dropped, the work area returns to the whole screen and
+  maximized windows are re-fitted. Its desktop and panels are reaped like any
+  dead client's surfaces; every window stays. With no shell `xuid` paints the
+  background and the windows, `Ctrl+Esc`/`Super` do nothing, and Alt+Tab
+  still reaches every window (minimized ones included, restored on commit).
+- **Window management for the taskbar.** `ActivateSurface` restores (with the
+  zoom), raises and focuses a window; `MinimizeSurface` is the minimize button;
+  both refuse a desktop or panel (`EINVAL`). `SetIconGeometry` records the
+  window's taskbar entry: minimize, restore and the open zoom fly to and from
+  it, or to a small rectangle at the bottom-left without one.
+  `HintLaunchOrigin` is a global open-origin hint for the next window any task
+  creates within two seconds (the menu row or icon that launched it); a task's
+  own `HintOpenOrigin` wins over it.
 - **Global hotkeys** are modifier-aware and compositor-owned: the kernel
   forwards Shift/Ctrl/Alt/Super press/release plus F-keys to the bound
   compositor (`display::key` 0x108-0x10B, 0x113), and `xuid` consumes them.
@@ -379,23 +421,29 @@ older peers, and the no-shell sessions above are unchanged.
   `FocusChanged`; `Ctrl+Esc` and `Super` send `StartMenu`; `Alt+F4` sends
   `WindowClose` to the focused surface exactly like its `X` button; `Escape`
   still cancels a drag & drop.
-- Desktop context menu (issue #323, `xuid/menu.rs`): a right press on the bare
-  desktop (not a window, not the fallback taskbar) opens a compositor-owned
-  popup with hardcoded entries (Terminal, System Monitor, Fabric Monitor,
-  Counter, Editor, Paint, Files). A left click on an entry calls `os.lazy.init` `Launch(app, "", 0)`
-  (bounded by a deadline) and logs `XUID:MENU:LAUNCH:<app>`; any other press or
-  `Escape` dismisses it, and the press that dismissed it still acts normally.
-  Session: `tools/screenshot/examples/xui_context_menu.json` (`LAZYOS_DESKTOP=1`).
-- `shellprobe` (`SHELLPRB.ELF`) is the evidence client: it registers as the
-  `"shell"` subscriber, creates a full-work-area desktop, reads back
-  `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one window, and logs
-  `SHELLPROBE:DESKTOP:PASS`, `SHELLPROBE:LIST:PASS`,
-  `SHELLPROBE:FOCUS:PASS` (first `FocusChanged`), and
-  `SHELLPROBE:HOTKEY:PASS` (first `StartMenu`). It also re-runs itself as an
-  unprivileged child (`SHELLPRB.ELF denied`) that must be refused the shell
-  role, a desktop and the list, logging `SHELLPROBE:DENIED:PASS`. It boots only with
-  `LAZYOS_XUID=1` plus the `LAZYOS_SHELLPROBE=1` demo hook, so the default
-  compositor sessions keep their window layout.
+- The desktop context menu, taskbar and clock that `xuid` used to paint
+  (issues #323, #370) moved to LazyShell (issue #157, `xui-app`), which builds
+  them from these calls.
+- `shellprobe` (`SHELLPRB.ELF`) is the evidence client. It claims the display
+  for its session, registers as the `"shell"` subscriber, creates a full-screen
+  desktop, reads back `ListSurfaces`/`GetWorkArea`/`GetTheme`, creates one
+  window, and logs `SHELLPROBE:DESKTOP:PASS`, `SHELLPROBE:LIST:PASS`,
+  `SHELLPROBE:FOCUS:PASS` (first `FocusChanged`) and `SHELLPROBE:HOTKEY:PASS`
+  (first `StartMenu`). The LazyShell calls (`shellprobe/checks.rs`):
+  `SHELLPROBE:PANEL:PASS` (a panel placed top-right, clamped on screen, listed
+  last), `SHELLPROBE:WORKAREA:PASS` (`SetWorkArea` round-trip, empty refused),
+  `SHELLPROBE:WM:PASS` (icon geometry, minimize, activate, launch hint, and the
+  wrong-role/unknown-id errors) and `SHELLPROBE:EVICT:PASS` (a privileged
+  child subscribing as an observer leaves the shell's work area and event
+  channel intact). An unprivileged child in another session
+  (`SHELLPRB.ELF denied <panel>`) must be refused the shell role, an observer
+  slot, a desktop and the list (`SHELLPROBE:DENIED:PASS`), and a panel, every
+  shell-only call and moving the probe's panel (`SHELLPROBE:SHELLONLY:PASS`).
+  The probe also logs the pointer events its desktop and panel receive
+  (`SHELLPROBE:DESKTOP:DOWN|UP|LEAVE|WHEEL`, `SHELLPROBE:PANELPTR:*`) and each
+  `SHELLPROBE:DISMISS`. It boots only with `LAZYOS_XUID=1` plus the
+  `LAZYOS_SHELLPROBE=1` demo hook, so the default compositor sessions keep
+  their window layout.
 
 **Invariants.** Mux is always the fallback: no compositor state is required to
 paint. The screen buffer handoff app-to-compositor is zero-copy (shared
@@ -406,7 +454,7 @@ the surface table: the desktop role and `Subscribe` never hand the shell
 compositor state, and a shell that exits leaves the fallback compositor usable.
 
 **Status.** Working: demo mux, display grant, xuid + xdemo in headless captures
-(`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons, taskbar,
+(`LAZYOS_XUID=1`), xuid window management (drag, z-order, buttons,
 focus cycling; `XUID:WM:PASS`), compositor-mediated drag & drop with a
 clipboard-token transfer (`dragdemo`; `DND:*:PASS`), the shell protocol
 (desktop role, surface list/work-area/theme read-backs, shell events, global
@@ -458,7 +506,7 @@ while modified). Only the surface's creator may call it (`EACCES` otherwise,
 `ENOENT` for an unknown surface). `xuid` (`user/src/bin/xuid/title.rs`) keeps at
 most 128 bytes cut at a character boundary, drops control characters, trims the
 result and keeps the old title if nothing printable is left; an unchanged title
-is a no-op. A change repaints the chrome and the taskbar, and sends the shell a
+is a no-op. A change repaints the chrome, and sends the shell a
 `SurfaceChanged` event of kind `Title` whose `title` field carries the new
 name. The boot self-test prints `XUID:TITLE:PASS` (`title::selftest_titles`).
 Clients that never call it keep their `CreateSurface` title; a client talking
@@ -467,7 +515,7 @@ to a compositor that predates the method gets `EINVAL`, which `xui-app` ignores.
 **Opening from a tile (`HintOpenOrigin`, method 30)**
 
 `HintOpenOrigin(surface, x, y, w, h)` tells the compositor where the task's
-*next* `CreateSurface` should zoom open from, in place of the taskbar entry:
+*next* `CreateSurface` should zoom open from, in place of its icon rectangle:
 the rectangle is relative to the content origin of `surface`, which the caller
 must own (`EACCES` otherwise, `ENOENT` if unknown). Files sends it when a
 folder tile is double-clicked, so the wireframe leaves the tile. It is cosmetic
@@ -476,8 +524,9 @@ coordinates with 64-bit arithmetic, clamps it to the screen, ignores an empty or
 off-screen rectangle (and one from a minimized surface), keeps one hint per
 task, consumes it at that task's next `CreateSurface` and drops it after two
 seconds. With a hint the animation is a single wireframe zoom from the rectangle
-to the window (`Compositor::open_zoom`); without one, and for minimize/restore,
-the taskbar behaviour is unchanged. Placement and focus are never affected. An
+to the window (`Compositor::open_zoom`); without one the shell's
+`HintLaunchOrigin` applies, else the window's icon rectangle
+(`SetIconGeometry`). Placement and focus are never affected. An
 older compositor answers `EINVAL`, which `xui-app` ignores. The boot self-test
 prints `XUID:ORIGIN:PASS` (`origin::selftest_open_origin`).
 
@@ -489,6 +538,6 @@ front of the one that spawned it instead of behind it (the Files app
 double-clicking a folder opens a new window). The first window still gets
 focus; focusing the surface that already holds it sends no `FocusChanged`. The
 boot self-test prints `XUID:FOCUS:PASS` (`window::selftest_focus_on_create`).
-There is no display-protocol method to raise or focus an *existing* window, so
+Only the shell may raise or focus an *existing* window (`ActivateSurface`), so
 the portable explorer still reports a duplicate open in its status bar rather
 than bringing the open window forward.

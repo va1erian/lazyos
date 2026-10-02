@@ -217,8 +217,14 @@
   "wait": 0.6
  },
  {
-  "mouse_click": "right",
-  "until": "XUID:MENU:OPEN",
+  "mouse_move": [
+   -856,
+   404
+  ]
+ },
+ {
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
   "timeout": 40,
   "retries": 1
  },
@@ -227,17 +233,8 @@
  },
  {
   "mouse_move": [
-   12,
-   100
-  ]
- },
- {
-  "wait": 0.25
- },
- {
-  "mouse_move": [
-   0,
-   52
+   90,
+   -200
   ]
  },
  {

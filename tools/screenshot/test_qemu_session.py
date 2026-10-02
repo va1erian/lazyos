@@ -141,5 +141,66 @@ class OriginResetTests(unittest.TestCase):
             self.assertGreaterEqual(time.time() - begun, 0.25)
 
 
+class CaptureTests(unittest.TestCase):
+    """`capture` on a wait_for, `${name}` in a later `type` (the shell_demo kill)."""
+
+    def run_script(self, log: str, steps: list[dict]) -> list[str]:
+        typed: list[str] = []
+
+        class FakeQmp:
+            def type_text(self, text):
+                typed.append(text)
+
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work)
+            write_log(path, log)
+            serial = qemu_session.SerialLog(path / "serial.log", [])
+            qemu_session.run_steps(FakeQmp(), steps, path, time.time(), serial)
+        return typed
+
+    def test_the_first_group_is_typed(self):
+        typed = self.run_script(
+            "INIT:LAUNCH:PASS app=terminal pid=17 session=0\n"
+            "INIT:LAUNCH:PASS app=lazyshell pid=16 session=0\n",
+            [{"wait_for": r"INIT:LAUNCH:PASS app=lazyshell pid=(\d+)", "regex": True,
+              "capture": "shell_pid", "timeout": 1},
+             {"type": "kill -9 ${shell_pid}"}])
+        self.assertEqual(typed, ["kill -9 16"])
+
+    def test_the_occurrence_picks_the_match(self):
+        typed = self.run_script(
+            "PID=3\nPID=9\n",
+            [{"wait_for": r"PID=(\d+)", "regex": True, "occurrence": 2, "capture": "p",
+              "timeout": 1},
+             {"type": "${p}${p}"}])
+        self.assertEqual(typed, ["99"])
+
+    def test_without_a_group_the_whole_match_is_kept(self):
+        typed = self.run_script("ready 42\n", [
+            {"wait_for": "ready 42", "capture": "line", "timeout": 1},
+            {"type": "[${line}]"}])
+        self.assertEqual(typed, ["[ready 42]"])
+
+    def test_a_later_gate_uses_the_value(self):
+        typed = self.run_script(
+            "SHELL:TASKBAR:ADD id=7 title=sysmon\nSHELL:TASKBAR:REMOVE id=7\n",
+            [{"wait_for": r"SHELL:TASKBAR:ADD id=(\d+) title=sysmon", "regex": True,
+              "capture": "sid", "timeout": 1},
+             {"wait_for": "SHELL:TASKBAR:REMOVE id=${sid}", "timeout": 1},
+             {"type": "ok"}])
+        self.assertEqual(typed, ["ok"])
+
+    def test_an_unknown_variable_fails_the_step(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.run_script("", [{"type": "kill ${nope}"}])
+        self.assertIn("nope", str(caught.exception))
+
+    def test_capture_only_on_wait_for(self):
+        with self.assertRaises(SystemExit):
+            self.run_script("", [{"type": "x", "capture": "v"}])
+        with self.assertRaises(SystemExit):
+            self.run_script("A\n", [{"wait_for": "A", "capture": "1bad", "timeout": 1}])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -45,28 +45,43 @@ pub(super) struct Surface {
     /// The normal window rectangle saved while maximized; `Some` while the
     /// surface is maximized.
     pub(super) maximized: Option<Rect>,
-    /// Hidden by the minimize button; restorable from the taskbar.
+    /// Hidden by the minimize button; restored by the shell or Alt+Tab.
     pub(super) minimized: bool,
-    /// The bottom-layer desktop surface (issue #167): no chrome, never
-    /// focused, hit-tested, minimized, or listed on the taskbar.
-    pub(super) desktop: bool,
+    /// What the surface is (`wire::ROLE_*`): a decorated window, the
+    /// bottom-layer desktop (issue #167) or a shell panel painted above every
+    /// window (issue #157). Desktops and panels have no chrome and are never
+    /// focused, minimized or listed in Alt+Tab.
+    pub(super) role: u32,
+    /// Where the shell's taskbar entry for this window is (`SetIconGeometry`),
+    /// so the minimize/restore zoom flies to it.
+    pub(super) icon: Option<Rect>,
     /// Keys reach this surface's client through an `inputd` session, so the
     /// legacy `KeyDown`/`KeyUp` synthesis must skip it (`docs/input-plan.md`).
     pub(super) input_session: bool,
 }
 
 impl Surface {
-    /// The protocol role this surface reports (`wire::ROLE_*`).
-    pub(super) fn role(&self) -> u32 {
-        if self.desktop {
-            wire::ROLE_DESKTOP
-        } else {
-            wire::ROLE_WINDOW
-        }
+    /// Whether this is a decorated application window.
+    pub(super) fn is_window(&self) -> bool {
+        self.role == wire::ROLE_WINDOW
     }
 
-    /// The whole decorated window rectangle.
+    /// Whether this is the bottom-layer desktop.
+    pub(super) fn is_desktop(&self) -> bool {
+        self.role == wire::ROLE_DESKTOP
+    }
+
+    /// Whether this is a shell panel (taskbar, start menu).
+    pub(super) fn is_panel(&self) -> bool {
+        self.role == wire::ROLE_PANEL
+    }
+
+    /// The whole surface rectangle: the decorated window, or for a chromeless
+    /// desktop or panel just its pixels.
     pub(super) fn window(&self) -> Rect {
+        if !self.is_window() {
+            return Rect::new(self.x, self.y, self.w, self.h);
+        }
         Rect::new(
             self.x,
             self.y,
@@ -80,8 +95,12 @@ impl Surface {
         Rect::new(self.x, self.y, self.w + BORDER * 2, TITLE_H)
     }
 
-    /// The content (app pixel) rectangle.
+    /// The content (app pixel) rectangle; client coordinates are relative to
+    /// its origin. A chromeless surface's content is the whole surface.
     pub(super) fn content(&self) -> Rect {
+        if !self.is_window() {
+            return Rect::new(self.x, self.y, self.w, self.h);
+        }
         Rect::new(self.x + BORDER, self.y + TITLE_H, self.w, self.h)
     }
 
@@ -115,9 +134,9 @@ impl Surface {
     }
 
     /// Whether the window may be resized and maximized: it declared size hints
-    /// and is not the desktop layer.
+    /// and is a window (not the desktop or a panel).
     pub(super) fn resizable(&self) -> bool {
-        self.hints.is_some() && !self.desktop
+        self.hints.is_some() && self.is_window()
     }
 }
 

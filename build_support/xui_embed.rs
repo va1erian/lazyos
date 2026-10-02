@@ -1,11 +1,66 @@
-//! The xui desktop apps and sample packages embedded in the OS volume (issues
-//! #215/#216): which binaries ship, their flat uppercase names, and the
-//! `XAPPS.LST` manifest `init` reads. Split out of `build.rs`.
+//! The xui desktop apps, the LazyShell desktop shell (issue #157) and the
+//! sample packages embedded in the OS volume (issues #215/#216): which
+//! binaries ship, their flat uppercase names, and the `XAPPS.LST` manifest
+//! `init` reads. Split out of `build.rs`.
 
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use crate::lazyrad_embed;
 use crate::os_image::Sink;
+
+/// LazyShell's binary under `target/xui/` (`tools/xui/build.py` builds it from
+/// `xui-app/src/bin/lazyshell.rs`); stored as `XSHELL.ELF`.
+const SHELL_XUI_APP: &str = "xui-shell.elf";
+
+/// Whether the image ships LazyShell (issue #157). `LAZYOS_SHELL` defaults to
+/// on for the desktop profile (`LAZYOS_DESKTOP=1`); `LAZYOS_SHELL=0` opts out
+/// (the compositor then paints background and windows only). `LAZYOS_SHELL=1`
+/// also adds it to a hand-assembled `LAZYOS_SERVICES=1 LAZYOS_XUID=1` image;
+/// without both, nothing could start or host it, so the switch only warns.
+pub fn shell_enabled(desktop: bool, services: bool, xuid: bool) -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_SHELL");
+    match std::env::var_os("LAZYOS_SHELL").as_deref() {
+        Some(value) if value == OsStr::new("0") => false,
+        Some(value) if value == OsStr::new("1") => {
+            if !(services && xuid) {
+                println!(
+                    "cargo:warning=LAZYOS_SHELL=1 needs LAZYOS_SERVICES=1 and LAZYOS_XUID=1 \
+                     (or LAZYOS_DESKTOP=1); LazyShell is not embedded"
+                );
+            }
+            services && xuid
+        }
+        _ => desktop,
+    }
+}
+
+/// Embed `xui-shell.elf` as `XSHELL.ELF` and return its `XAPPS.LST` line. The
+/// line always carries `autostart`, whatever `LAZYOS_XUI_AUTOSTART` says
+/// (that switch lists the *apps*): `init` opens it first, as the desktop's
+/// shell, and restarts it when it dies. A missing binary fails the build: a
+/// desktop that asked for its shell must not boot without one.
+fn embed_shell(sink: &mut dyn Sink) -> String {
+    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+        .join("target")
+        .join("xui")
+        .join(SHELL_XUI_APP);
+    println!("cargo:rerun-if-changed={}", path.display());
+    if !path.is_file() {
+        panic!(
+            "LazyShell ({}) is not built; run `python tools/xui/build.py`, \
+             or opt out with LAZYOS_SHELL=0",
+            path.display()
+        );
+    }
+    let (_, disk) = xui_disk_name(&path);
+    println!(
+        "cargo:warning=LazyShell embedded: {} as {disk}",
+        path.display()
+    );
+    sink.add_file(&disk, path);
+    format!("{disk} autostart\n")
+}
 
 /// The on-disk name for an xui app binary (`xui-sysmon.elf` -> `XSYSMON.ELF`),
 /// which `init`'s app registry (`user/src/bin/init/apps.rs`) refers to by that
@@ -97,8 +152,9 @@ const DEFAULT_AUTOSTART_STEM: &str = "term";
 /// unavailable instead of failing to launch it. Rows named in
 /// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
 /// default is the Terminal only, `none` disables it) are tagged `autostart`,
-/// and `init` launches them at boot as `xuid` clients.
-pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool) {
+/// and `init` launches them at boot as `xuid` clients. With `shell`, LazyShell
+/// is embedded too and listed first (see [`embed_shell`]).
+pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
     let explicit = std::env::var_os("LAZYOS_XUI_APPS");
@@ -126,7 +182,8 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool) {
                     Some(path)
                 } else {
                     println!(
-                        "cargo:warning=optional xui app {name} not built (needs zig:                          `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
+                        "cargo:warning=optional xui app {name} not built (needs zig: \
+                         `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
                     );
                     None
                 }
@@ -138,8 +195,8 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool) {
                 .chain(optional)
                 .collect()
         }
-        // No xui apps requested, but the IDE still needs its `XAPPS.LST` line.
-        None if !lazyrad_embed::manifest_lines().is_empty() => Vec::new(),
+        // No xui apps requested, but the shell or the IDE still needs its line.
+        None if shell || !lazyrad_embed::manifest_lines().is_empty() => Vec::new(),
         None => return,
     };
     let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
@@ -148,7 +205,11 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool) {
         Some("none") => false,
         Some(list) => list.split(',').any(|item| item.trim() == stem),
     };
-    let mut manifest = String::new();
+    let mut manifest = if shell {
+        embed_shell(sink)
+    } else {
+        String::new()
+    };
     for app in apps {
         // Tracked even when missing: Cargo reruns while a listed path does not
         // exist, so an app built later is picked up without changing the env.

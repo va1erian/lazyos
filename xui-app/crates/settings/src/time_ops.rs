@@ -1,5 +1,6 @@
 //! Time & Date logic: parsing what the user typed, local/UTC conversion, and
-//! the taskbar clock format keys (`sys/time/*`, followed live by `xuid`).
+//! the taskbar clock format keys (`sys/time/*`, followed live by the
+//! LazyShell taskbar).
 //!
 //! The wall clock and the zone belong to `timed` ([`System`]); the clock
 //! format is plain confd keys, so it goes through the [`ConfigStore`].

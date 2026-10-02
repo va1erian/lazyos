@@ -3,7 +3,7 @@
   {"wait_for": "xuid: pointer from inputd", "timeout": 300},
   {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 300},
   {"at": 3.0, "mouse_move": [-1500, -1500]},
-  {"at": 4.0, "mouse_move": [30, 703]},
+  {"at": 4.0, "mouse_move": [172, 704]},
   {"at": 5.0, "mouse_click": "left"},
   {"at": 7.0, "type": "kill -9 7"},
   {"at": 3.0, "key": "enter", "until": "xuid: pointer back on the kernel stream", "timeout": 60, "retries": 1},
@@ -11,7 +11,7 @@
   {"wait_for": "xuid: pointer from inputd", "timeout": 120},
   {"at": 3.0, "shot": "01_after_restart"},
   {"at": 4.0, "mouse_move": [-1500, -1500]},
-  {"at": 5.0, "mouse_move": [119, 705]},
+  {"at": 5.0, "mouse_move": [336, 704]},
   {"at": 6.0, "mouse_click": "left"},
   {"at": 8.0, "shot": "02_taskbar_click_after_restart"},
   {"at": 9.0, "quit": true}

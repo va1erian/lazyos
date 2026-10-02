@@ -13,8 +13,11 @@
 //! static musl program reaches the same code a native `user` program does.
 //! `rcx`/`r11` are not preserved by the gate.
 
+mod cred;
 mod display;
 mod messenger;
+
+pub use cred::{cred_get, wall_centis, Cred};
 
 pub use display::{
     button, decode_event, display_bind, display_close_buffer, display_create_buffer,
@@ -22,8 +25,8 @@ pub use display::{
     EVENT_BYTES,
 };
 pub use messenger::{
-    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_resolve, msg_send,
-    MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
+    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_register, msg_reply,
+    msg_resolve, msg_send, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
 };
 
 use core::arch::asm;
@@ -53,6 +56,10 @@ pub mod errno {
     pub const E2BIG: i64 = 7;
     /// Try again later.
     pub const EAGAIN: i64 = 11;
+    /// Permission denied.
+    pub const EACCES: i64 = 13;
+    /// The name is already registered.
+    pub const EEXIST: i64 = 17;
     /// Invalid argument.
     pub const EINVAL: i64 = 22;
     /// The peer endpoint is gone.

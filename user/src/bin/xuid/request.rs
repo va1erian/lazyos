@@ -7,16 +7,19 @@ use alloc::vec::Vec;
 use libmessenger::Parcel;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::{self, Endpoint, Message};
-use user::sys;
 
 use super::compositor::Compositor;
 use super::geometry::{self, SizeHints};
 use super::layout::place_window;
 use super::present::attach;
-use super::protocol::{drop_rejected_handle, empty_reply, error_reply, is_privileged, typed_reply};
+use super::protocol::{drop_rejected_handle, empty_reply, error_reply, typed_reply};
 use super::surface::Surface;
 use super::theme::{BORDER, TITLE_H};
 use super::window::{focus_on_create, surface_by_id};
+
+/// The most panels that may exist at once: a taskbar and a few popups need
+/// far fewer, and each one costs every repaint an occlusion test.
+const MAX_PANELS: usize = 16;
 
 impl Compositor {
     /// Handle one display request; returns the reply parcel for a synchronous
@@ -26,6 +29,20 @@ impl Compositor {
             return empty_reply(message.method());
         }
         let body = &message.parcel.body;
+        // Every window's title, geometry and state is the shell's (issues
+        // #175, #157): anyone else is refused before decoding anything.
+        let shell_only = matches!(
+            message.method(),
+            wire::METHOD_LISTSURFACES
+                | wire::METHOD_ACTIVATESURFACE
+                | wire::METHOD_MINIMIZESURFACE
+                | wire::METHOD_SETWORKAREA
+                | wire::METHOD_SETICONGEOMETRY
+                | wire::METHOD_HINTLAUNCHORIGIN
+        );
+        if shell_only && !self.is_shell_caller(message.sender) {
+            return error_reply(message.method(), messenger::errno::EACCES);
+        }
         match message.method() {
             wire::METHOD_CREATESURFACE => self.create_surface(message, body),
             wire::METHOD_ATTACHBUFFER => self.attach_buffer(message, body),
@@ -42,11 +59,17 @@ impl Compositor {
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
             wire::METHOD_GETTHEME => super::request_shell::get_theme(message),
+            wire::METHOD_PLACESURFACE => self.place_surface(message, body),
+            wire::METHOD_ACTIVATESURFACE => self.activate_surface(message, body),
+            wire::METHOD_MINIMIZESURFACE => self.minimize_request(message, body),
+            wire::METHOD_SETWORKAREA => self.set_work_area(message, body),
+            wire::METHOD_SETICONGEOMETRY => self.set_icon_geometry(message, body),
+            wire::METHOD_HINTLAUNCHORIGIN => self.hint_launch_origin(message, body),
             _ => error_reply(message.method(), messenger::errno::EINVAL),
         }
     }
 
-    /// `CreateSurface`: a window, or the privileged desktop layer.
+    /// `CreateSurface`: a window, or (shell-only) the desktop or a panel.
     fn create_surface(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let Ok(args) = wire::decode_create_surface_args(body) else {
             drop_rejected_handle(message);
@@ -71,32 +94,41 @@ impl Compositor {
             drop_rejected_handle(message);
             return error_reply(message.method(), messenger::errno::EINVAL);
         }
-        if role == wire::ROLE_DESKTOP && !is_privileged(message.sender) {
-            // Only an authorized shell identity may own the desktop (issue
-            // #175); anyone else's claim is refused outright.
+        let panels = self.surfaces.iter().filter(|s| s.is_panel()).count();
+        let refusal = match role {
+            wire::ROLE_WINDOW => None,
+            // Only the shell may own the desktop or a panel (issues #175,
+            // #157); anyone else's claim is refused outright.
+            wire::ROLE_DESKTOP | wire::ROLE_PANEL if !self.is_shell_caller(message.sender) => {
+                Some(messenger::errno::EACCES)
+            }
+            wire::ROLE_PANEL if panels >= MAX_PANELS => Some(messenger::errno::EBUSY),
+            wire::ROLE_DESKTOP | wire::ROLE_PANEL => None,
+            _ => Some(messenger::errno::EINVAL),
+        };
+        if let Some(code) = refusal {
             drop_rejected_handle(message);
-            return error_reply(message.method(), messenger::errno::EACCES);
+            return error_reply(message.method(), code);
         }
         let id = self.next_id;
         self.next_id += 1;
         let (w, h) = (width as i32, height as i32);
-        if role == wire::ROLE_DESKTOP {
-            // The bottom layer: no chrome, no taskbar entry, never focused. A
-            // new desktop replaces the current one.
-            self.replace_desktop();
+        if role != wire::ROLE_WINDOW {
+            // A chromeless layer at (0, 0): the desktop below every window
+            // (a new one replaces the current one), or a panel above them,
+            // which the shell moves with `PlaceSurface`. Neither is focused
+            // or listed in Alt+Tab.
+            if role == wire::ROLE_DESKTOP {
+                self.replace_desktop();
+            }
             self.surfaces
-                .push(new_surface(message, id, title, (0, 0), (w, h), true));
+                .push(new_surface(message, id, title, (0, 0), (w, h), role));
             self.notify_surface(id, wire::CHANGE_CREATED);
-            self.repaint_full();
+            self.repaint(Rect::new(0, 0, w, h));
         } else {
-            let origin = place_window(
-                (self.screen.width(), self.screen.height()),
-                &self.surfaces,
-                w,
-                h,
-            );
+            let origin = place_window(self.work_area(), &self.surfaces, w, h);
             self.surfaces
-                .push(new_surface(message, id, title, origin, (w, h), false));
+                .push(new_surface(message, id, title, origin, (w, h), role));
             // A new window comes up on top and focused, so double-clicking a
             // folder in Files shows the new window in front instead of behind
             // the one that opened it. The first window still gets focus.
@@ -104,15 +136,13 @@ impl Compositor {
                 self.notify_focus();
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
-            // Open with a zoom out of the tile the app hinted at, else out of
-            // the window's taskbar entry; hidden (as if minimized) so the
-            // wireframe flies over the old screen.
-            let origin = super::origin::take(&mut self.hints, message.sender, sys::clock());
+            // Open with a zoom out of the tile the app (or the shell) hinted
+            // at, else out of the window's icon; hidden (as if minimized) so
+            // the wireframe flies over the old screen.
+            let origin = self.take_open_origin(message.sender);
             self.set_minimized(id, true);
             self.open_zoom(id, origin);
             self.set_minimized(id, false);
-            // A new surface changes the layout (and the taskbar), so repaint
-            // the whole screen.
             self.repaint_full();
         }
         // Register the surface with `inputd` before the client learns its id,
@@ -127,7 +157,7 @@ impl Compositor {
     /// Drop the current desktop surface, if any: tell its owner and close the
     /// endpoint the compositor held for it (issue #175: both were leaked).
     fn replace_desktop(&mut self) {
-        let Some(index) = self.surfaces.iter().position(|surface| surface.desktop) else {
+        let Some(index) = self.surfaces.iter().position(Surface::is_desktop) else {
             return;
         };
         let mut old = self.surfaces.remove(index);
@@ -183,13 +213,9 @@ impl Compositor {
             // screen area. Only the buffer changed.
             return empty_reply(message.method());
         }
-        // A window's damage is relative to its content origin; the desktop has
-        // no chrome, so its origin is the surface origin.
-        let area = if surface.desktop {
-            Rect::new(surface.x, surface.y, surface.w, surface.h)
-        } else {
-            surface.content()
-        };
+        // Damage is relative to the content origin (a chromeless surface's
+        // content is all of it).
+        let area = surface.content();
         let damage = Rect::new(
             area.x.saturating_add_unsigned(args.x),
             area.y.saturating_add_unsigned(args.y),
@@ -215,8 +241,8 @@ impl Compositor {
         if surface.owner != message.sender {
             return error_reply(message.method(), messenger::errno::EACCES);
         }
-        // The desktop layer has no chrome to resize.
-        if surface.desktop {
+        // The desktop and panels have no chrome to resize.
+        if !surface.is_window() {
             return error_reply(message.method(), messenger::errno::EINVAL);
         }
         let Some(hints) = SizeHints::new(
@@ -311,7 +337,7 @@ fn new_surface(
     title: alloc::string::String,
     origin: (i32, i32),
     size: (i32, i32),
-    desktop: bool,
+    role: u32,
 ) -> Surface {
     Surface {
         id,
@@ -329,7 +355,8 @@ fn new_surface(
         hints: None,
         maximized: None,
         minimized: false,
-        desktop,
+        role,
+        icon: None,
         input_session: false,
         slots: Default::default(),
     }

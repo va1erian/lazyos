@@ -17,8 +17,10 @@ use messenger_generated::os_lazy_display_v1 as wire;
 use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult};
 
 mod frames;
+mod shell;
 
 pub use frames::{decode_frame_event, FrameEvent};
+pub use shell::{decode_shell_event, ShellEvent, SurfaceChange};
 
 /// Well-known compositor name.
 pub const NAME: &str = "os.lazy.display.v1";
@@ -152,9 +154,9 @@ impl Client {
         self.endpoint
     }
 
-    /// `CreateSurface(width, height, title, events)`; the event endpoint
-    /// handle is moved to the compositor, which sends input back on it. The
-    /// reply carries the new surface id.
+    /// `CreateSurface(width, height, title, events)` for a decorated window;
+    /// the event endpoint handle is moved to the compositor, which sends input
+    /// back on it. The reply carries the new surface id.
     pub fn create_surface(
         &self,
         width: u64,
@@ -162,11 +164,25 @@ impl Client {
         title: &str,
         events: u64,
     ) -> Result<u64, i64> {
+        self.create_surface_with_role(width, height, title, events, wire::ROLE_WINDOW)
+    }
+
+    /// [`Client::create_surface`] with an explicit `Role` (`wire::ROLE_*`):
+    /// the desktop and panel roles are for the task holding the `shell`
+    /// subscription, and the compositor refuses them from anyone else.
+    pub fn create_surface_with_role(
+        &self,
+        width: u64,
+        height: u64,
+        title: &str,
+        events: u64,
+        role: u32,
+    ) -> Result<u64, i64> {
         let body = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
             width: u32::try_from(width).unwrap_or(u32::MAX),
             height: u32::try_from(height).unwrap_or(u32::MAX),
             title: title.into(),
-            role: wire::ROLE_WINDOW,
+            role,
         })
         .map_err(|_| -errno::EINVAL)?;
         let parcel = request(wire::METHOD_CREATESURFACE, body, vec![events], Vec::new());
@@ -260,8 +276,13 @@ impl Client {
     /// Like [`Client::call`], bounded by `deadline` (an absolute PIT tick; `0`
     /// waits forever).
     fn call_until(&self, parcel: &Parcel, deadline: u64) -> Result<Parcel, i64> {
-        let mut buf = [0u8; 256];
-        let reply = sys::msg_call(self.endpoint, parcel, &mut buf, deadline)?;
+        self.call_into(parcel, &mut [0u8; 256], deadline)
+    }
+
+    /// [`Client::call_until`] into a caller-sized reply buffer (a
+    /// `ListSurfaces` reply outgrows the small default).
+    fn call_into(&self, parcel: &Parcel, buf: &mut [u8], deadline: u64) -> Result<Parcel, i64> {
+        let reply = sys::msg_call(self.endpoint, parcel, buf, deadline)?;
         match error_field(&reply) {
             Some(code) => Err(code),
             None => Ok(reply),
@@ -360,110 +381,4 @@ pub fn close(handle: u64) -> Result<(), i64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_hint_parcel_carries_method_30_and_the_rect() {
-        let parcel = hint_open_origin_parcel(7, (-4, 12, 64, 48)).expect("encodes");
-        assert_eq!(parcel.header.method, 30);
-        assert_eq!(parcel.header.interface_id, INTERFACE);
-        let args = wire::decode_hint_open_origin_args(&parcel.body).expect("decodes");
-        assert_eq!(
-            (args.surface, args.x, args.y, args.w, args.h),
-            (7, -4, 12, 64, 48)
-        );
-    }
-
-    #[test]
-    fn the_size_request_parcel_carries_method_34_and_the_size() {
-        let parcel = request_size_parcel(3, 200, 90).expect("encodes");
-        assert_eq!(parcel.header.method, 34);
-        let args = wire::decode_request_size_args(&parcel.body).expect("decodes");
-        assert_eq!((args.surface, args.width, args.height), (3, 200, 90));
-    }
-
-    #[test]
-    fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
-        for delta in [1, -1, 5, -120] {
-            let body = wire::encode_pointer_wheel_args(&wire::PointerWheelArgs {
-                x: -3,
-                y: 44,
-                delta,
-            })
-            .expect("encodes");
-            let parcel = request(wire::METHOD_POINTERWHEEL, body, Vec::new(), Vec::new());
-            assert_eq!(
-                decode_event(&parcel),
-                Some(Event::PointerWheel {
-                    x: -3,
-                    y: 44,
-                    delta
-                })
-            );
-        }
-    }
-
-    #[test]
-    fn a_truncated_wheel_body_is_not_an_event() {
-        let parcel = request(
-            wire::METHOD_POINTERWHEEL,
-            vec![1, 2],
-            Vec::new(),
-            Vec::new(),
-        );
-        assert_eq!(decode_event(&parcel), None);
-    }
-
-    /// A `Configure` event parcel carrying `body`.
-    fn configure(body: Vec<u8>) -> Parcel {
-        request(wire::METHOD_CONFIGURE, body, Vec::new(), Vec::new())
-    }
-
-    #[test]
-    fn configure_decodes_into_its_own_event() {
-        let body = wire::encode_configure_args(&wire::ConfigureArgs {
-            surface: 9,
-            width: 950,
-            height: 696,
-            state: wire::WINDOW_STATE_MAXIMIZED,
-        })
-        .unwrap();
-        assert_eq!(
-            decode_event(&configure(body)),
-            Some(Event::Configure {
-                width: 950,
-                height: 696,
-                state: wire::WINDOW_STATE_MAXIMIZED,
-            })
-        );
-    }
-
-    #[test]
-    fn a_configure_with_an_oversized_size_is_clamped_not_wrapped() {
-        let body = wire::encode_configure_args(&wire::ConfigureArgs {
-            surface: 1,
-            width: u32::MAX,
-            height: 1,
-            state: wire::WINDOW_STATE_NORMAL,
-        })
-        .unwrap();
-        assert_eq!(
-            decode_event(&configure(body)),
-            Some(Event::Configure {
-                width: i32::MAX,
-                height: 1,
-                state: wire::WINDOW_STATE_NORMAL,
-            })
-        );
-        // An empty body decodes to a zero size, which `apply_configure` drops.
-        assert_eq!(
-            decode_event(&configure(Vec::new())),
-            Some(Event::Configure {
-                width: 0,
-                height: 0,
-                state: wire::WINDOW_STATE_NORMAL,
-            })
-        );
-    }
-}
+mod tests;

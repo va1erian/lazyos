@@ -201,7 +201,7 @@ runs the same counter + an `Edit` text field as a `xuid` client:
 syscall-5 shim (wire codecs from the generated `messenger-generated` stubs), creates a surface, attaches a display shared buffer
 (`create_buffer` op 4), commits damage rectangles per invalidated node, and
 consumes pointer/key/`WINDOW_CLOSE` events from its event endpoint. The
-compositor chrome (drag, minimize, taskbar, close) is `xuid`'s, and a title-bar
+compositor chrome (drag, minimize, close) is `xuid`'s, and a title-bar
 drag works on the app window. Build with `LAZYOS_XUID=1`, `LAZYOS_XUI_CLIENT=1`
 and `LAZYOS_XUI_APP=<xui-client.elf>`; the kernel then spawns `xuid` + the app
 and no `xdemo`, so the app is the first surface at the top-left. Owner mode
@@ -213,8 +213,8 @@ embedded side by side (`XAPPS.LST` names what the image ships; a registered app
 whose ELF is absent is unavailable and never logged as a failed launch).
 `init`'s app registry opens the `autostart` rows as `xuid` clients; by
 default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other
-stems, `none` disables it) and the other apps open on demand from the start
-menu or the desktop right-click menu.
+stems, `none` disables it) and the other apps open on demand from
+LazyShell's start menu or desktop icons (issue #157).
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
 the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
 image also ships the migrated document apps **Editor**, **Paint** and **Files**

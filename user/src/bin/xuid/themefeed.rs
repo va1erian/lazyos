@@ -1,9 +1,8 @@
-//! Live theme: follows the `sys/ui/*` settings in `confd` (issue: Settings app)
-//! and the taskbar clock format (`sys/time/clock24`, `sys/time/show_seconds`).
+//! Live theme: follows the `sys/ui/*` settings in `confd` (issue: Settings app).
+//! The clock format (`sys/time/*`) belongs to the LazyShell taskbar (#157).
 //!
 //! On the first successful poll the feed reads every key, then subscribes to
-//! `system/confd/changed/sys/#` (one subscription covers both trees; nothing
-//! writes `sys/` often); any change event triggers a re-read
+//! `system/confd/changed/sys/ui/#`; any change event triggers a re-read
 //! (the topic carries only the path, never the value). The resolved palette is
 //! installed into [`theme`](super::theme) and the caller repaints when it
 //! changed. Everything is bounded and retried: `xuid` must never stall or
@@ -21,9 +20,7 @@ use user::messenger::topics_client::Qos;
 use user::messenger::DEFAULT_BUFFER;
 use user::sys;
 
-use timezone::ClockFormat;
-
-use super::{clock, menuitems, theme};
+use super::theme;
 
 /// Ticks (100 Hz) between looks at the change topic.
 const POLL_TICKS: u64 = 25;
@@ -34,8 +31,8 @@ const RETRY_TICKS: u64 = 300;
 const RECV_TICKS: u64 = 2;
 /// Ticks the subscribe call may wait for the broker before it is abandoned.
 const SUBSCRIBE_TICKS: u64 = 5;
-/// Topic filter for every `sys/` change (theme, menu and clock keys).
-const FILTER: &str = "system/confd/changed/sys/#";
+/// Topic filter for every `sys/ui/*` change.
+const FILTER: &str = "system/confd/changed/sys/ui/#";
 
 pub(super) struct ThemeFeed {
     /// Held for the life of the compositor: closing a resolved handle would
@@ -138,37 +135,9 @@ impl ThemeFeed {
         any
     }
 
-    /// Re-read every key: the palette, and the desktop menu's entry list.
-    /// `true` when either changed what is on screen.
+    /// Re-read the theme keys and install the resulting palette; `true` when
+    /// it changed what is on screen.
     fn reload(&mut self) -> bool {
-        let Some(client) = &self.client else {
-            return false;
-        };
-        // An open menu is part of the picture; a closed one repaints nothing.
-        let menu = menuitems::reload(client) && super::menu::is_open();
-        let clock = self.reload_clock();
-        self.reload_theme() || menu || clock
-    }
-
-    /// Re-read the clock format; `true` when it changed (the taskbar's clock
-    /// slot changes width, so the whole bar is laid out again).
-    fn reload_clock(&mut self) -> bool {
-        let Some(client) = &self.client else {
-            return false;
-        };
-        let flag = |key: &str, default: bool| match client.get(key) {
-            Ok(Some(confd::Value::Bool(value))) => value,
-            _ => default,
-        };
-        let defaults = ClockFormat::default();
-        clock::set_format(ClockFormat {
-            hour24: flag(timezone::CLOCK24_KEY, defaults.hour24),
-            seconds: flag(timezone::SHOW_SECONDS_KEY, defaults.seconds),
-        })
-    }
-
-    /// Re-read the theme keys and install the resulting palette.
-    fn reload_theme(&mut self) -> bool {
         let Some(client) = &self.client else {
             return false;
         };

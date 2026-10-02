@@ -425,6 +425,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyshell"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "deskmenu",
+ "timezone",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1111,18 +1120,22 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "confd",
+ "deskmenu",
  "devinspect",
  "fhs",
+ "lazyshell",
  "libc",
  "libmessenger",
  "messenger-generated",
- "uitheme",
  "surfbuf",
+ "uitheme",
  "xui-canvas",
  "xui-code-editor",
  "xui-confd-editor",
  "xui-core",
  "xui-explorer",
+ "xui-icons",
  "xui-paint",
  "xui-settings",
 ]
