@@ -1144,6 +1144,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "libmessenger",
+ "logstore",
  "messenger-generated",
  "modplay",
  "netpolicy",
