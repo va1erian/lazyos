@@ -15,7 +15,7 @@ publish = false
 [dependencies]
 regex = "1"
 ropey = "1"
-xui-core = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
 
 [features]
 # The hand-written, line-incremental Rhai lexer (`lexer::RhaiHighlighter`).
@@ -23,7 +23,7 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8
 rhai-syntax = []
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "ab0cea2390b0f815df8656df2c71f3a9ffa852b6", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9", default-features = false }
 # The resizable offscreen backend the window-resize tests drive.
 xui-app-testkit = { path = "../testkit" }
 # Rhai's own tokenizer, the oracle the hand-written lexer's tests compare token

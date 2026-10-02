@@ -525,7 +525,7 @@ source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a15
 dependencies = [
  "lazyrad-project",
  "thiserror",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6)",
+ "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9)",
  "xui-core",
  "xui-form",
 ]
@@ -545,7 +545,7 @@ dependencies = [
  "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "xui-canvas",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6)",
+ "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9)",
  "xui-core",
  "xui-form",
 ]
@@ -1523,7 +1523,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6#ab0cea2390b0f815df8656df2c71f3a9ffa852b6"
+source = "git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9#4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -1542,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "xui-code-editor"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6#ab0cea2390b0f815df8656df2c71f3a9ffa852b6"
+source = "git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9#4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"
 dependencies = [
  "regex",
  "ropey",
@@ -1560,7 +1560,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6#ab0cea2390b0f815df8656df2c71f3a9ffa852b6"
+source = "git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9#4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"
 dependencies = [
  "png",
  "zune-jpeg",
@@ -1588,7 +1588,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ab0cea2390b0f815df8656df2c71f3a9ffa852b6#ab0cea2390b0f815df8656df2c71f3a9ffa852b6"
+source = "git+https://github.com/va1erian/xui?rev=4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9#4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"
 dependencies = [
  "xui-core",
 ]
