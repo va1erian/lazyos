@@ -12,10 +12,11 @@ use xui_core::Rect;
 
 use xui_app::installer::{Model, Screen};
 
-use crate::consent::ConsentScreen;
+use crate::consent::{PermissionsScreen, ReviewScreen};
 use crate::list_screen::ListScreen;
 use crate::msg::Msg;
 use crate::simple::{ConfirmScreen, DoneScreen, InstallingScreen};
+use crate::wizard::ChooseScreen;
 
 /// The outer margin every screen keeps.
 pub const MARGIN: i32 = 12;
@@ -33,13 +34,18 @@ pub fn fail<E: std::fmt::Display>(error: E) -> String {
 /// The widgets of the currently shown screen.
 ///
 /// The payloads are only ever held, never read: owning them is what keeps
-/// their nodes alive for the life of the screen.
-#[allow(dead_code)]
+/// their nodes alive for the life of the screen. Exactly one exists at a time,
+/// so the variants' size difference costs nothing worth a box.
+#[allow(dead_code, clippy::large_enum_variant)]
 pub enum View {
     /// The installed list.
     List(ListScreen),
-    /// The consent screen.
-    Consent(ConsentScreen),
+    /// Wizard step 1: choose the package.
+    Choose(ChooseScreen),
+    /// Wizard step 2: review the package.
+    Review(ReviewScreen),
+    /// Wizard step 3: consent to its permissions.
+    Permissions(PermissionsScreen),
     /// The install progress screen.
     Installing(InstallingScreen),
     /// The install success screen.
@@ -57,7 +63,9 @@ pub fn build(ui: &Ui<Msg>, model: &Model) -> Result<View, String> {
     let height = bounds.height().max(260);
     match model.screen {
         Screen::List => Ok(View::List(ListScreen::build(ui, width, height, model)?)),
-        Screen::Consent => Ok(View::Consent(ConsentScreen::build(
+        Screen::Choose => Ok(View::Choose(ChooseScreen::build(ui, width, height, model)?)),
+        Screen::Review => Ok(View::Review(ReviewScreen::build(ui, width, height, model)?)),
+        Screen::Permissions => Ok(View::Permissions(PermissionsScreen::build(
             ui, width, height, model,
         )?)),
         Screen::Installing => Ok(View::Installing(InstallingScreen::build(

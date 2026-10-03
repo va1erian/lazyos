@@ -77,19 +77,57 @@ pub struct Installed {
 }
 
 /// Which screen the window shows.
+///
+/// Installing a package is a wizard: [`Screen::Choose`], [`Screen::Review`],
+/// [`Screen::Permissions`], then [`Screen::Installing`] and [`Screen::Done`]
+/// (both the last step). [`Screen::step`] numbers them for the step header.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
-    /// The installed list plus the "open a package" field.
+    /// The installed list.
     #[default]
     List,
-    /// The consent screen for [`Model::inspected`].
-    Consent,
-    /// The progress screen while `Install` runs.
+    /// Wizard step 1: pick the `.lzp` (a path field and a file picker).
+    Choose,
+    /// Wizard step 2: what the package is, or why it cannot be installed.
+    Review,
+    /// Wizard step 3: the consent to the package's permissions.
+    Permissions,
+    /// Wizard step 4: the progress screen while `Install` runs.
     Installing,
-    /// The success screen after `Install` returned.
+    /// Wizard step 4: the success screen after `Install` returned.
     Done,
     /// The confirmation before `Remove`.
     ConfirmRemove,
+}
+
+/// The wizard's step titles, in order; [`Screen::step`] indexes them.
+pub const WIZARD_STEPS: [&str; 4] = ["Choose", "Review", "Permissions", "Install"];
+
+impl Screen {
+    /// The wizard step (an index into [`WIZARD_STEPS`]) this screen belongs
+    /// to, or `None` outside the wizard.
+    pub fn step(self) -> Option<usize> {
+        match self {
+            Screen::Choose => Some(0),
+            Screen::Review => Some(1),
+            Screen::Permissions => Some(2),
+            Screen::Installing | Screen::Done => Some(3),
+            Screen::List | Screen::ConfirmRemove => None,
+        }
+    }
+
+    /// The name the serial evidence uses for the screen.
+    pub fn marker(self) -> &'static str {
+        match self {
+            Screen::List => "LIST",
+            Screen::Choose => "CHOOSE",
+            Screen::Review => "REVIEW",
+            Screen::Permissions => "PERMISSIONS",
+            Screen::Installing => "INSTALLING",
+            Screen::Done => "DONE",
+            Screen::ConfirmRemove => "CONFIRM_REMOVE",
+        }
+    }
 }
 
 /// A request the app queued but has not completed. It is dropped whenever the
@@ -113,9 +151,9 @@ pub struct Model {
     pub packages: Vec<Installed>,
     /// Whether `List` has answered (so an empty list is "none", not "loading").
     pub list_loaded: bool,
-    /// What the user typed in the "open a package" field.
+    /// The package path on the Choose step (typed or picked).
     pub path_input: String,
-    /// The package the consent screen is showing.
+    /// The package the Review and Permissions steps are showing.
     pub inspected: Option<Package>,
     /// The path [`Model::inspected`] was read from (what `Install` will use).
     pub inspected_path: Option<String>,
@@ -168,22 +206,86 @@ impl Model {
         self.screen = Screen::List;
     }
 
-    /// `Inspect` succeeded: show the consent screen for `package`, which was
-    /// read from `path`. The typed path is cleared so `q` quits again once the
-    /// user is back on the list.
-    pub fn inspect_ok(&mut self, path: String, package: Package) {
+    /// "Install a package…": open the wizard on the Choose step, prefilled
+    /// with the last path the user chose.
+    pub fn start_wizard(&mut self) {
         self.clear_transient();
-        self.inspected = Some(package);
-        self.inspected_path = Some(path);
-        self.path_input.clear();
-        self.screen = Screen::Consent;
+        self.screen = Screen::Choose;
     }
 
-    /// `Inspect` failed: stay on the list and show why.
+    /// The file picker returned `path`: it becomes the Choose step's path.
+    pub fn path_picked(&mut self, path: &str) {
+        self.banner = None;
+        self.path_input = path.to_owned();
+    }
+
+    /// `Inspect` succeeded: show the Review step for `package`, which was read
+    /// from `path`. The path stays in the field so Back returns to it.
+    pub fn inspect_ok(&mut self, path: String, package: Package) {
+        self.clear_transient();
+        self.path_input = path.clone();
+        self.inspected = Some(package);
+        self.inspected_path = Some(path);
+        self.screen = Screen::Review;
+    }
+
+    /// `Inspect` failed: stay on (or go to) the Choose step and show why.
     pub fn inspect_failed(&mut self, reason: impl Into<String>) {
         self.clear_transient();
         self.banner = Some(clean(&reason.into()));
-        self.screen = Screen::List;
+        self.screen = Screen::Choose;
+    }
+
+    /// Whether the Review step may advance: a package without problems.
+    pub fn can_advance(&self) -> bool {
+        self.screen == Screen::Review && self.installable()
+    }
+
+    /// Whether the Permissions step may install: a package without problems
+    /// and no install already queued.
+    pub fn can_install(&self) -> bool {
+        self.screen == Screen::Permissions && self.pending.is_none() && self.installable()
+    }
+
+    /// Whether the inspected package has no problems.
+    fn installable(&self) -> bool {
+        self.inspected
+            .as_ref()
+            .is_some_and(|package| package.problems.is_empty())
+    }
+
+    /// Next on the Review step: on to the permissions. Returns whether the
+    /// screen changed (a package with problems never gets past Review).
+    pub fn advance(&mut self) -> bool {
+        if !self.can_advance() {
+            return false;
+        }
+        self.banner = None;
+        self.screen = Screen::Permissions;
+        true
+    }
+
+    /// Back: one wizard step earlier. Leaving Review drops the package (the
+    /// path stays in the field), and Back from Choose leaves the wizard.
+    /// Screens outside the wizard's editable steps ignore it.
+    pub fn back(&mut self) {
+        match self.screen {
+            Screen::Permissions => {
+                self.banner = None;
+                self.pending = None;
+                self.screen = Screen::Review;
+            }
+            Screen::Review => {
+                let path = self.inspected_path.take();
+                self.clear_transient();
+                if let Some(path) = path {
+                    self.path_input = path;
+                }
+                self.screen = Screen::Choose;
+            }
+            Screen::Choose => self.cancel(),
+            Screen::List | Screen::Installing | Screen::Done | Screen::ConfirmRemove => {}
+        }
     }
 
     /// The user accepted the consent: queue the install and show progress.
@@ -212,12 +314,12 @@ impl Model {
         self.screen = Screen::Done;
     }
 
-    /// `Install` failed: the consent screen stays up with the error, and the
-    /// package is *not* shown as installed.
+    /// `Install` failed: the Permissions step comes back with the error (so
+    /// the user can retry), and the package is *not* shown as installed.
     pub fn install_failed(&mut self, reason: impl Into<String>) {
         self.pending = None;
         self.banner = Some(clean(&reason.into()));
-        self.screen = Screen::Consent;
+        self.screen = Screen::Permissions;
     }
 
     /// The user asked to remove `app`: ask for confirmation first.
@@ -242,8 +344,9 @@ impl Model {
         self.screen = Screen::List;
     }
 
-    /// Esc / Cancel / Close: return to the list, dropping the transient state.
-    /// A running install cannot be cancelled.
+    /// Esc / Cancel / Close: leave the wizard (or the confirmation) for the
+    /// list, dropping the transient state. A running install cannot be
+    /// cancelled.
     pub fn cancel(&mut self) {
         if self.screen == Screen::Installing {
             return;
@@ -271,193 +374,4 @@ impl Model {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn installed(system_name: &str, version: &str) -> Installed {
-        Installed {
-            system_name: system_name.to_owned(),
-            name: system_name
-                .rsplit('.')
-                .next()
-                .unwrap_or(system_name)
-                .to_owned(),
-            version: version.to_owned(),
-            ..Installed::default()
-        }
-    }
-
-    fn package(system_name: &str, problems: &[&str]) -> Package {
-        Package {
-            name: "Paint".into(),
-            system_name: system_name.into(),
-            version: "1.0.0".into(),
-            problems: problems.iter().map(|p| (*p).to_owned()).collect(),
-            ..Package::default()
-        }
-    }
-
-    #[test]
-    fn a_fresh_model_is_an_empty_list() {
-        let model = Model::new();
-        assert_eq!(model.screen, Screen::List);
-        assert!(model.packages.is_empty());
-        assert!(!model.list_loaded);
-        assert!(model.banner.is_none());
-    }
-
-    #[test]
-    fn the_consent_flow_reaches_done_and_returns_to_the_list() {
-        let mut model = Model::new();
-        model.set_path("/tmp/paint.lzp");
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.inspected_path.as_deref(), Some("/tmp/paint.lzp"));
-        // Inspecting clears the typed path so `q` quits again from the list.
-        assert!(model.path_input.is_empty());
-
-        model.install_started();
-        assert_eq!(model.screen, Screen::Installing);
-        assert_eq!(
-            model.pending,
-            Some(Request::Install("/tmp/paint.lzp".into()))
-        );
-
-        let app = installed("org.lazy.paint", "1.0.0");
-        model.install_ok(app.clone());
-        assert_eq!(model.screen, Screen::Done);
-        assert_eq!(model.packages, vec![app.clone()]);
-        assert_eq!(model.last_installed.as_ref(), Some(&app));
-        assert!(
-            model.inspected.is_none(),
-            "the package is no longer pending"
-        );
-        assert!(model.pending.is_none());
-
-        model.done();
-        assert_eq!(model.screen, Screen::List);
-        assert!(
-            model.last_installed.is_none(),
-            "Done drops the success data"
-        );
-        assert_eq!(model.packages, vec![app], "the confirmed app stays listed");
-    }
-
-    #[test]
-    fn a_package_with_problems_offers_only_close() {
-        let mut model = Model::new();
-        model.inspect_ok(
-            "/tmp/bad.lzp".into(),
-            package("org.lazy.bad", &["version \"1\" is not semver"]),
-        );
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.inspected.as_ref().unwrap().problems.len(), 1);
-        model.cancel();
-        assert_eq!(model.screen, Screen::List);
-        assert!(model.inspected.is_none(), "Close drops the package");
-    }
-
-    #[test]
-    fn inspect_failure_stays_on_the_list_with_the_reason() {
-        let mut model = Model::new();
-        model.inspect_failed("not a zip archive");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.banner.as_deref(), Some("not a zip archive"));
-        assert!(model.inspected.is_none());
-    }
-
-    #[test]
-    fn inspect_again_drops_the_previous_package_and_pending_request() {
-        let mut model = Model::new();
-        model.inspect_ok("/tmp/a.lzp".into(), package("org.lazy.a", &[]));
-        model.install_started();
-        assert!(model.pending.is_some());
-        // A second inspect while the first is pending must not reuse the first.
-        model.inspect_ok("/tmp/b.lzp".into(), package("org.lazy.b", &[]));
-        assert_eq!(model.inspected.as_ref().unwrap().system_name, "org.lazy.b");
-        assert!(model.pending.is_none(), "the stale install was dropped");
-        assert_eq!(model.inspected_path.as_deref(), Some("/tmp/b.lzp"));
-    }
-
-    #[test]
-    fn install_failure_keeps_the_package_and_shows_the_error() {
-        let mut model = Model::new();
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
-        model.install_started();
-        model.install_failed("pkgd error 13");
-        assert_eq!(model.screen, Screen::Consent);
-        assert_eq!(model.banner.as_deref(), Some("pkgd error 13"));
-        assert!(model.inspected.is_some(), "the user can retry");
-        assert!(model.pending.is_none());
-        assert!(
-            model.packages.is_empty(),
-            "nothing is listed before pkgd confirms it"
-        );
-    }
-
-    #[test]
-    fn the_remove_flow_confirms_then_updates_the_list() {
-        let mut model = Model::new();
-        model.list_loaded(vec![
-            installed("org.lazy.a", "1.0.0"),
-            installed("org.lazy.b", "2.0.0"),
-        ]);
-        model.remove_asked(model.packages[0].clone());
-        assert_eq!(model.screen, Screen::ConfirmRemove);
-        assert_eq!(model.pending_remove_name().as_deref(), Some("org.lazy.a"));
-        model.remove_ok("org.lazy.a");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1);
-        assert_eq!(model.packages[0].system_name, "org.lazy.b");
-        assert!(model.pending_remove.is_none());
-        assert!(model.banner.is_none());
-    }
-
-    #[test]
-    fn a_failed_remove_keeps_the_app_and_shows_the_error() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.a", "1.0.0")]);
-        model.remove_asked(model.packages[0].clone());
-        model.remove_failed("permission denied");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1, "the app is still installed");
-        assert_eq!(model.banner.as_deref(), Some("permission denied"));
-        assert!(model.pending_remove.is_none());
-    }
-
-    #[test]
-    fn cancel_does_not_interrupt_a_running_install() {
-        let mut model = Model::new();
-        model.inspect_ok("/tmp/paint.lzp".into(), package("org.lazy.paint", &[]));
-        model.install_started();
-        model.cancel();
-        assert_eq!(model.screen, Screen::Installing);
-        assert!(model.pending.is_some());
-    }
-
-    #[test]
-    fn list_failure_keeps_the_previous_rows() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.a", "1.0.0")]);
-        model.list_failed("pkgd is unavailable");
-        assert_eq!(model.screen, Screen::List);
-        assert_eq!(model.packages.len(), 1, "the last good list stays");
-        assert_eq!(model.banner.as_deref(), Some("pkgd is unavailable"));
-    }
-
-    #[test]
-    fn control_characters_never_reach_the_banner() {
-        let mut model = Model::new();
-        model.inspect_failed("bad\nreason\u{7}");
-        assert_eq!(model.banner.as_deref(), Some("badreason"));
-    }
-
-    #[test]
-    fn a_second_install_of_the_same_id_replaces_the_row() {
-        let mut model = Model::new();
-        model.list_loaded(vec![installed("org.lazy.paint", "1.0.0")]);
-        model.install_ok(installed("org.lazy.paint", "2.0.0"));
-        assert_eq!(model.packages.len(), 1);
-        assert_eq!(model.packages[0].version, "2.0.0");
-    }
-}
+mod tests;

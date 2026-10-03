@@ -1,11 +1,13 @@
 //! `xui-installer`: the user-facing half of the `.lzp` package system
 //! (`docs/packages.md`, phase 5).
 //!
-//! One window, three screens: the installed list (with a `Remove` button per
-//! row and an "open a package" field), the consent screen that shows a
-//! package's permissions grouped by risk, and the remove confirmation. A
-//! package opened by `mimed`/Files arrives as a path argument and goes straight
-//! to consent.
+//! One window: the installed list (with a `Remove` button per row), the remove
+//! confirmation, and a four-step install wizard started by "Install a
+//! package…": **Choose** the `.lzp` (typed, or picked with the file picker),
+//! **Review** what it is, consent to its **Permissions** (grouped by risk), then
+//! **Install**. `Back` walks the steps; `Cancel`/`Esc` leaves the wizard. A
+//! package opened by `mimed`/Files arrives as a path argument and starts at
+//! Review.
 //!
 //! The state machine and the text hygiene live in the `xui_app::installer`
 //! module and are unit-tested there; this file owns the widgets, the `pkgd`
@@ -13,13 +15,16 @@
 //!
 //! ```text
 //! INSTALLER:UP:PASS
+//! INSTALLER:STEP:<screen>                  (LIST, CHOOSE, REVIEW, PERMISSIONS, ...)
 //! INSTALLER:LIST:PASS count=<n>            INSTALLER:LIST:FAIL <reason>
+//! INSTALLER:PICK:PASS <path>               INSTALLER:PICK:FAIL <reason>
 //! INSTALLER:INSPECT:PASS <system_name>     INSTALLER:INSPECT:FAIL <reason>
 //! INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
 //! INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 //! INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
 //! ```
 
+use std::cell::Cell;
 use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -38,12 +43,17 @@ mod consent;
 mod list_screen;
 #[path = "installer/msg.rs"]
 mod msg;
+#[path = "installer/picker.rs"]
+mod picker;
 #[path = "installer/simple.rs"]
 mod simple;
 #[path = "installer/view.rs"]
 mod view;
+#[path = "installer/wizard.rs"]
+mod wizard;
 
 use msg::Msg;
+use picker::Picker;
 use view::{build as build_view, View};
 
 /// The window size (DIP) the app asks for.
@@ -59,6 +69,11 @@ struct Installer {
     shown: Screen,
     /// The one-shot timer that runs a deferred install outside the click.
     install_timer: Option<TimerId>,
+    /// The Choose step's file picker (window-lived, above every view).
+    picker: Picker,
+    /// A rebuild was wanted while the picker was open; it runs once it closes
+    /// (a fresh view would otherwise be stacked over the open picker).
+    stale: bool,
 }
 
 impl Installer {
@@ -70,22 +85,34 @@ impl Installer {
             Some(path) => inspect(&mut model, &path.to_string_lossy()),
             None => reload(&mut model),
         }
-        install_hooks(ui);
+        let picker = Picker::build(ui)?;
+        install_hooks(ui, picker.gate());
         let view = build_view(ui, &model)?;
         let shown = model.screen;
+        println!("INSTALLER:STEP:{}", shown.marker());
         Ok(Installer {
             model,
             _view: view,
             shown,
             install_timer: None,
+            picker,
+            stale: false,
         })
     }
 
     /// Replaces the widgets with a view for the model's current screen.
     fn rebuild(&mut self, ui: &mut Ui<Msg>) {
+        if self.picker.is_open() {
+            self.stale = true;
+            return;
+        }
+        self.stale = false;
         match build_view(ui, &self.model) {
             Ok(view) => {
                 self._view = view;
+                if self.shown != self.model.screen {
+                    println!("INSTALLER:STEP:{}", self.model.screen.marker());
+                }
                 self.shown = self.model.screen;
             }
             Err(error) => {
@@ -106,31 +133,47 @@ impl App for Installer {
                 reload(&mut self.model);
                 dirty = true;
             }
+            Msg::StartInstall => {
+                self.model.start_wizard();
+                dirty = true;
+            }
             Msg::PathChanged(text) => {
                 // Kept in the model but not rebuilt: rebuilding would drop the
                 // field's focus mid-typing.
                 self.model.set_path(&text);
             }
-            Msg::Inspect => {
-                let path = self.model.path_input.trim().to_owned();
-                if argv::is_acceptable(Path::new(&path)) {
-                    inspect(&mut self.model, &path);
-                } else {
-                    println!("INSTALLER:INSPECT:FAIL not an absolute path");
-                    self.model
-                        .inspect_failed("Enter an absolute path to a .lzp package.");
+            Msg::Browse => {
+                if self.model.screen == Screen::Choose {
+                    self.picker.show(&self.model.path_input);
+                }
+            }
+            Msg::Picked(path) => {
+                if self.model.screen == Screen::Choose {
+                    picked(&mut self.model, &path);
                 }
                 dirty = true;
             }
+            Msg::PickCancelled => dirty = self.stale,
+            Msg::Inspect => {
+                if self.model.screen == Screen::Choose {
+                    let path = self.model.path_input.trim().to_owned();
+                    if argv::is_acceptable(Path::new(&path)) {
+                        inspect(&mut self.model, &path);
+                    } else {
+                        println!("INSTALLER:INSPECT:FAIL not an absolute path");
+                        self.model
+                            .inspect_failed("Enter an absolute path to a .lzp package.");
+                    }
+                    dirty = true;
+                }
+            }
+            Msg::Next => dirty = self.model.advance(),
+            Msg::Back => {
+                self.model.back();
+                dirty = true;
+            }
             Msg::Install => {
-                let installable = self.model.screen == Screen::Consent
-                    && self.install_timer.is_none()
-                    && self
-                        .model
-                        .inspected
-                        .as_ref()
-                        .is_some_and(|package| package.problems.is_empty());
-                if installable {
+                if self.model.can_install() && self.install_timer.is_none() {
                     self.model.install_started();
                     dirty = true;
                     // Defer the blocking call by a tick so the progress screen
@@ -201,10 +244,9 @@ impl App for Installer {
                 }
             }
             Msg::KeyQ => {
-                // `q` quits from the list; the path field needs `q` only when
-                // the user has started typing (an absolute path starts with
-                // `/`, so the first character is never `q`).
-                if self.model.screen == Screen::List && self.model.path_input.is_empty() {
+                // `q` quits from the list only: the Choose step's path field
+                // takes typed text.
+                if self.model.screen == Screen::List {
                     ui.quit();
                 }
             }
@@ -218,9 +260,11 @@ impl App for Installer {
 }
 
 /// Registers the window-level hooks: close, shortcuts, timer and resize.
-fn install_hooks(ui: &Ui<Msg>) {
+/// `picker_open` keeps the shortcuts away from the file picker's own keys.
+fn install_hooks(ui: &Ui<Msg>, picker_open: Rc<Cell<bool>>) {
     ui.on_close(|| Some(Msg::Quit));
-    ui.on_key(|key, _modifiers| match key {
+    ui.on_key(move |key, _modifiers| match key {
+        _ if picker_open.get() => None,
         Key::ESCAPE => Some(Msg::Escape),
         Key::Q => Some(Msg::KeyQ),
         _ => None,
@@ -245,6 +289,19 @@ fn reload(model: &mut Model) {
             println!("INSTALLER:LIST:FAIL {}", clean(&reason));
             model.list_failed(reason);
         }
+    }
+}
+
+/// Puts the picker's `path` in the Choose step's field, after the same check a
+/// typed path gets, and reports the serial evidence.
+fn picked(model: &mut Model, path: &Path) {
+    let text = path.to_string_lossy();
+    if argv::is_acceptable(path) {
+        println!("INSTALLER:PICK:PASS {}", clean(&text));
+        model.path_picked(&text);
+    } else {
+        println!("INSTALLER:PICK:FAIL not an absolute path");
+        model.inspect_failed("The picker returned a path that cannot be used.");
     }
 }
 
