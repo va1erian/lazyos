@@ -129,8 +129,10 @@ fn the_window_renders_in_light_and_dark() {
     assert_eq!(light.size(), (common::WIDTH as u32, common::HEIGHT as u32));
     assert!(light_bold && dark_bold, "the caret sits in a bold word");
     // The document's empty margin follows the theme: light is light, dark dark.
+    // The row is in the document, above the status bar along the bottom.
     let luma = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
-    let (l, d) = (light.pixel(4, 600).unwrap(), dark.pixel(4, 600).unwrap());
+    let y = common::HEIGHT as u32 - 60;
+    let (l, d) = (light.pixel(4, y).unwrap(), dark.pixel(4, y).unwrap());
     assert!(luma(l) > 600, "light document background {l:?}");
     assert!(luma(d) < 200, "dark document background {d:?}");
 }

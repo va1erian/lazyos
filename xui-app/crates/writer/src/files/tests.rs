@@ -138,6 +138,24 @@ fn export_without_pictures_makes_no_folder() {
     assert!(!dir.file("plain_images").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn an_images_folder_that_is_a_symlink_is_refused() {
+    let dir = TempDir::new("export-link");
+    let elsewhere = dir.file("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, dir.file("trip_images")).unwrap();
+    let host = Host::std(&dir.0);
+    let error = export_markdown(&host, &dir.file("trip.md"), &document_with_picture()).unwrap_err();
+    assert!(error.contains("symbolic link"), "{error}");
+    assert_eq!(
+        std::fs::read_dir(&elsewhere).unwrap().count(),
+        0,
+        "nothing written through the link"
+    );
+    assert!(!dir.file("trip.md").exists());
+}
+
 #[test]
 fn a_failed_write_is_reported() {
     let dir = TempDir::new("fail");

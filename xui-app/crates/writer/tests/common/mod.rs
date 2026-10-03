@@ -18,7 +18,7 @@ use xui_writer::{Host, Msg};
 
 /// The window size the LazyOS binary asks for.
 pub const WIDTH: f32 = 960.0;
-pub const HEIGHT: f32 = 680.0;
+pub const HEIGHT: f32 = 600.0;
 
 /// How long one window test may run before the watchdog fails it.
 const WATCHDOG: Duration = Duration::from_secs(120);

@@ -85,8 +85,7 @@ pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), S
     let export = ImageExport::Callback(Box::new(move |image, _alt| {
         counter.set(counter.get() + 1);
         let (name, link) = image_entry(&md, counter.get());
-        let written = std::fs::create_dir_all(&dir)
-            .map_err(|e| e.to_string())
+        let written = images_dir(&dir)
             .and_then(|()| image.encode_png().map_err(|e| e.to_string()))
             .and_then(|png| writer(&dir.join(&name), &png));
         if let Err(e) = written {
@@ -99,6 +98,16 @@ pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), S
         return Err(error);
     }
     (host.write)(path, markdown.as_bytes())
+}
+
+/// Creates the export's images folder `dir`, refusing one that is a
+/// symbolic link: the atomic write only checks a file's last component, so a
+/// planted `<stem>_images` link would send the pictures somewhere else.
+fn images_dir(dir: &Path) -> Result<(), String> {
+    if std::fs::symlink_metadata(dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(format!("{} is a symbolic link", dir.display()));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())
 }
 
 /// Decodes a picture file into an inline image no wider than
