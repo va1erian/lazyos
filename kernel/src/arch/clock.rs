@@ -134,13 +134,23 @@ pub fn monotonic_ns() -> u64 {
             LAST_TSC.load(Ordering::Relaxed),
         )
     });
-    let mut ns = ticks.saturating_mul(PERIOD_NS);
-    let per_tick = CYCLES_PER_TICK.load(Ordering::Relaxed);
-    if per_tick != 0 {
-        let elapsed = rdtsc().wrapping_sub(last).min(per_tick - 1);
-        ns += (u128::from(elapsed) * u128::from(PERIOD_NS) / u128::from(per_tick)) as u64;
-    }
+    let ns = interpolate(
+        ticks,
+        rdtsc().wrapping_sub(last),
+        CYCLES_PER_TICK.load(Ordering::Relaxed),
+    );
     LAST_NS.fetch_max(ns, Ordering::Relaxed).max(ns)
+}
+
+/// `ticks` periods plus `elapsed` TSC cycles (at `per_tick` cycles a period,
+/// 0 when uncalibrated) in nanoseconds, the fraction capped below one period.
+pub fn interpolate(ticks: u64, elapsed: u64, per_tick: u64) -> u64 {
+    let whole = ticks.saturating_mul(PERIOD_NS);
+    if per_tick == 0 {
+        return whole;
+    }
+    let elapsed = elapsed.min(per_tick - 1);
+    whole + (u128::from(elapsed) * u128::from(PERIOD_NS) / u128::from(per_tick)) as u64
 }
 
 /// The resolution [`monotonic_ns`] offers: 1 ns with a calibrated TSC (the

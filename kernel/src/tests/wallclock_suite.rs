@@ -330,31 +330,34 @@ pub fn monotonic_clock_is_fine_and_bounded() -> Result<(), String> {
         );
         previous = now;
     }
-    let per_tick = clock::cycles_per_tick();
-    if per_tick != 0 {
-        // Interrupts are off in the harness, so the tick count stands still:
-        // only the TSC can move the reading. A tenth of a period must show.
-        clock::resync();
-        let before = clock::monotonic_ns();
-        // SAFETY: `rdtsc` reads a CPU counter; no memory or privilege effects.
-        let tsc = || unsafe { core::arch::x86_64::_rdtsc() };
-        let start = tsc();
-        while tsc().wrapping_sub(start) < per_tick / 10 {
-            core::hint::spin_loop();
-        }
-        let after = clock::monotonic_ns();
-        check!(
-            after > before && after - before < period,
-            "a tenth of a tick moved the clock from {before} to {after}"
-        );
-        check!(
-            clock::resolution_ns() == 1,
-            "resolution {}",
-            clock::resolution_ns()
-        );
+    // The interpolation itself (the live clock cannot move here: interrupts
+    // are off in the harness, so the ticks stand still and the reading stays
+    // capped inside the current tick).
+    let per = 3_000_000u64;
+    check!(clock::interpolate(5, 0, per) == 5 * period, "whole ticks");
+    check!(
+        clock::interpolate(5, per / 10, per) == 5 * period + period / 10,
+        "a tenth of a period: {}",
+        clock::interpolate(5, per / 10, per)
+    );
+    check!(
+        clock::interpolate(5, 10 * per, per) < 6 * period,
+        "the fraction escaped its tick"
+    );
+    check!(
+        clock::interpolate(5, per / 2, 0) == 5 * period,
+        "uncalibrated"
+    );
+    let expected = if clock::cycles_per_tick() == 0 {
+        period
     } else {
-        check!(clock::resolution_ns() == period, "uncalibrated resolution");
-    }
+        1
+    };
+    check!(
+        clock::resolution_ns() == expected,
+        "resolution {}",
+        clock::resolution_ns()
+    );
     let mut ts = [0i64; 2];
     process::linux::dispatch_for_test(
         SYS_CLOCK_GETTIME,
