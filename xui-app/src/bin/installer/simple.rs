@@ -1,18 +1,20 @@
-//! The installer's short-lived screens: install progress, install success, and
-//! the remove confirmation. None of them lists anything, so each is a panel and
-//! a few labels and buttons.
+//! The installer's short-lived screens: install progress and success (the
+//! wizard's last step), and the remove confirmation. None of them lists
+//! anything, so each is a panel and a few labels and buttons.
 
 use xui_core::app::Ui;
 use xui_core::widget::{Button, Label, Panel};
 
-use xui_app::installer::{elide, Model};
+use xui_app::installer::{elide, Model, Screen};
 
 use crate::msg::Msg;
 use crate::view::{fail, rect, MARGIN};
+use crate::wizard::Header;
 
 /// The progress screen shown while `pkgd.Install` runs.
 pub struct InstallingScreen {
     _panel: Panel<Msg>,
+    _header: Header,
     _message: Label<Msg>,
     _hint: Label<Msg>,
 }
@@ -27,6 +29,7 @@ impl InstallingScreen {
     ) -> Result<InstallingScreen, String> {
         let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
         let page = panel.ui();
+        let header = Header::build(page, width, Screen::Installing)?;
         let name = model
             .inspected
             .as_ref()
@@ -47,6 +50,7 @@ impl InstallingScreen {
         .map_err(fail)?;
         Ok(InstallingScreen {
             _panel: panel,
+            _header: header,
             _message: message,
             _hint: hint,
         })
@@ -56,6 +60,7 @@ impl InstallingScreen {
 /// The success screen after `pkgd.Install` confirmed an app.
 pub struct DoneScreen {
     _panel: Panel<Msg>,
+    _header: Header,
     _message: Label<Msg>,
     _done: Button<Msg>,
 }
@@ -70,6 +75,7 @@ impl DoneScreen {
     ) -> Result<DoneScreen, String> {
         let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
         let page = panel.ui();
+        let header = Header::build(page, width, Screen::Done)?;
         let text = match &model.last_installed {
             Some(app) => format!(
                 "{} {} was installed.",
@@ -87,12 +93,14 @@ impl DoneScreen {
         let done = Button::new(
             page,
             rect(width - MARGIN - 116, height - 48, 100, 30),
-            "Done",
+            "Finish",
         )
         .map_err(fail)?
         .on_click(|| Some(Msg::Done));
+        page.focus(done.id());
         Ok(DoneScreen {
             _panel: panel,
+            _header: header,
             _message: message,
             _done: done,
         })

@@ -19,13 +19,13 @@
   "wait": 0.8
  },
  {
-  "type": "/pkgde"
+  "type": "/PKGDE"
  },
  {
   "wait": 0.8
  },
  {
-  "type": "mo.lzp"
+  "type": "MO.LZP"
  },
  {
   "wait": 1.0
@@ -43,7 +43,37 @@
   "wait": 8.0
  },
  {
-  "shot": "02_consent"
+  "shot": "02_review"
+ },
+ {
+  "mouse_move": [
+   2000,
+   2000
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_move": [
+   -716,
+   -139
+  ]
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_click": "left",
+  "until": "INSTALLER:STEP:PERMISSIONS",
+  "timeout": 60,
+  "retries": 1
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "02_permissions"
  },
  {
   "mouse_move": [
