@@ -37,9 +37,17 @@ class CorePackageTests(unittest.TestCase):
         self.dir = Path(tmp.name)
         self.xui = self.dir / "xui"
         self.xui.mkdir()
-        # Stand-ins for the built programs: different bytes per app.
-        for short, (elf, _optional) in core_packages.CORE_APPS.items():
-            (self.xui / elf).write_bytes(b"\x7fELF " + short.encode() * 1000)
+        self.lazyrad = self.dir / "lazyrad"
+        self.lazyrad.mkdir()
+        # Stand-ins for the built programs: different bytes per program.
+        for short, app in core_packages.CORE_APPS.items():
+            for name in app.programs:
+                built = {"xui": self.xui, "lazyrad": self.lazyrad}[app.build_dir]
+                (built / name).write_bytes(b"\x7fELF " + (short + name).encode() * 1000)
+
+    def build(self, out: str):
+        return core_packages.build_core_packages(self.xui, self.dir / out, "0.1.0",
+                                                 lazyrad_dir=self.lazyrad)
 
     def test_every_core_app_has_a_source_tree_and_nothing_else_does(self) -> None:
         trees = sorted(p.name for p in core_packages.SOURCES.iterdir() if p.is_dir())
@@ -55,10 +63,38 @@ class CorePackageTests(unittest.TestCase):
             self.assertEqual(pkgmanifest.validate_manifest(manifest), [], short)
             self.assertEqual(manifest["app"]["system_name"], f"os.lazy.{short}")
             self.assertEqual(manifest["entry"]["binary"], f"bin/{short}.elf")
+            self.assertIn(manifest["entry"]["binary"], core_packages.CORE_APPS[short].programs.values())
             self.assertEqual(manifest["entry"]["args"], ["--client"])
             self.assertEqual(manifest["entry"]["abi"], "linux")
             self.assertIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
             self.assertTrue((core_packages.SOURCES / short / "docs" / "README.md").is_file())
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_lazyrad_ships_its_player_beside_the_ide_and_is_not_an_exception(self) -> None:
+        # The IDE is a core package like the other desktop apps (it was an
+        # unlabelled system program before docs/lazyrad-package-plan.md A).
+        app = core_packages.CORE_APPS["lazyrad"]
+        self.assertEqual(app.programs, {"lazyrad.elf": "bin/lazyrad.elf",
+                                        "lrplay.elf": "bin/lrplay.elf"})
+        self.assertEqual(app.build_dir, "lazyrad")
+        self.assertTrue(app.optional, "built and listed only for LAZYOS_LAZYRAD=1 images")
+        text = (core_packages.SOURCES / "lazyrad" / "manifest.toml").read_text(encoding="utf-8")
+        manifest = tomllib.loads(text)
+        self.assertEqual(manifest["app"]["category"], "development")
+        # The install handoff (lazyrad-os/src/handoff): never `pkgd`.
+        permissions = manifest["permissions"]
+        self.assertIn("os.lazy.mimed.v1", permissions["interfaces"])
+        self.assertIn("os.lazy.init.v1", permissions["interfaces"])
+        self.assertIn("subscribe:system/events/pkg/+", permissions["topics"])
+        self.assertNotIn("os.lazy.pkgd.v1", permissions["interfaces"])
+
+    def test_the_package_carries_both_programs(self) -> None:
+        import zipfile
+        archive = next(p for p in self.build("lr") if p.name.startswith("os.lazy.lazyrad-"))
+        with zipfile.ZipFile(archive) as zf:
+            names = set(zf.namelist())
+            self.assertLessEqual({"bin/lazyrad.elf", "bin/lrplay.elf", "manifest.toml"}, names)
+            self.assertNotEqual(zf.read("bin/lazyrad.elf"), zf.read("bin/lrplay.elf"))
 
     def test_the_manifest_takes_the_workspace_version_and_the_autostart_flag(self) -> None:
         text = 'version = "0.1.0"\nautostart = false\n'
@@ -69,8 +105,8 @@ class CorePackageTests(unittest.TestCase):
         self.assertRegex(core_packages.workspace_version(), r"^\d+\.\d+")
 
     def test_builds_are_reproducible_and_autostart_changes_the_digest(self) -> None:
-        first = core_packages.build_core_packages(self.xui, self.dir / "a", "0.1.0")
-        second = core_packages.build_core_packages(self.xui, self.dir / "b", "0.1.0")
+        first = self.build("a")
+        second = self.build("b")
         self.assertEqual(len(first), len(core_packages.CORE_APPS))
         for one, two in zip(first, second):
             self.assertEqual(one.name, two.name)
@@ -87,18 +123,21 @@ class CorePackageTests(unittest.TestCase):
 
     def test_a_missing_optional_app_is_skipped_and_a_mandatory_one_fails(self) -> None:
         (self.xui / "xui-docs.elf").unlink()
-        built = core_packages.build_core_packages(self.xui, self.dir / "c", "0.1.0")
-        self.assertNotIn("os.lazy.docs-0.1.0.lzp", [p.name for p in built])
+        (self.lazyrad / "lrplay.elf").unlink()  # the IDE without its player is not built either
+        built = self.build("c")
+        names = [p.name for p in built]
+        self.assertNotIn("os.lazy.docs-0.1.0.lzp", names)
+        self.assertNotIn("os.lazy.lazyrad-0.1.0.lzp", names)
         (self.xui / "xui-paint.elf").unlink()
         with self.assertRaises(core_packages.CoreError):
-            core_packages.build_core_packages(self.xui, self.dir / "d", "0.1.0")
+            self.build("d")
 
     def test_stale_archives_are_removed(self) -> None:
         out = self.dir / "e"
         (out / core_packages.AUTOSTART_DIR).mkdir(parents=True)
         stale = out / "os.lazy.gone-0.0.1.lzp"
         stale.write_bytes(b"old")
-        core_packages.build_core_packages(self.xui, out, "0.1.0")
+        core_packages.build_core_packages(self.xui, out, "0.1.0", lazyrad_dir=self.lazyrad)
         self.assertFalse(stale.exists())
 
     def test_an_oversized_package_is_an_error(self) -> None:
@@ -106,7 +145,7 @@ class CorePackageTests(unittest.TestCase):
         noise = random.Random(7).randbytes(core_packages.MAX_PACKAGE_FILE + 4096)
         (self.xui / "xui-paint.elf").write_bytes(noise)
         with self.assertRaises(core_packages.CoreError):
-            core_packages.build_core_packages(self.xui, self.dir / "f", "0.1.0")
+            self.build("f")
 
 
 if __name__ == "__main__":

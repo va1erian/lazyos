@@ -173,7 +173,11 @@ impl Sink for MixerSink {
     fn free(&mut self) -> Result<usize, String> {
         self.drain_pending()?;
         let free = self.refresh()?;
-        Ok(if self.pending.is_empty() { free as usize } else { 0 })
+        Ok(if self.pending.is_empty() {
+            free as usize
+        } else {
+            0
+        })
     }
 
     fn write(&mut self, samples: &[i16]) -> Result<usize, String> {
@@ -333,7 +337,9 @@ mod tests {
                 open: true,
                 ..Card::default()
             };
-            Ok(Some(Box::new(FakeStream(Rc::clone(&slot))) as Box<dyn Stream>))
+            Ok(Some(
+                Box::new(FakeStream(Rc::clone(&slot))) as Box<dyn Stream>
+            ))
         });
         let sink = MixerSink::open(open, 22_050).unwrap().unwrap();
         (sink, current, heard)

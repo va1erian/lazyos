@@ -26,7 +26,8 @@ leaving a silently empty image.
 ## Embedding in the image
 
 With `LAZYOS_LAZYRAD=1` set for the OS build, `build_support/lazyrad_embed.rs`
-adds `/system/bin/lrplay` and `/system/bin/lazyrad` to the OS volume and copies
+ships `lazyrad.elf` and `lrplay.elf` as the core package `os.lazy.lazyrad`
+(`tools/xui/core_packages.py`; `pkgd` installs it under `/apps` at boot) and copies
 every sample project directory named by `LAZYRAD_SAMPLES` (a platform path list,
 `;` on Windows and `:` elsewhere; relative entries resolve against the repo
 root) under `/system/share/lazyrad/<directory>/`. Names are kept exactly (ext2 is case-sensitive). A missing ELF fails

@@ -162,6 +162,13 @@ and `midlc --rhai-api` generates one documented module per interface on top of
 it (`sys::confd::get(...)`, `libs/rhai-lazy/api/`). LazyRAD form scripts on
 LazyOS get both, with events delivered by the form's window
 ([`docs/lazyrad-messenger-plan.md`](docs/lazyrad-messenger-plan.md)).
+The LazyRAD IDE and its player ship as the core package `os.lazy.lazyrad` in
+images built with `LAZYOS_LAZYRAD=1` (`--lazyrad` implies `--desktop`): `pkgd`
+installs it at boot under its own label like every other desktop app, so the
+`lazyrad_*.json` sessions start the IDE through `init.Launch` and run the player
+from `/apps/os.lazy.lazyrad/*/bin/lrplay.elf`; Make LazyOS App hands the package
+to the Installer instead of calling `pkgd`
+([`docs/lazyrad-package-plan.md`](docs/lazyrad-package-plan.md)).
 One command builds `rhai`, BusyBox and the image, boots it and judges it:
 
 ```bash

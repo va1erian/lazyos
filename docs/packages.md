@@ -521,6 +521,32 @@ IDE (`LAZYOS_LAZYRAD=1`) is not packaged either: it is a built-in row of
 `init`'s registry (`user/src/bin/init/apps.rs`), while the apps it builds are
 packages.
 
+The **LazyRAD IDE** is a core package too (`os.lazy.lazyrad`,
+`xui-app/packages/lazyrad`, category `development`), shipped only in images
+built with `LAZYOS_LAZYRAD=1` (`build_support/lazyrad_embed.rs`; its programs
+come from `target/lazyrad/` through `tools/xui/core_packages.py`, see
+[`lazyrad-package-plan.md`](lazyrad-package-plan.md)). It carries two
+programs: `bin/lazyrad.elf` and the player `bin/lrplay.elf`, which Play runs
+and Make LazyOS App copies into every package it builds, found beside the IDE
+in its install directory. Its data lives in `$HOME/.apps/os.lazy.lazyrad` (the
+IDE moves the old `.apps/lazyrad` there once). Because `pkgd` refuses every
+labelled caller, the IDE never calls it: Make LazyOS App pre-checks the
+package in its own process (`pkgstore::inspect`, the function `Inspect` runs),
+stages it in `/transient`, asks `mimed` to open it with the `install` verb
+(`init` starts the Installer unlabelled, which shows the trusted consent screen
+and calls `pkgd.Install`), follows the `system/events/pkg/install|denied`
+event whose `system_name` and digest match, and starts the new app with
+`init.Launch`. Its manifest therefore names `os.lazy.mimed.v1`,
+`os.lazy.init.v1` and `subscribe:system/events/pkg/+`. The apps LazyRAD builds
+are packages with permissions derived from their scripts
+([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)).
+
+*Known limit until development labels land (phase B of the plan):* Play forks
+`lrplay` on the project being edited, and a child inherits its parent's label,
+so the project's `sys::*` calls are judged against the IDE's permissions, not
+the ones the installed app would get; a service the IDE does not declare is
+`LABEL:DENY` in Play and works once installed.
+
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
   `args = ["--client"]`, a `category`, `[[mime]]` mirroring `mimed`'s defaults,

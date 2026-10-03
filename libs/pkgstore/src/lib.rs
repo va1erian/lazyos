@@ -25,6 +25,9 @@
 //! * [`provision`]: which core packages (`/system/packages`) to install,
 //!   upgrade, keep or demote, the provisioning stamp, and the refusals a core
 //!   app adds to `Remove` and `Install`;
+//! * [`inspect`]: an archive turned into the `PackageInfo` the consent screen
+//!   shows, shared by `pkgd`'s `Inspect` and `Install` and by the LazyRAD IDE's
+//!   pre-check;
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
@@ -39,6 +42,7 @@ pub mod audit;
 pub mod docs;
 pub mod explain;
 pub mod hash;
+pub mod inspect;
 pub mod layout;
 pub mod provision;
 pub mod rules;

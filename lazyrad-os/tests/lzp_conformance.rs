@@ -107,8 +107,11 @@ fn package(lrp: &Path, player: &[u8], author: &str) -> BuiltPackage {
 /// What Make LazyOS App asks: the LazyOS platform's derivation from the
 /// scripts (`rhai_lazy::msg::permissions`).
 fn lazyos_permissions(scripts: &[&str]) -> HostPermissions {
-    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user"))))
-        .script_permissions(scripts);
+    let found = LazyOsPlatform::ide(
+        Home::from_var(Some(OsStr::new("/home/user"))),
+        Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf"),
+    )
+    .script_permissions(scripts);
     HostPermissions {
         interfaces: found.interfaces,
         topics: found.topics,
