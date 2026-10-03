@@ -18,6 +18,8 @@ members = [
     "crates/confd-editor",
     "crates/testkit",
     "crates/shell",
+    # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
+    "crates/app-icons",
 ]
 
 [dependencies]
