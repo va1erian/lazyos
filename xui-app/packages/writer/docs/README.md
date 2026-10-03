@@ -40,8 +40,8 @@ document first.
 * **Export** writes GitHub Flavored Markdown (`<name>.md`). A document with
   pictures also gets a `<name>_images/` folder beside it, holding them as
   `1.png`, `2.png`, and so on.
-* **Plain text** (`.txt`) can be opened from the Open dialog. It is saved as
-  `.lzw`. LazyWriter does not take `.txt` or `.md` files from Files: those
+* **Plain text** (`.txt`) can be opened from the Open dialog. Save never
+  writes over the `.txt`: it asks for a `.lzw` name instead. LazyWriter does not take `.txt` or `.md` files from Files: those
   open in the Editor and Docs.
 
 ## Known limits
@@ -51,6 +51,7 @@ document first.
 * There is no page view and no printing.
 * Copying keeps the formatting only inside LazyWriter. Other apps receive
   plain text, at most 8 KiB of it.
-* Documents larger than 32 MiB and pictures larger than 16 MiB are refused.
+* Documents larger than 32 MiB, picture files larger than 16 MiB and
+  pictures of more than 4096 x 4096 pixels are refused.
 * There is no italic face: italic text is slanted from the regular one.
 * No import of Markdown, HTML, RTF or Word documents.

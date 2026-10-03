@@ -28,10 +28,15 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   (`RichTextEditor<Msg>`). LazyWriter is a port of that crate's `wordpad`
   example (`examples/wordpad/`) onto `xui_app::backend::LazyOSBackend`, with
   the Editor app's skeleton (`xui-app/src/bin/editor.rs`): `main()` binds the
-  backend, opens a 960x600 window titled `LazyWriter`, prints
+  backend, opens a 960x600 window titled `LazyWriter` (minimum 480x320; the
+  issue's 960x680 is taller than the 1280x720 desktop leaves above the
+  taskbar once `xuid` adds its title bar, which hid the status bar), prints
   `WRITER:UP:PASS` on the first frame, and opens the path given on the
   command line (`writer --client <path>`, read with
-  `xui_app::platform::argv::file_arg`).
+  `xui_app::platform::argv::file_arg`). The app itself (state, commands,
+  file logic, widget tree) is the portable crate `xui-app/crates/writer`
+  (`xui-writer`); `xui-app/src/bin/writer.rs` supplies the LazyOS side
+  (backend, fonts, atomic writes, start folder) through its `Host`.
 * **Every action is a `Command`.** The toolbar (New, Open, Save, Export;
   Undo, Redo; Cut, Copy, Paste; Image, Link), the format row (block style,
   font family, size, B/I/U/S, the four alignments, bullets, numbers, indent,
@@ -41,20 +46,33 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   back and the toggles are re-synced from the last `StyleSummary` (a mixed
   attribute shows as off); the image wrap picker reads the selected image's
   wrap from the document, since the summary carries none.
-* **Shortcuts.** `Ctrl+N`, `O`, `S`, `Shift+S`, `E` (export) and `Q` are
-  the app's (`ui.on_key`); `Ctrl+B/I/U/Z/Y/X/C/V/A` are the editor's own. A
-  `dialog_open` flag (the Editor's pattern) keeps `Esc` and `Enter` in a
-  dialog from reaching the document.
+* **Shortcuts.** `Ctrl+N` (New), `Ctrl+O` (Open), `Ctrl+S` (Save),
+  `Ctrl+Shift+S` (Save As), `Ctrl+E` (Export as Markdown) and `Ctrl+Q`
+  (Quit) are the app's (`ui.on_key`; the Windows key counts as `Ctrl`, and
+  any combination with `Alt`, which includes AltGr, is left as typing);
+  `Ctrl+B/I/U/Z/Y/X/C/V/A` are the editor's own. The toolbar tooltips name
+  the shortcuts (`Save (Ctrl+S)`), and each icon-only button in the format
+  row has a tooltip with its name. A `dialog_open` flag (the Editor's
+  pattern) keeps `Esc`, `Enter` and the app's shortcuts from reaching the
+  document while a dialog is up, and stops a second dialog opening over it.
 * **Status and title.** The status bar shows the file name (or "Untitled"),
   Saved or Modified, and a word count taken from the plain text on each
-  change; the title is `LazyWriter: <name>`, with `*` while modified. A
-  document is modified once `on_change` fires after a save, open or new.
+  change; the title is `LazyWriter: <name>`, `LazyWriter: *<name>` while
+  modified. A document is modified once `on_change` fires after a save,
+  open or new. Clicking a link shows its address in the status bar.
 * **Dialogs.** Open, Save, Export and Insert image are xui's portable
   `FileDialog` over `StdFileSystem`, held for the window's lifetime. They
   start in `$HOME` when it is an absolute, existing directory, else in
   `fhs::mount::TRANSIENT` (the rule the Installer's picker uses, shared
-  rather than copied). New, Open, Quit and closing the window ask
-  Save / Discard / Cancel when the document is modified.
+  rather than copied). New, Open, Quit and closing the window ask first
+  when the document is modified: a "Save changes?" prompt with **Save**,
+  **Discard** and **Cancel** (`Esc` cancels too). Save on an untitled
+  document goes through Save As and then carries on; cancelling that Save
+  As cancels the New, Open or Quit as well.
+* **Link.** The toolbar's Link button opens a "Link" prompt, pre-filled
+  with `https://`, for the address of the selected text; accepting an empty
+  address removes the link. It is one `Command::SetCharStyle`, so undo
+  removes it.
 
 ## Formats
 
@@ -62,8 +80,11 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
 |---|---|---|
 | `.lzw` (`application/x-lazywriter`) | open, save | xui-rich-text's versioned JSON (`format::to_json` / `from_json`, crate feature `serde`) with every picture embedded as PNG. |
 | `.md` | export only | GitHub Flavored Markdown (`format::to_markdown`). A document with pictures also gets `<name>_images/1.png`, `2.png`, ... beside the `.md`; the folder is created only when there is a picture. |
-| `.txt` | open only | Plain text (`Document::from_plain_text`), from the Open dialog; saving it writes `.lzw`. |
+| `.txt` | open only | Plain text (`Document::from_plain_text`), from the Open dialog. Save on a document opened from `.txt` never writes JSON over it: it opens Save As, suggesting `<name>.lzw`. |
 
+* **Names.** Save As suggests `<name>.lzw` (`Untitled.lzw` for a new
+  document) and Export `<name>.md`; a name typed without an extension gets
+  `.lzw` (or `.md`), one typed with another extension is kept.
 * **Saving is atomic.** The document is written to a temporary file that is
   then renamed over the target, and a symlink target is refused, through the
   existing atomic-write helper (not a third copy of it). The serial line is
@@ -74,9 +95,14 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   file, a malformed `.lzw` or an unknown format version is shown in a dialog
   as text (`WRITER:OPEN:FAIL:<path>`), never a panic. A good open prints
   `WRITER:OPEN:PASS:<path>`, an export `WRITER:EXPORT:PASS:<path>`.
-* **Pictures.** Insert image reads at most 16 MiB, decodes PNG or JPEG with
-  `xui_core::Image::decode` and scales the picture to at most 360 dip wide,
-  keeping its aspect ratio. The image wrap picker (Inline, Float left, Float
+* **Pictures.** Insert image reads at most 16 MiB and checks the PNG or
+  JPEG header before decoding: a picture of more than 4096 x 4096 pixels
+  (16 777 216 in all, 64 MiB decoded) is refused with a message instead of
+  being decoded. It then decodes with `xui_core::Image::decode` and scales
+  the picture to at most 360 dip wide, keeping its aspect ratio
+  (`WRITER:IMAGE:PASS:<path>` or `WRITER:IMAGE:FAIL:<path>`). The new
+  picture is left selected, so the next key typed replaces it: move the
+  caret first (`End`, an arrow or a click). The image wrap picker (Inline, Float left, Float
   right, Top and bottom) is enabled only while a picture is selected.
 * **MIME.** `mimed` maps `.lzw` to `application/x-lazywriter` (a manifest
   cannot name extensions) and defaults its `open` and `edit` verbs to
@@ -113,8 +139,14 @@ at 8 KiB; pasting from another app inserts plain text.
 
 ## Verification
 
+Serial markers, one line each: `WRITER:UP:PASS` (first frame),
+`WRITER:BIND:FAIL:<code>` (no display), `WRITER:RUN:FAIL:<err>` (the loop
+failed), and `WRITER:OPEN|SAVE|EXPORT|IMAGE:PASS|FAIL:<path>` as files are
+used.
+
 ```bash
 cargo test --manifest-path xui-app/Cargo.toml --workspace --lib   # file logic: default dir, names, caps, open errors
+cargo test --manifest-path xui-app/Cargo.toml -p xui-writer       # plus the offscreen window snapshots and message-loop tests
 python tools/xui/build.py && LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=writer cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer --timeout 300 \
     --script tools/screenshot/examples/xui_writer.json \
@@ -122,23 +154,54 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/wr
 python tools/screenshot/pngstats.py shots/writer/*.png --min-nonblack 0.01
 ```
 
-Then read `shots/writer/shot_06_document.png` and `shot_13_reopened.png` with
-the Read tool. The session (`xui_writer.json`) waits for
-`PKGD:PROVISION:DONE` and `WRITER:UP:PASS`, types a paragraph and bolds its
-last word (`Ctrl+Shift+Left`, `Ctrl+B`), centres a line, makes a two-item
-bullet list and inserts `/system/share/samples/writer-sample.png`
-(`fhs::share::WRITER_SAMPLE_IMAGE`) from the toolbar, saves
-`/tmp/writer.lzw` (`Ctrl+S`), exports `/tmp/writer.md` (`Ctrl+E`), starts a
-new document (`Ctrl+N`) and reopens the saved one (`Ctrl+O`). Each file step
-is confirmed by its serial marker and re-sent if the marker does not come.
+Then read the screenshots with the Read tool. The session (`xui_writer.json`)
+waits for `PKGD:PROVISION:DONE` and `WRITER:UP:PASS`, types a line and bolds
+its last word (`Ctrl+Shift+Left`, `Ctrl+B`: `shot_02_bold_word`, with the B
+toggle checked), centres the next line from the format row (`03_centred`),
+makes a two-item bullet list (`04_list`), inserts
+`/system/share/samples/writer-sample.png` (`fhs::share::WRITER_SAMPLE_IMAGE`)
+from the toolbar (`05_image_dialog`, gated on `WRITER:IMAGE:PASS`), floats it
+left with the wrap picker (`06a_wrap_menu`, `06b_wrap_float`) and types a
+paragraph that wraps beside it (`06_document`). It then saves
+`/tmp/writer.lzw` (`Ctrl+S`, `07*`, `08_saved`), exports `/tmp/writer.md`
+(`Ctrl+E`, `09*`, `10_exported`), starts a new document (`Ctrl+N`,
+`11_new_document`) and reopens the saved one (`Ctrl+O`, `12*`,
+`13_reopened`, which must look like `06_document`). Each file step is
+confirmed by its serial marker and re-sent if the marker does not come.
+The steps are timed for TCG (a typed character can take a third of a second
+to land there), so the session runs about five minutes either way.
 
 The toolbar and format-row clicks are absolute screen positions (the pointer
-is first pinned to the top-left corner): the window's client area starts at
-(50, 70), the format row's centre line is at y = 122 and the toolbar's at
-y = 88. If the layout changes, adjust the steps marked with a `note`.
+is first pinned to the top-left corner, then moved along the top edge and
+down so it crosses no other control): `xuid` places the window at (48, 48),
+so its client area starts at (49, 70), the toolbar's centre line is at
+y = 87 and the format row's at y = 122. If the layout changes, adjust the
+steps marked with a `note`.
 
-The `xui` CI workflow runs the same session ("Capture LazyWriter"), requires
-the four markers, fails on any `WRITER:*:FAIL` or a failed `init` launch, and
-checks that the reopened document's area differs from the empty one and is not
-blank. `tools/screenshot/examples/core_apps.json` launches the app under its
+The desktop starts dark. `xui_writer_light.json` checks the light theme on
+an image with the Terminal autostarted instead
+(`LAZYOS_XUI_AUTOSTART=term`, BusyBox for its shell): it runs
+`confctl set sys/ui/mode str light`, waits for `xuid`'s `THEME:APPLIED`,
+starts LazyWriter from the Terminal (`/apps/os.lazy.writer/*/bin/writer.elf
+--client &`; an app reads the theme once, at start, and its
+`WRITER:UP:PASS` reaches serial as the Terminal's `TERM:OUT`), shows it
+empty (`01_light_started`), types a line and bolds its last word
+(`02_light_bold`), then opens the unsaved-changes prompt with `Ctrl+N`
+(`03_light_unsaved_prompt`: Cancel, Save, Discard) and cancels it with
+`Esc` (`04_light_prompt_cancelled`). `xuid` cascades this window below the
+Terminal's, at (112, 64).
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer_light --timeout 300 \
+    --script tools/screenshot/examples/xui_writer_light.json \
+    --fail-on "WRITER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+```
+
+The `xui` CI workflow runs both sessions ("Capture LazyWriter" and "Capture
+LazyWriter in the light theme"). The first requires the four markers, fails on
+any `WRITER:*:FAIL` or a failed `init` launch, and checks that the reopened
+document's area (below the format row, above the status bar) differs from the
+empty one and is not blank; the second requires `THEME:APPLIED` and a light
+document area. `tools/screenshot/examples/core_apps.json` launches the app under its
 label for the `LAZYOS_LABEL_TRACE=1` permission check (docs/packages.md).
