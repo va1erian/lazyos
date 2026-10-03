@@ -71,3 +71,16 @@ LAZYOS_DESKTOP=1 LAZYOS_LINUXAPPS=1 cargo build     # after tools/xui/build.py
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/linuxapps_desktop --script tools/screenshot/examples/linuxapps_desktop.json
 ```
+
+The network demo fetches from a host HTTP server with BusyBox `wget` (the
+guest reaches the host's loopback as `10.0.2.2` through QEMU's user-mode
+network) and feeds the result to `jq`; `hostserver.py` logs each request:
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_LINUXAPPS=1 cargo build
+python tools/linuxapps/hostserver.py &            # 127.0.0.1:47790
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/linuxapps_net --script tools/screenshot/examples/linuxapps_net.json \
+    --extra-arg=-netdev --extra-arg=user,id=n0 \
+    --extra-arg=-device --extra-arg=virtio-net-pci,netdev=n0
+```
