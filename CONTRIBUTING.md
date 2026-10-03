@@ -17,7 +17,9 @@ first, small readable functions, every `unsafe` block minimal with a
 cargo fmt --all                                  # CI runs `cargo fmt --all -- --check`
 cargo clippy -p kernel -p user --target x86_64-unknown-none \
     -Zbuild-std=core,alloc -- -D warnings        # no_std crates
-cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -- -D warnings
+cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas \
+    -p confd -p timezone -p inputmap -- -D warnings  # host libraries (CI also lints
+                                                     # usbhid, xhci, ext2fs: ci.yml)
 cargo build                                      # produces target/lazyos.img
 python tools/test/run.py --accel none            # in-kernel unit + soak suite
 ```

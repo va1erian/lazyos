@@ -150,18 +150,21 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `gettimeofday`, `getrandom`, `uname`, `access`, `umask`, `arch_prctl`,
   `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`; the bench's
   `coverage.py` summarises what real programs still hit.
-- File I/O runs against the ABI's own mount table, whose root is the copy-up
-  overlay from [filesystem.md](filesystem.md), so `O_CREAT`, `O_TRUNC`,
-  `O_APPEND`, `O_EXCL`, and `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/
-  `rmdir`, and descriptor writes all succeed over the read-only FAT boot
-  volume. Relative `*at` calls join a real directory descriptor's recorded
+- File I/O runs against the ABI's own mount table. In the configured layout it
+  mounts the same volumes as the native table (ext2 `/`, `/home`, ramfs `/tmp`;
+  `fs/mounts.rs`), with no overlay; only the legacy layout roots it at the
+  copy-up overlay from [filesystem.md](filesystem.md) over the read-only FAT
+  boot volume. Either way `O_CREAT`, `O_TRUNC`, `O_APPEND`, `O_EXCL`, and
+  `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/`rmdir`, and descriptor writes
+  succeed. Relative `*at` calls join a real directory descriptor's recorded
   path (which is how `std`'s `remove_dir_all` walk works); descriptors on the
-  root and `/tmp` snapshot file bytes at open and `write` patches the snapshot
-  after updating the backing file. Files on the persistent `/data` volume are
+  overlay root and `/tmp` snapshot file bytes at open and `write` patches the
+  snapshot after updating the backing file. Files on ext2 volumes are
   different, see below.
-- **Descriptors on `/data`** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
-  filesys}.rs`, issue #334). A regular file opened under `/data` (only when a
-  data volume is mounted; `abi_persistent`) becomes `Fd::Vfs`: an
+- **Descriptors on ext2 volumes** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
+  filesys}.rs`, issue #334). A regular file opened on any ext2 mount (`/` and
+  `/home` in the configured layout, `/data` in the legacy one;
+  `fs::abi_persistent`) becomes `Fd::Vfs`: an
   `Arc<OpenFile>` holding a path, the offset and the access mode, with **no
   snapshot**. `read`/`write`/`pread64`/`pwrite64`/`lseek`/`fstat` go to the VFS
   at the offset, so a file is not bounded by the kernel heap and every opener
@@ -299,9 +302,9 @@ stdout is a pipe). Limits, all by design of the minimum viable version:
   and runs on until it exits (its slot is reclaimed then); a handled signal
   delivered to a *waiting* fork child kills the program;
 - a program that is not in the table cannot be launched from `sh`; add a row to
-  `PROGRAMS` for a new command-line tool.
+  `NATIVE` for a new command-line tool.
 
-Tests: `kernel/src/tests/native_exec_suite.rs` (name lookup and shadowing, the
+Tests: `kernel/src/tests/native_exec_suite/` (name lookup and shadowing, the
 argument line, descriptor/argument inheritance and redirected output, exit-status
 propagation and reaping, `ENOEXEC`/`ENOENT`/`EAGAIN` without leaks, the `&`
 lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the

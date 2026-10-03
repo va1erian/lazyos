@@ -10,7 +10,7 @@ syscall surface (including the bootstrap channel).
 |---|---|
 | `kernel/src/ipc/registry.rs` | Name table with owners, leases, pruning (issue #89) |
 | `kernel/src/ipc/topics.rs` | Per-segment publish/subscribe ACL hook (issue #92) |
-| `kernel/src/ipc/stats.rs` | `FabricStats` v3 snapshot (issue #70, #204) |
+| `kernel/src/ipc/stats.rs` | `FabricStats` v4 snapshot (issue #70, #204) |
 | `kernel/src/ipc/syscalls.rs` (+ `syscalls/{abi,regops,usermem,bootstrap}.rs`) | Native op dispatch; `MsgArgs`/`MsgResult` ABI, registry ops, user-pointer copies, bootstrap in submodules |
 
 **Name registry** (`registry.rs`)
@@ -62,9 +62,9 @@ syscall surface (including the bootstrap channel).
 **Native syscall surface** (`syscalls.rs`, syscall 5)
 
 Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
-`CREATE_PAIR`; 8-12 `STATS` (v3/v1), `BOOTSTRAP`, `CALL_BEGIN`, `CALL_AWAIT`,
+`CREATE_PAIR`; 8-12 `STATS` (v4/v1), `BOOTSTRAP`, `CALL_BEGIN`, `CALL_AWAIT`,
 `TOTALS` (v1); 13-17 `REGISTER`, `RESOLVE`, `UNREGISTER`, `LIST`,
-`AUTHORIZE_TOPIC`.
+`AUTHORIZE_TOPIC`; 18 `ACL_LOAD` (see [ipc-security.md](ipc-security.md)).
 
 - `CLOSE_ENDPOINT` takes a flags word. `CLOSE_RELEASE` (1) makes it a *release*:
   the handle is dropped and the side closes only if no other handle names it
@@ -78,7 +78,7 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   from the parcel header and pass `ipc::authorize`; the handle path uses
   `access_range`/`copy_in`/`copy_out`, which validate ranges against page tables
   (materializing demand-zero pages) instead of trusting pointers. `OP_STATS`
-  serves v3 for a big buffer, else the compact 64-byte v1 `MsgStats`.
+  serves v4 for a big buffer, else the compact 64-byte v1 `MsgStats`.
 - `kernel_main` calls `bootstrap::create()` and publishes
   `os.lazy.messenger.registry`; the first userspace task to call `OP_BOOTSTRAP`
   claims the client end (`EBUSY` on a second claim; the kernel task is refused).
@@ -86,5 +86,5 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   stub used before `messengerd` claims it.
 
 **Status.** Working: register/resolve/list, leases and pruning, topic ACL,
-v1/v3 stats, bootstrap. Open: userspace audit stream (`os.lazy.audit.v1`) and
+v1/v4 stats, bootstrap. Open: userspace audit stream (`os.lazy.audit.v1`) and
 slot generation counters.

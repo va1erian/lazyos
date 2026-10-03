@@ -1,12 +1,12 @@
 # The Docs app: Markdown rendered by litehtml
 
-`xui-docs` (`/system/bin/docs`) shows a Markdown file in a `xuid` window: wrapped text,
+`xui-docs` (the core package `os.lazy.docs`, `xui-app/packages/docs/`) shows a Markdown file in a `xuid` window: wrapped text,
 headings, lists, tables, code and block quotes, scrolled with the mouse wheel,
 `PageUp`/`PageDown` or the arrow keys. With no argument it shows a built-in
 welcome page that doubles as a syntax tour. It is the first user of
 [`xui-litehtml`](https://github.com/va1erian/xui/tree/main/crates/xui-litehtml)
-on LazyOS and the intended renderer for documentation pages. There is no
-network: images are not loaded and links are drawn but not followed.
+on LazyOS and the intended renderer for documentation pages. It fetches
+nothing: images are not loaded and links are drawn but not followed.
 
 ## How it works
 
@@ -38,8 +38,8 @@ file (or welcome.md) --pulldown-cmark--> HTML --litehtml (worker thread)--> disp
   [`architecture/display.md`](architecture/display.md).
 * **Opening documents.** A toolbar above the page has an **Open...** button and
   shows the current path; `Ctrl+O` does the same. Both raise the portable
-  `FileDialog` (the Editor's picker) over `LazyFileSystem`, which adds the `/tmp`
-  and `/data` mount points the FAT listing lacks. It filters to Markdown with an
+  `FileDialog` (the Editor's picker) over xui's `StdFileSystem`
+  (`xui-app/docs/src/app.rs`). It filters to Markdown with an
   "All files" fallback and starts in the current document's folder. A file that
   cannot be read shows an error page (and `DOCS:OPEN:FAIL:<path>`) instead of
   ending the app. `app.rs` is the window; `main.rs` only starts the platform.
@@ -96,10 +96,12 @@ with zig it ships in the desktop image and is opened from the Start menu.
 
 ## Known limits
 
-* Links and images are not followed or loaded (no network); relative links to
-  other documents are the natural next step.
-* The LazyOS backend sends no resize events, so the view keeps the window's
-  initial size.
+* Links and images are not followed or loaded: the viewer has no fetching
+  code; relative links to other documents are the natural next step.
+* The LazyOS backend delivers a `Resize` when the window is resized
+  (`xui-app/src/backend/input.rs`), but the app places its toolbar and view at
+  fixed rectangles taken from the initial client size and does not handle it,
+  so the view keeps that size.
 * Keyboard scrolling (`PageDown`, arrows) needs the page to have focus, which a
   click on it gives; after a dialog closes the wheel works at once but the keys
   need that click (`HtmlView` does not expose a way to focus itself).
