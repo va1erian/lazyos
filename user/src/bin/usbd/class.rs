@@ -133,8 +133,12 @@ fn bind_all(
             functions.push(function);
         }
     }
-    if functions.is_empty() {
-        // No boot interface: a report-protocol pointer (a tablet) instead.
+    if !functions
+        .iter()
+        .any(|function| matches!(function, Function::Hid { .. }))
+    {
+        // No boot HID interface: a report-protocol pointer (a tablet)
+        // instead, also next to a stick on a composite device.
         for interface in config.interfaces().filter(|i| i.alternate == 0) {
             if let Some(function) = bind_interface(hc, device, interface, true)? {
                 functions.push(function);
