@@ -33,7 +33,8 @@
 //!
 //! # Limits
 //!
-//! A fresh uid gets [`DEFAULT_LIMITS`]; uid 0 (the system/root user) gets
+//! A fresh uid gets [`default_limits_regular`] (memory limits from
+//! [`crate::limits`]); uid 0 (the system/root user) gets
 //! [`ROOT_LIMITS`] because bring-up and the kernel task predate login. Limits
 //! are kernel policy: [`set_limit`] is the API a future profile loader calls,
 //! setting limits from userspace is out of scope. A per-uid entry is created on
@@ -64,7 +65,7 @@ mod types;
 pub use space::{charge_for_slot, forget_address_space, release_for_slot};
 use types::{default_limits, Entry};
 #[allow(unused_imports)] // the full limit tables stay part of the module API
-pub use types::{QuotaError, Resource, Stats, DEFAULT_LIMITS, ROOT_LIMITS};
+pub use types::{default_limits_regular, QuotaError, Resource, Stats, ROOT_LIMITS};
 
 /// The quota table. A linear scan is right at this scale (a handful of logins).
 static QUOTAS: Mutex<Vec<Entry>> = Mutex::new(Vec::new());

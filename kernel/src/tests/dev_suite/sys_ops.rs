@@ -107,7 +107,7 @@ pub fn sys_map_bar_maps_and_refuses() -> Result<(), String> {
     let va = expect_ok(sys(OP_MAP_BAR, handle, 0, 0, 0), "map_bar")?;
     let table = PhysAddr::new(task::harness::pml4(slot).ok_or("no table")?);
     check!(
-        (MMIO_VA_BASE..MMIO_VA_END).contains(&va) && va & 0xFFF == 0 && va >> 39 & 0x1FF == 0,
+        (MMIO_VA_BASE..MMIO_VA_END).contains(&va) && va & 0xFFF == 0 && va < crate::mem::USER_TOP,
         "va {va:#x} is not in the private MMIO range"
     );
     for page in 0..4u64 {

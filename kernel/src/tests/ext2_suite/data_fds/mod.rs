@@ -380,7 +380,7 @@ fn data_names() -> Result<Vec<String>, String> {
 
 /// Whether descriptors 3.. are all closed and no file is registered as open.
 fn nothing_open(baseline: usize) -> bool {
-    (3..task::FD_COUNT).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
+    (3..task::harness::fd_table_len()).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
         && crate::fs::openfile::open_files() == baseline
 }
 
@@ -400,7 +400,7 @@ impl Data {
         task::harness::reset();
         task::harness::switch_current(task::KERNEL_TASK);
         credentials::set(task::current(), Cred::ROOT);
-        for fd in 3..task::FD_COUNT {
+        for fd in 3..task::harness::fd_table_len() {
             let _ = task::fd_close(fd);
         }
         let (fs, _vfs, disk) = mounted_in(slot, 1024, VOLUME_BLOCKS)?;
@@ -433,7 +433,7 @@ impl Data {
 
 impl Drop for Data {
     fn drop(&mut self) {
-        for fd in 3..task::FD_COUNT {
+        for fd in 3..task::harness::fd_table_len() {
             let _ = task::fd_close(fd);
         }
         credentials::set(task::current(), Cred::ROOT);

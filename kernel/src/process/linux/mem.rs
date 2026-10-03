@@ -12,7 +12,7 @@ use crate::quota::{self, Resource};
 use crate::task;
 
 use super::errno::{err, EFAULT, EINVAL, ENODEV, ENOMEM};
-use super::{BRK_BASE, BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
+use super::{BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
 
 const MAP_FIXED: u64 = 0x10;
 const MAP_ANONYMOUS: u64 = 0x20;
@@ -138,7 +138,7 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
 /// the frames to first touch; shrinking unmaps what lies above the new break.
 pub(super) fn sys_brk(addr: u64) -> u64 {
     let current = task::brk();
-    if addr == 0 || addr < BRK_BASE {
+    if addr == 0 || addr < task::brk_start() {
         return current;
     }
     let Some(new) = align_up(addr, PAGE) else {
@@ -149,9 +149,9 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
     }
     let table = crate::mem::kernel_table();
     // The break never grows over another mapping: `vma::insert` would silently
-    // turn it into heap (the user stack sits inside the brk range), handing
-    // out live stack memory and letting a later shrink unmap it. Linux fails
-    // the same collision by leaving the break unchanged.
+    // turn it into heap (a `MAP_FIXED` mapping may sit inside the brk range),
+    // handing out live memory and letting a later shrink unmap it. Linux
+    // fails the same collision by leaving the break unchanged.
     if new > current && !crate::mem::vma::find_range(table, current, new).is_empty() {
         return current;
     }

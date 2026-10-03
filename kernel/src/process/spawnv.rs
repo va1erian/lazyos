@@ -40,6 +40,7 @@ use alloc::vec::Vec;
 use super::argstore;
 use super::creds::ENOMEM;
 use super::creds::{approve_labelled, syscall_error, transition_error, EFAULT, EINVAL, ENOENT};
+use super::image::VfsFile;
 use super::spawn::{check_exec, intern_service_name};
 use crate::fs;
 use crate::ipc::credentials::{self, Cred, LabelStamp};
@@ -161,7 +162,8 @@ fn read_stdio(words: &[u64; REQ_WORDS_STDIO]) -> Result<Option<[Option<usize>; 3
             continue;
         }
         let fd = usize::try_from(*word).unwrap_or(usize::MAX);
-        if fd >= task::FD_COUNT || task::fd_kind(fd) == task::FdKind::Closed {
+        // Out of range reads as closed: `fd_kind` looks the slot up.
+        if task::fd_kind(fd) == task::FdKind::Closed {
             return Err(syscall_error(EBADF));
         }
         *slot = Some(fd);
@@ -302,17 +304,19 @@ fn approve(cred: CredReq) -> Result<Stamp, u64> {
     }
 }
 
-/// Read the program after the gate every spawn path shares
+/// Open the program after the gate every spawn path shares
 /// ([`check_exec`]: `noexec`, then `EXECUTE` on a regular file, root
 /// included). A Linux program may then be a BusyBox applet alias, a native one
-/// is always a real file.
-fn load(path: &str, linux: bool) -> Result<Vec<u8>, u64> {
+/// is always a real file. The file is streamed into the child, never read
+/// whole into the kernel.
+fn load(path: &str, linux: bool) -> Result<VfsFile, u64> {
     // `check_exec` answers a negative errno; as `u64` it is the syscall value.
     check_exec(path, linux).map_err(|errno| errno as u64)?;
+    let native = || VfsFile::native(fs::vfs::Id::current(), path).ok();
     let elf = if linux {
-        super::linux::load_executable(path).or_else(|| fs::read(path))
+        super::linux::open_executable(path).or_else(native)
     } else {
-        fs::read(path)
+        native()
     };
     elf.ok_or(syscall_error(ENOENT))
 }
@@ -320,7 +324,7 @@ fn load(path: &str, linux: bool) -> Result<Vec<u8>, u64> {
 /// Create the child, stamp it and record its blocks. Interrupts are off in
 /// the syscall gate, so the child cannot run before the stamp and the blocks
 /// are in place.
-fn start(request: &Request, elf: &[u8], stamp: Stamp) -> Result<usize, u64> {
+fn start(request: &Request, elf: &VfsFile, stamp: Stamp) -> Result<usize, u64> {
     let name = intern_service_name(&request.path);
     let started = if request.linux {
         let argv: Vec<&[u8]> = entries(&request.argv).collect();

@@ -1,107 +1,128 @@
-//! `brk` must never grow over another mapping. The Linux user stack
-//! (`STACK_TOP - STACK_SIZE .. STACK_TOP`) sits inside the brk range, and
+//! `brk` must never grow over another mapping, and never past the layout's
+//! ceiling. The stack used to sit inside the brk range (issue #373), and
 //! `vma::insert` overwrites what it covers, so an unchecked break turned the
 //! live stack into heap: malloc handed out stack memory and a later shrink
-//! unmapped it (issue #373).
+//! unmapped it. The stack now lives far above the break, but a `MAP_FIXED`
+//! mapping can still land in the brk range, so the collision check stays: an
+//! obstacle VMA stands in for it here.
 
 use super::*;
 use crate::mem::vma::{self, Kind, Prot};
 
-const STACK_BOTTOM: u64 = process::linux::STACK_TOP - process::linux::STACK_SIZE;
+/// Where the obstacle starts: a little above the scratch break.
+const OBSTACLE: u64 = process::linux::BRK_BASE + 0x40_0000;
+/// The obstacle's end.
+const OBSTACLE_END: u64 = OBSTACLE + 0x10_0000;
 
 fn brk(addr: u64) -> u64 {
     process::linux::dispatch_for_test(12, addr, 0, 0)
 }
 
-/// Record the stack VMA exactly as `elf::load` does (bookkeeping only; no
-/// frames), run `body`, then drop the break and the stack again.
-fn with_stack_vma(body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+/// Record an obstacle VMA inside the brk range (bookkeeping only; no
+/// frames), run `body`, then drop the break and the obstacle again.
+fn with_obstacle(body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     fresh()?;
     let table = crate::mem::kernel_table();
     vma::insert(
         table,
-        STACK_BOTTOM,
-        process::linux::STACK_TOP,
+        OBSTACLE,
+        OBSTACLE_END,
         Prot::READ | Prot::WRITE,
-        Kind::Stack,
+        Kind::Anon,
     );
     let outcome = body();
     brk(process::linux::BRK_BASE);
-    vma::remove(table, STACK_BOTTOM, process::linux::STACK_TOP);
+    vma::remove(table, OBSTACLE, OBSTACLE_END);
     outcome
 }
 
-/// The whole stack is still one `Stack` VMA.
-fn stack_intact() -> Result<(), String> {
+/// The whole obstacle is still one `Anon` VMA.
+fn obstacle_intact() -> Result<(), String> {
     let table = crate::mem::kernel_table();
-    let found = vma::find_range(table, STACK_BOTTOM, process::linux::STACK_TOP);
+    let found = vma::find_range(table, OBSTACLE, OBSTACLE_END);
     check!(
         found.len() == 1
-            && found[0].kind == Kind::Stack
-            && found[0].start == STACK_BOTTOM
-            && found[0].end == process::linux::STACK_TOP,
-        "stack VMA changed: {found:?}"
+            && found[0].kind == Kind::Anon
+            && found[0].start == OBSTACLE
+            && found[0].end == OBSTACLE_END,
+        "obstacle VMA changed: {found:?}"
     );
     Ok(())
 }
 
-/// Growing up to the stack works; one page further leaves the break alone.
+/// Growing up to the obstacle works; one page further leaves the break alone.
 pub fn brk_stops_below_the_stack() -> Result<(), String> {
-    with_stack_vma(|| {
+    with_obstacle(|| {
         let base = process::linux::BRK_BASE;
         check!(brk(0) == base, "initial break {:#x}", brk(0));
-        // Straight over the stack: refused, the break is unchanged.
-        let code = brk(process::linux::STACK_TOP);
+        // Straight over the obstacle: refused, the break is unchanged.
+        let code = brk(OBSTACLE_END + PAGE);
         check!(
             code == base,
-            "brk(STACK_TOP) -> {code:#x}, expected {base:#x}"
+            "brk(past obstacle) -> {code:#x}, expected {base:#x}"
         );
-        stack_intact()?;
-        // Right up to the stack: allowed.
-        let code = brk(STACK_BOTTOM);
-        check!(code == STACK_BOTTOM, "brk(stack bottom) -> {code:#x}");
+        obstacle_intact()?;
+        // Right up to the obstacle: allowed.
+        let code = brk(OBSTACLE);
+        check!(code == OBSTACLE, "brk(obstacle) -> {code:#x}");
         // One page into it: refused.
-        let code = brk(STACK_BOTTOM + PAGE);
+        let code = brk(OBSTACLE + PAGE);
         check!(
-            code == STACK_BOTTOM,
-            "brk(stack bottom + page) -> {code:#x}, expected {STACK_BOTTOM:#x}"
+            code == OBSTACLE,
+            "brk(obstacle + page) -> {code:#x}, expected {OBSTACLE:#x}"
         );
-        stack_intact()?;
-        // Shrinking never touches the stack either.
+        obstacle_intact()?;
+        // Shrinking never touches the obstacle either.
         check!(brk(base) == base, "shrink to base failed");
-        stack_intact()
+        obstacle_intact()
     })
 }
 
-/// Soak: many grow/shrink cycles across the stack boundary keep the stack
-/// VMA whole and the break below it. The targets stay within a window around
-/// the boundary (where the bug lives), so each shrink unmaps little.
+/// The break never reaches the mmap area or the stack: the layout's ceiling.
+pub fn brk_stops_at_the_layout_ceiling() -> Result<(), String> {
+    fresh()?;
+    let base = process::linux::BRK_BASE;
+    let ceiling = process::linux::BRK_LIMIT;
+    let code = brk(ceiling + PAGE);
+    check!(code == base, "brk(past the ceiling) -> {code:#x}");
+    let code = brk(process::linux::STACK_TOP);
+    check!(code == base, "brk(stack top) -> {code:#x}");
+    // A break below the start is ignored, like Linux.
+    let code = brk(base - PAGE);
+    check!(code == base, "brk(below the start) -> {code:#x}");
+    Ok(())
+}
+
+/// Soak: many grow/shrink cycles across the obstacle boundary keep the
+/// obstacle VMA whole and the break below it. The targets stay within a
+/// window around the boundary (where the bug lives), so each shrink unmaps
+/// little.
 pub fn brk_stack_boundary_soak() -> Result<(), String> {
     const WINDOW: u64 = 256;
-    with_stack_vma(|| {
+    with_obstacle(|| {
         let base = process::linux::BRK_BASE;
-        let low = STACK_BOTTOM - WINDOW * PAGE;
+        let low = OBSTACLE - WINDOW * PAGE;
         check!(brk(low) == low, "could not grow to the window");
         for round in 0..2000u64 {
-            // Targets below, at, into and past the stack bottom.
+            // Targets below, at, into and past the obstacle.
             let target = low + ((round * 7919) % (2 * WINDOW)) * PAGE;
             let code = brk(target);
-            if target <= STACK_BOTTOM {
+            if target <= OBSTACLE {
                 check!(
                     code == target,
                     "round {round}: brk({target:#x}) -> {code:#x}"
                 );
             } else {
                 check!(
-                    code <= STACK_BOTTOM,
-                    "round {round}: brk({target:#x}) -> {code:#x} crossed the stack"
+                    code <= OBSTACLE,
+                    "round {round}: brk({target:#x}) -> {code:#x} crossed the obstacle"
                 );
             }
             if round % 64 == 0 {
-                stack_intact()?;
+                obstacle_intact()?;
             }
         }
         check!(brk(base) == base, "final shrink failed");
-        stack_intact()
+        obstacle_intact()
     })
 }

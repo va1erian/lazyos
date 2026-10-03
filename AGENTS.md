@@ -124,6 +124,29 @@ has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 `libs/fhs`. Host tests: `cargo test -p build-support-tests`.
 
+## Resource limits and guest memory
+
+Every launcher boots QEMU with **1 GiB** of RAM by default (`DEFAULT_MEMORY`
+in `tools/screenshot/qemu_qmp.py`; `--memory 4G` on any of them, including
+the abi/usb/shutdown/rhai runners and the GUI's Memory field). The kernel's
+tunable ceilings live in one module, `kernel/src/limits.rs`
+([`docs/architecture/limits.md`](docs/architecture/limits.md)): defaults are
+derived from usable RAM and the screen size, and `limit.<key>=<value>` lines
+in `/boot/lazyos.cfg` override them at boot (clamped, logged, never fatal).
+The build writes them from `LAZYOS_LIMIT_<KEY>` variables:
+
+```bash
+LAZYOS_LIMIT_HEAP_MAX=768M LAZYOS_LIMIT_FD_MAX=4096 cargo build
+python tools/run_demo.py --limit heap_max=768M --limit stack_size=16M
+```
+
+Keys: `heap_max` (kernel heap ceiling; the heap grows on demand), `fd_max`
+(descriptors per task, 1024), `stack_size` (Linux main stack, 8 MiB,
+demand-zero), `quota_user_memory`, `quota_kernel_memory`, `shared_buffer_max`.
+The boot log prints the table (`limits: ...`). `task::MAX_TASKS` (256) stays a
+compile-time constant. The kernel image runs at `0xffff_8000_0000_0000`
+(`mem::layout`): symbolize with `addr2line -e <kernel> <rip - 0xffff800000000000>`.
+
 ## Docs app and the C++ toolchain
 
 `xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig

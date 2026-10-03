@@ -62,6 +62,19 @@ pub fn now() -> (i64, u32) {
     (cs.div_euclid(HZ), cs.rem_euclid(HZ) as u32)
 }
 
+/// Wall time as `(seconds, nanoseconds 0..1e9)` since the Unix epoch, with
+/// the monotonic clock's sub-tick resolution (`arch::clock::monotonic_ns`).
+pub fn now_ns() -> (i64, u32) {
+    init();
+    const NS_PER_CS: i128 = 10_000_000;
+    let ns = i128::from(OFFSET_CS.load(Ordering::Relaxed)) * NS_PER_CS
+        + i128::from(crate::arch::clock::monotonic_ns());
+    (
+        ns.div_euclid(1_000_000_000) as i64,
+        ns.rem_euclid(1_000_000_000) as u32,
+    )
+}
+
 /// Whole seconds since the Unix epoch.
 pub fn unix_secs() -> i64 {
     now().0

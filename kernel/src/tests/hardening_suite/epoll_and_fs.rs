@@ -31,7 +31,7 @@ pub fn epoll_rejects_self_and_cyclic_registration() -> Result<(), String> {
         )
     }
     fresh()?;
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
 
@@ -72,7 +72,7 @@ pub fn epoll_rejects_self_and_cyclic_registration() -> Result<(), String> {
         add(chain[6], chain[0]) == EINVAL_RET,
         "an epoll chain deeper than EPOLL_MAX_NESTS was accepted"
     );
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
     Ok(())
@@ -108,7 +108,7 @@ pub fn epoll_rejects_bottom_up_growth() -> Result<(), String> {
         )
     }
     fresh()?;
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
 
@@ -141,7 +141,7 @@ pub fn epoll_rejects_bottom_up_growth() -> Result<(), String> {
         ready == 0,
         "epoll_wait on the legal chain returned {ready:#x}"
     );
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
     Ok(())

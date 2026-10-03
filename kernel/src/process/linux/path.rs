@@ -13,6 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FileKind, FsError, Id, Meta};
+use crate::process::image::VfsFile;
 use crate::task::{self, Fd};
 
 use super::cwd::user_path;
@@ -153,12 +154,8 @@ pub(super) fn resolve(path: &str) -> Result<Target, FsError> {
         .ok_or(FsError::NotFound)
 }
 
-/// Load a file's bytes through the ABI VFS, with the BusyBox applet alias.
-pub(super) fn load_file(path: &str) -> Result<Vec<u8>, FsError> {
-    load_file_as(Id::current(), path)
-}
-
-/// [`load_file`] with an explicit caller identity (used by `open_path`).
+/// Load a file's bytes through the ABI VFS as `id`, with the BusyBox applet
+/// alias (used by `open_path` for snapshot opens).
 fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     match crate::fs::abi_read(id, path) {
         Ok(data) => Ok(data),
@@ -181,7 +178,7 @@ pub(super) fn system_bin_path(path: &str) -> Option<String> {
     Some(format!("{}/{base}", fhs::SYSTEM_BIN))
 }
 
-/// Load an executable for `execve`. In order:
+/// Open an executable for `execve` and spawns, for streaming. In order:
 ///
 /// 1. the file at `path` itself;
 /// 2. for an applet-shaped name (`rhai`, `/bin/rhai`), the program of that
@@ -194,34 +191,36 @@ pub(super) fn system_bin_path(path: &str) -> Option<String> {
 ///    else the file of that name). This is what lets `execvp("rhai")` find
 ///    `/system/bin/rhai` after trying `/usr/local/sbin`, `/usr/local/bin`,
 ///    `/bin` and `/usr/bin` (issue #515).
-pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
+///
+/// Each candidate must be a regular file the caller may read, as when the
+/// whole file was read here.
+pub(super) fn open_executable(path: &str) -> Result<VfsFile, FsError> {
     let id = Id::current();
-    match crate::fs::abi_read(id, path) {
-        Ok(elf) => return Ok(elf),
+    match VfsFile::abi(id, path) {
+        Ok(file) => return Ok(file),
         Err(FsError::NotFound) => {}
         Err(error) => return Err(error),
     }
     if let Some(program) = system_bin_path(path) {
-        match crate::fs::abi_read(id, &program) {
-            Ok(elf) => return Ok(elf),
+        match VfsFile::abi(id, &program) {
+            Ok(file) => return Ok(file),
             Err(FsError::NotFound) => {}
             Err(error) => return Err(error),
         }
     }
-    match load_file(path) {
-        Ok(elf) => Ok(elf),
-        Err(FsError::NotFound) => {
-            // The basename on its own, through every step above: a program
-            // at the image root still outranks the BusyBox alias. `base` has
-            // no `/`, so this recurses at most once.
-            let base = path.rsplit('/').next().unwrap_or(path);
-            if base != path && !base.is_empty() {
-                load_executable(base)
-            } else {
-                Err(FsError::NotFound)
-            }
+    if applet_name(path).is_some() {
+        if let Ok(busybox) = VfsFile::abi(id, fhs::bin::BUSYBOX) {
+            return Ok(busybox);
         }
-        Err(error) => Err(error),
+    }
+    // The basename on its own, through every step above: a program at the
+    // image root still outranks the BusyBox alias. `base` has no `/`, so this
+    // recurses at most once.
+    let base = path.rsplit('/').next().unwrap_or(path);
+    if base != path && !base.is_empty() {
+        open_executable(base)
+    } else {
+        Err(FsError::NotFound)
     }
 }
 

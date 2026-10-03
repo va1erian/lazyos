@@ -50,16 +50,17 @@ impl core::ops::BitOr for Prot {
     }
 }
 
-/// What a range backs. Only anonymous memory is demand-zero today; file
-/// segments are loaded eagerly from the ELF image.
+/// What a range backs. Anonymous memory, heaps and stacks are demand-zero;
+/// file segments are loaded eagerly from the ELF image.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
     /// Anonymous private memory (`mmap(MAP_ANONYMOUS)`, scratch mappings).
     Anon,
     /// A `PT_LOAD` segment mapped eagerly from an ELF file.
     File,
-    /// A user stack. Mapped eagerly so the loader can write the start frame
-    /// before the task first runs.
+    /// A user stack. The pages holding the start frame are mapped eagerly
+    /// (the loader writes them before the task first runs); the rest of the
+    /// reservation is populated on first touch.
     Stack,
     /// A `brk`/`sbrk` heap, populated on first touch.
     Heap,

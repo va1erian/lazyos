@@ -65,12 +65,16 @@ pub fn user_table_shares_kernel_half() -> Result<(), String> {
     // Safety: as above.
     let user_entries =
         unsafe { core::slice::from_raw_parts(mem::phys_to_virt(table).as_ptr::<u64>(), 512) };
-    check!(
-        user_entries[0] & PTE_PRESENT == 0,
-        "new user table entry 0 is present: {:#x}",
-        user_entries[0]
-    );
-    for index in 1..512 {
+    // The private user window starts empty; everything above it (the
+    // shared-buffer window and the kernel half) is the kernel's.
+    for index in 0..mem::USER_PML4_ENTRIES {
+        check!(
+            user_entries[index] & PTE_PRESENT == 0,
+            "new user table entry {index} is present: {:#x}",
+            user_entries[index]
+        );
+    }
+    for index in mem::USER_PML4_ENTRIES..512 {
         check!(
             user_entries[index] == kernel_entries[index],
             "PML4 entry {index} differs: kernel {:#x}, new table {:#x}",
@@ -78,6 +82,13 @@ pub fn user_table_shares_kernel_half() -> Result<(), String> {
             user_entries[index]
         );
     }
+    // The heap and the physical map live in the shared kernel half.
+    let heap = (mem::HEAP_START >> 39 & 0x1ff) as usize;
+    check!(
+        user_entries[heap] & PTE_PRESENT != 0,
+        "heap entry {heap} missing"
+    );
+    mem::free_user_table(table);
     Ok(())
 }
 

@@ -196,7 +196,7 @@ pub fn snapshot_fields_sane() -> Result<(), String> {
     check!(
         words[sysinfo::H_HEAP_USED] + words[sysinfo::H_HEAP_FREE] == words[sysinfo::H_HEAP_TOTAL]
             && words[sysinfo::H_HEAP_TOTAL] > 15 * 1024 * 1024
-            && words[sysinfo::H_HEAP_TOTAL] <= mem::HEAP_SIZE,
+            && words[sysinfo::H_HEAP_TOTAL] <= mem::heap_stats().max as u64,
         "heap words are inconsistent: used {} + free {} != total {}",
         words[sysinfo::H_HEAP_USED],
         words[sysinfo::H_HEAP_FREE],

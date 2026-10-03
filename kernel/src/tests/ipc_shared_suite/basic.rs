@@ -115,7 +115,7 @@ pub fn buffer_quota() -> Result<(), String> {
 
     // Byte quota: one buffer at the limit, then any more is refused.
     let handle = shared::create(
-        shared::MAX_BUFFER_BYTES_PER_PROCESS,
+        shared::max_bytes_per_process(),
         shared::flags::READ | shared::flags::WRITE,
     )
     .map_err(buffer_reason)?;

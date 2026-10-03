@@ -9,8 +9,8 @@ use super::*;
 /// parser recovers the interrupted registers.
 pub fn handler_frame_roundtrip() -> Result<(), String> {
     fresh()?;
-    let mut stack = alloc::vec![0u8; 8192];
-    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+    let stack = UserStack::new()?;
+    let top = stack.top();
     let regs = signal::UserRegs {
         r15: 0x1515,
         r14: 0x1414,
@@ -357,8 +357,8 @@ pub fn linux_sigset_translate_soak() -> Result<(), String> {
     }
 
     // The frame boundary round-trips the same masks without drift.
-    let mut stack = vec![0u8; 8192];
-    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+    let stack = UserStack::new()?;
+    let top = stack.top();
     let regs = signal::UserRegs::default();
     let info = SigInfo::user(0, signal::SI_USER);
     for round in 0..4096u32 {

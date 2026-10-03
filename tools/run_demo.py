@@ -49,11 +49,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
+from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui.limits import add_limit_option, build_limits  # noqa: E402
+from demo_qemu import sound_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -131,19 +133,6 @@ def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
     elif mkdisk.ensure_volume(path, label=label, layout=layout):
         print(f"created {what}: {mkdisk.status(path).describe()}", flush=True)
     return True
-
-
-def sound_args(backend: str) -> list[str]:
-    """QEMU arguments for a virtio-sound card on `backend` (see `--sound`)."""
-    if backend == "auto":
-        backend = {"win32": "dsound", "darwin": "coreaudio"}.get(sys.platform, "pa")
-    if backend.startswith("wav:"):
-        # A comma in a path is doubled for QEMU's option parser.
-        path = Path(backend[4:]).resolve().as_posix().replace(",", ",,")
-        audiodev = f"wav,id=snd0,path={path}"
-    else:
-        audiodev = f"{backend},id=snd0"
-    return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
 
 
 def build_xui_shell() -> bool:
@@ -266,7 +255,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--headless", action="store_true", help="no display window")
     parser.add_argument("--image", default=str(DEFAULT_IMAGE), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
-    parser.add_argument("--memory", default="256M", help="guest RAM (default: 256M)")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
+    add_limit_option(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -371,6 +361,7 @@ def main(argv: list[str]) -> int:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
         net_qemu, forwards = qemu_net.args_from_options(args)
+        limits = build_limits(args.limit, args.no_build)
     except ValueError as error:
         parser.error(str(error))
 
@@ -381,6 +372,7 @@ def main(argv: list[str]) -> int:
             cargo.append("--release")
             profile = "release (optimized for real hardware)"
         env = dict(os.environ)
+        env.update(limits)
         if args.reset_os:
             if Path(args.image).exists() and not args.yes and not confirm(
                     f"Recreate the OS volume in {args.image}? Installed apps, settings, "

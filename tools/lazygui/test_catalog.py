@@ -20,7 +20,7 @@ from lazygui import catalog, datavol  # noqa: E402
 def demo_config(**overrides) -> dict:
     """A minimal Interactive-demo configuration."""
     cfg = {"mode": "Interactive demo", "profile": "dev", "skip_build": True,
-           "headless": False, "accel": "auto", "memory": "256M", "qemu": "", "extra": ""}
+           "headless": False, "accel": "auto", "memory": "1G", "qemu": "", "extra": ""}
     cfg.update(overrides)
     return cfg
 
@@ -217,7 +217,7 @@ class LazyRadTests(unittest.TestCase):
 
     def test_session_modes_build_it_before_the_image(self) -> None:
         cfg = {"mode": "Headless screenshots", "profile": "dev", "skip_build": False,
-               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "accel": "auto", "memory": "1G", "qemu": "", "out": "shots",
                "times": "10", "lazyrad": True}
         labels = [step["label"] for step in catalog.build_plan(cfg)]
         self.assertEqual(labels[:2], ["Build LazyRAD (static musl)", "Build image (cargo build)"])
@@ -286,7 +286,7 @@ class DoomTests(unittest.TestCase):
 
     def test_session_modes_build_the_package_before_the_image(self) -> None:
         cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
-               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "accel": "auto", "memory": "1G", "qemu": "", "out": "shots",
                "timeout": "300", "tablet": False, "script": 0, "doom": True}
         plan = catalog.build_plan(cfg)
         labels = [step["label"] for step in plan]

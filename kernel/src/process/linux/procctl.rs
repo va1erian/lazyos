@@ -4,19 +4,17 @@
 
 use alloc::vec::Vec;
 
-use crate::mem::vma::{Kind, Prot};
-use crate::process::{load_segments, map_range_kind};
 use crate::task::process::GroupError;
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
 
 use super::cwd::{read_path, resolve_at, AT_FDCWD};
-use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
+use super::elf::{load_image, LoadError};
 use super::errno::{err, ECHILD, EINTR, EINVAL, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH};
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
 use super::uaccess::{write_u32, write_u64};
-use super::{BRK_BASE, MMAP_BASE, STACK_SIZE, STACK_TOP};
+use super::MMAP_BASE;
 
 /// Free task slots at which a successful `clone` gives the scheduler a tick
 /// before returning, so a burst of thread creation cannot fill the table with
@@ -184,37 +182,19 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Ok(image) => image,
         Err(code) => return code,
     };
-    let (elf, argv) = (image.elf, image.argv);
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);
     };
     // Every error below returns while this guard is live, so a partially
     // loaded image cannot leak its address space and frames (issue #229).
     let guard = crate::mem::UserTableGuard::new(table);
-    let entry = match load_segments(guard.table(), &elf, &LOAD_RESERVED) {
-        Ok(entry) => entry,
-        Err(_) => return err(ENOEXEC),
+    // The file is streamed into the new address space, never held whole.
+    let ids = super::creds::ids();
+    let started = match load_image(guard.table(), &image.file, &image.argv, &envp, ids) {
+        Ok(started) => started,
+        Err(LoadError::BadImage(_)) => return err(ENOEXEC),
+        Err(LoadError::NoMemory) => return err(ENOMEM),
     };
-    let stack = match map_range_kind(
-        guard.table(),
-        STACK_TOP - STACK_SIZE,
-        STACK_TOP,
-        Prot::READ | Prot::WRITE,
-        Kind::Stack,
-    ) {
-        Ok(stack) => stack,
-        Err(_) => return err(ENOMEM),
-    };
-    let phdr = program_header_addr(&elf);
-    let (phent, phnum) = phdr_size(&elf);
-    let rsp = build_start_stack(
-        &stack,
-        &argv,
-        &envp,
-        entry,
-        (phdr, phent, phnum),
-        super::creds::ids(),
-    );
 
     // The image is committed: close the descriptors std marked `O_CLOEXEC`
     // (the child's copies of the inherit-only pipe ends) before resuming.
@@ -228,8 +208,8 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     task::set_fs_base(0);
     // The new image starts with default x87/SSE registers, not the old one's.
     task::fpu::reset_live(task::current());
-    task::register_bumps(table.as_u64(), BRK_BASE, MMAP_BASE);
-    crate::arch::linux::set_user_return(entry, rsp, 0x202);
+    task::register_bumps(table.as_u64(), started.brk, MMAP_BASE);
+    crate::arch::linux::set_user_return(started.entry, started.rsp, 0x202);
     guard.commit();
     0
 }

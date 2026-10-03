@@ -3,7 +3,7 @@
 #   path:LINE:reason     one line
 # Prefer a constant from libs/fhs; add an entry only when the literal is the
 # thing under test or the build host cannot depend on the crate yet.
-kernel/src/process/linux/path.rs:98:the Linux ABI's synthetic /etc directory, an ABI concept rather than LazyOS layout
+kernel/src/process/linux/path.rs:99:the Linux ABI's synthetic /etc directory, an ABI concept rather than LazyOS layout
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
 xui-app/crates/explorer/src/testing.rs:168:fixture directory name of an in-memory test platform
 libs/ext2fs/examples/mkimage.rs:CI image fixture: fixed paths so the e2fsck/debugfs checks can assert them, independent of libs/fhs

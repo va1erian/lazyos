@@ -14,10 +14,24 @@ kernel object slab allocator, and the ring-3 bump allocator.
 
 **Kernel heap** (`heap.rs`)
 
-- 16 MiB mapped in `mem::init` at `HEAP_START = 0x_4444_4444_0000`; backs `alloc`
-  (`Vec`, `String`, `Box`) and the slab oversized fallback.
-- Initialized only after the heap pages are mapped; `ALLOCATOR.lock().init(start, size)`.
-- Never shrinks; growth would require mapping more frames.
+- Lives at `HEAP_START = 0xffff_c000_0000_0000` (its own PML4 entry in the
+  kernel half, 512 GiB of span); backs `alloc` (`Vec`, `String`, `Box`) and the
+  slab oversized fallback.
+- `mem::init` maps `limits::heap_initial_bytes(RAM)` (1/32 of RAM, 16..64 MiB)
+  and initializes the allocator over it.
+- **Grows on demand**: an allocation that finds no hole maps at least 4 MiB
+  more at the top (`mem::map_kernel_range`, frames from the frame allocator)
+  and extends the free list, then retries, up to `limit.heap_max` (half of RAM
+  by default; docs/architecture/limits.md). Past the ceiling, or with RAM
+  exhausted, the allocation fails: fallible callers (`try_reserve`, the
+  `fs::fallible` helpers) get an error, infallible ones hit the alloc error
+  handler as before. The growth path runs inside the same interrupts-off
+  section, with the heap lock released and only `FRAMES` taken.
+- Every address space sees growth at once: the heap's PML4 entry exists
+  before the first address space is created and is copied into each one.
+- Never shrinks (the linked-list allocator cannot give memory back); the
+  high-water mark is what the kernel once needed. `heap_stats()` reports
+  `total`, `used`, `free`, `max`, `growths` and `grow_failures`.
 
 **Slab allocator** (`slab.rs`, issue #61)
 

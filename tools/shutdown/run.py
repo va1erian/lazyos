@@ -169,7 +169,8 @@ def build() -> bool:
     return all(subprocess.run(step, cwd=ROOT, env=env).returncode == 0 for step in steps)
 
 
-def boot(name: str, steps: list[dict], out: Path, accel: str) -> tuple[bool, str]:
+def boot(name: str, steps: list[dict], out: Path, accel: str,
+         memory: str | None = None) -> tuple[bool, str]:
     """Run one session; returns whether it completed and its serial log."""
     out.mkdir(parents=True, exist_ok=True)
     script = out / f"{name}.json"
@@ -179,7 +180,8 @@ def boot(name: str, steps: list[dict], out: Path, accel: str) -> tuple[bool, str
     result = subprocess.run([sys.executable, "tools/screenshot/qemu_session.py",
                              "--image", str(IMAGE),
                              "--accel", accel, "--out", str(session), "--script", str(script),
-                             "--extra-arg=-no-shutdown"],
+                             "--extra-arg=-no-shutdown"]
+                            + (["--memory", memory] if memory else []),
                             cwd=ROOT, capture_output=True, text=True)
     print(f"{name}: session {'ok' if result.returncode == 0 else 'FAILED'} "
           f"in {time.time() - started:.0f} s")
@@ -194,6 +196,7 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--accel", default="auto")
+    parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
     parser.add_argument("--out", type=Path, default=ROOT / "shots/shutdown")
     args = parser.parse_args()
     if not args.no_build and not build():
@@ -201,7 +204,7 @@ def main() -> int:
     nonce = f"persist-{int(time.time())}"
     failures: list[str] = []
 
-    ok, log = boot("poweroff", power_off_session(nonce), args.out, args.accel)
+    ok, log = boot("poweroff", power_off_session(nonce), args.out, args.accel, args.memory)
     failures += [] if ok else ["power-off session did not complete"]
     failures += [f"power-off: {f}" for f in judge(log, "poweroff")]
 
@@ -210,7 +213,7 @@ def main() -> int:
         failures.append("power-off: logd's journals were not ready (no LOGD:STORE:READY)")
     boot_id = boot_id.group(1) if boot_id else "0" * 16
 
-    ok, log = boot("reboot", reboot_session(nonce, boot_id), args.out, args.accel)
+    ok, log = boot("reboot", reboot_session(nonce, boot_id), args.out, args.accel, args.memory)
     failures += [] if ok else ["reboot session did not complete"]
     failures += [f"reboot: {f}" for f in judge(log, "reboot")]
     if "was not cleanly unmounted" in log:
