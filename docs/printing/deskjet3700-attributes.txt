@@ -251,7 +251,7 @@ media-col-supported = media-type
   media-source
   media-size-name
 media-col-default = {
-  media-size:     media-col-default = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }
@@ -263,7 +263,7 @@ media-col-default = {
   media-type: stationery
 }
 media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18415
     y-dimension: 26670
   }
@@ -275,7 +275,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18415
     y-dimension: 26670
   }
@@ -287,7 +287,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18415
     y-dimension: 26670
   }
@@ -299,7 +299,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18415
     y-dimension: 26670
   }
@@ -311,7 +311,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 27940
   }
@@ -323,7 +323,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 27940
   }
@@ -335,7 +335,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 27940
   }
@@ -347,7 +347,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 27940
   }
@@ -359,7 +359,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 35560
   }
@@ -371,7 +371,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 35560
   }
@@ -383,7 +383,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 35560
   }
@@ -395,7 +395,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 35560
   }
@@ -407,7 +407,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 20320
     y-dimension: 25400
   }
@@ -419,7 +419,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 20320
     y-dimension: 25400
   }
@@ -431,7 +431,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 20320
     y-dimension: 25400
   }
@@ -443,7 +443,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 20320
     y-dimension: 25400
   }
@@ -455,7 +455,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 13970
     y-dimension: 21590
   }
@@ -467,7 +467,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 13970
     y-dimension: 21590
   }
@@ -479,7 +479,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 13970
     y-dimension: 21590
   }
@@ -491,7 +491,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 13970
     y-dimension: 21590
   }
@@ -503,7 +503,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 14800
     y-dimension: 21000
   }
@@ -515,7 +515,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 14800
     y-dimension: 21000
   }
@@ -527,7 +527,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 14800
     y-dimension: 21000
   }
@@ -539,7 +539,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 14800
     y-dimension: 21000
   }
@@ -551,7 +551,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }
@@ -563,7 +563,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }
@@ -575,7 +575,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }
@@ -587,7 +587,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }
@@ -599,7 +599,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18200
     y-dimension: 25700
   }
@@ -611,7 +611,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18200
     y-dimension: 25700
   }
@@ -623,7 +623,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18200
     y-dimension: 25700
   }
@@ -635,7 +635,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 18200
     y-dimension: 25700
   }
@@ -647,7 +647,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 14800
   }
@@ -659,7 +659,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 14800
   }
@@ -671,7 +671,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 14800
   }
@@ -683,7 +683,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 14800
   }
@@ -695,7 +695,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10500
     y-dimension: 14800
   }
@@ -707,7 +707,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10500
     y-dimension: 14800
   }
@@ -719,7 +719,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10500
     y-dimension: 14800
   }
@@ -731,7 +731,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10500
     y-dimension: 14800
   }
@@ -743,7 +743,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 15240
   }
@@ -755,7 +755,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 15240
   }
@@ -767,7 +767,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 15240
   }
@@ -779,7 +779,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 15240
   }
@@ -791,7 +791,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 20320
   }
@@ -803,7 +803,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 20320
   }
@@ -815,7 +815,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 20320
   }
@@ -827,7 +827,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 20320
   }
@@ -839,7 +839,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 7620
     y-dimension: 12700
   }
@@ -851,7 +851,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 7620
     y-dimension: 12700
   }
@@ -863,7 +863,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 7620
     y-dimension: 12700
   }
@@ -875,7 +875,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 7620
     y-dimension: 12700
   }
@@ -887,7 +887,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9842
     y-dimension: 19050
   }
@@ -899,7 +899,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9842
     y-dimension: 19050
   }
@@ -911,7 +911,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9842
     y-dimension: 19050
   }
@@ -923,7 +923,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9842
     y-dimension: 19050
   }
@@ -935,7 +935,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10477
     y-dimension: 24130
   }
@@ -947,7 +947,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10477
     y-dimension: 24130
   }
@@ -959,7 +959,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10477
     y-dimension: 24130
   }
@@ -971,7 +971,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10477
     y-dimension: 24130
   }
@@ -983,7 +983,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11000
     y-dimension: 22000
   }
@@ -995,7 +995,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11000
     y-dimension: 22000
   }
@@ -1007,7 +1007,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11000
     y-dimension: 22000
   }
@@ -1019,7 +1019,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11000
     y-dimension: 22000
   }
@@ -1031,7 +1031,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 16200
     y-dimension: 22900
   }
@@ -1043,7 +1043,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 16200
     y-dimension: 22900
   }
@@ -1055,7 +1055,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 16200
     y-dimension: 22900
   }
@@ -1067,7 +1067,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 16200
     y-dimension: 22900
   }
@@ -1079,7 +1079,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11400
     y-dimension: 16200
   }
@@ -1091,7 +1091,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11400
     y-dimension: 16200
   }
@@ -1103,7 +1103,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11400
     y-dimension: 16200
   }
@@ -1115,7 +1115,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11400
     y-dimension: 16200
   }
@@ -1127,7 +1127,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11112
     y-dimension: 14605
   }
@@ -1139,7 +1139,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11112
     y-dimension: 14605
   }
@@ -1151,7 +1151,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11112
     y-dimension: 14605
   }
@@ -1163,7 +1163,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 11112
     y-dimension: 14605
   }
@@ -1175,7 +1175,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12000
     y-dimension: 23500
   }
@@ -1187,7 +1187,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12000
     y-dimension: 23500
   }
@@ -1199,7 +1199,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12000
     y-dimension: 23500
   }
@@ -1211,7 +1211,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12000
     y-dimension: 23500
   }
@@ -1223,7 +1223,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9000
     y-dimension: 20500
   }
@@ -1235,7 +1235,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9000
     y-dimension: 20500
   }
@@ -1247,7 +1247,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9000
     y-dimension: 20500
   }
@@ -1259,7 +1259,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9000
     y-dimension: 20500
   }
@@ -1271,7 +1271,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 8890
     y-dimension: 12700
   }
@@ -1283,7 +1283,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 8890
     y-dimension: 12700
   }
@@ -1295,7 +1295,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 8890
     y-dimension: 12700
   }
@@ -1307,7 +1307,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 8890
     y-dimension: 12700
   }
@@ -1319,7 +1319,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1331,7 +1331,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1343,7 +1343,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1355,7 +1355,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1367,7 +1367,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1379,7 +1379,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1391,7 +1391,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1403,7 +1403,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 12700
     y-dimension: 17780
   }
@@ -1415,7 +1415,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 12700
   }
@@ -1427,7 +1427,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 12700
   }
@@ -1439,7 +1439,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 12700
   }
@@ -1451,7 +1451,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10160
     y-dimension: 12700
   }
@@ -1463,7 +1463,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9207
     y-dimension: 16510
   }
@@ -1475,7 +1475,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9207
     y-dimension: 16510
   }
@@ -1487,7 +1487,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9207
     y-dimension: 16510
   }
@@ -1499,7 +1499,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 9207
     y-dimension: 16510
   }
@@ -1511,7 +1511,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 17600
     y-dimension: 25000
   }
@@ -1523,7 +1523,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 17600
     y-dimension: 25000
   }
@@ -1535,7 +1535,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 17600
     y-dimension: 25000
   }
@@ -1547,7 +1547,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 17600
     y-dimension: 25000
   }
@@ -1559,7 +1559,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 15000
   }
@@ -1571,7 +1571,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 15000
   }
@@ -1583,7 +1583,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 15000
   }
@@ -1595,7 +1595,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 10000
     y-dimension: 15000
   }
@@ -1607,7 +1607,7 @@ media-col-database = {
   media-type: com.hp.specialty-matte
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 33020
   }
@@ -1619,7 +1619,7 @@ media-col-database = {
   media-type: stationery
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 33020
   }
@@ -1631,7 +1631,7 @@ media-col-database = {
   media-type: photographic-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 33020
   }
@@ -1643,7 +1643,7 @@ media-col-database = {
   media-type: com.hp.specialty-glossy
 }
   media-col-database = {
-  media-size:     media-col-database = {
+  media-size: {
     x-dimension: 21590
     y-dimension: 33020
   }
@@ -1786,7 +1786,7 @@ media-size-supported = {
 }
 media-ready = iso_a4_210x297mm
 media-col-ready = {
-  media-size:     media-col-ready = {
+  media-size: {
     x-dimension: 21000
     y-dimension: 29700
   }

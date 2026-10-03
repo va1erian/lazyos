@@ -23,7 +23,10 @@ QEMU), [architecture/usb.md](architecture/usb.md) and
    accepts IPP/2.0 on `ipp://<printer>/ipp/print` (port 631, no TLS required)
    and takes `image/pwg-raster` in `srgb_8` or `sgray_8` at 300 dpi, the
    simplest raster format there is. URF (Apple Raster) and PCLm are accepted
-   too, as backups.
+   too, as backups. Plain IPP sends the document unencrypted across the
+   LAN; that is acceptable on a home network, and `ipps://` (port 443, which
+   the printer also offers) becomes the default once TLS
+   ([tls-plan.md](tls-plan.md)) is built.
 2. **No new driver, no kernel change.** LazyOS already has TCP sockets for
    apps (`netd`, `TcpStream`), Net Tools already speaks HTTP, and from QEMU the
    guest reaches the printer's LAN address through slirp's NAT. xui can already
@@ -117,9 +120,12 @@ LazyWriter process (P2–P5)
   laid out at 300 dpi (zoom 300/96) and painted with `OffscreenBackend` one
   band at a time, translated per band. A whole A4 page in RGBA at 300 dpi is
   2480 x 3508 x 4 bytes, about 35 MB; 256-row bands are about 2.5 MB, so
-  memory stays flat whatever the page count. Landscape pages are rotated 90°
-  per band, since the printer only accepts portrait. Content is printed dark on
-  white, as page view already draws it.
+  memory stays flat whatever the page count. Bands are always bands of the
+  portrait sheet the printer receives: since the printer only accepts
+  portrait, a landscape page is painted with a 90° rotation in the band's
+  transform, so each portrait band is a vertical strip of the landscape page
+  and rows still come out in output order with no transpose buffer. Content is
+  printed dark on white, as page view already draws it.
 * **Encoding.** PWG Raster (PWG 5102.4): a `RaS2` sync word, then per page a
   1796-byte header (size, resolution, colour space, bits per pixel) and the
   pixels with PackBits-style line compression and line repeat. It streams row
@@ -127,7 +133,9 @@ LazyWriter process (P2–P5)
 * **Submission.** One `Print-Job` per document (`multiple-document-jobs` is
   false): an HTTP/1.1 chunked `POST` of `application/ipp` with
   `document-format=image/pwg-raster`, `media`, `print-color-mode`,
-  `print-quality`, `copies`. Then `Get-Job-Attributes` until `job-state` is
+  `print-quality`, `copies`. Page ranges are applied by rendering only the
+  selected pages, not with the `page-ranges` attribute, so the printer never
+  receives pages it should not print. Then `Get-Job-Attributes` until `job-state` is
   completed, aborted or canceled, surfacing `job-state-reasons` and the
   printer's `printer-state-message` as the dialog's status line.
 * **Where it runs.** First on a worker thread inside LazyWriter, using the
@@ -148,7 +156,8 @@ LazyWriter process (P2–P5)
 3. **P2, `libs/raster`.** PWG Raster encoder streaming bands, `srgb_8` and
    `sgray_8`; URF behind the same trait as the backup. Host tests decode the
    output back and compare pixels; a fuzz target for the decoder used in tests.
-4. **P3, render pages.** A `print_pages(doc, setup, dpi) -> impl Iterator<Band>`
+4. **P3, render pages.** A `print_pages(doc, setup, pages, dpi) -> impl Iterator<Band>`
+   (`pages` = the selected range)
    on top of xui-rich-text's page layout and `OffscreenBackend`; host test that
    a 300 dpi render of a known `.lzw` matches a reference within a tolerance.
 5. **P4, submit a job.** `Validate-Job`, then `Print-Job` over `TcpStream`,
