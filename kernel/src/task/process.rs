@@ -121,11 +121,6 @@ pub fn group_session(group: usize) -> Option<usize> {
         .map(|task| task.sid)
 }
 
-/// Whether `group` is a live process group of session `sid`.
-pub fn group_in_session(group: usize, sid: usize) -> bool {
-    group_session(group) == Some(sid)
-}
-
 /// Whether session `sid` still has a live member: a terminal stays a
 /// session's controlling terminal only while the session exists.
 pub fn session_alive(sid: usize) -> bool {

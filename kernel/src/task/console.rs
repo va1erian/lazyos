@@ -120,13 +120,8 @@ pub fn on_key(key: Key) {
     // lets BusyBox `sh` interrupt a running child.
     // With `ISIG` off (a raw-mode program) it is an ordinary byte.
     if key == Key::Char('\u{3}') {
-        if let Some(group) = consoletty::console_interrupt_target(FOCUS.load(Ordering::Relaxed)) {
-            let _ = signal::kill(
-                KERNEL_TASK,
-                -(group as i64),
-                signal::SIGINT,
-                signal::SigInfo::kernel(),
-            );
+        if let Some(target) = consoletty::console_interrupt_target(FOCUS.load(Ordering::Relaxed)) {
+            crate::tty::signal_console(target, signal::SIGINT);
             return;
         }
     }

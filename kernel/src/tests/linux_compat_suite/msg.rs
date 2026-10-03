@@ -87,8 +87,8 @@ pub fn msg_peek_and_dontwait() -> Result<(), String> {
     Ok(())
 }
 
-/// `sendmsg` gathers a stream's iovec in order; `recvmsg` reads into the
-/// first segment and reports no control data.
+/// `sendmsg` gathers a stream's iovec in order; `recvmsg` reads it back and
+/// reports no control data.
 pub fn msg_sendmsg_recvmsg() -> Result<(), String> {
     fresh()?;
     let (a, b) = socketpair()?;
@@ -191,6 +191,120 @@ pub fn msg_soak() -> Result<(), String> {
             );
         }
         read += n as u32;
+    }
+    sys(3, &[a]);
+    sys(3, &[b]);
+    Ok(())
+}
+
+/// A seqpacket pair `(a, b)`.
+fn seqpacket_pair() -> Result<(u64, u64), String> {
+    let mut sv = [0i32; 2];
+    check!(
+        sys(53, &[1, 5, 0, sv.as_mut_ptr() as u64]) == 0,
+        "seqpacket pair"
+    );
+    Ok((sv[0] as u64, sv[1] as u64))
+}
+
+/// `recvmsg` into `bufs` (one iovec segment each, empty ones included):
+/// `(result, msg_flags)`.
+fn recvmsg_into(fd: u64, bufs: &mut [&mut [u8]], flags: u64) -> (u64, u32) {
+    let iov: Vec<u64> = bufs
+        .iter_mut()
+        .flat_map(|buf| [buf.as_mut_ptr() as u64, buf.len() as u64])
+        .collect();
+    let mut msg = [0u64, 0, iov.as_ptr() as u64, bufs.len() as u64, 0, 0, 0];
+    let n = sys(RECVMSG, &[fd, msg.as_mut_ptr() as u64, flags]);
+    (n, msg[6] as u32)
+}
+
+const MSG_TRUNC: u32 = 0x20;
+
+/// `recvmsg` scatters across every segment in order: one whole message on a
+/// seqpacket socket against the combined capacity (`MSG_TRUNC` only when
+/// the message was really longer, and the next message is intact), and a
+/// stream read across segments, also with `MSG_WAITALL`.
+pub fn msg_recvmsg_scatters() -> Result<(), String> {
+    fresh()?;
+    let (a, b) = seqpacket_pair()?;
+    let (mut x, mut empty, mut y, mut z) = ([0u8; 3], [0u8; 0], [0u8; 4], [0u8; 5]);
+    check!(send(a, b"0123456789", 0) == 10, "send 10");
+    let got = recvmsg_into(b, &mut [&mut x, &mut empty, &mut y, &mut z], 0);
+    check!(got == (10, 0), "a message across segments: {got:?}");
+    check!(
+        &x == b"012" && &y == b"3456" && &z[..3] == b"789",
+        "scattered {x:?} {y:?} {z:?}"
+    );
+    check!(send(a, b"abcdefgh", 0) == 8, "send 8");
+    let (mut p, mut q) = ([0u8; 3], [0u8; 5]);
+    let got = recvmsg_into(b, &mut [&mut p, &mut q], 0);
+    check!(got == (8, 0), "an exact fit is not truncated: {got:?}");
+    check!(&p == b"abc" && &q == b"defgh", "exact fit bytes");
+    check!(
+        send(a, b"ABCDEFGHIJ", 0) == 10 && send(a, b"z", 0) == 1,
+        "send"
+    );
+    let (mut p, mut q) = ([0u8; 3], [0u8; 4]);
+    let got = recvmsg_into(b, &mut [&mut p, &mut q], 0);
+    check!(got == (7, MSG_TRUNC), "a longer message: {got:?}");
+    check!(&p == b"ABC" && &q == b"DEFG", "truncated bytes");
+    let mut one = [0u8; 4];
+    check!(
+        recv(b, &mut one, 0) == 1 && one[0] == b'z',
+        "the next message after a truncation"
+    );
+    // A stream: one read spread over the segments, and WAITALL fills them.
+    let (s, t) = socketpair()?;
+    check!(send(s, b"hello world", 0) == 11, "stream send");
+    let (mut p, mut q, mut r) = ([0u8; 4], [0u8; 4], [0u8; 8]);
+    let got = recvmsg_into(t, &mut [&mut p, &mut q, &mut r], 0);
+    check!(got == (11, 0), "stream recvmsg {got:?}");
+    check!(
+        &p == b"hell" && &q == b"o wo" && &r[..3] == b"rld",
+        "stream bytes"
+    );
+    check!(send(s, b"abcdef", 0) == 6, "stream send 6");
+    let (mut p, mut q) = ([0u8; 2], [0u8; 4]);
+    let got = recvmsg_into(t, &mut [&mut p, &mut q], MSG_WAITALL);
+    check!(
+        got == (6, 0) && &p == b"ab" && &q == b"cdef",
+        "WAITALL {got:?}"
+    );
+    for fd in [a, b, s, t] {
+        sys(3, &[fd]);
+    }
+    Ok(())
+}
+
+/// Soak: thousands of seqpacket messages read through varying iovec splits
+/// arrive whole and in order, truncated exactly when longer than the iovec.
+pub fn msg_recvmsg_soak() -> Result<(), String> {
+    fresh()?;
+    let (a, b) = seqpacket_pair()?;
+    for round in 0..2000usize {
+        let len = round % 61 + 1;
+        let message: Vec<u8> = (0..len).map(|i| (round + i) as u8).collect();
+        check!(
+            send(a, &message, MSG_DONTWAIT) == len as u64,
+            "round {round}: send"
+        );
+        let mut first = alloc::vec![0u8; round % 7];
+        let mut second = alloc::vec![0u8; round % 23];
+        let mut third = alloc::vec![0u8; round % 41];
+        let room = first.len() + second.len() + third.len();
+        let got = recvmsg_into(b, &mut [&mut first, &mut second, &mut third], 0);
+        let kept = len.min(room);
+        let truncated = if len > room { MSG_TRUNC } else { 0 };
+        check!(
+            got == (kept as u64, truncated),
+            "round {round}: {got:?}, want ({kept}, {truncated})"
+        );
+        let joined: Vec<u8> = first.iter().chain(&second).chain(&third).copied().collect();
+        check!(
+            joined[..kept] == message[..kept],
+            "round {round}: bytes out of order"
+        );
     }
     sys(3, &[a]);
     sys(3, &[b]);
