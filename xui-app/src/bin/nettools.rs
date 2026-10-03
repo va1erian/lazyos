@@ -30,8 +30,9 @@ use xui_app::net::model::{self, NetStatus};
 use xui_app::net::stack;
 use xui_app::net::web::{Fetch, Server};
 use xui_app::sys;
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::PlatformSpec;
 use xui_core::{Dip, HasText};
 
 #[path = "nettools/widgets.rs"]
@@ -143,7 +144,7 @@ impl NetTools {
 
     fn tick(&mut self) {
         self.ticks += 1;
-        if self.ticks % SLOW_EVERY == 0 {
+        if self.ticks.is_multiple_of(SLOW_EVERY) {
             self.refresh_status();
             self.next_ping();
         }
@@ -253,11 +254,10 @@ impl NetTools {
 
     fn finish_ping(&mut self, how: &str) {
         let Some(run) = self.ping.take() else { return };
-        let average = if run.answered > 0 {
-            format!(", average {} ms", run.total_rtt / run.answered)
-        } else {
-            String::new()
-        };
+        let average = run
+            .total_rtt
+            .checked_div(run.answered)
+            .map_or_else(String::new, |ms| format!(", average {ms} ms"));
         self.w.ping_result.set_text(&format!(
             "{}: {} sent, {} answered{average} ({how})",
             model::dotted(run.target),
@@ -414,7 +414,7 @@ fn main() -> std::process::ExitCode {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
     let spec = PlatformSpec::new("Net Tools").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let widgets = match Widgets::build(ui) {
             Ok(widgets) => widgets,
             Err(error) => {

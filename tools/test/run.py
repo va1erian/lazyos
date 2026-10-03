@@ -244,6 +244,12 @@ def main() -> int:
         help="add a legacy virtio-net function, which enables the end-to-end "
         "device interrupt test (issue #283)",
     )
+    parser.add_argument(
+        "--extra-arg",
+        action="append",
+        default=[],
+        help="one more QEMU argument, repeatable (e.g. --extra-arg=-cpu --extra-arg=max)",
+    )
     args = parser.parse_args()
 
     image = Path(args.image).resolve()
@@ -262,6 +268,7 @@ def main() -> int:
     extra = list(extra or [])
     if args.machine:
         extra += ["-machine", args.machine]
+    extra += args.extra_arg
     if args.nic:
         extra += [
             "-netdev", "user,id=n0",

@@ -12,12 +12,23 @@
 //!
 //! Selection looks at whole disks only in the legacy layout; the configured one
 //! also finds the root among the MBR partitions ([`crate::block::partition`]).
+//!
+//! **The ramdisk goes first.** When the bootloader handed over a ramdisk
+//! (`ram0`), it and its partitions (`ram0p<n>`) are searched before every
+//! other device, for the boot volume, `lazyos.cfg` and the root alike, provided
+//! its boot volume carries `lazyos.cfg` (a bare ramdisk changes nothing). The USB
+//! stick boots this way (docs/usb-stick.md): its ramdisk carries `/boot` and
+//! the OS volume, so a disk that happens to carry a volume with the same UUID
+//! (QEMU dev runs attach `target/lazyos.img`) can never take `/`. Without a
+//! ramdisk the order is the registration order, as before. Either way the
+//! chosen root is logged as `FS:ROOT:<device>`.
 
 use alloc::sync::Arc;
 
 use super::bootcfg::{self, BootCfg, VolumeId};
 use super::vfs::{Filesystem, MountFlags, Vfs};
 use super::{ext2, fat, overlay, ramfs};
+use crate::block::mem::RAMDISK_NAME;
 use crate::block::BlockDevice;
 
 type Devices<'a> = &'a [&'static dyn BlockDevice];
@@ -54,7 +65,7 @@ pub(crate) fn select_root(devices: Devices) -> Option<(Arc<dyn Filesystem>, &'st
 }
 
 /// The first ext2 volume on any device (not `skip`) that satisfies `wanted`.
-fn find_ext2(
+pub(super) fn find_ext2(
     devices: Devices,
     skip: Option<&str>,
     wanted: impl Fn(&ext2::Ext2) -> bool,
@@ -63,9 +74,22 @@ fn find_ext2(
         .iter()
         .filter(|device| Some(device.name()) != skip)
         .find_map(|device| {
-            let volume = ext2::Ext2::open_cached(*device).ok()?;
+            let volume = open_ext2(*device).ok()?;
             wanted(&volume).then_some((volume, *device))
         })
+}
+
+/// Open an ext2 volume the way its device suits. A disk served by a
+/// user-space provider (a USB stick, `block::provider`) is opened uncached:
+/// the periodic flusher runs on the kernel task, which must never wait for
+/// `usbd`, and a stick can be pulled out, so its writes go straight through
+/// in the writer's own context. Everything else gets the write-back cache.
+fn open_ext2(device: &'static dyn BlockDevice) -> Result<ext2::Ext2, super::vfs::FsError> {
+    if crate::block::provider::is_provider_device(device.name()) {
+        ext2::Ext2::open(device)
+    } else {
+        ext2::Ext2::open_cached(device)
+    }
 }
 
 /// Delete the orphaned `.unlinked-*` files an unclean stop left on `volume`
@@ -107,23 +131,80 @@ pub(crate) fn mount_data_volume(
     Some(volume)
 }
 
-/// The native and Linux ABI tables, and whether a root volume mounted.
+/// The native and Linux ABI tables, whether a root volume mounted, and the
+/// device it is on.
 pub(crate) struct Tables {
     pub(crate) native: Vfs,
     pub(crate) abi: Vfs,
     pub(crate) mounted: bool,
+    pub(crate) root_device: Option<&'static str>,
 }
 
-/// Build both tables from the registered block devices.
+/// Build both tables from the registered block devices, the bootloader
+/// ramdisk first when there is one.
 pub(crate) fn build(devices: Devices) -> Tables {
-    if let Some((boot, boot_device)) = find_fat(devices) {
-        if let Some(cfg) = bootcfg::load(&*boot) {
-            if let Some(tables) = configured(&cfg, boot, boot_device, devices) {
-                return tables;
-            }
-        }
+    let ramdisk = devices
+        .iter()
+        .any(|device| device.name() == RAMDISK_NAME)
+        .then_some(RAMDISK_NAME);
+    build_preferring(devices, ramdisk)
+}
+
+/// [`build`] with `preferred` (a whole disk's name) and its partitions moved
+/// ahead of every other device.
+/// The preference holds only when the preferred disk carries a boot volume
+/// with `lazyos.cfg`; a bare ramdisk (or one with no config) keeps the
+/// registration order, so it cannot shadow a disk's boot volume.
+pub(crate) fn build_preferring(devices: Devices, preferred: Option<&str>) -> Tables {
+    let ordered = preferred_first(devices, preferred);
+    let ours = ordered
+        .iter()
+        .take_while(|device| {
+            preferred.is_some_and(|disk| is_disk_or_partition(device.name(), disk))
+        })
+        .count();
+    let configured_here = find_fat(&ordered[..ours])
+        .and_then(|(boot, _)| bootcfg::load(&*boot))
+        .is_some();
+    let devices = if configured_here {
+        &ordered[..]
+    } else {
+        devices
+    };
+    let tables = (|| {
+        let (boot, boot_device) = find_fat(devices)?;
+        let cfg = bootcfg::load(&*boot)?;
+        configured(&cfg, boot, boot_device, devices)
+    })()
+    .unwrap_or_else(|| legacy(devices));
+    serial_println!("FS:ROOT:{}", tables.root_device.unwrap_or("none"));
+    tables
+}
+
+/// `devices` with `preferred` and its partitions (`<preferred>p<n>`) first,
+/// each group keeping its own order.
+fn preferred_first(
+    devices: Devices,
+    preferred: Option<&str>,
+) -> alloc::vec::Vec<&'static dyn BlockDevice> {
+    let ours = |device: &&'static dyn BlockDevice| {
+        preferred.is_some_and(|disk| is_disk_or_partition(device.name(), disk))
+    };
+    let (mut first, rest): (alloc::vec::Vec<_>, alloc::vec::Vec<_>) =
+        devices.iter().copied().partition(ours);
+    first.extend(rest);
+    first
+}
+
+/// Whether `name` is `disk` itself or one of its partitions (`<disk>p<digits>`).
+pub(crate) fn is_disk_or_partition(name: &str, disk: &str) -> bool {
+    match name.strip_prefix(disk) {
+        Some("") => true,
+        Some(rest) => rest
+            .strip_prefix('p')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+        None => false,
     }
-    legacy(devices)
 }
 
 /// The configured layout, or `None` (after logging) when its root is missing.
@@ -176,10 +257,14 @@ fn configured(
                 });
                 mounts.push((fhs::mount::HOME, Arc::new(volume), flags));
             }
-            None => serial_println!(
-                "fs: home volume {} not found; /home is a directory on /",
-                describe(&home)
-            ),
+            None => {
+                serial_println!(
+                    "fs: home volume {} not found; /home is a directory on /",
+                    describe(&home)
+                );
+                // A USB stick appears later (`usbd`); `init` asks for it.
+                super::late::set_pending(home, cfg.home_flags);
+            }
         }
     }
     // One set of volume instances serves both tables: the ABI sees the same
@@ -195,6 +280,7 @@ fn configured(
         native,
         abi,
         mounted: true,
+        root_device: Some(root_device.name()),
     })
 }
 
@@ -252,6 +338,7 @@ fn legacy(devices: Devices) -> Tables {
         native,
         abi,
         mounted,
+        root_device,
     }
 }
 
@@ -267,7 +354,7 @@ fn log_mounts(native: &Vfs, abi: &Vfs) {
     }
 }
 
-fn describe(id: &VolumeId) -> alloc::string::String {
+pub(super) fn describe(id: &VolumeId) -> alloc::string::String {
     match id {
         VolumeId::Uuid(uuid) => fmt_uuid(uuid),
         VolumeId::Label(label) => {

@@ -27,6 +27,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("toml", "application/toml"),
     // Application packages (docs/packages.md); the installer shows consent.
     ("lzp", "application/x-lazyos-package"),
+    // LazyWriter documents (issue #533); a manifest cannot declare extensions.
+    ("lzw", "application/x-lazywriter"),
     ("c", "text/x-c"),
     ("h", "text/x-c"),
 ];

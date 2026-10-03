@@ -1,0 +1,19 @@
+[package]
+name = "usbmsc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "USB Mass Storage Bulk-Only Transport and the SCSI commands a USB stick needs, for the LazyOS usbd driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "usbmsc"
+path = "src/lib.rs"
+
+[features]
+# Expose the `fuzz::run_*` byte-script entry points shared by the in-tree
+# seeded tests and the cargo-fuzz targets (`fuzz/`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

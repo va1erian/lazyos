@@ -146,7 +146,7 @@ xui-rhai         = { path = "<lazyrad>/crates/xui-rhai" }
 the merge commit, delete the patch, and commit `Cargo.lock`. Bumping xui is the
 procedure in [`docs/xui-plan.md`](../docs/xui-plan.md): LazyRAD's workspace, this
 `Cargo.toml` and `xui-app/Cargo.toml` must all name one xui revision (today
-`4c2a4fb`).
+`bb14ce9`).
 
 ## Tests
 

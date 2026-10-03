@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import re
 import sys
 import tempfile
 import unittest
@@ -87,6 +88,41 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("os.lazy.init.v1", permissions["interfaces"])
         self.assertIn("subscribe:system/events/pkg/+", permissions["topics"])
         self.assertNotIn("os.lazy.pkgd.v1", permissions["interfaces"])
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_lazywriter_is_an_office_app_for_its_own_documents(self) -> None:
+        # Issue #533: cargo bin `writer`, built as `xui-writer.elf`, packaged
+        # as `bin/writer.elf`; it takes `.lzw` (mimed maps the extension) and
+        # leaves text/plain and text/markdown to the Editor and Docs.
+        # `build` is tools/pkg/build.py here (core_packages imports it), so
+        # load tools/xui/build.py under its own name.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("xui_build", HERE / "build.py")
+        xui_build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(xui_build)
+        self.assertEqual(xui_build.BINS["writer"], "xui-writer.elf")
+        self.assertEqual(core_packages.CORE_APPS["writer"].programs,
+                         {"xui-writer.elf": "bin/writer.elf"})
+        self.assertFalse(core_packages.CORE_APPS["writer"].optional)
+        text = (core_packages.SOURCES / "writer" / "manifest.toml").read_text(encoding="utf-8")
+        manifest = tomllib.loads(text)
+        self.assertEqual(manifest["app"]["name"], "LazyWriter")
+        self.assertEqual(manifest["app"]["category"], "office")
+        self.assertEqual(manifest["mime"], [{"type": "application/x-lazywriter",
+                                             "verbs": ["open", "edit"]}])
+        self.assertEqual(manifest["permissions"]["interfaces"],
+                         ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.clipboard.v1"])
+        for size in (16, 32, 128):
+            self.assertTrue((core_packages.SOURCES / "writer" / "icons" / f"app-{size}.png").is_file())
+
+    def test_the_image_build_lists_the_same_core_apps(self) -> None:
+        # `build_support/core_packages.rs` `is_core_stem` mirrors CORE_APPS
+        # (minus the LazyRAD IDE, which `lazyrad_embed` adds).
+        source = (core_packages.ROOT / "build_support" / "core_packages.rs").read_text(encoding="utf-8")
+        block = re.search(r"const CORE: &\[&str\] = &\[(.*?)\];", source, re.S)
+        self.assertIsNotNone(block)
+        stems = set(re.findall(r'"([a-z]+)"', block.group(1)))
+        self.assertEqual(stems, set(core_packages.CORE_APPS) - {"lazyrad"})
 
     def test_the_package_carries_both_programs(self) -> None:
         import zipfile

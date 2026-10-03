@@ -2,6 +2,7 @@
 
 pub mod bus;
 pub mod hid;
+pub mod i8042;
 pub mod keyboard;
 pub mod layout;
 pub mod mouse;

@@ -28,8 +28,9 @@ use xui_app::backend::LazyOSBackend;
 use xui_app::compact;
 use xui_app::services::{self, Services};
 use xui_app::sysinfo::{self, Snapshot};
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec, WidgetId};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec, WidgetId};
 use xui_core::message::Key;
 use xui_core::{Control, MouseButton};
 
@@ -335,12 +336,15 @@ fn main() {
 
     let spec =
         PlatformSpec::new("sysmon").size(xui_core::Dip(width as f32), xui_core::Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
             .expect("root node");
         {
             let state = Rc::clone(&state);
-            root.set_painter(Rc::new(move |canvas| paint(canvas, &state.borrow())));
+            let theme = ui.theme_handle();
+            root.set_painter(Rc::new(move |canvas| {
+                paint(canvas, theme.get(), &state.borrow())
+            }));
         }
         let ui_probe = ui.clone();
         root.on_events(move |event| match event {

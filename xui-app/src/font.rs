@@ -38,3 +38,21 @@ pub fn register_docs() {
     xui_canvas::add_font(BOLD_BYTES.to_vec());
     register_mono();
 }
+
+/// Droid Serif Regular (Apache-2.0), LazyWriter's Serif family. There is no
+/// serif bold or italic face: the shaper synthesises both.
+pub const SERIF_BYTES: &[u8] = include_bytes!("../../assets/fonts/DroidSerif-Regular.ttf");
+
+/// The family name Droid Serif declares, for a run's `family`.
+pub const SERIF_FAMILY: &str = "Droid Serif";
+
+/// Registers LazyWriter's three families: Sans (Droid Sans regular and bold),
+/// Serif (Droid Serif) and Mono (JetBrains Mono), keeping Droid Sans the
+/// default family for the UI and for text that names none. There is no
+/// italic face, so italic is synthesised by the shaper. Call before the
+/// backend is created, like [`register_mono`].
+pub fn register_writer() {
+    xui_canvas::add_font(BOLD_BYTES.to_vec());
+    xui_canvas::add_font(SERIF_BYTES.to_vec());
+    register_mono();
+}

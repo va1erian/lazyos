@@ -26,8 +26,9 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 
 use xui_app::backend::LazyOSBackend;
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Color, Control, Dip, Key, Rect, TextStyle};
 
 #[path = "term/grid.rs"]
@@ -55,9 +56,23 @@ const PAD: i32 = 10;
 /// bytes actually arrived, so an idle terminal costs no frames.
 const POLL_MILLIS: u32 = 100;
 
-const BG: Color = Color::rgb(0x16, 0x18, 0x1d);
-const FG: Color = Color::rgb(0xd7, 0xdb, 0xe0);
-const CURSOR: Color = Color::rgb(0x6c, 0xb6, 0xff);
+/// Background, text and cursor colours for the desktop's dark and light modes.
+struct Palette {
+    bg: Color,
+    fg: Color,
+    cursor: Color,
+}
+
+const DARK: Palette = Palette {
+    bg: Color::rgb(0x16, 0x18, 0x1d),
+    fg: Color::rgb(0xd7, 0xdb, 0xe0),
+    cursor: Color::rgb(0x6c, 0xb6, 0xff),
+};
+const LIGHT: Palette = Palette {
+    bg: Color::rgb(0xfb, 0xfb, 0xfb),
+    fg: Color::rgb(0x1f, 0x23, 0x28),
+    cursor: Color::rgb(0x09, 0x69, 0xda),
+};
 
 /// One application message.
 enum Msg {
@@ -255,12 +270,16 @@ fn main() {
 
     let grid = Rc::new(RefCell::new(Grid::new()));
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
             .expect("root node");
         {
             let grid = Rc::clone(&grid);
-            root.set_painter(Rc::new(move |canvas| paint(canvas, &grid.borrow())));
+            let theme = ui.theme_handle();
+            root.set_painter(Rc::new(move |canvas| {
+                let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
+                paint(canvas, palette, &grid.borrow())
+            }));
         }
         root.on_events(|event| match event {
             Event::Char(ch) => Some(Msg::Char(*ch)),
@@ -322,9 +341,9 @@ fn key_sequence(key: Key) -> Option<&'static [u8]> {
 /// Paint the bottom of the grid that fits the window, with a block cursor.
 /// The metrics are design pixels, times the UI scale (`canvas.dpi() / 96`)
 /// on screen, so the cells grow with the text (docs/hidpi-plan.md).
-fn paint(canvas: &mut dyn Canvas, grid: &Grid) {
+fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid) {
     let bounds = canvas.bounds();
-    canvas.clear(BG);
+    canvas.clear(palette.bg);
     let scale = (canvas.dpi() / 96).max(1) as i32;
     let (pad, line_h, cell_w) = (PAD * scale, LINE_H * scale, CELL_W * scale as f32);
     let visible_cols = ((bounds.width() - 2 * pad) as f32 / cell_w) as usize;
@@ -341,7 +360,7 @@ fn paint(canvas: &mut dyn Canvas, grid: &Grid) {
         let text: String = line[..visible_cols.min(COLS)].iter().collect();
         let top = bounds.top + pad + slot as i32 * line_h;
         let rect = Rect::new(bounds.left + pad, top, bounds.right - pad, top + line_h);
-        canvas.draw_text(&text, rect, &TextStyle::new(FG, Dip(FONT)));
+        canvas.draw_text(&text, rect, &TextStyle::new(palette.fg, Dip(FONT)));
     }
     if grid.row >= first && grid.row < last && grid.col < visible_cols {
         let top = bounds.top + pad + (grid.row - first) as i32 * line_h;
@@ -352,6 +371,6 @@ fn paint(canvas: &mut dyn Canvas, grid: &Grid) {
             left + cell_w as i32,
             top + line_h,
         );
-        canvas.fill_rect(rect, CURSOR);
+        canvas.fill_rect(rect, palette.cursor);
     }
 }

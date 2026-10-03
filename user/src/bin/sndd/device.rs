@@ -30,7 +30,7 @@ pub(super) struct Claimed {
 
 /// The first modern virtio-sound function in the device list.
 fn find() -> Result<Row, Error> {
-    let mut rows = [[0u64; dev::ROW_WORDS]; 32];
+    let mut rows = [[0u64; dev::ROW_WORDS]; dev::MAX_ROWS];
     let total = dev::list(&mut rows).map_err(Error::Dev)?;
     rows.iter()
         .take(total.min(rows.len()))

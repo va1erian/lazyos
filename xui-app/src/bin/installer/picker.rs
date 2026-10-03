@@ -13,9 +13,10 @@
 //! the install then refuses.
 
 use std::cell::Cell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
+use xui_app::platform::dirs::default_dir;
 use xui_core::app::Ui;
 use xui_core::widget::{FileDialog, StdFileSystem};
 
@@ -82,13 +83,4 @@ impl Picker {
     pub fn gate(&self) -> Rc<Cell<bool>> {
         Rc::clone(&self.open)
     }
-}
-
-/// Where the picker starts: the user's `$HOME` when it is an existing absolute
-/// directory, else `/transient` (the other place `pkgd` installs from).
-fn default_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute() && home.is_dir())
-        .unwrap_or_else(|| PathBuf::from(fhs::mount::TRANSIENT))
 }

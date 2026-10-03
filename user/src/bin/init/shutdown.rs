@@ -52,6 +52,17 @@ const GRACEFUL: &[(&str, &str)] = &[
     ("pkgd", pkgd::NAME),
 ];
 
+/// Services left running into `power`: `usbd` serves the USB stick that may
+/// hold `/home`, and the kernel's final sync flushes it through `usbd`
+/// (docs/architecture/usb-storage.md). The kernel's watchdog and request
+/// timeouts still bound a driver that hangs.
+const OUTLIVE: &[&str] = &["usbd"];
+
+/// Whether `row` is left running for the kernel's final sync.
+fn outlives(row: &Service) -> bool {
+    !row.launched && OUTLIVE.contains(&row.name)
+}
+
 /// Set once a shutdown starts; never cleared (the sequence is one-way).
 static STOPPING: AtomicBool = AtomicBool::new(false);
 
@@ -235,7 +246,7 @@ impl Shutdown {
             sys::write_str("INIT:SHUTDOWN:SERVICES\n");
         }
         let rows: Vec<usize> = (0..services.len())
-            .filter(|&index| !services[index].launched)
+            .filter(|&index| !services[index].launched && !outlives(&services[index]))
             .collect();
         let nodes: Vec<Node> = rows
             .iter()
@@ -254,7 +265,7 @@ impl Shutdown {
         for node in ready.rows {
             self.stop_service(&mut services[rows[node]], broker, now);
         }
-        if !services.iter().any(is_live) {
+        if !services.iter().any(|row| is_live(row) && !outlives(row)) {
             self.stage = Stage::Quiesced;
         }
     }
@@ -299,7 +310,10 @@ impl Shutdown {
 
     /// `SIGKILL` every row still holding a task and write the rows off.
     fn kill_all(&mut self, services: &mut [Service], broker: &mut router::TopicBroker, now: u64) {
-        for row in services.iter_mut().filter(|row| is_live(row)) {
+        for row in services
+            .iter_mut()
+            .filter(|row| is_live(row) && !outlives(row))
+        {
             if row.pid != 0 && !row.killed {
                 let _ = sys::kill(row.pid, sys::SIG_KILL);
                 self.killed += 1;

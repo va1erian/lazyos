@@ -22,6 +22,7 @@
 pub mod ata;
 pub mod mem;
 pub mod partition;
+pub mod provider;
 pub mod stats;
 pub mod virtio;
 mod virtio_diag;

@@ -233,6 +233,10 @@ impl Platform for LazyOsPlatform {
         self.policy.clone()
     }
 
+    fn prefers_dark(&self) -> bool {
+        crate::desktop_mode::is_dark()
+    }
+
     fn player_executable(&self) -> Option<PathBuf> {
         self.player.clone()
     }

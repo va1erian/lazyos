@@ -11,6 +11,15 @@
 > `build.rs` only emits a BIOS image today (the README's old "boots under
 > UEFI" was aspirational and now says so). This plan is the missing piece.
 
+> **H0 status:** landed as one hybrid MBR image instead of two images and a
+> FAT16 payload: `target/lazyos-usb.img` (`LAZYOS_USB_IMAGE=1`) boots under
+> OVMF and SeaBIOS from `usb-storage` only, its ramdisk is a whole disk (FAT
+> `lazyos.cfg` plus the ext2 OS volume) and `ram0` wins root selection; its
+> `lazyhome` partition is `/home`, mounted late through `usbd` and kept across
+> power-offs (`tools/boot/persist.py`); see
+> [`usb-stick.md`](usb-stick.md) for the layout, the measured sizes and boot
+> times, and `tools/boot/`.
+
 ## Goal and scope
 
 Write one image to a USB stick, plug it into an ordinary x86_64 PC built
@@ -152,6 +161,20 @@ already near 400, so the image work extracts modules under `build_support/`.
 | **H3** Input on legacy-free machines | On top of usb-hid-plan U2/U3: xHCI BIOS-to-OS handoff (USBLEGSUP extended capability, SMI disable) before any register write; port power, reset and debounce timing per spec rather than QEMU's tolerance; **hub class** (external ports and front panels sit behind hubs; the HID plan excludes hubs); interrupt-IN via INTx or polling as the HID plan decides; `usbd` starts only when `HW:I8042:ABSENT` or always (decision below). PS/2 keyboard and touchpad paths unchanged | `tools/usb/run.py --hub` with QEMU `usb-hub`; the HID plan's no-PS/2 run mode becomes the real-hardware rehearsal; handoff code unit-tested against a fake capability list. Real machines: the compatibility matrix rows for "USB keyboard at the firmware prompt works in LazyOS" |
 | **H4** Power and the long tail | Reboot order: FADT reset register, 8042 `0xFE`, triple fault; shutdown: ACPI S5 (`\_S5` package found by a bounded byte scan of the DSDT, PM1a/PM1b control from the FADT), QEMU ports kept as the last resort, then an on-screen "safe to power off". Seams documented, not built: USB mass storage for a persistent `/data` on the stick (needs a userspace block provider interface in `idl/`, since `usbd` is userspace and block drivers are kernel), AHCI/NVMe for internal disks, IOAPIC/MSI for S8 | `power` suite: refusal paths unchanged, the S5 scan rejects hostile DSDTs; harness: `shutdown` under OVMF ends the VM, `reboot` restarts it |
 
+**H3 status (implemented, QEMU-verified where QEMU can model it):** `usbd`
+drives every xHCI controller, takes each from the BIOS (USB Legacy Support
+semaphore, bounded wait, SMIs off) before any other register write, uses
+64-byte contexts when `CSZ` says so, reads the Supported Protocol
+capabilities to treat USB 2 and USB 3 ports each their own way (debounce,
+reset and recovery; link training and warm reset), handles low-, full-,
+high- and SuperSpeed devices (endpoint 0 size, interval encoding, ESIT
+payload), drives USB 2 and SuperSpeed hubs (route string, TT, multi-TT,
+five tiers) and binds every boot interface of a composite device. Verified
+by `tools/usb/run.py --hub`, `--full-speed` and `--controllers 2`, and by
+host tests for what QEMU lacks (64-byte contexts, the handoff against a
+model BIOS, high-speed and SuperSpeed hubs). See
+[`architecture/usb.md`](architecture/usb.md). Interrupts stay polled.
+
 ### Open decision: when does `usbd` run?
 
 Always running `usbd` is simplest and matches how desktops behave, but on a
@@ -197,7 +220,7 @@ and markers, not source reading.
    the firmware's MTRRs decide whether the present blit runs at write-combining
    or uncached speed; on a 4K panel the difference is a usable or an unusable
    desktop. H1 measures and, if needed, remaps the framebuffer write-combining
-   through PAT in `mem::init`. The logical-screen cap (H1) bounds the blit
+   through PAT in `mem::init` (done in H1: `mem::wc`, logged as `HW:FB:WC:`; bare metal only: under a hypervisor the framebuffer is guest RAM, and a host that honours the guest PAT (KVM on AMD) would take every present out of the cache). The logical-screen cap (H1) bounds the blit
    size; a bootloader-side maximum mode is the third lever.
 3. **Virtual-wire mode is an assumption.** H2 enables the LAPIC while keeping
    the 8259 for device interrupts. Firmware normally leaves LINT0 as ExtINT;

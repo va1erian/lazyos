@@ -28,8 +28,9 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::installer::{clean, elide, Package};
 use xui_app::platform::{argv, pkg};
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::PlatformSpec;
 use xui_core::units::Dip;
 use xui_core::widget::{Button, Label, ListView, Panel};
 use xui_core::Key;
@@ -196,14 +197,10 @@ fn ask(path: &Path, package: Package) -> ExitCode {
     backend.set_size_hints(420, 300, 0, 0);
     let permissions = package.permissions.len();
     backend.on_first_frame(move || println!("INSTALLER:DEVELOP:ASK perms={permissions}"));
-    let theme = backend.desktop_theme();
     let spec =
         PlatformSpec::new("Run from development").size(Dip(width as f32), Dip(height as f32));
     let path = path.to_path_buf();
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
+    let outcome = run_themed(&backend, spec, move |ui| {
         match Consent::build(ui, &path, &package) {
             Ok(app) => app,
             Err(error) => {

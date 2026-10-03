@@ -57,6 +57,7 @@ use crate::user_ptr;
 mod abi;
 pub mod bochs;
 mod buffers;
+pub mod logical;
 pub mod modecfg;
 pub mod modeset;
 mod present;
@@ -72,7 +73,9 @@ const NO_OWNER: usize = usize::MAX;
 /// dropped when the compositor falls behind.
 const MAX_EVENTS: usize = 256;
 
-/// Framebuffer geometry copied from the boot info at startup.
+/// Framebuffer geometry copied from the boot info at startup. `width` and
+/// `height` are the *logical* screen ([`logical`]), which is what every
+/// client is told and every screen buffer is sized from.
 #[derive(Clone, Copy, Default)]
 struct Screen {
     width: u64,
@@ -99,6 +102,13 @@ static SCREEN: Mutex<Screen> = Mutex::new(Screen {
     stride: 0,
     bytes_per_pixel: 0,
 });
+/// The logical screen's place in the framebuffer, read by the blit paths.
+static LOGICAL: Mutex<logical::Logical> = Mutex::new(logical::Logical {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+});
 static GRANT: Mutex<Option<Grant>> = Mutex::new(None);
 /// Owner slot, readable without the grant lock so IRQ handlers can cheaply ask
 /// "is a compositor bound?".
@@ -106,14 +116,53 @@ static OWNER: AtomicUsize = AtomicUsize::new(NO_OWNER);
 static EVENTS: Mutex<VecDeque<Event>> = Mutex::new(VecDeque::new());
 
 /// Record the framebuffer geometry at boot (called from `kernel_main`, after
-/// the console owns the framebuffer).
+/// the console owns the framebuffer), choose the logical screen and print
+/// the `HW:FB:<mode>-><logical>` verdict.
 pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) {
+    let fitted = logical::fit(width, height);
+    *LOGICAL.lock() = fitted;
+    *SCREEN.lock() = Screen {
+        width: fitted.width as u64,
+        height: fitted.height as u64,
+        stride: stride as u64,
+        bytes_per_pixel: bytes_per_pixel as u64,
+    };
+    serial_println!(
+        "HW:FB:{}x{}->{}x{} at {},{} stride {} bpp {}",
+        width,
+        height,
+        fitted.width,
+        fitted.height,
+        fitted.x,
+        fitted.y,
+        stride,
+        bytes_per_pixel
+    );
+}
+
+/// Record a mode the user asked for (`display.mode`, [`modeset`]): unlike
+/// the firmware's choice in [`init`], it is exposed whole, never reduced to
+/// the logical cap. The switch already checked it against the adapter's
+/// video memory, and the limits are re-derived from it.
+pub fn init_requested(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) {
+    *LOGICAL.lock() = logical::Logical {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
     *SCREEN.lock() = Screen {
         width: width as u64,
         height: height as u64,
         stride: stride as u64,
         bytes_per_pixel: bytes_per_pixel as u64,
     };
+    serial_println!("HW:FB:{width}x{height}->{width}x{height} at 0,0 stride {stride} bpp {bytes_per_pixel} (display.mode)");
+}
+
+/// The logical screen: where the desktop lives inside the framebuffer.
+pub fn logical() -> logical::Logical {
+    *LOGICAL.lock()
 }
 
 /// The screen's `(width, height)` in pixels: the firmware mode, or the one
@@ -228,6 +277,7 @@ fn bind(info_ptr: u64) -> u64 {
     if screen.width == 0 || screen.height == 0 {
         return negative(errno::ENOENT);
     }
+    // The logical screen, never the mode: a 4K mode would not fit the cap.
     let size = screen.width * screen.height * 4;
     let handle = match shared::create(size, shared::flags::READ | shared::flags::WRITE) {
         Ok(handle) => handle,
@@ -248,6 +298,9 @@ fn bind(info_ptr: u64) -> u64 {
         size,
     });
     OWNER.store(me, Ordering::Relaxed);
+    // The borders around a reduced logical screen belong to nobody: clear
+    // whatever the boot console left there.
+    crate::console::clear_outside_logical();
 
     // Seed the pointer so a compositor can draw its cursor before the first
     // mouse packet arrives.
@@ -445,4 +498,17 @@ pub fn reset() {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);
     EVENTS.lock().clear();
+}
+
+/// Test-harness hook: run `f` as if firmware had chosen a `width` x `height`
+/// mode (the logical screen follows), then restore the real geometry.
+#[cfg(lazyos_tests)]
+pub fn with_mode_for_test<R>(width: usize, height: usize, f: impl FnOnce() -> R) -> R {
+    let (screen, fitted) = (*SCREEN.lock(), *LOGICAL.lock());
+    let (stride, bpp) = (screen.stride as usize, screen.bytes_per_pixel as usize);
+    init(width, height, stride.max(width), bpp);
+    let result = f();
+    *SCREEN.lock() = screen;
+    *LOGICAL.lock() = fitted;
+    result
 }

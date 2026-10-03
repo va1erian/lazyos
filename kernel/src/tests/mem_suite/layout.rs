@@ -4,7 +4,7 @@
 //! and a Linux image's lazily populated stack.
 
 use super::*;
-use crate::mem::{Regions, MAX_REGIONS, USER_TOP};
+use crate::mem::{Regions, MAX_REGIONS, PHYS_LIMIT, USER_TOP};
 
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
@@ -62,6 +62,37 @@ pub fn regions_merge_hostile_maps() -> Result<(), String> {
         regions.highest()
     );
     check!(regions.dropped == 0, "dropped {}", regions.dropped);
+    Ok(())
+}
+
+/// A range claimed at the top of the physical address space is clamped below
+/// [`PHYS_LIMIT`]; `drop_highest` (what boot does when the refcount table it
+/// would need fits nowhere) gives it up and counts it.
+pub fn regions_absurd_range_is_clamped_and_droppable() -> Result<(), String> {
+    let map = [
+        (0x10_0000, 512 * MIB),
+        (PHYS_LIMIT - 8 * MIB, PHYS_LIMIT + 8 * MIB),
+    ];
+    let mut regions = Regions::gather(map);
+    well_formed(&regions)?;
+    check!(regions.count == 2, "{} regions", regions.count);
+    check!(
+        regions.highest() == PHYS_LIMIT,
+        "highest {:#x}",
+        regions.highest()
+    );
+    regions.drop_highest();
+    check!(
+        regions.count == 1,
+        "{} regions after the drop",
+        regions.count
+    );
+    check!(
+        regions.highest() == 512 * MIB,
+        "highest {:#x} after the drop",
+        regions.highest()
+    );
+    check!(regions.dropped == 8 * MIB, "dropped {}", regions.dropped);
     Ok(())
 }
 

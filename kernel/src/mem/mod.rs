@@ -16,6 +16,7 @@ mod table_guard;
 pub mod untouched;
 mod uspace;
 pub mod vma;
+pub mod wc;
 pub use cow::clone_user_table;
 pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
@@ -37,6 +38,8 @@ use crate::error::{kstop, KError};
 
 pub use heap::HEAP_START;
 pub use layout::*;
+#[cfg(lazyos_tests)]
+pub use regions::PHYS_LIMIT;
 pub use regions::{Regions, MAX_REGIONS};
 
 /// Physical address of the kernel's (boot) PML4, recorded by [`init`]: the
@@ -108,16 +111,34 @@ pub fn init(boot_info: &'static mut BootInfo) {
 
     // Gather the usable regions (merged, sorted, clamped away from the low
     // megabyte that holds the kernel and the bootloader's metadata).
-    let regions = Regions::gather(
+    let mut regions = Regions::gather(
         boot_info
             .memory_regions
             .iter()
             .filter(|r| r.kind == MemoryRegionKind::Usable)
             .map(|r| (r.start, r.end)),
     );
+    // Carve the refcount table out of the first region with room: one `u32`
+    // per frame up to the highest usable address. When nothing can hold it,
+    // the highest region (what makes it big) is given up and placement is
+    // retried, so a map with one absurd range still boots with the rest.
+    let (table_phys, table_frames) = loop {
+        let table_entries = (regions.highest().max(LOWEST_FRAME) / FRAME_SIZE) as usize;
+        let table_bytes = table_entries * core::mem::size_of::<u32>();
+        let table_frames = table_bytes.div_ceil(FRAME_SIZE as usize);
+        if let Some(phys) = place_table(&regions.starts, &regions.ends, regions.count, table_frames)
+        {
+            break (phys, table_frames);
+        }
+        if regions.count == 0 {
+            // Boot has no caller to propagate a placement failure to.
+            kstop(KError::OutOfMemory, "no room for the frame refcount table");
+        }
+        regions.drop_highest();
+    };
     if regions.dropped > 0 {
         serial_println!(
-            "mem: {} KiB of usable RAM left out (more than {} disjoint regions)",
+            "mem: {} KiB of usable RAM left out (more than {} disjoint regions, or out of reach)",
             regions.dropped / 1024,
             MAX_REGIONS
         );
@@ -126,15 +147,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
     let highest = regions.highest().max(LOWEST_FRAME);
     let ram = regions.bytes();
     USABLE_RAM.store(ram, Ordering::Relaxed);
-
-    // Carve the refcount table out of the first region with room: one `u32`
-    // per frame up to the highest usable address.
-    let table_entries = (highest / FRAME_SIZE) as usize;
-    let table_bytes = table_entries * core::mem::size_of::<u32>();
-    let table_frames = table_bytes.div_ceil(FRAME_SIZE as usize);
-    // Boot has no caller to propagate a placement failure to: a genuine kstop.
-    let table_phys = place_table(&starts, &ends, count, table_frames)
-        .unwrap_or_else(|| kstop(KError::OutOfMemory, "no room for the frame refcount table"));
+    let table_bytes = table_frames * FRAME_SIZE as usize;
 
     let mut frames = Frames {
         starts,

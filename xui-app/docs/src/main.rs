@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::backend::PlatformSpec;
 use xui_core::units::Dip;
 use xui_docs::page;
 
@@ -42,7 +42,7 @@ fn main() -> std::process::ExitCode {
     backend.on_first_frame(|| println!("DOCS:UP:PASS"));
 
     let spec = PlatformSpec::new("Docs").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
+    let outcome = run_themed(&backend, spec, move |ui| {
         // The welcome page first; a named file is then opened like any other, so
         // a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as the
         // dialog does instead of ending the app.

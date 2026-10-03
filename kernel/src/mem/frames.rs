@@ -361,3 +361,15 @@ pub fn frame_stats() -> FrameStats {
         None => FrameStats::default(),
     }
 }
+
+/// The allocator's usable ranges, `(start, end)` in address order: the
+/// coalesced boot map (`regions`), for `hwreport`-style summaries and tests.
+#[allow(dead_code)] // Read by the kernel suite; a hardware report is the next caller.
+pub fn usable_ranges() -> alloc::vec::Vec<(u64, u64)> {
+    match FRAMES.lock().as_ref() {
+        Some(frames) => (0..frames.count)
+            .map(|i| (frames.starts[i], frames.ends[i]))
+            .collect(),
+        None => alloc::vec::Vec::new(),
+    }
+}

@@ -19,21 +19,31 @@ fn form_load() {
         event_label.text = `changed ${change.path} = ${text}`;
     });
 
-    // Another program can call this form: msg::connect("os.lazy.echo.v1",
-    // "demo.lazyrad").echo("hi", 2) answers "hihi".
+    serve_echo();
+}
+
+// Another program can call this form: msg::connect("os.lazy.echo.v1",
+// "demo.lazyrad").echo("hi", 2) answers "hihi". Serving a name is a
+// development feature: run as an installed app, the kernel refuses it, and an
+// error escaping form_load would end the app.
+fn serve_echo() {
     form.state.calls = 0;
-    msg::serve("demo.lazyrad", "os.lazy.echo.v1", #{
-        Echo: |text, count| {
-            form.state.calls += 1;
-            served_label.text = `served Echo("${text}", ${count}) (call ${form.state.calls})`;
-            let reply = "";
-            for i in 0..count {
-                reply += text;
-            }
-            reply
-        },
-        Ping: || true,
-    });
+    try {
+        msg::serve("demo.lazyrad", "os.lazy.echo.v1", #{
+            Echo: |text, count| {
+                form.state.calls += 1;
+                served_label.text = `served Echo("${text}", ${count}) (call ${form.state.calls})`;
+                let reply = "";
+                for i in 0..count {
+                    reply += text;
+                }
+                reply
+            },
+            Ping: || true,
+        });
+    } catch (error) {
+        served_label.text = `not serving demo.lazyrad: ${error}`;
+    }
 }
 
 fn set_button_click() {

@@ -14,8 +14,9 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::dashboard as dash;
 use xui_app::sysinfo::{self, CpuSample};
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, Event, NodeKind, NodeSpec, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
 use xui_core::{Canvas, Control, Rect, Theme};
 
 /// The window size when a compositor lays the app out.
@@ -106,8 +107,7 @@ impl App for Widget {
 }
 
 /// Paint the title and the two labelled bars.
-fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let theme = Theme::light();
+fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
     let bounds = xui_app::hidpi::design_bounds(canvas);
     canvas.clear(theme.background);
     canvas.draw_text(
@@ -183,12 +183,15 @@ fn main() {
 
     let spec =
         PlatformSpec::new("widget").size(xui_core::Dip(width as f32), xui_core::Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
             .expect("root node");
         {
             let state = Rc::clone(&state);
-            root.set_painter(Rc::new(move |canvas| paint(canvas, &state.borrow())));
+            let theme = ui.theme_handle();
+            root.set_painter(Rc::new(move |canvas| {
+                paint(canvas, theme.get(), &state.borrow())
+            }));
         }
         root.on_events(|event| match event {
             Event::Char('q') => Some(Msg::Quit),

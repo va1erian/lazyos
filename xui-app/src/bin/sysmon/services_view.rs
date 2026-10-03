@@ -15,9 +15,10 @@ pub(crate) const TABS_H: i32 = 36;
 /// One tab's size.
 const TAB_W: i32 = 132;
 const TAB_TALL: i32 = 26;
-/// The healthy-status colour (WinUI SystemFillColorSuccess); the theme only
-/// carries warning and danger.
-const GOOD: Color = Color::rgb(0x0f, 0x7b, 0x0f);
+/// The healthy-status colours (WinUI SystemFillColorSuccess, light and dark);
+/// the theme only carries warning and danger.
+const GOOD_LIGHT: Color = Color::rgb(0x0f, 0x7b, 0x0f);
+const GOOD_DARK: Color = Color::rgb(0x6c, 0xcb, 0x5f);
 
 /// The two tabs of the full window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +85,8 @@ pub(crate) fn paint_tabs(canvas: &mut dyn Canvas, theme: Theme, bounds: Rect, ac
 
 fn tone_color(theme: Theme, tone: Tone) -> Color {
     match tone {
-        Tone::Good => GOOD,
+        Tone::Good if theme.is_dark => GOOD_DARK,
+        Tone::Good => GOOD_LIGHT,
         Tone::Warning => theme.warning,
         Tone::Bad => theme.danger,
         Tone::Unknown => theme.text_secondary,

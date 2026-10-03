@@ -31,6 +31,11 @@ pub const NO_ENDPOINT: u64 = u64::MAX;
 /// `claim` flag: accept sharing the interrupt line with other drivers.
 pub const FLAG_SHARED_IRQ: u64 = 1;
 
+/// Rows a driver should offer [`list`]: the kernel device table's capacity
+/// (`dev::table::MAX_DEVICES`), so a function late in a large PC's bus order
+/// (an xHCI controller after 40 chipset functions) is never cut off.
+pub const MAX_ROWS: usize = 128;
+
 /// `u64` words per [`list`] row.
 pub const ROW_WORDS: usize = 13;
 

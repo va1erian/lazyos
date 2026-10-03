@@ -148,6 +148,12 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 32: `chmod(path, mode)` (fs F3), served with the other path calls;
         // the package manager marks an app's `bin/` files executable.
         32 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        // 33: the storage surface: a user-space block provider (`usbd`)
+        // serving a disk, and `init`'s late home mount; see
+        // `crate::block::provider::sys`.
+        33 => {
+            crate::block::provider::sys::dispatch(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8)
+        }
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -186,6 +192,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         28 | 30 | 32 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
         31 => sys_spawnv(a1),
+        33 => crate::block::provider::sys::dispatch(a1, a2, a3, 0, 0),
         _ => u64::MAX,
     }
 }

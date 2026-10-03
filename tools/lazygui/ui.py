@@ -85,6 +85,7 @@ class Launcher:
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
             "lazyrad": self.v["lazyrad"].get(),
+            "usb_image": self.v["usb_image"].get(),
             "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
@@ -147,6 +148,7 @@ class Launcher:
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
+        self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")

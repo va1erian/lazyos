@@ -1,5 +1,6 @@
-//! Architecture-specific setup: interrupts, PIC, PIT.
+//! Architecture-specific setup: interrupts, PIC, the tick (PIT or local APIC).
 
+pub mod acpi_tables;
 pub mod clock;
 pub mod cpu;
 pub mod fault;
@@ -10,15 +11,19 @@ pub mod idt;
 pub mod io;
 pub mod irq_stubs;
 pub mod kernel_fault_report;
+pub mod lapic;
 pub mod linux;
 pub mod msr;
 pub mod nmi;
 pub mod pagewalk;
 pub mod pic;
 pub mod raw_serial;
+pub mod refclock;
 pub mod rtc;
 pub mod spurious_fault;
 pub mod string_io;
+pub mod timer;
+pub mod timer_cal;
 
 /// Initialise interrupt hardware and load the IDT.
 pub fn init() {
@@ -26,8 +31,12 @@ pub fn init() {
     gdt::init();
     idt::init_hardware();
     linux::init();
-    crate::input::mouse::init();
-    // From here on the controller's bytes are collected wherever the kernel
-    // can be busy for long, not only in IRQ1/IRQ12 (`input::ps2`).
-    crate::input::ps2::enable();
+    // Probe the controller first (`HW:I8042:PRESENT`/`ABSENT`); it enables
+    // the mouse when an auxiliary port answers. Only a controller that is
+    // there gets its bytes collected outside IRQ1/IRQ12 (`input::ps2`): a
+    // floating bus reads 0xFF forever.
+    crate::input::i8042::init();
+    if crate::input::i8042::present() {
+        crate::input::ps2::enable();
+    }
 }

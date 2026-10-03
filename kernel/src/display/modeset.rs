@@ -50,7 +50,7 @@ pub fn switch_to(width: u32, height: u32) -> Result<(), ModeError> {
             .set_mode(width, height)
             .map(|mode| (mode.base, mode.info))
     })?;
-    super::init(info.width, info.height, info.stride, info.bytes_per_pixel);
+    super::init_requested(info.width, info.height, info.stride, info.bytes_per_pixel);
     limits::init_for_machine(mem::usable_ram(), super::screen_bytes());
     Ok(())
 }

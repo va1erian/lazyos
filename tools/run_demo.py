@@ -74,6 +74,15 @@ DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
 # The desktop apps `--devices` opens at boot: the Terminal, then Devices.
 DEVICES_AUTOSTART = "term,devices"
+# The apps every desktop image ships (`build_support/xui_embed.rs`
+# `DESKTOP_XUI_APPS` and `DOCUMENT_XUI_APPS`): the image build fails when one
+# is missing, so a `target/xui` built before an app was added (LazyWriter,
+# issue #533) is rebuilt first.
+DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
+    "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
+    "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-settings.elf",
+    "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
+)]
 # The network apps a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / name for name in ("xui-network.elf", "xui-nettools.elf")]
 
@@ -272,6 +281,10 @@ def main(argv: list[str]) -> int:
                              "and a sound card: copy it to your home and install it with "
                              "`pkgctl install`, or open it in Files, then start ModPlayer "
                              "from the menu")
+    parser.add_argument("--usb-image", action="store_true",
+                        help="also write target/lazyos-usb.img, the image for a real PC's "
+                             "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
+                             "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
@@ -282,6 +295,10 @@ def main(argv: list[str]) -> int:
                              "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
                              "`devices` to LAZYOS_XUI_AUTOSTART (default "
                              f"{DEVICES_AUTOSTART})")
+    parser.add_argument("--timer", choices=["pit", "lapic"],
+                        help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
+                             "local APIC timer even where the PIT ticks, the path a PC "
+                             "with a clock-gated PIT takes (docs/real-pc-boot-plan.md H2)")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -362,14 +379,26 @@ def main(argv: list[str]) -> int:
             # talk to host servers only `tools/net/run.py` starts.
             env["LAZYOS_NETD"] = "1"
             env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
-            if args.desktop and not all(app.is_file() for app in NET_APPS)                     and not build_xui_apps():
-                return 1
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
+            # One build for every missing app: the desktop's own, and the
+            # network apps a `--net` desktop also ships.
+            needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
+            if not all(app.is_file() for app in needed) and not build_xui_apps():
+                return 1
+        if args.usb_image:
+            # The stick must ship `usbd` and boot `init` to start it: the
+            # target PC may have no PS/2 port (the build refuses otherwise).
+            env["LAZYOS_USB_IMAGE"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
         if args.devices:
             if not build_xui_apps():
                 return 1
             env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
+        if args.timer:
+            env["LAZYOS_TIMER"] = args.timer
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():

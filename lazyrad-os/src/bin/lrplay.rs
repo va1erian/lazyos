@@ -89,6 +89,7 @@ fn main() -> ExitCode {
             format!("cannot reach the display (error {code})")
         })?;
         backend.on_first_frame(|| MARK.pass("UP"));
+        lazyrad_os::desktop_mode::set_dark(backend.desktop_theme().is_some_and(|t| t.is_dark));
         if let Some(runtime) = runtime {
             let seen = Rc::clone(&first_event);
             runtime.set_handler_observer(Rc::new(move |_form, _control, _event| seen()));

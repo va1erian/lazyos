@@ -176,6 +176,15 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
+## LazyWriter (word processor)
+
+`writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
+editor: `.lzw` documents, Markdown export, pictures; see
+[`docs/xui-writer.md`](docs/xui-writer.md). Screenshot session:
+`tools/screenshot/examples/xui_writer.json` (format, save, export, reopen; markers
+`WRITER:UP|SAVE|EXPORT|OPEN:PASS`, build with `LAZYOS_XUI_AUTOSTART=writer`)
+and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`).
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
@@ -417,6 +426,9 @@ python tools/usb/run.py --ps2            # PS/2 and USB side by side
 python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
 python tools/usb/run.py --tablet         # usb-tablet: report descriptor, absolute cursor
 python tools/usb/run.py --restart        # usbd crashes holding a key: released, restarted, re-enumerated
+python tools/usb/run.py --hub            # keyboard and mouse behind a usb-hub, then the hub unplugged
+python tools/usb/run.py --full-speed     # USB 1.1 devices on root ports
+python tools/usb/run.py --controllers 2  # two xHCI controllers, keyboard on the second
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
 ```
@@ -424,6 +436,13 @@ cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI ri
 Under TCG the harness paces input (USB is polled; see the README): KVM runs are
 the verdict.
 
+USB sticks (`/home` on the boot stick, `docs/architecture/usb-storage.md`)
+have their own harness, `tools/storage/README.md`:
+
+```bash
+python tools/storage/run.py              # two boots: write /home/alice on the stick, power off, read it back; e2fsck
+python tools/storage/test_judge.py       # the judge fails when it should
+cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
 ## Networking in an interactive boot
 
 `python tools/run_demo.py --net` (the launcher: *Networking* on the Simple

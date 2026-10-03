@@ -125,7 +125,7 @@ jobs:
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
           m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
-          editor=""; paint=""; files=""; docs=""; shell=""
+          editor=""; paint=""; files=""; docs=""; writer=""; shell=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
@@ -133,9 +133,10 @@ jobs:
             fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
             client="$(pwd)/target/xui/xui-client.elf"
             term="$(pwd)/target/xui/xui-term.elf"
-            # The document apps (Editor, Paint, Files, Docs) are built by the
-            # same script; a build without them just skips their sessions.
-            for app in editor paint files docs shell; do
+            # The document apps (Editor, Paint, Files, Docs, LazyWriter) are
+            # built by the same script; a build without them just skips their
+            # sessions.
+            for app in editor paint files docs writer shell; do
               if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
                 printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
               fi
@@ -153,6 +154,7 @@ jobs:
           echo "paint=$paint" >> "$GITHUB_OUTPUT"
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
+          echo "writer=$writer" >> "$GITHUB_OUTPUT"
           # LazyShell (issue #157) is part of every desktop image.
           echo "shell=$shell" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
@@ -544,6 +546,95 @@ jobs:
           PY
           ! grep -q "^init: launch .* failed" shots/docs_open/serial.log
 
+      # LazyWriter (issue #533): type a paragraph and bold a word (Ctrl+B),
+      # centre a line, make a bullet list and insert the sample picture with
+      # the toolbar, then save as .lzw, export Markdown, start a new document
+      # and reopen the saved one. The reopened document's area must differ
+      # from the new, empty one and hold more than a few colours (text and the
+      # picture), so a reopen that loaded nothing fails.
+      - name: Capture LazyWriter (format, save, export, reopen)
+        if: ${{ !cancelled() && steps.app.outputs.writer != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.writer }}
+          LAZYOS_XUI_AUTOSTART: writer
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer             --timeout 300 --script tools/screenshot/examples/xui_writer.json             --fail-on "WRITER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in WRITER:UP:PASS WRITER:SAVE:PASS WRITER:EXPORT:PASS WRITER:OPEN:PASS; do
+            grep -q "$marker" shots/writer/serial.log
+          done
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          # The document area only: the 960x600 window's client area starts
+          # at (49, 70); this is below its toolbar and format row and above
+          # its status bar (which names the file, so it would differ even for
+          # an empty reopen). The pointer is parked off the window for both.
+          def document(name):
+              width, height, channels, pixels = decode_png(Path(f"shots/writer/shot_{name}.png"))
+              x0, x1, y0, y1 = 52, 1000, 144, 640
+              return b"".join(
+                  pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+                  for y in range(y0, y1)
+              ), channels
+
+          empty, channels = document("11_new_document")
+          reopened, _ = document("13_reopened")
+          if reopened == empty:
+              sys.exit("reopening the saved document did not change the document area")
+          colours = {reopened[i : i + channels] for i in range(0, len(reopened), channels)}
+          if len(colours) < 8:
+              sys.exit(f"the reopened document is nearly blank ({len(colours)} colours)")
+          PY
+          ! grep -q "^init: launch .* failed" shots/writer/serial.log
+
+      # LazyWriter in the light theme (issue #533): the Terminal switches
+      # `sys/ui/mode` to light, then starts the app (which reads the theme
+      # once, at start); its document area must come out light.
+      - name: Capture LazyWriter in the light theme
+        if: ${{ !cancelled() && steps.app.outputs.writer != '' && steps.app.outputs.term != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.writer }}
+          LAZYOS_XUI_AUTOSTART: term
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer_light \
+            --timeout 300 --script tools/screenshot/examples/xui_writer_light.json \
+            --fail-on "WRITER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          grep -q "THEME:APPLIED" shots/writer_light/serial.log
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          # The document area below the typed line, in the window xuid
+          # cascades below the Terminal's (client area from about 113,86).
+          width, height, channels, pixels = decode_png(Path("shots/writer_light/shot_02_light_bold.png"))
+          x0, x1, y0, y1 = 130, 1050, 200, 640
+          total = count = 0
+          for y in range(y0, y1):
+              row = pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+              for i in range(0, len(row), channels):
+                  total += row[i] + row[i + 1] + row[i + 2]
+                  count += 1
+          mean = total / (3 * count)
+          print(f"light document area mean {mean:.1f}")
+          if mean < 200:
+              sys.exit(f"the document area is not light (mean {mean:.1f})")
+          PY
+
       # docs/input-plan.md: the same desktop on the French AZERTY layout. The
       # session types *physical* keys (`qwerty` is `azerty` there) into the
       # Editor and the Terminal, so a wrong keymap, a lost session or a key
@@ -589,7 +680,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -618,7 +709,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -626,7 +717,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|SHELL:|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|SHELL:|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -683,6 +774,12 @@ jobs:
             shots/docs_open/*.png
             shots/docs_open/serial.log
             shots/docs_open/summary.json
+            shots/writer/*.png
+            shots/writer/serial.log
+            shots/writer/summary.json
+            shots/writer_light/*.png
+            shots/writer_light/serial.log
+            shots/writer_light/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -724,7 +821,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -760,7 +857,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"
@@ -771,12 +868,12 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log shots/writer/serial.log shots/writer_light/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
-                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|INIT:AUTOSTART" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|INIT:AUTOSTART" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

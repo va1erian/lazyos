@@ -1,11 +1,14 @@
 //! `MemDisk`: a [`BlockDevice`] over a region of memory, used for the
 //! bootloader's ramdisk (issue #5).
 //!
-//! The ramdisk is a FAT image (with or without an MBR) that the bootloader
-//! loads next to the kernel; this device lets the filesystem layer mount it
-//! exactly like a disk, so LazyOS still boots when no ATA or virtio disk is
-//! attached. The region is exclusively owned by the device, so there is no
-//! aliasing with other kernel memory.
+//! The ramdisk is a disk image the bootloader loads next to the kernel: a
+//! bare FAT image (issue #5) or, on the USB stick, a whole disk with an MBR, a
+//! FAT `/boot` holding `lazyos.cfg` and the ext2 OS volume
+//! (docs/usb-stick.md). This device lets the filesystem layer mount it exactly
+//! like a disk, so LazyOS boots with no disk driver for the medium it came
+//! from. The region is exclusively owned by the device, so there is no
+//! aliasing with other kernel memory, and it is writable: a root on it is a
+//! RAM root, discarded at power-off.
 
 use alloc::boxed::Box;
 use spin::Mutex;
@@ -65,10 +68,11 @@ impl BlockDevice for MemDisk {
 }
 
 /// Register the bootloader's ramdisk as [`RAMDISK_NAME`], unless it is empty,
-/// smaller than a sector, or the registry refuses it. Returns whether it was
-/// registered. It never becomes the boot device by itself: the filesystem
-/// layer tries every registered device in order, so an ATA or virtio disk
-/// keeps priority and the ramdisk is the fallback.
+/// smaller than a sector, or the registry refuses it, and register its MBR
+/// partitions (`ram0p<n>`). Returns whether it was registered. It never
+/// becomes the block layer's boot device; `fs::mounts::build` looks at it and
+/// its partitions before any disk, so the boot volume and the root come from
+/// the ramdisk whenever it carries them.
 pub fn register_ramdisk(addr: u64, len: u64) -> bool {
     let Ok(len) = usize::try_from(len) else {
         return false;
@@ -85,5 +89,9 @@ pub fn register_ramdisk(addr: u64, len: u64) -> bool {
     // ownership of it here and only ever reaches it through this device.
     let region = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, len) };
     let device: &'static MemDisk = Box::leak(Box::new(MemDisk::new(RAMDISK_NAME, region)));
-    super::register(device).is_ok()
+    if super::register(device).is_err() {
+        return false;
+    }
+    super::partition::scan_disk(device);
+    true
 }

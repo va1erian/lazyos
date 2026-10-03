@@ -67,7 +67,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   checked against the adapter's maximum and VRAM and read back, the linear
   framebuffer is BAR0 through the physical map, and the console, the grant
   geometry, the derived limits and the mouse bounds move to it
-  (`display/modeset.rs`); a refused mode keeps the firmware's
+  (`display/modeset.rs`). A requested mode is the logical screen whole: the
+  1920x1080 cap of `display/logical.rs` applies only to a mode firmware chose.
+  A refused mode keeps the firmware's
   (`display: mode ... refused`). `display.scale=auto|1|2` pixel-doubles the
   console text (auto: 2 from 2560x1440). The compositor's UI scale is its
   own (`sys/ui/scale`, `GetOutput`; `xuid` draws its chrome, its 26 px

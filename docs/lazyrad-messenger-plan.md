@@ -116,7 +116,10 @@ declare what its scripts use:
 
 - `rhai_lazy::msg::permissions::derive(scripts)` scans the scripts' tokens:
   `sys::<alias>::...` names the alias's interface. A topic helper adds
-  `subscribe:`/`publish:` with its declared pattern. String literals passed to
+  `subscribe:`/`publish:` with its declared pattern, its wildcards filled by
+  the helper's literal leading arguments (`on_changed("sys/ui/#", ..)` adds
+  `subscribe:system/confd/changed/sys/ui/#`: the kernel authorizes a topic
+  segment by segment, so the bare pattern would not grant `sys` and `ui`). String literals passed to
   `msg::connect`, `msg::on`, `msg::subscribe` and `msg::publish` add their
   interface or topic. A name built at run time cannot be seen; the docs say so
   and the consent screen shows what was derived.

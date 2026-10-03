@@ -24,8 +24,9 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::hidpi::scaled;
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::PlatformSpec;
 use xui_core::{Button, Dip, Edit, HasText, Label, Rect};
 
 /// Surface size in pixels; the compositor places and decorates it.
@@ -98,7 +99,7 @@ fn main() {
     backend.on_first_frame(|| println!("XUIAPP:CLIENT:PASS"));
 
     let spec = PlatformSpec::new("xui-client").size(Dip(W as f32), Dip(H as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let hint = Label::new(
             ui,
             scaled(Rect::new(16, 8, 544, 32)),

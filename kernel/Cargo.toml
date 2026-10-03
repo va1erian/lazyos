@@ -18,6 +18,9 @@ fhs = { path = "../libs/fhs" }
 # fs/ext2/fsimpl.rs adapts it to the VFS.
 ext2fs = { path = "../libs/ext2fs" }
 bootloader_api = "0.11.17"
+# ACPI table walker (docs/real-pc-boot-plan.md H2): the timer code reads the
+# FADT's PM timer, the MADT's local APIC and the HPET through it.
+acpi = { path = "../libs/acpi" }
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.
 lazyos-crypto = { path = "../libs/crypto" }

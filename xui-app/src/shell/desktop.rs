@@ -111,7 +111,7 @@ fn icon_for(app: &str) -> Icon {
     match app.strip_prefix("os.lazy.").unwrap_or(app) {
         "files" => Icon::Folder,
         "terminal" => Icon::Terminal,
-        "editor" => Icon::Document,
+        "editor" | "writer" => Icon::Document,
         "docs" => Icon::Help,
         "settings" => Icon::Settings,
         "confd" => Icon::Server,

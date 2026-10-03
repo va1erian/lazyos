@@ -37,6 +37,16 @@ mod os_manifest;
 mod os_recover;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/samples_embed.rs"]
+mod samples_embed;
+#[path = "build_support/usb_fat.rs"]
+mod usb_fat;
+#[path = "build_support/usb_image.rs"]
+mod usb_image;
+#[path = "build_support/usb_ramdisk.rs"]
+mod usb_ramdisk;
+#[path = "build_support/usb_stick.rs"]
+mod usb_stick;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -85,6 +95,9 @@ fn main() {
     std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
     println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
     println!("cargo:rerun-if-changed=build_support/drivers.rs");
+    for usb in ["usb_fat", "usb_image", "usb_ramdisk", "usb_stick"] {
+        println!("cargo:rerun-if-changed=build_support/{usb}.rs");
+    }
 
     // `LAZYOS_OS_SIZE` sizes the OS volume (a change needs `LAZYOS_RESET_OS=1`);
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
@@ -114,7 +127,7 @@ fn main() {
     let bios_image = out_dir.join("bios.img");
     // The FAT `/boot` volume gets the kernel and `lazyos.cfg` only; every
     // other file goes to the OS file list.
-    let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    let mut builder = bootloader::DiskImageBuilder::new(kernel.clone());
     builder.set_file_contents(
         String::from(fhs::boot::LAZYOS_CFG),
         (os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env())
@@ -129,19 +142,8 @@ fn main() {
     if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
         builder.set_ramdisk(PathBuf::from(ramdisk));
     }
-    let sample = |name: &str| format!("{}/{name}", fhs::share::SAMPLES);
-    files.add_bytes(&sample("hello.txt"), b"Hello from LazyOS!\n\nThis file lives on the ext2 OS volume.\nYou are reading it through the block driver and the ext2 reader.\n".to_vec(),
-    );
-    files.add_bytes(&sample("notes.txt"), b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- ext2 OS volume plus a FAT /boot\n".to_vec(),
-    );
-    // The Docs app's test document (`xui-app/docs/testdata/`): opened by the
-    // Docs screenshot session through the Open dialog, and by hand in the Docs
-    // app or the Editor.
-    println!("cargo:rerun-if-changed=xui-app/docs/testdata/testdoc.md");
-    files.add_bytes(
-        fhs::share::TESTDOC,
-        include_bytes!("xui-app/docs/testdata/testdoc.md").to_vec(),
-    );
+    // The sample files (text, the Docs test document, LazyWriter's picture).
+    samples_embed::embed(&mut files);
     // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
     // embedded separately below.
     let hello =
@@ -425,6 +427,13 @@ fn main() {
     let bios = std::fs::read(&bios_image).expect("read the BIOS image");
     let accounts = os_layout::parse_passwd(&String::from_utf8_lossy(PASSWD));
     let dirs = os_layout::dirs(&accounts);
+    // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md): the same
+    // files on a RAM root, booted under UEFI or BIOS, plus a home partition.
+    if usb_image::enabled() {
+        let usb = manifest_dir.join("target").join("lazyos-usb.img");
+        usb_image::build(&kernel, &out_dir, &usb, &dirs, &files.files(), &accounts)
+            .unwrap_or_else(|error| panic!("USB image: {error}"));
+    }
     os_image::compose(
         &plan,
         &stable_image,
