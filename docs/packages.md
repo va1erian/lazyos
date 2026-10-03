@@ -657,5 +657,8 @@ INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
 INSTALLER:REMOVE:REFUSED <system_name>   (a core app; nothing is sent to pkgd)
 ```
 
-`tools/screenshot/examples/xui_installer.json` waits for `INSTALLER:UP:PASS`,
-captures the list and quits; the install flow is asserted once `pkgd` ships.
+`tools/screenshot/examples/xui_installer.json` (a desktop image) waits for
+core provisioning, copies the sample to `/transient`, opens it with
+`pkgctl open`, walks Review, Permissions and Install, shows the list (the
+user package first, the core apps marked "Built-in"), removes the package,
+then opens the Choose step and its picker (in `$HOME`).
