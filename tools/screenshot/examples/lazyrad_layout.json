@@ -37,50 +37,65 @@
  },
  {
   "at": 1.0,
-  "type": "mkdir -p /tmp/app/bin /tmp/app/resources"
+  "type": "mkdir -p /home/admin/app/bin /home/admin/app/resources"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:mkdir -p /tmp/app/bin /tmp/app/resources",
+  "until": "TERM:CMD:mkdir -p /home/admin/app/bin /home/admin/app/resources",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cp -r /system/share/lazyrad/hello /tmp/app/resources/project"
+  "type": "cp -r /system/share/lazyrad/hello /home/admin/app/resources/project"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp -r /system/share/lazyrad/hello /tmp/app/resources/project",
+  "until": "TERM:CMD:cp -r /system/share/lazyrad/hello /home/admin/app/resources/project",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "at": 1.0,
+  "type": "P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cp /system/bin/lrplay /tmp/app/bin/lrplay.elf"
+  "type": "cp $P /home/admin/app/bin/lrplay.elf"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp /system/bin/lrplay /tmp/app/bin/lrplay.elf",
+  "until": "TERM:CMD:cp $P /home/admin/app/bin/lrplay.elf",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cd /tmp/app && bin/lrplay.elf --client --project resources/project &"
+  "type": "cd /home/admin/app && bin/lrplay.elf --project resources/project &"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cd /tmp/app && bin/lrplay.elf --client --project resources/project &",
+  "until": "TERM:CMD:cd /home/admin/app && bin/lrplay.elf --project resources/project &",
   "timeout": 30,
   "retries": 2
  },
  {
-  "wait_for": "LRPLAY:PROJECT:PASS:/tmp/app/resources/project",
+  "wait_for": "LRPLAY:PROJECT:PASS:/home/admin/app/resources/project",
   "timeout": 60
  },
  {

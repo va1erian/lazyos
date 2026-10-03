@@ -435,8 +435,8 @@ fn main() {
     // read by the Docs app and the Editor.
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     docs_embed::embed(&mut files, &manifest_dir);
-    // The `lazyrad` runtime (`LAZYOS_LAZYRAD=1`), embedded as `lrplay` and
-    // `lazyrad`, plus the sample projects in `LAZYRAD_SAMPLES`.
+    // The LazyRAD IDE is a core package (embedded with the others above when
+    // `LAZYOS_LAZYRAD=1`); this adds the sample projects in `LAZYRAD_SAMPLES`.
     println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
     lazyrad_embed::embed(&mut files, &manifest_dir);
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed

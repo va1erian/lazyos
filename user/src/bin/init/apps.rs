@@ -11,9 +11,11 @@
 //!   `pkgctl`, `powerctl` and `messengerctl` sandboxed as an app;
 //! * Devices, which reads the kernel's device inspection calls
 //!   (`os.kernel.dev`), something no package permission can name;
-//! * the console programs (`top`, `messengerctl`, BusyBox `sh`), the LazyRAD
-//!   IDE (`LAZYOS_LAZYRAD=1`) and the `runner` placeholder `mimed` names for
-//!   `application/x-elf`.
+//! * the console programs (`top`, `messengerctl`, BusyBox `sh`) and the
+//!   `runner` placeholder `mimed` names for `application/x-elf`.
+//!
+//! The LazyRAD IDE is not here: it is a core package like the other desktop
+//! apps (`LAZYOS_LAZYRAD=1` ships `os.lazy.lazyrad`).
 //!
 //! Split out of `init.rs`, which is far past the file-size budget.
 //!
@@ -144,11 +146,6 @@ pub static APPS: &[AppSpec] = &[
     xui_app("terminal", "Terminal", fhs::bin::TERMINAL, &["open"]),
     // Devices, owners, rights and the driver class rules (issue #481).
     xui_app("devices", "Devices", fhs::bin::DEVICES, &["open"]),
-    // The LazyRAD IDE (`LAZYOS_LAZYRAD=1`); apps it builds are packages.
-    AppSpec {
-        category: "development",
-        ..xui_app("lazyrad", "LazyRAD", fhs::bin::LAZYRAD, &["open"])
-    },
     // `mimed`'s handler for `application/x-elf`; no image ships it yet.
     native_app(
         "runner",

@@ -1,8 +1,10 @@
 # A test fixture, not a shipped app: the LazyRAD IDE as a *user* package with
 # `develop = true` (issue #529), so a session script can show Play running a
-# project under its own development label before the IDE itself is packaged
-# (docs/lazyrad-package-plan.md, phase A). `tools/lazyrad/devtest.py` adds
-# `bin/lazyrad.elf` and writes `target/pkg/lrdev-test.lzp`, which a
+# project under its own development label headlessly (`--play-dev`), and a
+# second package to decline consent for (the real IDE, `os.lazy.lazyrad`,
+# declares `develop = true` too). `tools/lazyrad/devtest.py` adds
+# `bin/lazyrad.elf` and the player beside it, `bin/lrplay.elf`, and writes
+# `target/pkg/lrdev-test.lzp`, which a
 # `LAZYOS_LAZYRAD=1` image embeds as /system/share/samples/lrdev-test.lzp.
 #
 # `--play-dev` makes the IDE do one development run of the path `init` appends

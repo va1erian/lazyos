@@ -19,11 +19,27 @@
   "wait": 0.5
  },
  {
-  "type": "/system/bin/lrplay --client /system/share/lazyrad/modplayer &"
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "type": "P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)"
  },
  {
   "key": "enter",
-  "until": "TERM:CMD:/system/bin/lrplay --client /system/share/lazyrad/modplayer &",
+  "until": "TERM:CMD:P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "$P --client /system/share/lazyrad/modplayer &"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:$P --client /system/share/lazyrad/modplayer &",
   "timeout": 30,
   "retries": 1
  },

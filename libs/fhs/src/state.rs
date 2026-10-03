@@ -49,18 +49,24 @@ pub const HOME_ROOT: &str = "/home";
 /// app.
 pub const APP_DATA_DIR: &str = ".apps";
 
-/// `lazyrad`'s own data directory name inside a home: its settings and the
-/// data of projects run from the IDE live in
+/// The LazyRAD IDE's app data directory name inside a home: its `system_name`,
+/// since it is an installed package (`os.lazy.lazyrad`, docs/lazyrad-package-plan.md).
+/// Its settings and the data of projects run from the IDE live in
 /// [`app_data_dir`](crate::app_data_dir)`(home, LAZYRAD_APP)`. Written by
 /// `lazyrad` and `lrplay`.
-pub const LAZYRAD_APP: &str = "lazyrad";
+pub const LAZYRAD_APP: &str = "os.lazy.lazyrad";
+
+/// The directory name the IDE used before it was a package
+/// (`<home>/.apps/lazyrad`). `lazyrad` moves it to [`LAZYRAD_APP`] once, at
+/// start.
+pub const LAZYRAD_LEGACY_APP: &str = "lazyrad";
 
 /// `lazyrad`'s settings, relative to its app data directory
-/// (`<home>/.apps/lazyrad/config`). Written by `lazyrad`.
+/// (`<home>/.apps/os.lazy.lazyrad/config`). Written by `lazyrad`.
 pub const LAZYRAD_CONFIG: &str = "config";
 
 /// The read/write directory of a project that is not an installed app,
-/// relative to `lazyrad`'s app data directory (`<home>/.apps/lazyrad/data`).
+/// relative to `lazyrad`'s app data directory (`<home>/.apps/os.lazy.lazyrad/data`).
 /// An installed app writes its own `<home>/.apps/<system_name>/` instead.
 /// Written by `lrplay`.
 pub const LAZYRAD_DATA: &str = "data";

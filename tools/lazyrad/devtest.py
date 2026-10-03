@@ -26,6 +26,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 TREE = ROOT / "lazyrad-os" / "devtest"
 IDE = ROOT / "target" / "lazyrad" / "lazyrad.elf"
+# The player Play runs, found beside the IDE (`platform::player_beside`), as in
+# the core package `os.lazy.lazyrad`.
+PLAYER = ROOT / "target" / "lazyrad" / "lrplay.elf"
 OUT = ROOT / "target" / "pkg" / "lrdev-test.lzp"
 
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
@@ -33,14 +36,17 @@ import build as pkg_build  # noqa: E402  (tools/pkg/build.py)
 
 
 def main() -> int:
-    if not IDE.is_file():
-        print(f"error: {IDE} is missing; run `python tools/lazyrad/build.py`", file=sys.stderr)
-        return 1
+    for program in (IDE, PLAYER):
+        if not program.is_file():
+            print(f"error: {program} is missing; run `python tools/lazyrad/build.py`",
+                  file=sys.stderr)
+            return 1
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / "lrdev"
         shutil.copytree(TREE, tree)
         (tree / "bin").mkdir()
         shutil.copyfile(IDE, tree / "bin" / "lazyrad.elf")
+        shutil.copyfile(PLAYER, tree / "bin" / "lrplay.elf")
         try:
             archive = pkg_build.build(tree, Path(scratch) / "dist")
         except pkg_build.BuildError as error:

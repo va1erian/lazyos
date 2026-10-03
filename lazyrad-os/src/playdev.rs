@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use lazyrad_ide::run::{EventSink, Launcher, RunEvent};
 
 use crate::launcher::PollingLauncher;
-use crate::platform::PLAYER_PATH;
 
 /// The launcher for this IDE: [`crate::devplay::DevLauncher`] when it runs
 /// under a package label (so a plain fork would hand the project the IDE's
@@ -33,9 +32,10 @@ pub fn launcher_for_this_process(author: &str) -> Rc<dyn Launcher> {
 /// How often the loop polls the run, in milliseconds (the IDE's timer).
 const POLL_MS: u64 = 100;
 
-/// Run `project_dir` once under its development label; returns the player's
-/// exit code (1 when it did not exit normally or never started).
-pub fn play_headless(project_dir: &Path, author: &str) -> i32 {
+/// Run `project_dir` once under its development label with `player` (the
+/// `lrplay` beside the IDE, [`crate::platform::player_beside`]); returns the
+/// player's exit code (1 when it did not exit normally or never started).
+pub fn play_headless(player: &Path, project_dir: &Path, author: &str) -> i32 {
     let exit: Arc<Mutex<Option<Option<i32>>>> = Arc::new(Mutex::new(None));
     let seen = Arc::clone(&exit);
     let sink: EventSink = Arc::new(move |_run, event| match event {
@@ -48,7 +48,7 @@ pub fn play_headless(project_dir: &Path, author: &str) -> i32 {
         }
     });
     let launcher = launcher_for_this_process(author);
-    let mut child = match launcher.launch(Path::new(PLAYER_PATH), project_dir, 1, sink) {
+    let mut child = match launcher.launch(player, project_dir, 1, sink) {
         Ok(child) => child,
         Err(error) => {
             println!("LRIDE:PLAY:FAIL:{error}");

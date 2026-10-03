@@ -3,8 +3,8 @@
 
 Two sessions on a desktop image with a virtio-sound card recorded to WAV:
 
-* ``dev``: the sample run from the Terminal (``/system/bin/lrplay --client
-  /system/share/lazyrad/modplayer``): play, mute a channel, pause, resume, play to the end
+* ``dev``: the sample run from the Terminal (the core package's player,
+  ``/apps/os.lazy.lazyrad/*/bin/lrplay.elf --client /system/share/lazyrad/modplayer``): play, mute a channel, pause, resume, play to the end
   (``tools/screenshot/examples/lazyrad_modplayer.json``);
 * ``installed``: the package copied from ``/system/share/samples`` to the
   home and installed with ``pkgctl install``, started from the Start menu

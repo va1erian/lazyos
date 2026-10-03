@@ -583,23 +583,39 @@ launchers saved before F5 keep working.
 
 ### Core packages (issue #509)
 
-Every desktop app is a package, except five programs that stay unlabelled in
+Every desktop app is a package, except four programs that stay unlabelled in
 `/system/bin`: LazyShell (the desktop itself), the Installer (`pkgd`'s trusted
 UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
 inherits its parent's label, so a packaged Terminal would run the shell and
 every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
-app), Devices (it reads the kernel's device inspection calls,
-`os.kernel.dev`, which no package permission can name) and the opt-in LazyRAD
-IDE (`LAZYOS_LAZYRAD=1`, a built-in row of `init`'s registry,
-`user/src/bin/init/apps.rs`) for both the Installer's and the Terminal's
-reasons: Make LazyOS App calls `pkgd`'s `Inspect` and `Install`, which
-`pkgstore::access` refuses to a labelled caller, and Play forks `lrplay` on
-the project being edited, whose scripts may call any service through
-`sys::*`; under the IDE's label every service its manifest did not name would
-be refused, so a run would not behave like the installed app. The apps
-LazyRAD builds are packages with permissions derived from their scripts
-([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)). [`lazyrad-package-plan.md`](lazyrad-package-plan.md) is the
-plan to make the IDE a package anyway.
+app) and Devices (it reads the kernel's device inspection calls,
+`os.kernel.dev`, which no package permission can name).
+
+The **LazyRAD IDE** is a core package too (`os.lazy.lazyrad`,
+`xui-app/packages/lazyrad`, category `development`), shipped only in images
+built with `LAZYOS_LAZYRAD=1` (`build_support/lazyrad_embed.rs`; its programs
+come from `target/lazyrad/` through `tools/xui/core_packages.py`, see
+[`lazyrad-package-plan.md`](lazyrad-package-plan.md)). It carries two
+programs: `bin/lazyrad.elf` and the player `bin/lrplay.elf`, which Play runs
+and Make LazyOS App copies into every package it builds, found beside the IDE
+in its install directory. Its data lives in `$HOME/.apps/os.lazy.lazyrad` (the
+IDE moves the old `.apps/lazyrad` there once). Because `pkgd` refuses every
+labelled caller, the IDE never calls it: Make LazyOS App pre-checks the
+package in its own process (`pkgstore::inspect`, the function `Inspect` runs),
+stages it in `/transient`, asks `mimed` to open it with the `install` verb
+(`init` starts the Installer unlabelled, which shows the trusted consent screen
+and calls `pkgd.Install`), follows the `system/events/pkg/install|denied`
+event whose `system_name` and digest match, and starts the new app with
+`init.Launch`. Its manifest therefore names `os.lazy.mimed.v1`,
+`os.lazy.init.v1` and `subscribe:system/events/pkg/+`. The apps LazyRAD builds
+are packages with permissions derived from their scripts
+([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)).
+
+Play forks `lrplay` on the project being edited, and a child inherits its
+parent's label, so the manifest also declares `develop = true`: Play runs the
+player under `dev:<system_name>` with the permissions the installed app would
+get, after the user approves them on the Installer's consent screen
+("Development runs" above, phase B of the plan).
 
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,

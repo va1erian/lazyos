@@ -1,10 +1,16 @@
-//! Embed the `lazyrad` runtime and its sample projects in the disk image.
+//! The LazyRAD IDE in the disk image: its core package and the sample projects.
 //!
 //! `lrplay` and `lazyrad` are static-musl `std` programs built by
-//! `tools/lazyrad/build.py` (build artifacts, never committed), so they are
-//! embedded only when `LAZYOS_LAZYRAD=1` is set. They are stored as
-//! `/system/bin/lrplay` and `/system/bin/lazyrad` (`fhs::bin`).
-//! `LAZYRAD_SAMPLES` is a platform path list (`;` on Windows, `:` elsewhere) of
+//! `tools/lazyrad/build.py` (build artifacts, never committed). Like every
+//! desktop app the IDE is a core package, `os.lazy.lazyrad`: `tools/xui/
+//! core_packages.py` packs both programs (`bin/lazyrad.elf`, `bin/lrplay.elf`)
+//! into `target/pkg/core`, and `xui_embed::embed_xui_apps` embeds it as
+//! `/system/packages/os.lazy.lazyrad.lzp` for `pkgd` to install at boot, when
+//! [`enabled`] (`LAZYOS_LAZYRAD=1`). Nothing of LazyRAD is in `/system/bin`
+//! any more, and it is not an unlabelled exception (`docs/packages.md`, core
+//! packages; `docs/lazyrad-package-plan.md`).
+//!
+//! This module copies the sample projects: `LAZYRAD_SAMPLES` is a platform path list (`;` on Windows, `:` elsewhere) of
 //! sample project directories, each copied under
 //! `/system/share/lazyrad/<directory>/` (`fhs::share::LAZYRAD_SAMPLES`; names
 //! are kept exactly: ext2 is case-sensitive).
@@ -21,11 +27,12 @@ use std::path::{Path, PathBuf};
 
 use crate::os_image::Sink;
 
-/// The built ELFs, as (image path, path relative to the manifest dir).
-const ELFS: &[(&str, &str)] = &[
-    (fhs::bin::LRPLAY, "target/lazyrad/lrplay.elf"),
-    (fhs::bin::LAZYRAD, "target/lazyrad/lazyrad.elf"),
-];
+/// The core package's short id (`xui-app/packages/lazyrad`).
+pub const PACKAGE_SHORT: &str = "lazyrad";
+
+/// The built programs, relative to the manifest dir: the packager's inputs,
+/// watched so a rebuilt IDE rebuilds the image once repackaged.
+const ELFS: &[&str] = &["target/lazyrad/lrplay.elf", "target/lazyrad/lazyrad.elf"];
 
 /// The development-run test package, when built (path relative to the
 /// manifest dir).
@@ -34,23 +41,27 @@ const DEVTEST_LZP: &str = "target/pkg/lrdev-test.lzp";
 /// The image directory the sample projects are copied under.
 const SAMPLES_ROOT: &str = fhs::share::LAZYRAD_SAMPLES;
 
-/// Add the runtime and samples when `LAZYOS_LAZYRAD=1`.
-pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
+/// Whether the image ships the IDE (`LAZYOS_LAZYRAD=1`).
+pub fn enabled() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYRAD");
+    std::env::var_os("LAZYOS_LAZYRAD").as_deref() == Some(OsStr::new("1"))
+}
+
+/// Add the sample projects when `LAZYOS_LAZYRAD=1`; the package itself is
+/// added with the other core packages (`xui_embed::embed_xui_apps`).
+pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYRAD_SAMPLES");
-    // Watched even when missing: an ELF built later triggers an image rebuild.
-    for (_, relative) in ELFS {
+    // Watched even when missing: a program built later triggers a rebuild.
+    for relative in ELFS {
         println!(
             "cargo:rerun-if-changed={}",
             manifest_dir.join(relative).display()
         );
     }
-    if std::env::var_os("LAZYOS_LAZYRAD").as_deref() != Some(OsStr::new("1")) {
-        return;
+    if enabled() {
+        embed_samples(sink, manifest_dir);
+        embed_devtest(sink, manifest_dir);
     }
-    embed_elfs(sink, manifest_dir);
-    embed_samples(sink, manifest_dir);
-    embed_devtest(sink, manifest_dir);
 }
 
 /// Add the development-run test package when it was built.
@@ -64,26 +75,6 @@ fn embed_devtest(sink: &mut dyn Sink, manifest_dir: &Path) {
             fhs::share::LRDEV_TEST_LZP
         );
         sink.add_file(fhs::share::LRDEV_TEST_LZP, path);
-    }
-}
-
-/// Embed `lrplay` and `lazyrad`. A missing one fails the build, so the
-/// image is never silently built without the runtime it asked for.
-fn embed_elfs(sink: &mut dyn Sink, manifest_dir: &Path) {
-    for (image_path, relative) in ELFS {
-        let path = manifest_dir.join(relative);
-        if !path.is_file() {
-            panic!(
-                "LAZYOS_LAZYRAD=1 but {} is missing; run `python tools/lazyrad/build.py`",
-                path.display()
-            );
-        }
-        println!(
-            "cargo:warning=LAZYOS_LAZYRAD embedded: {} as {image_path}",
-            path.display()
-        );
-        println!("cargo:rerun-if-changed={}", path.display());
-        sink.add_file(image_path, path);
     }
 }
 

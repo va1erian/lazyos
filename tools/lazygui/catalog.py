@@ -153,8 +153,10 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
-        # Embeds /system/bin/lrplay and /system/bin/lazyrad (built by `tools/lazyrad/build.py`);
-        # `init` lists the IDE when its program is in the image, so Settings -> Menu offers it.
+        # Ships the core package os.lazy.lazyrad (the IDE and its player, built by
+        # `tools/lazyrad/build.py`, which repackages the core packages): `pkgd`
+        # installs it at boot, so Settings -> Menu offers it. Needs the desktop
+        # profile's core packages (`tools/xui/build.py`).
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
     if cfg.get("doom"):
@@ -211,7 +213,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
-    image (it is an xui app, so it means nothing on the CLI), ``shell``
+    image (a core package like the other desktop apps, so it means nothing on
+    the CLI), ``shell``
     keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
     opens the Devices app at boot, ``doom`` adds the Doom package and
     ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
