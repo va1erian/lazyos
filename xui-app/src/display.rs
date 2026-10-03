@@ -41,6 +41,11 @@ const CONNECT_TICKS: u64 = 600;
 /// compositor must not stall opening a folder window, so the hint is
 /// best-effort and gives up after half a second.
 const HINT_TICKS: u64 = 50;
+/// PIT ticks an app waits for the desktop theme before it opens its window
+/// light (issue #542). The compositor answers it from memory, but while
+/// several apps start at once its queue can hold the reply past the hint's
+/// half second; a window painted in the wrong mode is worse than a short wait.
+const THEME_TICKS: u64 = 500;
 
 /// One input event delivered to an app by the compositor, in surface
 /// coordinates.
@@ -253,10 +258,10 @@ impl Client {
     }
 
     /// `GetTheme`: the desktop's mode and accent (and chrome palette), bounded
-    /// like [`Client::hint_open_origin`] because it only decorates.
+    /// by [`THEME_TICKS`] so a hung compositor cannot stall the app forever.
     pub fn get_theme(&self) -> Result<wire::GetThemeReply, i64> {
         let parcel = request(wire::METHOD_GETTHEME, Vec::new(), Vec::new(), Vec::new());
-        let deadline = sys::clock_ticks().saturating_add(HINT_TICKS);
+        let deadline = sys::clock_ticks().saturating_add(THEME_TICKS);
         let reply = self.call_until(&parcel, deadline)?;
         wire::decode_get_theme_reply(&reply.body).map_err(|_| -errno::EINVAL)
     }

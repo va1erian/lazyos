@@ -16,7 +16,7 @@ use xui_core::backend::Result;
 use xui_core::widget::StdFileSystem;
 use xui_core::widget::{Button, FileDialog, HasText, Label};
 use xui_core::{Key, Rect};
-use xui_docs::{error_page, load_file};
+use xui_docs::{error_page, load_file, themed};
 use xui_litehtml::{HtmlView, HtmlViewEvent};
 
 /// Height of the toolbar above the page, in pixels.
@@ -50,7 +50,7 @@ fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String) -> Result<HtmlView<Msg>> 
     HtmlView::new(
         ui,
         bounds,
-        html,
+        themed(html, ui.theme().is_dark),
         || Msg::Frame,
         |event| match event {
             HtmlViewEvent::LinkClicked(href) => Some(Msg::Link(href)),

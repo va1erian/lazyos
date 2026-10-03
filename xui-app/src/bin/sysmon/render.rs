@@ -13,8 +13,7 @@ use crate::services_view::{self, View, TABS_H};
 use crate::{State, CARD_GAP, CARD_H, CARD_MIN_H, FOOTER_H, TABLE_GAP};
 
 /// Paint the whole dashboard.
-pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let theme = Theme::light();
+pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
     let bounds = canvas.bounds();
     if compact::is_compact(bounds.width(), bounds.height()) {
         crate::compact_view::paint(canvas, theme, state);
