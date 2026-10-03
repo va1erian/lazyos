@@ -124,6 +124,14 @@ programs! {
     NSLOOKUP = "nslookup";
     /// `ftp`, the FTP client.
     FTP = "ftp";
+    /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
+    /// docs/tls-plan.md §7).
+    FETCH = "fetch";
+    /// `curl`, the same binary as [`FETCH`] with curl's option names.
+    CURL = "curl";
+    /// `wget`, the same binary as [`FETCH`] with wget's option names. It
+    /// replaces BusyBox's `wget` applet, which does not verify certificates.
+    WGET = "wget";
     /// The `std::net` Linux fixture `netd demo=1` runs (stage N5), when the
     /// harness built one.
     NETFIX = "netfix";

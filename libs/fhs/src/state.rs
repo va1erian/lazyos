@@ -80,6 +80,12 @@ pub const LAZYRAD_PROJECTS: &str = "projects";
 /// `lazyrad`.
 pub const LAZYRAD_TMP: &str = "/transient/lazyrad";
 
+/// The resolvers `netd` learned (DHCP or manual), in `resolv.conf` syntax, on
+/// the ramfs; Linux programs read it as
+/// [`LINUX_RESOLV_CONF`](crate::etc::LINUX_RESOLV_CONF) (docs/tls-plan.md
+/// §5.1). Written by `netd`.
+pub const RESOLV_CONF: &str = "/transient/net/resolv.conf";
+
 /// Doom's config and save directory when the player has no home (otherwise
 /// its per-user folder, `$HOME/.apps/org.lazy.doom`). Written by the
 /// `org.lazy.doom` package.
@@ -110,6 +116,7 @@ mod tests {
         assert_eq!(HOME_ROOT, HOME);
         assert!(CONF_FALLBACK.starts_with(TRANSIENT));
         assert!(LAZYRAD_TMP.starts_with(TRANSIENT));
+        assert!(RESOLV_CONF.starts_with(TRANSIENT));
         for name in [
             APP_DATA_DIR,
             LAZYRAD_APP,
