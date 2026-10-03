@@ -13,7 +13,8 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
 
 
 def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
-                     devices_var, doom_var, modplayer_var, net_var, on_start) -> None:
+                     devices_var, doom_var, modplayer_var, net_var, on_start,
+                     linuxapps_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -21,8 +22,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ``shell_var``, ``devices_var``, ``doom_var`` and ``modplayer_var`` are Tk
     booleans for the LazyRAD IDE, the LazyShell desktop, opening the Devices app
     at boot, the Doom package and the LazyRAD MOD player package; ``net_var``
-    adds networking (either interface); ``on_start``
-    runs the plan.
+    adds networking and ``linuxapps_var`` the Linux programs (either
+    interface); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -70,6 +71,13 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ttk.Label(net, text="The host reaches the guest's web server (Net Tools) at "
                         "http://localhost:8080; more forwards in the Advanced tab.",
               wraplength=420, foreground="#555").pack(anchor="w", padx=28, pady=(0, 4))
+
+    if linuxapps_var is not None:
+        extra = ttk.LabelFrame(parent, text="Extras (CLI or Desktop)")
+        extra.pack(fill="x", padx=8, pady=6)
+        ttk.Checkbutton(extra, text="Linux programs: dash, lua, sqlite3, jq, rg "
+                                    "(builds them into /system/bin)",
+                        variable=linuxapps_var).pack(anchor="w", padx=8, pady=4)
 
     ttk.Button(parent, text="Start LazyOS", command=on_start
                ).pack(anchor="w", padx=10, pady=12)

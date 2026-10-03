@@ -24,6 +24,7 @@ Examples
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
+    python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -56,6 +57,9 @@ import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
+from demo_builds import (  # noqa: E402
+    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_xui_apps,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -168,72 +172,6 @@ def build_core_packages() -> bool:
     return result.returncode == 0
 
 
-def build_rhai() -> None:
-    """Rebuild `target/rhai/rhai.elf` so the image never embeds a stale or
-    missing `rhai` (issue #319). Optional: a host without the musl target
-    still boots, just without the command, which `build.py` explains."""
-    print("building rhai (tools/rhai/build.py)…", flush=True)
-    script = ROOT / "tools" / "rhai" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("warning: rhai did not build; the image will have no `rhai` command",
-              file=sys.stderr)
-
-
-def build_lazyrad() -> bool:
-    """Build the LazyRAD IDE and player (`tools/lazyrad/build.py`) for the image.
-    Explicitly requested with `--lazyrad`, so a failure stops the run."""
-    print("building LazyRAD (tools/lazyrad/build.py)…", flush=True)
-    script = ROOT / "tools" / "lazyrad" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: LazyRAD did not build (run `python tools/lazyrad/build.py`)",
-              file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_doom() -> bool:
-    """Build the Doom package (`tools/doom/build.py`: engine, Freedoom, then
-    `target/pkg/doom.lzp`). Explicitly requested with `--doom`, so a missing
-    toolchain or download stops the run (`--require`)."""
-    print("building Doom (tools/doom/build.py)…", flush=True)
-    script = ROOT / "tools" / "doom" / "build.py"
-    result = subprocess.run([sys.executable, str(script), "--require"], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: Doom did not build (run `python tools/doom/build.py`)", file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_modplayer() -> bool:
-    """Package the LazyRAD MOD player (`tools/lazyrad/package.py`:
-    `target/pkg/MODPLAY.LZP` from `lazyrad-os/samples/modplayer`). Explicitly
-    requested with `--modplayer`, so a missing toolchain stops the run."""
-    print("packaging the MOD player (tools/lazyrad/package.py)…", flush=True)
-    script = ROOT / "tools" / "lazyrad" / "package.py"
-    result = subprocess.run([sys.executable, str(script), "--no-build", "--require"],
-                            cwd=ROOT, stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: the MOD player package did not build "
-              "(run `python tools/lazyrad/package.py`)", file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_xui_apps() -> bool:
-    """Build the desktop's xui apps (`tools/xui/build.py`), which include the
-    Devices app. Explicitly requested with `--devices`, so a failure stops."""
-    print("building the xui apps (tools/xui/build.py)…", flush=True)
-    script = ROOT / "tools" / "xui" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: the xui apps did not build (run `python tools/xui/build.py`)",
-              file=sys.stderr)
-    return result.returncode == 0
-
-
 def with_devices(autostart: str | None) -> str:
     """`LAZYOS_XUI_AUTOSTART` with the Devices app added: an existing list
     (`editor`) keeps its apps and gains `devices` once; no list means
@@ -332,6 +270,10 @@ def main(argv: list[str]) -> int:
                              "and a sound card: copy it to your home and install it with "
                              "`pkgctl install`, or open it in Files, then start ModPlayer "
                              "from the menu")
+    parser.add_argument("--linuxapps", action="store_true",
+                        help="embed real Linux programs in /system/bin "
+                             "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
+                             "built from pinned sources by tools/linuxapps/build.py")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -404,6 +346,10 @@ def main(argv: list[str]) -> int:
             if not build_modplayer():
                 return 1
             env["LAZYOS_MODPLAYER"] = "1"
+        if args.linuxapps:
+            if not build_linuxapps():
+                return 1
+            env["LAZYOS_LINUXAPPS"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
