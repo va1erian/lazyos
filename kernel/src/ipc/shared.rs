@@ -75,7 +75,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
     if flags & flags::EXECUTABLE != 0 {
         return Err(Error::ExecutableDenied);
     }
-    let size = round_up(size).filter(|bytes| *bytes > 0 && *bytes <= MAX_BUFFER_SIZE);
+    let size = round_up(size).filter(|bytes| *bytes > 0 && *bytes <= max_bytes_per_process());
     let Some(size) = size else {
         return Err(Error::BadSize);
     };
@@ -90,7 +90,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
     {
         let used = use_of(&mut registry, slot);
         if used.buffers + 1 > MAX_BUFFERS_PER_PROCESS
-            || used.bytes.saturating_add(size) > MAX_BUFFER_BYTES_PER_PROCESS
+            || used.bytes.saturating_add(size) > max_bytes_per_process()
         {
             return Err(Error::Quota);
         }

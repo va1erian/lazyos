@@ -127,8 +127,8 @@ pub fn dma_hostile_input() -> Result<(), String> {
         ("u64::MAX length", u64::MAX, 0, EINVAL),
         ("rounding overflow", u64::MAX - 4095, 0, EINVAL),
         (
-            "over the per-call maximum",
-            crate::dev::dma::MAX_DMA_BYTES + 1,
+            "larger than the pool",
+            crate::dev::dma::max_dma_bytes() + 1,
             0,
             EINVAL,
         ),

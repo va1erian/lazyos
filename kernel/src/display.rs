@@ -113,6 +113,26 @@ pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) 
     };
 }
 
+/// Bytes of one screen-sized RGBA surface (what `bind` allocates), for the
+/// display-buffer limits (`crate::limits`). Zero before [`init`].
+pub fn screen_bytes() -> u64 {
+    let screen = *SCREEN.lock();
+    screen.width * screen.height * 4
+}
+
+/// The recorded `(width, height, stride, bytes_per_pixel)`, so a test that
+/// pretends to another screen can put the boot geometry back.
+#[cfg(lazyos_tests)]
+pub fn geometry_for_test() -> (usize, usize, usize, usize) {
+    let screen = *SCREEN.lock();
+    (
+        screen.width as usize,
+        screen.height as usize,
+        screen.stride as usize,
+        screen.bytes_per_pixel as usize,
+    )
+}
+
 /// Whether a live compositor currently owns the display.
 ///
 /// The kernel mux asks this every frame: a compositor that exits without

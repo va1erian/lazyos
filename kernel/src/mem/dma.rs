@@ -15,12 +15,11 @@
 //! lock itself ([`super::FRAMES`]), so there is no second lock to order: the
 //! documented order `REGISTRY -> FRAMES` covers every DMA path.
 
-use super::{FRAME_SIZE, MAX_REGIONS};
+use super::{Regions, FRAME_SIZE};
 
-/// Target pool size: 16 MiB.
-pub const TARGET_POOL_BYTES: u64 = 16 << 20;
-/// Hard cap on pool pages; the bitmap is sized for it.
-pub const MAX_POOL_PAGES: usize = 4096;
+/// Hard cap on pool pages (64 MiB); the bitmap is sized for it. The pool's
+/// size is [`crate::limits::dma_pool_bytes`], derived from RAM.
+pub const MAX_POOL_PAGES: usize = 16384;
 /// `u64` words in the free bitmap (one bit per page, set = free).
 const BITMAP_WORDS: usize = MAX_POOL_PAGES / 64;
 /// Align the pool base down to this so common device alignments are available.
@@ -150,22 +149,21 @@ impl DmaPool {
     }
 }
 
-/// Choose a contiguous pool from the usable regions: `min(16 MiB, usable/8)`
-/// pages, below 4 GiB (32-bit DMA-capable devices), above the low megabyte,
-/// and clear of the refcount table. `None` when no region has room (tiny RAM).
+/// Choose a contiguous pool of `bytes` from the usable regions: below 4 GiB
+/// (32-bit DMA-capable devices), above the low megabyte, and clear of the
+/// refcount table. `None` when no region has room (tiny RAM).
 pub(super) fn choose_pool(
-    starts: &[u64; MAX_REGIONS],
-    ends: &[u64; MAX_REGIONS],
-    count: usize,
-    usable_frames: usize,
+    regions: &Regions,
+    bytes: u64,
     table_phys: u64,
     table_frames: usize,
 ) -> Option<(u64, u32)> {
-    let bytes = (usable_frames as u64 * FRAME_SIZE / 8).min(TARGET_POOL_BYTES) & !(FRAME_SIZE - 1);
+    let bytes = bytes & !(FRAME_SIZE - 1);
     let frames = (bytes / FRAME_SIZE) as usize;
     if frames == 0 || frames > MAX_POOL_PAGES {
         return None;
     }
+    let (starts, ends, count) = (&regions.starts, &regions.ends, regions.count);
     let table_end = table_phys + table_frames as u64 * FRAME_SIZE;
     for index in 0..count {
         let start = starts[index];

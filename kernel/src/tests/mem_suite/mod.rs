@@ -10,10 +10,12 @@ use super::*;
 
 mod fault_storm;
 mod frames_and_cow;
+mod layout;
 mod vma;
 
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
+pub(super) use layout::*;
 pub(super) use vma::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -36,4 +38,16 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "mem_pte_chain_walks_to_the_leaf",
         pte_chain_walks_to_the_leaf,
     ),
+    ("mem_regions_merge_hostile_maps", regions_merge_hostile_maps),
+    (
+        "mem_regions_keep_the_largest_when_full",
+        regions_keep_the_largest_when_full,
+    ),
+    ("mem_regions_soak_random_maps", regions_soak_random_maps),
+    (
+        "mem_user_window_spans_many_entries",
+        user_window_spans_many_entries,
+    ),
+    ("mem_high_frames_reachable", high_frames_reachable),
+    ("mem_linux_stack_is_lazy", linux_stack_is_lazy),
 ];

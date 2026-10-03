@@ -4,15 +4,18 @@ use super::*;
 
 /// Bytes per mapped page.
 pub(super) const PAGE: u64 = 4096;
-/// Largest single buffer a process may create.
-pub const MAX_BUFFER_SIZE: u64 = 64 << 20;
 /// Largest number of live buffers in the kernel registry.
 pub const MAX_BUFFERS: usize = 256;
-/// Per-process byte quota (section 9's metering, applied to buffer memory).
-/// Sized for a double-buffered window (`Present`, issue #372) as large as
-/// the biggest logical screen: two 1920x1080 RGBA slots are 15.8 MiB. The
-/// per-uid `KernelMemory` quota still bounds what all of a user's tasks hold.
-pub const MAX_BUFFER_BYTES_PER_PROCESS: u64 = 16 << 20;
+
+/// Per-process byte quota (section 9's metering, applied to buffer memory),
+/// and so also the largest single buffer: `limit.shared_buffer_max`
+/// (`crate::limits`). Derived from the screen so a double-buffered
+/// full-screen window (`Present`, issue #372) plus the compositor's screen
+/// buffer fit at any resolution, 4K included. The per-uid `KernelMemory`
+/// quota still bounds what all of a user's tasks hold.
+pub fn max_bytes_per_process() -> u64 {
+    crate::limits::shared_buffer_max()
+}
 /// Per-process live-buffer quota.
 pub const MAX_BUFFERS_PER_PROCESS: u64 = 64;
 
@@ -52,7 +55,7 @@ pub enum Error {
     BadTask,
     /// A flag bit is not defined.
     BadFlags,
-    /// The size is zero or over [`MAX_BUFFER_SIZE`].
+    /// The size is zero or over [`max_bytes_per_process`].
     BadSize,
     /// `EXECUTABLE` was requested; executable shared memory is denied.
     ExecutableDenied,
