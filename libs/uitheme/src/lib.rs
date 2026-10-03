@@ -15,7 +15,9 @@
 use confd::Value;
 
 mod scale;
+mod wallpaper;
 pub use scale::*;
+pub use wallpaper::*;
 
 /// Prefix of every key; `system/confd/changed/sys/ui/#` follows changes.
 pub const PREFIX: &str = "sys/ui";

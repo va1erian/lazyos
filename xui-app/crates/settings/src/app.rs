@@ -5,6 +5,7 @@
 //! Colours are chosen with xui's own pickers: swatch grids ([`ColorPicker`])
 //! for the quick accent and background choices, and the full [`ColorPanel`]
 //! (HSV field, hue slider, HEX/RGB boxes) for any of the five themed colours.
+//! The Appearance page also lists the desktop pictures ([`wallpaper_ops`]).
 //! Every change is written straight to the [`ConfigStore`] (confd on LazyOS),
 //! where `xuid` and `inputd` pick it up live, and the status line reports the
 //! outcome. The clock, the zone and the About facts go through [`System`].
@@ -31,6 +32,7 @@ use crate::store::ConfigStore;
 use crate::system::System;
 use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
+use crate::wallpaper_ops;
 
 /// Window size (DIP) the app asks for: tall enough for every section row in
 /// the sidebar without scrolling.
@@ -59,6 +61,8 @@ pub enum Msg {
     /// A swatch was picked: `0xRRGGBB`.
     Accent(u32),
     Background(u32),
+    /// A desktop picture row was picked (0: none).
+    Wallpaper(usize),
     /// The animations checkbox changed.
     Anim(bool),
     ResetAppearance,
@@ -111,6 +115,8 @@ pub struct SettingsApp {
     status: Label<Msg>,
     /// The Windows page's selected colour target.
     target: usize,
+    /// The desktop pictures listed, in row order after "None".
+    pictures: Vec<String>,
 }
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
@@ -148,6 +154,7 @@ impl SettingsApp {
         let mut labels = Vec::new();
         let mut buttons = Vec::new();
 
+        let pictures = system.wallpapers();
         let appearance = AppearancePage::build(
             ui,
             rect(
@@ -156,6 +163,7 @@ impl SettingsApp {
                 WINDOW.0 - SIDEBAR_W,
                 WINDOW.1 - STATUS_H - PAGE_TOP,
             ),
+            &pictures,
         )?;
 
         let windows = Panel::new(ui, page)?;
@@ -226,6 +234,7 @@ impl SettingsApp {
             },
             status,
             target: 0,
+            pictures,
         };
         app.show(Section::Appearance);
         app.load_state();
@@ -276,6 +285,9 @@ impl SettingsApp {
         a.accent.select(Color::hex(accent));
         a.background
             .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
+        let picture = wallpaper_ops::current(self.store.as_ref());
+        a.wallpaper
+            .select(wallpaper_ops::row_of(&self.pictures, picture.as_deref()));
         match keyboard::current(self.store.as_ref()) {
             Some(i) => {
                 p.layout.select(Some(i));
@@ -346,10 +358,23 @@ impl App for SettingsApp {
                 self.retheme(ui);
             }
             Msg::Background(rgb) => {
-                self.report(
-                    theme_ops::set_color(store, uitheme::KEY_BG, Some(rgb)),
-                    "Background changed.",
-                );
+                // A picture would hide the colour just chosen: drop it.
+                let result = theme_ops::set_color(store, uitheme::KEY_BG, Some(rgb))
+                    .and_then(|()| wallpaper_ops::set(store, None));
+                self.report(result, "Background changed.");
+                // Show what is stored: "None" on success, and after a failed
+                // write the picture (and swatch) still in effect.
+                self.load_state();
+            }
+            Msg::Wallpaper(row) => {
+                let result = wallpaper_ops::choose(store, &self.pictures, row);
+                let failed = result.is_err();
+                let text = result.as_ref().map_or("", |text| *text);
+                self.report(result.map(|_| ()), text);
+                if failed {
+                    // The clicked row was not saved: select the stored one.
+                    self.load_state();
+                }
             }
             Msg::Anim(on) => self.report(
                 theme_ops::set_animations(store, on),

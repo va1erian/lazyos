@@ -1,14 +1,16 @@
-//! The Appearance page: the theme, accent and wallpaper choices, each in a
+//! The Appearance page: the theme, accent and wallpaper (colour or one of the
+//! desktop pictures, [`wallpaper_ops`]) choices, each in a
 //! card under an upper-case caption, on the window itself rather than on a
 //! card of its own (docs/xui-theme-proposals.md, Midnight).
 
 use xui_core::app::Ui;
 use xui_core::backend::Result;
-use xui_core::widget::{Button, CheckBox, ColorPicker, Label, Panel, RadioGroup};
+use xui_core::widget::{Button, CheckBox, ColorPicker, Label, ListView, Panel, RadioGroup};
 use xui_core::{Color, Rect};
 
 use crate::app::Msg;
 use crate::theme_ops::{ACCENTS, BACKGROUNDS};
+use crate::wallpaper_ops;
 
 /// Width of the cards, inside the page's margins.
 const CARD_W: i32 = 478;
@@ -31,6 +33,8 @@ pub struct AppearancePage {
     pub mode: RadioGroup<Msg>,
     pub accent: ColorPicker<Msg>,
     pub background: ColorPicker<Msg>,
+    /// The desktop pictures: "None", then one row per picture.
+    pub wallpaper: ListView<Msg>,
     pub anim: CheckBox<Msg>,
     // Owned only to keep their nodes registered.
     _captions: Vec<Label<Msg>>,
@@ -57,8 +61,9 @@ fn swatches(card: &Panel<Msg>, colors: impl Iterator<Item = u32>) -> Result<Colo
 }
 
 impl AppearancePage {
-    /// Builds the page over `bounds`, hidden until shown.
-    pub fn build(ui: &Ui<Msg>, bounds: Rect) -> Result<AppearancePage> {
+    /// Builds the page over `bounds`, hidden until shown, listing the
+    /// desktop `pictures` beside the background colours.
+    pub fn build(ui: &Ui<Msg>, bounds: Rect, pictures: &[String]) -> Result<AppearancePage> {
         let page = Panel::plain(ui, bounds)?;
         let p = page.ui();
         let mut captions = Vec::new();
@@ -74,17 +79,23 @@ impl AppearancePage {
             .on_select(|c| Some(Msg::Accent(pack(c))));
         cards.push(accent_card);
 
-        let background_card = section(p, &mut captions, 184, "Desktop background", 56)?;
+        // A colour on the left, or a picture over it on the right.
+        let background_card = section(p, &mut captions, 184, "Desktop background", 124)?;
         let background = swatches(&background_card, BACKGROUNDS.iter().map(|b| b.1))?
             .on_select(|c| Some(Msg::Background(pack(c))));
+        let rows = wallpaper_ops::rows(pictures);
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+        let wallpaper = ListView::new(background_card.ui(), rect(316, 6, 156, 112), &rows)?
+            .multi_select(false)
+            .on_select(|i| Some(Msg::Wallpaper(i)));
         cards.push(background_card);
 
-        let anim_card = Panel::new(p, rect(LEFT, 272, CARD_W, 40))?;
+        let anim_card = Panel::new(p, rect(LEFT, 340, CARD_W, 40))?;
         let anim = CheckBox::new(anim_card.ui(), rect(14, 8, 260, 24), "Window animations")?
             .on_toggle(|on| Some(Msg::Anim(on)));
         cards.push(anim_card);
 
-        let reset = Button::new(p, rect(LEFT, 326, 170, 32), "Reset to defaults")?
+        let reset = Button::new(p, rect(LEFT, 394, 170, 32), "Reset to defaults")?
             .on_click(|| Some(Msg::ResetAppearance));
 
         Ok(AppearancePage {
@@ -92,6 +103,7 @@ impl AppearancePage {
             mode,
             accent,
             background,
+            wallpaper,
             anim,
             _captions: captions,
             _cards: cards,

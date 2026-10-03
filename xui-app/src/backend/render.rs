@@ -11,6 +11,7 @@ use crate::client_window::copy_rect;
 use crate::display::{Client, FrameEvent};
 use crate::sys::{self, DisplayInfo};
 
+use super::backdrop;
 use super::geometry::{absolute_bounds, effectively_visible};
 use super::{LazyOSBackend, Mode};
 
@@ -39,7 +40,7 @@ impl LazyOSBackend {
     /// on an already-borrowed `windows`. The window itself stays in the map, so
     /// those re-entrant reads still see its live size, DPI and theme.
     fn composite(&self, window: WindowId, damage: Rect) -> bool {
-        let (dpi, theme, width, height, mut surface) = {
+        let (dpi, theme, backdrop, width, height, mut surface) = {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return false;
@@ -47,6 +48,7 @@ impl LazyOSBackend {
             (
                 entry.dpi,
                 entry.theme,
+                entry.backdrop.clone(),
                 entry.width,
                 entry.height,
                 std::mem::replace(&mut entry.surface, Surface::new(1, 1)),
@@ -56,7 +58,12 @@ impl LazyOSBackend {
         // whole window so a partial repaint matches the rest).
         let window_rect = Rect::new(0, 0, width, height);
         surface.with_canvas_at(damage, dpi, |canvas| {
-            look::paint_background(canvas, damage, window_rect, &theme)
+            look::paint_background(canvas, damage, window_rect, &theme);
+            // A backdrop (LazyShell's wallpaper) covers it; the widgets then
+            // draw on the picture like on any container.
+            if let Some(image) = &backdrop {
+                backdrop::draw(canvas, image, window_rect, damage);
+            }
         });
         // Bounds are parent-relative: paint at the window-absolute position,
         // and skip a node hidden through any ancestor. A node just outside the
@@ -284,7 +291,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use xui_core::backend::{Event, ParentRef, WidgetId};
+    use xui_core::backend::{Canvas, Event, ParentRef, WidgetId};
     use xui_core::router::WidgetHost;
     use xui_core::Color;
 

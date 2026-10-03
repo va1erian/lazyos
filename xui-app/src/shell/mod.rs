@@ -1,7 +1,7 @@
 //! LazyShell (issue #157): the desktop shell as an xui client of `xuid`.
 //!
 //! The compositor keeps compositing, window policy and security; the shell
-//! owns the desktop UI: the wallpaper and launcher icons ([`desktop`], a
+//! owns the desktop UI: the wallpaper ([`wallpaper`]) and launcher icons ([`desktop`], a
 //! `ROLE_DESKTOP` surface), the taskbar with the "LazyOS" button, the window
 //! entries and the clock ([`taskbar`], a panel), and the start menu ([`menu`],
 //! a panel created on demand, with the restart / shut down rows). It
@@ -17,8 +17,9 @@
 //! `SHELL:DESKTOP:PASS icons=<n>`, `SHELL:MENU:OPEN`/`CLOSE`,
 //! `SHELL:LAUNCH:PASS app=<id> pid=<pid>` / `FAIL app=<id> err=<errno>`,
 //! `SHELL:TASKBAR:ADD id=<surface> title=<title>` / `REMOVE id=<surface>`,
-//! `SHELL:RESTART:PASS windows=<n>`, and the power rows' `SHELL:POWER:*`
-//! ([`power`]).
+//! `SHELL:RESTART:PASS windows=<n>`, `SHELL:WALLPAPER:PASS path=<path>
+//! size=<w>x<h>` / `FAIL path=<path> <why>` / `NONE`, and the power rows'
+//! `SHELL:POWER:*` ([`power`]).
 
 mod ctx;
 mod desktop;
@@ -31,6 +32,7 @@ mod service;
 mod services;
 mod taskbar;
 mod theme;
+mod wallpaper;
 
 use std::rc::Rc;
 

@@ -33,6 +33,8 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
+#[path = "../wallpapers_embed.rs"]
+mod wallpapers_embed;
 
 #[cfg(test)]
 mod f3_layout_tests;
@@ -54,3 +56,5 @@ mod samples_tests;
 mod tls_files_tests;
 #[cfg(test)]
 mod usb_tests;
+#[cfg(test)]
+mod wallpapers_tests;

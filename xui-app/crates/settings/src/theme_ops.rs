@@ -54,12 +54,13 @@ pub fn set_color(store: &dyn ConfigStore, key: &str, rgb: Option<u32>) -> Result
     }
 }
 
-/// Drop every theme key, returning to the compiled-in dark defaults.
+/// Drop every theme key and the desktop picture, returning to the
+/// compiled-in dark defaults.
 pub fn reset(store: &dyn ConfigStore) -> Result<(), StoreError> {
     for key in uitheme::ALL_KEYS {
         store.delete(key)?;
     }
-    Ok(())
+    store.delete(uitheme::KEY_WALLPAPER)
 }
 
 /// Switch the desktop animations on or off (`sys/ui/anim`, followed by
@@ -146,6 +147,7 @@ mod tests {
         let store = MemStore::new();
         set_mode(&store, Mode::Light).unwrap();
         set_color(&store, uitheme::KEY_ACCENT, Some(1)).unwrap();
+        crate::wallpaper_ops::set(&store, Some("/pictures/a.png")).unwrap();
         reset(&store).unwrap();
         assert!(store.is_empty());
     }

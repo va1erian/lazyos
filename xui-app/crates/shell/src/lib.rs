@@ -10,6 +10,7 @@
 //! * [`desktop`]: the desktop launchers from `sys/ui/desktop`.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
 //! * [`policy`]: who may call the `os.lazy.shell` service.
+//! * [`wallpaper`]: the desktop picture's size check, crop and brightness.
 //!
 //! Coordinates are integer pixels; [`Rect`] is `(x, y, w, h)` with an exclusive
 //! right/bottom edge.
@@ -21,6 +22,7 @@ pub mod desktop;
 pub mod menu;
 pub mod policy;
 pub mod taskbar;
+pub mod wallpaper;
 
 pub use deskmenu::Entry;
 

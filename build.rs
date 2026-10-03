@@ -53,6 +53,8 @@ mod usb_image;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
+#[path = "build_support/wallpapers_embed.rs"]
+mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -381,6 +383,10 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
+    // The desktop pictures LazyShell can draw behind the launchers.
+    if shell {
+        wallpapers_embed::embed(&mut files);
+    }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
