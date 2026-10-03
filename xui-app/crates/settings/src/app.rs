@@ -167,10 +167,10 @@ impl SettingsApp {
                 Button::new(p, rect(20, 300, 170, 30), "Reset to defaults")?
                     .on_click(|| Some(Msg::ResetAppearance)),
             );
-            labels.push(Label::new(p, rect(300, 14, 170, 20), "Desktop picture")?);
+            labels.push(Label::new(p, rect(330, 14, 150, 20), "Desktop picture")?);
             let rows = wallpaper_ops::rows(&pictures);
             let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
-            let wallpaper = ListView::new(p, rect(300, 38, 170, 138), &rows)?
+            let wallpaper = ListView::new(p, rect(330, 38, 150, 138), &rows)?
                 .multi_select(false)
                 .on_select(|i| Some(Msg::Wallpaper(i)));
             (mode, accent, background, anim, wallpaper)
