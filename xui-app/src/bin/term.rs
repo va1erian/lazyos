@@ -233,10 +233,16 @@ fn main() {
     let mut shell = Command::new(SHELL);
     shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
     shell.env("TERM", "vt100");
-    // The terminal size programs see is what the window shows (the paint
-    // formula), so a full-screen program fits it.
+    // The rows programs see are the ones the window shows (the paint
+    // formula), so a full-screen program's status line stays visible. The
+    // width stays the grid's full 80 columns: a narrower tty makes the
+    // shell wrap a long command line onto two rows, and `TERM:OUT` (one per
+    // command, the line after the command's own echo) then reports the
+    // wrapped tail of the echo instead of the output (the Doom session's
+    // 75-column timedemo command). Columns past the window are clipped, as
+    // they always were.
     let rows = (((height as i32 - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
-    let cols = (((width as i32 - 2 * PAD) as f32 / CELL_W) as usize).clamp(1, COLS);
+    let cols = COLS;
     let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
         Ok(spawned) => spawned,
         Err(error) => {
