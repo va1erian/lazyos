@@ -308,10 +308,8 @@ pub(super) fn sys_exit_group(code: u64) -> u64 {
             futex_wake(tid, 1);
         }
     }
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
+    // Hand the CPU on now rather than at the next tick (P1.5).
+    task::exit_cpu()
 }
 
 pub(super) fn sys_exit(code: u64) -> u64 {
@@ -324,8 +322,5 @@ pub(super) fn sys_exit(code: u64) -> u64 {
         futex_wake(tid, 1);
     }
     task::finish_current(code & 0xff);
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
+    task::exit_cpu()
 }

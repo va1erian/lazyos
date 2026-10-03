@@ -231,8 +231,68 @@ pub fn wake_yield_soak() -> Result<(), String> {
     stop_thread(slot)
 }
 
+/// A thread that finishes at once, the way `exit` does.
+extern "C" fn exiter() -> ! {
+    RUNS.fetch_add(1, Ordering::Relaxed);
+    task::finish_current(7);
+    task::exit_cpu()
+}
+
+/// `exit` hands the CPU on at once (P1.5): 2000 Realtime threads each run,
+/// finish and give the CPU back to the kernel task without waiting for a
+/// timer tick, and each is reaped with its status. Before P1.5 an exiting
+/// task halted until the next tick, so every round crossed one. The churn
+/// also proves no slot leaks.
+pub fn exit_hands_cpu_on() -> Result<(), String> {
+    const ROUNDS: u64 = 2000;
+    fresh();
+    let free = task::free_slots();
+    let mut crossed = 0u64;
+    for round in 0..ROUNDS {
+        let slot = task::kthread::spawn_kernel_thread("exiter", exiter, PriorityClass::Realtime)
+            .map_err(|e| format!("round {round}: spawn: {e}"))?;
+        let tick = task::ticks();
+        // The Realtime thread outranks the kernel task: one yield runs it to
+        // its exit, which must hand the CPU straight back.
+        task::switch::yield_now();
+        if task::ticks() != tick {
+            crossed += 1;
+        }
+        check!(
+            task::current() == task::KERNEL_TASK && RUNS.load(Ordering::Relaxed) == round + 1,
+            "round {round}: current {} runs {}",
+            task::current(),
+            RUNS.load(Ordering::Relaxed)
+        );
+        check!(
+            task::harness::state(slot) == Some(TaskState::Done),
+            "round {round}: the thread is {:?}, not done",
+            task::harness::state(slot)
+        );
+        let reaped = task::reap_child();
+        check!(
+            reaped.is_some_and(|(child, status)| child == slot && status == 7),
+            "round {round}: reaped {reaped:?}"
+        );
+    }
+    serial_println!("TEST:task_preempt_exit_hands_cpu_on:INFO:rounds={ROUNDS} crossed_tick={crossed}");
+    check!(
+        crossed <= ROUNDS / 10,
+        "{crossed} of {ROUNDS} exits waited for a timer tick"
+    );
+    check!(
+        task::free_slots() == free,
+        "free slots {} -> {}",
+        free,
+        task::free_slots()
+    );
+    task::harness::reset();
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_preempt_wake_rules", wake_rules),
     ("task_preempt_wake_yield_soak", wake_yield_soak),
     ("task_preempt_irq_wake_idle_latency", irq_wake_idle_latency),
+    ("task_preempt_exit_hands_cpu_on", exit_hands_cpu_on),
 ];

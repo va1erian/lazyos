@@ -84,6 +84,20 @@ pub fn preempt_point() {
     }
 }
 
+/// Leave the CPU for good: the current task is finished (`Done`). Yields at
+/// once, so the next task runs now instead of at the next tick (P1.5). When
+/// nothing else is runnable the scheduler resumes this task, which halts
+/// until an interrupt makes someone runnable; that interrupt's preemption
+/// point (the CPU is idle) or the next tick switches away. Call with
+/// interrupts off and no lock held (a syscall body).
+pub fn exit_cpu() -> ! {
+    loop {
+        switch::yield_now();
+        x86_64::instructions::interrupts::enable_and_hlt();
+        x86_64::instructions::interrupts::disable();
+    }
+}
+
 /// The Linux `syscall` stub's return hook, called after `linux_dispatch` with
 /// the result saved on the task's kernel stack: deliver device interrupts
 /// raised meanwhile (as the native gate does on entry), then let a task
