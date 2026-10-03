@@ -109,6 +109,60 @@ fn write(index: u16, value: u16) {
     }
 }
 
+/// The mode registers, saved before a switch so a mode the adapter does not
+/// keep can be undone: the caller keeps the old framebuffer geometry, so the
+/// scanout must go back to it too.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Registers {
+    xres: u16,
+    yres: u16,
+    bpp: u16,
+    enable: u16,
+    x_offset: u16,
+    y_offset: u16,
+}
+
+impl Registers {
+    /// Read the current mode registers.
+    pub fn save() -> Registers {
+        Registers {
+            xres: read(REG_XRES),
+            yres: read(REG_YRES),
+            bpp: read(REG_BPP),
+            enable: read(REG_ENABLE),
+            x_offset: read(REG_X_OFFSET),
+            y_offset: read(REG_Y_OFFSET),
+        }
+    }
+
+    /// Put these registers back. The adapter is disabled while the geometry
+    /// changes, as for any mode switch, then re-enabled as it was.
+    fn restore(self) {
+        x86_64::instructions::interrupts::without_interrupts(|| {
+            write(REG_ENABLE, 0);
+            write(REG_XRES, self.xres);
+            write(REG_YRES, self.yres);
+            write(REG_BPP, self.bpp);
+            write(REG_ENABLE, self.enable);
+            write(REG_X_OFFSET, self.x_offset);
+            write(REG_Y_OFFSET, self.y_offset);
+        });
+    }
+}
+
+/// Program `width x height` at 32 bpp with the linear framebuffer on.
+fn program(width: u32, height: u32) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        write(REG_ENABLE, 0);
+        write(REG_XRES, width as u16);
+        write(REG_YRES, height as u16);
+        write(REG_BPP, BITS_PER_PIXEL);
+        write(REG_ENABLE, ENABLED | LFB_ENABLED);
+        write(REG_X_OFFSET, 0);
+        write(REG_Y_OFFSET, 0);
+    });
+}
+
 /// Bytes a `width x height` mode at 32 bpp needs.
 pub fn mode_bytes(width: u32, height: u32) -> u64 {
     u64::from(width) * u64::from(height) * BYTES_PER_PIXEL as u64
@@ -162,6 +216,17 @@ impl Adapter {
         (self.max, self.vram)
     }
 
+    /// Test hook: program `width x height`, then take the path a mode the
+    /// adapter refused takes (restore the saved registers), as `set_mode`
+    /// would on a failed read-back. QEMU keeps every mode it advertises, so
+    /// the refusal cannot be provoked from the hardware side.
+    #[cfg(lazyos_tests)]
+    pub fn program_then_refuse_for_test(&self, width: u32, height: u32) {
+        let saved = Registers::save();
+        program(width, height);
+        saved.restore();
+    }
+
     /// Switch to `width x height` at 32 bpp and return the new framebuffer.
     /// The caller must hold the framebuffer: nothing may draw on the old
     /// geometry while the registers change.
@@ -171,18 +236,14 @@ impl Adapter {
         if end > 1 << 32 {
             return Err(ModeError::BadBar);
         }
-        x86_64::instructions::interrupts::without_interrupts(|| {
-            write(REG_ENABLE, 0);
-            write(REG_XRES, width as u16);
-            write(REG_YRES, height as u16);
-            write(REG_BPP, BITS_PER_PIXEL);
-            write(REG_ENABLE, ENABLED | LFB_ENABLED);
-            write(REG_X_OFFSET, 0);
-            write(REG_Y_OFFSET, 0);
-        });
+        let saved = Registers::save();
+        program(width, height);
         let applied = (u32::from(read(REG_XRES)), u32::from(read(REG_YRES)));
         let virt_width = u32::from(read(REG_VIRT_WIDTH));
         if applied != (width, height) || read(REG_BPP) != BITS_PER_PIXEL || virt_width < width {
+            // Half applied: the caller keeps the old geometry, so the
+            // scanout goes back to it too.
+            saved.restore();
             return Err(ModeError::NotApplied);
         }
         let _ = read(REG_VIRT_HEIGHT);

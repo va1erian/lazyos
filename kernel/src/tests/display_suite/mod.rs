@@ -124,4 +124,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_mode_switch_roundtrip", mode_switch_roundtrip),
     ("display_mode_switch_refusals", mode_switch_refusals),
     ("display_mode_switch_soak", mode_switch_soak),
+    (
+        "display_mode_refused_switch_restores_registers",
+        mode_refused_switch_restores_registers,
+    ),
 ];

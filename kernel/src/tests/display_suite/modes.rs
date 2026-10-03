@@ -262,3 +262,36 @@ pub fn mode_switch_soak() -> Result<(), String> {
         Ok(())
     })
 }
+
+/// A mode the adapter does not keep is undone: after the refusal path the
+/// mode registers are exactly the saved ones, and the console's framebuffer
+/// (still the old geometry) reads back what it writes at its far corner.
+/// Repeated, so a register left behind by one round shows in the next.
+pub fn mode_refused_switch_restores_registers() -> Result<(), String> {
+    let Ok(adapter) = bochs::find() else {
+        return Ok(());
+    };
+    let (width, height) = crate::display::size();
+    for round in 0..50 {
+        let outcome = crate::console::with_framebuffer(|fb| {
+            let before = bochs::Registers::save();
+            adapter.program_then_refuse_for_test(2560, 1440);
+            let after = bochs::Registers::save();
+            check!(
+                after == before,
+                "round {round}: registers {after:?} != {before:?}"
+            );
+            let marker = crate::gfx::Color::rgb(0x31, 0x42, 0x53);
+            let (x, y) = (width - 1, height - 1);
+            fb.write_pixel(x, y, marker);
+            let color = fb.read_pixel(x, y);
+            check!(
+                (color.r, color.g, color.b) == (0x31, 0x42, 0x53),
+                "round {round}: corner reads {color:?}"
+            );
+            Ok(())
+        });
+        outcome.ok_or("no framebuffer")??;
+    }
+    Ok(())
+}
