@@ -14,7 +14,7 @@
 | `kernel/src/arch/cpu.rs` | FPU/SSE enable (clear `CR0.EM`, set `CR4.OSFXSR`) |
 | `kernel/src/arch/msr.rs` | `IA32_EFER/STAR/LSTAR/FMASK/FS_BASE` read/write wrappers |
 | `kernel/src/arch/linux.rs` | `linux_syscall_entry`, `linux_dispatch` plumbing |
-| `kernel/src/process/mod.rs` | Native `int 0x80` stub (`syscall_isr`) and dispatcher |
+| `kernel/src/process/gate.rs` | Native `int 0x80` stub (`syscall_isr`) and dispatcher |
 
 **GDT layout** (`gdt.rs:39`) - order matters for `sysret`, which loads
 `CS = base+16`, `SS = base+8`:
@@ -35,11 +35,13 @@
 
 | Vector | Handler | Notes |
 |---|---|---|
-| 8 / 13-21 | exception stubs | log and `halt()` |
+| 8 / 13-21 | exception stubs | a ring-3 fault ends only the faulting process (`user_fault`, `arch/fault.rs`); a ring-0 fault logs and `halt()`s |
 | #PF | `page_fault_isr` (naked) | pushes 15 GP regs; `page_fault_dispatch` tries COW, demand-zero, then `SIGSEGV` |
 | 32 | `timer_isr` (naked, `task/switch.rs`) | preemption; bumps `TICKS` |
 | 33 | keyboard IRQ | pushes scancodes, `on_key` routing |
 | 44 | mouse IRQ | pushes bytes |
+| other PIC lines | device-core stubs (`irq_stubs.rs`) | delivered to claimed device lines (issue #240) |
+| `0x81` | `yield_isr` (naked, DPL 0, `task/switch.rs`) | voluntary reschedule from `WaitQueue::wait`: no tick, no EOI (issue #338) |
 | `0x80` | `syscall_isr` (DPL 3) | native syscalls; saves `rdi/rsi/rdx/r8/r9/r10/rax` |
 
 **MSRs** (`arch/linux.rs:175`): `STAR` encodes `CS=0x08/SS=0x10` on entry and
@@ -59,10 +61,10 @@ per-task thread pointer, restored on every context switch.
 - `saved_user_rsp` reads the return stack, not the global snapshot, so a blocked
   task cannot observe another task's state.
 
-**Native entry decisions** (`process/mod.rs:117`)
+**Native entry decisions** (`process/gate.rs`)
 
-- `syscall_dispatch(regs)` sees `rax` = syscall number; `0` exits, `1-14` are
-  dispatched (see [processes.md](processes.md), [ipc-fabric.md](ipc-fabric.md),
+- `syscall_dispatch(regs)` sees `rax` = syscall number; `0` exits, 1-5 and 7-32 are
+  dispatched (6, the old command-line spawn, is retired) (see [processes.md](processes.md), [ipc-fabric.md](ipc-fabric.md),
   [display.md](display.md)); unknown numbers return `u64::MAX`.
 - Every user pointer, native or Linux, is validated against the caller's page
   tables before the kernel touches it (`user_ptr::try_*`, backed by
@@ -72,4 +74,5 @@ per-task thread pointer, restored on every context switch.
   and are being converted to `-EFAULT` one by one.
 
 **Status.** Working: preemptive demo boot, Linux `syscall` shim, native gate,
-page-fault COW/demand-zero/`SIGSEGV`. No SMP, no APIC (PIC only), no RTC.
+page-fault COW/demand-zero/`SIGSEGV`. No SMP, no APIC (PIC only); the CMOS RTC (`arch/rtc.rs`) is read at boot for the
+wall clock.

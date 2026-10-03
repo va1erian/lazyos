@@ -8,7 +8,7 @@ delivery.
 
 | Path | Role |
 |---|---|
-| `kernel/src/task/wait.rs` | `WaitQueue`, `TERMINAL`, `CHILD_EXIT`, `SLEEP` |
+| `kernel/src/task/wait.rs` | `WaitQueue`, `TERMINAL`, `CHILD_EXIT`, `SLEEP`, `SLOT`, `POLL` |
 | `kernel/src/task/signal.rs` (+ `signal/*.rs`) | Signal state, delivery, frames, `SIGSEGV` hook; constants, types, control, frames, delivery in submodules |
 | `kernel/src/ipc/channels.rs` | `MESSENGER` queue over the same primitive |
 | `kernel/src/ipc/shared/registry.rs` | `FENCES` queue for fence waits |
@@ -18,13 +18,15 @@ delivery.
 **WaitQueue model** (`wait.rs`, issue #57)
 
 - A FIFO of task slots keyed by event kind; `park` registers + marks `Blocked`,
-  `wait` parks and yields via `software_interrupt::<32>()` (the timer gate), and
+  `wait` parks and yields via `switch::yield_now` (vector `0x81`, `yield_isr`,
+  which counts no tick and sends no EOI; issue #338), and
   `notify` / `notify_one` / `notify_all` move waiters back to `Runnable`.
 - The timer's deadline sweep (`task::expire_deadlines`) marks expired waiters
   `TimedOut`; no separate timer callback exists.
 - Locking: the queue lock is always taken before the task table (never after);
   callers hold no locks and run with interrupts disabled across register-then-park.
-- `WaitKind`: `Futex`, `Terminal`, `ChildExit`, `Sleep`, `Signal`. Only
+- `WaitKind`: `Futex`, `Terminal`, `ChildExit`, `Sleep`, `Pipe`, `UnixAccept`,
+  `Poll`, `Signal`, `Slot`. Only
   `SIGCONT` wakes `Signal`; the others are advisory (`take_wake_reason` re-checks).
 
 **Signal state** (`signal.rs`, issue #60)
