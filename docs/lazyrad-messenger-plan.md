@@ -20,7 +20,7 @@ fn form_load() {
 This plan builds on [`rhai-plan.md`](rhai-plan.md) (R3: the `msg` module) and
 [`lazyrad-plan.md`](lazyrad-plan.md) (P6: LazyOS modules in the LazyRAD runtime).
 
-## 1. Where things stand
+## 1. Where things stood (before this plan)
 
 | Piece | State |
 |---|---|
@@ -156,7 +156,8 @@ declare what its scripts use:
 ## 5. Implementation status
 
 All phases are implemented. The LazyRAD half is va1erian/lazyrad branch
-`lazyos-msg` (pinned by `lazyrad-os/Cargo.toml` until it merges).
+`lazyos-msg`, merged upstream as va1erian/lazyrad#88; `lazyrad-os/Cargo.toml`
+pins that merge.
 
 | # | Where | Verified |
 |---|---|---|

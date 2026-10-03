@@ -477,11 +477,13 @@ stays cheap under load.
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
   `msg_recv`, `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
 - **Service supervision calls:** ahead of the Messenger family, the S2
-  supervisor adds four small native calls — `spawn` (start a FAT program as the
+  supervisor adds four small native calls — `spawn` (start a program as the
   caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT
   ticks, for backoff and polls) and `args` (the service's manifest argument
-  string, since native programs have no `argv` yet). They are mechanism only:
-  restart policy, dependencies and health live in `init`.
+  string). They are mechanism only: restart policy, dependencies and health
+  live in `init`. Since filesystem F3 (#507) programs live in `/system/bin` on
+  the ext2 OS volume, `spawnv` (syscall 31) passes an `argv` vector and `envp`,
+  and syscall 9 reads both back (`user/src/sys/spawn.rs`).
 
 ---
 

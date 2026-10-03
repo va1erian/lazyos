@@ -87,7 +87,8 @@ The script-facing reference is [`rhai/msg.md`](rhai/msg.md).
   [#315](https://github.com/va1erian/lazyos/issues/315) (spawn a native ELF as a
   child and wait); `cmd(["top"])` would go through it. Capturing native output
   through pipes needs native stdout to become a real descriptor (not part of
-  #315's minimum).
+  #315's minimum). *(Shipped: #315 landed in 5ad26a46, PR #324; BusyBox `sh`
+  runs native LazyOS programs.)*
 - **Prerequisite status:** P1 n/a for the musl host; P2 satisfied via the ABI;
   P3 satisfied for Linux-ABI processes; P4 pipes exist (shim); P5 `#!` lookup
   landed in the shim's `execve` (#491; `rhai_demo.json` runs `#!/bin/rhai`
@@ -136,9 +137,11 @@ Rhai can be built two ways on LazyOS:
 - **`std` via the Linux shim** (`x86_64-unknown-linux-musl`). This is required
   for anything that links `xui` (see [`xui-plan.md`](xui-plan.md)).
 
-**Decision:** the Rhai *host* is native. All host bindings live in one
+**Decision (superseded):** the Rhai *host* is native. All host bindings live in one
 `no_std + alloc` crate so the same bindings also compile into the `std`/xui app
-host later (see phase R5).
+host later (see phase R5). *In practice the host shipped as a static-musl
+program on the Linux ABI (`rhai-host/`, R0, #326), as the status update above
+proposed; the bindings crate `libs/rhai-lazy` is what remained shared.*
 
 ## Architecture
 
@@ -175,13 +178,13 @@ host later (see phase R5).
 
 | # | Need | Why | Status |
 |---|---|---|---|
-| P1 | **A freeing user allocator** | The bump allocator never frees (`user/src/heap.rs`). Rhai allocates on every evaluation, so a long-running REPL or service would grow without limit. Replace it with a real allocator (`linked_list_allocator`, which the kernel already uses, or `talc`) over `sbrk`; keep the bump allocator as a feature flag for tiny bins. | missing |
-| P2 | Native file I/O: `open`/`read`/`write`/`close`/`stat`/`readdir` | `read_file` is whole-file, read-only, 8.3 names. Scripts, modules and the shell (`ls`, `cd`, redirection) need the VFS/ext2 the kernel already has. | kernel has it, native ABI lacks it |
-| P3 | `argv`/`env`/`cwd` for native processes | Scripts take arguments; the shell needs `cd`. `service_args` covers services only. | partial |
+| P1 | **A freeing user allocator** | The bump allocator never frees (`user/src/heap.rs`). Rhai allocates on every evaluation, so a long-running REPL or service would grow without limit. Replace it with a real allocator (`linked_list_allocator`, which the kernel already uses, or `talc`) over `sbrk`; keep the bump allocator as a feature flag for tiny bins. | done differently: `user/src/heap.rs` is now size-class free lists over `sbrk` (large blocks still bump); the musl host uses musl's `malloc` |
+| P2 | Native file I/O: `open`/`read`/`write`/`close`/`stat`/`readdir` | `read_file` is whole-file, read-only, 8.3 names. Scripts, modules and the shell (`ls`, `cd`, redirection) need the VFS/ext2 the kernel already has. | path-based native calls exist (`user/src/files.rs`: `stat`, `list`, `read_at`, `write_file`, `append_file`, `mkdir`, `remove`, `rename`); no descriptor-based native API; the musl host uses the Linux ABI |
+| P3 | `argv`/`env`/`cwd` for native processes | Scripts take arguments; the shell needs `cd`. `service_args` covers services only. | `argv` and `envp` for native programs via `spawnv` and syscall 9 (fs F3, `user/src/sys/spawn.rs`); the musl host has all three |
 | P4 | Pipes between native processes | `ls | grep` in the shell. Messenger channels or a kernel pipe object. | exists for the Linux shim |
 | P5 | `#!` interpreter lookup in `spawn` | `spawn("tool.rhai")` should exec `/system/bin/rhai tool.rhai`. | done for Linux-ABI `execve` ([#491](https://github.com/va1erian/lazyos/issues/491)) |
 | P6 | Interrupt delivery to a native task | Ctrl-C in the REPL must stop a runaway loop (wired to Rhai's `on_progress`). | signals exist for the shim |
-| P7 | Long file names in the image | `.rhai` doesn't fit 8.3; scripts belong on ext2. | ext2 exists |
+| P7 | Long file names in the image | `.rhai` doesn't fit 8.3; scripts belong on ext2. | done: the OS volume is ext2 with long, case-sensitive names (fs F2/F3) |
 
 P1 blocks everything else. P2 and P3 block a useful shell; P4 to P7 can land during
 R2 and R3.

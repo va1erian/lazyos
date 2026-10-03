@@ -25,7 +25,7 @@ used only where the line is a stable anchor.
 | Allocators (heap/slab/user) | [allocators.md](architecture/allocators.md) | `kernel/src/mem/{heap,slab}.rs`, `user/src/heap.rs` | #61, S0 |
 | Tasks & scheduler | [tasks.md](architecture/tasks.md) | `kernel/src/task/mod.rs`, `kernel/src/task/switch.rs` | #58, S0 |
 | Wait queues & signals | [wait-signals.md](architecture/wait-signals.md) | `kernel/src/task/{wait,signal}.rs` | #57, #60, S0 |
-| Processes, supervision & Linux ABI | [processes.md](architecture/processes.md) | `kernel/src/task/process.rs`, `kernel/src/process/{mod,linux}.rs` | #59, #93, #101, S0/S2 |
+| Processes, supervision & Linux ABI | [processes.md](architecture/processes.md) | `kernel/src/task/process.rs`, `kernel/src/process/{mod,gate}.rs`, `kernel/src/process/linux/` | #59, #93, #101, S0/S2 |
 | Messenger core (handles/channels/buffers) | [ipc-core.md](architecture/ipc-core.md) | `kernel/src/ipc/{handles,channels,shared}.rs`, `libs/messenger` | #64-#67, S1 |
 | Messenger security (creds/ACL/audit/quota) | [ipc-security.md](architecture/ipc-security.md) | `kernel/src/ipc/{credentials,acl,audit}.rs`, `kernel/src/quota.rs` | #68, #103, S1/S3 |
 | Messenger fabric (registry/topics/stats/syscalls) | [ipc-fabric.md](architecture/ipc-fabric.md) | `kernel/src/ipc/{registry,topics,stats,syscalls}.rs` | #69, #70, #89, #92, S1/S2 |
