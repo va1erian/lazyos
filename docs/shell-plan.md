@@ -52,7 +52,7 @@ sessions (S6); GPU acceleration (S8).
   remains usable alone (`xdemo`).
 - **Desktop picture.** The wallpaper is the `sys/ui/bg` colour, or the PNG or
   JPEG file `sys/ui/wallpaper` names (an absolute path; Settings, Appearance,
-  *Desktop picture* lists the ones in `/system/share/wallpapers`, and
+  *Desktop background* lists the ones in `/system/share/wallpapers`, and
   `confctl set sys/ui/wallpaper str <path>` takes any file). LazyShell re-reads
   the key with the theme, checks the size the file's header declares before
   decoding it (at most 32 MiB and 16 Mpx), cuts it to the screen's aspect ratio
