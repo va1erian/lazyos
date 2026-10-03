@@ -252,6 +252,34 @@ pub fn set_user_frame(slot: usize, rip: u64, user_rsp: u64) -> bool {
     true
 }
 
+/// Make `slot`'s saved frame say it was saved in ring 0, like the frame of a
+/// task parked inside a syscall (the voluntary gate saves a kernel `CS`).
+/// Returns the `CS` it replaced, for [`set_frame_cs`] to put back when the
+/// test lets the task "return" to user mode.
+pub fn set_kernel_frame(slot: usize) -> Option<u64> {
+    use x86_64::instructions::segmentation::{Segment, CS};
+    let frame = frame_of(slot)?;
+    let kernel_cs = u64::from(CS::get_reg().0);
+    let index = super::signal::FRAME_RIP_INDEX + 1;
+    // SAFETY: `frame` is the interrupt frame the kernel built or saved on the
+    // slot's own kernel stack; `CS` follows RIP in the timer-frame layout.
+    unsafe {
+        let old = super::sys::frame_word(frame, index);
+        super::sys::put_frame_word(frame, index, kernel_cs);
+        Some(old)
+    }
+}
+
+/// Put `cs` back into `slot`'s saved frame (see [`set_kernel_frame`]).
+pub fn set_frame_cs(slot: usize, cs: u64) -> bool {
+    let Some(frame) = frame_of(slot) else {
+        return false;
+    };
+    // SAFETY: as `set_kernel_frame`.
+    unsafe { super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX + 1, cs) };
+    true
+}
+
 /// The registers `slot` would resume with, read from its saved frame.
 pub fn frame_regs(slot: usize) -> Option<super::signal::UserRegs> {
     let frame = frame_of(slot)?;

@@ -33,6 +33,9 @@ enum Mode {
     DieAfterTake,
     /// Fail every `n`th request with an I/O error, serve the others.
     FlakyEvery(u64),
+    /// Take the request, `SIGKILL` the requester (this slot) while it holds
+    /// the request slot parked in the kernel, then serve it normally.
+    KillRequester(usize),
 }
 
 /// A disk's bytes in 64 KiB chunks, each allocated when first written
@@ -110,6 +113,8 @@ struct Fake {
     served: u64,
     flushes: u64,
     last: Option<provider::Request>,
+    /// What [`Mode::KillRequester`] saw when it killed the requester.
+    killed: Option<Result<(), String>>,
 }
 
 static FAKE: Mutex<Option<Fake>> = Mutex::new(None);
@@ -145,6 +150,7 @@ fn setup(mode: Mode) -> Result<&'static dyn BlockDevice, String> {
         served: 0,
         flushes: 0,
         last: None,
+        killed: None,
     });
     test_clock::set_server(Some(serve));
     crate::block::device(&alloc::format!("usb{disk}"))
@@ -212,6 +218,11 @@ fn serve(index: usize) {
             test_clock::advance(provider::SLICE_TICKS);
             return;
         }
+        Mode::KillRequester(requester) => {
+            fake.killed = Some(kill_parked_requester(requester));
+            fake.mode = Mode::Normal;
+            status::OK
+        }
         Mode::Status(code) => code,
         Mode::FlakyEvery(n) if fake.served % n == 0 => status::IO,
         Mode::Normal | Mode::FlakyEvery(_) => status::OK,
@@ -230,6 +241,34 @@ fn serve(index: usize) {
         Ok(())
     });
     assert!(result.is_ok(), "completion refused: {result:?}");
+}
+
+/// `SIGKILL` `requester` from the kernel task while it waits, parked, for
+/// the request it holds the slot for. It must be woken to unwind, not ended
+/// in place: ended, it would never run again to release the slot.
+fn kill_parked_requester(requester: usize) -> Result<(), String> {
+    let queue = task::wait::WaitQueue::new(task::WaitKind::Block);
+    queue.park(requester, None);
+    task::harness::switch_current(task::KERNEL_TASK);
+    let sent = crate::task::signal::send_to_slot(
+        task::KERNEL_TASK,
+        requester,
+        crate::task::signal::SIGKILL,
+        crate::task::signal::SigInfo::kernel(),
+    );
+    let state = task::harness::state(requester);
+    let reason = task::harness::take_wake_reason(requester);
+    task::harness::switch_current(requester);
+    check!(sent.is_ok(), "SIGKILL refused: {sent:?}");
+    check!(
+        state == Some(task::TaskState::Runnable),
+        "SIGKILL left the requester {state:?} mid-request"
+    );
+    check!(
+        reason == Some(task::WakeReason::Interrupted),
+        "the requester was woken with {reason:?}"
+    );
+    Ok(())
 }
 
 fn with_fake<T>(f: impl FnOnce(&mut Fake) -> T) -> T {
@@ -267,6 +306,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("provider_dead_owner_detected", hostile::dead_owner_detected),
     ("provider_medium_gone", hostile::medium_gone),
     ("provider_stale_completion", hostile::stale_completion),
+    (
+        "provider_kill_mid_request_releases_slot",
+        hostile::kill_mid_request_releases_slot,
+    ),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
     ("provider_sys_hostile_lengths", sys::hostile_lengths),

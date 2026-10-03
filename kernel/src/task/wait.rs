@@ -91,6 +91,13 @@ impl WaitQueue {
     /// soon as the wake reason is observed, which can be on the very tick that
     /// woke it (deadline sweep) rather than a tick later.
     pub fn wait(&self, task: usize, deadline: Option<u64>) -> WakeReason {
+        // A task being killed does not go to sleep: the kill's wake may have
+        // come before this park (the task was runnable inside its syscall),
+        // and nothing else would end the sleep. It returns at once, as if
+        // interrupted, and unwinds to the syscall return where it dies.
+        if super::signal::killed(task) {
+            return WakeReason::Interrupted;
+        }
         self.park(task, deadline);
         // Enter the scheduler through the voluntary gate: the saved context is
         // a regular interrupt frame, so resuming later lands right here with
