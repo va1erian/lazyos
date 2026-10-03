@@ -202,7 +202,7 @@ pub(super) fn selftest() -> &'static str {
     remember(PROBE, probe(1234));
     let updated = owner(PROBE) == Some(1234);
     let want_home = alloc::format!("HOME={home}");
-    let environment = env(PROBE, 1234).iter().any(|var| *var == want_home)
+    let environment = env(PROBE, 1234).contains(&want_home)
         && env(PROBE, 1234).iter().any(|var| var == "USER=probe");
     forget(PROBE);
     let forgotten = owner(PROBE).is_none() && owner(0).is_none();

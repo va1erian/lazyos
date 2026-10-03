@@ -358,16 +358,7 @@ pub fn compose(
                 )
             })
         }
-        Action::Update { manifest } => update(
-            image,
-            &head,
-            total,
-            sectors,
-            manifest,
-            settings.update_damaged,
-            dirs,
-            files,
-        ),
+        Action::Update { manifest } => update(image, &head, manifest, settings, dirs, files),
     }
 }
 
@@ -400,13 +391,13 @@ fn create(
 fn update(
     image: &Path,
     head: &[u8],
-    total: u64,
-    sectors: u64,
     old: &Manifest,
-    update_damaged: bool,
+    settings: &Settings,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
+    let total = OS_START_LBA * SECTOR + settings.os_size;
+    let sectors = settings.os_size / SECTOR;
     let mut options = OpenOptions::new();
     options.read(true).write(true);
     #[cfg(windows)]
@@ -435,7 +426,7 @@ fn update(
     let mut volume = open_cached(io)?;
     // `recover` commits its orphan reclaim through the cache before the
     // checker reads the raw volume.
-    os_recover::recover(&mut volume, update_damaged)?;
+    os_recover::recover(&mut volume, settings.update_damaged)?;
     write_head(&mut file, head, old_end)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
     Ok(())

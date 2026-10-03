@@ -142,7 +142,7 @@ pub fn embed(sink: &mut dyn Sink, packages: &[&CorePackage], autostart: &[String
     let mut index =
         String::from("# <system_name> <version> <sha256> [autostart], written by build.rs\n");
     for package in packages {
-        let starts = autostart.iter().any(|short| *short == package.short);
+        let starts = autostart.contains(&package.short);
         let (path, digest) = if starts {
             &package.autostart
         } else {

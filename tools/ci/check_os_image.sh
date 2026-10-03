@@ -54,10 +54,12 @@ expect /system/.image-manifest 0644 0
 debugfs -R "cat /system/.image-manifest" "$part" 2>/dev/null | grep -q "^f /system/bin/hello$"
 
 # Every program is 0755 root, and nothing but directories sits at the root
-# (`ls -p` prints /inode/mode/uid/gid/name/size/; regular files are 100xxx).
+# (`ls -p` prints /inode/mode/uid/gid/name/size/, regular files are 100xxx,
+# and ends with an empty line, which is no entry).
 debugfs -R "ls -p /system/bin" "$part" 2>/dev/null | awk -F/ '
-  $6 != "." && $6 != ".." && $3 != "100755" { print "/system/bin/" $6 ": mode " $3; bad = 1 }
-  $6 != "." && $6 != ".." && $4 != "0" { print "/system/bin/" $6 ": owner " $4; bad = 1 }
+  NF < 6 || $6 == "." || $6 == ".." { next }
+  $3 != "100755" { print "/system/bin/" $6 ": mode " $3; bad = 1 }
+  $4 != "0" { print "/system/bin/" $6 ": owner " $4; bad = 1 }
   END { exit bad }'
 root_files=$(debugfs -R "ls -p /" "$part" 2>/dev/null | awk -F/ '$3 ~ /^100/ { print $6 }')
 [ -z "$root_files" ] || { echo "regular files at the root: $root_files" >&2; exit 1; }

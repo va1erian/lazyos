@@ -293,7 +293,7 @@ impl Pkgd {
             return Err(fail(EINVAL, problem_text(&info.problems)));
         }
         let expected = self.core.iter().find(|p| p.system_name == system_name);
-        if info.system_name != system_name || expected.map_or(true, |p| p.digest != info.digest) {
+        if info.system_name != system_name || expected.is_none_or(|p| p.digest != info.digest) {
             return Err(fail(
                 EINVAL,
                 "the package does not match the image's package index",

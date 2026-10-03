@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_demo  # noqa: E402
 
 LABEL_OFFSET = 1024 + 120  # ext2 s_volume_name
-SAMPLES = [r"C:\lr\hello", r"C:\lr\calc"]
+# No drive letter: on Linux `os.pathsep` is `:`, which would split `C:\...`.
+SAMPLES = [os.path.join(os.sep, "lr", "hello"), os.path.join(os.sep, "lr", "calc")]
 MESSENGER_SAMPLE = "lazyrad-os/samples/messenger"
 
 
