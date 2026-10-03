@@ -15,7 +15,7 @@
 //! It holds `CAP_DEV_CLAIM`, `CAP_INPUT_SOURCE` and `CAP_BLOCK_PROVIDER`
 //! and nothing else (`init` runs it as `_usb`); it cannot read the bus and
 //! the kernel stamps its records with device ids of their own. A USB stick
-//! (`usbd/msc.rs`) is served to the kernel as a block device (syscall 32,
+//! (`usbd/msc.rs`) is served to the kernel as a block device (syscall 33,
 //! docs/architecture/usb-storage.md).
 //!
 //! Serial evidence: `USBD:XHCI hc=<n>` (a controller up, with its BIOS

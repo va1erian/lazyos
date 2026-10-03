@@ -1,5 +1,5 @@
 //! The mass-storage class: sticks served to the kernel as block devices
-//! (syscall 32, docs/architecture/usb-storage.md).
+//! (syscall 33, docs/architecture/usb-storage.md).
 //!
 //! `class.rs` hands this a SCSI Bulk-Only interface ([`Msc::bind`]): its two
 //! bulk pipes are opened and configured with the device's other endpoints.

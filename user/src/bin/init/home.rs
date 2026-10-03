@@ -3,7 +3,7 @@
 //!
 //! When `lazyos.cfg` names a home volume the kernel did not find at boot, the
 //! kernel keeps the request and mounts the volume at `/home` once a block
-//! provider's disk carries it (syscall 32 `SETTLE`). `init` asks on every
+//! provider's disk carries it (syscall 33 `SETTLE`). `init` asks on every
 //! supervision-loop pass and holds back the rows that use `/home` (accounts
 //! and logins, and the desktop's autostart apps) until the answer is final:
 //! mounted, nothing pending, absent (every provider finished its first scan

@@ -81,6 +81,18 @@ pub fn ata_floating_bus_is_absent_at_once() -> Result<(), String> {
         "the waits took {} reads on 0xFF",
         floating.reads
     );
+    // ERR and DRQ mean nothing while BSY is set: a stale ERR between
+    // sectors must not fail the read, nor a stale DRQ start it early.
+    let mut stale = FakeAta::new(|read| match read {
+        1 => 0x81,
+        2 => 0x88,
+        _ => 0x58,
+    });
+    check!(
+        ata::wait_for_data_on(&mut stale),
+        "a stale ERR under BSY failed the wait"
+    );
+    check!(stale.reads == 3, "stale bits: {} reads", stale.reads);
     check!(
         ata::status_means_absent(0xFF) && ata::status_means_absent(0),
         "absence rule"

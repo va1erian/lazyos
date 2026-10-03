@@ -20,7 +20,7 @@ pub const USB_UID: u32 = 904;
 /// PCI `0C/03/xx`).
 pub const USB_CLASS: &str = "os.kernel.dev.usb";
 
-/// The uids that may serve a block device to the kernel (syscall 32 ops 0-3,
+/// The uids that may serve a block device to the kernel (syscall 33 ops 0-3,
 /// together with `CAP_BLOCK_PROVIDER`): the USB driver only, for the mass
 /// storage class (docs/architecture/usb-storage.md).
 pub const BLOCK_PROVIDER_UIDS: &[u32] = &[USB_UID];

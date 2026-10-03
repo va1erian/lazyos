@@ -110,7 +110,9 @@ impl PhysMem for Image {
             return false;
         };
         for (base, data) in &self.segments {
-            let seg_end = base + data.len() as u64;
+            let Some(seg_end) = base.checked_add(data.len() as u64) else {
+                continue;
+            };
             if addr >= *base && end <= seg_end {
                 let from = (addr - base) as usize;
                 buf.copy_from_slice(&data[from..from + buf.len()]);

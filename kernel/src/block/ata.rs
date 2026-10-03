@@ -155,11 +155,18 @@ pub fn wait_not_busy_on(channel: &mut impl Channel) -> bool {
     false
 }
 
-/// Poll until DRQ is set. False on timeout or on an error (which includes a
-/// floating bus: `0xFF` has ERR set).
+/// Poll until DRQ is set. False on timeout, on an error, or on a floating
+/// bus. ERR and DRQ are undefined while BSY is set, so they are read only
+/// once it clears.
 pub fn wait_for_data_on(channel: &mut impl Channel) -> bool {
     for _ in 0..POLL_LIMIT {
         let status = channel.status();
+        if status == FLOATING_BUS {
+            return false;
+        }
+        if status & STATUS_BSY != 0 {
+            continue;
+        }
         if status & STATUS_ERR != 0 {
             return false;
         }

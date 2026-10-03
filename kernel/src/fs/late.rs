@@ -57,7 +57,7 @@ static MOUNTED: AtomicBool = AtomicBool::new(false);
 static SCANNED: AtomicBool = AtomicBool::new(false);
 
 /// A provider has registered every disk present when it started (syscall
-/// 32 op 5): from now on a home volume that is not found is [`state::ABSENT`].
+/// 33 op 5): from now on a home volume that is not found is [`state::ABSENT`].
 pub fn provider_scanned() {
     SCANNED.store(true, Ordering::Release);
 }

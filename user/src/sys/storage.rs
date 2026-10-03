@@ -60,7 +60,7 @@ pub struct StorageRequest {
 
 fn storage(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> Result<u64, i64> {
     let code: u64;
-    // SAFETY: `int 0x80` with syscall 32; the kernel validates every pointer
+    // SAFETY: `int 0x80` with syscall 33; the kernel validates every pointer
     // argument against this task's address space before using it.
     unsafe {
         asm!(
