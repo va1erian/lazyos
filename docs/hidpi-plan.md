@@ -48,8 +48,10 @@ screen shows half-size UI (`docs/xui-plan.md`: "DPI fixed 96").
    - It then moves the console, the display grant geometry, the limits and
      the mouse bounds to the new mode.
    - Any failure keeps the firmware mode and logs `display: mode ... refused`.
-     A mode the adapter does not keep is undone: the saved mode registers are
-     written back before the switch reports the refusal.
+     A mode the adapter does not keep is undone: the saved mode registers
+     (stride included) are written back without clearing video memory, so
+     the console keeps its pixels. QEMU rounds the width down to a multiple
+     of 8, so a mode like 1366x768 takes this path.
    - `LAZYOS_DISPLAY_MODE=2560x1440` writes the line at build time, the same
      way `LAZYOS_LIMIT_*` does.
    - A patched bootloader or UEFI GOP is the real-PC route

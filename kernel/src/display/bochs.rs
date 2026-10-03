@@ -42,6 +42,10 @@ const ID_MAX: u16 = 0xB0CF;
 const ENABLED: u16 = 0x01;
 const GET_CAPS: u16 = 0x02;
 const LFB_ENABLED: u16 = 0x40;
+/// Keep video memory on enable. Every enable here sets it: a refused mode
+/// must leave the old framebuffer's pixels intact, and a kept one is
+/// cleared by the new console anyway.
+const NO_CLEAR_MEM: u16 = 0x80;
 
 const BITS_PER_PIXEL: u16 = 32;
 const BYTES_PER_PIXEL: usize = 4;
@@ -118,32 +122,46 @@ pub struct Registers {
     yres: u16,
     bpp: u16,
     enable: u16,
+    virt_width: u16,
+    virt_height: u16,
     x_offset: u16,
     y_offset: u16,
 }
 
 impl Registers {
-    /// Read the current mode registers.
+    /// Read the current mode registers (the enable flags without the
+    /// write-only clear control).
     pub fn save() -> Registers {
         Registers {
             xres: read(REG_XRES),
             yres: read(REG_YRES),
             bpp: read(REG_BPP),
-            enable: read(REG_ENABLE),
+            enable: read(REG_ENABLE) & !NO_CLEAR_MEM,
+            virt_width: read(REG_VIRT_WIDTH),
+            virt_height: read(REG_VIRT_HEIGHT),
             x_offset: read(REG_X_OFFSET),
             y_offset: read(REG_Y_OFFSET),
         }
     }
 
     /// Put these registers back. The adapter is disabled while the geometry
-    /// changes, as for any mode switch, then re-enabled as it was.
+    /// changes, as for any mode switch, then re-enabled as it was without
+    /// clearing video memory. Enabling resets the virtual size to the
+    /// resolution, so the saved stride and offsets are written after it.
     fn restore(self) {
         x86_64::instructions::interrupts::without_interrupts(|| {
             write(REG_ENABLE, 0);
             write(REG_XRES, self.xres);
             write(REG_YRES, self.yres);
             write(REG_BPP, self.bpp);
-            write(REG_ENABLE, self.enable);
+            let keep = if self.enable & ENABLED != 0 {
+                NO_CLEAR_MEM
+            } else {
+                0
+            };
+            write(REG_ENABLE, self.enable | keep);
+            write(REG_VIRT_WIDTH, self.virt_width);
+            write(REG_VIRT_HEIGHT, self.virt_height);
             write(REG_X_OFFSET, self.x_offset);
             write(REG_Y_OFFSET, self.y_offset);
         });
@@ -157,7 +175,7 @@ fn program(width: u32, height: u32) {
         write(REG_XRES, width as u16);
         write(REG_YRES, height as u16);
         write(REG_BPP, BITS_PER_PIXEL);
-        write(REG_ENABLE, ENABLED | LFB_ENABLED);
+        write(REG_ENABLE, ENABLED | LFB_ENABLED | NO_CLEAR_MEM);
         write(REG_X_OFFSET, 0);
         write(REG_Y_OFFSET, 0);
     });
@@ -216,20 +234,11 @@ impl Adapter {
         (self.max, self.vram)
     }
 
-    /// Test hook: program `width x height`, then take the path a mode the
-    /// adapter refused takes (restore the saved registers), as `set_mode`
-    /// would on a failed read-back. QEMU keeps every mode it advertises, so
-    /// the refusal cannot be provoked from the hardware side.
-    #[cfg(lazyos_tests)]
-    pub fn program_then_refuse_for_test(&self, width: u32, height: u32) {
-        let saved = Registers::save();
-        program(width, height);
-        saved.restore();
-    }
-
     /// Switch to `width x height` at 32 bpp and return the new framebuffer.
     /// The caller must hold the framebuffer: nothing may draw on the old
-    /// geometry while the registers change.
+    /// geometry while the registers change. A mode the adapter does not keep
+    /// exactly (QEMU rounds the width down to a multiple of 8) is undone, old
+    /// pixels included, and refused.
     pub fn set_mode(&self, width: u32, height: u32) -> Result<Mode, ModeError> {
         check_mode(width, height, self.max, self.vram)?;
         let end = self.lfb + mode_bytes(width, height);

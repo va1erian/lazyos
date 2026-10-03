@@ -263,10 +263,12 @@ pub fn mode_switch_soak() -> Result<(), String> {
     })
 }
 
-/// A mode the adapter does not keep is undone: after the refusal path the
-/// mode registers are exactly the saved ones, and the console's framebuffer
-/// (still the old geometry) reads back what it writes at its far corner.
-/// Repeated, so a register left behind by one round shows in the next.
+/// A mode the adapter does not keep is undone through the real refusal
+/// path: QEMU rounds a width to a multiple of 8, so 1366x768 reads back as
+/// 1360 and `set_mode` must restore every mode register (the stride
+/// included) without clearing video memory, so the console's framebuffer,
+/// still the old geometry, keeps its pixels. Repeated, so a register left
+/// behind by one round shows in the next.
 pub fn mode_refused_switch_restores_registers() -> Result<(), String> {
     let Ok(adapter) = bochs::find() else {
         return Ok(());
@@ -274,20 +276,30 @@ pub fn mode_refused_switch_restores_registers() -> Result<(), String> {
     let (width, height) = crate::display::size();
     for round in 0..50 {
         let outcome = crate::console::with_framebuffer(|fb| {
+            let marker = crate::gfx::Color::rgb(0x31, 0x42, 0x53 + (round % 7) as u8);
+            let (x, y) = (width - 1, height - 1);
+            fb.write_pixel(x, y, marker);
             let before = bochs::Registers::save();
-            adapter.program_then_refuse_for_test(2560, 1440);
+            let refused = adapter.set_mode(1366, 768);
             let after = bochs::Registers::save();
+            if refused.is_ok() {
+                // An adapter that keeps the odd width: put the boot mode back.
+                let _ = adapter.set_mode(width as u32, height as u32);
+                return Err(format!("round {round}: 1366x768 was kept, not refused"));
+            }
+            let error = refused.err();
+            check!(
+                error == Some(ModeError::NotApplied),
+                "round {round}: {error:?}"
+            );
             check!(
                 after == before,
                 "round {round}: registers {after:?} != {before:?}"
             );
-            let marker = crate::gfx::Color::rgb(0x31, 0x42, 0x53);
-            let (x, y) = (width - 1, height - 1);
-            fb.write_pixel(x, y, marker);
             let color = fb.read_pixel(x, y);
             check!(
-                (color.r, color.g, color.b) == (0x31, 0x42, 0x53),
-                "round {round}: corner reads {color:?}"
+                (color.r, color.g, color.b) == (marker.r, marker.g, marker.b),
+                "round {round}: the old pixels were lost ({color:?})"
             );
             Ok(())
         });
