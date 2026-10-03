@@ -79,7 +79,31 @@ fn uname() -> Option<String> {
     None
 }
 
+/// The picture files in `dir` (PNG and JPEG, by extension), sorted by path.
+fn pictures_in(dir: &str) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut pictures: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| {
+            let lower = name.to_ascii_lowercase();
+            [".png", ".jpg", ".jpeg"]
+                .iter()
+                .any(|ext| lower.ends_with(ext))
+        })
+        .map(|name| format!("{dir}/{name}"))
+        .collect();
+    pictures.sort();
+    pictures
+}
+
 impl System for OsSystem {
+    fn wallpapers(&self) -> Vec<String> {
+        pictures_in(fhs::share::WALLPAPERS)
+    }
+
     fn now(&self) -> Option<Now> {
         let reply = self.call(wire::METHOD_NOW, Vec::new()).ok()?;
         let now = wire::decode_now_reply(&reply.body).ok()?;

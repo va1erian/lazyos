@@ -24,6 +24,7 @@ uid-0 writable, emits `system/confd/changed/{path...}`).
 | `sys/ui/mode` | string `dark` / `light` |
 | `sys/ui/bg`, `sys/ui/accent`, `sys/ui/title_active`, `sys/ui/title_inactive`, `sys/ui/taskbar` | u64 0xRRGGBB |
 | `sys/ui/anim` | bool |
+| `sys/ui/wallpaper` | string: absolute path of a PNG or JPEG desktop picture (absent: the plain `sys/ui/bg` colour); read by LazyShell, see `docs/shell-plan.md` |
 | `sys/input/layout` | string `us` / `fr` |
 | `sys/time/zone` | string (existing) |
 | `sys/time/clock24`, `sys/time/show_seconds` | bool |

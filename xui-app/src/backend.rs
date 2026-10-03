@@ -26,6 +26,7 @@
 //!
 //! [`run`]: Backend::run
 
+mod backdrop;
 mod double_click;
 mod event_loop;
 mod focus;
@@ -162,6 +163,8 @@ struct Window {
     frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
     background: Color,
+    /// A picture drawn over the background, under every node (`backdrop`).
+    backdrop: Option<Rc<xui_core::image::Image>>,
     dpi: u32,
     width: i32,
     height: i32,
@@ -418,6 +421,7 @@ mod test_support {
                 frame: Vec::new(),
                 sink: Some(sink),
                 background: xui_core::Theme::light().background,
+                backdrop: None,
                 dpi: DEFAULT_DPI,
                 width: 64,
                 height: 64,

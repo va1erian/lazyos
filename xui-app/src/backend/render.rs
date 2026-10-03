@@ -10,6 +10,7 @@ use crate::client_window::copy_rect;
 use crate::display::{Client, FrameEvent};
 use crate::sys::{self, DisplayInfo};
 
+use super::backdrop::{self, BackdropCanvas};
 use super::geometry::{absolute_bounds, effectively_visible};
 use super::{LazyOSBackend, Mode};
 
@@ -38,7 +39,7 @@ impl LazyOSBackend {
     /// on an already-borrowed `windows`. The window itself stays in the map, so
     /// those re-entrant reads still see its live size, DPI and theme.
     fn composite(&self, window: WindowId, damage: Rect) -> bool {
-        let (dpi, background, width, height, mut surface) = {
+        let (dpi, background, backdrop, width, height, mut surface) = {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return false;
@@ -46,12 +47,19 @@ impl LazyOSBackend {
             (
                 entry.dpi,
                 entry.background,
+                entry.backdrop.clone(),
                 entry.width,
                 entry.height,
                 std::mem::replace(&mut entry.surface, Surface::new(1, 1)),
             )
         };
-        surface.with_canvas_at(damage, dpi, |canvas| canvas.fill_rect(damage, background));
+        let area = Rect::new(0, 0, width, height);
+        surface.with_canvas_at(damage, dpi, |canvas| {
+            canvas.fill_rect(damage, background);
+            if let Some(image) = &backdrop {
+                backdrop::draw(canvas, image, area, damage);
+            }
+        });
         // Bounds are parent-relative: paint at the window-absolute position,
         // and skip a node hidden through any ancestor. A node just outside the
         // damage still runs: anti-aliased edges and focus rings spill a pixel
@@ -70,7 +78,15 @@ impl LazyOSBackend {
                 .collect()
         };
         for (bounds, painter) in paints {
-            surface.with_canvas_at(bounds, dpi, |canvas| painter(canvas));
+            surface.with_canvas_at(bounds, dpi, |canvas| match &backdrop {
+                Some(image) => painter(&mut BackdropCanvas {
+                    inner: canvas,
+                    image,
+                    area,
+                    background,
+                }),
+                None => painter(canvas),
+            });
         }
         // Put the real surface back and fold the damage into the frame; a
         // painter that closed this window leaves no entry, so both drop.
