@@ -27,8 +27,8 @@ cc = { version = "1", features = ["parallel"] }
 xui-app = { path = ".." }
 # The documentation root the Open dialog starts in.
 fhs = { path = "../../libs/fhs" }
-xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6" }
 # One xui revision for every crate, so a single `xui_core` links. `xui-litehtml`
 # is an ordinary git dependency, not vendored.
-xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
+xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6" }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
