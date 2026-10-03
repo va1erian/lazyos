@@ -40,17 +40,36 @@ pub struct BarApp {
 }
 
 /// The clock's text style: readable on the bar whatever its colour, and
-/// secondary on the dark bar.
+/// secondary on the dark bar when dimming it still leaves it readable (a
+/// mid-tone taskbar override keeps the full-contrast ink).
 fn clock_style(ctx: &Ctx) -> TextStyle {
     let theme = ctx.theme.borrow();
     let palette = theme.palette();
     let ink = uitheme::text_on(palette.taskbar_bg);
-    let ink = if theme.is_dark() {
-        uitheme::mix(ink, palette.taskbar_bg, 1, 4)
+    let dimmed = uitheme::mix(ink, palette.taskbar_bg, 1, 4);
+    let ink = if theme.is_dark() && readable(dimmed, palette.taskbar_bg) {
+        dimmed
     } else {
         ink
     };
     TextStyle::new(color(ink), TEXT).middle()
+}
+
+/// Whether `ink` on `background` reaches the WCAG AA 4.5:1 text contrast.
+fn readable(ink: u32, background: u32) -> bool {
+    // 0.05 in relative luminance's 0..=65535 scale.
+    const FLARE: u64 = 3277;
+    let (a, b) = (
+        u64::from(uitheme::relative_luminance(ink)) + FLARE,
+        u64::from(uitheme::relative_luminance(background)) + FLARE,
+    );
+    a.max(b) * 10 >= a.min(b) * 45
+}
+
+/// The focused entry's pill colour on a dark bar: the accent halfway to the
+/// bar, so the pill reads as a tint of it.
+fn focus_tint(palette: &uitheme::Palette) -> u32 {
+    uitheme::mix(palette.taskbar_entry_focus, palette.taskbar_bg, 1, 2)
 }
 
 /// A dark bar's window entry (the Midnight mockup): no box at rest, a faint
@@ -66,7 +85,7 @@ fn paint_entry(
     hovered: bool,
 ) {
     if focused {
-        let tint = uitheme::mix(palette.taskbar_entry_focus, palette.taskbar_bg, 1, 2);
+        let tint = focus_tint(palette);
         let radius = 6.0 * s as f32;
         let edge = color(uitheme::mix(tint, 0xFF_FF_FF, 1, 8));
         look::face(canvas, area, radius, color(tint), deco);
@@ -84,11 +103,11 @@ fn paint_entry(
     }
 }
 
-/// A dark bar entry's text colour: bright when focused, dimmed when
-/// minimised.
+/// A dark bar entry's text colour: readable on the focused pill's tint
+/// whatever the accent, dimmed when minimised.
 fn entry_ink(palette: &uitheme::Palette, focused: bool, minimized: bool) -> u32 {
     if focused {
-        0xFF_FF_FF
+        uitheme::text_on(focus_tint(palette))
     } else if minimized {
         uitheme::mix(palette.overlay_text, palette.taskbar_bg, 1, 2)
     } else {

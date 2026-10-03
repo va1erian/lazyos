@@ -103,6 +103,8 @@ pub fn desktop_theme(palette: &Palette, dark: bool) -> Theme {
         theme.background
     };
     theme.accent = color(palette.overlay_selected);
+    // The preset's ink was chosen for its own accent; match the one in use.
+    theme.text_on_accent = color(uitheme::text_on(palette.overlay_selected));
     theme
 }
 
@@ -139,6 +141,10 @@ mod tests {
         let theme = desktop_theme(&palette, true);
         assert_eq!(theme.background, color(palette.background));
         assert!(theme.is_dark);
+        assert_eq!(
+            theme.text_on_accent,
+            color(uitheme::text_on(palette.overlay_selected))
+        );
         assert_eq!(color(0x12_34_56), Color::rgb(0x12, 0x34, 0x56));
     }
 }
