@@ -7,6 +7,11 @@ from tkinter import ttk
 from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 
 
+#: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
+#: each is the Tk variable `simple_<name>`.
+SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls")
+
+
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
     """Map the tab's radio labels to ``(cargo profile, interface)``."""
     return dict(SIMPLE_BUILDS)[build_label], iface_label
@@ -14,7 +19,7 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
 
 def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
                      devices_var, doom_var, modplayer_var, net_var, on_start,
-                     linuxapps_var=None, tls_var=None) -> None:
+                     linuxapps_var=None, hidpi_var=None, tls_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -22,9 +27,9 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ``shell_var``, ``devices_var``, ``doom_var`` and ``modplayer_var`` are Tk
     booleans for the LazyRAD IDE, the LazyShell desktop, opening the Devices app
     at boot, the Doom package and the LazyRAD MOD player package; ``net_var``
-    adds networking, ``tls_var`` the HTTPS clients (with networking) and
-    ``linuxapps_var`` the Linux programs (either interface); ``on_start``
-    runs the plan.
+    adds networking, ``linuxapps_var`` the Linux programs, ``hidpi_var``
+    the 2560x1440 HiDPI screen and ``tls_var`` the HTTPS clients (with
+    networking), on either interface; ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -83,6 +88,13 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(extra, text="Linux programs: dash, lua, sqlite3, jq, rg "
                                     "(builds them into /system/bin)",
                         variable=linuxapps_var).pack(anchor="w", padx=8, pady=4)
+
+    if hidpi_var is not None:
+        screen = ttk.LabelFrame(parent, text="Screen")
+        screen.pack(fill="x", padx=8, pady=6)
+        ttk.Checkbutton(screen, text="HiDPI: 2560x1440 at 2x (a sharp 720p desktop for a "
+                                     "4K monitor)",
+                        variable=hidpi_var).pack(anchor="w", padx=8, pady=4)
 
     ttk.Button(parent, text="Start LazyOS", command=on_start
                ).pack(anchor="w", padx=10, pady=12)

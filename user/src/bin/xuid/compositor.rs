@@ -91,6 +91,8 @@ impl Compositor {
     /// A compositor over `screen` with no surfaces and the pointer centered.
     pub(super) fn new(screen: Canvas) -> Compositor {
         let pointer = (screen.width() / 2, screen.height() / 2);
+        let mut themefeed = ThemeFeed::new();
+        themefeed.decide_scale(screen.width() as u32, screen.height() as u32);
         Compositor {
             screen,
             surfaces: Vec::new(),
@@ -112,7 +114,7 @@ impl Compositor {
             mods: Modifiers::default(),
             alt_tab: None,
             scratch: Vec::with_capacity(64),
-            themefeed: ThemeFeed::new(),
+            themefeed,
             powerfeed: PowerFeed::new(),
             input: InputLink::new(),
             held: HeldInput::new(),

@@ -277,18 +277,26 @@ impl Canvas {
     /// plus one pixel of outline on every side) is composed per row from bit
     /// masks and written with a single clip.
     pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
+        self.cursor_scaled(x, y, 1, clip);
+    }
+
+    /// [`cursor`](Self::cursor) with every sprite pixel drawn as a
+    /// `scale x scale` block (HiDPI, docs/hidpi-plan.md), so the arrow keeps
+    /// its size on a 2x screen and stays crisp.
+    pub fn cursor_scaled(&mut self, x: i32, y: i32, scale: i32, clip: Rect) {
         const SIZE: i32 = 10;
+        let scale = scale.clamp(1, 4);
         // Saturate so an extreme pointer position cannot overflow; such a
         // sprite lies off the canvas and `visible` returns an empty rect.
-        let (ox, oy) = (x.saturating_sub(1), y.saturating_sub(1));
-        let r = self.visible(Rect::new(ox, oy, SIZE, SIZE), clip);
+        let (ox, oy) = (x.saturating_sub(scale), y.saturating_sub(scale));
+        let r = self.visible(Rect::new(ox, oy, SIZE * scale, SIZE * scale), clip);
         for py in r.y..r.y + r.h {
-            let sy = (py - oy) as usize;
+            let sy = ((py - oy) / scale) as usize;
             let (outline, body) = cursor_masks(sy);
-            let first = (r.x - ox) as usize;
+            let first = r.x - ox;
             let row = self.row_mut(r.x, py, r.w);
             for (i, dst) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                let bit = 1u16 << (first + i);
+                let bit = 1u16 << ((first + i as i32) / scale);
                 if body & bit != 0 {
                     dst.copy_from_slice(&[240, 240, 240, 0xff]);
                 } else if outline & bit != 0 {

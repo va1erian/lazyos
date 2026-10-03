@@ -136,7 +136,9 @@ fn main() {
     let mut builder = bootloader::DiskImageBuilder::new(kernel.clone());
     builder.set_file_contents(
         String::from(fhs::boot::LAZYOS_CFG),
-        os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env()).into_bytes(),
+        (os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env())
+            + &os_image::display_cfg::from_env())
+            .into_bytes(),
     );
     let mut files = os_image::OsFiles::default();
     // Issue #5: `LAZYOS_RAMDISK=<path>` also loads a FAT image as the

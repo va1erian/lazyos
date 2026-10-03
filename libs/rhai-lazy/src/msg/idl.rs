@@ -807,6 +807,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "GetOutput",
+                id: 43,
+                oneway: false,
+                doc: "The screen in physical pixels and the desktop's integer UI scale\n(`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this\ninterface stays in physical pixels; a scale-aware client draws at\n`scale` times its design size (an xui app runs at `96 * scale` DPI).\nThe scale is fixed for the compositor's lifetime.",
+                params: &[],
+                returns: &[Field { name: "width", ty: Ty::U32 }, Field { name: "height", ty: Ty::U32 }, Field { name: "scale", ty: Ty::U32 }],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

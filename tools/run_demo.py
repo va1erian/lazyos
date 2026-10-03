@@ -56,6 +56,7 @@ from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
 from demo_builds import (  # noqa: E402
@@ -206,6 +207,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     add_limit_option(parser)
+    add_display_options(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -330,6 +332,7 @@ def main(argv: list[str]) -> int:
     try:
         net_qemu, forwards = qemu_net.args_from_options(args)
         limits = build_limits(args.limit, args.no_build)
+        limits.update(build_display(args))
     except ValueError as error:
         parser.error(str(error))
 

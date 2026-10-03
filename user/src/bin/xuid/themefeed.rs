@@ -62,6 +62,31 @@ impl ThemeFeed {
         }
     }
 
+    /// Decide the UI scale for this compositor's lifetime (docs/hidpi-plan.md):
+    /// `sys/ui/scale` when `confd` already answers, else `auto`, resolved
+    /// against a `width x height` screen. One attempt only: the scale must be
+    /// fixed before the first client asks for it, and a late `confd` simply
+    /// leaves the automatic choice. The client stays held for the feed.
+    pub(super) fn decide_scale(&mut self, width: u32, height: u32) -> u32 {
+        if self.client.is_none() {
+            self.client = Client::connect().ok();
+        }
+        let setting = match &self.client {
+            Some(client) => match client.get(uitheme::KEY_SCALE) {
+                Ok(value) => uitheme::UiScale::from_value(value.as_ref()),
+                Err(_) => uitheme::UiScale::Auto,
+            },
+            None => uitheme::UiScale::Auto,
+        };
+        let scale = setting.resolve(width, height);
+        theme::set_scale(scale);
+        sys::write_str(&alloc::format!(
+            "XUID:SCALE:{scale} setting={} screen={width}x{height}\n",
+            setting.as_str()
+        ));
+        scale
+    }
+
     /// Whether the desktop animations are enabled (`sys/ui/anim`).
     pub(super) fn animations(&self) -> bool {
         self.settings.anim

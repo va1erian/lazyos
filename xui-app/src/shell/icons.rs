@@ -1,5 +1,6 @@
 //! The desktop launchers' package icons (issue #509): each installed app's
-//! `icons/app-32.png`, at the path `init`'s `ListApps` reports.
+//! `icons/app-32.png`, at the path `init`'s `ListApps` reports (its
+//! `app-128.png` sibling on a 2x desktop).
 //!
 //! The file sits in `/apps`, which only `pkgd` writes, but its bytes come
 //! from a package anyone may have installed, so it is read with a size cap
@@ -17,6 +18,10 @@ use xui_core::image::Image;
 const MAX_ICON_BYTES: u64 = 64 * 1024;
 /// Largest side accepted, in pixels (the biggest icon a package ships).
 const MAX_SIDE: u32 = 128;
+/// The icon file `ListApps` names, and the large sibling a package ships
+/// beside it (`crates/app-icons`).
+const SMALL_ICON: &str = "app-32.png";
+const LARGE_ICON: &str = "app-128.png";
 /// The PNG signature followed by the first chunk's length (13) and type.
 const PNG_HEAD: [u8; 16] = [
     0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, b'I', b'H', b'D', b'R',
@@ -30,9 +35,33 @@ pub struct IconCache {
 }
 
 impl IconCache {
+    /// The icon for UI `scale` at `path` (a package's `app-32.png`): at
+    /// scale 2 and above its `app-128.png` sibling, drawn down to the tile
+    /// instead of a 32 px icon drawn up (docs/hidpi-plan.md), falling back to
+    /// `path` itself when the package ships no large icon.
+    pub fn get_scaled(&mut self, path: &str, scale: i32) -> Option<Rc<Image>> {
+        let large = path
+            .strip_suffix(SMALL_ICON)
+            .filter(|_| scale > 1)
+            .map(|dir| format!("{dir}{LARGE_ICON}"));
+        large
+            .and_then(|large| self.get_quiet(&large))
+            .or_else(|| self.get(path))
+    }
+
     /// The icon at `path`, or `None` for an empty path or an unreadable or
     /// malformed file. Each path is tried once.
     pub fn get(&mut self, path: &str) -> Option<Rc<Image>> {
+        let image = self.get_quiet(path);
+        if image.is_none() && !path.is_empty() {
+            println!("SHELL:ICON:MISSING {path}");
+        }
+        image
+    }
+
+    /// [`IconCache::get`] without the log line (a missing large icon is
+    /// expected).
+    fn get_quiet(&mut self, path: &str) -> Option<Rc<Image>> {
         if path.is_empty() {
             return None;
         }
@@ -40,9 +69,6 @@ impl IconCache {
             return image.clone();
         }
         let image = load(path).map(Rc::new);
-        if image.is_none() {
-            println!("SHELL:ICON:MISSING {path}");
-        }
         self.entries.push((path.to_owned(), image.clone()));
         image
     }
@@ -65,7 +91,8 @@ fn small_png(bytes: &[u8]) -> bool {
     if bytes.len() < 24 || bytes[..16] != PNG_HEAD {
         return false;
     }
-    let side = |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    let side =
+        |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
     let (width, height) = (side(16), side(20));
     (1..=MAX_SIDE).contains(&width) && (1..=MAX_SIDE).contains(&height)
 }

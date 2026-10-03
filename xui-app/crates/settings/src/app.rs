@@ -111,7 +111,7 @@ pub struct SettingsApp {
 }
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    crate::layout::rect(x, y, w, h)
 }
 
 fn swatches<M: 'static>(
@@ -130,6 +130,7 @@ impl SettingsApp {
         store: Rc<dyn ConfigStore>,
         system: Rc<dyn System>,
     ) -> Result<SettingsApp> {
+        crate::layout::set_dpi(ui.dpi());
         let sidebar = IconView::with_model(ui, rect(0, 0, SIDEBAR_W, WINDOW.1), SectionsModel)?
             .multi_select(false)
             .on_select(|index| Some(Msg::Section(index)));

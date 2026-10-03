@@ -2994,6 +2994,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_HINTLAUNCHORIGIN: u32 = 41;
     /// `Dismiss` method id.
     pub const METHOD_DISMISS: u32 = 42;
+    /// `GetOutput` method id.
+    pub const METHOD_GETOUTPUT: u32 = 43;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -4517,6 +4519,46 @@ pub mod os_lazy_display_v1 {
                 }
                 4 => {
                     out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The screen in physical pixels and the desktop's integer UI scale
+    /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
+    /// interface stays in physical pixels; a scale-aware client draws at
+    /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
+    /// The scale is fixed for the compositor's lifetime.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetOutputReply {
+        pub width: u32,
+        pub height: u32,
+        pub scale: u32,
+    }
+
+    pub fn encode_get_output_reply(value: &GetOutputReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.width)?;
+        target.u32(2, value.height)?;
+        target.u32(3, value.scale)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_output_reply(body: &[u8]) -> Result<GetOutputReply, Error> {
+        let mut out = GetOutputReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.width = field.as_u32()?;
+                }
+                2 => {
+                    out.height = field.as_u32()?;
+                }
+                3 => {
+                    out.scale = field.as_u32()?;
                 }
                 _ => {}
             }

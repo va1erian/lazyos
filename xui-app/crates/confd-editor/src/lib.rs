@@ -11,6 +11,7 @@
 //! on the host.
 
 pub mod app;
+pub mod layout;
 pub mod sections;
 pub mod store;
 pub mod tree;

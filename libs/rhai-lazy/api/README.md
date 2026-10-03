@@ -210,6 +210,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `set_icon_geometry(surface, x, y, w, h)` | `SetIconGeometry(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` | Shell-only: where `surface`'s taskbar entry is on screen, so the |
 | `hint_launch_origin(x, y, w, h)` | `HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: the next window *any* task creates within about two seconds |
 | `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
+| `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32)` | The screen in physical pixels and the desktop's integer UI scale |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 

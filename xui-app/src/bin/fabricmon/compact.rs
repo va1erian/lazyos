@@ -15,7 +15,7 @@ const ROW_H: i32 = 20;
 
 /// Paint the compact view of `state` over the whole client area.
 pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
-    let bounds = canvas.bounds();
+    let bounds = xui_app::hidpi::design_bounds(canvas);
     canvas.clear(theme.background);
     let title = Rect::new(
         bounds.left + 12,

@@ -52,7 +52,7 @@ Beyond `std` (see the Linux-ABI plan), a canvas `xui` app needs:
 | clock | `clock_gettime` (std plan) — for `Instant`, timers, repaint throttling |
 | randomness | `getrandom` (std plan) — `HashMap` seeds inside xui |
 | font file | a bundled TTF read through `std::fs` (LazyOS already vendors JetBrains Mono; `fontdb`/`cosmic-text` can be pointed at it) |
-| DPI | fixed 96 (the window's scale factor is 1.0; `DpiChanged` deferred) |
+| DPI | `96 * scale`: the desktop's integer scale from `GetOutput` ([hidpi-plan.md](hidpi-plan.md)); `DpiChanged` deferred |
 | resize | initially fixed size; a `Resize` event later |
 
 Design choice: **one implicit window per task.** LazyOS already gives each task a
@@ -247,7 +247,8 @@ session (focus routing, key-driven counter, drag, minimize/restore, close).
 checks the serial markers and pixels.
 
 **Remaining** (the M3 list; resize landed with #412, the backend turning
-`Configure` into a `Resize` event): DPI changes, zero-copy scanout, and
+`Configure` into a `Resize` event): DPI *changes* (a fixed 2x scale landed
+with [hidpi-plan.md](hidpi-plan.md)), zero-copy scanout, and
 `std::thread` workers via `proxy()`. The two protocol gaps found while writing
 the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
 `PointerMove`) were closed by the MIDL migration of `os.lazy.display.v1`

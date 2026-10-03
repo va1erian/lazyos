@@ -55,8 +55,11 @@ use crate::task;
 use crate::user_ptr;
 
 mod abi;
+pub mod bochs;
 mod buffers;
 pub mod logical;
+pub mod modecfg;
+pub mod modeset;
 mod present;
 
 pub use abi::*;
@@ -137,9 +140,36 @@ pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) 
     );
 }
 
+/// Record a mode the user asked for (`display.mode`, [`modeset`]): unlike
+/// the firmware's choice in [`init`], it is exposed whole, never reduced to
+/// the logical cap. The switch already checked it against the adapter's
+/// video memory, and the limits are re-derived from it.
+pub fn init_requested(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) {
+    *LOGICAL.lock() = logical::Logical {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
+    *SCREEN.lock() = Screen {
+        width: width as u64,
+        height: height as u64,
+        stride: stride as u64,
+        bytes_per_pixel: bytes_per_pixel as u64,
+    };
+    serial_println!("HW:FB:{width}x{height}->{width}x{height} at 0,0 stride {stride} bpp {bytes_per_pixel} (display.mode)");
+}
+
 /// The logical screen: where the desktop lives inside the framebuffer.
 pub fn logical() -> logical::Logical {
     *LOGICAL.lock()
+}
+
+/// The screen's `(width, height)` in pixels: the firmware mode, or the one
+/// `display.mode` switched to ([`modeset`]).
+pub fn size() -> (usize, usize) {
+    let screen = *SCREEN.lock();
+    (screen.width as usize, screen.height as usize)
 }
 
 /// Bytes of one screen-sized RGBA surface (what `bind` allocates), for the

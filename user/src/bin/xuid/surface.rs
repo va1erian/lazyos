@@ -8,7 +8,7 @@ use user::messenger::display::{wire, Rect};
 use super::geometry::SizeHints;
 use super::present::Mapping;
 
-use super::theme::{BORDER, BUTTON, BUTTON_GAP, BUTTON_MARGIN, TITLE_H};
+use super::theme::{border, button, button_gap, button_margin, title_h};
 
 /// One composited window.
 pub(super) struct Surface {
@@ -16,7 +16,7 @@ pub(super) struct Surface {
     pub(super) id: u64,
     /// Window title from `CreateSurface`.
     pub(super) title: String,
-    /// Window top-left (content origin is `(x + BORDER, y + TITLE_H)`).
+    /// Window top-left (content origin is `(x + border(), y + title_h())`).
     pub(super) x: i32,
     pub(super) y: i32,
     /// Content size in pixels.
@@ -85,14 +85,14 @@ impl Surface {
         Rect::new(
             self.x,
             self.y,
-            self.w + BORDER * 2,
-            self.h + TITLE_H + BORDER,
+            self.w + border() * 2,
+            self.h + title_h() + border(),
         )
     }
 
     /// The title-bar rectangle.
     pub(super) fn title_bar(&self) -> Rect {
-        Rect::new(self.x, self.y, self.w + BORDER * 2, TITLE_H)
+        Rect::new(self.x, self.y, self.w + border() * 2, title_h())
     }
 
     /// The content (app pixel) rectangle; client coordinates are relative to
@@ -101,16 +101,16 @@ impl Surface {
         if !self.is_window() {
             return Rect::new(self.x, self.y, self.w, self.h);
         }
-        Rect::new(self.x + BORDER, self.y + TITLE_H, self.w, self.h)
+        Rect::new(self.x + border(), self.y + title_h(), self.w, self.h)
     }
 
     /// The close button, inset in the title bar's right end.
     pub(super) fn close_button(&self) -> Rect {
         Rect::new(
-            self.x + self.w + BORDER * 2 - BUTTON_MARGIN - BUTTON,
-            self.y + (TITLE_H - BUTTON) / 2,
-            BUTTON,
-            BUTTON,
+            self.x + self.w + border() * 2 - button_margin() - button(),
+            self.y + (title_h() - button()) / 2,
+            button(),
+            button(),
         )
     }
 
@@ -119,7 +119,12 @@ impl Surface {
     /// rectangle for a fixed-size one (where it is simply not drawn).
     pub(super) fn maximize_button(&self) -> Rect {
         let close = self.close_button();
-        Rect::new(close.x - BUTTON - BUTTON_GAP, close.y, BUTTON, BUTTON)
+        Rect::new(
+            close.x - button() - button_gap(),
+            close.y,
+            button(),
+            button(),
+        )
     }
 
     /// The minimize button, just left of the maximize button for a resizable
@@ -130,7 +135,12 @@ impl Surface {
         } else {
             self.close_button()
         };
-        Rect::new(right.x - BUTTON - BUTTON_GAP, right.y, BUTTON, BUTTON)
+        Rect::new(
+            right.x - button() - button_gap(),
+            right.y,
+            button(),
+            button(),
+        )
     }
 
     /// Whether the window may be resized and maximized: it declared size hints

@@ -56,7 +56,7 @@ impl LazyOSBackend {
         // and skip a node hidden through any ancestor. A node just outside the
         // damage still runs: anti-aliased edges and focus rings spill a pixel
         // or two past a node's bounds.
-        let reach = inflate(damage, PAINT_SPILL);
+        let reach = inflate(damage, PAINT_SPILL * self.scale() as i32);
         let paints: Vec<(Rect, Painter)> = {
             let nodes = self.nodes.borrow();
             nodes

@@ -164,6 +164,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("arch_ready");
     // Interrupt vectors and the device syscall are live: print their evidence.
     dev::selfcheck();
+    // The logical screen: possibly a mode `display.mode` switched to.
     let screen = display::logical();
     input::mouse::set_bounds(screen.width as i32, screen.height as i32);
 
