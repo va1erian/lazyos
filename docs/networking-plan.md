@@ -497,7 +497,8 @@ IPv6, TLS, Wi-Fi, routing/forwarding/NAT, multiple NICs, a firewall language,
 netlink or `ifconfig` compatibility, zero-copy receive, remote Messenger
 transport, and hot-plug. Each has a seam above; none is needed for `ping`,
 `nc` and `ftp`. Wi-Fi (and the multi-NIC `netd` it needs) is explored in
-[wifi-plan.md](wifi-plan.md).
+[wifi-plan.md](wifi-plan.md); TLS (HTTPS and Gmail IMAP as the targets) in
+[tls-plan.md](tls-plan.md).
 
 ## 13. Decisions taken and corrections to this plan
 
