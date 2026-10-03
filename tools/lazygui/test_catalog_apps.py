@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player and the Linux programs (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools and LazyWeb (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -207,6 +207,70 @@ class TlsTests(unittest.TestCase):
         labels = [step["label"] for step in plan]
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/nettls/build.py", "--require"])
+
+
+class LazyWebTests(unittest.TestCase):
+    """The LazyWeb browser (LAZYOS_LAZYWEB=1, docs/lazyweb.md) from the Simple
+    tab, the Advanced tab and run_demo: a desktop app that brings the network
+    stack and the HTTPS tools."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_brings_the_desktop_the_stack_and_https(self) -> None:
+        # The Advanced checkbox alone: the image build refuses LAZYOS_LAZYWEB
+        # without the desktop and the stack, so the plan sets them.
+        env = catalog.build_env({**self.base(), "lazyweb": True})
+        for name in ("LAZYOS_LAZYWEB", "LAZYOS_DESKTOP", "LAZYOS_NETD", "LAZYOS_TLS"):
+            self.assertEqual(env.get(name), "1", name)
+        self.assertEqual(env["LAZYOS_NETD_ARGS"], "demo=0")
+        off = catalog.build_env({**self.base(), "desktop": True})
+        self.assertNotIn("LAZYOS_LAZYWEB", off)
+        self.assertNotIn("LAZYOS_TLS", off)
+
+    def test_simple_desktop_offers_it_and_cli_does_not(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", lazyweb=True)
+        self.assertTrue(cfg["lazyweb"])
+        self.assertTrue(cfg["tls"])
+        self.assertTrue(cfg["net"])
+        cli = catalog.simple_config(demo_config(), "dev", "CLI", lazyweb=True)
+        self.assertFalse(cli["lazyweb"])
+        self.assertFalse(cli["tls"])
+        self.assertFalse(cli["net"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyweb"])
+
+    def test_the_simple_tab_passes_it_by_name(self) -> None:
+        # `ui` calls simple_config positionally in SIMPLE_EXTRAS order.
+        import inspect
+        from lazygui.simple import SIMPLE_EXTRAS
+        params = list(inspect.signature(catalog.simple_config).parameters)[3:]
+        self.assertEqual(params, list(SIMPLE_EXTRAS))
+
+    def test_sessions_get_the_card_with_lazyweb_alone(self) -> None:
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False, "lazyweb": True}))
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--lazyweb", demo_argv(lazyweb=True, skip_build=False))
+        self.assertNotIn("--lazyweb", demo_argv(skip_build=False))
+        self.assertNotIn("--lazyweb", demo_argv(lazyweb=True, skip_build=True))
+        self.assertIn("--net", demo_argv(lazyweb=True, skip_build=False))
+
+    def test_simple_start_plans_the_browser(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", lazyweb=True)
+        argv = catalog.build_plan(cfg)[-1]["argv"]
+        self.assertIn("--lazyweb", argv)
+        self.assertIn("--tls", argv)
+
+    def test_session_modes_build_the_browser_before_the_image(self) -> None:
+        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "1G", "qemu": "", "out": "shots",
+               "timeout": "300", "tablet": False, "script": 0, "lazyweb": True}
+        plan = catalog.build_plan(cfg)
+        labels = [step["label"] for step in plan]
+        at = labels.index("Build image (cargo build)")
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py"])
+        self.assertIn("--net", plan[-1]["argv"])
 
 
 if __name__ == "__main__":
