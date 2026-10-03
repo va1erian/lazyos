@@ -17,6 +17,7 @@ mod boot_trace;
 
 mod arch;
 mod block;
+mod boot_media;
 mod console;
 mod cursor;
 mod dev;
@@ -31,9 +32,11 @@ mod gfxlib;
 mod input;
 #[allow(dead_code)] // Kernel-side fabric; the native syscall surface landed in #69.
 mod ipc;
+mod klog;
 mod limits;
 mod mem;
 mod mux;
+mod panic_screen;
 mod process;
 mod quota;
 mod serial;
@@ -87,6 +90,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     };
 
+    // Firmware geometry is input: clamp it before anything sizes from it.
+    let info = gfx::sanitize(info);
     console::init(base, info);
     serial_println!(
         "LazyOS: framebuffer {}x{} {:?}",
@@ -100,13 +105,27 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     display::init(info.width, info.height, info.stride, info.bytes_per_pixel);
 
     boot_phase!("console_ready");
-    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
+    // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off
+    // and the firmware type (`BOOT:MEDIA:<uefi|bios>`) first.
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
+    // The ACPI tables (read by `arch::init`'s tick selection) start at the RSDP.
+    arch::acpi_tables::set_rsdp(boot_info.rsdp_addr.into_option());
+    boot_media::record(&boot_info.memory_regions);
     mem::init(boot_info);
     // Machine-derived limits, before anything sizes itself from one;
     // `lazyos.cfg` can override them once the boot volume is mounted.
     limits::init_for_machine(mem::usable_ram(), display::screen_bytes());
     boot_phase!("mem_ready");
+    // Firmware usually leaves the framebuffer uncached: make it write-combining
+    // (bare metal only, see `mem::wc::under_hypervisor`).
+    if mem::wc::under_hypervisor() {
+        serial_println!("HW:FB:WC:SKIPPED (hypervisor: the framebuffer is guest RAM)");
+    } else if let Some((fb_base, fb_len)) = console::framebuffer_span() {
+        match mem::wc::map_write_combining(fb_base, fb_len) {
+            Ok(pages) => serial_println!("HW:FB:WC:{pages} pages write-combining"),
+            Err(reason) => serial_println!("HW:FB:WC:SKIPPED ({reason})"),
+        }
+    }
 
     // Device core (issue #239): enumerate platform + PCI devices, attach the
     // in-kernel drivers (ATA, legacy virtio-blk) and print the `DEV:ENUM` line.
@@ -121,9 +140,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Driver class rules (issue #481), before `init` can start any driver.
     dev::policy::install_boot_policy();
 
-    // Issue #5: a bootloader ramdisk (a FAT image) is a fallback block device,
-    // so the OS still boots with no ATA/virtio disk attached. Probing the real
-    // disks first keeps them ahead of it in the mount order.
+    // Issue #5: a bootloader ramdisk is registered as `ram0` and its MBR
+    // partitions as `ram0p<n>`; when it is there, `fs::init` looks for the
+    // boot volume and the root on it first (the USB stick's RAM root,
+    // docs/usb-stick.md), so a disk carrying the same volume cannot win.
     if let Optional::Some(addr) = ramdisk_addr {
         block::init();
         if block::mem::register_ramdisk(addr, ramdisk_len) {
@@ -144,7 +164,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("arch_ready");
     // Interrupt vectors and the device syscall are live: print their evidence.
     dev::selfcheck();
-    input::mouse::set_bounds(info.width as i32, info.height as i32);
+    let screen = display::logical();
+    input::mouse::set_bounds(screen.width as i32, screen.height as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the
     // injected Linux fixture, or a BusyBox shell.
@@ -320,6 +341,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     boot_phase!("tasks_spawned");
+    // `LAZYOS_FORCE_PANIC=1` at build time: prove the on-screen panic report
+    // (docs/real-pc-boot-plan.md H1) with a full boot log behind it.
+    if option_env!("LAZYOS_FORCE_PANIC").is_some() {
+        panic!("forced by LAZYOS_FORCE_PANIC (on-screen panic test)");
+    }
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
     x86_64::instructions::interrupts::enable();
@@ -440,6 +466,8 @@ fn spawn_console_shell() {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     serial_println!("LazyOS PANIC: {}", info);
+    // A real PC has no serial port: put the reason and the boot log on screen.
+    panic_screen::show("LazyOS stopped: kernel panic", format_args!("{}", info));
     halt();
 }
 

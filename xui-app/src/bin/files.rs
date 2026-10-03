@@ -19,8 +19,8 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::argv;
 use xui_app::platform::launcher::LazyLauncher;
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec, WindowId};
+use xui_app::themed::run_themed;
+use xui_core::backend::{PlatformSpec, WindowId};
 use xui_core::units::Dip;
 use xui_explorer::platform::{Launcher, Platform};
 use xui_explorer::std_platform::StdPlatform;
@@ -84,15 +84,8 @@ fn main() -> std::process::ExitCode {
     backend.set_size_hints(360, 240, 0, 0);
     backend.on_first_frame(|| println!("FILES:UP:PASS"));
 
-    // Match the desktop's light/dark mode and accent (Settings).
-    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Files").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
-        explorer.open_root(ui, start)
-    });
+    let outcome = run_themed(&backend, spec, move |ui| explorer.open_root(ui, start));
     backend.unbind();
     match outcome {
         Ok(()) => std::process::ExitCode::SUCCESS,

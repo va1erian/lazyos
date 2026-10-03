@@ -63,6 +63,7 @@ pub mod diag;
 pub mod introspect;
 mod linux_spawn;
 pub mod process;
+pub mod relax;
 pub mod signal;
 mod snapshot;
 pub use snapshot::{
@@ -118,7 +119,7 @@ pub use fs_base::{set_fs_base, valid_fs_base};
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
 /// 256 is a plain constant, not a design: the table, the kernel stacks
-/// (`KSTACKS`, 8 MiB at this size) and every per-slot registry stay static
+/// (`KSTACKS`, 12 MiB at this size) and every per-slot registry stay static
 /// arrays, and the snapshot ABIs (`ipc::stats`, `sysinfo`, `task::introspect`)
 /// carry one row per slot, so raising it bumps their versions (issue #204 took
 /// it to 64; the application package system to 256, so a few dozen installed
@@ -128,8 +129,11 @@ pub use fs_base::{set_fs_base, valid_fs_base};
 pub const MAX_TASKS: usize = 256;
 /// Index of the kernel task.
 pub const KERNEL_TASK: usize = 0;
-/// Size of each task's kernel stack.
-const KSTACK_SIZE: usize = 32 * 1024;
+/// Size of each task's kernel stack. 48 KiB since USB storage: a file write
+/// that reaches a stick parks deep inside ext2 (`block::provider`), and the
+/// scheduler's own frames (`schedule`, `signal::sweep`, 4 KiB each) then sit
+/// on top of ext2's; 32 KiB overflowed there.
+const KSTACK_SIZE: usize = 48 * 1024;
 /// Number of qwords in a bootstrapped user frame (15 regs + RIP/CS/RFLAGS/RSP/SS).
 const FRAME_WORDS: u64 = 20;
 
@@ -190,6 +194,9 @@ pub enum WaitKind {
     Signal,
     /// Waiting for a task slot to become free (`clone` under table pressure).
     Slot,
+    /// Waiting for a user-space block provider (`usbd`) to finish a request
+    /// (`block::provider`), or the provider waiting for work.
+    Block,
 }
 
 /// How a blocked task's wait ended. The wake path records it, the wait loop
@@ -337,6 +344,21 @@ fn bump_for_pml4(pml4: u64) -> Option<Bump> {
 pub(crate) fn kstack_top(index: usize) -> u64 {
     // Safety: fixed-size static array.
     unsafe { (core::ptr::addr_of!(KSTACKS[index]) as u64) + KSTACK_SIZE as u64 }
+}
+
+/// Bytes left below the stack pointer on the current task's kernel stack, or
+/// `None` when it is not running on one (the kernel task's boot stack).
+pub(crate) fn kstack_headroom() -> Option<u64> {
+    let slot = current();
+    if slot == KERNEL_TASK || slot >= MAX_TASKS {
+        return None;
+    }
+    let rsp: u64;
+    // SAFETY: reads the stack pointer into a register; no memory is touched.
+    unsafe { core::arch::asm!("mov {}, rsp", out(reg) rsp, options(nomem, nostack)) };
+    let top = kstack_top(slot);
+    let bottom = top - KSTACK_SIZE as u64;
+    (bottom..=top).contains(&rsp).then(|| rsp - bottom)
 }
 
 /// Enable scheduling; call once the kernel task and user tasks are registered.

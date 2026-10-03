@@ -267,19 +267,17 @@ pub(super) fn ioctl(fd: u64, request: u64, arg: u64) -> u64 {
                 (changed, l.foreground())
             });
             if changed {
-                // A pty's foreground is checked against its session; the
-                // console's group was checked when it was set.
+                // Either way only the foreground group's tasks still in the
+                // terminal's session get it (the console's is its window's).
                 match &tty {
                     Tty::Pty { .. } => crate::tty::signal_foreground(foreground, SIGWINCH),
-                    Tty::Console if foreground.group != 0 => {
-                        let _ = task::signal::kill(
-                            task::KERNEL_TASK,
-                            -(foreground.group as i64),
-                            SIGWINCH,
-                            task::signal::SigInfo::kernel(),
-                        );
-                    }
-                    Tty::Console => {}
+                    Tty::Console => crate::tty::signal_console(
+                        crate::tty::Foreground {
+                            session: consoletty::console_session(),
+                            ..foreground
+                        },
+                        SIGWINCH,
+                    ),
                 }
             }
             0

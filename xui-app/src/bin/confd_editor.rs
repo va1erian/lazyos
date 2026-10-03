@@ -10,9 +10,9 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::confd_store::ConfdStore;
+use xui_app::themed::run_themed;
 use xui_confd_editor::app::{ConfdEditorApp, WINDOW};
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_core::backend::PlatformSpec;
 use xui_core::units::Dip;
 
 fn main() -> std::process::ExitCode {
@@ -26,13 +26,8 @@ fn main() -> std::process::ExitCode {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("CONFDED:UP:PASS"));
 
-    // Match the desktop's light/dark mode and accent (Settings).
-    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Config").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
+    let outcome = run_themed(&backend, spec, |ui| {
         match ConfdEditorApp::build(ui, Rc::new(ConfdStore::new())) {
             Ok(app) => app,
             Err(error) => {

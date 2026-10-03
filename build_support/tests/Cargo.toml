@@ -14,6 +14,8 @@ path = "lib.rs"
 ext2fs = { path = "../../libs/ext2fs", features = ["fuzz"] }
 # The destinations the image build modules name.
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
+# The USB stick image's FAT volumes (`usb_ramdisk.rs`), as in the root build.
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 
 [dev-dependencies]
 # The roots the image's CA bundle is built from (the root crate pins it).

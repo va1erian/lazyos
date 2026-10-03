@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::ipc::credentials::{self, Cred};
+use crate::task::signal;
 
 const IOCTL: u64 = 16;
 const STAT: u64 = 4;
@@ -247,5 +248,80 @@ pub fn ctty_soak() -> Result<(), String> {
         "{} ptys leaked",
         crate::tty::pty::Pty::live()
     );
+    Ok(())
+}
+
+/// Catch `SIGUSR1` in `slot`, so a delivery shows as a pending bit.
+fn catch_usr1(slot: usize) -> Result<(), String> {
+    let handler = signal::Disposition::Handler {
+        handler: 0x0040_0100,
+        flags: 0,
+        restorer: 0x0040_0200,
+        mask: 0,
+    };
+    signal::set_action(slot, signal::SIGUSR1, handler)
+        .map_err(|error| format!("set_action: {error:?}"))
+}
+
+fn has_usr1(slot: usize) -> bool {
+    signal::pending(slot) & (1 << signal::SIGUSR1) != 0
+}
+
+/// A terminal's signal (the kernel's, past every credential check) reaches
+/// a foreground group only in the session it was meant for: naming the
+/// right group with another session's id delivers nothing, and a task that
+/// left the session (`setsid`) is skipped even though it was in the group.
+pub fn terminal_signal_stays_in_session() -> Result<(), String> {
+    fresh()?;
+    let leader = new_session(0)?;
+    let member = fork_as(0)?;
+    task::harness::switch_current(member);
+    check!(sys(SETPGID, &[0, 0]) == 0, "setpgid");
+    let peer = fork_as(0)?; // same group and session as `member`
+    let outsider = new_session(0)?;
+    for slot in [member, peer, outsider] {
+        catch_usr1(slot)?;
+    }
+    check!(
+        signal::kill_terminal_group(member, outsider, signal::SIGUSR1).is_err(),
+        "a group was signalled for another session"
+    );
+    check!(
+        !has_usr1(member) && !has_usr1(peer) && !has_usr1(outsider),
+        "a wrong-session terminal signal was delivered"
+    );
+    // `peer` leaves for its own session: it is no longer the terminal's.
+    task::harness::switch_current(peer);
+    check!(sys(SETSID, &[]) == peer as u64, "peer setsid");
+    check!(
+        signal::kill_terminal_group(member, leader, signal::SIGUSR1).is_ok(),
+        "the session's own group was not signalled"
+    );
+    check!(has_usr1(member), "the group member missed it");
+    check!(!has_usr1(peer), "a task that left the session got it");
+    task::harness::reset();
+    Ok(())
+}
+
+/// Soak: many rounds of terminal signals named with the wrong session never
+/// deliver, while the right one always does.
+pub fn terminal_signal_soak() -> Result<(), String> {
+    fresh()?;
+    let leader = new_session(0)?;
+    let outsider = new_session(0)?;
+    task::harness::switch_current(outsider);
+    let victim = fork_as(0)?; // a member of the outsider's group and session
+    catch_usr1(victim)?;
+    let group = task::process::pgid_of(victim);
+    for round in 0..1000 {
+        let wrong = if round % 2 == 0 { leader } else { round + 4096 };
+        let _ = signal::kill_terminal_group(group, wrong, signal::SIGUSR1);
+        check!(!has_usr1(victim), "round {round}: wrong session delivered");
+    }
+    check!(
+        signal::kill_terminal_group(group, outsider, signal::SIGUSR1).is_ok() && has_usr1(victim),
+        "the right session was refused"
+    );
+    task::harness::reset();
     Ok(())
 }

@@ -87,6 +87,12 @@ screen. Login shells are `logind`'s children and outlive it. The kernel logs
 `power: warning: N other task slot(s) in use at sync` for whatever is still
 there; the sync is safe regardless (each write is atomic under the VFS lock).
 
+`usbd` is deliberately left running (`OUTLIVE` in `shutdown.rs`): it serves
+the USB stick that may hold `/home`, and the kernel's `sync_all` in `power()`
+writes back and flushes that volume through it (SYNCHRONIZE CACHE) before
+the machine stops ([usb-storage.md](architecture/usb-storage.md)). Its
+dependency `inputd` is still stopped; `usbd`'s input then goes nowhere.
+
 ## 4. Interfaces (MIDL first)
 
 - **`idl/init.midl`**:

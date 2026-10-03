@@ -40,6 +40,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("mem_regions_merge_hostile_maps", regions_merge_hostile_maps),
     (
+        "mem_regions_absurd_range_is_clamped_and_droppable",
+        regions_absurd_range_is_clamped_and_droppable,
+    ),
+    (
         "mem_regions_keep_the_largest_when_full",
         regions_keep_the_largest_when_full,
     ),

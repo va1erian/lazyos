@@ -60,7 +60,7 @@ pub use sweep::{deliver_on_resume, finish_sweep, sweep};
 
 pub use harden::{die_with_segv, restore_frame};
 pub use native::{deliver_native, native_fatal_pending};
-pub use send::{kill, send_tid};
+pub use send::{kill, kill_terminal_group, send_tid};
 
 pub use consts::*;
 pub use control::*;

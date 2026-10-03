@@ -59,6 +59,7 @@ nicdrv = { path = "../libs/nicdrv" }
 # descriptor and boot-report parsers for hostile device input.
 xhci = { path = "../libs/xhci" }
 usbhid = { path = "../libs/usbhid" }
+usbmsc = { path = "../libs/usbmsc" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
 usbpolicy = { path = "../libs/usbpolicy" }

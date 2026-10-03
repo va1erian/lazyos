@@ -16,6 +16,8 @@ use alloc::vec::Vec;
 use crate::task::{self, RecvOpts};
 use crate::user_ptr;
 
+use super::scatter::{Received, Scatter};
+
 use super::errno::{err, EFAULT, EINVAL, EMSGSIZE, EOPNOTSUPP};
 
 const MSG_OOB: u64 = 0x1;
@@ -75,20 +77,27 @@ pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, flags: u64, addr: u64, a
         Ok(decoded) => decoded,
         Err(code) => return code,
     };
-    if !wait_all || task::fd_seqpacket(fd as usize) {
-        return super::socket::sys_recvfrom(fd, buf, len, (addr, alen), opts);
+    receive(fd, &Scatter::one(buf, len), (addr, alen), opts, wait_all).result
+}
+
+/// One receive into `dest`. A message socket always reads exactly one
+/// message. `MSG_WAITALL` on a stream keeps reading until `dest` is full; a
+/// partial count is returned when a later read ends (EOF, signal, error), as
+/// Linux does.
+fn receive(fd: u64, dest: &Scatter, from: (u64, u64), opts: RecvOpts, wait_all: bool) -> Received {
+    if !wait_all || is_message_socket(fd) {
+        return super::socket::recv_into(fd, dest, from, opts);
     }
-    // MSG_WAITALL: keep reading until the buffer is full; a partial count is
-    // returned when a later read ends (EOF, signal, error), as Linux does.
+    let len = dest.len();
     let mut got = 0u64;
     while got < len {
-        let n = super::socket::sys_recvfrom(fd, buf + got, len - got, (addr, alen), opts);
+        let n = super::socket::recv_into(fd, &dest.after(got), from, opts).result;
         if (n as i64) <= 0 {
-            return if got > 0 { got } else { n };
+            return Received::of(if got > 0 { got } else { n });
         }
         got += n;
     }
-    got
+    Received::of(got)
 }
 
 /// The fields of a `struct msghdr` this layer uses.
@@ -184,11 +193,11 @@ fn is_message_socket(fd: u64) -> bool {
     task::fd_seqpacket(fd as usize) || super::inet::is_datagram(fd)
 }
 
-/// `recvmsg(fd, msg, flags)`: one receive into the first non-empty segment
-/// (a short read is what a stream may return anyway; a datagram longer than
-/// that segment is truncated and `MSG_TRUNC` is reported in `msg_flags`). The
-/// source address is written for datagram sockets that have one; the control
-/// length comes back zero.
+/// `recvmsg(fd, msg, flags)`: one receive scattered across every segment in
+/// order (a message socket reads one message against their combined
+/// capacity; `MSG_TRUNC` in `msg_flags` only when that message was longer).
+/// The source address is written for datagram sockets that have one; the
+/// control length comes back zero.
 pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     const MSG_TRUNC: i32 = 0x20;
     let (opts, wait_all) = match recv_flags(flags) {
@@ -203,22 +212,18 @@ pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
         Ok(iov) => iov,
         Err(code) => return code,
     };
-    let total: u64 = iov.iter().map(|&(_, len)| len).fold(0, u64::saturating_add);
-    let (base, len) = segments(iov).next().unwrap_or((0, 0));
+    let dest = Scatter::new(segments(iov));
     let from = if header.name != 0 {
         (header.name, msg + 8)
     } else {
         (0, 0)
     };
-    let flags = if wait_all { MSG_WAITALL } else { 0 }
-        | if opts.peek { MSG_PEEK } else { 0 }
-        | if opts.dont_wait { MSG_DONTWAIT } else { 0 };
-    let n = sys_recvfrom(fd, base, len, flags, from.0, from.1);
+    let got = receive(fd, &dest, from, opts, wait_all);
+    let n = got.result;
     if (n as i64) < 0 {
         return n;
     }
-    let truncated = is_message_socket(fd) && n == len && len < total;
-    let msg_flags = if truncated { MSG_TRUNC } else { 0 };
+    let msg_flags = if got.truncated { MSG_TRUNC } else { 0 };
     if user_ptr::try_write::<u64>(msg + 40, 0).is_err()
         || user_ptr::try_write::<i32>(msg + 48, msg_flags).is_err()
     {

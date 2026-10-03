@@ -90,6 +90,11 @@ pub const CAP_INPUT_RAW: u32 = 1 << 9;
 /// grants no reading; the kernel stamps each source's device id, so a holder
 /// cannot pose as another device.
 pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
+/// Serve a block device to the kernel from user space (syscall 33 ops 0-3,
+/// `block::provider`, docs/architecture/usb-storage.md): what the USB
+/// storage driver (`usbd`) needs. The kernel also requires the caller's uid
+/// to be a block-provider uid (`usbpolicy::BLOCK_PROVIDER_UIDS`).
+pub const CAP_BLOCK_PROVIDER: u32 = 1 << 11;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -101,7 +106,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_KILL
     | CAP_DEV_CLAIM
     | CAP_INPUT_RAW
-    | CAP_INPUT_SOURCE;
+    | CAP_INPUT_SOURCE
+    | CAP_BLOCK_PROVIDER;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy

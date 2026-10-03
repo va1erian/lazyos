@@ -20,6 +20,11 @@ pub const USB_UID: u32 = 904;
 /// PCI `0C/03/xx`).
 pub const USB_CLASS: &str = "os.kernel.dev.usb";
 
+/// The uids that may serve a block device to the kernel (syscall 33 ops 0-3,
+/// together with `CAP_BLOCK_PROVIDER`): the USB driver only, for the mass
+/// storage class (docs/architecture/usb-storage.md).
+pub const BLOCK_PROVIDER_UIDS: &[u32] = &[USB_UID];
+
 /// One rule. `actor` is a uid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleSpec {
@@ -64,6 +69,11 @@ mod tests {
             assert_eq!(rule.interface, USB_CLASS, "no other device class is named");
             assert_ne!(rule.method, "*", "no wildcard grants");
         }
+    }
+
+    #[test]
+    fn only_the_usb_driver_may_provide_block_devices() {
+        assert_eq!(BLOCK_PROVIDER_UIDS, &[USB_UID]);
     }
 
     #[test]

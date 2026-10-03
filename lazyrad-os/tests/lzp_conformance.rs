@@ -203,7 +203,9 @@ fn save() { file_write_text("n.txt", "x"); }
         permissions.topics,
         [
             "publish:app/user.conformance.watcher/hello",
-            "subscribe:system/confd/changed/#",
+            // The literal path narrows the filter: the kernel authorizes
+            // each segment, `sys` and `ui` included.
+            "subscribe:system/confd/changed/sys/ui/#",
         ]
     );
     // Next to the derived Messenger rules, the storage rule keeps the F5

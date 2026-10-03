@@ -1,15 +1,19 @@
-//! The host controller: find and claim the xHCI function, reset and start
-//! it, run commands, and pump the event ring (xHCI 4.2, 4.6, 4.9).
+//! One host controller: find and claim the xHCI function, take it from the
+//! BIOS, reset and start it, run commands, and pump the event ring (xHCI
+//! 4.2, 4.6, 4.9, 4.22.1).
 //!
 //! Polling only (the plan's first step): the event ring is read on every loop
 //! pass and after every doorbell. Events nobody is waiting for yet (a
 //! transfer completing while a command runs, a port change) are kept in a
-//! small queue and handed out later.
+//! queue and handed out later.
 
 use alloc::collections::VecDeque;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use user::dev::{self, Row};
 use user::sys;
+use xhci::extcap::{self, Handoff, Ports};
 use xhci::regs::{self, cap, op, rt, Mmio, Structural};
 use xhci::ring::{erst_entry, EventRing, ProducerRing, RawMem};
 use xhci::trb::{self, code, kind, Trb};
@@ -25,22 +29,33 @@ const PCI_COMMAND: u64 = 4;
 const PCI_MEMORY: u64 = 1 << 1;
 const PCI_BUS_MASTER: u64 = 1 << 2;
 
-/// Slots this driver enables (one per device it can drive at once).
-pub(super) const MAX_SLOTS: u8 = 8;
-/// TRBs per command and event ring.
-const RING_TRBS: usize = 64;
-/// Events kept for a later taker; older ones are dropped (and counted).
-const PENDING_CAP: usize = 64;
-/// How long a reset, a halt or a command may take (PIT ticks, 100 Hz).
+/// Slots this driver enables per controller (one per device or hub it can
+/// drive at once). The kernel records at most 16 DMA buffers per claim
+/// (`kernel/src/dev/claims.rs`): the core region, the scratchpads and one
+/// region per slot must fit.
+pub(super) const MAX_SLOTS: u8 = 12;
+/// TRBs in the command ring and in the event ring.
+const COMMAND_TRBS: usize = 64;
+const EVENT_TRBS: usize = 256;
+/// Events kept for a later taker; older ones are dropped (and counted). Each
+/// pipe has a bounded number of transfers in flight, so this only overflows
+/// on a storm of port changes.
+const PENDING_CAP: usize = 512;
+/// How long a halt, a command or an event may take (PIT ticks, 100 Hz).
 const TIMEOUT_TICKS: u64 = 500;
+/// How long a controller reset may take: some Intel controllers need
+/// seconds (Linux allows 10 s for them).
+const RESET_TICKS: u64 = 1000;
+/// How long the BIOS gets to let go of the controller (Linux: 1 s).
+const HANDOFF_TICKS: u64 = 100;
 
 /// Layout of the controller's own region: DCBAA (256 slots * 8), the
 /// one-entry ERST, the command ring, the event ring.
 const DCBAA: usize = 0;
 const ERST: usize = 2048;
 const COMMAND_RING: usize = 4096;
-const EVENT_RING: usize = COMMAND_RING + RING_TRBS * 16;
-const CORE_BYTES: usize = EVENT_RING + RING_TRBS * 16;
+const EVENT_RING: usize = COMMAND_RING + COMMAND_TRBS * 16;
+const CORE_BYTES: usize = EVENT_RING + EVENT_TRBS * 16;
 
 /// What the controller reported about itself.
 #[derive(Clone, Copy, Debug)]
@@ -50,15 +65,22 @@ pub(super) struct Info {
     pub(super) slots: u8,
     pub(super) scratchpads: u16,
     pub(super) context_64: bool,
+    pub(super) addressing_64: bool,
+    pub(super) port_power: bool,
+    pub(super) handoff: Handoff,
 }
 
 pub(super) struct Hc {
+    /// This controller's number in the markers (`hc=`, `port=<hc>-...`).
+    pub(super) index: usize,
     pub(super) handle: u64,
     bar: Bar,
     op: usize,
     rt: usize,
     db: u32,
     pub(super) info: Info,
+    /// Which root ports are USB 2 and which USB 3, and their speed IDs.
+    pub(super) ports: Ports,
     core: Region,
     /// The scratchpad array and buffers, kept for as long as the controller
     /// may use them (until exit).
@@ -74,32 +96,56 @@ pub(super) struct Hc {
     /// Device regions ever allocated: bounded by the slot count, whatever
     /// the hot-plug churn (the harness checks it).
     pub(super) regions: u32,
+    /// The bulk data buffer this controller's sticks share (`msc.rs`), made
+    /// on first use and kept: they are served one transfer at a time.
+    bulk: Option<Region>,
 }
+
+/// The bulk window: the most one Normal TRB moves, and an alignment it never
+/// crosses (xHCI 4.11.7.1). Its region is twice as large so an aligned
+/// window always fits.
+pub(super) const BULK_WINDOW: usize = 64 * 1024;
 
 /// Sleep one PIT tick (userspace has no sleep syscall; `wait` doubles as one).
 pub(super) fn nap() {
     let _ = sys::wait(sys::clock() + 1);
 }
 
-/// The first xHCI function in the device list.
-fn find() -> Result<Row, Error> {
-    let mut rows = [[0u64; dev::ROW_WORDS]; 32];
-    let total = dev::list(&mut rows).map_err(Error::Dev)?;
-    rows.iter()
+/// Sleep at least `ms` milliseconds (the tick is 10 ms; one more tick
+/// covers a partly elapsed current one). USB timings are minimums.
+pub(super) fn sleep_ms(ms: u64) {
+    let until = sys::clock() + ms.div_ceil(10) + 1;
+    while sys::clock() < until {
+        nap();
+    }
+}
+
+/// Every xHCI function in the device list, in list order (a desktop board
+/// has a PCH controller and often a CPU-side or add-in one too).
+pub(super) fn find_all() -> Result<Vec<Row>, Error> {
+    let mut rows = vec![[0u64; dev::ROW_WORDS]; dev::MAX_ROWS];
+    let mut total = dev::list(&mut rows).map_err(Error::Dev)?;
+    if total > rows.len() {
+        // A big machine: ask again with room for every function.
+        rows = vec![[0u64; dev::ROW_WORDS]; total.min(1024)];
+        total = dev::list(&mut rows).map_err(Error::Dev)?;
+    }
+    Ok(rows
+        .iter()
         .take(total.min(rows.len()))
         .map(Row::from_words)
-        .find(|row| {
+        .filter(|row| {
             row.flags & dev::row_flag::PCI != 0 && (row.class, row.subclass, row.prog_if) == CLASS
         })
-        .ok_or(Error::NoController)
+        .collect())
 }
 
 impl Hc {
-    /// Claim the controller, map BAR 0, reset it, set up the DCBAA, the
-    /// scratchpads, the command and event rings, and start it.
-    pub(super) fn open() -> Result<Hc, Error> {
-        let row = find()?;
-        // BAR 0 must be a present memory BAR.
+    /// Claim the controller in `row`, map BAR 0, take it from the BIOS,
+    /// reset it, set up the DCBAA, the scratchpads, the command and event
+    /// rings, start it and power its ports.
+    pub(super) fn open(row: &Row, index: usize) -> Result<Hc, Error> {
+        // BAR 0 must be a present memory BAR (32- or 64-bit, any address).
         if row.bar_meta[0] & 0b11 != 0b01 || row.bar_len[0] < 0x1000 {
             return Err(Error::Bar);
         }
@@ -113,26 +159,42 @@ impl Hc {
         )
         .map_err(Error::Dev)?;
         let base = dev::map_bar(handle, 0).map_err(Error::Dev)?;
+        let bar_len = row.bar_len[0] as usize;
         // SAFETY: the kernel mapped all of BAR 0 for the claim, which lives
         // until this task exits.
-        let bar = unsafe { Bar::new(base, row.bar_len[0] as usize) };
+        let mut bar = unsafe { Bar::new(base, bar_len) };
+        // Before any other register write: firmware with legacy USB
+        // emulation drives the controller from SMM until it lets go.
+        let hccparams1 = bar.read32(cap::HCCPARAMS1);
+        let first = regs::extended_caps(hccparams1);
+        let deadline = sys::clock() + HANDOFF_TICKS;
+        let handoff = extcap::legacy_handoff(&mut bar, first, bar_len, || {
+            nap();
+            sys::clock() <= deadline
+        });
+        let ports = Ports::read(&bar, first, bar_len);
         let core = Region::alloc(handle, CORE_BYTES)?;
         let commands =
-            ProducerRing::new(core.ring(COMMAND_RING, RING_TRBS)).map_err(Error::Xhci)?;
-        let events = EventRing::new(core.ring(EVENT_RING, RING_TRBS)).map_err(Error::Xhci)?;
-        let caplength = (bar.read32(cap::CAPLENGTH) & 0xFF) as usize;
+            ProducerRing::new(core.ring(COMMAND_RING, COMMAND_TRBS)).map_err(Error::Xhci)?;
+        let events = EventRing::new(core.ring(EVENT_RING, EVENT_TRBS)).map_err(Error::Xhci)?;
+        let capbase = bar.read32(cap::CAPLENGTH);
         let mut hc = Hc {
+            index,
             handle,
-            op: caplength,
+            op: (capbase & 0xFF) as usize,
             rt: (bar.read32(cap::RTSOFF) & !0x1F) as usize,
             db: bar.read32(cap::DBOFF),
             info: Info {
-                version: (bar.read32(cap::CAPLENGTH) >> 16) as u16,
+                version: (capbase >> 16) as u16,
                 ports: 0,
                 slots: 0,
                 scratchpads: 0,
-                context_64: false,
+                context_64: regs::context_64(hccparams1),
+                addressing_64: regs::addressing_64(hccparams1),
+                port_power: regs::port_power_control(hccparams1),
+                handoff,
             },
+            ports,
             bar,
             core,
             scratchpad: None,
@@ -142,6 +204,7 @@ impl Hc {
             dropped: 0,
             pool: [const { None }; MAX_SLOTS as usize + 1],
             regions: 0,
+            bulk: None,
         };
         hc.reset()?;
         hc.configure()?;
@@ -157,9 +220,14 @@ impl Hc {
         self.bar.write32(self.op + offset, value);
     }
 
-    /// Wait until `done` holds, napping between reads.
-    fn until(&self, what: &'static str, done: impl Fn(&Hc) -> bool) -> Result<(), Error> {
-        let deadline = sys::clock() + TIMEOUT_TICKS;
+    /// Wait up to `ticks` until `done` holds, napping between reads.
+    fn until(
+        &self,
+        what: &'static str,
+        ticks: u64,
+        done: impl Fn(&Hc) -> bool,
+    ) -> Result<(), Error> {
+        let deadline = sys::clock() + ticks;
         while !done(self) {
             if sys::clock() > deadline {
                 return Err(Error::Timeout(what));
@@ -169,18 +237,23 @@ impl Hc {
         Ok(())
     }
 
-    /// Halt (if running) and reset the controller.
+    /// Halt (if running) and reset the controller (4.22.1, 5.4.1).
     fn reset(&mut self) -> Result<(), Error> {
-        self.until("controller ready", |hc| {
+        self.until("controller ready", RESET_TICKS, |hc| {
             hc.opreg(op::USBSTS) & op::STS_CNR == 0
         })?;
         if self.opreg(op::USBSTS) & op::STS_HALTED == 0 {
             let cmd = self.opreg(op::USBCMD);
             self.set_opreg(op::USBCMD, cmd & !op::CMD_RUN);
-            self.until("halt", |hc| hc.opreg(op::USBSTS) & op::STS_HALTED != 0)?;
+            self.until("halt", TIMEOUT_TICKS, |hc| {
+                hc.opreg(op::USBSTS) & op::STS_HALTED != 0
+            })?;
         }
         self.set_opreg(op::USBCMD, op::CMD_RESET);
-        self.until("reset", |hc| {
+        // Some Intel controllers hang if their registers are read within
+        // 1 ms of HCRST (Linux's XHCI_INTEL_HOST delay).
+        sleep_ms(1);
+        self.until("reset", RESET_TICKS, |hc| {
             hc.opreg(op::USBCMD) & op::CMD_RESET == 0 && hc.opreg(op::USBSTS) & op::STS_CNR == 0
         })
     }
@@ -191,7 +264,6 @@ impl Hc {
         self.info.ports = structural.max_ports;
         self.info.slots = structural.max_slots.min(MAX_SLOTS);
         self.info.scratchpads = regs::scratchpad_count(self.bar.read32(cap::HCSPARAMS2));
-        self.info.context_64 = regs::context_64(self.bar.read32(cap::HCCPARAMS1));
         // Only 4 KiB pages are supported (every DMA buffer is 4 KiB-aligned).
         if self.opreg(op::PAGESIZE) & 1 == 0 {
             return Err(Error::PageSize);
@@ -199,7 +271,10 @@ impl Hc {
         if self.info.slots == 0 || self.info.ports == 0 {
             return Err(Error::NoPorts);
         }
-        self.set_opreg(op::CONFIG, u32::from(self.info.slots));
+        // Every DMA buffer comes from below 4 GiB (no `ADDR64` flag), so a
+        // controller without 64-bit addressing (`AC64` clear) is fine too.
+        let config = self.opreg(op::CONFIG) & !0xFF;
+        self.set_opreg(op::CONFIG, config | u32::from(self.info.slots));
         self.scratchpads()?;
         let dcbaa = self.core.bus(DCBAA);
         self.bar.write64(self.op + op::DCBAAP, dcbaa);
@@ -217,16 +292,18 @@ impl Hc {
         Ok(())
     }
 
-    /// Hand the controller the scratchpad buffers it asked for (4.20).
+    /// Hand the controller the scratchpad buffers it asked for (4.20): an
+    /// array of page addresses (64-byte aligned) and the pages.
     fn scratchpads(&mut self) -> Result<(), Error> {
         let count = usize::from(self.info.scratchpads);
         if count == 0 {
             return Ok(());
         }
-        // One page for the array, then one page per buffer.
-        let mut pages = Region::alloc(self.handle, (count + 1) * PAGE)?;
+        // One page for the array (up to 512 entries), then one per buffer.
+        let array_pages = (count * 8).div_ceil(PAGE);
+        let mut pages = Region::alloc(self.handle, (count + array_pages) * PAGE)?;
         for index in 0..count {
-            let buffer = pages.bus((index + 1) * PAGE);
+            let buffer = pages.bus((index + array_pages) * PAGE);
             pages.write_u64(index * 8, buffer);
         }
         let array = pages.bus(0);
@@ -238,9 +315,16 @@ impl Hc {
     fn start(&mut self) -> Result<(), Error> {
         let cmd = self.opreg(op::USBCMD);
         self.set_opreg(op::USBCMD, cmd | op::CMD_RUN);
-        self.until("run", |hc| hc.opreg(op::USBSTS) & op::STS_HALTED == 0)?;
+        self.until("run", TIMEOUT_TICKS, |hc| {
+            hc.opreg(op::USBSTS) & op::STS_HALTED == 0
+        })?;
         // A No Op proves the command and event rings work end to end.
         self.command(trb::no_op_command()).map(|_| ())
+    }
+
+    /// `HSE` or `HCE`: the controller hit a fatal error and stopped.
+    pub(super) fn failed(&self) -> bool {
+        self.opreg(op::USBSTS) & (op::STS_HSE | op::STS_HCE) != 0
     }
 
     /// A zeroed region of `len` bytes for the device in `slot`: the slot's
@@ -265,6 +349,18 @@ impl Hc {
         if let Some(entry) = self.pool.get_mut(usize::from(slot)) {
             *entry = Some(region);
         }
+    }
+
+    /// The bulk window's region and the window's offset in it, allocated on
+    /// first use: one DMA buffer per controller, however many sticks.
+    pub(super) fn bulk(&mut self) -> Result<(&mut Region, usize), Error> {
+        if self.bulk.is_none() {
+            self.bulk = Some(Region::alloc(self.handle, 2 * BULK_WINDOW)?);
+        }
+        let region = self.bulk.as_mut().ok_or(Error::Descriptor("bulk buffer"))?;
+        let bus = region.bus(0);
+        let offset = (bus.next_multiple_of(BULK_WINDOW as u64) - bus) as usize;
+        Ok((region, offset))
     }
 
     /// Point DCBAA entry `slot` at a device context.
@@ -329,13 +425,17 @@ impl Hc {
         }
     }
 
-    /// Drop every queued transfer event of `slot`. Called after Disable Slot:
-    /// the slot's next device reuses its memory at the same bus addresses,
-    /// so a stale completion could otherwise look like one of its own.
-    pub(super) fn discard_slot(&mut self, slot: u8) {
+    /// Drop every queued transfer event of `slot` (`dci` 0: all of its
+    /// endpoints). Called after Disable Slot, or after an endpoint was reset
+    /// and its ring skipped: the memory is reused at the same bus addresses,
+    /// so a stale completion could otherwise look like a new one.
+    pub(super) fn discard(&mut self, slot: u8, dci: u8) {
         self.pump();
-        self.pending
-            .retain(|event| !(event.kind() == kind::TRANSFER_EVENT && event.slot() == slot));
+        self.pending.retain(|event| {
+            !(event.kind() == kind::TRANSFER_EVENT
+                && event.slot() == slot
+                && (dci == 0 || event.endpoint() == dci))
+        });
     }
 
     /// Take the oldest pending event, if any.

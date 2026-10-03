@@ -20,7 +20,6 @@
   {"key": "enter", "until": "fault=139", "timeout": 60, "retries": 2},
   {"type": "top & echo bg-prompt-back"},
   {"key": "enter", "until": "(?m)^bg-prompt-back", "regex": true, "timeout": 30, "retries": 2},
-  {"wait": 2.0},
   {"type": "wait; echo waited=$?"},
   {"key": "enter", "until": "waited=0", "timeout": 60, "retries": 2},
   {"wait": 1.5},

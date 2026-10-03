@@ -131,7 +131,7 @@ same volume instances (no overlay):
 | `/` | ext2 whose `s_uuid` equals `root=UUID=...` (any device or partition) | `root_flags`, plus `ro` if the device cannot be written |
 | `/boot` | the FAT boot volume | `ro,noexec,nosuid` |
 | `/transient`, `/tmp` | one ramfs, sticky `1777` root | none |
-| `/home` | optional ext2 chosen by `home=LABEL=..`/`home=UUID=..` | `home_flags` + `nosuid`; absent volume is a log line |
+| `/home` | optional ext2 chosen by `home=LABEL=..`/`home=UUID=..` | `home_flags` + `nosuid`; absent volume is a log line, and the request is kept for a USB stick that appears later ([usb-storage.md](usb-storage.md): `fs::late`, mounted in both tables once `usbd` serves it) |
 
 There is no `/data` probe in this mode. A config naming a root that is not
 found logs `fs: root <uuid> not found; booting the legacy layout` and boots the

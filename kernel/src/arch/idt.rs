@@ -67,6 +67,11 @@ pub fn init() {
     // ring 3 cannot raise it.
     idt[crate::task::switch::YIELD_VECTOR]
         .set_handler_fn(naked_gate(crate::task::switch::yield_isr as *const ()));
+    // The local APIC timer, when it is the tick (`arch::timer`), enters the
+    // same scheduler gate; `timer::end_of_tick` acknowledges the right chip.
+    idt[super::lapic::TIMER_VECTOR]
+        .set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
+    idt[super::lapic::SPURIOUS_VECTOR].set_handler_fn(lapic_spurious_handler);
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
     // Every other PIC line reaches the device core (issue #240).
@@ -81,16 +86,21 @@ pub fn init() {
     idt.load();
 }
 
-/// Initialise interrupt hardware (PIC + PIT) and load the IDT.
+/// Initialise interrupt hardware (PIC, PIT, the tick source) and load the IDT.
 pub fn init_hardware() {
     // Safety: reprogramming the PIC/PIT is only valid once and before enabling IRQs.
     unsafe {
         pic::init();
         pic::init_pit(100);
-        super::clock::calibrate(100);
     }
+    // The PIT stays the tick unless it is found not ticking (or the image
+    // forces the local APIC timer); this also calibrates the TSC catch-up.
+    super::timer::init();
     init();
 }
+
+/// The local APIC's spurious vector: no EOI, by definition (SDM 11.9).
+extern "x86-interrupt" fn lapic_spurious_handler(_stack: InterruptStackFrame) {}
 
 /// A fault from ring 3 ends only the faulting process and never returns; a
 /// ring-0 fault falls through to the caller's diagnostic halt (issue #7).

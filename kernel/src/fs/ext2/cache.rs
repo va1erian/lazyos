@@ -105,6 +105,12 @@ impl Ext2 {
     /// next `flush` to report (`libs/ext2fs/src/commit.rs`).
     pub fn writeback(&self, pressure: bool) -> Result<(), FsError> {
         static LOGGED: AtomicBool = AtomicBool::new(false);
+        // The flusher runs on the kernel task: never wait for a volume another
+        // task holds (it may be parked on a USB provider); the next round
+        // writes back what this one skipped.
+        let Some(_gate) = self.gate.try_lock() else {
+            return Ok(());
+        };
         let result = self.volume.writeback();
         if pressure {
             self.volume.shrink_cache();

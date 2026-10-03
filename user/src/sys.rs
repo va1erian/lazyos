@@ -55,6 +55,7 @@ mod introspect;
 mod kill;
 mod random;
 mod spawn;
+mod storage;
 mod wall;
 
 pub use cred::*;
@@ -65,6 +66,7 @@ pub use introspect::*;
 pub use kill::*;
 pub use random::*;
 pub use spawn::*;
+pub use storage::*;
 pub use wall::*;
 
 /// Write raw bytes to the console.

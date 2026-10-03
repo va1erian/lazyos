@@ -60,9 +60,11 @@ impl LazyOSBackend {
         self.deliver_pointer(window, target, event);
     }
 
-    /// Tell the node under the pointer it was left when a move lands outside
-    /// the window with no capture: the compositor sends a panel exactly one
-    /// such move when the pointer leaves it, so hover highlights can clear.
+    /// Tell the hovered node it was left: when the pointer moves onto another
+    /// node of the window (as `xui-canvas`'s `set_hover` does, so a tooltip or
+    /// hover highlight clears), and when a move lands outside the window with
+    /// no capture: the compositor sends a panel exactly one such move when the
+    /// pointer leaves it.
     fn track_leave(&self, window: WindowId, x: i32, y: i32, target: Option<WidgetId>) {
         let size = self
             .windows
@@ -70,14 +72,15 @@ impl LazyOSBackend {
             .get(&window.raw())
             .map(|entry| (entry.width, entry.height));
         let outside = size.is_some_and(|(w, h)| x < 0 || y < 0 || x >= w || y >= h);
-        if !(outside && target.is_none()) {
-            self.hovered.set(target.map(|id| (window, id)));
-        } else if let Some((owner, left)) = self.hovered.get() {
+        let next = target.map(|id| (window, id));
+        match self.hovered.get() {
             // Only the window the pointer left; another window's hover stays.
-            if owner == window {
-                self.hovered.set(None);
+            Some((owner, _)) if owner != window && outside && target.is_none() => {}
+            Some((owner, left)) if owner == window && Some((owner, left)) != next => {
+                self.hovered.set(next);
                 self.deliver(window, left, &Event::MouseLeave);
             }
+            _ => self.hovered.set(next),
         }
     }
 
@@ -368,6 +371,39 @@ mod tests {
             .filter(|(_, event)| *event == Event::MouseLeave)
             .count();
         assert_eq!(leaves, 0, "told once");
+    }
+
+    #[test]
+    fn moving_onto_another_node_tells_the_old_one_it_was_left() {
+        let (backend, log) = rig();
+        backend.pointer_move(W, 10, 40);
+        let first = last(&log).0;
+        backend.pointer_move(W, 160, 40);
+        let second = last(&log).0;
+        assert_ne!(first, second);
+        let events = log.0.borrow();
+        assert!(
+            events.contains(&(first, Event::MouseLeave)),
+            "the old node hears it was left"
+        );
+        assert!(!events.contains(&(second, Event::MouseLeave)));
+        let leave = events
+            .iter()
+            .position(|e| *e == (first, Event::MouseLeave))
+            .unwrap();
+        let moved = events
+            .iter()
+            .rposition(|(id, e)| *id == second && matches!(e, Event::MouseMove { .. }))
+            .unwrap();
+        assert!(leave < moved, "the leave comes before the new node's move");
+    }
+
+    #[test]
+    fn moving_within_one_node_sends_no_leave() {
+        let (backend, log) = rig();
+        backend.pointer_move(W, 10, 40);
+        backend.pointer_move(W, 12, 41);
+        assert!(!log.0.borrow().iter().any(|(_, e)| *e == Event::MouseLeave));
     }
 
     #[test]

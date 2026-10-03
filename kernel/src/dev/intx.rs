@@ -30,7 +30,7 @@ use libmessenger::{flags, Encoder, Header, Parcel, VERSION};
 use crate::arch::pic;
 use crate::ipc::channels::{self, Error as ChannelError};
 
-use super::claims::{Claim, Claims, CLAIMS, LINES};
+use super::claims::{Claim, ClaimMask, Claims, CLAIMS, LINES};
 use super::class::{method, DEV_INTERFACE};
 use super::errno::{Errno, EBUSY, EINVAL, ENOSYS};
 use super::irq;
@@ -106,7 +106,7 @@ impl Batch {
 
 impl Claims {
     /// Bitmask of claims armed on `line`.
-    fn armed_mask(&self, line: u8) -> u32 {
+    fn armed_mask(&self, line: u8) -> ClaimMask {
         let mut mask = 0;
         for (id, claim) in self.slots.iter().enumerate() {
             if claim.is_some_and(|claim| claim.armed && claim.line == Some(line)) {
@@ -116,7 +116,7 @@ impl Claims {
         mask
     }
 
-    fn set_round(&mut self, line: u8, waiting: u32, deadline: u64) {
+    fn set_round(&mut self, line: u8, waiting: ClaimMask, deadline: u64) {
         self.rounds[usize::from(line)] = super::claims::Round { waiting, deadline };
         if waiting != 0 {
             ACTIVE_ROUNDS.fetch_or(1 << line, Ordering::AcqRel);
@@ -165,7 +165,7 @@ impl Claims {
             pic::set_masked(line, true);
             return;
         }
-        let mut notified = 0u32;
+        let mut notified: ClaimMask = 0;
         for (id, claim) in self.slots.iter_mut().enumerate() {
             if armed & (1 << id) == 0 {
                 continue;

@@ -45,6 +45,14 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/usb_fat.rs"]
+mod usb_fat;
+#[path = "build_support/usb_image.rs"]
+mod usb_image;
+#[path = "build_support/usb_ramdisk.rs"]
+mod usb_ramdisk;
+#[path = "build_support/usb_stick.rs"]
+mod usb_stick;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -93,6 +101,9 @@ fn main() {
     std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
     println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
     println!("cargo:rerun-if-changed=build_support/drivers.rs");
+    for usb in ["usb_fat", "usb_image", "usb_ramdisk", "usb_stick"] {
+        println!("cargo:rerun-if-changed=build_support/{usb}.rs");
+    }
 
     // `LAZYOS_OS_SIZE` sizes the OS volume (a change needs `LAZYOS_RESET_OS=1`);
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
@@ -122,7 +133,7 @@ fn main() {
     let bios_image = out_dir.join("bios.img");
     // The FAT `/boot` volume gets the kernel and `lazyos.cfg` only; every
     // other file goes to the OS file list.
-    let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    let mut builder = bootloader::DiskImageBuilder::new(kernel.clone());
     builder.set_file_contents(
         String::from(fhs::boot::LAZYOS_CFG),
         os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env()).into_bytes(),
@@ -430,6 +441,13 @@ fn main() {
     let bios = std::fs::read(&bios_image).expect("read the BIOS image");
     let accounts = os_layout::parse_passwd(&String::from_utf8_lossy(PASSWD));
     let dirs = os_layout::dirs(&accounts);
+    // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md): the same
+    // files on a RAM root, booted under UEFI or BIOS, plus a home partition.
+    if usb_image::enabled() {
+        let usb = manifest_dir.join("target").join("lazyos-usb.img");
+        usb_image::build(&kernel, &out_dir, &usb, &dirs, &files.files(), &accounts)
+            .unwrap_or_else(|error| panic!("USB image: {error}"));
+    }
     os_image::compose(
         &plan,
         &stable_image,

@@ -12,7 +12,7 @@
 
 use alloc::boxed::Box;
 
-use crate::tty::{Ldisc, Signal};
+use crate::tty::{Foreground, Ldisc, Signal};
 
 use super::*;
 
@@ -21,8 +21,8 @@ use super::*;
 pub struct Fed {
     /// Echo for the terminal's output.
     pub echo: Vec<u8>,
-    /// Signals to raise, with the group they are for.
-    pub signals: Vec<(Signal, usize)>,
+    /// Signals to raise, with the group and session they are for.
+    pub signals: Vec<(Signal, Foreground)>,
 }
 
 /// The bytes a terminal sends for `key` (none for a bare modifier).
@@ -63,7 +63,7 @@ pub fn with_console<R>(f: impl FnOnce(&mut Ldisc) -> R) -> (R, Fed) {
         let mut scratch = Ldisc::new();
         return (f(&mut scratch), fed);
     };
-    let pgid = task.pgid;
+    let (pgid, session) = (task.pgid, task.sid);
     let ldisc = task
         .linux
         .console
@@ -79,7 +79,7 @@ pub fn with_console<R>(f: impl FnOnce(&mut Ldisc) -> R) -> (R, Fed) {
             } else {
                 pgid
             };
-            fed.signals.push((signal, group));
+            fed.signals.push((signal, Foreground { group, session }));
         }
     }
     (f(ldisc), fed)
@@ -111,13 +111,8 @@ pub fn apply_fed(fed: Fed) {
         write_output(&echo);
         crate::serial::write_bytes(&echo);
     }
-    for (signal, group) in fed.signals {
-        let _ = super::signal::kill(
-            KERNEL_TASK,
-            -(group as i64),
-            crate::tty::signal_number(signal),
-            super::signal::SigInfo::kernel(),
-        );
+    for (signal, foreground) in fed.signals {
+        crate::tty::signal_console(foreground, crate::tty::signal_number(signal));
     }
 }
 
@@ -129,18 +124,29 @@ pub fn console_readable() -> bool {
 }
 
 /// The keyboard path's view of the focused window's terminal: whether `^C`
-/// should become a signal (`ISIG`), and for which group (the foreground group
-/// `TIOCSPGRP` set, else the focused task's own).
-pub fn console_interrupt_target(focus: usize) -> Option<usize> {
+/// should become a signal (`ISIG`), and for whom: the foreground group
+/// `TIOCSPGRP` set, in the window's session, else the focused task's own
+/// group in its own session.
+pub fn console_interrupt_target(focus: usize) -> Option<Foreground> {
     let tasks = TASKS.lock();
     let root = super::console::root_of(&tasks, focus);
-    let focused_group = tasks[focus].as_ref().map_or(0, |task| task.pgid);
-    match tasks[root]
-        .as_ref()
-        .and_then(|task| task.linux.console.as_deref())
-    {
+    let focused = tasks[focus].as_ref().map_or(
+        Foreground {
+            group: 0,
+            session: 0,
+        },
+        |task| Foreground {
+            group: task.pgid,
+            session: task.sid,
+        },
+    );
+    let root = tasks[root].as_ref();
+    match root.and_then(|task| task.linux.console.as_deref()) {
         Some(ldisc) if !ldisc.termios.signals() => None,
-        Some(ldisc) if ldisc.fg_pgrp != 0 => Some(ldisc.fg_pgrp),
-        _ => Some(focused_group),
+        Some(ldisc) if ldisc.fg_pgrp != 0 => Some(Foreground {
+            group: ldisc.fg_pgrp,
+            session: root.map_or(0, |task| task.sid),
+        }),
+        _ => Some(focused),
     }
 }

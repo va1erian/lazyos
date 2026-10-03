@@ -17,7 +17,8 @@ use crate::user_ptr;
 
 use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
-use super::io::{read_stream_opts, write_stream_opts};
+use super::io::{recv_stream, write_stream_opts};
+use super::scatter::{Received, Scatter};
 
 /// `AF_INET` and the sockaddr layout.
 pub(super) const AF_INET: u64 = 2;
@@ -289,57 +290,76 @@ pub(super) fn sys_recvfrom(
     from: (u64, u64),
     opts: task::RecvOpts,
 ) -> u64 {
-    let (addr, addrlen) = from;
+    recv_into(fd, &Scatter::one(buf, len), from, opts).result
+}
+
+/// [`sys_recvfrom`] into any destination (`recvmsg`'s iovec).
+pub(super) fn recv_into(
+    fd: u64,
+    dest: &Scatter,
+    (addr, addrlen): (u64, u64),
+    opts: task::RecvOpts,
+) -> Received {
     let sock = match inet_of(fd) {
         Ok(sock) => sock,
-        Err(e) => return e,
+        Err(e) => return Received::of(e),
     };
     if sock.kind() == Kind::Stream {
         if sock.pair().is_none() {
-            return err(ENOTCONN);
+            return Received::of(err(ENOTCONN));
         }
-        let n = read_stream_opts(fd, buf, len, opts);
-        if addr != 0 && (n as i64) >= 0 {
+        let got = recv_stream(fd, dest, opts);
+        if addr != 0 && (got.result as i64) >= 0 {
             write_addr(addr, addrlen, sock.peer().unwrap_or(Addr::ANY));
         }
-        return n;
+        return got;
     }
-    recv_datagram(&sock, fd, (buf, len), (addr, addrlen), opts)
+    recv_datagram(&sock, fd, dest, (addr, addrlen), opts)
 }
 
+/// One datagram, whole: staged one byte past the destination (up to the
+/// largest datagram) so a longer one is reported truncated.
 fn recv_datagram(
     sock: &InetSock,
     fd: u64,
-    (buf, len): (u64, u64),
+    dest: &Scatter,
     (addr, addrlen): (u64, u64),
     opts: task::RecvOpts,
-) -> u64 {
+) -> Received {
     if let Err(e) = ensure_bound(sock) {
-        return e;
+        return Received::of(e);
     }
-    let want = (len as usize).min(MAX_DGRAM);
+    let len = usize::try_from(dest.len()).unwrap_or(usize::MAX);
+    let want = len.saturating_add(1).min(MAX_DGRAM);
     let mut message = alloc::vec![0u8; DGRAM_HEADER + want];
     let n = match task::fd_stream_recv(fd as usize, &mut message, opts) {
         Ok(n) => n,
-        Err(e) => return super::io::pipe_error(e),
+        Err(e) => return Received::of(super::io::pipe_error(e)),
     };
     if n < DGRAM_HEADER {
-        return err(EINVAL);
+        return Received::of(err(EINVAL));
     }
     let from = Addr {
         ip: [message[0], message[1], message[2], message[3]],
         port: u16::from_be_bytes([message[4], message[5]]),
     };
     let payload = &message[DGRAM_HEADER..n];
-    if user_ptr::try_copy_to(buf, payload).is_err() {
-        return err(EFAULT);
+    let kept = payload.len().min(len);
+    if let Err(code) = dest.copy_out(&payload[..kept]) {
+        return Received::of(code);
     }
     write_addr(addr, addrlen, from);
-    payload.len() as u64
+    Received {
+        result: kept as u64,
+        truncated: payload.len() > kept,
+    }
 }
 
 /// `read(2)` on an inet socket.
 pub(super) fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0; // `read` of nothing takes no datagram (see `io::read_stream`)
+    }
     sys_recvfrom(fd, buf, len, (0, 0), task::RecvOpts::default())
 }
 

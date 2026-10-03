@@ -281,6 +281,10 @@ def main(argv: list[str]) -> int:
                              "and a sound card: copy it to your home and install it with "
                              "`pkgctl install`, or open it in Files, then start ModPlayer "
                              "from the menu")
+    parser.add_argument("--usb-image", action="store_true",
+                        help="also write target/lazyos-usb.img, the image for a real PC's "
+                             "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
+                             "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
@@ -296,6 +300,10 @@ def main(argv: list[str]) -> int:
                              "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
                              "`devices` to LAZYOS_XUI_AUTOSTART (default "
                              f"{DEVICES_AUTOSTART})")
+    parser.add_argument("--timer", choices=["pit", "lapic"],
+                        help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
+                             "local APIC timer even where the PIT ticks, the path a PC "
+                             "with a clock-gated PIT takes (docs/real-pc-boot-plan.md H2)")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -388,10 +396,19 @@ def main(argv: list[str]) -> int:
             needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
+        if args.usb_image:
+            # The stick must ship `usbd` and boot `init` to start it: the
+            # target PC may have no PS/2 port (the build refuses otherwise).
+            env["LAZYOS_USB_IMAGE"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
         if args.devices:
             if not build_xui_apps():
                 return 1
             env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
+        if args.timer:
+            env["LAZYOS_TIMER"] = args.timer
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():

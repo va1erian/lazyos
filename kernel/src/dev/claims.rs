@@ -21,7 +21,13 @@ use super::resources::MAX_BARS;
 use super::table::MAX_DEVICES;
 use super::DeviceId;
 
-const _: () = assert!(MAX_DEVICES <= 32, "claim bitmasks are u32");
+/// One bit per device id: the claimants a delivery round waits on.
+pub type ClaimMask = u128;
+
+const _: () = assert!(
+    MAX_DEVICES <= ClaimMask::BITS as usize,
+    "claim bitmasks must hold every device id"
+);
 
 /// How many live DMA buffers one claim may hold (issue #241). A fixed bound,
 /// like [`MAX_BARS`], keeps the claim `Copy` and heap-free.
@@ -127,7 +133,7 @@ impl Claim {
 /// and have not yet acked, and the tick after which they are dropped.
 #[derive(Clone, Copy)]
 pub struct Round {
-    pub waiting: u32,
+    pub waiting: ClaimMask,
     pub deadline: u64,
 }
 
