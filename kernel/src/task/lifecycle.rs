@@ -196,17 +196,16 @@ pub fn close_exited_fds() {
         let (fds, orphaned) = {
             let mut tasks = TASKS.lock();
             let fds = match tasks[slot].as_mut() {
-                Some(task) if task.state == TaskState::Done => {
-                    task.fd_flags = [0; FD_COUNT];
-                    core::mem::replace(&mut task.fds, core::array::from_fn(|_| Fd::Closed))
-                }
+                Some(task) if task.state == TaskState::Done => task.fds.take_all(),
                 _ => continue,
             };
             let orphaned = orphaned_interests(&tasks, &fds);
             (fds, orphaned)
         };
         for (epoll, fd) in &orphaned {
-            Epoll::drop_fd_if(epoll, *fd, &fds[*fd]);
+            if let Some(entry) = fds.get(*fd) {
+                Epoll::drop_fd_if(epoll, *fd, entry);
+            }
         }
         drop(orphaned);
         drop(fds);
@@ -219,22 +218,22 @@ pub fn close_exited_fds() {
 /// that number.
 fn orphaned_interests(
     tasks: &[Option<Task>; MAX_TASKS],
-    dead: &[Fd; FD_COUNT],
+    dead: &FdTable,
 ) -> Vec<(Arc<Epoll>, usize)> {
     let mut orphaned = Vec::new();
-    for entry in dead {
+    for (_, entry) in dead.iter() {
         let Fd::Epoll { epoll } = entry else {
             continue;
         };
-        for fd in (0..FD_COUNT).filter(|&fd| !matches!(dead[fd], Fd::Closed)) {
+        for (fd, held_dead) in dead.iter() {
             let still_owned = tasks
                 .iter()
                 .flatten()
                 .filter(|task| task.state != TaskState::Done)
                 .any(|task| {
-                    task.fds[fd].same_file(&dead[fd])
+                    task.fds.get(fd).is_some_and(|live| live.same_file(held_dead))
                         && task.fds.iter().any(
-                            |held| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
+                            |(_, held)| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
                         )
                 });
             if !still_owned {

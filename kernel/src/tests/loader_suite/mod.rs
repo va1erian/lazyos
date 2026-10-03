@@ -1,9 +1,13 @@
 //! ELF loader hardening (issue #228): every `PT_LOAD` header is untrusted, so
 //! malformed images must be refused before anything is mapped, valid ones must
-//! land byte-exact, and repeated loads must return every frame.
+//! land byte-exact, and repeated loads must return every frame. The loader
+//! streams images ([`stream`]): a file is never read whole, `.bss` tails are
+//! demand-zero, and there is no cap on image size or segment count.
 
 use super::*;
 use crate::process::load_segments;
+
+mod stream;
 
 /// Bytes of program headers/padding before the payload in a test image.
 const PAYLOAD_OFF: u64 = 0x1000;
@@ -42,8 +46,9 @@ fn payload_byte(i: usize) -> u8 {
     (i as u8).wrapping_mul(7) | 1
 }
 
-/// Assemble a minimal ELF64 executable with `phdrs` and a fixed payload.
-fn build_elf(entry: u64, phdrs: &[Ph]) -> Vec<u8> {
+/// Assemble a minimal ELF64 executable with `phdrs` and a payload of
+/// `payload` bytes at [`PAYLOAD_OFF`] (the headers must fit before it).
+fn build_elf_with(entry: u64, phdrs: &[Ph], payload: usize) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0]);
     out.extend_from_slice(&[0; 8]);
@@ -68,9 +73,15 @@ fn build_elf(entry: u64, phdrs: &[Ph]) -> Vec<u8> {
         out.extend_from_slice(&ph.memsz.to_le_bytes());
         out.extend_from_slice(&0x1000u64.to_le_bytes());
     }
-    out.resize(PAYLOAD_OFF as usize, 0);
-    out.extend((0..PAYLOAD_LEN).map(payload_byte));
+    let payload_at = (out.len() as u64).max(PAYLOAD_OFF) as usize;
+    out.resize(payload_at, 0);
+    out.extend((0..payload).map(payload_byte));
     out
+}
+
+/// [`build_elf_with`] and the standard payload.
+fn build_elf(entry: u64, phdrs: &[Ph]) -> Vec<u8> {
+    build_elf_with(entry, phdrs, PAYLOAD_LEN)
 }
 
 /// Run `f` against a fresh user table and free it, asserting the free-frame
@@ -88,7 +99,7 @@ fn with_table<R>(f: impl FnOnce(PhysAddr) -> Result<R, String>) -> Result<R, Str
     outcome
 }
 
-/// Load `elf` with the native layout's reserved window and demand rejection.
+/// Load `elf` with the test layout's reserved windows and demand rejection.
 fn expect_rejected(name: &str, elf: &[u8]) -> Result<(), String> {
     with_table(|table| {
         let before = mem::frame_stats().free;
@@ -104,8 +115,12 @@ fn expect_rejected(name: &str, elf: &[u8]) -> Result<(), String> {
     })
 }
 
-/// A window standing in for the stack/heap area of the loading process.
-const RESERVED: &[(u64, u64)] = &[(0x0100_0000, 0x0200_0000)];
+/// A window standing in for a heap area, plus the layout's own reservation
+/// (everything from the mmap area up).
+const RESERVED: &[(u64, u64)] = &[
+    (0x0100_0000, 0x0200_0000),
+    process::layout::IMAGE_RESERVED[0],
+];
 
 /// Overflowing, kernel-half, out-of-range and degenerate headers are refused.
 pub fn loader_rejects_malformed_headers() -> Result<(), String> {
@@ -132,18 +147,14 @@ pub fn loader_rejects_malformed_headers() -> Result<(), String> {
             vec![text(0x0000_7fff_ffff_f000, 0x10, 0x2000)],
         ),
         (
-            "memsz 1 TiB",
+            "memsz into the mmap area",
             0x40_0000,
-            vec![text(0x40_0000, 0x10, 1 << 40)],
+            vec![text(0x40_0000, 0x10, process::layout::MMAP_BASE)],
         ),
         (
-            "one page past the cap",
+            "memsz 1 TiB over the heap window",
             0x40_0000,
-            vec![text(
-                0x40_0000,
-                0x10,
-                (crate::process::loader::MAX_LOAD_PAGES + 1) * 4096,
-            )],
+            vec![text(0x40_0000, 0x10, 1 << 40)],
         ),
         (
             "filesz > memsz",
@@ -172,6 +183,11 @@ pub fn loader_rejects_malformed_headers() -> Result<(), String> {
             vec![text(0x40_0000, 0x10, 0x2000), text(0x40_1000, 0x10, 0x1000)],
         ),
         (
+            "overlapping segments, out of order",
+            0x40_1000,
+            vec![text(0x40_1000, 0x10, 0x1000), text(0x40_0000, 0x10, 0x2000)],
+        ),
+        (
             "duplicate segment",
             0x40_0000,
             vec![text(0x40_0000, 0x10, 0x1000), text(0x40_0000, 0x10, 0x1000)],
@@ -192,19 +208,21 @@ pub fn loader_rejects_malformed_headers() -> Result<(), String> {
             vec![text(0x40_0000, 0x10, 0x1000)],
         ),
         ("no loadable segment", 0x40_0000, vec![]),
-        (
-            "too many segments",
-            0x40_0000,
-            (0..=crate::process::loader::MAX_LOAD_SEGMENTS as u64)
-                .map(|i| text(0x40_0000 + i * 0x2000, 0x10, 0x1000))
-                .collect(),
-        ),
     ];
     for (name, entry, phdrs) in cases {
         expect_rejected(name, &build_elf(entry, &phdrs))?;
     }
     expect_rejected("truncated file", &build_elf(0x40_0000, &[])[..30])?;
-    expect_rejected("garbage", &[0x42; 200])
+    expect_rejected("garbage", &[0x42; 200])?;
+    let mut wrong_machine = build_elf(0x40_0000, &[text(0x40_0000, 0x10, 0x1000)]);
+    wrong_machine[18] = 0x28; // ARM
+    expect_rejected("wrong machine", &wrong_machine)?;
+    let mut big_phent = build_elf(0x40_0000, &[text(0x40_0000, 0x10, 0x1000)]);
+    big_phent[54] = 64;
+    expect_rejected("odd phentsize", &big_phent)?;
+    let mut phdrs_out = build_elf(0x40_0000, &[text(0x40_0000, 0x10, 0x1000)]);
+    phdrs_out[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+    expect_rejected("program headers past the file", &phdrs_out)
 }
 
 /// Read `len` bytes at `va` out of `table`'s mapped frames.
@@ -220,7 +238,8 @@ fn read_back(table: PhysAddr, va: u64, len: usize) -> Result<Vec<u8>, String> {
 }
 
 /// A well-formed image lands byte-exact, zero-fills `.bss`, keeps page
-/// protections, and two segments may share a boundary page.
+/// protections, and two segments may share a boundary page. The `.bss` pages
+/// past the last file page are demand-zero: absent until touched.
 pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
     // Text and data share page 0x400000 (data starts mid-page), and the data
     // segment carries a 0x2800-byte bss tail.
@@ -233,8 +252,13 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
     ];
     let elf = build_elf(0x40_0010, &phdrs);
     with_table(|table| {
-        let entry = load_segments(table, &elf, RESERVED)?;
-        check!(entry == 0x40_0010, "entry {entry:#x}");
+        let loaded = load_segments(table, &elf, RESERVED)?;
+        check!(loaded.entry == 0x40_0010, "entry {:#x}", loaded.entry);
+        check!(loaded.end == 0x40_5000, "image end {:#x}", loaded.end);
+        check!(
+            loaded.phnum == 2 && loaded.phent == 56,
+            "phdr info {loaded:?}"
+        );
         let text = read_back(table, 0x40_0000, 0x1800)?;
         check!(
             text.iter().enumerate().all(|(i, &b)| b == payload_byte(i)),
@@ -247,7 +271,29 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
                 .all(|(i, &b)| b == payload_byte(0x1800 + i)),
             "data bytes differ"
         );
-        let bss = read_back(table, 0x40_1900, 0x2800)?;
+        // The rest of the data page is mapped and zero; the pages after it
+        // are a demand-zero `Anon` range of the segment's protection.
+        let tail = read_back(table, 0x40_1900, 0x700)?;
+        check!(
+            tail.iter().all(|&b| b == 0),
+            "bss in the file page is not zeroed"
+        );
+        check!(
+            raw_entry(table, 0x40_2000).is_none(),
+            "bss page mapped eagerly"
+        );
+        let bss = mem::vma::find(table, 0x40_3000).ok_or("no VMA over the bss")?;
+        check!(
+            bss.kind == Kind::Anon && bss.prot.has_write() && !bss.prot.has_exec(),
+            "bss VMA is {bss:?}"
+        );
+        for page in [0x40_2000u64, 0x40_3000, 0x40_4000] {
+            check!(
+                mem::demand_fault(table, page, PageFaultErrorCode::CAUSED_BY_WRITE),
+                "bss page {page:#x} did not fault in"
+            );
+        }
+        let bss = read_back(table, 0x40_2000, 0x2100)?;
         check!(bss.iter().all(|&b| b == 0), "bss is not zeroed");
         check!(
             raw_entry(table, 0x40_5000).is_none(),
@@ -277,23 +323,23 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
 pub fn loader_accepts_image_linked_at_zero() -> Result<(), String> {
     let elf = build_elf(0x1010, &[Ph::new(0, 0x2000, 0x3000, PF_R | PF_X)]);
     with_table(|table| {
-        let entry = load_segments(table, &elf, RESERVED)?;
-        check!(entry == 0x1010, "entry {entry:#x}");
+        let loaded = load_segments(table, &elf, RESERVED)?;
+        check!(loaded.entry == 0x1010, "entry {:#x}", loaded.entry);
         let head = read_back(table, 0, 16)?;
         check!(head[0] == payload_byte(0), "page 0 not populated");
         Ok(())
     })
 }
 
-/// Soak: load a large image (1 MiB of file data) and a many-segment image
-/// hundreds of times. Every load must free its frames, and the per-page copy
-/// must stay fast (the old per-byte linear scan took minutes at this size).
+/// Soak: load a large-bss image and a many-segment image hundreds of times.
+/// Every load must free its frames, and the per-page copy must stay fast (the
+/// old per-byte linear scan took minutes at this size).
 pub fn loader_soak_no_leak_and_linear_time() -> Result<(), String> {
     let big = build_elf(
         0x40_0000,
         &[Ph::new(0x40_0000, 0x3000, 0x10_0000, PF_R | PF_W | PF_X)],
     );
-    let many: Vec<Ph> = (0..crate::process::loader::MAX_LOAD_SEGMENTS as u64)
+    let many: Vec<Ph> = (0..32u64)
         .map(|i| Ph::new(0x40_0000 + i * 0x3000, 0x2000, 0x2800, PF_R | PF_X))
         .collect();
     let many = build_elf(0x40_0000, &many);
@@ -326,4 +372,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "loader_soak_no_leak_and_linear_time",
         loader_soak_no_leak_and_linear_time,
     ),
+    ("loader_many_segments_load", stream::many_segments_load),
+    ("loader_huge_bss_is_lazy", stream::huge_bss_is_lazy),
+    ("loader_streams_from_a_file", stream::streams_from_a_file),
+    ("loader_stream_soak", stream::stream_soak),
 ];

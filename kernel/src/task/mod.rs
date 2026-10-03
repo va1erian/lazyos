@@ -81,6 +81,7 @@ mod console;
 mod cwd;
 mod fdio;
 mod fdops;
+mod fdtable;
 mod fdtypes;
 pub mod fpu;
 mod fs_base;
@@ -99,6 +100,7 @@ pub use console::*;
 pub use cwd::{cwd, set_cwd};
 pub use fdio::*;
 pub use fdops::*;
+pub use fdtable::{fd_max, FdTable};
 pub use fdtypes::*;
 pub use lifecycle::*;
 pub use memstate::*;
@@ -255,10 +257,8 @@ pub struct Task {
     pub heap_break: u64,
     /// Linux thread pointer (`%fs` base).
     pub fs_base: u64,
-    /// Linux file descriptors.
-    pub fds: [Fd; FD_COUNT],
-    /// Per-descriptor flags ([`FD_CLOEXEC`]).
-    pub fd_flags: [u16; FD_COUNT],
+    /// Linux file descriptors and their flags ([`FD_CLOEXEC`]).
+    pub fds: FdTable,
     /// Absolute, normalized working directory of the Linux ABI (see [`cwd`]);
     /// `None` is the root, so a task that never `chdir`s costs no allocation.
     /// Shared by `Arc` so `fork` is a reference-count bump, and freed with
@@ -278,29 +278,35 @@ struct KStack([u8; KSTACK_SIZE]);
 static mut KSTACKS: [KStack; MAX_TASKS] = [const { KStack([0; KSTACK_SIZE]) }; MAX_TASKS];
 
 /// Linux `brk`/`mmap` bump state, keyed by PML4 so threads share it.
+#[derive(Clone, Copy)]
 struct Bump {
     pml4: u64,
+    /// Where the break started (the end of the image): `brk` never goes below.
+    brk_start: u64,
     brk: u64,
     mmap_next: u64,
 }
 
 static BUMPS: Mutex<Vec<Bump>> = Mutex::new(Vec::new());
 
-/// Register the shared bump state for a new address space. Updates an existing
-/// entry as well: freed PML4 frames are recycled, so a stale entry must not
-/// leak into the new address space.
+/// Register the shared bump state for a new address space whose break starts
+/// (and currently is) at `brk`. Updates an existing entry as well: freed PML4
+/// frames are recycled, so a stale entry must not leak into the new space.
 pub fn register_bumps(pml4: u64, brk: u64, mmap_next: u64) {
+    set_bumps(Bump {
+        pml4,
+        brk_start: brk,
+        brk,
+        mmap_next,
+    });
+}
+
+/// Install `bump` as its address space's state (see [`register_bumps`]).
+fn set_bumps(bump: Bump) {
     let mut bumps = BUMPS.lock();
-    match bumps.iter_mut().find(|bump| bump.pml4 == pml4) {
-        Some(bump) => {
-            bump.brk = brk;
-            bump.mmap_next = mmap_next;
-        }
-        None => bumps.push(Bump {
-            pml4,
-            brk,
-            mmap_next,
-        }),
+    match bumps.iter_mut().find(|old| old.pml4 == bump.pml4) {
+        Some(old) => *old = bump,
+        None => bumps.push(bump),
     }
 }
 
@@ -316,14 +322,9 @@ fn with_bump<R>(f: impl FnOnce(&mut Bump) -> R) -> Option<R> {
     bumps.iter_mut().find(|bump| bump.pml4 == pml4).map(f)
 }
 
-/// The `(brk, mmap_next)` of a given address space.
-fn bump_for_pml4(pml4: u64) -> (u64, u64) {
-    BUMPS
-        .lock()
-        .iter()
-        .find(|bump| bump.pml4 == pml4)
-        .map(|bump| (bump.brk, bump.mmap_next))
-        .unwrap_or((0, 0))
+/// The bump state of a given address space, if it has one.
+fn bump_for_pml4(pml4: u64) -> Option<Bump> {
+    BUMPS.lock().iter().find(|bump| bump.pml4 == pml4).copied()
 }
 
 pub(crate) fn kstack_top(index: usize) -> u64 {

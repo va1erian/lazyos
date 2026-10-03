@@ -8,8 +8,9 @@
 //! advancing offset, and a child writes through a descriptor its parent opened
 //! because the description carries the path its writes go to.
 //!
-//! Every allocation here is fallible: the heap is small (16 MiB), so running
-//! out must fail the one call, never abort the kernel.
+//! Every allocation here is fallible: a file can be larger than the heap may
+//! grow (`limit.heap_max`), so running out must fail the one call, never
+//! abort the kernel.
 //!
 //! Lock order: the task table, then (after the table lock is released) one
 //! description's state; nothing here takes the table while holding a state.
@@ -20,7 +21,7 @@ use alloc::vec::Vec;
 
 use spin::Mutex;
 
-use super::{current, Fd, FD_COUNT, TASKS};
+use super::{current, Fd, TASKS};
 
 /// Most bytes one [`fd_peek`] hands back; a short read is legal, so a huge
 /// request is served in pieces instead of duplicating the whole file.
@@ -85,7 +86,7 @@ fn snap(fd: usize) -> Option<Arc<SnapFile>> {
     let tasks = TASKS.lock();
     let task = tasks[current()].as_ref()?;
     match task.fds.get(fd) {
-        Some(Fd::File { file }) if fd < FD_COUNT => Some(Arc::clone(file)),
+        Some(Fd::File { file }) => Some(Arc::clone(file)),
         _ => None,
     }
 }

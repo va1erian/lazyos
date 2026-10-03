@@ -62,7 +62,7 @@ mod time;
 mod uaccess;
 mod vfsfd;
 
-pub use elf::load;
+pub use elf::{load_image, nul_terminated};
 pub(crate) use native::{read_redirected, write_redirected};
 // Only the `#[cfg(lazyos_tests)]` harness (`kernel/src/tests.rs`) reaches this
 // through the `process::linux::` path; a normal build never does, hence the
@@ -71,26 +71,37 @@ pub(crate) use native::{read_redirected, write_redirected};
 pub use fd::close_cloexec_fds;
 
 /// Resolve an executable for a `spawnv` of a Linux-personality program: the
-/// named file, `/system/bin/<base>`, or a BusyBox applet alias. `None` when no
-/// such entry exists. `process::spawnv` uses this so a Linux spawn of `sh`
-/// reaches the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
-pub fn load_executable(path: &str) -> Option<alloc::vec::Vec<u8>> {
-    path::load_executable(path).ok()
+/// named file, `/system/bin/<base>`, or a BusyBox applet alias, opened for
+/// streaming. `None` when no such entry exists. `process::spawnv` uses this so
+/// a Linux spawn of `sh` reaches the BusyBox multiplexer as `argv[0] = "sh"`
+/// (issue #254).
+pub fn open_executable(path: &str) -> Option<crate::process::image::VfsFile> {
+    path::open_executable(path).ok()
 }
 
-// User memory layout for Linux tasks (kept clear of code and each other).
-/// `brk` region (grows up).
+/// [`open_executable`]'s whole file, for the suite's resolution tests.
+#[cfg(lazyos_tests)]
+pub fn load_executable(path: &str) -> Option<alloc::vec::Vec<u8>> {
+    use crate::process::image::Image;
+    let file = open_executable(path)?;
+    let mut bytes = alloc::vec![0u8; file.len() as usize];
+    file.read_exact_at(0, &mut bytes).ok()?;
+    Some(bytes)
+}
+
+// User memory layout for Linux tasks: see `crate::process::layout`.
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))]
+pub use crate::process::layout::STACK_TOP;
+pub use crate::process::layout::{MMAP_BASE, MMAP_LIMIT};
+/// Upper bound of the `brk` region: the start of the mmap area.
+pub const BRK_LIMIT: u64 = MMAP_BASE;
+/// The break an address space starts with when nothing was loaded into it
+/// (the test suite's scratch spaces); a loaded image's break starts right
+/// after its highest segment instead (`elf::load_image`).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub const BRK_BASE: u64 = 0x0100_0000;
-/// Upper bound of the `brk` region.
-pub const BRK_LIMIT: u64 = 0x1f00_0000;
-/// Anonymous `mmap` region (bumps up).
-pub const MMAP_BASE: u64 = 0x4000_0000;
-/// Upper bound of the `mmap` region.
-pub const MMAP_LIMIT: u64 = 0x7000_0000;
-/// User stack top (grows down from here).
-pub const STACK_TOP: u64 = 0x0200_0000;
-/// User stack size.
-pub const STACK_SIZE: u64 = 0x0010_0000;
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))]
+pub use elf::stack_size;
 
 /// Page size shared by every syscall that rounds an address or length to it.
 const PAGE: u64 = 4096;

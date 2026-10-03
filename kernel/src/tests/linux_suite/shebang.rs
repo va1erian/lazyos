@@ -22,8 +22,8 @@ const ENOEXEC: u64 = 8;
 const EACCES: u64 = 13;
 const ELOOP: u64 = 40;
 
-/// Stand-in for an interpreter binary: `resolve` hands back the bytes, it does
-/// not load them, so any non-`#!` content is "the ELF".
+/// Stand-in for an interpreter binary: `resolve` hands back the file, it does
+/// not load it, so any non-`#!` content is "the ELF".
 const FAKE_ELF: &[u8] = b"\x7fELF fake interpreter";
 
 fn neg(code: u64) -> u64 {
@@ -69,7 +69,13 @@ fn show(argv: &[Vec<u8>]) -> Vec<String> {
 fn expect_argv(image: &shebang::Image, want: &[&str]) -> Result<(), String> {
     let got = show(&image.argv);
     check!(got == want, "argv {got:?}, want {want:?}");
-    check!(image.elf == FAKE_ELF, "resolved to the wrong file");
+    use crate::process::image::Image;
+    let mut bytes = alloc::vec![0u8; image.file.len() as usize];
+    image
+        .file
+        .read_exact_at(0, &mut bytes)
+        .map_err(String::from)?;
+    check!(bytes == FAKE_ELF, "resolved to the wrong file");
     Ok(())
 }
 

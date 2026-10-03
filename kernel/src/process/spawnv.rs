@@ -33,6 +33,7 @@ use alloc::vec::Vec;
 use super::argstore;
 use super::creds::ENOMEM;
 use super::creds::{approve_labelled, syscall_error, transition_error, EFAULT, EINVAL, ENOENT};
+use super::image::VfsFile;
 use super::spawn::{check_exec, intern_service_name};
 use crate::fs;
 use crate::ipc::credentials::{self, Cred, LabelStamp};
@@ -255,17 +256,19 @@ fn approve(cred: CredReq) -> Result<Stamp, u64> {
     }
 }
 
-/// Read the program after the gate every spawn path shares
+/// Open the program after the gate every spawn path shares
 /// ([`check_exec`]: `noexec`, then `EXECUTE` on a regular file, root
 /// included). A Linux program may then be a BusyBox applet alias, a native one
-/// is always a real file.
-fn load(path: &str, linux: bool) -> Result<Vec<u8>, u64> {
+/// is always a real file. The file is streamed into the child, never read
+/// whole into the kernel.
+fn load(path: &str, linux: bool) -> Result<VfsFile, u64> {
     // `check_exec` answers a negative errno; as `u64` it is the syscall value.
     check_exec(path, linux).map_err(|errno| errno as u64)?;
+    let native = || VfsFile::native(fs::vfs::Id::current(), path).ok();
     let elf = if linux {
-        super::linux::load_executable(path).or_else(|| fs::read(path))
+        super::linux::open_executable(path).or_else(native)
     } else {
-        fs::read(path)
+        native()
     };
     elf.ok_or(syscall_error(ENOENT))
 }
@@ -276,7 +279,7 @@ fn load(path: &str, linux: bool) -> Result<Vec<u8>, u64> {
 fn start(
     path: &str,
     linux: bool,
-    elf: &[u8],
+    elf: &VfsFile,
     argv: Vec<u8>,
     envp: Vec<u8>,
     stamp: Stamp,

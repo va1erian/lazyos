@@ -104,7 +104,7 @@ pub fn eof_on_unreaped_exit() -> Result<(), String> {
     );
     check!(
         task::harness::state(child) == Some(task::TaskState::Done)
-            && (0..task::FD_COUNT)
+            && (0..task::fd_max())
                 .all(|fd| task::harness::fd_kind_at(child, fd) == task::FdKind::Closed),
         "the zombie kept a descriptor"
     );
@@ -238,7 +238,7 @@ pub fn exit_drops_epoll_interest() -> Result<(), String> {
     task::harness::reset();
     let epfd = process::linux::dispatch_for_test(291, 0, 0, 0) as usize;
     check!(
-        (3..task::FD_COUNT).contains(&epfd),
+        (3..task::fd_max()).contains(&epfd),
         "epoll_create1 returned {epfd:#x}"
     );
     let (child, r, w) = fork_writer()?;
