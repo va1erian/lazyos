@@ -5,6 +5,7 @@
 //! laid out with `xui_core::arrange`. Every toolbar action has a Lucide icon.
 
 mod dialogs;
+pub mod page_menu;
 mod tools;
 
 use std::cell::Cell;
@@ -16,9 +17,9 @@ use xui_core::arrange::{LayoutExt, column, row, spacer, widget};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Insets;
-use xui_core::widget::{Lucide, Placeable, StatusBar, Toolbar};
-use xui_rich_text::RichTextEditor;
+use xui_core::widget::{Lucide, Placeable, StatusBar, ToggleButton, Toolbar, Tooltip};
 use xui_rich_text::model::{Align, ListKind};
+use xui_rich_text::{RichTextEditor, ViewMode};
 
 use crate::app::{Mark, Msg, Writer, shortcut};
 use crate::files::word_count;
@@ -35,7 +36,7 @@ const FORMAT_HEIGHT: Dip = Dip(34.0);
 const ICON_WIDTH: Dip = Dip(32.0);
 
 /// The toolbar's commands, in the order of its items.
-const COMMANDS: [fn() -> Msg; 11] = [
+const COMMANDS: [fn() -> Msg; 12] = [
     || Msg::New,
     || Msg::Open,
     || Msg::Save,
@@ -47,6 +48,7 @@ const COMMANDS: [fn() -> Msg; 11] = [
     || Msg::Paste,
     || Msg::InsertImage,
     || Msg::Link,
+    || Msg::PageBreak,
 ];
 
 /// The toolbar as a layout entry.
@@ -92,6 +94,11 @@ fn command_toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
         .separator()
         .item_with_text(Lucide::Image, "Insert image", "Image")
         .item_with_text(Lucide::Link, "Link the selection", "Link")
+        .item_with_text(
+            Lucide::SeparatorHorizontal,
+            "Page break (Ctrl+Enter)",
+            "Page break",
+        )
         .on_click(|index| COMMANDS.get(index).map(|msg| msg())))
 }
 
@@ -149,6 +156,16 @@ fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 
     ];
     let indent = push(ui, t, (Lucide::IndentIncrease, "Indent"), || Msg::Indent)?;
     let outdent = push(ui, t, (Lucide::IndentDecrease, "Outdent"), || Msg::Outdent)?;
+    let page_view = Rc::new(
+        ToggleButton::auto(ui, "")?
+            .icon(Lucide::BookOpen)
+            .on_toggle(|on| Some(Msg::PageView(on))),
+    );
+    page_view.set_checked(true);
+    t.push(Tooltip::attach(ui, page_view.id(), "Page view")?);
+    let page_setup = Rc::new(push(ui, t, (Lucide::Ruler, "Page setup"), || {
+        Msg::PageSetup
+    })?);
     let tools = Tools {
         block,
         family,
@@ -157,6 +174,8 @@ fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 
         aligns,
         lists,
         wrap,
+        page_view,
+        page_setup,
         tips,
     };
     Ok((tools, [indent, outdent]))
@@ -169,11 +188,15 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         RichTextEditor::new(ui, Rect::default())?
             .on_change(|doc| Some(Msg::Edited(word_count(doc))))
             .on_selection(|summary| Some(Msg::Selection(summary.clone())))
-            .on_link(|url| Some(Msg::LinkClicked(url.to_owned()))),
+            .on_link(|url| Some(Msg::LinkClicked(url.to_owned())))
+            .view_mode(ViewMode::Page),
     );
     let commands = command_toolbar(ui)?;
     let (tools, [indent, outdent]) = format_tools(ui)?;
-    let status = Rc::new(StatusBar::auto(ui, &["Untitled", "Saved", "0 words"])?);
+    let status = Rc::new(StatusBar::auto(
+        ui,
+        &["Untitled", "Saved", "0 words", "Page 1 of 1"],
+    )?);
     let dialogs = dialogs::build(ui, &host)?;
 
     let dialog_open = Rc::new(Cell::new(false));
@@ -212,6 +235,8 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
                 .child(spacer().width(gap))
                 .child((&t.wrap).width(Dip(120.0)))
                 .child(spacer())
+                .child((&t.page_view).width(ICON_WIDTH))
+                .child((&t.page_setup).width(ICON_WIDTH))
                 .fixed(FORMAT_HEIGHT),
         )
         .child(widget(EditorPane(Rc::clone(&editor))).fill(1))

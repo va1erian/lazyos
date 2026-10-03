@@ -5,7 +5,8 @@
 //!
 //! The crate holds everything portable: the app state and messages
 //! ([`app`]), the commands ([`commands`]), the file logic ([`files`],
-//! [`names`], [`probe`]) and the widget tree ([`ui`]). What it needs from the
+//! [`names`], [`probe`]), the page setup choices ([`page`]) and the widget
+//! tree ([`ui`]). What it needs from the
 //! system it runs on comes in through [`Host`]; the LazyOS `writer` binary
 //! (`xui-app/src/bin/writer.rs`) supplies the backend, fonts, atomic writes
 //! and the start folder.
@@ -19,6 +20,7 @@ pub mod commands;
 pub mod files;
 pub mod host;
 pub mod names;
+pub mod page;
 pub mod probe;
 pub mod ui;
 
