@@ -1,0 +1,20 @@
+# LazyWriter's portable core (issue #533): the app state, commands, file logic
+# and widget tree, ported from xui's `crates/xui-rich-text/examples/wordpad`.
+# The `writer` binary in `xui-app/src/bin/writer.rs` supplies the LazyOS side
+# (backend, fonts, atomic writes, the default folder) through `Host`, so this
+# crate builds and tests on the host.
+[package]
+name = "xui-writer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "LazyWriter, a word processor on xui-rich-text"
+publish = false
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6" }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6", features = ["serde"] }
+
+[dev-dependencies]
+# Offscreen rendering for the headless window tests.
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6", default-features = false }

@@ -17,6 +17,8 @@ members = [
     "crates/settings",
     "crates/confd-editor",
     "crates/testkit",
+    # LazyWriter's portable core (issue #533); `src/bin/writer.rs` hosts it.
+    "crates/writer",
     "crates/shell",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
@@ -30,6 +32,9 @@ members = [
 # font API) that LazyOS drives its own display protocol with.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6" }
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6", default-features = false }
+# The rich-text widget LazyWriter edits with (issue #533), with its native JSON
+# format (`serde`). Same revision as `xui-core`, so one `xui_core` links.
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "c57b98ecdabe257236767a0f50d874818fb1a6b6", features = ["serde"] }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -58,6 +63,9 @@ surfbuf = { path = "../libs/surfbuf" }
 # drive them.
 xui-code-editor = { path = "crates/code-editor" }
 xui-paint = { path = "crates/paint" }
+# LazyWriter's app core (state, commands, file logic, widget tree); the
+# `writer` binary supplies the LazyOS platform through `xui_writer::Host`.
+xui-writer = { path = "crates/writer" }
 # The LazyOS Files app ships the multi-colour Global Village tiles: the
 # `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
 # the coloured set instead of the Lucide fallback.
@@ -119,6 +127,13 @@ path = "src/bin/term.rs"
 [[bin]]
 name = "xui-editor"
 path = "src/bin/editor.rs"
+
+# LazyWriter, the word processor (issue #533). The bin is `writer` so the
+# package's binary is `bin/writer.elf`; `tools/xui/build.py` copies it to
+# `target/xui/xui-writer.elf`.
+[[bin]]
+name = "writer"
+path = "src/bin/writer.rs"
 
 [[bin]]
 name = "xui-paint"
