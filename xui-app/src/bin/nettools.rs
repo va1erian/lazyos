@@ -79,6 +79,11 @@ struct NetTools {
     ping: Option<PingRun>,
     fetch: Option<Fetch>,
     server: Option<Server>,
+    /// A server asked to stop whose worker may still hold the port (it can be
+    /// mid-request for up to the request timeout); a Start waits for it.
+    stopping: Option<Server>,
+    /// Start was clicked while `stopping` was still running.
+    start_pending: bool,
     /// The server's hit and log-line counts last shown, so the log redraws
     /// only on change.
     shown_hits: Option<(u64, u64)>,
@@ -127,6 +132,8 @@ impl NetTools {
             ping: None,
             fetch: None,
             server: None,
+            stopping: None,
+            start_pending: false,
             shown_hits: None,
         };
         app.refresh_status();
@@ -141,7 +148,24 @@ impl NetTools {
             self.next_ping();
         }
         self.poll_fetch();
+        self.finish_stopping();
         self.show_server();
+    }
+
+    /// Forget the stopped server once its worker has ended (and released the
+    /// port), then start the replacement a click asked for meanwhile.
+    fn finish_stopping(&mut self) {
+        if !self
+            .stopping
+            .as_ref()
+            .is_some_and(|old| old.state().stopped)
+        {
+            return;
+        }
+        self.stopping = None;
+        if std::mem::take(&mut self.start_pending) {
+            self.start_server();
+        }
     }
 
     fn refresh_status(&mut self) {
@@ -320,11 +344,28 @@ impl NetTools {
     fn toggle_server(&mut self) {
         if let Some(server) = self.server.take() {
             server.stop();
+            self.stopping = Some(server);
             self.w.server_status.set_text("Stopped.");
             self.w.server_button.set_text("Start");
             self.shown_hits = None;
             return;
         }
+        if self.stopping.is_some() {
+            // The old worker still holds the port: start once it is gone.
+            self.start_pending = !self.start_pending;
+            let (status, button) = if self.start_pending {
+                ("Waiting for the previous server to stop...", "Cancel")
+            } else {
+                ("Stopped.", "Start")
+            };
+            self.w.server_status.set_text(status);
+            self.w.server_button.set_text(button);
+            return;
+        }
+        self.start_server();
+    }
+
+    fn start_server(&mut self) {
         match Server::start(SERVER_PORT) {
             Ok(server) => {
                 self.server = Some(server);

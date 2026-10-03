@@ -27,9 +27,10 @@ const MAX_REQUEST: usize = 8 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often the idle server looks for a connection or a stop request.
 const ACCEPT_POLL_MILLIS: u64 = 50;
-/// How many times a bind is tried, [`ACCEPT_POLL_MILLIS`] apart: a server
-/// just stopped holds the port until its next poll, so Stop then Start must
-/// wait for it rather than fail.
+/// How many times a bind is tried, [`ACCEPT_POLL_MILLIS`] apart, while the
+/// port is in use. Net Tools starts a server only after the previous one's
+/// worker has ended (`ServerState::stopped`); this covers the OS releasing the
+/// port a moment later, and any other holder that is about to let go.
 const BIND_ATTEMPTS: u32 = 40;
 /// Log lines the server keeps.
 const LOG_LINES: usize = 8;
