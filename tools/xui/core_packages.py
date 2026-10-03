@@ -43,7 +43,9 @@ import build as pkgbuild  # noqa: E402
 #: the Installer (`pkgd`'s trusted UI), the Terminal (its shell and every
 #: command typed in it would inherit a package label) and Devices (it reads
 #: the kernel's device inspection calls, `os.kernel.dev`, which no package
-#: permission can name).
+#: permission can name). The LazyRAD IDE (`lazyrad-os/`, not an xui app) is
+#: unlabelled too: it installs apps through `pkgd`, which refuses labelled
+#: callers, and its Play runs would inherit its label.
 CORE_APPS: dict[str, tuple[str, bool]] = {
     "sysmon": ("xui-sysmon.elf", False),
     "fabricmon": ("xui-fabricmon.elf", False),

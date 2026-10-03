@@ -176,7 +176,8 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 ## Packages and the label-policy trace
 
-Every desktop app except the Terminal, Devices, the Installer and LazyShell is
+Every desktop app except the Terminal, Devices, the Installer, LazyShell and the
+LazyRAD IDE (`docs/packages.md` says why) is
 a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
 `pkgd` installs it into `/apps` at boot and the kernel confines it to the
 permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported

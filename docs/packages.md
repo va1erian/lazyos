@@ -497,13 +497,22 @@ launchers saved before F5 keep working.
 
 ### Core packages (issue #509)
 
-Every desktop app is a package, except four programs that stay unlabelled in
+Every desktop app is a package, except five programs that stay unlabelled in
 `/system/bin`: LazyShell (the desktop itself), the Installer (`pkgd`'s trusted
 UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
 inherits its parent's label, so a packaged Terminal would run the shell and
 every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
-app) and Devices (it reads the kernel's device inspection calls,
-`os.kernel.dev`, which no package permission can name).
+app), Devices (it reads the kernel's device inspection calls,
+`os.kernel.dev`, which no package permission can name) and the LazyRAD IDE
+(`LAZYOS_LAZYRAD=1`) for both the Installer's and the Terminal's reasons:
+Make LazyOS App calls `pkgd`'s `Inspect` and `Install`, which
+`pkgstore::access` refuses to a labelled caller, and Play forks `lrplay` on
+the project being edited, whose scripts may call any service through
+`sys::*`; under the IDE's label every service its manifest did not name would
+be refused, so a run would not behave like the installed app. The apps
+LazyRAD builds are packages with permissions derived from their scripts
+([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)). [`lazyrad-package-plan.md`](lazyrad-package-plan.md) is the
+plan to make the IDE a package anyway.
 
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
