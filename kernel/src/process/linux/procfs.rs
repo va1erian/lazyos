@@ -18,6 +18,8 @@ use crate::fs::vfs::{self, FileKind, Meta};
 /// directories' 1).
 const MOUNTS_INO: u64 = 2;
 const MOUNTINFO_INO: u64 = 3;
+/// First inode number of the [`super::procinfo`] files.
+const INFO_INO: u64 = 10;
 
 /// Which fabricated file a path names.
 #[derive(Clone, Copy)]
@@ -143,9 +145,13 @@ fn render_mountinfo(table: &[Mount]) -> String {
     out
 }
 
-/// The bytes of the fabricated file at `path`, if it is one.
+/// The bytes of the fabricated file at `path`, if it is one: a mount table
+/// here, a machine or process file ([`super::procinfo`]) or an `/etc` file
+/// ([`super::etcfs`]).
 pub(super) fn contents(path: &str) -> Option<Vec<u8>> {
-    let kind = Kind::at(path)?;
+    let Some(kind) = Kind::at(path) else {
+        return super::procinfo::contents(path).or_else(|| super::etcfs::contents(path));
+    };
     let table = mount_table();
     let text = match kind {
         Kind::Mounts => render_mounts(&table),
@@ -157,10 +163,24 @@ pub(super) fn contents(path: &str) -> Option<Vec<u8>> {
 /// Metadata for the fabricated file at `path`: a world-readable regular file
 /// as long as its current contents.
 pub(super) fn meta(path: &str) -> Option<Meta> {
-    let kind = Kind::at(path)?;
+    if let Some(meta) = super::etcfs::meta(path) {
+        return Some(meta);
+    }
+    let Some(kind) = Kind::at(path) else {
+        let index = super::procinfo::FILES
+            .iter()
+            .position(|file| *file == path.replace("/proc/thread-self/", "/proc/self/"))?;
+        let size = super::procinfo::contents(path)?.len() as u64;
+        return Some(file_meta(INFO_INO + index as u64, size));
+    };
     let size = contents(path)?.len() as u64;
-    Some(Meta {
-        ino: kind.ino(),
+    Some(file_meta(kind.ino(), size))
+}
+
+/// A world-readable regular file of `size` bytes.
+fn file_meta(ino: u64, size: u64) -> Meta {
+    Meta {
+        ino,
         mode: vfs::S_IFREG | 0o444,
         uid: 0,
         gid: 0,
@@ -168,5 +188,33 @@ pub(super) fn meta(path: &str) -> Option<Meta> {
         kind: FileKind::File,
         // Generated on open, so there is no time to report.
         times: vfs::Times::default(),
-    })
+    }
+}
+
+/// What a synthetic directory lists: `(name, is_directory)`, or `None` for a
+/// directory that is not one of these.
+pub(super) fn children(dir: &str) -> Option<Vec<(String, bool)>> {
+    let files = |prefix: &str, names: &mut Vec<(String, bool)>| {
+        for path in super::procinfo::FILES
+            .iter()
+            .chain(["/proc/mounts", "/proc/self/mounts", "/proc/self/mountinfo"].iter())
+        {
+            if let Some(name) = path.strip_prefix(prefix) {
+                if !name.contains('/') {
+                    names.push((String::from(name), false));
+                }
+            }
+        }
+    };
+    let mut names = Vec::new();
+    match dir {
+        "/etc" => names.extend(super::etcfs::names().map(|n| (String::from(n), false))),
+        "/proc" => {
+            names.push((String::from("self"), true));
+            files("/proc/", &mut names);
+        }
+        "/proc/self" => files("/proc/self/", &mut names),
+        _ => return None,
+    }
+    Some(names)
 }

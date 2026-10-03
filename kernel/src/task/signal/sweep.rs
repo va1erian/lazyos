@@ -170,6 +170,9 @@ unsafe fn enter_handler(
 
 /// End `slot` under the table lock, recording the finish for the caller.
 fn finish(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, status: u64) -> Option<SweepFinish> {
+    if (129..=128 + 64).contains(&status) {
+        crate::task::linuxstate::note_term_signal(tasks, slot, (status - 128) as u8);
+    }
     process::finish_locked(tasks, slot, status).map(|parent| SweepFinish {
         slot: slot as u16,
         parent: parent as u16,

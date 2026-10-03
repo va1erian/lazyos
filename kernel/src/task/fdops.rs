@@ -5,16 +5,24 @@ use super::*;
 /// Allocate the lowest free descriptor (>= 3) for `entry`. `None` when the
 /// table is at `limit.fd_max` (the entry is dropped after the table unlocks).
 pub fn fd_open(entry: Fd) -> Option<usize> {
-    let refused = {
+    let mut junk = Vec::new();
+    let opened = {
         let mut tasks = TASKS.lock();
-        let task = tasks[current()].as_mut()?;
+        let me = current();
+        let task = tasks[me].as_mut()?;
         match task.fds.install_lowest(3, entry) {
-            Ok(fd) => return Some(fd),
-            Err(entry) => entry,
+            Ok(fd) => {
+                fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
+                Some(fd)
+            }
+            Err(entry) => {
+                junk.push(entry);
+                None
+            }
         }
     };
-    drop(refused);
-    None
+    drop(junk);
+    opened
 }
 
 /// Replace an open descriptor's entry, returning false for a closed slot. The
@@ -27,7 +35,13 @@ pub fn fd_replace(fd: usize, entry: Fd) -> Result<Fd, ()> {
             return Err(());
         };
         match task.fds.replace(fd, entry) {
-            Ok(old) => return Ok(old),
+            Ok(old) => {
+                let mut junk = Vec::new();
+                fdshare::mirror_fd(&mut tasks, current(), fd, &mut junk);
+                drop(tasks);
+                drop(junk);
+                return Ok(old);
+            }
             Err(entry) => entry,
         }
     };
@@ -47,9 +61,11 @@ pub fn fd_clone(fd: usize) -> Option<Fd> {
 /// this task that registered the descriptor drops the interest too, so a
 /// reused descriptor number cannot inherit a stale registration.
 pub fn fd_close(fd: usize) -> bool {
+    let mut junk = Vec::new();
     let (old, epolls) = {
         let mut tasks = TASKS.lock();
-        match tasks[current()].as_mut() {
+        let me = current();
+        let closed = match tasks[me].as_mut() {
             Some(task) if task.fds.is_open(fd) => {
                 let epolls: Vec<Arc<Epoll>> = task
                     .fds
@@ -62,8 +78,13 @@ pub fn fd_close(fd: usize) -> bool {
                 (task.fds.take(fd), epolls)
             }
             _ => (None, Vec::new()),
+        };
+        if closed.0.is_some() {
+            fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
         }
+        closed
     };
+    drop(junk);
     for epoll in &epolls {
         Epoll::drop_fd(epoll, fd);
     }
@@ -88,6 +109,7 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::UnixListener { .. } => FdKind::Listener,
             Fd::Unbound { .. } => FdKind::Unbound,
             Fd::Inet { .. } => FdKind::Inet,
+            Fd::Pty { .. } => FdKind::Pty,
         },
         _ => FdKind::Closed,
     }
@@ -104,8 +126,10 @@ pub fn fd_cloexec(fd: usize) -> bool {
 
 /// Set or clear `FD_CLOEXEC` on `fd`; `false` for a closed slot.
 pub fn fd_set_cloexec(fd: usize, on: bool) -> bool {
+    let mut junk = Vec::new();
     let mut tasks = TASKS.lock();
-    let Some(task) = tasks[current()].as_mut() else {
+    let me = current();
+    let Some(task) = tasks[me].as_mut() else {
         return false;
     };
     let Some(flags) = task.fds.flags(fd) else {
@@ -116,7 +140,11 @@ pub fn fd_set_cloexec(fd: usize, on: bool) -> bool {
     } else {
         flags & !FD_CLOEXEC
     };
-    task.fds.set_flags(fd, flags)
+    let set = task.fds.set_flags(fd, flags);
+    fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
+    drop(tasks);
+    drop(junk);
+    set
 }
 
 /// Close every descriptor marked `FD_CLOEXEC` (the `execve` step). Returns how
@@ -160,6 +188,7 @@ pub fn fd_status(fd: usize) -> Option<u64> {
         Fd::UnixListener { listener } => Some(2 | (u64::from(listener.nonblock()) * O_NONBLOCK)),
         Fd::Unbound { nonblock: flag, .. } => Some(2 | (u64::from(*flag) * O_NONBLOCK)),
         Fd::Inet { sock } => Some(2 | (u64::from(sock.nonblock()) * O_NONBLOCK)),
+        Fd::Pty { pty, master } => Some(2 | (u64::from(pty.nonblock(*master)) * O_NONBLOCK)),
     }
 }
 
@@ -198,11 +227,21 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
             true
         }
         Fd::Unbound { nonblock: flag, .. } => {
+            // The flag lives in the entry itself, so a shared table needs it
+            // copied (the other kinds keep it on the shared object).
             *flag = nonblock;
+            let mut junk = Vec::new();
+            fdshare::mirror_fd(&mut tasks, current(), fd, &mut junk);
+            drop(tasks);
+            drop(junk);
             true
         }
         Fd::Inet { sock } => {
             sock.set_nonblock(nonblock);
+            true
+        }
+        Fd::Pty { pty, master } => {
+            pty.set_nonblock(*master, nonblock);
             true
         }
     }

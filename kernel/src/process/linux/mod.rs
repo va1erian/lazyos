@@ -23,6 +23,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::task;
 
+use names::syscall_name;
+
 mod attr;
 mod creds;
 mod cwd;
@@ -30,23 +32,58 @@ mod dents;
 mod elf;
 mod epoll;
 mod errno;
+mod etcfs;
+mod extra;
 mod fd;
 mod filerw;
 mod filesys;
 mod flags;
-mod futex;
+pub(crate) mod futex;
+mod futex_queue;
 mod inet;
 mod io;
 mod iov;
+mod links;
+mod locks;
 mod mem;
 mod misc;
+mod msgio;
+mod names;
 pub(crate) mod native;
 mod path;
 mod pathops;
 mod pipes;
+mod procattr;
 mod procctl;
 mod procfs;
+mod procinfo;
+mod resources;
+mod select;
 pub(crate) mod shebang;
+
+/// `/etc/passwd` rendered from a LazyOS account file (the compat suite).
+#[cfg(lazyos_tests)]
+pub fn render_passwd_for_test(source: &str) -> alloc::string::String {
+    etcfs::render_passwd(source)
+}
+
+/// `/etc/group` rendered from a LazyOS account file (the compat suite).
+#[cfg(lazyos_tests)]
+pub fn render_group_for_test(source: &str) -> alloc::string::String {
+    etcfs::render_group(source)
+}
+
+/// The robust-list walk a thread's exit runs (the compat suite).
+#[cfg(lazyos_tests)]
+pub fn robust_exit_for_test(tid: usize) {
+    procattr::exit_robust_list(tid);
+}
+
+/// Advisory locks still held (the compat suite's leak check).
+#[cfg(lazyos_tests)]
+pub fn locks_held_for_test() -> usize {
+    locks::held_for_test()
+}
 
 /// A fabricated `/proc` file's bytes, for the mount suite.
 #[cfg(lazyos_tests)]
@@ -59,8 +96,10 @@ mod socket;
 mod stat;
 mod statx;
 mod time;
+mod tty;
 mod uaccess;
 mod vfsfd;
+mod wait;
 
 pub use elf::{load_image, nul_terminated};
 pub(crate) use native::{read_redirected, write_redirected};
@@ -108,157 +147,6 @@ const PAGE: u64 = 4096;
 
 /// Syscall numbers we have dispatched at least once (for the coverage report).
 static SYSCALL_SEEN: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
-
-/// x86_64 syscall names for the ones the shim is likely to meet.
-fn syscall_name(nr: u64) -> &'static str {
-    match nr {
-        0 => "read",
-        1 => "write",
-        2 => "open",
-        3 => "close",
-        4 => "stat",
-        5 => "fstat",
-        6 => "lstat",
-        7 => "poll",
-        8 => "lseek",
-        9 => "mmap",
-        10 => "mprotect",
-        11 => "munmap",
-        12 => "brk",
-        13 => "rt_sigaction",
-        14 => "rt_sigprocmask",
-        15 => "rt_sigreturn",
-        16 => "ioctl",
-        17 => "pread64",
-        18 => "pwrite64",
-        19 => "readv",
-        20 => "writev",
-        21 => "access",
-        22 => "pipe",
-        23 => "select",
-        24 => "sched_yield",
-        25 => "mremap",
-        28 => "madvise",
-        32 => "dup",
-        33 => "dup2",
-        35 => "nanosleep",
-        39 => "getpid",
-        40 => "sendfile",
-        41 => "socket",
-        42 => "connect",
-        43 => "accept",
-        44 => "sendto",
-        45 => "recvfrom",
-        48 => "shutdown",
-        49 => "bind",
-        50 => "listen",
-        51 => "getsockname",
-        52 => "getpeername",
-        54 => "setsockopt",
-        55 => "getsockopt",
-        53 => "socketpair",
-        56 => "clone",
-        57 => "fork",
-        58 => "vfork",
-        59 => "execve",
-        60 => "exit",
-        61 => "wait4",
-        62 => "kill",
-        63 => "uname",
-        72 => "fcntl",
-        73 => "flock",
-        74 => "fsync",
-        75 => "fdatasync",
-        76 => "truncate",
-        77 => "ftruncate",
-        78 => "getdents",
-        79 => "getcwd",
-        80 => "chdir",
-        81 => "fchdir",
-        82 => "rename",
-        83 => "mkdir",
-        84 => "rmdir",
-        86 => "link",
-        87 => "unlink",
-        89 => "readlink",
-        90 => "chmod",
-        91 => "fchmod",
-        92 => "chown",
-        93 => "fchown",
-        94 => "lchown",
-        95 => "umask",
-        96 => "gettimeofday",
-        97 => "getrlimit",
-        99 => "sysinfo",
-        102 => "getuid",
-        103 => "syslog",
-        104 => "getgid",
-        105 => "setuid",
-        106 => "setgid",
-        107 => "geteuid",
-        108 => "getegid",
-        109 => "setpgid",
-        110 => "getppid",
-        111 => "getpgrp",
-        112 => "setsid",
-        113 => "setreuid",
-        114 => "setregid",
-        115 => "getgroups",
-        116 => "setgroups",
-        121 => "getpgid",
-        124 => "getsid",
-        130 => "rt_sigsuspend",
-        131 => "sigaltstack",
-        132 => "utime",
-        137 => "statfs",
-        138 => "fstatfs",
-        162 => "sync",
-        157 => "prctl",
-        158 => "arch_prctl",
-        186 => "gettid",
-        200 => "tkill",
-        202 => "futex",
-        204 => "sched_getaffinity",
-        217 => "getdents64",
-        218 => "set_tid_address",
-        227 => "clock_settime",
-        228 => "clock_gettime",
-        229 => "clock_getres",
-        230 => "clock_nanosleep",
-        231 => "exit_group",
-        232 => "epoll_wait",
-        233 => "epoll_ctl",
-        234 => "tgkill",
-        235 => "utimes",
-        257 => "openat",
-        258 => "mkdirat",
-        259 => "mknodat",
-        260 => "fchownat",
-        261 => "futimesat",
-        262 => "newfstatat",
-        263 => "unlinkat",
-        264 => "renameat",
-        268 => "fchmodat",
-        271 => "ppoll",
-        273 => "set_robust_list",
-        275 => "splice",
-        280 => "utimensat",
-        288 => "accept4",
-        290 => "eventfd2",
-        291 => "epoll_create1",
-        293 => "pipe2",
-        295 => "preadv",
-        296 => "pwritev",
-        302 => "prlimit64",
-        306 => "syncfs",
-        318 => "getrandom",
-        327 => "preadv2",
-        328 => "pwritev2",
-        332 => "statx",
-        334 => "rseq",
-        _ => "unknown",
-    }
-}
 
 /// Announce each syscall number the first time it is dispatched, and any that
 /// are unimplemented, so `tools/abi/coverage.py` can report what was used.
@@ -348,30 +236,25 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         21 => pathops::sys_access(a1, a2), // access(path, mode)
         22 => pipes::sys_pipe(a1, 0),      // pipe(fds)
         25 => mem::sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
-        28 => 0,                           // madvise
         32 | 33 => fd::sys_dup(nr, a1, a2), // dup / dup2
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.
         35 => time::sys_clock_nanosleep(time::CLOCK_MONOTONIC, 0, a1, a2),
-        39 | 186 => task::current() as u64, // getpid/gettid: pid == slot (#59)
         40 => sendfile::sys_sendfile(a1, a2, a3, a4), // sendfile(out, in, offset, count)
-        41 => socket::sys_socket(a1, a2, a3), // socket(domain, type, protocol)
-        42 => socket::sys_connect(a1, a2, a3), // connect(fd, addr, len)
-        43 => socket::sys_accept(a1, a2, a3, 0), // accept(fd, addr, addrlen)
-        44 => socket::sys_sendto(a1, a2, a3, a5, a6), // sendto(fd, buf, len, flags, addr, alen)
-        45 => socket::sys_recvfrom(a1, a2, a3, a5, a6), // recvfrom(fd, buf, len, flags, addr, alen)
-        48 => socket::sys_shutdown(a1, a2), // shutdown(fd, how)
-        49 => socket::sys_bind(a1, a2, a3), // bind(fd, addr, len)
-        50 => socket::sys_listen(a1, a2),   // listen(fd, backlog)
+        41 => socket::sys_socket(a1, a2, a3),         // socket(domain, type, protocol)
+        42 => socket::sys_connect(a1, a2, a3),        // connect(fd, addr, len)
+        43 => socket::sys_accept(a1, a2, a3, 0),      // accept(fd, addr, addrlen)
+        48 => socket::sys_shutdown(a1, a2),           // shutdown(fd, how)
+        49 => socket::sys_bind(a1, a2, a3),           // bind(fd, addr, len)
+        50 => socket::sys_listen(a1, a2),             // listen(fd, backlog)
         51 => socket::sys_get_sockname(a1, a2, a3, false), // getsockname
         52 => socket::sys_get_sockname(a1, a2, a3, true), // getpeername
         54 => socket::sys_setsockopt(a1, a2, a3, a4, a5), // setsockopt(fd, level, name, val, len)
         55 => socket::sys_getsockopt(a1, a2, a3, a4, a5), // getsockopt(fd, level, name, val, lenp)
-        53 => pipes::sys_socketpair(a1, a2, a3, a4), // socketpair(domain, type, proto, sv)
+        53 => pipes::sys_socketpair(a1, a2, a3, a4),  // socketpair(domain, type, proto, sv)
         56 => procctl::sys_clone(a1, a2, a3, a4, a5), // clone(flags, stack, ptid, ctid, tls)
         57 => procctl::sys_fork(),
         59 => procctl::sys_execve(a1, a2, a3), // execve(path, argv, envp)
         60 => procctl::sys_exit(a1),           // exit: this task (a thread)
-        61 => procctl::sys_wait4(a1, a2, a3),  // wait4(pid, status, options)
         62 => sig::sys_kill(a1, a2),           // kill(pid, sig)
         63 => misc::sys_uname(a1),
         72 => fd::sys_fcntl(a1, a2, a3),       // fcntl(fd, cmd, arg)
@@ -386,7 +269,6 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         83 => pathops::sys_mkdir(a1, a2),               // mkdir
         84 => pathops::sys_rmdir(a1),                   // rmdir
         87 => pathops::sys_unlink(a1),                  // unlink
-        89 => pathops::sys_readlink(a1, a2, a3),        // readlink
         90 => attr::sys_chmod(a1, a2),                  // chmod(path, mode)
         91 => attr::sys_fchmod(a1, a2),                 // fchmod(fd, mode)
         92 | 94 => attr::sys_chown(a1, a2, a3),         // chown/lchown(path, uid, gid)
@@ -412,12 +294,17 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         132 => attr::sys_utime(a1, a2),      // utime(path, times)
         137 => filesys::sys_statfs(a1, a2),  // statfs(path, buf)
         138 => filesys::sys_fstatfs(a1, a2), // fstatfs(fd, buf)
-        157 => 0,                            // prctl (accept)
         162 => filesys::sys_sync(),
         158 => misc::sys_arch_prctl(a1, a2),
-        169 => 0,                                   // reboot (accept)
-        200 => sig::sys_tkill(a1, a2),              // tkill(tid, sig)
-        202 => futex::sys_futex(a1, a2, a3),        // futex(uaddr, op, val)
+        200 => sig::sys_tkill(a1, a2), // tkill(tid, sig)
+        202 => futex::sys_futex(futex::Args {
+            uaddr: a1,
+            op: a2,
+            val: a3,
+            timeout: a4,
+            uaddr2: a5,
+            val3: a6,
+        }),
         204 => misc::sys_sched_getaffinity(a3, a2), // sched_getaffinity(pid, len, mask)
         217 => dents::sys_getdents64(a1, a2, a3),   // getdents64
         218 => procctl::sys_set_tid_address(a1),
@@ -438,7 +325,6 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         263 => pathops::sys_unlinkat(a1, a2, a3), // unlinkat
         264 => pathops::sys_renameat(a1, a2, a3, a4), // renameat
         268 => attr::sys_fchmodat(a1, a2, a3),    // fchmodat(dirfd, path, mode)
-        273 => 0,                                 // set_robust_list
         280 => attr::sys_utimensat(a1, a2, a3, a4), // utimensat(dirfd, path, times, flags)
         288 => socket::sys_accept(a1, a2, a3, a4), // accept4(fd, addr, addrlen, flags)
         290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
@@ -455,17 +341,33 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
             crate::serial_println!("ENOSYS 334 rseq");
             errno::err(errno::ENOSYS) // musl falls back
         }
-        _ => {
-            crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
-            errno::err(errno::ENOSYS)
-        }
+        _ => match extra::dispatch(nr, [a1, a2, a3, a4, a5, a6]) {
+            Some(result) => result,
+            None => {
+                crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
+                errno::err(errno::ENOSYS)
+            }
+        },
     };
     // Kept for the fatal-fault report (issue #375): the last few syscalls tell
     // a wild jump's story better than the faulting `rip` alone.
     task::trace::record_syscall(task::current(), nr, a1, result);
     // Deliver pending unblocked signals on the way back to ring 3. The result
     // recorded in the signal frame is `rax` after `rt_sigreturn`, so an
-    // interrupted syscall resumes as `-EINTR`.
-    task::signal::deliver_linux(result);
-    result
+    // interrupted syscall resumes as `-EINTR`, or is issued again when the
+    // handler asked for `SA_RESTART` and the call is one Linux restarts.
+    extra::raise_sigpipe(nr, [a1, a2, a3, a4, a5, a6], result);
+    let restart = restartable(nr).then_some(nr);
+    task::signal::deliver_linux_restartable(result, restart)
+}
+
+/// Whether an interrupted `nr` is re-issued after an `SA_RESTART` handler:
+/// the transfers, waits and lock calls Linux restarts. The sleeps and the
+/// readiness waits (`poll`, `select`, `epoll_wait`, `nanosleep`,
+/// `sigsuspend`) are never restarted with a handler; they return `EINTR`.
+fn restartable(nr: u64) -> bool {
+    matches!(
+        nr,
+        0 | 1 | 2 | 16..=20 | 42..=47 | 61 | 72 | 73 | 202 | 247 | 257 | 288 | 295 | 296 | 327 | 328
+    )
 }

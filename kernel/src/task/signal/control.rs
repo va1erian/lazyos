@@ -111,6 +111,13 @@ pub fn terminate_process(pml4: u64, status: u64) -> usize {
         }
     }
     let mut killed = 0;
+    // `128 + signal` is the status; `wait4` reports the signal itself.
+    if (129..=128 + 64).contains(&status) {
+        let mut tasks = TASKS.lock();
+        for slot in slots.iter() {
+            crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
+        }
+    }
     for slot in slots.iter() {
         if process::finish(slot, status) {
             killed += 1;

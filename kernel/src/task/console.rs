@@ -17,12 +17,21 @@ pub fn write_output(bytes: &[u8]) {
 
 /// Walk the parent chain to the process leader (the task with no parent).
 pub(super) fn root_index(tasks: &[Option<Task>; MAX_TASKS]) -> usize {
-    let mut index = current();
+    root_of(tasks, current())
+}
+
+/// The window owner of `slot` (see [`root_index`]).
+pub(super) fn root_of(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
+    let mut index = slot;
     while let Some(task) = tasks[index].as_ref() {
-        if task.parent == 0 {
-            break;
+        // A thread's terminal is its process's: follow the thread group to
+        // its leader, then the parents.
+        match (task.parent, task.linux.tgid) {
+            (0, 0) => break,
+            (0, leader) if leader != index => index = leader,
+            (0, _) => break,
+            (parent, _) => index = parent,
         }
-        index = task.parent;
     }
     index
 }
@@ -109,15 +118,17 @@ pub fn on_key(key: Key) {
     // layer to signal the foreground group, so Ctrl-C (ETX) is intercepted here
     // and becomes SIGINT for the focused task's process group. This is what
     // lets BusyBox `sh` interrupt a running child.
+    // With `ISIG` off (a raw-mode program) it is an ordinary byte.
     if key == Key::Char('\u{3}') {
-        let pgid = process::pgid_of(FOCUS.load(Ordering::Relaxed));
-        let _ = signal::kill(
-            KERNEL_TASK,
-            -(pgid as i64),
-            signal::SIGINT,
-            signal::SigInfo::kernel(),
-        );
-        return;
+        if let Some(group) = consoletty::console_interrupt_target(FOCUS.load(Ordering::Relaxed)) {
+            let _ = signal::kill(
+                KERNEL_TASK,
+                -(group as i64),
+                signal::SIGINT,
+                signal::SigInfo::kernel(),
+            );
+            return;
+        }
     }
     let focus = FOCUS.load(Ordering::Relaxed);
     {

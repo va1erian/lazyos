@@ -45,6 +45,7 @@ mod task;
 #[cfg(lazyos_tests)]
 mod tests;
 mod text;
+mod tty;
 mod user_ptr;
 mod wallclock;
 

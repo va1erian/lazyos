@@ -78,9 +78,11 @@ pub use linux_spawn::spawn_linux_child;
 pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child_env};
 
 mod console;
+pub mod consoletty;
 mod cwd;
 mod fdio;
 mod fdops;
+mod fdshare;
 mod fdtable;
 mod fdtypes;
 pub mod fpu;
@@ -88,6 +90,7 @@ mod fs_base;
 #[cfg(lazyos_tests)]
 pub mod harness;
 mod lifecycle;
+pub mod linuxstate;
 mod memstate;
 mod sched;
 mod schedule;
@@ -103,6 +106,7 @@ pub use fdops::*;
 pub use fdtable::{fd_max, FdTable};
 pub use fdtypes::*;
 pub use lifecycle::*;
+pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
 pub use sched::*;
 pub use spawn::*;
@@ -264,6 +268,9 @@ pub struct Task {
     /// Shared by `Arc` so `fork` is a reference-count bump, and freed with
     /// the task, so no exit path has anything extra to release.
     pub cwd: Option<Arc<str>>,
+    /// Linux-only state: share groups, thread group, exit signal, program
+    /// path (see [`linuxstate`]).
+    pub linux: LinuxExtras,
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
 }

@@ -147,6 +147,7 @@ pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
     let tasks = TASKS.lock();
     match tasks[slot].as_ref().and_then(|task| task.fds.get(fd)) {
         Some(entry) => match entry {
+            super::Fd::Pty { .. } => super::FdKind::Pty,
             super::Fd::Closed => super::FdKind::Closed,
             super::Fd::Terminal => super::FdKind::Terminal,
             super::Fd::File { .. } => super::FdKind::File,

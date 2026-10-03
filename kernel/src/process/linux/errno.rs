@@ -8,6 +8,8 @@ use crate::fs::vfs::FsError;
 // errno values (returned as negative values).
 pub(super) const EPERM: u64 = 1;
 pub(super) const ESRCH: u64 = 3;
+pub(super) const EIO: u64 = 5;
+pub(super) const ENXIO: u64 = 6;
 pub(super) const E2BIG: u64 = 7;
 pub(super) const ENOSYS: u64 = 38;
 pub(super) const ENOMEM: u64 = 12;

@@ -33,6 +33,7 @@ pub fn register_kernel() {
         fs_base: 0,
         fds: FdTable::standard(),
         cwd: None,
+        linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -203,6 +204,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
         fs_base: 0,
         fds,
         cwd: None,
+        linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -214,11 +216,32 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
 /// The child resumes at the caller's `syscall` return address with `rax = 0`,
 /// on its own user stack (`user_rsp`) and its own `%fs` TLS (`fs_base`), as
 /// `clone(CLONE_VM | ...)` requires.
+#[allow(dead_code)] // the kernel tests' thread factory; `clone` uses the sharing form
 pub fn spawn_thread(
     name: &'static str,
     user_rsp: u64,
     fs_base: u64,
     clear_child_tid: u64,
+) -> Result<usize, &'static str> {
+    spawn_thread_sharing(
+        name,
+        user_rsp,
+        fs_base,
+        clear_child_tid,
+        ThreadShare::default(),
+    )
+}
+
+/// [`spawn_thread`] with the `clone` sharing flags: `share.files` makes the
+/// thread's descriptor table the creator's (`CLONE_FILES`), `share.fs` its
+/// working directory (`CLONE_FS`); without them the thread starts with a copy
+/// of each, as Linux gives a `clone` without those flags.
+pub fn spawn_thread_sharing(
+    name: &'static str,
+    user_rsp: u64,
+    fs_base: u64,
+    clear_child_tid: u64,
+    share: ThreadShare,
 ) -> Result<usize, &'static str> {
     // A non-canonical `%fs` base would fault on `wrmsr` in the context-switch
     // path (task/mod.rs context switch), which cannot return an error; refuse
@@ -230,7 +253,12 @@ pub fn spawn_thread(
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
         .ok_or("no free task slot")?;
-    let parent = tasks[current()].as_ref().ok_or("no parent task")?;
+    let creator = current();
+    let parent = tasks[creator].as_mut().ok_or("no parent task")?;
+    // The thread's table starts as a copy of its creator's (and stays equal to
+    // it under `CLONE_FILES`, see `fdshare`).
+    let fds = parent.fds.fork_copy().ok_or("out of memory (thread)")?;
+    let linux = linuxstate::for_thread(parent, creator, share);
     let pml4 = parent.pml4;
     // A thread stays in its process's group and session (#59: threads do not
     // get a new one), so only a process can create a group or session.
@@ -271,8 +299,9 @@ pub fn spawn_thread(
         exit_status: 0,
         heap_break: 0,
         fs_base,
-        fds: FdTable::standard(),
+        fds,
         cwd,
+        linux,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -333,6 +362,9 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     // ...and the working directory: the child gets its own reference, so a
     // `chdir` in either process never moves the other.
     let cwd = parent.cwd.clone();
+    // A fork shares no table or directory with its parent, and runs the same
+    // program.
+    let linux = linuxstate::for_fork(parent);
     let pass = virtual_now(&tasks);
 
     // `fork` is only valid inside a user address space: the kernel task's table
@@ -380,6 +412,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         fs_base,
         fds,
         cwd,
+        linux,
         output: Vec::new(),
         input: VecDeque::new(),
     });

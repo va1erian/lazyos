@@ -45,6 +45,29 @@ pub(super) fn sys_eventfd2(init: u64, flags: u64) -> u64 {
 }
 
 /// `epoll_create1(flags)`: an empty epoll instance.
+/// `epoll_create(size)`: the old form; `size` only has to be positive.
+pub(super) fn sys_epoll_create(size: u64) -> u64 {
+    if (size as i32) <= 0 {
+        return err(EINVAL);
+    }
+    sys_epoll_create1(0)
+}
+
+/// `epoll_pwait(epfd, events, maxevents, timeout, sigmask, sigsetsize)`: the
+/// mask is installed for the wait like `ppoll`'s.
+pub(super) fn sys_epoll_pwait(
+    epfd: u64,
+    events: u64,
+    maxevents: u64,
+    timeout: u64,
+    (sigmask, size): (u64, u64),
+) -> u64 {
+    if let Err(code) = super::select::begin_sigmask(sigmask, size) {
+        return code;
+    }
+    sys_epoll_wait(epfd, events, maxevents, timeout)
+}
+
 pub(super) fn sys_epoll_create1(flags: u64) -> u64 {
     if flags & !EPOLL_CLOEXEC != 0 {
         return err(EINVAL);

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::fs::openfile::OpenFile;
+use crate::tty::pty::Pty;
 
 /// Per-descriptor `FD_CLOEXEC` bit in a [`super::FdTable`] slot's flags.
 pub const FD_CLOEXEC: u16 = 1;
@@ -43,6 +44,9 @@ pub enum Fd {
     /// An `AF_INET` socket, served by `netd` (`crate::ipc::inet`). Once it has
     /// a connection its data path is a socket pair, driven like `Socket`.
     Inet { sock: Arc<InetSock> },
+    /// One side of a pseudo-terminal (`/dev/ptmx` is the master, `/dev/pts/N`
+    /// the slave; see `crate::tty::pty`).
+    Pty { pty: Arc<Pty>, master: bool },
 }
 
 impl Fd {
@@ -57,6 +61,12 @@ impl Fd {
     pub fn socket_side(pair: Arc<SocketPair>, side: Side) -> Fd {
         pair.acquire(side);
         Fd::Socket { pair, side }
+    }
+
+    /// A pseudo-terminal side, taking that side's reference.
+    pub fn pty_side(pty: Arc<Pty>, master: bool) -> Fd {
+        pty.acquire(master);
+        Fd::Pty { pty, master }
     }
 
     /// A socket side whose reference the caller already holds (a pending
@@ -121,6 +131,7 @@ impl Fd {
             Fd::UnixListener { listener } => listener.poll_gen(events),
             Fd::Unbound { .. } => (0, 0),
             Fd::Inet { sock } => sock.poll_gen(events),
+            Fd::Pty { pty, master } => pty.poll_gen(*master, events),
         }
     }
 }
@@ -156,6 +167,7 @@ impl Clone for Fd {
             Fd::Inet { sock } => Fd::Inet {
                 sock: Arc::clone(sock),
             },
+            Fd::Pty { pty, master } => Fd::pty_side(Arc::clone(pty), *master),
         }
     }
 }
@@ -181,6 +193,9 @@ impl Fd {
                 Arc::ptr_eq(a, b)
             }
             (Fd::Inet { sock: a }, Fd::Inet { sock: b }) => Arc::ptr_eq(a, b),
+            (Fd::Pty { pty: a, master: x }, Fd::Pty { pty: b, master: y }) => {
+                Arc::ptr_eq(a, b) && x == y
+            }
             _ => false,
         }
     }
@@ -196,6 +211,18 @@ impl Drop for Fd {
         match self {
             Fd::Pipe { pipe, end } => pipe.release(*end),
             Fd::Socket { pair, side } => pair.close(*side),
+            Fd::Pty { pty, master } => {
+                // The last master gone hangs the terminal up: its
+                // foreground group gets `SIGHUP`, as on Linux.
+                if let Some(group) = pty.release(*master) {
+                    let _ = signal::kill(
+                        KERNEL_TASK,
+                        -(group as i64),
+                        signal::SIGHUP,
+                        signal::SigInfo::kernel(),
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -223,4 +250,6 @@ pub enum FdKind {
     Unbound,
     /// An `AF_INET` socket in any state.
     Inet,
+    /// A pseudo-terminal master or slave.
+    Pty,
 }

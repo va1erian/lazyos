@@ -96,8 +96,30 @@ fn applet_name(path: &str) -> Option<&str> {
 fn synthetic_dir(path: &str) -> bool {
     matches!(
         path,
-        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/proc" | "/proc/self" | "/etc"
+        "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/dev/pts" | "/proc" | "/proc/self" | "/etc"
     )
+}
+
+/// The data devices (`/dev/null` and friends, see [`open_device_fd`]).
+pub(super) const DEVICES: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/full",
+    "/dev/random",
+    "/dev/urandom",
+];
+
+/// Whether `path` is a fabricated character device node.
+fn device_node(path: &str) -> bool {
+    DEVICES.contains(&path)
+        || matches!(
+            path,
+            "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" | "/dev/ptmx"
+        )
+        || path
+            .strip_prefix("/dev/pts/")
+            .and_then(|n| n.parse::<u32>().ok())
+            .is_some_and(|n| crate::tty::pty::Pty::find_slave(n).is_some())
 }
 
 /// Metadata for a kernel-fabricated entry: a synthetic directory, a `/proc`
@@ -116,6 +138,17 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
     }
     if let Some(meta) = super::procfs::meta(path) {
         return Some(meta);
+    }
+    if device_node(path) {
+        return Some(Meta {
+            ino: super::tty::path_ino(path),
+            mode: super::flags::S_IFCHR as u16 | 0o666,
+            uid: 0,
+            gid: 0,
+            size: 0,
+            kind: FileKind::File,
+            times: vfs::Times::default(),
+        });
     }
     if applet_name(path).is_some() {
         return crate::fs::abi_stat(Id::current(), fhs::bin::BUSYBOX)
@@ -224,6 +257,36 @@ pub(super) fn open_executable(path: &str) -> Result<VfsFile, FsError> {
     }
 }
 
+/// The file [`load_executable`] reads for `path`, as an absolute path: the
+/// file itself, the `/system/bin` program an applet-shaped name stands for, or
+/// BusyBox for an applet alias. This is what `/proc/self/exe` names.
+pub(super) fn real_exe_path(path: &str) -> String {
+    let absolute = format!("/{}", path.trim_start_matches('/'));
+    let exists = |candidate: &str| crate::fs::abi_stat(Id::current(), candidate).is_ok();
+    if exists(&absolute) {
+        return absolute;
+    }
+    let base = absolute.rsplit('/').next().unwrap_or("");
+    for candidate in [system_bin_path(&absolute), system_bin_path(base)]
+        .into_iter()
+        .flatten()
+    {
+        if exists(&candidate) {
+            return candidate;
+        }
+    }
+    String::from(fhs::bin::BUSYBOX)
+}
+
+/// `/proc/self/exe` of the caller: the program `execve` recorded, or BusyBox
+/// for a task the kernel started without one (the shell).
+pub(super) fn self_exe() -> String {
+    match task::linuxstate::exe() {
+        Some(path) => String::from(&*path),
+        None => String::from(fhs::bin::BUSYBOX),
+    }
+}
+
 fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
     let start = out.len();
     out.extend_from_slice(&ino.to_le_bytes()); // d_ino
@@ -263,7 +326,20 @@ fn empty_dir_stream() -> Vec<u8> {
 /// The ABI VFS supplies the real entries; `.`/`..` are added here.
 fn dir_stream(path: &str) -> Result<Vec<u8>, FsError> {
     let mut out = empty_dir_stream();
-    for entry in crate::fs::abi_readdir(Id::current(), path)? {
+    let entries = match crate::fs::abi_readdir(Id::current(), path) {
+        Ok(entries) => entries,
+        Err(FsError::NotFound) => {
+            // A synthetic directory (`/etc`, `/proc`) lists what it fabricates.
+            let names = super::procfs::children(path).ok_or(FsError::NotFound)?;
+            for (index, (name, dir)) in names.iter().enumerate() {
+                let kind = if *dir { FileKind::Dir } else { FileKind::File };
+                push_dirent(&mut out, 100 + index as u64, dtype_of(kind), name);
+            }
+            return Ok(out);
+        }
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
         push_dirent(&mut out, entry.ino, dtype_of(entry.kind), &entry.name);
     }
     Ok(out)
@@ -318,13 +394,16 @@ fn open_file_fd(id: Id, path: &str, meta: Meta, mode: Access, created: bool) -> 
 /// Honours `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, and `O_DIRECTORY`.
 fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
     match path {
-        "/dev/tty" | "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
+        "/dev/tty" => return super::tty::open_tty(),
+        "/dev/console" | "/dev/tty0" | "/dev/tty1" => {
             return super::fd::fd_result(task::fd_open(Fd::Terminal));
         }
-        "/dev/null" | "/dev/zero" | "/dev/full" => {
-            return open_device_fd();
-        }
+        "/dev/ptmx" | "/dev/pts/ptmx" => return super::tty::open_ptmx(),
+        _ if DEVICES.contains(&path) => return open_device_fd(path),
         _ => {}
+    }
+    if let Some(index) = path.strip_prefix("/dev/pts/") {
+        return super::tty::open_pts(index, flags);
     }
 
     let id = Id::current();
