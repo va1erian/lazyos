@@ -37,27 +37,29 @@ This document is the master plan. The fabric is specified separately in
 
 ## 2. Where we are today (honest baseline)
 
-Snapshot as of 2026-09-28 (stages S0-S4 landed, S5 in progress; the
-per-element detail is in [`architecture.md`](architecture.md)).
+Snapshot as of 2026-10-03 (stages S0-S4 landed, S5 and the S6 networking
+stages N0-N5 largely landed, S7 started; the per-element detail is in
+[`architecture.md`](architecture.md)).
 
 | Area | Today | Gap to target |
 |---|---|---|
-| CPU/arch | x86_64, single CPU, PIC/PIT only, no SMP | APIC, SMP, per-CPU scheduling, RTC |
-| Tasks | 16 task slots, strict-class stride scheduler with weights and CPU accounting, generalized wait queues, process tree/groups/sessions, POSIX-ish signals with Linux `rt_sigframe` delivery | more slots (the table is exhausted by the services image), Linux `nice` mapping, job-control tty, `SA_RESTART` |
-| Memory | refcounted frames with free lists, per-space VMA list, demand-zero paging, COW fork with refcounts, `mmap`/`mprotect`/`munmap`/`mremap`, slab allocator with owner accounting, per-uid memory quotas | file-backed paging, page cache, shared mappings, frame reclaim/swap, kernel heap growth |
-| IPC | Messenger core: handle table with rights, channels, sync transactions with deadlines/cancel, one-way, shared buffers + fences, kernel-stamped credentials, default-deny ACL, hash-chained audit ring, name registry, topic policy hook, stats snapshot; `messengerd` registry + central topics broker; `midlc` IDL compiler; sync + async client libraries | per-connection channels, reply-borne handle transfers, userspace audit stream, policy compiler/hot reload, IDL coverage beyond the echo sample |
-| FS | VFS with mounts, permission checks, dentry/inode caches; ramfs at `/tmp`; read-only FAT12/16 boot volume; ext2 read/write driver (double-indirect, truncate, clean/dirty state); a second block device carrying ext2 mounts at `/data` and is synced on shutdown; copy-up overlay root for the Linux ABI | image/launcher flags that attach the data disk (#332), symlinks, page cache, persistence of ABI writes to the root |
-| Users | `accountsd` + `logind` console login with Argon2id via `keyd`, kernel-audited credential transitions, per-uid quotas | service accounts (services still run as uid 0), session capability set (`SESSION_CAPS` is empty), elevation service |
-| GUI | display device grant (syscall 12), `xuid` compositor with window management, drag & drop, shell protocol (desktop role, window-list/focus events, global hotkeys), `clipboardd`, `mimed`, XUI apps on tiny-skia as display owner or `xuid` client | LazyShell itself, theming, resize/DPI, zero-copy scanout, multi-session compositors |
-| Shell | native `sh` + BusyBox on the Linux shim; `init` app registry + `Launch`; `top`, `messengerctl`, `sysmon`/`fabricmon` viewers | desktop shell, Files/Editor/Terminal/Settings, `lazyosctl` |
-| Unix/ABI | Linux syscall shim runs static musl `std` programs: threads, futex, `fork`/`execve`/`wait4`, pipes, `AF_UNIX` stream/seqpacket sockets, epoll/eventfd, signals, filesystem writes through the overlay | dynamic linking, `SA_RESTART`, shared file tables, more of the long tail (`tools/abi/coverage.py`) |
-| Net | none | loopback, virtio-net, IPv4/UDP/TCP, DNS |
-| Observability | serial logs, ABI matrix/coverage, kernel test report, `FabricStats` v2, syscall 13/14 task and system snapshots, `messengerctl` (`stats-json`/`tasks-json` for the MCP bridge), `logd`, `healthd`, `sysmond` | tracing, `auditd`, crash dumps, docs portal |
-| Security | kernel-stamped identity, default-deny Messenger ACL, audit ring, quotas, validated user pointers on every syscall, `CAP_SYS_ADMIN` for the display grant, every `unsafe` documented and gated in CI | sandbox profiles/syscall allowlists, manifests + consent, signed bundles, W^X/SMEP/SMAP, secrets sealing |
+| CPU/arch | x86_64, single CPU, PIC/PIT, CMOS RTC wall clock, per-task x87/SSE state, no SMP | APIC, SMP, per-CPU scheduling |
+| Tasks | 256 task slots, strict-class stride scheduler with weights and CPU accounting, generalized wait queues, process tree/groups/sessions, POSIX-ish signals with Linux `rt_sigframe` delivery | Linux `nice` mapping, job-control tty, `SA_RESTART` (accepted, not honoured) |
+| Memory | refcounted frames with free lists, per-space VMA list, demand-zero paging, COW fork with refcounts, `mmap`/`mprotect`/`munmap`/`mremap`, page-table reclaim, slab allocator with owner accounting, per-uid memory quotas | file-backed paging, page cache, shared mappings, frame reclaim/swap, kernel heap growth |
+| IPC | Messenger core: handle table with rights, channels, sync transactions with deadlines/cancel, one-way, shared buffers + fences, kernel-stamped credentials, default-deny ACL, label-keyed rules for installed apps, hash-chained audit ring, name registry with reserved namespaces, topic policy hook, stats snapshot; `messengerd` registry + central topics broker; every published interface and topic declared in MIDL (`idl/`) and generated by `midlc`; sync + async client libraries | per-connection channels, reply-borne handle transfers, userspace audit stream, a uid policy loader, policy compiler/hot reload |
+| Devices | device core (PCI, typed resources, claims), userspace drivers with interrupts and DMA under per-class rules: `sndd` (virtio-sound) with the `audiod` mixer, `usbd` (xHCI keyboard/mouse/tablet), `netdrv` (virtio-net); ATA and virtio-blk in the kernel | AHCI/NVMe, MSI/MSI-X, booting a real PC ([`real-pc-boot-plan.md`](real-pc-boot-plan.md)) |
+| FS | VFS with mounts and `ro`/`noexec`/`nosuid` flags from `/boot/lazyos.cfg`, permission checks, dentry/inode caches; an ext2 read/write OS volume at `/` that `cargo build` writes and updates in place (`libs/ext2fs`, shared with the kernel; write-back block cache, crash repair at build time); read-only FAT `/boot`; ramfs `/tmp` and `/transient`; optional ext2 home volume at `/home`; well-known paths in `libs/fhs`; the Linux ABI sees the same tree | symlinks, page cache, an in-kernel fsck or journal, migration off the legacy `/data` disk (filesystem plan F7) |
+| Users | `accountsd` (accounts `admin` and `user` from `/system/etc/passwd`) + `logind` console login, Argon2id verification in `keyd`, homes at `/home/<name>` (0700), kernel-audited credential transitions, per-uid quotas, own uids for the driver stacks (`sndd`, `audiod`, `usbd`, `netdrv`, `netd`) | service accounts (the other services run as uid 0), hashed passwords at rest (they are plaintext), graphical login (the desktop session runs as uid 0), session capability set (`SESSION_CAPS` is empty), elevation service |
+| GUI | display device grant (syscall 12), `xuid` compositor with window management (resize, maximize, minimize), pipelined Present with damage-only compositing, drag & drop, shell protocol (desktop and panel roles, window-list/focus events, global hotkeys), `inputd` (PS/2 and USB through one keymap and cursor), `clipboardd`, `mimed`, live themes through `confd`, XUI apps on tiny-skia as `xuid` clients | zero-copy scanout, DPI scaling, multi-session compositors |
+| Shell | LazyShell (desktop, taskbar, start menu); BusyBox `sh`, which also runs native programs; `init` app registry + `Launch`; Terminal, Files, Editor, Paint, Settings, Docs, Config, Task Manager (`sysmon`, with a Services tab), Devices and the Installer; every desktop app but LazyShell, the Terminal, Devices and the Installer is a `.lzp` core package that `pkgd` installs; `rhai` scripting, LazyRAD; shutdown and reboot through `init`; `top`, `messengerctl`, `fabricmon` | `lazyosctl`, signed packages |
+| Unix/ABI | Linux syscall shim runs static musl `std` programs: threads, futex, `fork`/`execve` (including `#!` scripts)/`wait4`, pipes, `AF_UNIX` stream/seqpacket sockets, `AF_INET` sockets through `netd`, epoll/eventfd, signals, per-process cwd, writes to the real tree | dynamic linking, `SA_RESTART`, descriptor tables shared between threads, more of the long tail (`tools/abi/coverage.py`) |
+| Net | `netd` on smoltcp (`libs/netstack`) over the `netdrv` virtio-net driver: DHCP, ARP, ICMP `ping`, TCP/UDP sockets and DNS (`os.lazy.net.socket.v1`), `nc`, `nslookup`, `ftp`, Linux `AF_INET` (stages N0-N5, [`networking-plan.md`](networking-plan.md)) | loopback, IPv6, TLS, firewall, service daemons, remote Messenger transport |
+| Observability | serial logs, ABI matrix/coverage, kernel test report, `FabricStats` v2, syscall 13/14 task and system snapshots, `messengerctl` (`stats-json`/`tasks-json` for the MCP bridge), `logd` with persistent journals in `/logs`, `healthd`, `sysmond`, the docs embedded at `/docs/os` and read by the Docs app | tracing, `auditd`, crash dumps |
+| Security | kernel-stamped identity, default-deny Messenger ACL engine (no uid policy is loaded, so unlabelled tasks stay in bootstrap-allow), installed apps confined by kernel labels to their manifest's permissions after install consent, per-driver device-class rules at boot, audit ring, quotas, validated user pointers on every syscall, `CAP_SYS_ADMIN` for the display grant, every `unsafe` documented and gated in CI | a uid policy, service accounts, sandbox profiles/syscall allowlists, a file sandbox, signed bundles, W^X/SMEP/SMAP, secrets sealing ([`security-hardening-plan.md`](security-hardening-plan.md)) |
 
-The Linux ABI work (13 fixtures green in CI plus BusyBox `sh`) is the
-**compatibility bridge**: prebuilt binaries run, while Messenger is the
-*native* architecture.
+The Linux ABI work (the fixtures in `tools/abi/fixtures` plus BusyBox `sh`,
+green in CI) is the **compatibility bridge**: prebuilt binaries run, while
+Messenger is the *native* architecture.
 
 ---
 
@@ -168,8 +170,10 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   FS with snapshots.
 - **Persistent device:** virtio-blk and AHCI/NVMe drivers; the boot FAT stays as
   the recovery/EFI volume.
-- **Home directories and service state** live on the writable volume; the FAT
-  volume remains read-only for shipped artifacts.
+- **Home directories and service state** live on the writable volume (the ext2
+  OS volume at `/`, or a separate home volume at `/home`); the FAT `/boot`
+  volume is read-only and holds only the kernel and its boot configuration
+  ([`filesystem-plan.md`](filesystem-plan.md)).
 
 ### 4.5 GUI stack
 
@@ -412,10 +416,35 @@ allowed/denied), and the full interface surface is enumerable and documented.
 
 ## 11. Where the roadmap stands
 
-Stage status as of 2026-09-28 (issue numbers are the GitHub tracking issues):
+Stage status as of 2026-10-03 (issue and PR numbers are GitHub's):
 
 | Stage | Status | Evidence |
 |---|---|---|
+| S0 kernel foundations (#53) | landed | `python tools/test/run.py` (about 780 cases in `kernel/src/tests/`, over a hundred of them soaks); 256 task slots, RTC wall clock |
+| S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
+| S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI; every interface and topic in MIDL; `confd`, `timed` |
+| S3 users, sessions, storage (#97) | landed, with gaps | ext2 OS volume at `/` with homes, `/conf`, `/logs` and `/apps` on it (#478, #506, #525); console login; services still root, passwords plaintext at rest |
+| S4 GUI stack (#112) | landed | `xuid` WM, drag & drop, xui client mode, clipboard, MIME, pipelined Present and damage-only compositing (#501), `inputd` (#395) |
+| S5 desktop shell (#156) | largely landed | LazyShell (#157, PR #505), the core apps as packages with the Installer (#509, #524), Settings, Docs, Task Manager; missing: graphical login (the desktop session is uid 0 without a login) and signed bundles |
+| S6 networking | N0-N5 landed | `netdrv`, `netd` (smoltcp), DHCP, TCP/UDP/DNS, `nc`, `nslookup`, `ftp`, Linux `AF_INET` (PRs #417-#459); `python tools/net/run.py --netd` judges the packet capture. Not started: loopback, TLS via `keyd`, daemons, a firewall, remote Messenger |
+| S7 sandboxing | started | installed apps confined by kernel labels compiled from their manifests, with install consent (#432, #445, #464); driver class rules at boot (#503). No uid policy (the ACL stays in bootstrap-allow), service accounts, syscall allowlists or signing: [`security-hardening-plan.md`](security-hardening-plan.md) |
+| S8 SMP & performance | not started | |
+| S9 release engineering | partly | CI matrix, orderly shutdown and reboot (#504), docs readable in the guest; no release images or crash dumps |
+
+Immediate next steps:
+
+1. **Security hardening phase 0** (#446 kernel, #447 userspace and storage):
+   sender credentials snapshotted into each message, hashed passwords, `xuid`
+   started from init's manifest; then the phases of
+   [`security-hardening-plan.md`](security-hardening-plan.md).
+2. **A real session:** graphical login through `logind`, with the desktop and
+   its apps running as the logged-in user (hardening phase 3, shell plan S5.2).
+3. **Filesystem F7:** migrate an old `/data` disk, then remove `/data`, the
+   legacy mount layout and `--data-disk` ([`filesystem-plan.md`](filesystem-plan.md)).
+4. **Keep the ABI bench and kernel suite green** as the regression gate for
+   every stage.
+
+---|---|---|
 | S0 kernel foundations (#53) | landed | `python tools/test/run.py` (189 tests, 21 of them soaks) |
 | S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
 | S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI |

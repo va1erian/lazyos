@@ -179,10 +179,10 @@ Each stage ends with evidence in CI; sizes are rough (S/M/L).
 
 | Stage | Task issue(s) | Evidence markers | State |
 |---|---|---|---|
-| S5.0 bring-up | #157 (LazyShell), #167 (display protocol, done), #158 (`init` `Launch`, done), #168 (xui client mode and focus routing, done) | `SHELL:DESKTOP`, `SHELL:LAUNCH`, `XUID:SHELL` | protocol half landed; process not started |
-| S5.1 Files + start menu | #159 | `FILES:*` | not started |
-| S5.2 session/Settings/themes | #160 | `THEME:*`, session-grant assertions | not started |
-| S5.3 polish + core apps | #161 (icons, notifications, window affordances), #162 (Editor, Terminal, Paint, Task Manager, Help) | `APP:*`, one session per affordance | not started |
+| S5.0 bring-up | #157 (LazyShell), #167 (display protocol, done), #158 (`init` `Launch`, done), #168 (xui client mode and focus routing, done) | `SHELL:DESKTOP`, `SHELL:LAUNCH`, `XUID:SHELL` | landed except the `logind` session: LazyShell (desktop, taskbar, start menu) moved out of `xuid` (#157, PR #505); the desktop still starts at boot as uid 0 without a login |
+| S5.1 Files + start menu | #159 | `FILES:*` | largely landed: the Files app (PRs #383, #391) and LazyShell's start menu (PR #505) |
+| S5.2 session/Settings/themes | #160 | `THEME:*`, session-grant assertions | partly: Settings with live themes through `confd` (PRs #408, #502); the session capability set and log out are not done |
+| S5.3 polish + core apps | #161 (icons, notifications, window affordances), #162 (Editor, Terminal, Paint, Task Manager, Help) | `APP:*`, one session per affordance | core apps landed: Editor, Paint, Files (PR #383), Terminal, Task Manager (`sysmon`, Services tab in PR #500), Help as the Docs app (PR #402); notifications are not done |
 
 The split follows the task issues as filed (#159 Files, #160 session/themes,
 #161/#162 polish and apps), which is why Files precedes session/themes and apps
@@ -208,7 +208,7 @@ taskbar, clicks Start, launches an app, and captures both windows
 (`SHELL:DESKTOP:PASS`, `SHELL:LAUNCH:PASS`) with `pngstats.py`; kernel
 correctness + soak tests only if the display-grant surface changes (new
 `display.rs` ops in `kernel/src/tests/display_suite/`).
-**Status (2026-09-28):** the protocol half landed: shell protocol + desktop
+**Status (2026-09-28; see the stage table above for what landed since):** the protocol half landed: shell protocol + desktop
 role + hotkeys (#167, PR #170), `init` `Launch` and app registry (#158, PR
 #171), xui client mode and focus routing (#168, PR #172), each with an evidence
 client (`shellprobe`, `apps_demo.json`, `xui_client.json`). Not started: the
