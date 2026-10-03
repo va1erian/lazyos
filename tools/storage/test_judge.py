@@ -24,9 +24,9 @@ USBD:MSC:DISK port=0-2 slot=2 id=usb1 vendor=0x46f4 product=0x0001 blocks=67584 
 USBD:READY devices=0
 fs: mounted usb0p1 at /home (late, home volume lazyhome),nosuid
 INIT:HOME mounted
-LazyOS login: alice
-LOGIN:OK:PASS user=alice uid=1000 session=1 pid=20
-$  cat /home/alice/usbnote
+LazyOS login: user
+LOGIN:OK:PASS user=user uid=1000 session=1 pid=20
+$  cat /home/user/usbnote
 a1b2c3
 $ poweroff
 INIT:SHUTDOWN:BEGIN mode=poweroff uid=1000 session=1 reason=""
@@ -81,13 +81,13 @@ class Judge(unittest.TestCase):
 UNPLUGGED = """\
 USBD:MSC:DISK port=0-1 slot=1 id=usb0 vendor=0x46f4 product=0x0001 blocks=67584 wp=0 burst=15 packet=1024
 fs: mounted usb0p1 at /home (late, home volume lazyhome),nosuid
-LOGIN:OK:PASS user=alice uid=1000 session=1 pid=20
-$  echo a1b2c3 > /home/alice/unplug; echo wrote-$?
+LOGIN:OK:PASS user=user uid=1000 session=1 pid=20
+$  echo a1b2c3 > /home/user/unplug; echo wrote-$?
 wrote-0
 USBD:DETACH port=0-1 slot=1 regions=1 functions=msc (unplugged)
 USBD:MSC:GONE id=usb0 (detached)
-$  echo late > /home/alice/late; echo after-$?
-sh: can't create /home/alice/late: I/O error
+$  echo late > /home/user/late; echo after-$?
+sh: can't create /home/user/late: I/O error
 after-1
 $  ls / > /dev/null; echo alive-$?
 alive-0

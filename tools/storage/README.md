@@ -21,10 +21,10 @@ from `tools/mkdisk --home-volume`) plus, unless `--no-other`, a second stick
 labelled `otherdisk` that must stay unmounted.
 
 1. **Boot 1**: wait for `INIT:HOME mounted`, log in on the console as
-   `alice`, write a nonce to `/home/alice/usbnote`, read it back, `poweroff`;
+   `user`, write a nonce to `/home/user/usbnote`, read it back, `poweroff`;
    QEMU (`-no-shutdown`) stops after `power: filesystems synced`.
 2. **Boot 2**: the volume must mount clean; read the nonce back, write
-   `/home/alice/second`, `poweroff`.
+   `/home/user/second`, `poweroff`.
 3. **Host**: `e2fsck -fn` on the stick's partition is clean; `debugfs` finds
    both files.
 

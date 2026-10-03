@@ -187,8 +187,8 @@ mouse share the `qemu-xhci` controller with the stick, and the judge requires
 
 `persist.py` builds the services profile (console login, BusyBox) with a 64 MiB
 home partition and, per firmware, boots a copy of the stick twice from
-`usb-storage` only: the first boot logs in as `alice`, writes a nonce to
-`/home/alice/usbnote` and powers off; the second must find the volume clean,
+`usb-storage` only: the first boot logs in as `user`, writes a nonce to
+`/home/user/usbnote` and powers off; the second must find the volume clean,
 read the nonce back and write a second file; then the host runs `e2fsck -fn`
 on partition 3 and reads both files with `debugfs`. The console steps are the
 USB storage harness's (`tools/storage/run.py`). Measured under TCG: each boot

@@ -113,7 +113,7 @@ def judge_persist(log: str, firmware: str, nonce: str, second: bool) -> list[str
     failures = judge_serial(log, firmware, ready=None, usb_input=False)
     if len(LATE_HOME.findall(log)) != 1:
         failures.append("/home was not mounted late from the stick exactly once")
-    for marker in ("INIT:HOME mounted", "LOGIN:OK:PASS user=alice"):
+    for marker in ("INIT:HOME mounted", "LOGIN:OK:PASS user=user"):
         if marker not in log:
             failures.append(f"{marker} never appeared")
     if not re.search(rf"(?m)^{re.escape(nonce)}\r?$", log):

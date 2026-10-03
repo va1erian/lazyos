@@ -34,7 +34,7 @@ PERSIST = GOOD.replace("SHELL:DESKTOP:PASS icons=6\n", "") + """\
 USBD:MSC:DISK port=0-1 slot=1 id=usb0 sectors=356352
 fs: mounted usb0p3 at /home (late, home volume lazyhome)
 INIT:HOME mounted
-LOGIN:OK:PASS user=alice
+LOGIN:OK:PASS user=user
 0123abcd
 INIT:SHUTDOWN:BEGIN
 power: filesystems synced

@@ -169,7 +169,7 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
 | Host unit | `usbmsc` (41): golden descriptors (HS, SS with burst, composite), CBW/CSW, every recovery path against a fault-injecting model device, SCSI parsers. `xhci`: plus bulk TRBs, bulk contexts with burst, rings abandoned lap after lap | `cargo test -p usbmsc --features fuzz -p xhci` |
 | Fuzz | `mscdesc`, `mscreply`, `mscsession` (seeded tests and cargo-fuzz) | `cargo test -p usbmsc --features fuzz` |
 | Kernel | `provider_suite` (16): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
-| End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/alice`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
+| End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/user`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
 
 ## Not done
 

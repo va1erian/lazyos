@@ -4,13 +4,13 @@ USB storage (docs/architecture/usb-storage.md).
 
 QEMU runs with the image on a virtio-blk boot disk, **no** home disk, and a
 `qemu-xhci` controller holding a `usb-storage` stick: an MBR disk whose one
-partition is an ext2 volume labelled `lazyhome` with `/alice` on it
+partition is an ext2 volume labelled `lazyhome` with `/user` on it
 (`stick.py`). With `--other` (the default) a second stick, labelled
 `otherdisk`, is plugged in too and must be served but never mounted.
 
 1. **Boot 1.** `usbd` serves the stick, the kernel mounts it late at
    `/home`, `init` lets `logind` start. The harness logs in on the console as
-   `alice`, writes a nonce to `/home/alice/usbnote`, reads it back and runs
+   `user`, writes a nonce to `/home/user/usbnote`, reads it back and runs
    `poweroff`. QEMU (`-no-shutdown`) pauses once the kernel has synced.
 2. **Boot 2.** Same stick: the volume must mount clean; the session reads the
    nonce back, writes a second file and powers off again.
@@ -52,8 +52,8 @@ import stick  # noqa: E402
 from judge import judge, judge_unplug  # noqa: E402
 
 BUSYBOX = ROOT / "target/abi/busybox/busybox"
-NOTE = "/home/alice/usbnote"
-SECOND = "/home/alice/second"
+NOTE = "/home/user/usbnote"
+SECOND = "/home/user/second"
 FAIL_ON = r"USBD:(FATAL|PANIC)|LazyOS PANIC"
 
 
@@ -89,17 +89,17 @@ def command(text: str, until: str, timeout: float) -> list[dict]:
 
 
 def login(slow: bool) -> list[dict]:
-    """Wait for `/home`, then log in on the console as `alice`."""
+    """Wait for `/home`, then log in on the console as `user`."""
     late = 900 if slow else 240
     step = 120 if slow else 30
     return [
         {"wait_for": "INIT:HOME mounted", "timeout": late},
         {"wait_for": "LazyOS login: ", "timeout": late},
         {"wait": 3.0},
-        {"type": "alice"}, {"wait": 0.6}, {"key": "enter"},
+        {"type": "user"}, {"wait": 0.6}, {"key": "enter"},
         {"wait": 1.0},
         {"type": "lazy"}, {"wait": 0.6},
-        {"key": "enter", "until": "LOGIN:OK:PASS user=alice", "timeout": step, "retries": 1},
+        {"key": "enter", "until": "LOGIN:OK:PASS user=user", "timeout": step, "retries": 1},
         # Let the boot's remaining services settle: their output repaints the
         # console, which is when typed keys get lost.
         {"wait": 30.0 if slow else 2.0},
@@ -125,12 +125,12 @@ def unplug_session(nonce: str, slow: bool) -> list[dict]:
     """Write, pull the stick out, prove nothing hangs, power off."""
     step = 120 if slow else 30
     steps = login(slow)
-    steps += command(f"echo {nonce} > /home/alice/unplug; echo wrote-$?", r"(?m)^wrote-0", step)
+    steps += command(f"echo {nonce} > /home/user/unplug; echo wrote-$?", r"(?m)^wrote-0", step)
     steps += [{"wait": 5.0},
               {"qmp": "device_del", "args": {"id": "usbstick0"}},
               {"wait_for": "USBD:MSC:GONE", "timeout": step}]
     # Any status will do: the point is that the write returns.
-    steps += command("echo late > /home/alice/late; echo after-$?", r"(?m)^after-\d+", step)
+    steps += command("echo late > /home/user/late; echo after-$?", r"(?m)^after-\d+", step)
     steps += command("ls / > /dev/null; echo alive-$?", r"(?m)^alive-0", step)
     steps += command("poweroff", "INIT:SHUTDOWN:BEGIN", step)
     steps += [{"wait_for": "power: (filesystems synced|sync failed)", "regex": True,
@@ -207,10 +207,10 @@ def main() -> int:
     clean, output = stick.fsck(home)
     if not clean:
         host.append("e2fsck -fn is not clean:\n" + output.strip())
-    if (stick.read_file(home, "/alice/usbnote") or "").strip() != nonce:
-        host.append("the stick does not hold the nonce in /alice/usbnote")
-    if ok and (stick.read_file(home, "/alice/second") or "").strip() != "again":
-        host.append("the stick does not hold /alice/second")
+    if (stick.read_file(home, "/user/usbnote") or "").strip() != nonce:
+        host.append("the stick does not hold the nonce in /user/usbnote")
+    if ok and (stick.read_file(home, "/user/second") or "").strip() != "again":
+        host.append("the stick does not hold /user/second")
     ok &= verdict("host", host)
     if ok and not args.no_unplug:
         # A copy: the removal leaves the volume dirty, and the host checks

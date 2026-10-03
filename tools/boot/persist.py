@@ -8,7 +8,7 @@ The stick image is the only disk: ``target/lazyos-usb.img`` on a
 1. **Boot 1.** The OS runs from the ramdisk (``FS:ROOT:ram0p2``); ``usbd``
    serves the very stick it booted from as ``usb0`` and the kernel mounts its
    ``lazyhome`` partition late at ``/home``. The session logs in on the
-   console as ``alice``, writes a nonce to ``/home/alice/usbnote``, reads it
+   console as ``user``, writes a nonce to ``/home/user/usbnote``, reads it
    back and runs ``poweroff``.
 2. **Boot 2.** Same copy: ``/home`` mounts clean, the nonce reads back, a
    second file is written, ``poweroff`` again.
@@ -101,7 +101,7 @@ def host_checks(image: Path, nonce: str) -> list[str]:
         fsck = subprocess.run(["e2fsck", "-fn", str(volume)], capture_output=True, text=True)
         if fsck.returncode != 0:
             failures.append("e2fsck -fn is not clean:\n" + fsck.stdout.strip())
-        for name, want in (("/alice/usbnote", nonce), ("/alice/second", "again")):
+        for name, want in (("/user/usbnote", nonce), ("/user/second", "again")):
             cat = subprocess.run(["debugfs", "-R", f"cat {name}", str(volume)],
                                  capture_output=True, text=True)
             if cat.stdout.strip() != want:

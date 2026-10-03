@@ -14,7 +14,7 @@ A boot passes when:
   (`fs: mounted usb<n>p1 at /home (late, home volume lazyhome)`), so the other
   stick stayed unmounted, and `init` stopped waiting because it was mounted
   (`INIT:HOME mounted`);
-* the console session read the nonce back from `/home/alice`
+* the console session read the nonce back from `/home/user`
   (`cat` printed the nonce on a line of its own);
 * the machine powered off in order: `INIT:SHUTDOWN:BEGIN`, then
   `power: filesystems synced`, never `power: sync failed`;
@@ -60,7 +60,7 @@ def judge(text: str, nonce: str, second: bool = False, other: bool = False) -> l
         failures.append(f"/home is on {mounts[0]}, which usbd never registered")
     if "INIT:HOME mounted" not in text:
         failures.append("init did not see /home mounted (INIT:HOME mounted)")
-    if "LOGIN:OK:PASS user=alice" not in text:
+    if "LOGIN:OK:PASS user=user" not in text:
         failures.append("the console login failed")
     if not re.search(rf"(?m)^{re.escape(nonce)}\r?$", text):
         failures.append(f"the session did not read the nonce {nonce} back")
