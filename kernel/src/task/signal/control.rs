@@ -156,9 +156,20 @@ pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
             };
-            if task.pml4 != pml4 || task.state == TaskState::Done || slot == me {
+            if task.pml4 != pml4 || task.state == TaskState::Done {
                 continue;
             }
+            // `128 + signal` is the status; `wait4` reports the signal itself,
+            // for the tasks ended here and for those that end later.
+            if (129..=128 + 64).contains(&status) {
+                crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
+            }
+            if slot == me {
+                continue;
+            }
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
             let blocked = matches!(task.state, TaskState::Blocked { .. });
             if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
                 if let Some(parent) = process::finish_locked(&mut tasks, slot, status) {
