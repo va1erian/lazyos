@@ -17,6 +17,7 @@ pub mod acl;
 pub mod audit;
 pub mod channels;
 pub mod credentials;
+pub mod devspawn;
 pub mod epoll;
 pub mod eventfd;
 pub mod handles;

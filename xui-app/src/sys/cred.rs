@@ -35,6 +35,17 @@ pub struct Cred {
 }
 
 impl Cred {
+    /// The kernel's five-word block (`spawnv`'s credential words).
+    pub const fn to_words(self) -> [u64; 5] {
+        [
+            self.uid as u64,
+            self.gid as u64,
+            self.caps as u64,
+            self.label_id as u64,
+            self.session,
+        ]
+    }
+
     /// Decode the kernel's five-word block.
     const fn from_words(words: [u64; 5]) -> Cred {
         Cred {

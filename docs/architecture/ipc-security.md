@@ -10,7 +10,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 |---|---|
 | `kernel/src/ipc/credentials.rs` | `Cred`, capability bits, audited transition gate (issue #68/#101) |
 | `kernel/src/ipc/acl.rs` | Ordered default-deny rule list, verdicts, reason codes; label-keyed rule sets |
-| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`) |
+| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`, `dev:<id>`) |
+| `kernel/src/ipc/devspawn.rs` | A labelled task's spawn into a `dev:` label (issue #529) |
 | `kernel/src/ipc/policy.rs` | Namespace rules for labelled tasks (`os.lazy.*`, `app.<id>.*`, `app/<id>/`) |
 | `kernel/src/ipc/syscalls/aclop.rs` | The `acl_load` messenger op (`OP_ACL_LOAD = 18`) |
 | `kernel/src/ipc/audit.rs` | 128-entry ring with an FNV-1a hash chain |
@@ -43,13 +44,31 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   `reason` codes for allowed, not-privileged, widening, bad target and
   label-locked.
 - **Labels.** `label_id` names an interned string (`labels.rs`): at most 160
-  bytes of `[a-z0-9.:-]`, either `app:<reverse.dns.name>` or `system:<name>`,
-  256 labels, append-only (`0` = unlabelled; a full table refuses new labels
-  rather than evicting). The label is write-once: `LabelStamp::Assign` (the
-  labelled spawn, `spawnv` with `AsLabelled`) sets it on a new child for an unlabelled
-  `CAP_SETUID` creator; every other stamp is `LabelStamp::Keep` and fails with
+  bytes of `[a-z0-9.:-]`, one of `app:<reverse.dns.name>` (an installed app),
+  `system:<name>` (a platform service) or `dev:<reverse.dns.name>` (an app run
+  from an IDE under its own permissions), 256 labels, append-only (`0` =
+  unlabelled; a full table refuses new labels rather than evicting). The label
+  is write-once: `LabelStamp::Assign` (the labelled spawn, `spawnv` with
+  `AsLabelled`) sets it on a new child for an unlabelled `CAP_SETUID` creator;
+  every other stamp is `LabelStamp::Keep` and fails with
   `TransitionError::LabelLocked` if it would change it. Children inherit their
   creator's label, so an app's helpers stay in its sandbox.
+- **Spawning into `dev:`** (`devspawn.rs`, `LabelStamp::Develop`, issue #529).
+  The one assignment without `CAP_SETUID`: a *labelled* caller's `spawnv`
+  `AsLabelled` naming a `dev:` label is allowed when (1) the caller's label
+  rules allow `os.lazy.process.label.spawn.v1` (`idl/policy.midl`) with
+  `fnv1a32(<target label>)` as the method (a manifest's `develop = true`
+  compiles to the wildcard method), (2) the target label already exists and
+  holds rules (`pkgd` loads an approved set, always ending with a catch-all
+  deny, and revokes by loading none; this path only looks labels up, never
+  interns), and (3) the child keeps the caller's uid, gid and session with a
+  subset of its capabilities. A refusal is `-EACCES`, audited on the scope's
+  interface id with the hashed label as the method (and printed as a
+  `LABEL:DENY ... spawn=<label>` line under `LAZYOS_LABEL_TRACE=1`); an
+  `app:`/`system:` target from a labelled caller keeps the gate's `-EPERM`.
+  Unlabelled callers are unchanged. The stamp is re-checked when applied.
+  `spawnv`'s `personality::STDIO` flag hands the child three of the caller's
+  descriptors as 0, 1 and 2 (nothing else), so the IDE keeps the run's pipes.
 
 **ACL** (`acl.rs`)
 
@@ -78,7 +97,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   `app.<id>.<name>` needs label `app:<id>` (`<name>` is
   one dot-free segment so a name names exactly one id); a labelled task may
   register nothing else. A topic at or under `app/<id>/` (publish or subscribe)
-  is allowed for `app:<id>`. Resolving any other name (checked as
+  is allowed for `app:<id>`. `dev:<id>` owns exactly the same names and topics
+  as `app:<id>`, so a development run behaves like the installed app. Resolving any other name (checked as
   `os.lazy.messenger.names.resolve.v1` with `fnv1a32(name)` as the method, so a
   rule grants one exact name), calling any interface and every other topic
   segment need an allow rule for the label. Checks run against the *client's*

@@ -13,8 +13,9 @@ Make LazyOS App checks the package, then opens the Package Installer, which
 shows what the app is allowed to do (the services and topics its scripts call)
 and installs it when you agree. LazyRAD never installs anything itself.
 
-## Known limit
+## Play and permissions
 
-Play runs your project under LazyRAD's own permissions, not the ones the
-installed app would get: a project that calls services LazyRAD does not declare
-is refused while playing, and works once installed.
+Play runs your project with the permissions the installed app would get, which
+LazyRAD works out from your scripts. The first time (and whenever the project
+needs more than you already allowed) the Package Installer asks you to allow
+them; the approval lasts until you log out.

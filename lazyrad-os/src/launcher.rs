@@ -103,15 +103,16 @@ fn set_nonblocking(fd: std::os::fd::RawFd) {
     unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) };
 }
 
-/// One non-blocking pipe and the partial line read from it so far.
-struct Pipe<R: Read> {
+/// One non-blocking pipe and the partial line read from it so far (also the
+/// development run's, [`crate::devplay`]).
+pub(crate) struct Pipe<R: Read> {
     reader: R,
     lines: LineBuffer,
     open: bool,
 }
 
 impl<R: Read> Pipe<R> {
-    fn new(reader: R) -> Pipe<R> {
+    pub(crate) fn new(reader: R) -> Pipe<R> {
         Pipe {
             reader,
             lines: LineBuffer::new(),
@@ -122,7 +123,7 @@ impl<R: Read> Pipe<R> {
     /// Reads what is available (up to [`READ_BUDGET`]) and returns the lines it
     /// completed. End of stream or a hard error closes the pipe; `WouldBlock`
     /// and `Interrupted` just mean "nothing more right now".
-    fn drain(&mut self) -> Vec<String> {
+    pub(crate) fn drain(&mut self) -> Vec<String> {
         let mut lines = Vec::new();
         let mut chunk = [0u8; 4096];
         let mut budget = READ_BUDGET;

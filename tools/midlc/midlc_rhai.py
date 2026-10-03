@@ -41,6 +41,7 @@ KERNEL_SCOPES = frozenset(
         "os.lazy.messenger.names.resolve.v1",
         "os.lazy.messenger.topics.publish.v1",
         "os.lazy.messenger.topics.subscribe.v1",
+        "os.lazy.process.label.spawn.v1",
     }
 )
 

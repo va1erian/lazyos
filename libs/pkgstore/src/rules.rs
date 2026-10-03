@@ -24,6 +24,10 @@
 //! * **Files** are not Messenger traffic. The kernel has no file sandbox yet,
 //!   so `files` is consent-only today: recorded and shown, compiled to nothing.
 //! * **Network** `outbound` allows the socket interface of the network stack.
+//! * **Develop** (`develop = true`, issue #529) allows spawning a child into
+//!   any `dev:` label: the kernel scope `os.lazy.process.label.spawn.v1` with
+//!   the wildcard method. The kernel still refuses a label `pkgd` has not
+//!   loaded an approved rule set for ([`crate::develop`]).
 
 use alloc::format;
 use alloc::string::String;
@@ -35,6 +39,7 @@ use messenger_generated::os_lazy_messenger_policy_v1::LabelRule;
 use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
 use messenger_generated::os_lazy_messenger_topics_subscribe_v1 as subscribe_scope;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
+use messenger_generated::os_lazy_process_label_spawn_v1 as spawn_scope;
 
 use crate::hash::{fnv1a32, fnv1a64};
 
@@ -219,6 +224,9 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     }
     if requested.network.iter().any(|entry| entry == "outbound") {
         list.allow_interface(NETWORK_INTERFACE, None);
+    }
+    if requested.develop {
+        list.allow(spawn_scope::INTERFACE_ID, ANY_METHOD);
     }
     if list.rules.len() > MAX_RULES {
         return Err(CompileError::TooManyRules {

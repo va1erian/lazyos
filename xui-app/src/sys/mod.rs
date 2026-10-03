@@ -1,6 +1,7 @@
 //! Raw native-syscall shim for the display grant (12), the Messenger fabric
-//! (5), the PIT clock (8), the system-stats snapshot (14) and the read-only
-//! device inspection ops (23).
+//! (5), the PIT clock (8), the system-stats snapshot (14), the read-only
+//! device inspection ops (23) and the labelled `spawnv` (31) of an IDE's
+//! development run.
 //!
 //! Besides the raw `int 0x80` helpers, this module carries the small
 //! libmessenger-based plumbing the display protocol client ([`crate::display`])
@@ -16,8 +17,10 @@
 mod cred;
 mod display;
 mod messenger;
+mod spawn;
 
 pub use cred::{cred_get, wall_centis, Cred};
+pub use spawn::spawn_labelled;
 
 pub use display::{
     button, decode_event, display_bind, display_close_buffer, display_create_buffer,

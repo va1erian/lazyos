@@ -11,6 +11,8 @@
 //!   (config directory, script file sandbox, where the player lives);
 //! * [`launcher`]: starting the player from the IDE with pipes polled on the UI
 //!   thread (LazyOS threads cannot share descriptors);
+//! * [`devplay`]: Play under the project's own permissions when the IDE is a
+//!   package (`dev:<system_name>`, issue #529);
 //! * [`handoff`]: File → Make LazyOS App: an in-process pre-check, then the
 //!   Package Installer through `mimed` (the IDE never calls `pkgd`);
 //! * [`transport`]: the Messenger call seam [`handoff`] runs over;
@@ -24,11 +26,14 @@
 //!   played through the system mixer), registered the same way.
 
 pub mod args;
+#[cfg(unix)]
+pub mod devplay;
 pub mod handoff;
 pub mod launcher;
 pub mod marker;
 pub mod messenger;
 pub mod migrate;
 pub mod platform;
+pub mod playdev;
 pub mod tracker;
 pub mod transport;

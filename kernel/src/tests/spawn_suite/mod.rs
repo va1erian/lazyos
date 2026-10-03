@@ -17,10 +17,14 @@ use super::*;
 use crate::ipc::credentials::{self, Cred};
 use crate::process::spawnv::{cred_mode, personality, REQ_WORDS};
 
+mod dev;
+mod dev_soak;
 mod errors;
 mod soak;
 mod valid;
 
+use dev::*;
+use dev_soak::*;
 use errors::*;
 use soak::*;
 use valid::*;
@@ -122,6 +126,15 @@ impl Req {
     /// Issue the syscall.
     fn call(&self) -> u64 {
         let words = self.words();
+        process::dispatch_for_test(SYS_SPAWNV, words.as_ptr() as u64, 0, 0)
+    }
+
+    /// Issue the syscall with [`personality::STDIO`] and these three stdio
+    /// words (the caller's descriptors for the child's 0, 1 and 2).
+    fn call_stdio(&self, stdio: [u64; 3]) -> u64 {
+        let mut words = self.words().to_vec();
+        words[8] |= personality::STDIO;
+        words.extend_from_slice(&stdio);
         process::dispatch_for_test(SYS_SPAWNV, words.as_ptr() as u64, 0, 0)
     }
 }
@@ -274,4 +287,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("spawn_soak_spawnv_exit_cycles", soak_spawnv_exit_cycles),
     ("spawn_soak_denied_spawns", soak_denied_spawns),
+    ("spawn_dev_label_refusals", dev_label_refusals),
+    ("spawn_dev_label_stamps_child", dev_label_stamps_child),
+    ("spawn_dev_label_namespace", dev_label_namespace),
+    ("spawn_stdio_hands_descriptors", stdio_hands_descriptors),
+    ("spawn_soak_dev_label_cycles", soak_dev_label_cycles),
 ];

@@ -153,6 +153,13 @@ pub struct Permissions {
     pub files: Vec<String>,
     #[serde(default)]
     pub network: Vec<String>,
+    /// `develop = true`: the app may run apps the user is developing under
+    /// their own approved permissions (an IDE's Play, issue #529). It compiles
+    /// to the kernel rule that lets the app spawn a child into a `dev:` label
+    /// (`os.lazy.process.label.spawn.v1`); `pkgd` still asks the user before
+    /// each development label gets its rules.
+    #[serde(default)]
+    pub develop: bool,
 }
 
 /// Parse the manifest text, tolerating a leading UTF-8 BOM. A TOML syntax

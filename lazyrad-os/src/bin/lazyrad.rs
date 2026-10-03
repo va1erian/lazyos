@@ -9,6 +9,12 @@
 //! opened, `LRIDE:RUN:PASS:<project>` when Run started the player and
 //! `LRIDE:CHILD:PASS:exit=<code>` when it ended, `LRIDE:EXIT:PASS` after a clean
 //! exit, `LRIDE:<STAGE>:FAIL:<why>` otherwise.
+//!
+//! Run packaged (under an `app:` label), Play runs the project under its own
+//! development label (`lazyrad_os::devplay`). `--play-dev <project>` does one
+//! such run without a window and exits with the player's status, printing
+//! `LRIDE:PLAY:OUT:<line>` per line and `LRIDE:PLAY:EXIT:<code>`: what a
+//! session script drives.
 
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -18,21 +24,23 @@ use std::path::PathBuf;
 use lazyrad_ide::{IdeEvent, RunOptions};
 use lazyrad_os::args;
 use lazyrad_os::handoff::HandoffInstaller;
-use lazyrad_os::launcher::PollingLauncher;
 use lazyrad_os::marker::Markers;
 use lazyrad_os::migrate::{migrate_legacy_data, Migration};
-use lazyrad_os::platform::{Home, LazyOsPlatform};
+use lazyrad_os::platform::{player_beside, Home, LazyOsPlatform};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
 
 const MARK: Markers = Markers::IDE;
+/// The flag of a windowless development run.
+const PLAY_DEV: &str = "--play-dev";
 
 /// The project folder to open, from `[<dir | .lrp>]` on the command line (the
 /// launcher's `--client` and `attempt=N` are accepted and ignored). A `.lrp`
 /// file means its folder; a relative path is taken from the working directory.
 fn project_to_open() -> Result<Option<PathBuf>, String> {
-    let parsed = args::parse_player(std::env::args_os().skip(1)).map_err(|e| e.to_string())?;
+    let args = std::env::args_os().skip(1).filter(|arg| arg != PLAY_DEV);
+    let parsed = args::parse_player(args).map_err(|e| e.to_string())?;
     let Some(path) = parsed.project else {
         return Ok(None);
     };
@@ -84,6 +92,15 @@ fn main() -> ExitCode {
         MARK.fail("PLATFORM", "a platform was already installed");
         return ExitCode::FAILURE;
     }
+    let author = std::env::var("USER").unwrap_or_else(|_| "lazyos".to_owned());
+    if std::env::args_os().any(|arg| arg == PLAY_DEV) {
+        let Some(project) = open else {
+            MARK.fail("ARGS", "--play-dev needs a project folder");
+            return ExitCode::FAILURE;
+        };
+        let code = lazyrad_os::playdev::play_headless(&player_beside(&exe), &project, &author);
+        return ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     // The code editor needs a real monospace face next to the UI face; register
     // before the backend exists (the shaper builds its font database once).
     xui_app::font::register_mono();
@@ -117,9 +134,9 @@ fn main() -> ExitCode {
         spec,
         open,
         observer: Some(observer),
-        launcher: Some(Rc::new(PollingLauncher)),
+        launcher: Some(lazyrad_os::playdev::launcher_for_this_process(&author)),
         installer: Some(Rc::new(HandoffInstaller::on_lazyos())),
-        author: std::env::var("USER").unwrap_or_else(|_| "lazyos".to_owned()),
+        author,
     };
     match lazyrad_ide::run_with_options(Rc::new(backend) as Rc<dyn Backend>, options) {
         Ok(()) => {

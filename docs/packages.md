@@ -124,6 +124,7 @@ interfaces = ["os.lazy.clipboard.v1", "os.lazy.fs.reader.v1"]
 topics = ["publish:app/org.lazy.paint/#", "subscribe:system/events/open/+"]
 files = ["read:$HOME/Pictures/*", "write:$HOME/.apps/org.lazy.paint/*"]
 network = []                         # v1: empty or ["outbound"]
+develop = false                      # optional: may run apps the user develops (an IDE); default false
 ```
 
 `[app]`, `[entry]` and their required fields must be present. `[[mime]]` and
@@ -159,6 +160,11 @@ show them all at once.
   `tools/pkg/pkgmanifest.py` since F5; LazyRAD's packager writes
   `$HOME/.apps/<id>`).
 * **`network`** — empty or exactly `["outbound"]`.
+* **`develop`** — absent or a boolean, default `false`, under `[permissions]`.
+  `true` lets the app run other apps the user is developing under *their*
+  permissions (an IDE's Play, issue #529; see "Development runs" below). The
+  consent screen lists it as a high-risk permission: "Run apps you are
+  developing, with permissions you approve".
 * **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
   program from a static musl one (both are static x86_64 executables), so the
   package says which personality `init` must start it under (`spawnv`'s Linux personality).
@@ -444,6 +450,9 @@ the consent screen and the enforcement come from the same data:
   methods the direction needs; the app's own `app/<system_name>/` namespace needs
   no rule;
 * `network = ["outbound"]` allows the socket interface of the network stack;
+* `develop = true` allows spawning a child into any `dev:` label
+  (`os.lazy.process.label.spawn.v1`, the wildcard method; see "Development
+  runs");
 * `files` rules are **consent only** today: there is no file sandbox in the
   kernel yet, so they are recorded and shown but compile to nothing.
 
@@ -462,7 +471,8 @@ reordering or editing a line breaks the chain from there on. At startup `pkgd`
 verifies the chain and prints `PKGD:AUDIT:PASS n=<count>`; a broken log prints
 `PKGD:AUDIT:FAIL <why>`, is kept aside as `pkg.log.bad-<ticks>`, and a new chain
 starts with a record that says so. Every event is also published on
-`system/events/pkg/<op>` (`install`, `remove`, `denied`), which `logd` retains
+`system/events/pkg/<op>` (`install`, `remove`, `denied`, `provision`, and
+`develop` / `undevelop` for development runs), which `logd` retains
 independently of the file. The chain is tamper-*evident*: someone who can rewrite
 the whole file can rebuild it, which is what the published copy is for.
 
@@ -471,6 +481,69 @@ Every record is appended before its request is answered, and `pkgd` serves
 `pkg.log`, prints `PKGD:STOP sync=<ok|none|errno>` and exits, so a power-off
 never loses the tail of the chain to `SIGTERM`. It is stopped before `confd`
 and `mimed`, which it depends on.
+
+### Development runs: `Develop` and `dev:` labels (issue #529)
+
+An IDE that is itself a package (LazyRAD, `docs/lazyrad-package-plan.md`)
+runs the project it edits as a child whose pipes it reads. A child inherits its
+parent's label, so without help the project would be judged by the IDE's
+permissions. Instead the project runs under `dev:<system_name>`: the kernel
+gives that label exactly the installed app's names and topics
+(`app.<system_name>.*`, `app/<system_name>/`) and judges every other call by
+the rules `pkgd` loaded for it.
+
+1. The IDE builds the project's `.lzp` (as Make LazyOS App would), writes it to
+   `/transient` and asks `mimed.Open(path, "develop")`. `mimed` routes the verb
+   to the Installer's development consent (`init`'s unlisted
+   `installer-develop` row, which starts the Installer with `--develop`).
+2. The Installer calls `Develop(path, confirm = false)`. `pkgd` reads and
+   validates the package (the `Inspect` source rule), compiles its rules with
+   `pkgstore::develop::rules` (the install compilation plus a final catch-all
+   deny, so an app that asks for nothing still holds a rule) and checks its
+   in-memory approvals: when this session already approved the same or a wider
+   set for that label, it loads the rules and answers `approved`, and the
+   Installer exits without a window. Otherwise nothing changes and the
+   Installer shows "Run <app> from your development environment?" with every
+   permission grouped by risk; **Allow** calls `Develop(path, confirm = true)`,
+   **Cancel**/`Esc`/closing refuses: `DevelopDeclined(path)` makes `pkgd`
+   publish `system/events/pkg/denied` for the package, which stops the waiting IDE.
+3. `pkgd` publishes `system/events/pkg/develop` (`detail` is the label) and
+   appends it to `pkg.log`; the IDE, subscribed to `system/events/pkg/+`,
+   then `spawnv`s the player with `AS_LABELLED "dev:<system_name>"` and
+   `personality::STDIO` (its stdout and stderr on the IDE's pipes).
+
+Who may call `Develop` is `Install`'s rule (`may_manage`: root or a session
+owner, never a labelled task), so the IDE cannot approve itself. Approvals live
+in `pkgd`'s memory only, per label and session; when the session logs out
+(`system/events/login/end`) `pkgd` revokes its labels by loading an empty rule
+set (`PKGD:UNDEVELOP:PASS`, audited as `undevelop`), and the kernel refuses to
+spawn into a label without rules, so a revoked or never-approved label cannot
+be entered. A restart of `pkgd` (a crash or its heap recycle) forgets approvals,
+so at startup it walks the kernel's label table and revokes every `dev:` label
+(`PKGD:DEVELOP:RESET revoked=<n>`): no rule set outlives its approval, and the
+next Play asks again. `pkgd` subscribes to the logout feed from its first
+request, not its first approval. The feed retains only the latest logout, so
+whenever it may have missed one (a new subscription, a broker error, no
+broker), `pkgd` reconciles its approvals with `logind`'s active sessions and
+revokes the rest; when `logind` cannot be asked it revokes them all
+(`PKGD:DEVELOP:RECONCILE logind=absent`): a lost logout never leaves a label
+approved.
+The kernel side is in `docs/architecture/ipc-security.md`. Evidence:
+`PKGD:DEVELOP:ASK <label>`, `PKGD:DEVELOP:PASS <label> rules=<n> asked=<0|1>`,
+`PKGD:DEVELOP:FAIL <why>`.
+
+A package claiming a core app's `system_name` is refused (`EPERM`): a
+development run never owns a built-in app's names.
+
+Known limits: a `develop` rule covers every `dev:` label, so two IDEs share each
+other's approved labels; a development run shares the installed app's service
+names, so running both at once makes the second registration fail; `files`
+rules are consent-only for development runs as for installs.
+
+`pkgctl develop <path>` opens the same consent from a shell. The session
+`tools/screenshot/examples/lazyrad_devplay.json` installs a test package of the
+IDE with `develop = true` (`tools/lazyrad/devtest.py`) and plays a sample under
+its development label.
 
 ### Boot, `init` and the menu
 
@@ -516,10 +589,7 @@ UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
 inherits its parent's label, so a packaged Terminal would run the shell and
 every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
 app) and Devices (it reads the kernel's device inspection calls,
-`os.kernel.dev`, which no package permission can name). The opt-in LazyRAD
-IDE (`LAZYOS_LAZYRAD=1`) is not packaged either: it is a built-in row of
-`init`'s registry (`user/src/bin/init/apps.rs`), while the apps it builds are
-packages.
+`os.kernel.dev`, which no package permission can name).
 
 The **LazyRAD IDE** is a core package too (`os.lazy.lazyrad`,
 `xui-app/packages/lazyrad`, category `development`), shipped only in images
@@ -541,11 +611,11 @@ event whose `system_name` and digest match, and starts the new app with
 are packages with permissions derived from their scripts
 ([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)).
 
-*Known limit until development labels land (phase B of the plan):* Play forks
-`lrplay` on the project being edited, and a child inherits its parent's label,
-so the project's `sys::*` calls are judged against the IDE's permissions, not
-the ones the installed app would get; a service the IDE does not declare is
-`LABEL:DENY` in Play and works once installed.
+Play forks `lrplay` on the project being edited, and a child inherits its
+parent's label, so the manifest also declares `develop = true`: Play runs the
+player under `dev:<system_name>` with the permissions the installed app would
+get, after the user approves them on the Installer's consent screen
+("Development runs" above, phase B of the plan).
 
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
@@ -697,7 +767,14 @@ INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
 INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
 INSTALLER:REMOVE:REFUSED <system_name>   (a core app; nothing is sent to pkgd)
+INSTALLER:DEVELOP:PASS <label> asked=<0|1>   INSTALLER:DEVELOP:DENIED
+INSTALLER:DEVELOP:ASK perms=<n>          INSTALLER:DEVELOP:FAIL <reason>
 ```
+
+The Installer has two verbs for `application/x-lazyos-package`: `open` and
+`install` start the wizard above at Review, and `develop` (started with
+`--develop <path>`) shows only the development consent described in
+"Development runs" (section 7).
 
 `tools/screenshot/examples/xui_installer.json` (a desktop image) waits for
 core provisioning, copies the sample to `/transient`, opens it with

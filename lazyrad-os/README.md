@@ -74,10 +74,11 @@ cancel is reported after five minutes); `LRIDE:PKG:*` markers record each step.
 The manifest names `os.lazy.mimed.v1`, `os.lazy.init.v1` and
 `subscribe:system/events/pkg/+` for it.
 
-Known limit (phase B of [`docs/lazyrad-package-plan.md`](../docs/lazyrad-package-plan.md)):
-Play forks `lrplay` under the IDE's label, so a project that calls `sys::*`
-services beyond the IDE's manifest gets `LABEL:DENY` while playing and works
-once installed.
+Play (phase B of [`docs/lazyrad-package-plan.md`](../docs/lazyrad-package-plan.md)):
+the manifest declares `develop = true`, so the packaged IDE runs the project
+under `dev:<system_name>` with the permissions the installed app would get,
+once the user approves them in the Installer (`src/devplay.rs`). An IDE started
+unlabelled (from the Terminal) forks the player plainly.
 
 Without `$HOME` (a program started outside a session) the home is
 `/transient/lazyrad` on the ramfs, so nothing survives a reboot; both programs

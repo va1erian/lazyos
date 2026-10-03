@@ -266,9 +266,12 @@ def _check_mime(mime, problems):
 
 
 def _check_permissions(permissions, problems):
-    _check_keys(permissions, {"interfaces", "topics", "files", "network"}, "permissions", problems)
+    _check_keys(permissions, {"interfaces", "topics", "files", "network", "develop"}, "permissions", problems)
     if not isinstance(permissions, dict):
         return
+    develop = permissions.get("develop", False)
+    if not isinstance(develop, bool):
+        problems.append(f"permissions.develop {develop!r} must be true or false")
     for interface in _list_field(permissions, "interfaces", "permissions", problems):
         if not isinstance(interface, str) or not _INTERFACE.fullmatch(interface):
             problems.append(f"permissions.interfaces entry {interface!r} is not name.vN")

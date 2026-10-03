@@ -157,7 +157,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         HIGH,
         "Pass the system's internal check for listening on any topic",
     ),
+    ("os.lazy.process.label.spawn.v1", HIGH, DEVELOP),
 ];
+
+/// What `develop = true` lets an app do (issue #529).
+pub const DEVELOP: &str = "Run apps you are developing, with permissions you approve";
 
 /// The explanation of one requested interface.
 pub fn interface(name: &str) -> Explained {
@@ -285,7 +289,7 @@ fn permission(kind: &str, value: &str, explained: Explained) -> Permission {
 
 /// Every permission of `manifest` as the consent screen lists it: interfaces,
 /// then topics, files and network, each in manifest order, one entry per
-/// request.
+/// request, then `develop` when asked for.
 pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
     let requested = &manifest.permissions;
     let mut out = Vec::new();
@@ -301,6 +305,13 @@ pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
     }
     for entry in &requested.network {
         out.push(permission("network", entry, network(entry)));
+    }
+    if requested.develop {
+        let explained = Explained {
+            risk: HIGH,
+            text: String::from(DEVELOP),
+        };
+        out.push(permission("develop", "true", explained));
     }
     out
 }
@@ -429,7 +440,7 @@ mod tests {
              [entry]\nbinary = \"bin/app.elf\"\n\
              [permissions]\ninterfaces = [\"os.lazy.clipboard.v1\", \"os.lazy.keyd.v1\"]\n\
              topics = [\"subscribe:system/events/open/+\"]\n\
-             files = [\"read:$HOME/pictures\"]\nnetwork = [\"outbound\"]\n",
+             files = [\"read:$HOME/pictures\"]\nnetwork = [\"outbound\"]\ndevelop = true\n",
         )
         .expect("valid");
         let listed = permissions(&manifest);
@@ -445,6 +456,7 @@ mod tests {
                 ("topic", "high"),
                 ("file", "low"),
                 ("network", "high"),
+                ("develop", "high"),
             ]
         );
         assert_eq!(listed[0].value, "os.lazy.clipboard.v1");

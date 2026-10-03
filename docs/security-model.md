@@ -83,13 +83,17 @@ memory/fds/handles within their quota, and race multi-threaded code.
 | Group | `gid`; a user has a primary group + supplementary groups |
 | Service account | a user with no login, owning service state |
 | Session | `session_id`, created by `logind`; scopes topic/service namespaces and default ACLs |
-| Process label | short string/profile id used in policy (e.g. `app:com.example.editor`) |
+| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
 | Kernel | the only component that stamps credentials; userspace can never set them |
 
 Credentials travel with every Messenger message and syscall and are copied into
 audit records. The kernel keeps `uid/gid/caps/label/session` in the task struct;
 `setuid`-like transitions are only allowed toward *less* privilege or through the
-elevation service.
+elevation service. A label is assigned once, when a child is created, by an
+unlabelled `CAP_SETUID` holder (`init`); the one exception is an IDE package
+with `develop = true` spawning a child into a `dev:` label that `pkgd` holds an
+approved rule set for: same uid, gid and session, never more capabilities
+(`docs/architecture/ipc-security.md`, "Spawning into `dev:`").
 
 ---
 
