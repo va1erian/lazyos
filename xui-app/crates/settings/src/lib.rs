@@ -14,10 +14,10 @@
 
 pub mod about_page;
 pub mod app;
+pub mod layout;
 pub mod hidden_ops;
 pub mod hidden_page;
 pub mod keyboard;
-pub mod layout;
 pub mod menu_ops;
 pub mod menu_page;
 pub mod sections;
