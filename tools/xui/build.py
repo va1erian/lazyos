@@ -29,6 +29,9 @@ The Docs app (``xui-docs.elf``, Markdown rendered by litehtml) is built last, in
 its own cargo invocation and target directory, with the zig toolchain
 (``tools/xui/zig.py``): litehtml is C++, and only that package pulls it in.
 Without zig it is skipped with a warning and every other app still builds.
+LazyWeb (``xui-lazyweb.elf``, the web browser on the NetSurf core, C and
+GPL-2.0-only) is built the same way, in its own cargo invocation sharing that
+target directory.
 
 ``xui-core``, ``xui-canvas`` and ``xui-icons`` are git dependencies on
 ``va1erian/xui`` at a single pinned revision; ``xui-canvas`` is built with
@@ -59,6 +62,10 @@ OUT_DIR = ROOT / "target" / "xui"
 # alternately rebuild) every dependency the other apps share.
 DOCS_TARGET_DIR = ROOT / "target" / "xui-zig"
 DOCS_PACKAGE = "xui-docs"
+# LazyWeb, the web browser (`xui-app/web`): NetSurf is C, so it is built with
+# zig like Docs, in the same target directory (same environment).
+WEB_PACKAGE = "lazyweb"
+WEB_ELF = "xui-lazyweb.elf"
 BINS = {
     "xui-m0": "xui-m0.elf",
     "xui-counter": "xui-counter.elf",
@@ -141,19 +148,12 @@ def build_env() -> dict[str, str]:
     return env
 
 
-def build_docs(debug: bool) -> str | None:
-    """Build the Docs app with zig; return its ELF path, or None when skipped.
-
-    A missing zig is a skip (warning), like a missing musl target; a compile
-    error is fatal so CI cannot silently ship an image without the app.
-    """
+def zig_env() -> dict[str, str] | None:
+    """The cargo environment that compiles C/C++ and links with zig, or None
+    (with a warning) when zig is not installed."""
     command = zig.find_zig()
     if command is None:
-        print(
-            f"warning: zig not found, skipping {DOCS_PACKAGE} "
-            f"(install: {zig.INSTALL_HINT})",
-            file=sys.stderr,
-        )
+        print(f"warning: zig not found (install: {zig.INSTALL_HINT})", file=sys.stderr)
         return None
     found = zig.version(command)
     if found != zig.ZIG_VERSION:
@@ -161,13 +161,22 @@ def build_docs(debug: bool) -> str | None:
     wrappers = zig.write_wrappers(command, OUT_DIR / "zig")
     env = dict(os.environ)
     env.update(zig.cargo_env(TARGET, wrappers))
+    return env
+
+
+def build_zig_package(package: str, env: dict[str, str], debug: bool) -> str | None:
+    """Build one zig-linked package's binary (named like the package); return
+    its ELF path. A compile error is fatal so CI cannot silently ship an image
+    without the app."""
     cargo = [
         "cargo",
         "build",
         "--manifest-path",
         str(APP / "Cargo.toml"),
         "-p",
-        DOCS_PACKAGE,
+        package,
+        "--bin",
+        package,
         "--target",
         TARGET,
         "--target-dir",
@@ -177,10 +186,31 @@ def build_docs(debug: bool) -> str | None:
         cargo.append("--release")
     build = run(cargo, env=env, stream=True)
     if build.returncode != 0:
-        print(f"error: {DOCS_PACKAGE} build failed", file=sys.stderr)
+        print(f"error: {package} build failed", file=sys.stderr)
         raise SystemExit(1)
-    source = DOCS_TARGET_DIR / TARGET / ("debug" if debug else "release") / DOCS_PACKAGE
+    source = DOCS_TARGET_DIR / TARGET / ("debug" if debug else "release") / package
     return str(source) if source.is_file() else None
+
+
+def build_zig_apps(debug: bool, lazyweb: bool = True) -> dict[str, str]:
+    """Build the zig-linked apps (Docs, and LazyWeb unless `lazyweb` is
+    False); return `{package: elf}` of those built. A missing zig is a skip
+    (warning), like a missing musl target."""
+    env = zig_env()
+    if env is None:
+        print(f"warning: skipping {DOCS_PACKAGE} and {WEB_PACKAGE}", file=sys.stderr)
+        return {}
+    built: dict[str, str] = {}
+    apps = [(DOCS_PACKAGE, f"{DOCS_PACKAGE}.elf")]
+    if lazyweb:
+        apps.append((WEB_PACKAGE, WEB_ELF))
+    for package, disk_name in apps:
+        source = build_zig_package(package, env, debug)
+        if source:
+            dest = OUT_DIR / disk_name
+            dest.write_bytes(Path(source).read_bytes())
+            built[package] = str(dest)
+    return built
 
 
 def build_sample_packages() -> None:
@@ -223,6 +253,8 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="build the debug profile")
     parser.add_argument("--no-core-packages", action="store_true",
                         help="skip packaging the desktop apps (run tools/xui/core_packages.py later)")
+    parser.add_argument("--no-lazyweb", action="store_true",
+                        help="skip LazyWeb (the NetSurf browser, the slowest zig build)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,11 +292,7 @@ def main() -> int:
         dest.write_bytes(source.read_bytes())
         built[name] = str(dest)
 
-    docs = build_docs(args.debug)
-    if docs:
-        dest = OUT_DIR / f"{DOCS_PACKAGE}.elf"
-        dest.write_bytes(Path(docs).read_bytes())
-        built[DOCS_PACKAGE] = str(dest)
+    built.update(build_zig_apps(args.debug, lazyweb=not args.no_lazyweb))
 
     build_sample_packages()
     if not args.no_core_packages and not build_core_packages():
