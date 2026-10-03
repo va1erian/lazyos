@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"` (see
+the same `rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -258,6 +258,10 @@ the surface origin from the last press.
 **Docs app.** `xui-docs` (`xui-app/docs/`) renders Markdown with `xui-litehtml`,
 a `xuid` client like the other apps; see [`xui-docs.md`](xui-docs.md). The
 mouse wheel now reaches xui apps (see `architecture/display.md`).
+
+**LazyWriter.** `writer` (issue #533) is a word processor on xui's
+`xui-rich-text` editor, ported from its `wordpad` example; see
+[`xui-writer.md`](xui-writer.md).
 
 ## Smallest first step
 

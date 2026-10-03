@@ -28,19 +28,38 @@ pub enum Art {
 /// Each package's directory (relative to the repository root) and its art.
 pub const PACKAGES: &[(&str, Art)] = &[
     ("xui-app/packages/confd", Art::Village(Icon::Server)),
-    ("xui-app/packages/counter", Art::Lucide(Lucide::Plus, Tone::Teal)),
+    (
+        "xui-app/packages/counter",
+        Art::Lucide(Lucide::Plus, Tone::Teal),
+    ),
     ("xui-app/packages/docs", Art::Village(Icon::Help)),
     ("xui-app/packages/editor", Art::Village(Icon::Document)),
     ("xui-app/packages/fabricmon", Art::Village(Icon::PubSub)),
     ("xui-app/packages/files", Art::Village(Icon::Folder)),
+    // LazyRAD (#532): a window on a teal tile, the form designer's look. The
+    // checked-in PNGs are the package's own teal placeholders, drawn before
+    // this entry; `cargo run -p app-icons` redraws them from it.
+    (
+        "xui-app/packages/lazyrad",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
     ("xui-app/packages/network", Art::Village(Icon::Network)),
     ("xui-app/packages/nettools", Art::Village(Icon::Modem)),
     ("xui-app/packages/paint", Art::Village(Icon::Image)),
     ("xui-app/packages/settings", Art::Village(Icon::Settings)),
     ("xui-app/packages/sysmon", Art::Village(Icon::Monitor)),
     ("xui-app/packages/widget", Art::Village(Icon::Widget)),
+    // LazyWriter: Lucide `file-text`, the outline its own toolbar uses for a
+    // document (needs the xui pin with the formatting icons, issue #533).
+    (
+        "xui-app/packages/writer",
+        Art::Lucide(Lucide::FileText, Tone::Cobalt),
+    ),
     // The user-package copy of the Counter (`org.lazy.counter`).
-    ("tools/pkg/samples/counter", Art::Lucide(Lucide::Plus, Tone::Teal)),
+    (
+        "tools/pkg/samples/counter",
+        Art::Lucide(Lucide::Plus, Tone::Teal),
+    ),
     ("doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
 ];
 
@@ -95,7 +114,10 @@ mod tests {
     use std::path::Path;
 
     fn repo_root() -> &'static Path {
-        Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .unwrap()
     }
 
     #[test]
@@ -110,7 +132,10 @@ mod tests {
             );
         }
         for (dir, _) in PACKAGES {
-            assert!(repo_root().join(dir).join("manifest.toml").is_file(), "{dir}");
+            assert!(
+                repo_root().join(dir).join("manifest.toml").is_file(),
+                "{dir}"
+            );
         }
     }
 
@@ -124,7 +149,10 @@ mod tests {
                 let area = (size * size) as usize;
                 let inked = alpha().filter(|&a| a >= 128).count();
                 assert!(inked * 8 > area, "{dir} at {size}px is mostly empty");
-                assert!(alpha().any(|a| a == 0), "{dir} at {size}px has no transparent edge");
+                assert!(
+                    alpha().any(|a| a == 0),
+                    "{dir} at {size}px has no transparent edge"
+                );
             }
         }
     }

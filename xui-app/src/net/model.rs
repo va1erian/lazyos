@@ -250,7 +250,7 @@ pub fn plan(form: &Form) -> Result<Vec<Write>, String> {
                 "The gateway cannot be this machine's own address.",
             ));
         }
-        if !same_subnet(gw, addr, prefix_len as u8) {
+        if !same_subnet(gw, addr, prefix_len) {
             return Err(format!(
                 "Gateway {gateway} is outside {address}: it must be on the local network."
             ));

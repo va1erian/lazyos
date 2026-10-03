@@ -73,6 +73,15 @@ DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
 # The desktop apps `--devices` opens at boot: the Terminal, then Devices.
 DEVICES_AUTOSTART = "term,devices"
+# The apps every desktop image ships (`build_support/xui_embed.rs`
+# `DESKTOP_XUI_APPS` and `DOCUMENT_XUI_APPS`): the image build fails when one
+# is missing, so a `target/xui` built before an app was added (LazyWriter,
+# issue #533) is rebuilt first.
+DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
+    "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
+    "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-settings.elf",
+    "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
+)]
 # The network apps a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / name for name in ("xui-network.elf", "xui-nettools.elf")]
 
@@ -367,10 +376,13 @@ def main(argv: list[str]) -> int:
             # talk to host servers only `tools/net/run.py` starts.
             env["LAZYOS_NETD"] = "1"
             env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
-            if args.desktop and not all(app.is_file() for app in NET_APPS)                     and not build_xui_apps():
-                return 1
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
+            # One build for every missing app: the desktop's own, and the
+            # network apps a `--net` desktop also ships.
+            needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
+            if not all(app.is_file() for app in needed) and not build_xui_apps():
+                return 1
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).

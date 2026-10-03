@@ -21,6 +21,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("MAIN.RS", "text/x-rust"),
         ("APP.ELF", "application/x-elf"),
         ("LOGO.PNG", "image/png"),
+        ("LETTER.LZW", "application/x-lazywriter"),
         ("DATA.BIN", mime::FALLBACK_MIME),
     ] {
         let got = db.guess(path);
@@ -99,6 +100,20 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
             plain.unwrap_or("<none>"),
             png.unwrap_or("<none>"),
             markdown.unwrap_or("<none>"),
+        ));
+    }
+
+    // LazyWriter documents (issue #533) open and edit in LazyWriter; plain
+    // text and Markdown above stay with the Editor and Docs.
+    let writer_open = apps.lookup("application/x-lazywriter", "open");
+    let writer_edit = apps.lookup("application/x-lazywriter", "edit");
+    if writer_open == Some("os.lazy.writer") && writer_edit == Some("os.lazy.writer") {
+        sys::write_str("MIME:DEFAULT:PASS application/x-lazywriter=os.lazy.writer\n");
+    } else {
+        sys::write_str(&format!(
+            "MIME:DEFAULT:FAIL application/x-lazywriter open={} edit={}\n",
+            writer_open.unwrap_or("<none>"),
+            writer_edit.unwrap_or("<none>"),
         ));
     }
 

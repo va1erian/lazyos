@@ -19,6 +19,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "../os_recover.rs"]
 mod os_recover;
+#[path = "../samples_embed.rs"]
+mod samples_embed;
 #[path = "../usb_fat.rs"]
 mod usb_fat;
 #[path = "../usb_ramdisk.rs"]
@@ -40,5 +42,7 @@ mod layout_tests;
 mod limits_tests;
 #[cfg(test)]
 mod recover_tests;
+#[cfg(test)]
+mod samples_tests;
 #[cfg(test)]
 mod usb_tests;

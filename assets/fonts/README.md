@@ -5,8 +5,8 @@ All fonts here are redistributed unmodified under permissive licenses.
 | File | Font | Used by | License |
 |---|---|---|---|
 | `DroidSans.ttf` | Droid Sans (proportional sans-serif) | `xuid` chrome (titles, taskbar, menus); every xui app | Apache-2.0 |
-| `DroidSans-Bold.ttf` | Droid Sans Bold | the Docs app (headings, emphasis) | Apache-2.0 |
-| `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer") | Apache-2.0 |
+| `DroidSans-Bold.ttf` | Droid Sans Bold | the Docs app (headings, emphasis); LazyWriter's bold | Apache-2.0 |
+| `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer"); LazyWriter's Serif family | Apache-2.0 |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono (monospace) | kernel framebuffer console; the xui Terminal | SIL OFL 1.1 |
 
 ## Credits
@@ -38,5 +38,8 @@ Sans / Noto Serif (OFL); Droid remains the redistributable Apache-2.0 release.
   every xui app except the Terminal, which needs a fixed character grid and
   registers JetBrains Mono as its default family instead
   (`xui_canvas::add_font` / `set_default_family`, a vendored addition).
+  LazyWriter (`font::register_writer`) also registers Droid Sans Bold, Droid
+  Serif and JetBrains Mono for its Sans, Serif and Mono families; with no
+  italic face, its italic is slanted from the regular one by the shaper.
 - The 5x7 bitmap font in `display::font` remains for the small demo clients
   (`xdemo`, `dragdemo`, `shellprobe`).

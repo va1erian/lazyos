@@ -163,6 +163,25 @@ class DocumentAppSessionTests(unittest.TestCase):
     def test_no_autostart_without_a_document_script(self) -> None:
         self.assertNotIn("LAZYOS_XUI_AUTOSTART", self.env(""))
 
+    def test_lazywriter_is_a_document_app_session(self) -> None:
+        # Issue #533: LazyWriter ships in every desktop image (no flag of its
+        # own); its session autostarts it by its short name.
+        self.assertIn("writer", catalog.DOCUMENT_APPS)
+        entry = [s for s in catalog.SCRIPTS if s[0] == "xui_writer.json"]
+        self.assertEqual(entry, [("xui_writer.json", "XUI app: LazyWriter (format, save, export)",
+                                  ("desktop",), "writer")])
+        env = self.env("writer")
+        self.assertEqual(env["LAZYOS_DESKTOP"], "1")
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "writer")
+        self.assertNotIn("LAZYOS_XUI_APPS", env)
+
+    def test_lazywriter_viewer_is_its_built_binary(self) -> None:
+        self.assertIn("writer", catalog.XUI_VIEWERS)
+        cfg = {"desktop": False, "services": True, "xuid": True, "xui_client": False,
+               "xui_app": "writer", "shellprobe": False, "msgctl": False, "msgrd": False,
+               "busybox": ""}
+        self.assertTrue(catalog.build_env(cfg)["LAZYOS_XUI_APP"].endswith("xui-writer.elf"))
+
 class LazyRadTests(unittest.TestCase):
     """The launcher can put the LazyRAD IDE on the image (Settings -> Menu offers it)."""
 

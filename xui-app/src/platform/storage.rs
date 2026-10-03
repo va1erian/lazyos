@@ -5,6 +5,7 @@
 //! `$HOME/xpaint.png`); `save_to`/`load_from` serve the file dialogs. Writes are atomic — a temp file in
 //! the target's directory, then a rename — and a path that is a symlink is
 //! refused outright, so a save can never be redirected through a link.
+//! [`write_atomic`] is public: LazyWriter writes its documents with it too.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -56,8 +57,9 @@ fn writable(path: &Path) -> bool {
 }
 
 /// Writes `bytes` to `path` atomically (temp file, then rename), refusing a
-/// symlink or a missing directory.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// symlink or a missing directory. Paint's saves and LazyWriter's saves and
+/// exports both go through it.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if !writable(path) {
         return Err("refusing to write a symlink or a missing directory".to_string());
     }
