@@ -14,7 +14,7 @@ import shutil
 import sys
 
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
-from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step  # noqa: F401
+from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step, tls_step  # noqa: F401,E501
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -192,7 +192,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
-    if cfg.get("net"):
+    if cfg.get("net") or cfg.get("tls"):
         # The network stack (driver, `netd`, the shell tools and, on the
         # desktop, the Network and Net Tools apps). `demo=0` leaves out the
         # evidence clients that need `tools/net/run.py`'s host servers.
@@ -204,6 +204,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if cfg.get("tls"):
+        # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
+        # /system/bin; HTTPS needs the network stack above.
+        env["LAZYOS_TLS"] = "1"
     return env
 
 
@@ -238,7 +242,7 @@ def lazyrad_samples(user: str) -> str:
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   modplayer: bool = False, net: bool = False,
-                  linuxapps: bool = False) -> dict:
+                  linuxapps: bool = False, tls: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -250,8 +254,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
     adds networking to either interface (the stack, QEMU's user network with
     host port 8080 forwarded, and on the desktop the Network and Net Tools
-    apps), and ``linuxapps`` the Linux command-line programs (dash, lua,
-    sqlite3, jq, rg). Machine settings (accelerator, memory, QEMU path)
+    apps), ``linuxapps`` the Linux command-line programs (dash, lua,
+    sqlite3, jq, rg) and ``tls`` the HTTPS clients (curl, wget, fetch; it
+    implies ``net``). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -293,10 +298,11 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devices": desktop and devices,
         "doom": desktop and doom,
         "modplayer": desktop and modplayer,
-        "net": net,
+        "net": net or tls,
         "net_forwards": "",
         "net_restrict": False,
         "linuxapps": linuxapps,
+        "tls": tls,
     })
     return cfg
 
@@ -352,6 +358,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("linuxapps") and not cfg["skip_build"]:
             # run_demo builds the programs and sets LAZYOS_LINUXAPPS itself.
             argv.append("--linuxapps")
+        if cfg.get("tls") and not cfg["skip_build"]:
+            # run_demo builds the HTTPS tools and sets LAZYOS_TLS itself.
+            argv.append("--tls")
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")

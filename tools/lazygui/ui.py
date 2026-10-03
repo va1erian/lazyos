@@ -41,7 +41,7 @@ class Launcher:
         if self.notebook.select() == str(self.tab_simple):
             profile, iface = simple_choice(self.v["simple_build"].get(),
                                            self.v["simple_iface"].get())
-            extras = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps")
+            extras = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "tls")
             return simple_config(self._advanced_cfg(), profile, iface,
                                  *(self.v[f"simple_{name}"].get() for name in extras))
         return self._advanced_cfg()
@@ -93,6 +93,7 @@ class Launcher:
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
+            "tls": self.v["tls"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -115,11 +116,10 @@ class Launcher:
         tab_adv = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_simple, text="Simple")
         self.notebook.add(tab_adv, text="Advanced")
-        build_simple_tab(self.tab_simple, self.v["simple_build"],
-                         self.v["simple_iface"], self.v["simple_lazyrad"],
-                         self.v["simple_shell"], self.v["simple_devices"],
-                         self.v["simple_doom"], self.v["simple_modplayer"],
-                         self.v["simple_net"], self._run, self.v["simple_linuxapps"])
+        simple = [self.v[f"simple_{name}"] for name in
+                  ("build", "iface", "lazyrad", "shell", "devices", "doom", "modplayer", "net")]
+        build_simple_tab(self.tab_simple, *simple, self._run, self.v["simple_linuxapps"],
+                         self.v["simple_tls"])
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -164,7 +164,8 @@ class Launcher:
                                                            expand=True, padx=6)
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
-                            self.v["net"], self.v["net_forwards"], self.v["net_restrict"])
+                            self.v["net"], self.v["net_forwards"], self.v["net_restrict"],
+                            self.v["tls"])
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

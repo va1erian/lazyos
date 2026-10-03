@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--modplayer`,
-`--linuxapps`, `--devices`) return False so the run stops instead of booting
+`--linuxapps`, `--tls`, `--devices`) return False so the run stops instead of booting
 an image without what was asked for.
 """
 
@@ -61,6 +61,12 @@ def build_linuxapps() -> bool:
     """The Linux command-line programs (dash, lua, sqlite3, jq, rg from pinned
     sources); a missing toolchain or download stops the run."""
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
+
+
+def build_tls() -> bool:
+    """`fetch`, also run as `curl` and `wget` (rustls + ring, built with zig by
+    `tools/nettls/build.py`); a missing toolchain stops the run."""
+    return required("the HTTPS tools", "nettls/build.py", ("--require",))
 
 
 def build_xui_apps() -> bool:

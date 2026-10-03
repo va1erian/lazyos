@@ -146,10 +146,51 @@ class LinuxAppsTests(unittest.TestCase):
 
     def test_all_optional_apps_build_in_order(self) -> None:
         steps = catalog.app_steps({"lazyrad": True, "modplayer": True, "doom": True,
-                                   "linuxapps": True})
+                                   "linuxapps": True, "tls": True})
         self.assertEqual([s["argv"][1] for s in steps],
                          ["tools/lazyrad/build.py", "tools/lazyrad/package.py",
-                          "tools/doom/build.py", "tools/linuxapps/build.py"])
+                          "tools/doom/build.py", "tools/linuxapps/build.py",
+                          "tools/nettls/build.py"])
+
+
+class TlsTests(unittest.TestCase):
+    """The HTTPS clients (`curl`, `wget`, `fetch`; LAZYOS_TLS=1) from the Simple
+    tab, the Advanced tab and run_demo: they bring the network stack with them."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_embeds_the_tools_and_the_stack(self) -> None:
+        for desktop in (False, True):
+            env = catalog.build_env({**self.base(), "desktop": desktop, "tls": True})
+            self.assertEqual(env["LAZYOS_TLS"], "1")
+            self.assertEqual(env["LAZYOS_NETD"], "1")
+            self.assertEqual(env["LAZYOS_NETD_ARGS"], "demo=0")
+            self.assertNotIn("LAZYOS_TLS", catalog.build_env({**self.base(), "desktop": desktop}))
+
+    def test_simple_mode_offers_it_on_both_interfaces_with_networking(self) -> None:
+        for iface in ("CLI", "Desktop"):
+            cfg = catalog.simple_config(demo_config(), "dev", iface, tls=True)
+            self.assertTrue(cfg["tls"], iface)
+            self.assertTrue(cfg["net"], iface)
+            off = catalog.simple_config(demo_config(), "dev", iface)
+            self.assertFalse(off["tls"])
+            self.assertFalse(off["net"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--tls", demo_argv(tls=True, skip_build=False))
+        self.assertNotIn("--tls", demo_argv(skip_build=False))
+        self.assertNotIn("--tls", demo_argv(tls=True, skip_build=True))
+
+    def test_session_modes_build_the_tools_before_the_image(self) -> None:
+        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "timeout": "300", "tablet": False, "script": 0, "tls": True}
+        plan = catalog.build_plan(cfg)
+        labels = [step["label"] for step in plan]
+        at = labels.index("Build image (cargo build)")
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/nettls/build.py", "--require"])
 
 
 if __name__ == "__main__":

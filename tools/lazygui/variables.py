@@ -71,6 +71,9 @@ def make_vars() -> dict:
         "simple_net": b(value=False),
         "linuxapps": b(value=False),
         "simple_linuxapps": b(value=False),
+        # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
+        "tls": b(value=False),
+        "simple_tls": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
