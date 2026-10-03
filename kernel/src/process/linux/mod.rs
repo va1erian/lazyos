@@ -97,6 +97,7 @@ pub fn load_errno_for_test(reason: &'static str) -> u64 {
 pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
     procfs::contents(path)
 }
+mod scatter;
 mod sendfile;
 mod sig;
 mod socket;
@@ -367,6 +368,12 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     extra::raise_sigpipe(nr, [a1, a2, a3, a4, a5, a6], result);
     let restart = restartable(nr).then_some(nr);
     task::signal::deliver_linux_restartable(result, restart)
+}
+
+/// [`restartable`], for the console-read signal tests.
+#[cfg(lazyos_tests)]
+pub fn restartable_for_test(nr: u64) -> bool {
+    restartable(nr)
 }
 
 /// Whether an interrupted `nr` is re-issued after an `SA_RESTART` handler:

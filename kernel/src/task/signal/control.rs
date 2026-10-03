@@ -11,6 +11,30 @@ pub fn send_to_slot(
     sig: u8,
     info: SigInfo,
 ) -> Result<(), SignalError> {
+    send_checked(caller, target, sig, info, None)
+}
+
+/// The process group and session a terminal's signal is meant for. The
+/// kernel sends it past every credential check, so the target is re-checked
+/// at delivery: a slot whose task left the group or session, or that a new
+/// address space took over since the group was looked up, does not get it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Expect {
+    pub pgid: usize,
+    pub sid: usize,
+}
+
+/// [`send_to_slot`], refusing (`NoSuchProcess`) a target that no longer
+/// matches `expect`. The match is taken under the task-table lock together
+/// with the address space the signal is then queued on, so the identity
+/// checked is the identity signalled.
+pub(super) fn send_checked(
+    caller: usize,
+    target: usize,
+    sig: u8,
+    info: SigInfo,
+    expect: Option<Expect>,
+) -> Result<(), SignalError> {
     if sig as usize >= NSIG {
         return Err(SignalError::Invalid);
     }
@@ -28,10 +52,16 @@ pub fn send_to_slot(
     // A signal to a zombie is dropped, like Linux.
     {
         let tasks = TASKS.lock();
-        if tasks[target]
-            .as_ref()
-            .is_some_and(|task| task.state == TaskState::Done)
-        {
+        let task = tasks[target].as_ref();
+        if let Some(expect) = expect {
+            let same = task.is_some_and(|task| {
+                task.pgid == expect.pgid && task.sid == expect.sid && task.pml4 == pml4
+            });
+            if !same {
+                return Err(SignalError::NoSuchProcess);
+            }
+        }
+        if task.is_some_and(|task| task.state == TaskState::Done) {
             return Ok(());
         }
     }

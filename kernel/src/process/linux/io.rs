@@ -11,6 +11,7 @@ use crate::user_ptr;
 
 use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
 use super::filerw::{read_file_bytes, write_file};
+use super::scatter::{Received, Scatter};
 use super::time::millis_to_ticks;
 use super::vfsfd;
 
@@ -218,49 +219,65 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
 /// Pipe/socket read: block in the stream object until a chunk is available,
 /// then copy it to the user buffer. `Ok(0)` (EOF) copies nothing.
 ///
-/// A `SOCK_SEQPACKET` read stages only `min(len, capacity)` bytes, because the
-/// stream layer truncates and discards the rest of an oversized message.
+/// A `SOCK_SEQPACKET` read stages one byte more than the destination holds
+/// (up to the capacity): the stream layer discards the rest of an oversized
+/// message, and that extra byte is how a truncation is told from an exact fit.
 pub(super) fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    // `read` of nothing takes nothing, not even a message (Linux's
+    // `sock_read_iter`); `recv` of nothing still takes one (below).
+    if len == 0 {
+        return 0;
+    }
     read_stream_opts(fd, ptr, len, task::RecvOpts::default())
 }
 
 /// [`read_stream`] with `recv` modifiers (`MSG_DONTWAIT`, `MSG_PEEK`).
 pub(super) fn read_stream_opts(fd: u64, ptr: u64, len: u64, opts: task::RecvOpts) -> u64 {
-    if len == 0 {
-        return 0;
-    }
+    recv_stream(fd, &Scatter::one(ptr, len), opts).result
+}
+
+/// [`read_stream_opts`] into any destination, reporting a truncated message.
+pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Received {
+    let len = dest.len();
     let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
+    // A stream has nothing to give an empty buffer; a message socket still
+    // takes one message, reported truncated (as `recv`/`recvmsg` do on Linux).
+    if len == 0 && !seqpacket {
+        return Received::of(0);
+    }
+    let len = usize::try_from(len).unwrap_or(usize::MAX);
     let want = if seqpacket {
-        (len as usize).min(pipe::CAPACITY)
+        len.saturating_add(1).min(pipe::CAPACITY)
     } else {
-        (len as usize).min(STREAM_CHUNK)
+        len.min(STREAM_CHUNK)
     };
     let mut heap = Vec::new();
     let mut stack = [0u8; STREAM_CHUNK];
     let buf: &mut [u8] = if want > STREAM_CHUNK {
         if heap.try_reserve_exact(want).is_err() {
-            return err(ENOMEM);
+            return Received::of(err(ENOMEM));
         }
         heap.resize(want, 0);
         &mut heap
     } else {
         &mut stack[..want]
     };
-    match task::fd_stream_recv(fd as usize, buf, opts) {
-        Ok(n) => {
-            if n > 0 {
-                // Safety: the caller passes a valid user buffer of `len` bytes
-                // (the syscall ABI's contract).
-                unsafe { user_ptr::copy_to(ptr, &buf[..n]) };
-            }
-            n as u64
-        }
-        Err(pipe::Error::WouldBlock) => err(EAGAIN),
-        Err(pipe::Error::BrokenPipe) => err(EPIPE),
-        Err(pipe::Error::Interrupted) => err(EINTR),
-        Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
-        Err(pipe::Error::Invalid) => err(EINVAL),
-        Err(pipe::Error::BadEnd) => err(EBADF),
+    let n = match task::fd_stream_recv(fd as usize, buf, opts) {
+        Ok(n) => n,
+        Err(pipe::Error::WouldBlock) => return Received::of(err(EAGAIN)),
+        Err(pipe::Error::BrokenPipe) => return Received::of(err(EPIPE)),
+        Err(pipe::Error::Interrupted) => return Received::of(err(EINTR)),
+        Err(pipe::Error::MessageTooLong) => return Received::of(err(EMSGSIZE)),
+        Err(pipe::Error::Invalid) => return Received::of(err(EINVAL)),
+        Err(pipe::Error::BadEnd) => return Received::of(err(EBADF)),
+    };
+    let kept = n.min(len);
+    if let Err(code) = dest.copy_out(&buf[..kept]) {
+        return Received::of(code);
+    }
+    Received {
+        result: kept as u64,
+        truncated: n > kept,
     }
 }
 

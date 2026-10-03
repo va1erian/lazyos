@@ -6,7 +6,9 @@
 //! [`may_signal`] and is applied by `send_to_slot`, the single sink, so no
 //! entry point (pid, tid, group, everyone) can skip it.
 
-use super::{send_to_slot, slot_info, SigInfo, SignalError, SlotList, NSIG, SIGCONT};
+use super::{
+    send_checked, send_to_slot, slot_info, Expect, SigInfo, SignalError, SlotList, NSIG, SIGCONT,
+};
 use crate::ipc::credentials::{self, CAP_KILL};
 use crate::task::{process, TaskState, KERNEL_TASK, MAX_TASKS, TASKS};
 
@@ -113,6 +115,38 @@ fn kill_group(caller: usize, pgid: usize, sig: u8, info: SigInfo) -> Result<(), 
         return Err(SignalError::NoSuchProcess);
     }
     send_many(caller, &targets, sig, info)
+}
+
+/// A terminal's own signal (`^C`, `SIGWINCH`, the hang-up) for its
+/// foreground group: the kernel sends it to the tasks of `pgid` in session
+/// `sid` only, each re-checked at delivery ([`Expect`]), so a group id or a
+/// slot recycled by another session never receives it.
+pub fn kill_terminal_group(pgid: usize, sid: usize, sig: u8) -> Result<(), SignalError> {
+    if sig as usize >= NSIG {
+        return Err(SignalError::Invalid);
+    }
+    let expect = Expect { pgid, sid };
+    let mut targets = SlotList::new();
+    {
+        let tasks = TASKS.lock();
+        for slot in 1..MAX_TASKS {
+            if tasks[slot].as_ref().is_some_and(|task| {
+                task.pgid == pgid && task.sid == sid && task.state != TaskState::Done
+            }) {
+                targets.push(slot);
+            }
+        }
+    }
+    let mut delivered = false;
+    for target in targets.iter() {
+        let info = SigInfo::kernel();
+        delivered |= send_checked(KERNEL_TASK, target, sig, info, Some(expect)).is_ok();
+    }
+    if delivered {
+        Ok(())
+    } else {
+        Err(SignalError::NoSuchProcess)
+    }
 }
 
 /// `kill(-1, sig)`: everything but init, the kernel and the caller's own
