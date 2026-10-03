@@ -15,10 +15,11 @@ use alloc::vec::Vec;
 use x86_64::PhysAddr;
 
 use crate::mem::vma::{Kind, Prot};
-use crate::process::image::Image;
+use crate::process::image::{self, Image};
 use crate::process::layout::{IMAGE_RESERVED, STACK_MAX, STACK_TOP};
-use crate::process::{load_segments, map_range_kind, page_phys, Loaded};
+use crate::process::{load_segments, loader, map_range_kind, page_phys, Loaded};
 
+use super::errno::{EIO, ENOEXEC, ENOMEM};
 use super::uaccess::fill_random;
 use super::PAGE;
 
@@ -39,14 +40,38 @@ pub enum LoadError {
     BadImage(&'static str),
     /// Frames ran out (`ENOMEM`).
     NoMemory,
+    /// The filesystem failed to read the image (`EIO`).
+    Io,
 }
 
 impl LoadError {
+    /// The errno `execve` reports for this failure.
+    pub fn errno(self) -> u64 {
+        match self {
+            LoadError::BadImage(_) => ENOEXEC,
+            LoadError::NoMemory => ENOMEM,
+            LoadError::Io => EIO,
+        }
+    }
+
     pub fn message(self) -> &'static str {
         match self {
             LoadError::BadImage(reason) => reason,
-            LoadError::NoMemory => "out of memory",
+            LoadError::NoMemory => loader::OUT_OF_MEMORY,
+            LoadError::Io => image::READ_FAILED,
         }
+    }
+}
+
+/// Map a loader reason to the errno class it stands for: exact matches only,
+/// so a validation message that happens to start like one stays `ENOEXEC`.
+pub fn classify(reason: &'static str) -> LoadError {
+    if loader::is_out_of_memory(reason) {
+        LoadError::NoMemory
+    } else if reason == image::READ_FAILED {
+        LoadError::Io
+    } else {
+        LoadError::BadImage(reason)
     }
 }
 
@@ -67,13 +92,7 @@ pub fn load_image<I: Image + ?Sized>(
     envp: &[Vec<u8>],
     ids: (u32, u32),
 ) -> Result<Started, LoadError> {
-    let loaded = load_segments(table, image, &IMAGE_RESERVED).map_err(|reason| {
-        if reason == "out of memory" || reason.starts_with("failed to") {
-            LoadError::NoMemory
-        } else {
-            LoadError::BadImage(reason)
-        }
-    })?;
+    let loaded = load_segments(table, image, &IMAGE_RESERVED).map_err(classify)?;
     let frame = start_frame_bytes(argv, envp);
     let size = stack_size().max(frame);
     let bottom = STACK_TOP - size;

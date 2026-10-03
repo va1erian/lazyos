@@ -6,7 +6,10 @@ use super::*;
 use crate::fs::vfs::Id;
 use crate::ipc::credentials::{self, Cred};
 use crate::process::image::VfsFile;
-use crate::process::loader::CHUNK;
+use crate::process::image::{Image, READ_FAILED};
+use crate::process::loader::{
+    CHUNK, MAP_PAGE_FAILED, MAP_SEGMENT_FAILED, OUT_OF_MEMORY, WIDEN_FAILED,
+};
 
 /// `AT_PHDR` comes only from a segment the loader maps: an empty `PT_LOAD`
 /// (skipped before validation) with a wrapping `vaddr` yields 0, not an
@@ -152,6 +155,69 @@ pub fn streams_from_a_file() -> Result<(), String> {
         Ok(())
     })?;
     let _ = crate::fs::abi_unlink(Id::current(), path);
+    Ok(())
+}
+
+/// An image whose reads past `good` fail as the filesystem's do.
+struct FailingRead {
+    bytes: Vec<u8>,
+    good: u64,
+}
+
+impl Image for FailingRead {
+    fn len(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), &'static str> {
+        if offset + buf.len() as u64 > self.good {
+            return Err(READ_FAILED);
+        }
+        self.bytes.read_exact_at(offset, buf)
+    }
+}
+
+/// A read error while loading is an I/O error (`EIO`), whether it hits the
+/// headers or a segment (`with_table` checks no frame leaks); only the exact
+/// loader frame-exhaustion reasons are `ENOMEM`, and any other reason, even one
+/// that starts like them, is a bad image (`ENOEXEC`).
+pub fn read_failure_is_eio_not_enomem() -> Result<(), String> {
+    use crate::process::linux::load_errno_for_test as errno_of;
+    const EIO: u64 = 5;
+    const ENOMEM: u64 = 12;
+    const ENOEXEC: u64 = 8;
+    let text = Ph::new(0x40_0000, 0x2000, 0x2000, PF_R | PF_X);
+    let bytes = build_elf_with(0x40_0000, &[text], 0x2000);
+    for good in [16, PAYLOAD_OFF + 0x100] {
+        let image = FailingRead {
+            bytes: bytes.clone(),
+            good,
+        };
+        let reason = match with_table(|table| Ok(load_segments(table, &image, RESERVED))) {
+            Ok(Err(reason)) => reason,
+            _ => return Err(format!("a read failure at {good:#x} still loaded")),
+        };
+        check!(
+            reason == READ_FAILED,
+            "read failure at {good:#x} became {reason}"
+        );
+        check!(errno_of(reason) == EIO, "read failure is not EIO");
+    }
+    for reason in [
+        OUT_OF_MEMORY,
+        WIDEN_FAILED,
+        MAP_SEGMENT_FAILED,
+        MAP_PAGE_FAILED,
+    ] {
+        check!(errno_of(reason) == ENOMEM, "{reason} is not ENOMEM");
+    }
+    for reason in [
+        "failed to parse a header",
+        "out of memory?",
+        "not a valid ELF",
+    ] {
+        check!(errno_of(reason) == ENOEXEC, "{reason} is not ENOEXEC");
+    }
     Ok(())
 }
 

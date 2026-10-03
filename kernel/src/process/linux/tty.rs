@@ -19,8 +19,9 @@ use crate::tty::pty::{self, Pty};
 use crate::tty::{termios, Ldisc, Termios, WinSize};
 use crate::user_ptr;
 
-use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EIO, ENOTTY, ENXIO, ESRCH};
+use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EIO, ENOTTY, ENXIO};
 use super::fd::fd_result;
+use super::jobctl;
 
 /// Bytes staged per terminal read or write.
 const CHUNK: usize = 4096;
@@ -142,15 +143,8 @@ pub(super) fn write_pty(fd: u64, ptr: u64, len: u64) -> u64 {
     };
     if master {
         let (n, signals) = pty.master_write(&bytes);
-        for (signal, group) in signals {
-            if group != 0 {
-                let _ = task::signal::kill(
-                    task::KERNEL_TASK,
-                    -(group as i64),
-                    crate::tty::signal_number(signal),
-                    task::signal::SigInfo::kernel(),
-                );
-            }
+        for (signal, foreground) in signals {
+            crate::tty::signal_foreground(foreground, crate::tty::signal_number(signal));
         }
         return n as u64;
     }
@@ -163,15 +157,16 @@ pub(super) fn write_pty(fd: u64, ptr: u64, len: u64) -> u64 {
 /// Open `/dev/ptmx`: a new pseudo-terminal's master, its slave locked until
 /// `TIOCSPTLCK` (`unlockpt`).
 pub(super) fn open_ptmx() -> u64 {
-    match Pty::open_master() {
+    match Pty::open_master(super::creds::ids()) {
         Some(pty) => fd_result(task::fd_open(Fd::pty_side(pty, true))),
         None => err(super::errno::ENOSPC),
     }
 }
 
-/// Open `/dev/pts/<n>`, the slave. Its first opener's group becomes the
-/// foreground group, and it becomes the caller's controlling terminal unless
-/// `O_NOCTTY` asked otherwise.
+/// Open `/dev/pts/<n>`, the slave: only its owner or root may
+/// ([`jobctl::may_open_slave`]). Without `O_NOCTTY` it becomes the caller's
+/// controlling terminal when the job-control rules allow
+/// ([`jobctl::acquire_on_open`]).
 pub(super) fn open_pts(name: &str, flags: u64) -> u64 {
     const O_NOCTTY: u64 = 0o400;
     let Ok(index) = name.parse::<u32>() else {
@@ -180,14 +175,11 @@ pub(super) fn open_pts(name: &str, flags: u64) -> u64 {
     let Some(pty) = Pty::find_slave(index) else {
         return err(ENXIO);
     };
-    let group = task::pgid();
-    pty.with_ldisc(|ldisc| {
-        if ldisc.fg_pgrp == 0 {
-            ldisc.fg_pgrp = group;
-        }
-    });
+    if let Err(code) = jobctl::may_open_slave(&pty) {
+        return code;
+    }
     if flags & O_NOCTTY == 0 {
-        task::linuxstate::set_ctty(Some(Arc::clone(&pty)));
+        jobctl::acquire_on_open(&pty);
     }
     fd_result(task::fd_open(Fd::pty_side(pty, false)))
 }
@@ -213,13 +205,6 @@ fn put_u32(arg: u64, value: u32) -> u64 {
         Ok(()) => 0,
         Err(_) => err(EFAULT),
     }
-}
-
-/// Whether a process group `group` exists (a `TIOCSPGRP` target).
-fn group_exists(group: usize) -> bool {
-    task::process::process_list()
-        .iter()
-        .any(|process| process.pgid == group && process.state != task::TaskState::Done)
 }
 
 /// A terminal `ioctl` on `fd`; `ENOTTY` for any other descriptor.
@@ -275,19 +260,27 @@ pub(super) fn ioctl(fd: u64, request: u64, arg: u64) -> u64 {
             ) else {
                 return err(EFAULT);
             };
-            let (changed, group) = with_ldisc(&tty, |l| {
+            let (changed, foreground) = with_ldisc(&tty, |l| {
                 let new = WinSize { rows, cols };
                 let changed = l.winsize != new;
                 l.winsize = new;
-                (changed, l.fg_pgrp)
+                (changed, l.foreground())
             });
-            if changed && group != 0 {
-                let _ = task::signal::kill(
-                    task::KERNEL_TASK,
-                    -(group as i64),
-                    SIGWINCH,
-                    task::signal::SigInfo::kernel(),
-                );
+            if changed {
+                // A pty's foreground is checked against its session; the
+                // console's group was checked when it was set.
+                match &tty {
+                    Tty::Pty { .. } => crate::tty::signal_foreground(foreground, SIGWINCH),
+                    Tty::Console if foreground.group != 0 => {
+                        let _ = task::signal::kill(
+                            task::KERNEL_TASK,
+                            -(foreground.group as i64),
+                            SIGWINCH,
+                            task::signal::SigInfo::kernel(),
+                        );
+                    }
+                    Tty::Console => {}
+                }
             }
             0
         }
@@ -299,30 +292,33 @@ pub(super) fn ioctl(fd: u64, request: u64, arg: u64) -> u64 {
             let Ok(group) = user_ptr::try_read::<i32>(arg) else {
                 return err(EFAULT);
             };
-            if group <= 0 {
-                return err(EINVAL);
+            match &tty {
+                Tty::Pty { pty, .. } => jobctl::set_pty_fg(pty, group),
+                Tty::Console => jobctl::set_console_fg(group),
             }
-            if !group_exists(group as usize) {
-                return err(ESRCH);
+        }
+        0x540E => match &tty {
+            // TIOCSCTTY: become the controlling terminal (the session
+            // leader only); the caller's group is the foreground one.
+            Tty::Pty { pty, master: false } => jobctl::set_ctty(pty),
+            Tty::Pty { master: true, .. } => err(ENOTTY),
+            Tty::Console => jobctl::set_console_ctty(),
+        },
+        0x5422 => match &tty {
+            Tty::Pty { pty, .. } => jobctl::drop_ctty(pty), // TIOCNOTTY
+            Tty::Console => {
+                task::linuxstate::set_ctty(None);
+                0
             }
-            with_ldisc(&tty, |l| l.fg_pgrp = group as usize);
-            0
-        }
-        0x540E => {
-            // TIOCSCTTY: become the controlling terminal; the caller's group
-            // is the foreground one.
-            let group = task::pgid();
-            with_ldisc(&tty, |l| l.fg_pgrp = group);
-            if let Tty::Pty { pty, master: false } = &tty {
-                task::linuxstate::set_ctty(Some(Arc::clone(pty)));
-            }
-            0
-        }
-        0x5422 => {
-            task::linuxstate::set_ctty(None); // TIOCNOTTY
-            0
-        }
-        0x5429 => put_u32(arg, task::process::sid_of(task::current()) as u32), // TIOCGSID
+        },
+        0x5429 => match &tty {
+            // TIOCGSID: the session the terminal controls.
+            Tty::Pty { pty, .. } => match pty.with_ldisc(|l| l.session) {
+                0 => err(ENOTTY),
+                sid => put_u32(arg, sid as u32),
+            },
+            Tty::Console => put_u32(arg, consoletty::console_session() as u32),
+        },
         0x541B => {
             let queued = match &tty {
                 Tty::Console => with_ldisc(&tty, |l| l.available()),
@@ -356,6 +352,15 @@ const PTMX_INO: u64 = 5;
 const DATA_DEVICE_INO: u64 = 6;
 const PTS_INO_BASE: u64 = 0x100;
 
+/// The owner `fstat` and `stat` report for a pty slave (whoever opened
+/// `/dev/ptmx`), as `(uid, gid)`; root for every other terminal node.
+pub(super) fn fd_owner(fd: u64) -> (u32, u32) {
+    match tty_of(fd) {
+        Ok(Tty::Pty { pty, master: false }) => pty.owner(),
+        _ => (0, 0),
+    }
+}
+
 /// The inode `fstat` reports for a terminal descriptor.
 pub(super) fn fd_ino(fd: u64) -> u64 {
     match tty_of(fd) {
@@ -363,6 +368,16 @@ pub(super) fn fd_ino(fd: u64) -> u64 {
         Ok(Tty::Pty { master: true, .. }) => PTMX_INO,
         _ => CONSOLE_INO,
     }
+}
+
+/// The owner and permission bits `stat` reports for a device node path: a
+/// pty slave is its owner's, mode 0620 (devpts); the others are root's and
+/// world-usable.
+pub(super) fn node_owner(path: &str) -> ((u32, u32), u16) {
+    path.strip_prefix("/dev/pts/")
+        .and_then(|n| n.parse::<u32>().ok())
+        .and_then(Pty::find_slave)
+        .map_or(((0, 0), 0o666), |pty| (pty.owner(), 0o620))
 }
 
 /// The inode `stat` reports for a device node path.

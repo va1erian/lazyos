@@ -110,7 +110,9 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
         }),
         FdKind::Vfs => super::vfsfd::meta_of(fd).map(|meta| Attrs::of(&meta)),
         FdKind::Terminal | FdKind::Pty => {
-            Ok(Attrs::anonymous(S_IFCHR | 0o620, 0, super::tty::fd_ino(fd)))
+            let (uid, gid) = super::tty::fd_owner(fd);
+            let attrs = Attrs::anonymous(S_IFCHR | 0o620, 0, super::tty::fd_ino(fd));
+            Ok(Attrs { uid, gid, ..attrs })
         }
         FdKind::Pipe => Ok(Attrs::anonymous(S_IFIFO | 0o600, 0, fd)),
         FdKind::Socket | FdKind::Listener | FdKind::Unbound | FdKind::Inet => {

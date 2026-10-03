@@ -7,6 +7,7 @@
 
 use super::*;
 
+mod ctty;
 mod fdshare;
 mod files;
 mod futex;
@@ -17,6 +18,7 @@ mod select;
 mod termios;
 mod wait;
 
+use ctty::*;
 use fdshare::*;
 use files::*;
 use futex::*;
@@ -163,6 +165,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_select_timeout_and_ebadf", select_timeout_and_ebadf),
     ("compat_select_soak", select_soak),
     ("compat_flock_and_record_locks", flock_and_record_locks),
+    ("compat_lock_range_overflow", lock_range_overflow),
     ("compat_locks_soak", locks_soak),
     ("compat_rlimits_honest", rlimits_honest),
     ("compat_sysinfo_times_rusage", sysinfo_times_rusage),
@@ -177,4 +180,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_termios_roundtrip", termios_roundtrip),
     ("compat_termios_canonical_line", termios_canonical_line),
     ("compat_termios_soak", termios_soak),
+    ("compat_pty_slave_owner", pty_slave_owner),
+    ("compat_ctty_job_control", ctty_job_control),
+    ("compat_ctty_soak", ctty_soak),
 ];

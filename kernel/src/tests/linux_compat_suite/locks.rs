@@ -121,6 +121,60 @@ pub fn flock_and_record_locks() -> Result<(), String> {
     Ok(())
 }
 
+/// Hostile `struct flock` ranges are refused the way Linux refuses them, and
+/// never wrap: a start before 0 or a negative length reaching below 0 is
+/// `EINVAL`, a range past the largest offset is `EOVERFLOW`, and a range
+/// ending exactly at it is valid (and covers what "to EOF" covers).
+pub fn lock_range_overflow() -> Result<(), String> {
+    const EOVERFLOW: u64 = neg(75);
+    fresh()?;
+    let owner = forked()?;
+    task::harness::switch_current(owner);
+    let path = "/tmp/compat-lock-range";
+    let fd = open(path)?;
+    let cases: [(i64, i64, u64, &str); 7] = [
+        (-1, 1, EINVAL, "a negative start"),
+        (0, -1, EINVAL, "a negative length below 0"),
+        (i64::MIN, -1, EINVAL, "a start + length that wraps below"),
+        (
+            i64::MAX - 1,
+            10,
+            EOVERFLOW,
+            "an end past the largest offset",
+        ),
+        (
+            i64::MAX,
+            i64::MAX,
+            EOVERFLOW,
+            "a start + length that wraps above",
+        ),
+        (i64::MAX, 1, 0, "the last byte"),
+        (5, -5, 0, "a negative length back to 0"),
+    ];
+    for (start, len, want, what) in cases {
+        let got = setlk(fd, F_WRLCK, start, len);
+        check!(got == want, "{what} ({start}, {len}) returned {got:#x}");
+    }
+    // The lock ending at the largest offset conflicts with "to EOF".
+    let other = forked()?;
+    task::harness::switch_current(other);
+    check!(
+        setlk(fd, F_WRLCK, 1 << 40, 0) == EAGAIN,
+        "the range ending at the largest offset did not block its tail"
+    );
+    task::harness::switch_current(owner);
+    check!(setlk(fd, F_UNLCK, 0, 0) == 0, "unlock all");
+    sys(3, &[fd]);
+    let name = cpath(path);
+    sys(87, &[name.as_ptr() as u64]);
+    task::harness::reset();
+    check!(
+        process::linux::locks_held_for_test() == 0,
+        "locks outlived their owners"
+    );
+    Ok(())
+}
+
 /// Many lock/unlock rounds over overlapping ranges from two processes: a
 /// grant never overlaps the other process's write lock, and the table ends
 /// empty.

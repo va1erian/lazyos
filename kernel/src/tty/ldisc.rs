@@ -30,6 +30,16 @@ pub enum Signal {
     Suspend,
 }
 
+/// A terminal's foreground group with the session it was set in: a signal
+/// the terminal raises goes to the group only while it is still in that
+/// session ([`crate::tty::signal_foreground`]), so a recycled group id in
+/// another session never receives it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Foreground {
+    pub group: usize,
+    pub session: usize,
+}
+
 /// One terminal's input state.
 #[derive(Clone, Debug, Default)]
 pub struct Ldisc {
@@ -37,6 +47,9 @@ pub struct Ldisc {
     pub winsize: WinSize,
     /// The foreground process group (`TIOCSPGRP`); 0 = not set yet.
     pub fg_pgrp: usize,
+    /// The session whose controlling terminal this is; 0 = none. Only a
+    /// pseudo-terminal records one (a console's session is its window's).
+    pub session: usize,
     /// The line being edited (canonical mode).
     edit: Vec<u8>,
     /// Bytes a `read` can take.
@@ -51,6 +64,14 @@ pub struct Ldisc {
 impl Ldisc {
     pub fn new() -> Ldisc {
         Ldisc::default()
+    }
+
+    /// Who the terminal's own signals (`^C`, `SIGWINCH`, `SIGHUP`) are for.
+    pub fn foreground(&self) -> Foreground {
+        Foreground {
+            group: self.fg_pgrp,
+            session: self.session,
+        }
     }
 
     /// Whether a `read` would return now (data, or end-of-file).

@@ -21,7 +21,7 @@ use spin::Mutex;
 use crate::task::wait::WaitQueue;
 use crate::task::{WaitKind, WakeReason};
 
-use super::ldisc::{Ldisc, Signal};
+use super::ldisc::{Foreground, Ldisc, Signal};
 
 /// Most pseudo-terminals open at once (`/dev/pts/0..63`).
 pub const MAX_PTYS: usize = 64;
@@ -48,6 +48,9 @@ struct State {
 /// One master/slave pair.
 pub struct Pty {
     index: u32,
+    /// The `(uid, gid)` that opened `/dev/ptmx`: the slave's owner, the only
+    /// user (besides root) who may open it, as devpts's mode 0620 allows.
+    owner: (u32, u32),
     state: Mutex<State>,
     /// Slave readers waiting for input, and master writers never wait.
     input_wq: WaitQueue,
@@ -67,9 +70,9 @@ pub struct Pty {
 static PTYS: Mutex<Vec<(u32, Weak<Pty>)>> = Mutex::new(Vec::new());
 
 impl Pty {
-    /// A new pair with the lowest free index, or `None` when all are in use.
-    /// The caller holds the master reference it is handed.
-    pub fn open_master() -> Option<Arc<Pty>> {
+    /// A new pair with the lowest free index, owned by `owner`, or `None`
+    /// when all are in use. The caller holds the master reference it is handed.
+    pub fn open_master(owner: (u32, u32)) -> Option<Arc<Pty>> {
         let mut table = PTYS.lock();
         table.retain(|(_, weak)| weak.strong_count() > 0);
         if table.len() >= MAX_PTYS {
@@ -78,6 +81,7 @@ impl Pty {
         let index = (0..MAX_PTYS as u32).find(|i| table.iter().all(|(used, _)| used != i))?;
         let pty = Arc::new(Pty {
             index,
+            owner,
             state: Mutex::new(State {
                 ldisc: Ldisc::new(),
                 output: VecDeque::new(),
@@ -121,6 +125,11 @@ impl Pty {
         self.index
     }
 
+    /// The slave's owner, `(uid, gid)`.
+    pub fn owner(&self) -> (u32, u32) {
+        self.owner
+    }
+
     /// Take a descriptor reference on one side.
     pub fn acquire(&self, master: bool) {
         if master {
@@ -132,17 +141,16 @@ impl Pty {
     }
 
     /// Drop a descriptor reference; the last one on a side hangs the other
-    /// up. Returns the foreground group to send `SIGHUP` to when the last
-    /// master went away.
-    pub fn release(&self, master: bool) -> Option<usize> {
+    /// up. Returns the foreground to send `SIGHUP` to when the last master
+    /// went away.
+    pub fn release(&self, master: bool) -> Option<Foreground> {
         let counter = if master { &self.masters } else { &self.slaves };
         if counter.fetch_sub(1, Ordering::AcqRel) != 1 {
             return None;
         }
         self.wake_all();
         if master {
-            let group = self.state.lock().ldisc.fg_pgrp;
-            (group != 0).then_some(group)
+            Some(self.state.lock().ldisc.foreground())
         } else {
             None
         }
@@ -196,15 +204,15 @@ impl Pty {
     }
 
     /// Typed input from the master: every byte goes through the discipline.
-    /// Returns the bytes taken and the signals to raise (with the group).
-    pub fn master_write(&self, src: &[u8]) -> (usize, Vec<(Signal, usize)>) {
+    /// Returns the bytes taken and the signals to raise (with the foreground).
+    pub fn master_write(&self, src: &[u8]) -> (usize, Vec<(Signal, Foreground)>) {
         let mut signals = Vec::new();
         {
             let mut state = self.state.lock();
             let mut echo = Vec::new();
             for &byte in src {
                 if let Some(signal) = state.ldisc.input(byte, &mut echo) {
-                    signals.push((signal, state.ldisc.fg_pgrp));
+                    signals.push((signal, state.ldisc.foreground()));
                 }
             }
             let room = OUTPUT_CAPACITY.saturating_sub(state.output.len());

@@ -119,10 +119,11 @@ pub(super) fn spawn_in_space<I: Image + ?Sized>(
     spawn_native(name, elf, parent, Stdio::Terminal).map_err(SpawnError::message)
 }
 
-/// Classify a loader failure: frame exhaustion is `NoMemory`, anything else
-/// means the image itself is unloadable.
+/// Classify a loader failure: frame exhaustion (an exact loader reason) is
+/// `NoMemory`; anything else, a failed read included, means the image could
+/// not be loaded.
 fn load_error(reason: &'static str) -> SpawnError {
-    if reason.contains("out of memory") || reason.starts_with("failed to") {
+    if crate::process::loader::is_out_of_memory(reason) {
         SpawnError::NoMemory
     } else {
         SpawnError::BadImage(reason)

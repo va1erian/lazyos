@@ -30,7 +30,7 @@ use crate::task::wait::WaitQueue;
 use crate::task::{self, Fd, SnapFile, WaitKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL};
+use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EOVERFLOW};
 
 /// Lock waiters; every unlock (and the periodic re-check) wakes them all.
 static WAITERS: WaitQueue = WaitQueue::new(WaitKind::Poll);
@@ -264,17 +264,34 @@ fn read_flock(fd: u64, ptr: u64) -> Result<(i16, u64, u64), u64> {
         2 => task::fd_size(fd as usize).unwrap_or(0) as i64,
         _ => return Err(err(EINVAL)),
     };
-    let start = base.checked_add(start).ok_or(err(EINVAL))?;
-    let (from, to) = match len {
-        0 => (start, i64::MAX),
-        len if len > 0 => (start, start.saturating_add(len)),
-        len => (start + len, start),
+    // Linux's rules (`flock_to_posix_lock`): a range starting before 0 is
+    // `EINVAL`, one ending past the largest offset `EOVERFLOW`. Every sum is
+    // checked: these are untrusted values and must never wrap.
+    let start = base
+        .checked_add(start)
+        .filter(|&s| s >= 0)
+        .ok_or(err(EINVAL))?;
+    let range = match len {
+        0 => (start, None),
+        len if len > 0 => (start, Some(start.checked_add(len))),
+        len => (
+            start
+                .checked_add(len)
+                .filter(|&f| f >= 0)
+                .ok_or(err(EINVAL))?,
+            Some(Some(start)),
+        ),
     };
-    if from < 0 {
-        return Err(err(EINVAL));
-    }
-    let end = if to == i64::MAX { u64::MAX } else { to as u64 };
-    Ok((kind, from as u64, end))
+    let end = match range.1 {
+        // To the end of every file: the whole rest of the offset space.
+        None => u64::MAX,
+        Some(Some(end)) => end as u64,
+        // Exactly one past `i64::MAX` (the last byte is the largest offset)
+        // is still a valid range, the same as "to the end".
+        Some(None) if start as u64 + len as u64 == 1 << 63 => u64::MAX,
+        Some(None) => return Err(err(EOVERFLOW)),
+    };
+    Ok((kind, range.0 as u64, end))
 }
 
 /// Write the `F_GETLK` answer: the blocking lock, or `F_UNLCK`.

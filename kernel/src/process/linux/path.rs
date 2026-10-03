@@ -140,11 +140,12 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
         return Some(meta);
     }
     if device_node(path) {
+        let ((uid, gid), perm) = super::tty::node_owner(path);
         return Some(Meta {
             ino: super::tty::path_ino(path),
-            mode: super::flags::S_IFCHR as u16 | 0o666,
-            uid: 0,
-            gid: 0,
+            mode: super::flags::S_IFCHR as u16 | perm,
+            uid,
+            gid,
             size: 0,
             kind: FileKind::File,
             times: vfs::Times::default(),

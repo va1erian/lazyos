@@ -22,6 +22,7 @@ digest verified before the file is moved into place, cached copies re-checked).
 from __future__ import annotations
 
 import shutil
+import stat
 import sys
 import tarfile
 import zipfile
@@ -101,13 +102,20 @@ def _inside(base: Path, name: str) -> Path:
     return target
 
 
+def _zip_is_link(info: zipfile.ZipInfo) -> bool:
+    """A zip member whose Unix mode (the high half of `external_attr`) is a symlink."""
+    return stat.S_ISLNK(info.external_attr >> 16)
+
+
 def _unpack(archive: Path, staging: Path) -> None:
     """Plain files and directories only: no links, no devices."""
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as zf:
-            for name in zf.namelist():
-                _inside(staging, name)
-            zf.extractall(staging)
+            for info in zf.infolist():
+                if _zip_is_link(info):
+                    continue
+                _inside(staging, info.filename)
+                zf.extract(info, staging)
         return
     with tarfile.open(archive, "r:*") as tar:
         for member in tar.getmembers():

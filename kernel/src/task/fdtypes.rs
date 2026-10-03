@@ -214,13 +214,8 @@ impl Drop for Fd {
             Fd::Pty { pty, master } => {
                 // The last master gone hangs the terminal up: its
                 // foreground group gets `SIGHUP`, as on Linux.
-                if let Some(group) = pty.release(*master) {
-                    let _ = signal::kill(
-                        KERNEL_TASK,
-                        -(group as i64),
-                        signal::SIGHUP,
-                        signal::SigInfo::kernel(),
-                    );
+                if let Some(foreground) = pty.release(*master) {
+                    crate::tty::signal_foreground(foreground, signal::SIGHUP);
                 }
             }
             _ => {}

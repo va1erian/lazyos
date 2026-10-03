@@ -43,6 +43,7 @@ mod futex_queue;
 mod inet;
 mod io;
 mod iov;
+mod jobctl;
 mod links;
 mod locks;
 mod mem;
@@ -83,6 +84,12 @@ pub fn robust_exit_for_test(tid: usize) {
 #[cfg(lazyos_tests)]
 pub fn locks_held_for_test() -> usize {
     locks::held_for_test()
+}
+
+/// The errno `execve` reports for a loader `reason`, for the loader suite.
+#[cfg(lazyos_tests)]
+pub fn load_errno_for_test(reason: &'static str) -> u64 {
+    elf::classify(reason).errno()
 }
 
 /// A fabricated `/proc` file's bytes, for the mount suite.

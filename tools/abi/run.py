@@ -363,6 +363,7 @@ def main() -> int:
     # sequential), then boot `--jobs` of them at a time.
     images: dict[str, Path] = {}
     linuxapps_image: Path | None = None
+    linuxapps_tried = False  # a failed build is reported, not retried per row
     for name in rows:
         if name in LINUXAPPS:
             if not (LINUXAPPS_BIN / name).is_file():
@@ -373,7 +374,8 @@ def main() -> int:
             if not fixture.is_file() or not shell.is_file():
                 record(name, "unavailable", "needs the linuxapps fixture and BusyBox")
                 continue
-            if linuxapps_image is None:
+            if not linuxapps_tried:
+                linuxapps_tried = True
                 linuxapps_image = build_image(fixture, extra_busybox=shell, linuxapps=True)
             if linuxapps_image is None:
                 record(name, "fail", "image build failed")

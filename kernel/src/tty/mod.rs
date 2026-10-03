@@ -14,8 +14,25 @@ pub mod ldisc;
 pub mod pty;
 pub mod termios;
 
-pub use ldisc::{Ldisc, Signal};
+pub use ldisc::{Foreground, Ldisc, Signal};
 pub use termios::{Termios, WinSize};
+
+/// Send `signal` to a pseudo-terminal's foreground group, if it has one and
+/// the group is still in the session that controls the terminal. The sender
+/// is the kernel (no credential check applies), which is why the group must
+/// have been set under the job-control rules and must still belong there.
+pub fn signal_foreground(foreground: Foreground, signal: u8) {
+    let Foreground { group, session } = foreground;
+    if group == 0 || session == 0 || !crate::task::process::group_in_session(group, session) {
+        return;
+    }
+    let _ = crate::task::signal::kill(
+        crate::task::KERNEL_TASK,
+        -(group as i64),
+        signal,
+        crate::task::signal::SigInfo::kernel(),
+    );
+}
 
 /// The Linux signal number for a discipline signal.
 pub fn signal_number(signal: Signal) -> u8 {

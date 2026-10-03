@@ -9,8 +9,8 @@ use crate::task::{self, ThreadShare};
 use crate::user_ptr;
 
 use super::cwd::{read_path, resolve_at, AT_FDCWD};
-use super::elf::{load_image, LoadError};
-use super::errno::{err, EINVAL, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH};
+use super::elf::load_image;
+use super::errno::{err, EINVAL, ENOMEM, ENOSYS, EPERM, ESRCH};
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
 use super::uaccess::write_u32;
@@ -76,7 +76,9 @@ const CLONE_KNOWN: u64 = CSIGNAL
 /// `ENOMEM` like Linux.
 pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
     if flags & !CLONE_KNOWN != 0 {
-        crate::serial_println!("ENOSYS 56 clone flags {:#x}", flags & !CLONE_KNOWN);
+        // Logged as the errno the caller gets (`EINVAL`), so the ABI coverage
+        // summary does not count a rejected flag as an unimplemented syscall.
+        crate::serial_println!("EINVAL 56 clone unknown flags {:#x}", flags & !CLONE_KNOWN);
         return err(EINVAL);
     }
     if flags & CLONE_VM == 0 {
@@ -222,8 +224,7 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     let ids = super::creds::ids();
     let started = match load_image(guard.table(), &image.file, &image.argv, &envp, ids) {
         Ok(started) => started,
-        Err(LoadError::BadImage(_)) => return err(ENOEXEC),
-        Err(LoadError::NoMemory) => return err(ENOMEM),
+        Err(error) => return err(error.errno()),
     };
 
     // The image is committed. Record the program (`/proc/self/exe`), which
@@ -274,7 +275,12 @@ pub(super) fn sys_setpgid(pid: u64, pgid: u64) -> u64 {
 
 /// `setsid()`: start a new session and group with the caller as leader.
 pub(super) fn sys_setsid() -> u64 {
-    group_result(task::process::setsid(task::current()))
+    let result = task::process::setsid(task::current());
+    if result.is_ok() {
+        // A new session starts without a controlling terminal, as on Linux.
+        task::linuxstate::set_ctty(None);
+    }
+    group_result(result)
 }
 
 /// `getpgid(pid)`: the process group of `pid` (0 = the caller).

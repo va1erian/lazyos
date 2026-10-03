@@ -11,10 +11,12 @@ the same inputs, so they pin the Python reimplementations to the originals.
 from __future__ import annotations
 
 import re
+import stat
 import struct
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -86,6 +88,20 @@ class PinsTest(unittest.TestCase):
             self.assertEqual(sources._inside(base, "a/b.c"), (base / "a/b.c").resolve())
             with self.assertRaises(ValueError):
                 sources._inside(base, "../evil")
+
+    def test_zip_symlink_members_are_skipped(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            archive = base / "in.zip"
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("pkg/file.txt", "data")
+                link = zipfile.ZipInfo("pkg/link")
+                link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                zf.writestr(link, "/etc/passwd")
+            out = base / "out"
+            sources._unpack(archive, out)
+            self.assertEqual((out / "pkg/file.txt").read_text(), "data")
+            self.assertFalse((out / "pkg/link").exists())
 
 
 class JqTest(unittest.TestCase):

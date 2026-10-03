@@ -85,6 +85,14 @@ pub fn with_console<R>(f: impl FnOnce(&mut Ldisc) -> R) -> (R, Fed) {
     (f(ldisc), fed)
 }
 
+/// The session the current task's console belongs to: its window's root
+/// task's (the session a console window's job control runs in).
+pub fn console_session() -> usize {
+    let tasks = TASKS.lock();
+    let root = root_index(&tasks);
+    tasks[root].as_ref().map_or(0, |task| task.sid)
+}
+
 /// Deliver what [`with_console`] produced (call with the table unlocked).
 pub fn apply_fed(fed: Fed) {
     if !fed.echo.is_empty() {
