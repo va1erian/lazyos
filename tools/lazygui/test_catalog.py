@@ -358,6 +358,50 @@ class DevicesAppTests(unittest.TestCase):
         self.assertEqual(run_demo.with_devices("term, devices"), "term, devices")
 
 
+class NetworkTests(unittest.TestCase):
+    """Networking from the Simple tab, the Advanced tab and every boot mode:
+    the stack in the image, a QEMU card with the forwards (`run_demo --net`)."""
+
+    base = DoomTests.base
+
+    def test_the_switch_builds_the_stack_without_the_harness_clients(self) -> None:
+        env = catalog.build_env({**self.base(), "net": True})
+        self.assertEqual((env["LAZYOS_NETD"], env["LAZYOS_NETD_ARGS"]), ("1", "demo=0"))
+        self.assertNotIn("LAZYOS_NETD", catalog.build_env(self.base()))
+
+    def test_the_demo_passes_run_demos_flags(self) -> None:
+        argv = demo_argv(net=True, skip_build=False)
+        self.assertIn("--net", argv)
+        self.assertNotIn("--net-forward", argv, "empty forwards keep run_demo's default")
+        argv = demo_argv(net=True, net_forwards="2323:2323, udp:5353:53", net_restrict=True)
+        self.assertEqual(argv[argv.index("--net-forward") + 1], "2323:2323")
+        self.assertIn("udp:5353:53", argv)
+        self.assertIn("--net-restrict", argv)
+        self.assertNotIn("--net", demo_argv(net_forwards="1:2"))
+
+    def test_a_bad_forward_is_a_plan_error(self) -> None:
+        with self.assertRaises(ValueError):
+            demo_argv(net=True, net_forwards="8080")
+
+    def test_screenshot_and_session_modes_attach_the_card_too(self) -> None:
+        common = {"profile": "dev", "skip_build": True, "accel": "auto", "memory": "256M",
+                  "qemu": "", "out": "shots", "net": True}
+        shot = catalog.build_plan({**common, "mode": "Headless screenshots", "times": "5"})
+        self.assertIn("--net", shot[-1]["argv"])
+        session = catalog.build_plan({**common, "mode": "Scripted session", "timeout": "60",
+                                      "tablet": False, "script": 0})
+        self.assertIn("--net", session[-1]["argv"])
+
+    def test_simple_start_offers_it_for_both_interfaces(self) -> None:
+        for interface in ("CLI", "Desktop"):
+            cfg = catalog.simple_config(demo_config(net_forwards="x", net_restrict=True), "dev",
+                                        interface, net=True)
+            self.assertTrue(cfg["net"])
+            # Stale Advanced forwards never leak into a Simple boot.
+            self.assertEqual((cfg["net_forwards"], cfg["net_restrict"]), ("", False))
+        self.assertFalse(catalog.simple_config(demo_config(net=True), "dev", "CLI")["net"])
+
+
 class ResetTests(unittest.TestCase):
     """The Reset button regenerates the home volume layout, and says so first."""
 

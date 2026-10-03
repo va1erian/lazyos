@@ -60,6 +60,11 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "simple_doom": b(value=False),
+        # Networking (LAZYOS_NETD + a QEMU user-mode card, run_demo --net).
+        "net": b(value=False),
+        "net_forwards": s(value=""),
+        "net_restrict": b(value=False),
+        "simple_net": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),

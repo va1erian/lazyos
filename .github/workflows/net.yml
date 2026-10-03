@@ -64,6 +64,9 @@ jobs:
       - name: Socket evidence checker (TCP, UDP and DNS; it must fail when it should)
         run: python tools/net/test_sockets_pcap.py
 
+      - name: QEMU network arguments (run_demo --net, the launcher, the screenshot tools)
+        run: python tools/net/test_qemu_net.py
+
   fuzz:
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest

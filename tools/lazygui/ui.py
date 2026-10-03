@@ -7,7 +7,7 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from . import datavol
+from . import datavol, netopts
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT,
                       SCRIPTS, XUI_VIEWERS, build_env, build_plan,
                       app_steps, cargo_step, format_plan, simple_config)
@@ -46,7 +46,7 @@ class Launcher:
                                  self.v["simple_lazyrad"].get(),
                                  self.v["simple_shell"].get(),
                                  self.v["simple_devices"].get(),
-                                 self.v["simple_doom"].get())
+                                 self.v["simple_doom"].get(), self.v["simple_net"].get())
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -90,6 +90,9 @@ class Launcher:
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
             "doom": self.v["doom"].get(),
+            "net": self.v["net"].get(),
+            "net_forwards": self.v["net_forwards"].get().strip(),
+            "net_restrict": self.v["net_restrict"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -115,7 +118,7 @@ class Launcher:
         build_simple_tab(self.tab_simple, self.v["simple_build"],
                          self.v["simple_iface"], self.v["simple_lazyrad"],
                          self.v["simple_shell"], self.v["simple_devices"],
-                         self.v["simple_doom"], self._run)
+                         self.v["simple_doom"], self.v["simple_net"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -155,6 +158,9 @@ class Launcher:
         ttk.Label(row, text="BusyBox:").pack(side="left")
         ttk.Entry(row, textvariable=self.v["busybox"]).pack(side="left", fill="x",
                                                            expand=True, padx=6)
+
+        netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
+                            self.v["net"], self.v["net_forwards"], self.v["net_restrict"])
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

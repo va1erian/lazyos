@@ -339,6 +339,29 @@ cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI ri
 Under TCG the harness paces input (USB is polled; see the README): KVM runs are
 the verdict.
 
+## Networking in an interactive boot
+
+`python tools/run_demo.py --net` (the launcher: *Networking* on the Simple
+tab, the *Networking* group on the Advanced tab) builds the stack
+(`LAZYOS_NETD=1`, with `LAZYOS_NETD_ARGS=demo=0` so `netd` runs without the
+harness's evidence clients) and attaches a virtio-net card on QEMU's user
+network, forwarding host `127.0.0.1:8080` to the guest (`--net-forward`,
+`--net-restrict`, `--net-pcap`; the same flags on `qemu_session.py` and
+`qemu_shot.py`, all from `tools/net/qemu_net.py`). A `--net` desktop ships two
+core packages: **Network** (`xui-app/src/bin/network.rs`: status, DHCP or a
+manual address written to `confd`'s `sys/net/eth0/*`) and **Net Tools**
+(`nettools.rs`: ping, lookups, an HTTP fetch and a web server on 8080), sharing
+`xui-app/src/net/`. How to reach the guest from the host:
+[`docs/networking-host-access.md`](docs/networking-host-access.md).
+
+```bash
+python tools/run_demo.py --desktop --net        # then open Net Tools, and http://localhost:8080 on the host
+LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_apps     --script tools/screenshot/examples/net_apps.json      # ping, lookup, a fetch through the host forward
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_config     --script tools/screenshot/examples/net_config.json    # Manual, back to DHCP, Renew
+python tools/net/test_qemu_net.py                         # the QEMU argument helper
+```
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers
