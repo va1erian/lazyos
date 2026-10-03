@@ -15,26 +15,30 @@ use std::rc::Rc;
 use uitheme::Mode;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
+use xui_core::backend::{NodeKind, NodeSpec};
 use xui_core::widget::{
-    Button, CheckBox, ColorPanel, ColorPicker, Edit, IconView, Label, ListView, Panel, RadioGroup,
+    Button, ColorPanel, Control, Edit, IconSize, IconView, Label, ListView, Panel,
 };
-use xui_core::{Color, HasText, Rect};
+use xui_core::{Color, HasText, Point, Rect, Rgba};
 
 use crate::about_page::AboutPage;
+use crate::appearance_page::AppearancePage;
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
 use crate::system::System;
-use crate::theme_ops::{self, ACCENTS, BACKGROUNDS};
+use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
 
 /// Window size (DIP) the app asks for: tall enough for every section row in
 /// the sidebar without scrolling.
-pub const WINDOW: (i32, i32) = (640, 500);
+pub const WINDOW: (i32, i32) = (660, 560);
 /// Width of the section sidebar.
 const SIDEBAR_W: i32 = 150;
+/// Top of the pages, under the page title.
+const PAGE_TOP: i32 = 56;
 /// Height reserved under the pages for the status line.
 const STATUS_H: i32 = 28;
 
@@ -78,17 +82,13 @@ fn pack(color: Color) -> u32 {
 
 /// The pages' widgets, kept alive for the life of the window.
 struct Pages {
-    appearance: Panel<Msg>,
+    appearance: AppearancePage,
     windows: Panel<Msg>,
     keyboard: Panel<Msg>,
     menu: MenuPage,
     hidden: HiddenPage,
     time: TimePage,
     about: AboutPage,
-    mode: RadioGroup<Msg>,
-    anim: CheckBox<Msg>,
-    accent: ColorPicker<Msg>,
-    background: ColorPicker<Msg>,
     _target: ListView<Msg>,
     panel: ColorPanel<Msg>,
     layout: ListView<Msg>,
@@ -104,6 +104,9 @@ pub struct SettingsApp {
     store: Rc<dyn ConfigStore>,
     system: Rc<dyn System>,
     _sidebar: IconView<Msg>,
+    _sidebar_back: Control<Msg>,
+    /// The page title: the selected section's name.
+    title: Label<Msg>,
     pages: Pages,
     status: Label<Msg>,
     /// The Windows page's selected colour target.
@@ -114,15 +117,6 @@ fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
     crate::layout::rect(x, y, w, h)
 }
 
-fn swatches<M: 'static>(
-    ui: &Ui<M>,
-    bounds: Rect,
-    colors: impl Iterator<Item = u32>,
-) -> Result<ColorPicker<M>> {
-    let colors: Vec<Color> = colors.map(Color::hex).collect();
-    Ok(ColorPicker::new(ui, bounds, &colors)?.columns(6))
-}
-
 impl SettingsApp {
     /// Builds the window's widgets over `store` and `system`.
     pub fn build(
@@ -131,36 +125,38 @@ impl SettingsApp {
         system: Rc<dyn System>,
     ) -> Result<SettingsApp> {
         crate::layout::set_dpi(ui.dpi());
-        let sidebar = IconView::with_model(ui, rect(0, 0, SIDEBAR_W, WINDOW.1), SectionsModel)?
-            .multi_select(false)
-            .on_select(|index| Some(Msg::Section(index)));
+        let sidebar_back = sidebar_backdrop(ui)?;
+        let sidebar = IconView::with_model(
+            ui,
+            rect(6, 10, SIDEBAR_W - 12, WINDOW.1 - 20),
+            SectionsModel,
+        )?
+        .multi_select(false)
+        .on_select(|index| Some(Msg::Section(index)));
+        sidebar.set_icon_size(IconSize::Medium);
         sidebar.select(Some(0));
         ui.on_close(|| Some(Msg::Close));
 
-        let page = rect(SIDEBAR_W, 0, WINDOW.0 - SIDEBAR_W, WINDOW.1 - STATUS_H);
+        let title = Label::new(ui, rect(SIDEBAR_W + 18, 10, 400, 38), "")?.title();
+        // A card per page; Appearance draws its own cards on the window.
+        let page = rect(
+            SIDEBAR_W + 16,
+            PAGE_TOP,
+            WINDOW.0 - SIDEBAR_W - 32,
+            WINDOW.1 - STATUS_H - PAGE_TOP - 8,
+        );
         let mut labels = Vec::new();
         let mut buttons = Vec::new();
 
-        let appearance = Panel::new(ui, page)?;
-        let (mode, accent, background, anim) = {
-            let p = appearance.ui();
-            labels.push(Label::new(p, rect(20, 14, 200, 20), "Theme")?);
-            let mode = RadioGroup::new(p, rect(20, 38, 200, 52), &["Dark", "Light"])?
-                .on_select(|i| Some(Msg::Mode(i)));
-            labels.push(Label::new(p, rect(20, 112, 300, 20), "Accent color")?);
-            let accent = swatches(p, rect(20, 136, 260, 40), ACCENTS.iter().map(|a| a.1))?
-                .on_select(|c| Some(Msg::Accent(pack(c))));
-            labels.push(Label::new(p, rect(20, 196, 300, 20), "Desktop background")?);
-            let background = swatches(p, rect(20, 220, 260, 40), BACKGROUNDS.iter().map(|b| b.1))?
-                .on_select(|c| Some(Msg::Background(pack(c))));
-            let anim = CheckBox::new(p, rect(20, 268, 260, 24), "Window animations")?
-                .on_toggle(|on| Some(Msg::Anim(on)));
-            buttons.push(
-                Button::new(p, rect(20, 300, 170, 30), "Reset to defaults")?
-                    .on_click(|| Some(Msg::ResetAppearance)),
-            );
-            (mode, accent, background, anim)
-        };
+        let appearance = AppearancePage::build(
+            ui,
+            rect(
+                SIDEBAR_W,
+                PAGE_TOP,
+                WINDOW.0 - SIDEBAR_W,
+                WINDOW.1 - STATUS_H - PAGE_TOP,
+            ),
+        )?;
 
         let windows = Panel::new(ui, page)?;
         let (target, panel) = {
@@ -210,6 +206,8 @@ impl SettingsApp {
             store,
             system,
             _sidebar: sidebar,
+            _sidebar_back: sidebar_back,
+            title,
             pages: Pages {
                 appearance,
                 windows,
@@ -218,10 +216,6 @@ impl SettingsApp {
                 hidden,
                 time,
                 about,
-                mode,
-                anim,
-                accent,
-                background,
                 _target: target,
                 panel,
                 layout,
@@ -247,6 +241,7 @@ impl SettingsApp {
     /// apps and About pages show live values, so they are re-read each time
     /// they appear.
     fn show(&mut self, section: Section) {
+        self.title.set_text(section.label());
         let p = &mut self.pages;
         p.appearance.set_visible(section == Section::Appearance);
         p.windows.set_visible(section == Section::Windows);
@@ -273,12 +268,13 @@ impl SettingsApp {
     fn load_state(&mut self) {
         let settings = theme_ops::load(self.store.as_ref());
         let p = &self.pages;
-        p.mode.select(usize::from(settings.mode == Mode::Light));
-        p.anim.set_checked(settings.anim);
+        let a = &p.appearance;
+        a.mode.select(usize::from(settings.mode == Mode::Light));
+        a.anim.set_checked(settings.anim);
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
-        p.accent.select(Color::hex(accent));
-        p.background
+        a.accent.select(Color::hex(accent));
+        a.background
             .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
         match keyboard::current(self.store.as_ref()) {
             Some(i) => {
@@ -377,10 +373,11 @@ impl App for SettingsApp {
                 );
                 // Keep the Appearance swatches in step with the new override.
                 let settings = theme_ops::load(store);
-                self.pages.accent.select(Color::hex(
+                self.pages.appearance.accent.select(Color::hex(
                     settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT),
                 ));
                 self.pages
+                    .appearance
                     .background
                     .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
                 self.retheme(ui);
@@ -440,4 +437,28 @@ mod tests {
             assert!(uitheme::COLOR_KEYS.contains(&key), "{key}");
         }
     }
+}
+
+/// The sidebar's own background: the window darkened, with a hairline on its
+/// right edge, so the section list reads as a column apart from the page.
+fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Control<Msg>> {
+    let back = Control::new(
+        ui,
+        &NodeSpec::new(NodeKind::Custom, rect(0, 0, SIDEBAR_W, WINDOW.1)),
+    )?;
+    let theme = ui.theme_handle();
+    back.set_painter(Rc::new(move |canvas| {
+        let theme = theme.get();
+        let b = canvas.bounds();
+        xui_core::theme::look::backdrop(canvas, theme.background);
+        let shade = if theme.is_dark { 0x40 } else { 0x0C };
+        canvas.fill_rect_rgba(b, Rgba::with_alpha(0, 0, 0, shade));
+        canvas.draw_line(
+            Point::new(b.right - 1, b.top),
+            Point::new(b.right - 1, b.bottom),
+            theme.border,
+            1.0,
+        );
+    }));
+    Ok(back)
 }

@@ -64,7 +64,11 @@ impl Color {
     pub fn lerp(self, other: Color, num: i32, den: i32) -> Color {
         let den = den.max(1);
         let one = |a: u8, b: u8| (a as i32 + (b as i32 - a as i32) * num / den) as u8;
-        Color::rgb(one(self.r, other.r), one(self.g, other.g), one(self.b, other.b))
+        Color::rgb(
+            one(self.r, other.r),
+            one(self.g, other.g),
+            one(self.b, other.b),
+        )
     }
 }
 

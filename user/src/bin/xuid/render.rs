@@ -267,7 +267,14 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
 /// darker at the bottom), a highlight under the frame and a dark separator
 /// above the content, framed by `border` on three sides; every line is
 /// `line` pixels thick (one design pixel at the desktop's scale).
-fn draw_title_bar(screen: &mut Canvas, bar: Rect, fill: Color, border: Color, line: i32, clip: Rect) {
+fn draw_title_bar(
+    screen: &mut Canvas,
+    bar: Rect,
+    fill: Color,
+    border: Color,
+    line: i32,
+    clip: Rect,
+) {
     const WHITE: Color = Color::rgb(255, 255, 255);
     const BLACK: Color = Color::rgb(0, 0, 0);
     screen.fill_vgradient(bar, clip, fill.lerp(WHITE, 1, 7), fill.lerp(BLACK, 1, 6));
@@ -283,7 +290,11 @@ fn draw_title_bar(screen: &mut Canvas, bar: Rect, fill: Color, border: Color, li
     );
     screen.fill(Rect::new(bar.x, bar.y, bar.w, line), clip, border);
     screen.fill(Rect::new(bar.x, bar.y, line, bar.h), clip, border);
-    screen.fill(Rect::new(bar.x + bar.w - line, bar.y, line, bar.h), clip, border);
+    screen.fill(
+        Rect::new(bar.x + bar.w - line, bar.y, line, bar.h),
+        clip,
+        border,
+    );
 }
 
 /// Draw one decorated window, clipped to `clip`.
