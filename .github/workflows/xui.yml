@@ -595,6 +595,46 @@ jobs:
           PY
           ! grep -q "^init: launch .* failed" shots/writer/serial.log
 
+      # LazyWriter in the light theme (issue #533): the Terminal switches
+      # `sys/ui/mode` to light, then starts the app (which reads the theme
+      # once, at start); its document area must come out light.
+      - name: Capture LazyWriter in the light theme
+        if: ${{ !cancelled() && steps.app.outputs.writer != '' && steps.app.outputs.term != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.term }}:${{ steps.app.outputs.writer }}
+          LAZYOS_XUI_AUTOSTART: term
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer_light \
+            --timeout 300 --script tools/screenshot/examples/xui_writer_light.json \
+            --fail-on "WRITER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          grep -q "THEME:APPLIED" shots/writer_light/serial.log
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "tools/screenshot")
+          from pngstats import decode_png
+
+          # The document area below the typed line, in the window xuid
+          # cascades below the Terminal's (client area from about 113,86).
+          width, height, channels, pixels = decode_png(Path("shots/writer_light/shot_02_light_bold.png"))
+          x0, x1, y0, y1 = 130, 1050, 200, 640
+          total = count = 0
+          for y in range(y0, y1):
+              row = pixels[(y * width + x0) * channels : (y * width + x1) * channels]
+              for i in range(0, len(row), channels):
+                  total += row[i] + row[i + 1] + row[i + 2]
+                  count += 1
+          mean = total / (3 * count)
+          print(f"light document area mean {mean:.1f}")
+          if mean < 200:
+              sys.exit(f"the document area is not light (mean {mean:.1f})")
+          PY
+
       # docs/input-plan.md: the same desktop on the French AZERTY layout. The
       # session types *physical* keys (`qwerty` is `azerty` there) into the
       # Editor and the Terminal, so a wrong keymap, a lost session or a key
@@ -640,7 +680,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
