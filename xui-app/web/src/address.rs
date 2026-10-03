@@ -18,7 +18,12 @@ pub fn normalize(text: &str) -> Option<String> {
     if text.is_empty() || text.chars().any(char::is_control) {
         return None;
     }
-    if text.contains("://") || has_prefix(text, OPAQUE_SCHEMES) {
+    // `://` is a scheme only before the path, query or fragment starts:
+    // `example.com/go?to=https://x.org` is still a bare host.
+    let has_scheme = text
+        .find("://")
+        .is_some_and(|at| !text[..at].contains(['/', '?', '#']));
+    if has_scheme || has_prefix(text, OPAQUE_SCHEMES) {
         return Some(text.to_string());
     }
     if text.starts_with('/') {
@@ -69,6 +74,10 @@ mod tests {
         assert_eq!(
             normalize("10.0.2.2:8080?x").unwrap(),
             "http://10.0.2.2:8080?x"
+        );
+        assert_eq!(
+            normalize("example.com/go?to=https://x.org").unwrap(),
+            "http://example.com/go?to=https://x.org"
         );
     }
 

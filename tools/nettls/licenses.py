@@ -133,7 +133,10 @@ def tree(manifest: Path, edges: str) -> dict[str, tuple[str, bool]]:
         # A local (path) package prints its directory after the version.
         if "(proc-macro)" in words:
             continue  # runs in the compiler; none of its code is linked
-        local = len(words) > 2 and words[2].startswith("(")
+        # A path package prints "(/dir)" or "(C:\\dir)"; a git one prints
+        # "(https://...)" and is third-party, so its licence is checked.
+        source = words[2] if len(words) > 2 else ""
+        local = source.startswith("(") and "://" not in source
         found[" ".join(words[:2])] = (licence, local)
     return found
 
