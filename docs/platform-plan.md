@@ -444,30 +444,6 @@ Immediate next steps:
 4. **Keep the ABI bench and kernel suite green** as the regression gate for
    every stage.
 
----|---|---|
-| S0 kernel foundations (#53) | landed | `python tools/test/run.py` (189 tests, 21 of them soaks) |
-| S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
-| S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI |
-| S3 users, sessions, storage (#97) | landed, with gaps | login demo; ext2 `/data` mounts when a data disk is attached (#333); services still root |
-| S4 GUI stack (#112) | landed except the toolkit polish | `xuid` WM, drag & drop, xui client mode, clipboard, MIME |
-| S5 desktop shell (#156) | in progress | shell protocol (#167), `init` `Launch` (#158), xui client mode (#168) landed; LazyShell process itself (#157) not started |
-| S6 networking | not started | |
-| S7 sandboxing | not started (kernel hooks exist) | ACL/audit/quota in place, no profiles |
-| S8 SMP & performance | not started | |
-| S9 release engineering | partly (CI matrix exists) | no release images, crash dumps or docs portal |
-
-Immediate next steps:
-
-1. **Close the review findings** on the S5.0 PRs (#175, #177, #178, #180) and
-   the kernel hardening items (#123, #124, #194) before adding surface.
-2. **S5.0 LazyShell bring-up (#157):** the desktop/taskbar/start-menu process
-   over the shell protocol and `init.Launch`; session start from `logind`.
-3. **Storage honesty:** the kernel now mounts a second ext2 device at `/data`
-   and syncs it on shutdown (#333); remaining is attaching a data disk by default
-   in the launchers/CI (#332) and moving service state (`confd`, logs) onto it.
-4. **Keep the ABI bench and kernel suite green** as the regression gate for
-   every stage.
-
 ---
 
 *See also:* [Messenger specification](messenger.md) ·

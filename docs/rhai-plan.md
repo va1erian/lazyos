@@ -186,7 +186,7 @@ proposed; the bindings crate `libs/rhai-lazy` is what remained shared.*
 | P6 | Interrupt delivery to a native task | Ctrl-C in the REPL must stop a runaway loop (wired to Rhai's `on_progress`). | signals exist for the shim |
 | P7 | Long file names in the image | `.rhai` doesn't fit 8.3; scripts belong on ext2. | done: the OS volume is ext2 with long, case-sensitive names (fs F2/F3) |
 
-P1 blocks everything else. P2 and P3 block a useful shell; P4 to P7 can land during
+P1 was the prerequisite for the native Rhai build; its allocator work is done, and it never blocked the shipped static-musl host (musl's `malloc` frees). P2 and P3 block a useful shell; P4 to P7 can land during
 R2 and R3.
 
 ## Phases
