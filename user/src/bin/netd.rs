@@ -50,6 +50,8 @@ mod nic;
 mod owners;
 #[path = "netd/parked.rs"]
 mod parked;
+#[path = "netd/resolvfile.rs"]
+mod resolvfile;
 #[path = "netd/resolve.rs"]
 mod resolve;
 #[path = "netd/service.rs"]
@@ -192,6 +194,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     let mut next_demo = if args.demo { 0 } else { DEMO_CLIENTS.len() };
     let mut demo_child: Option<u64> = None;
     let mut attach_errors = 0u32;
+    let mut resolv = resolvfile::ResolvFile::new();
     // One receive buffer for the life of the service (per-call buffers of the
     // bump region are never reclaimed). Room for a full 16 KiB `Send` and its
     // framing.
@@ -260,6 +263,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
             }
         }
         netd.publish_if_changed();
+        resolv.sync(&netd.stack.state().dns, tick);
         if netd.stack.device_mut().take_tx_notify() {
             netd.nic.kick(&mut netd.stack);
         }
