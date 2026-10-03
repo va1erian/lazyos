@@ -331,7 +331,7 @@ Headless verification uses QEMU only:
 ## 5. Staged delivery
 
 Each stage is independently mergeable; **every kernel stage ships correctness
-+ stress tests** under `kernel/src/tests/dev_suite.rs` per AGENTS.md, and
++ stress tests** under `kernel/src/tests/dev_suite/` per AGENTS.md, and
 `python tools/test/run.py --accel none` must pass. Files stay under 500 lines.
 
 **Stage D0 — Docs and IDL (no code).** Land this plan, add

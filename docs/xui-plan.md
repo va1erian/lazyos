@@ -173,8 +173,8 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "35c818f9b187359927b1528c37d63f62604caa05"` (upstream PR
-va1erian/xui#246). `xui-canvas` is built with `default-features = false`: that
+the same `rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9"` (see
+`xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
 core, including the in-memory font API (`set_default_font`/`add_font`/
@@ -246,7 +246,8 @@ session (focus routing, key-driven counter, drag, minimize/restore, close).
 `.github/workflows/xui.yml` builds the app, boots each image headlessly, and
 checks the serial markers and pixels.
 
-**Remaining** (the M3 list): resize, DPI changes, zero-copy scanout, and
+**Remaining** (the M3 list; resize landed with #412, the backend turning
+`Configure` into a `Resize` event): DPI changes, zero-copy scanout, and
 `std::thread` workers via `proxy()`. The two protocol gaps found while writing
 the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
 `PointerMove`) were closed by the MIDL migration of `os.lazy.display.v1`

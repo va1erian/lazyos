@@ -140,7 +140,7 @@ guest prints instead:
   `--fail-on "SYSMON:(BIND|UP|RUN):FAIL"`, rather than waiting out a gate.
 
 `xui_desktop.json` types into the Terminal's BusyBox `sh`, so the image needs
-`/busybox` (`build.rs` embeds it when present). Without it the Terminal prints
+`/system/bin/busybox` (`build.rs` embeds it when present). Without it the Terminal prints
 `TERM:SPAWN:FAIL: No such file or directory` and `TERM:UP:PASS` never comes;
 run it with `--fail-on "TERM:SPAWN:FAIL"` to fail at once instead of after the
 gate timeout. `python tools/abi/busybox.py` builds the pinned BusyBox (it downloads

@@ -4,7 +4,10 @@
 > #32-#41, #120, #133-#136, #155, #179), and the five success criteria hold:
 > the 13 fixtures in `tools/abi/fixtures` pass in CI and BusyBox `sh` runs. The
 > shim now also covers `mremap`, epoll/eventfd, `AF_UNIX` stream and seqpacket
-> sockets and a copy-up writable root. The sections below are kept as the
+> sockets and a writable root: since filesystem F2-F5 (#506, #525) the ABI
+root in the configured layout is the ext2 OS volume itself, with no overlay,
+and the copy-up overlay and `/data` remain only in the `legacy` fallback
+layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > design record; the current state of the code is described in
 > [`architecture/processes.md`](architecture/processes.md),
 > [`architecture/arch.md`](architecture/arch.md) and
@@ -89,17 +92,20 @@ Syscalls: `openat`(257) `close`(3) `read`(0) `write`(1) `lseek`(8)
 `getcwd`(79) `clock_getres`(229) `nanosleep`(35). Map fds 0/1/2 to the task's
 terminal; map `open`/`read`/`getdents` onto the FAT reader (read-only first).
 
-Status (#136): the ABI root is a copy-up overlay over the read-only FAT volume
+Status (#136, historical; now the `legacy` layout only): the ABI root was a copy-up overlay over the read-only FAT volume
 (upper layer in ramfs, whiteouts for deletes), so `O_CREAT`/`mkdir`/`rename`/
 `unlink`/`rmdir` and descriptor writes work without a writable FAT driver; see
 [architecture/filesystem.md](architecture/filesystem.md).
 
-Status (#334): files under `/data` (the ext2 data volume) are VFS-backed
+Status (#334, historical): files under `/data` (the ext2 data volume) became VFS-backed
 descriptors rather than snapshots, with `pread64`/`pwrite64`/`truncate`/
 `ftruncate`/`fsync`/`fdatasync`/`syncfs`/`sync`/`statfs`/`fstatfs`, POSIX
 unlink-while-open, and the two-boot `persist` fixture proving a file survives a
 reboot. `chmod`/`chown`/`utimensat` and `link`/`symlink` remain
-`ENOSYS` (the VFS trait has no attribute setter or link nodes yet).
+`ENOSYS` (the VFS trait has no attribute setter or link nodes yet). Today every
+ext2 mount is VFS-backed this way (`fs::abi_persistent`), which in the
+configured layout includes `/` and `/home`; `/data` exists only in the legacy
+layout.
 
 ### L3 — Threads and synchronization
 Syscalls: `clone`(56) `futex`(202, at least `WAIT`/`WAKE`/`REQUEUE`/`CMP_REQUEUE`)

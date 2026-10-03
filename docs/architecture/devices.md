@@ -57,8 +57,9 @@ PCI into the table, and runs the table: the first driver whose `matches` accepts
 a device gets to `attach` it (claims it for the kernel owner) or is rolled back.
 The table lock is never held across `attach`, so a driver may call back into the
 core and a failed attach (for example the seeded ATA controller on a machine
-with no IDE disk) releases its claim without deadlocking. Only one legacy
-virtio-blk is driven, as before; a second matching function stays unattached.
+with no IDE disk) releases its claim without deadlocking. Each legacy
+virtio-blk function is its own block device (up to four, `virtio0`..`virtio3`;
+see [block-devices.md](block-devices.md)).
 The legacy block drivers (ATA PIO, legacy virtio-blk) are registered this way
 with no behavior change; their `attach` still calls the same probe code, so the
 block registry, boot-device selection and logs are identical.

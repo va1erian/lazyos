@@ -24,17 +24,21 @@ label ACL engine. What makes the result pretend is how they are wired:
    the kernel with every capability. init's autostart launches desktop apps
    with a hardcoded uid 0 caller (`user/src/bin/init/autostart.rs`), so the
    Terminal's `sh` is uid 0 without any login. Every manifest service is uid 0
-   with all capabilities except `CAP_INPUT_RAW`; only `sndd`, `netdrv` and
-   `netd` have their own uids.
+   with all capabilities except `CAP_INPUT_RAW`; only the drivers and their
+   stacks (`sndd`, `audiod`, `usbd`, `netdrv`, `netd`) have their own uids.
 2. **Services authorize with `uid == 0`.** keyd `Provision`, accountsd
    `Create`, confd `sys/`, messengerd `system/` publish and the xuid shell role
    all accept any uid 0 caller, so a capability-less uid 0 desktop app can plant
    a password in keyd and log in as anyone.
 3. **The kernel ACL never closes.** No uid policy is ever loaded, so every call
-   is `BOOTSTRAP_ALLOW` forever (`kernel/src/ipc/acl.rs`). No label rules are
-   loaded and no app is labelled. Any process may register an unused
-   `os.lazy.*` name (`kernel/src/ipc/policy.rs`), so a restarting keyd can be
-   impersonated.
+   is `BOOTSTRAP_ALLOW` forever (`kernel/src/ipc/acl.rs`). *(Since the package
+   system, #445 and #509, installed apps are the exception: init spawns each
+   one labelled `app:<system_name>` and `pkgd` loads that label's rules from
+   its manifest, so a packaged app is default-deny on Messenger. Every
+   unlabelled task, the services, `xuid`, LazyShell and the Terminal among
+   them, is still under bootstrap-allow.)* Any unlabelled process may
+   register an unused `os.lazy.*` name (`kernel/src/ipc/policy.rs`; labelled
+   apps may not), so a restarting keyd can be impersonated.
 4. **Open doors in services.** keyd `Verify` and accountsd `Authenticate` are
    open to everyone without rate limiting; healthd `Report`, mimed `Register`,
    timed `SetZone`, netd `Renew`/`Reattach` change global state for any caller;
@@ -182,10 +186,13 @@ passes.
 
 ## 8. Deliberately skipped
 
-App labels and manifests (the code stays, unwired), a policy language and hot
-reload, mount namespaces, syscall allowlists, setuid binaries, a
-real/effective/saved uid split, kernel supplementary groups, signed bundles,
-consent UI and an ext2 root filesystem.
+A policy language and hot reload, mount namespaces, syscall allowlists,
+setuid binaries, a real/effective/saved uid split, kernel supplementary groups
+and signed bundles. Three items this list once skipped have since landed
+through other work: app labels and manifests, wired for installed packages
+(`pkgd` loads each app's label rules), the Installer's consent screen
+([packages.md](packages.md)), and an ext2 root filesystem (filesystem F2, #506,
+[filesystem-plan.md](filesystem-plan.md)).
 
 Order: #446 and #447 in parallel, then phases 1, 2, 3, 4, 5, one PR each.
 The stamped header (#446) and the login session (phase 3) are the large items;
