@@ -17,7 +17,10 @@
 //! topic event, a call to a service the script serves) ran without error,
 //! `LRPLAY:UP:PASS` after the first frame reached the compositor,
 //! `LRPLAY:EVENT:PASS` after the first script event handler ran,
-//! `LRPLAY:EXIT:PASS` after the loop ended cleanly, and
+//! `LRPLAY:EXIT:PASS` after the loop ended cleanly,
+//! `LRPLAY:MODPLAY:PASS:title=.. audio=0|1 rate=..` when a script starts a
+//! song (`LRPLAY:MODPLAY:FAIL:<why>` when its sound stops with an error),
+//! `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out, and
 //! `LRPLAY:<STAGE>:FAIL:<why>` (`ARGS`, `BIND`, `RUN`) otherwise.
 
 use std::process::ExitCode;
@@ -68,6 +71,13 @@ fn main() -> ExitCode {
     if lazyrad_os::messenger::install(Some(Rc::new(MARK.once("MSGEVENT")))) {
         MARK.pass("MSG");
     }
+    // ProTracker songs for form scripts (`modplay::*`), through the mixer.
+    lazyrad_os::tracker::install(Some(Rc::new(|stage: &str, detail: &str| {
+        match stage.strip_suffix(":FAIL") {
+            Some(stage) => MARK.fail(stage, detail),
+            None => MARK.pass_with(stage, detail),
+        }
+    })));
 
     // Monospace next to the UI face, before the backend exists: the shaper
     // builds its font database once.
