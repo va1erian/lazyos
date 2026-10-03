@@ -87,7 +87,10 @@ Nothing to compare against exists today except boot time
   - **Input to present:** stamp each raw input record with `monotonic_ns` at
     the IRQ (today it is tick resolution, `input/bus.rs:326`), and report the
     delta when the present syscall that moved the cursor returns. Driven by
-    `qemu_qmp.mouse_move`.
+    `qemu_qmp.mouse_move`, once on the default PS/2 path and once on the USB
+    configuration of `tools/usb/run.py`. For USB the start stamp is taken at
+    the xHCI transfer event, before `usbd` polls it: a stamp taken when
+    `usbd` publishes the report would hide its polling delay.
   - **TCP throughput:** bulk send and receive against a host server through
     `--net`, both the Linux socket path and native `socket.v1`.
   - **IPC round trip:** promote the existing echo test's cycle count to a
@@ -136,8 +139,9 @@ Exit: p99 IRQ-to-driver wake under 200 µs on an idle machine (from up to
    monotonic nanoseconds. A timer min-heap replaces the per-entry linear scan
    of all tasks. Tick-based ABI calls convert on entry.
 2. **Finer hardware timer, step one.** Run the PIT at 1000 Hz with the
-   100 Hz tick ABI derived from it. Cheap, and it cuts every remaining
-   rounding from 10 ms to 1 ms.
+   100 Hz tick ABI derived from it. Cheap, and it cuts the rounding of
+   finer-grained deadlines (step 4) from 10 ms to 1 ms. Deadlines passed in
+   100 Hz ticks stay in 10 ms units until their callers migrate.
 3. **Step two: LAPIC timer, one-shot.** Enable the local APIC and IOAPIC,
    program the timer for the next heap deadline (TSC-deadline when available),
    and stop ticking when idle. This also unblocks MSI-X (P4, P5) and SMP.
@@ -183,8 +187,9 @@ Then make what runs cheaper:
 
 Verification is visual as well as numeric: `qemu_session.py` scripts with
 screenshots, per `AGENTS.md`.
-Exit: mouse IRQ to cursor pixels p99 under 5 ms on PS/2 and USB; a cursor
-move never triggers a full-screen present.
+Exit: PS/2 mouse IRQ to cursor pixels p99 under 5 ms, and USB transfer event
+to cursor pixels p99 under 5 ms; a cursor move never triggers a full-screen
+present.
 
 ### P4. Network throughput
 
@@ -282,7 +287,7 @@ Small, independent, and worth doing right after P0, ahead of their stages:
 | `netd` pump drains instead of one chunk per pass; 256 KiB TCP buffers | P4.2, P4.3 | Lifts the 1.6 MB/s cap several-fold on its own |
 | Two-rect cursor damage | P3.1 | Fast cursor moves stop recomposing large areas |
 | Row-wise present copy | P3.2 | Several times less time with interrupts off per present |
-| PIT at 1000 Hz with the tick ABI derived | P2.2 | Every remaining tick wait shrinks 10x |
+| PIT at 1000 Hz with the tick ABI derived | P2.2 | Sleeps and timeouts given in finer units round to 1 ms; tick-ABI waits stay at 10 ms until callers migrate |
 
 ## 5. Risks
 
