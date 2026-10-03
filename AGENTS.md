@@ -229,7 +229,7 @@ plan and its decisions are [`docs/tls-plan.md`](docs/tls-plan.md).
 ```bash
 python tools/run_demo.py --tls            # networking + curl/wget/fetch (then: curl https://...)
 python tools/nettls/build.py --require    # target/nettls/fetch.elf
-cargo test --manifest-path nettls/Cargo.toml
+cargo test --manifest-path nettls/Cargo.toml --workspace
 python tools/nettls/test_host.py          # the host binary against Python ssl servers
 python tools/nettls/licenses.py           # GPLv2-compatible dependency tree
 python tools/net/tls_run.py               # build, boot, run every check against the harness servers, judge
