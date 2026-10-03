@@ -8,7 +8,11 @@
 //!
 //! * `sys::<alias>::<function>(...)` needs the module's interface; a topic
 //!   helper (`on_<t>`, `subscribe_<t>`, `publish_<t>`) needs
-//!   `subscribe:`/`publish:` and the topic's declared filter instead;
+//!   `subscribe:`/`publish:` and the topic's declared filter instead, with
+//!   the helper's literal leading arguments in its wildcards: the kernel
+//!   authorizes a topic segment by segment, so `on_changed("sys/ui/#", ..)`
+//!   needs the `sys` and `ui` segments, which `system/confd/changed/#` does
+//!   not grant;
 //! * a string literal passed to `msg::connect`, `msg::on`, `msg::subscribe` or
 //!   `msg::publish` adds that interface or topic.
 //!
@@ -41,14 +45,12 @@ pub fn derive<'a>(scripts: impl IntoIterator<Item = &'a str>) -> Derived {
         let tokens = tokens(script);
         for (index, token) in tokens.iter().enumerate() {
             let Token::Path(path) = token else { continue };
-            let literal = match (tokens.get(index + 1), tokens.get(index + 2)) {
-                (Some(Token::Open), Some(Token::Str(text))) => Some(text.as_str()),
-                _ => None,
-            };
+            let args = literal_args(&tokens[index + 1..]);
+            let literal = args.first().copied();
             match path.split("::").collect::<Vec<_>>().as_slice() {
                 [api::NAMESPACE, alias, function] => {
                     if let Some(module) = api::module(alias) {
-                        generated(module, function, &mut interfaces, &mut topics);
+                        generated(module, function, &args, &mut interfaces, &mut topics);
                     }
                 }
                 ["msg", "connect"] => {
@@ -68,10 +70,50 @@ pub fn derive<'a>(scripts: impl IntoIterator<Item = &'a str>) -> Derived {
     }
 }
 
+/// The string literals a call starts with: `("a", "b", |e| ..)` gives `a`
+/// and `b`; the first argument that is not a literal ends the list.
+fn literal_args(tokens: &[Token]) -> Vec<&str> {
+    let mut args = Vec::new();
+    if tokens.first() != Some(&Token::Open) {
+        return args;
+    }
+    let mut rest = &tokens[1..];
+    while let Some(Token::Str(text)) = rest.first() {
+        args.push(text.as_str());
+        if rest.get(1) != Some(&Token::Comma) {
+            break;
+        }
+        rest = &rest[2..];
+    }
+    args
+}
+
+/// `pattern` with its wildcards (`+`, a final `#`) replaced, in order, by
+/// `args`, exactly as the generated helper builds its topic; the wildcards
+/// past the last argument stay. The pattern itself when the result breaks
+/// the manifest grammar.
+fn narrow(pattern: &str, args: &[&str]) -> String {
+    let mut args = args.iter();
+    let narrowed: Vec<&str> = pattern
+        .split('/')
+        .map(|segment| match segment {
+            "+" | "#" => args.next().copied().unwrap_or(segment),
+            literal => literal,
+        })
+        .collect();
+    let narrowed = narrowed.join("/");
+    if valid_filter(&narrowed) {
+        narrowed
+    } else {
+        pattern.to_string()
+    }
+}
+
 /// `sys::<module>::<function>`: a topic helper's rule, or the interface.
 fn generated(
     module: &ApiModule,
     function: &str,
+    args: &[&str],
     interfaces: &mut BTreeSet<String>,
     topics: &mut BTreeSet<String>,
 ) {
@@ -85,7 +127,7 @@ fn generated(
             f if f == format!("{}_topic", topic.helper) => return,
             _ => continue,
         };
-        topics.insert(format!("{rule}:{}", topic.pattern));
+        topics.insert(format!("{rule}:{}", narrow(topic.pattern, args)));
         return;
     }
     let constant = function.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
@@ -124,6 +166,7 @@ enum Token {
     /// A string literal's text (`"..."`, or a backtick string without `${}`).
     Str(String),
     Open,
+    Comma,
     Other,
 }
 
@@ -158,7 +201,11 @@ fn tokens(source: &str) -> Vec<Token> {
             }
             out.push(Token::Path(source[start..i].to_string()));
         } else {
-            out.push(if b == b'(' { Token::Open } else { Token::Other });
+            out.push(match b {
+                b'(' => Token::Open,
+                b',' => Token::Comma,
+                _ => Token::Other,
+            });
             i += source[i..].chars().next().map_or(1, char::len_utf8);
         }
     }
