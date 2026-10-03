@@ -126,6 +126,14 @@ opt-level = 2
 [profile.dev.package."*"]
 opt-level = 3
 
+# The kernel and user programs are artifact build-dependencies of this crate,
+# so Cargo builds them, and the workspace libraries they link (ext2fs,
+# libmessenger, ...), with the `build-override` profile, which would otherwise
+# be opt-level 0 whatever `[profile.dev]` says. Unoptimised, `Vec<u8>` drop
+# and `resize` loop per byte and kernel stack frames run to 15 KiB.
+[profile.dev.build-override]
+opt-level = 2
+
 # User programs are embedded in the disk image, so keep them small and stripped
 # (a large ELF makes boot-time ATA reads painfully slow in QEMU).
 [profile.dev.package.user]
@@ -138,6 +146,7 @@ opt-level = "s"
 # bootloader reads the whole file over slow BIOS disk calls at every boot.
 [profile.dev.package.kernel]
 debug = "line-tables-only"
+opt-level = 2
 
 [profile.release]
 panic = "abort"
