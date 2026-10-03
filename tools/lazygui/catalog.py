@@ -137,6 +137,24 @@ def limit_env(entries) -> dict[str, str]:
     return env
 
 
+#: The modes whose "Skip build" boots the image already built.
+SKIP_BUILD_MODES = ("Interactive demo", "Headless screenshots", "Scripted session",
+                    "Kernel test suite")
+
+
+def check_limits(cfg: dict) -> None:
+    """Refuse kernel limits that cannot take effect: malformed entries, or any
+    entry with "Skip build", since the build writes them into `lazyos.cfg`."""
+    if (limit_env(cfg.get("limits", "")) and cfg.get("skip_build")
+            and cfg["mode"] in SKIP_BUILD_MODES):
+        raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
+
+
+def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
+    """The "Build image" button's steps and environment (``ValueError`` on bad limits)."""
+    return app_steps(cfg) + [cargo_step(cfg)], build_env(cfg)
+
+
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
@@ -258,6 +276,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "mode": "Interactive demo",
         "profile": build,
         "skip_build": False,
+        # Kernel limits are an Advanced-only control: never carried into Simple.
+        "limits": "",
         "headless": False,
         "extra": base.get("extra", ""),
         "busybox": "",
@@ -351,6 +371,7 @@ def _script(cfg: dict) -> tuple:
 
 def build_plan(cfg: dict) -> list[dict]:
     """Turn a configuration dict into an ordered list of steps."""
+    check_limits(cfg)
     mode = cfg["mode"]
     steps: list[dict] = []
 

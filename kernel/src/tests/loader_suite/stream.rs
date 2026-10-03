@@ -8,6 +8,46 @@ use crate::ipc::credentials::{self, Cred};
 use crate::process::image::VfsFile;
 use crate::process::loader::CHUNK;
 
+/// `AT_PHDR` comes only from a segment the loader maps: an empty `PT_LOAD`
+/// (skipped before validation) with a wrapping `vaddr` yields 0, not an
+/// overflow, and a real segment still gives its address.
+pub fn phdr_address_ignores_unmapped_headers() -> Result<(), String> {
+    use crate::process::elfhdr::{phdr_address, Headers, Phdr, PT_LOAD};
+    let hostile = Phdr {
+        kind: PT_LOAD,
+        flags: 0,
+        offset: 0,
+        vaddr: u64::MAX - 8,
+        filesz: 0x1000,
+        memsz: 0,
+    };
+    let headers = Headers {
+        entry: 0,
+        phoff: 64,
+        phdrs: alloc::vec![hostile],
+    };
+    check!(
+        phdr_address(&headers) == 0,
+        "an unmapped header gave AT_PHDR"
+    );
+    let real = Phdr {
+        memsz: 0x1000,
+        vaddr: 0x40_0000,
+        ..hostile
+    };
+    let headers = Headers {
+        entry: 0,
+        phoff: 64,
+        phdrs: alloc::vec![hostile, real],
+    };
+    check!(
+        phdr_address(&headers) == 0x40_0040,
+        "AT_PHDR {:#x}",
+        phdr_address(&headers)
+    );
+    Ok(())
+}
+
 /// Where [`build_elf_with`] puts the payload for an image of `phdrs` headers.
 fn payload_offset(phdrs: usize) -> u64 {
     (64 + 56 * phdrs as u64).max(PAYLOAD_OFF)

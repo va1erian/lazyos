@@ -8,9 +8,8 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol, netopts
-from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT,
-                      SCRIPTS, XUI_VIEWERS, build_env, build_plan,
-                      app_steps, cargo_step, format_plan, simple_config)
+from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
+                      build_plan, format_plan, image_build, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
 from .variables import make_vars
@@ -378,12 +377,14 @@ class Launcher:
 
     def _build_image(self) -> None:
         """Build just target/lazyos.img with the current switches."""
-        if self.runner.busy:
+        try:  # bad kernel limits: report before the buttons go busy
+            steps, env = image_build(self.cfg())
+        except ValueError as exc:
+            self._log(f"(plan error: {exc})\n", "fail")
             return
-        cfg = self.cfg()
-        steps = app_steps(cfg) + [cargo_step(cfg)]
-        self._begin(len(steps), "Build image")
-        self.runner.start(steps, build_env(cfg), ROOT)
+        if not self.runner.busy:
+            self._begin(len(steps), "Build image")
+            self.runner.start(steps, env, ROOT)
 
     def _begin(self, count: int, title: str) -> None:
         """Log a run banner and switch the buttons into the busy state."""

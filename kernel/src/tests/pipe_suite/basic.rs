@@ -77,6 +77,16 @@ pub fn syscalls_create_and_io() -> Result<(), String> {
         task::fd_close(dup),
         "closing the F_DUPFD_CLOEXEC copy failed"
     );
+    // A minimum at or past `limit.fd_max` is EINVAL (Linux's RLIMIT_NOFILE
+    // rule), a closed source EBADF, and both are checked before any slot.
+    let at_max = crate::limits::fd_max() as u64;
+    let past = process::linux::dispatch_for_test(72, r2 as u64, F_DUPFD_CLOEXEC, at_max);
+    check!(past == EINVAL, "F_DUPFD at fd_max returned {past:#x}");
+    let closed = process::linux::dispatch_for_test(72, 900, F_DUPFD_CLOEXEC, 3);
+    check!(
+        closed == EBADF,
+        "F_DUPFD of a closed fd returned {closed:#x}"
+    );
 
     // socketpair: AF_UNIX + SOCK_STREAM, data crosses both ways.
     let mut sv = [0i32; 2];

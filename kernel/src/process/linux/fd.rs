@@ -134,7 +134,11 @@ pub(super) fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
                 }
                 new as u64
             }
-            None => err(EBADF),
+            // Linux's order: a closed `fd` first, then a minimum at or past
+            // `RLIMIT_NOFILE` (`EINVAL`), else the table is full.
+            None if task::fd_kind(fd as usize) == FdKind::Closed => err(EBADF),
+            None if arg >= crate::limits::fd_max() as u64 => err(EINVAL),
+            None => err(EMFILE),
         },
         F_GETFD => match task::fd_kind(fd as usize) {
             FdKind::Closed => err(EBADF),

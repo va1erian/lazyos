@@ -109,11 +109,16 @@ pub fn read<I: Image + ?Sized>(image: &I) -> Result<Headers, &'static str> {
 /// The runtime address of the program header table: the `PT_LOAD` segment
 /// whose file bytes contain it, or 0 (musl then finds no `AT_PHDR`, which
 /// only matters for TLS in a static image without one).
+///
+/// Only segments the loader would map are considered (`memsz != 0`,
+/// `filesz <= memsz`): the loader skips an empty one before validating it,
+/// so its untrusted `vaddr` must not reach this sum unchecked.
 pub fn phdr_address(headers: &Headers) -> u64 {
     headers
         .phdrs
         .iter()
-        .filter(|ph| ph.kind == PT_LOAD)
+        .filter(|ph| ph.kind == PT_LOAD && ph.memsz != 0 && ph.filesz <= ph.memsz)
         .find(|ph| headers.phoff >= ph.offset && headers.phoff - ph.offset < ph.filesz)
-        .map_or(0, |ph| ph.vaddr + (headers.phoff - ph.offset))
+        .and_then(|ph| ph.vaddr.checked_add(headers.phoff - ph.offset))
+        .unwrap_or(0)
 }

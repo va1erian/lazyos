@@ -117,7 +117,7 @@ use creds::{sys_creds, sys_quota, sys_tasks};
 mod argstore;
 mod credio;
 mod creds;
-mod elfhdr;
+pub(crate) mod elfhdr;
 mod exec_perm;
 pub mod fsops;
 pub(crate) mod gate;

@@ -246,6 +246,8 @@ pub fn apply_config(text: &str) {
     let floor = crate::mem::heap_stats().total as u64;
     if get(Id::HeapMax) < floor {
         VALUES[Id::HeapMax as usize].store(floor, Ordering::Relaxed);
+        SOURCES[Id::HeapMax as usize].store(Source::Clamped as u8, Ordering::Relaxed);
+        serial_println!("limits: heap_max raised to the mapped heap ({floor} bytes)");
     }
 }
 

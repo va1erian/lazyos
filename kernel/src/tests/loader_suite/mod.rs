@@ -376,4 +376,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("loader_huge_bss_is_lazy", stream::huge_bss_is_lazy),
     ("loader_streams_from_a_file", stream::streams_from_a_file),
     ("loader_stream_soak", stream::stream_soak),
+    (
+        "loader_phdr_address_ignores_unmapped_headers",
+        stream::phdr_address_ignores_unmapped_headers,
+    ),
 ];

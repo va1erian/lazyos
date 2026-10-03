@@ -135,6 +135,9 @@ pub fn apply_config_and_reset() -> Result<(), String> {
     let fd = limits::fd_max();
     let stack = limits::stack_size();
     let heap = limits::heap_max();
+    // 16M is under the heap the boot already mapped on any test machine, so
+    // the floor wins and must say so.
+    let heap_source = limits::source(Id::HeapMax);
     let sources = (
         limits::source(Id::FdMax),
         limits::source(Id::StackSize),
@@ -146,6 +149,10 @@ pub fn apply_config_and_reset() -> Result<(), String> {
     check!(
         heap >= mem::heap_stats().total as u64,
         "heap_max {heap} below the mapped heap"
+    );
+    check!(
+        heap == 16 * MIB || heap_source == Source::Clamped,
+        "heap_max raised to {heap} but its source is {heap_source:?}"
     );
     check!(
         sources == (Source::Config, Source::Clamped, Source::Default),

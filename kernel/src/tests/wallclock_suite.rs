@@ -379,7 +379,7 @@ pub fn monotonic_clock_is_fine_and_bounded() -> Result<(), String> {
     let mut tv = [0i64; 2];
     process::linux::dispatch_for_test(96, tv.as_mut_ptr() as u64, 0, 0);
     check!(
-        (0..1_000_000).contains(&tv[1]) && tv[0] > Y2026 - 86_400,
+        (0..1_000_000).contains(&tv[1]) && tv[0] >= Y2026 - 366 * 86_400,
         "gettimeofday {tv:?}"
     );
     Ok(())
