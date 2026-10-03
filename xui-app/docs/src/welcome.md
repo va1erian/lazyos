@@ -8,8 +8,8 @@ the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
 ## Opening a document
 
 Press `Ctrl+O` or click **Open...** in the toolbar to pick a Markdown file. The
-image ships one to try, `/TESTDOC.MD`. You can also start the app with a path,
-for example `XDOCS.ELF /TESTDOC.MD`. With no path it shows this page, which
+image ships one to try, `/system/share/samples/testdoc.md`. You can also start the app with a path,
+for example `/system/bin/docs /system/share/samples/testdoc.md`. With no path it shows this page, which
 doubles as a tour of what it can draw.
 
 ## Text

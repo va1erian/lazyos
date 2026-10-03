@@ -1,14 +1,13 @@
-//! `mimed` (`MIMED.ELF`): the MIME database and open-with registry (issue
+//! `mimed` (`/system/bin/mimed`): the MIME database and open-with registry (issue
 //! #116), and the shell-integration middle of the S4 stack.
 //!
 //! `mimed` owns two tables:
 //!
 //! * a **MIME database**: a built-in extension/filename table (`.txt`, `.md`,
-//!   `.rs`, `.elf`, `.png`, `Makefile`, ...) plus a `/etc/mime.types`-style
-//!   override read through the native file API at boot. The VFS tries
-//!   `/etc/mime.types` first (the path an ext2 volume would carry) and falls
-//!   back to `MIME.TYP`, an 8.3-safe file the boot image ships because the FAT
-//!   reader cannot resolve long names;
+//!   `.rs`, `.elf`, `.png`, `Makefile`, ...) plus a `mime.types`-style
+//!   override read through the native file API at boot from
+//!   `/system/share/mime.types` (`fhs::share::MIME_TYPES`), which the image
+//!   ships;
 //! * an **open-with registry** mapping `(mime, verb)` to an app id, with the
 //!   shell verbs `open`, `edit` and `reveal` seeded for the built-in types and
 //!   `Register`/`Lookup`/`Verbs`/`Open` served over Messenger.
@@ -26,9 +25,8 @@
 //! fire-and-forget `system/events/open/<app>` event on `messengerd`'s central
 //! broker ([`user::central`]) - the broker `logd` subscribes to - carrying the
 //! typed `OpenEvent { path, mime, verb }` payload (`idl/mimed.midl`). An app
-//! id is the program's
-//! 8.3 stem in lowercase (`editor` is `EDITOR.ELF`), the same ids `init`'s
-//! app registry serves (`ListApps`). `messengerctl log` still shows the event
+//! id is a short lowercase name (`editor` is `/system/bin/editor`), the same
+//! ids `init`'s app registry serves (`ListApps`). `messengerctl log` still shows the event
 //! as the observable launch record.
 //!
 //! ## Boot evidence
@@ -38,10 +36,9 @@
 //! `MIME:GUESS:PASS <path> <mime>`, `MIME:REGISTER:PASS` and
 //! `MIME:OPEN:PASS <path> <app>` (with `MIME:...:FAIL` lines if a check
 //! breaks). The open walk attempts the `init` launch too; a not-yet-installed
-//! app (`EDITOR.ELF`) exercises the fallback and still prints `MIME:OPEN:PASS`.
+//! app (`/system/bin/editor`) exercises the fallback and still prints `MIME:OPEN:PASS`.
 //!
-//! The on-disk name is `MIMED.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `init` starts the service from its manifest.
+//! `init` starts the service from its manifest.
 
 #![no_std]
 #![no_main]

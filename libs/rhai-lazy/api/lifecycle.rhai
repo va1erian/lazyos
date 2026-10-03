@@ -10,8 +10,8 @@
 // is sent `SIGTERM` instead.
 //
 // The service finishes the request it is serving, makes its state durable
-// (`confd` fsyncs its store, `logd` drains its feeds into the ring) and exits
-// with status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is
+// (`confd` fsyncs its store, `logd` flushes its journals, `pkgd` fsyncs
+// `/logs/pkg.log`) and exits with status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is
 // obeyed; anyone else's message is ignored. `init` waits for the exit, not
 // for a reply, and kills the service when its stop deadline passes.
 

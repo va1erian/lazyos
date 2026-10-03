@@ -27,9 +27,9 @@ pub use init::{
     PowerState, ServiceEvent, ServiceStatus, POWER_MODE_POWER_OFF, POWER_MODE_REBOOT,
 };
 pub use logd::{
-    decode_log_records, fetch_log_count, fetch_log_tail, fetch_log_verify, log_count_reply,
-    log_count_request, log_records_reply, log_tail_request, log_verify_reply, log_verify_request,
-    LogRecord,
+    decode_log_records, fetch_log_count, fetch_log_sources, fetch_log_tail, fetch_log_tail_file,
+    fetch_log_verify, log_count_reply, log_count_request, log_records_reply, log_sources_reply,
+    log_tail_file_reply, log_tail_request, log_verify_reply, log_verify_request, LogRecord,
 };
 pub use sysmond::{fetch_sysinfo, sysinfo_reply, sysinfo_request};
 

@@ -7,10 +7,13 @@
 //! new directory beside the old one, switches the record and the policy, and
 //! only then deletes the old directory.
 //!
-//! **Reconciliation.** The `confd` rows and `/data/apps` survive a reboot, but
-//! the kernel's policy and `mimed`'s registrations do not, so at startup `pkgd`
-//! replays every installed app's stored manifest through the same
-//! [`activate`](Pkgd::activate) an install uses.
+//! The documentation follows the same rule: the package's `docs/**.md` is
+//! staged in `/docs/apps/<system_name>~new` with the extraction and replaces
+//! the live copy only once the app is active (`pkgstore::tree`).
+//!
+//! Boot reconciliation is in [`reconcile`](super::reconcile), removal in
+//! [`remove`](super::remove) and core package provisioning in
+//! [`provision`](super::provision).
 
 use alloc::format;
 use alloc::string::String;
@@ -18,31 +21,29 @@ use alloc::vec::Vec;
 
 use lazypkg::{Manifest, Package};
 use pkgstore::access::Caller;
-use pkgstore::layout;
-use user::files;
+use pkgstore::{layout, provision, tree};
 use user::messenger::pkgd::{Failure, Installed, PkgEvent};
 use user::sys;
 
 use super::handlers::{
-    fail, read_failure, registry_down, Pkgd, EEXIST, EINVAL, EIO, ENODEV, ENOENT, EPERM,
+    fail, read_failure, registry_down, Pkgd, EAGAIN, EEXIST, EINVAL, EIO, ENODEV, EPERM,
+    PROVISIONING,
 };
 use super::inspect::assess;
 use super::policy;
-use super::store;
-
-/// Largest stored manifest read back (the format's own cap is 1 MiB).
-const MAX_MANIFEST: usize = 1024 * 1024;
+use super::reconcile::stored_manifest;
+use super::store::{self, describe, SysFs};
 
 /// What an install is about, for audit records.
-struct Subject {
-    system_name: String,
-    version: String,
-    install_dir: String,
-    digest: String,
+pub(crate) struct Subject {
+    pub(crate) system_name: String,
+    pub(crate) version: String,
+    pub(crate) install_dir: String,
+    pub(crate) digest: String,
 }
 
 impl Subject {
-    fn none() -> Subject {
+    pub(crate) fn none() -> Subject {
         Subject {
             system_name: String::new(),
             version: String::new(),
@@ -51,7 +52,7 @@ impl Subject {
         }
     }
 
-    fn of_row(row: &Installed) -> Subject {
+    pub(crate) fn of_row(row: &Installed) -> Subject {
         Subject {
             system_name: row.system_name.clone(),
             version: row.version.clone(),
@@ -62,7 +63,7 @@ impl Subject {
 }
 
 /// One audit/serial record.
-fn event(op: &str, subject: &Subject, uid: u64, ok: bool, detail: &str) -> PkgEvent {
+pub(crate) fn event(op: &str, subject: &Subject, uid: u64, ok: bool, detail: &str) -> PkgEvent {
     PkgEvent {
         op: String::from(op),
         system_name: subject.system_name.clone(),
@@ -76,7 +77,7 @@ fn event(op: &str, subject: &Subject, uid: u64, ok: bool, detail: &str) -> PkgEv
 }
 
 /// The text of a serial marker: one line.
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect()
@@ -84,7 +85,13 @@ fn one_line(text: &str) -> String {
 
 impl Pkgd {
     /// Refuse a request before anything changed: audited as `denied`.
-    fn refuse(&mut self, subject: &Subject, uid: u64, marker: &str, failure: Failure) -> Failure {
+    pub(crate) fn refuse(
+        &mut self,
+        subject: &Subject,
+        uid: u64,
+        marker: &str,
+        failure: Failure,
+    ) -> Failure {
         self.audit
             .record(&event("denied", subject, uid, false, &failure.text));
         sys::write_str(&format!("PKGD:{marker}:FAIL {}\n", one_line(&failure.text)));
@@ -98,18 +105,19 @@ impl Pkgd {
         if let Err(why) = pkgstore::access::may_manage(caller) {
             return Err(self.refuse(&nobody, uid, "INSTALL", fail(EPERM, why)));
         }
-        if let Err(failure) = self.check_source(caller, path) {
-            return Err(self.refuse(&nobody, uid, "INSTALL", failure));
+        if !self.provisioned.done {
+            return Err(fail(EAGAIN, PROVISIONING));
         }
-        if !store::data_mounted() || store::prepare_volume().is_err() {
-            let failure = fail(
-                ENODEV,
-                "Applications cannot be installed because there is no writable data disk",
-            );
+        let path = match self.check_source(caller, path) {
+            Ok(path) => path,
+            Err(failure) => return Err(self.refuse(&nobody, uid, "INSTALL", failure)),
+        };
+        if let Err(why) = store::probe_store() {
+            let failure = fail(ENODEV, format!("Applications cannot be installed: {why}"));
             return Err(self.refuse(&nobody, uid, "INSTALL", failure));
         }
         // Never trust an earlier Inspect: read and validate again.
-        if let Err(code) = store::read_package(&mut self.buffer, path) {
+        if let Err(code) = store::read_package(&mut self.buffer, &path) {
             return Err(self.refuse(&nobody, uid, "INSTALL", read_failure(code)));
         }
         let bytes = core::mem::take(&mut self.buffer);
@@ -139,6 +147,11 @@ impl Pkgd {
         }
         let package = &assessed.package;
         let system_name = &info.system_name;
+        if let Some(shipped) = self.core_version(system_name) {
+            if let Err(why) = provision::downgrade(&info.name, &shipped, &info.version) {
+                return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+            }
+        }
         let previous = match self.registry.get(system_name) {
             Ok(previous) => previous,
             Err(error) => {
@@ -155,7 +168,8 @@ impl Pkgd {
             );
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
-        match self.install_package(package, &subject, previous, uid) {
+        let origin = self.origin_of(system_name);
+        match self.install_package(package, &subject, previous, origin) {
             Ok(row) => {
                 self.audit
                     .record(&event("install", &subject, uid, true, ""));
@@ -175,42 +189,45 @@ impl Pkgd {
     }
 
     /// Extract, record, register, load policy; undo everything on a failure.
-    fn install_package(
+    /// `origin` is the row's `Origin` (core when the image ships the app).
+    pub(crate) fn install_package(
         &mut self,
         package: &Package<'_>,
         subject: &Subject,
         previous: Option<Installed>,
-        _uid: u64,
+        origin: u32,
     ) -> Result<Installed, Failure> {
         let manifest = package.manifest();
         let install_path = layout::install_path(&subject.install_dir)
             .map_err(|error| fail(EINVAL, format!("{error}")))?;
         // A directory left by an earlier interrupted attempt is not an install.
-        store::remove_tree(&install_path).map_err(|code| {
+        tree::remove_tree(&mut SysFs, &install_path).map_err(|error| {
             fail(
                 EIO,
-                format!("clearing {install_path}: {}", files::describe(code)),
+                format!("clearing {install_path}: {}", describe(&error)),
             )
         })?;
-        if let Err(error) = store::extract(package, &install_path) {
-            self.discard(&subject.system_name, &install_path);
-            return Err(fail(EIO, format!("Installing failed while {}", error.step)));
-        }
-        let row = Installed {
-            system_name: manifest.app.system_name.clone(),
-            name: manifest.app.name.clone(),
-            version: manifest.app.version.clone(),
-            install_dir: subject.install_dir.clone(),
-            digest: subject.digest.clone(),
-            binary: manifest.entry.binary.clone(),
-            installed_at: sys::clock(),
-            abi: String::from(if manifest.entry.is_linux() {
-                "linux"
-            } else {
-                "native"
-            }),
-            args: manifest.entry.args.clone(),
+        let mut scratch = core::mem::take(&mut self.scratch);
+        let staged = tree::extract_with(&mut SysFs, package, &install_path, &mut scratch)
+            .and_then(|_| tree::stage_docs(&mut SysFs, package, &subject.system_name));
+        self.scratch = scratch;
+        let staged = match staged {
+            Ok(staged) => staged,
+            Err(error) => {
+                self.discard(&subject.system_name, &install_path);
+                return Err(fail(
+                    EIO,
+                    format!("Installing failed while {}", describe(&error)),
+                ));
+            }
         };
+        let row = row_of(
+            manifest,
+            &subject.install_dir,
+            &subject.digest,
+            sys::clock(),
+            origin,
+        );
         if let Err(error) = self.registry.put(&row) {
             self.discard(&subject.system_name, &install_path);
             return Err(fail(
@@ -228,6 +245,10 @@ impl Pkgd {
         }
         if let Some(old) = previous {
             self.retire(&old, manifest);
+        }
+        // The app is active: its documentation replaces the old one whole.
+        if let Err(error) = tree::commit_docs(&mut SysFs, &row.system_name, staged) {
+            sys::write_str(&format!("PKGD:DOCS:FAIL {}\n", one_line(&describe(&error))));
         }
         Ok(row)
     }
@@ -251,9 +272,13 @@ impl Pkgd {
                 registered.push((handler.mime_type.as_str(), verb.as_str()));
             }
         }
-        if let Err(error) = policy::load(manifest) {
-            self.unregister_all(app, &registered);
-            return Err(format!("loading its permissions: {}", error.text()));
+        match policy::load(manifest) {
+            // The evidence that the kernel holds the app's label policy.
+            Ok(rules) => sys::write_str(&format!("PKGD:POLICY:PASS app:{app} rules={rules}\n")),
+            Err(error) => {
+                self.unregister_all(app, &registered);
+                return Err(format!("loading its permissions: {}", error.text()));
+            }
         }
         Ok(())
     }
@@ -281,12 +306,15 @@ impl Pkgd {
         }
     }
 
-    /// Delete a half-built or superseded install directory, and the app
-    /// directory above it when that left it empty.
-    fn discard(&mut self, system_name: &str, install_path: &str) {
-        let _ = store::remove_tree(install_path);
+    /// Delete a half-built install directory and its staged documentation,
+    /// and the app directory above it when that left it empty.
+    pub(crate) fn discard(&mut self, system_name: &str, install_path: &str) {
+        let _ = tree::remove_tree(&mut SysFs, install_path);
+        if let Ok(staging) = pkgstore::docs::staging_dir(system_name) {
+            let _ = tree::remove_tree(&mut SysFs, &staging);
+        }
         if let Ok(app_dir) = layout::app_dir(system_name) {
-            store::remove_if_empty(&app_dir);
+            tree::remove_if_empty(&mut SysFs, &app_dir);
         }
     }
 
@@ -310,168 +338,57 @@ impl Pkgd {
             }
         }
         if let Ok(path) = layout::install_path(&old.install_dir) {
-            if let Err(code) = store::remove_tree(&path) {
+            if let Err(error) = tree::remove_tree(&mut SysFs, &path) {
                 sys::write_str(&format!(
-                    "PKGD:UPGRADE:CLEANUP:FAIL {path}: {}\n",
-                    files::describe(code)
+                    "PKGD:UPGRADE:CLEANUP:FAIL {}\n",
+                    one_line(&describe(&error))
                 ));
             }
         }
-    }
-
-    /// `Remove(system_name)`.
-    pub(crate) fn remove(&mut self, caller: &Caller, system_name: &str) -> Result<(), Failure> {
-        let uid = u64::from(caller.uid);
-        let mut subject = Subject::none();
-        subject.system_name = String::from(system_name);
-        if let Err(why) = pkgstore::access::may_manage(caller) {
-            return Err(self.refuse(&subject, uid, "REMOVE", fail(EPERM, why)));
-        }
-        if !layout::valid_system_name(system_name) {
-            let failure = fail(EINVAL, "that is not a valid application name");
-            return Err(self.refuse(&subject, uid, "REMOVE", failure));
-        }
-        let row = match self.registry.get(system_name) {
-            Ok(Some(row)) => row,
-            Ok(None) => {
-                let failure = fail(ENOENT, "that application is not installed");
-                return Err(self.refuse(&subject, uid, "REMOVE", failure));
-            }
-            Err(error) => return Err(self.refuse(&subject, uid, "REMOVE", registry_down(error))),
-        };
-        let subject = Subject::of_row(&row);
-        match self.remove_row(&row) {
-            Ok(()) => {
-                self.audit.record(&event("remove", &subject, uid, true, ""));
-                sys::write_str(&format!("PKGD:REMOVE:PASS {}\n", row.system_name));
-                Ok(())
-            }
-            Err(failure) => {
-                self.audit
-                    .record(&event("remove", &subject, uid, false, &failure.text));
-                sys::write_str(&format!("PKGD:REMOVE:FAIL {}\n", one_line(&failure.text)));
-                Err(failure)
-            }
-        }
-    }
-
-    fn remove_row(&mut self, row: &Installed) -> Result<(), Failure> {
-        // Stop it first: nothing running should outlive its files and policy.
-        match self.registry.stop(&row.system_name) {
-            Ok(count) => sys::write_str(&format!(
-                "PKGD:REMOVE:STOPPED {} {count}\n",
-                row.system_name
-            )),
-            Err(error) => sys::write_str(&format!(
-                "PKGD:REMOVE:STOP:FAIL {}: {}\n",
-                row.system_name,
-                error.message()
-            )),
-        }
-        if let Ok(manifest) = stored_manifest(&row.install_dir) {
-            for handler in &manifest.mime {
-                for verb in &handler.verbs {
-                    let _ =
-                        self.registry
-                            .mime_unregister(&handler.mime_type, &row.system_name, verb);
-                }
-            }
-        }
-        policy::revoke(&row.system_name).map_err(|error| {
-            fail(
-                EIO,
-                format!(
-                    "Removing failed while revoking its permissions: {}",
-                    error.message()
-                ),
-            )
-        })?;
-        let path = layout::install_path(&row.install_dir)
-            .map_err(|error| fail(EINVAL, format!("{error}")))?;
-        store::remove_tree(&path).map_err(|code| {
-            fail(
-                EIO,
-                format!(
-                    "Removing failed while deleting its files: {}",
-                    files::describe(code)
-                ),
-            )
-        })?;
-        if let Ok(app_dir) = layout::app_dir(&row.system_name) {
-            store::remove_if_empty(&app_dir);
-        }
-        self.registry.delete(&row.system_name).map_err(|error| {
-            fail(
-                EIO,
-                format!(
-                    "Removing failed while forgetting the application: {}",
-                    error.message()
-                ),
-            )
-        })
-    }
-
-    /// Replay every installed app's registrations and policy after a boot (the
-    /// kernel and `mimed` keep them in memory only). A row whose files are gone
-    /// is dropped, unless the volume itself is absent.
-    pub(crate) fn reconcile(&mut self, volume_ok: bool) {
-        let rows = match self.registry.list() {
-            Ok(rows) => rows,
-            Err(error) => {
-                sys::write_str(&format!(
-                    "PKGD:RECONCILE:SKIP the application list is unavailable: {}\n",
-                    error.message()
-                ));
-                return;
-            }
-        };
-        let mut activated = 0;
-        for row in &rows {
-            let present = layout::install_path(&row.install_dir)
-                .map(|path| store::exists(&path))
-                .unwrap_or(false);
-            if !present {
-                sys::write_str(&format!("PKGD:RECONCILE:MISSING {}\n", row.system_name));
-                if volume_ok {
-                    let _ = self.registry.delete(&row.system_name);
-                }
-                continue;
-            }
-            match stored_manifest(&row.install_dir) {
-                Ok(manifest) => match self.activate(&manifest) {
-                    Ok(()) => activated += 1,
-                    Err(text) => sys::write_str(&format!(
-                        "PKGD:RECONCILE:FAIL {}: {}\n",
-                        row.system_name,
-                        one_line(&text)
-                    )),
-                },
-                Err(text) => sys::write_str(&format!(
-                    "PKGD:RECONCILE:FAIL {}: {}\n",
-                    row.system_name,
-                    one_line(&text)
-                )),
-            }
-        }
-        sys::write_str(&format!(
-            "PKGD:RECONCILE:PASS n={activated} of={}\n",
-            rows.len()
-        ));
     }
 }
 
-/// The manifest `pkgd` stored when it installed `install_dir`.
-fn stored_manifest(install_dir: &str) -> Result<Manifest, String> {
-    let root = layout::install_path(install_dir).map_err(|error| format!("{error}"))?;
-    let path = format!("{root}/{}", layout::MANIFEST_FILE);
-    let bytes = files::read_up_to(&path, MAX_MANIFEST)
-        .map_err(|code| format!("{path}: {}", files::describe(code)))?;
-    let text = String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?;
-    lazypkg::parse_manifest(&text).map_err(|error| format!("{error}"))
+/// The `confd` row of an app installed from `manifest`.
+pub(crate) fn row_of(
+    manifest: &Manifest,
+    install_dir: &str,
+    digest: &str,
+    installed_at: u64,
+    origin: u32,
+) -> Installed {
+    let mut verbs: Vec<String> = Vec::new();
+    for verb in manifest
+        .mime
+        .iter()
+        .flat_map(|handler| handler.verbs.iter())
+    {
+        if !verbs.contains(verb) {
+            verbs.push(verb.clone());
+        }
+    }
+    Installed {
+        system_name: manifest.app.system_name.clone(),
+        name: manifest.app.name.clone(),
+        version: manifest.app.version.clone(),
+        install_dir: String::from(install_dir),
+        digest: String::from(digest),
+        binary: manifest.entry.binary.clone(),
+        installed_at,
+        abi: String::from(if manifest.entry.is_linux() {
+            "linux"
+        } else {
+            "native"
+        }),
+        args: manifest.entry.args.clone(),
+        origin,
+        category: String::from(manifest.app.category().as_str()),
+        autostart: manifest.entry.autostart,
+        verbs,
+    }
 }
 
 /// The friendly text for a package that cannot be installed.
-fn problem_text(problems: &[String]) -> String {
+pub(crate) fn problem_text(problems: &[String]) -> String {
     let mut text = String::from("This package cannot be installed: ");
     for (index, problem) in problems.iter().enumerate() {
         if index > 0 {

@@ -10,6 +10,11 @@
 //! `init` registry), labels are cleaned and capped, the count is capped, and
 //! duplicates are dropped. [`from_value`] never fails: a missing, mistyped or
 //! all-invalid value yields the built-in [`defaults`].
+//!
+//! App ids are bare registry stems (`terminal`) or dotted package
+//! `system_name`s (`os.lazy.terminal`, issue #509). [`hidden`] resolves which
+//! apps the start menu leaves out (`user/<uid>/menu/hidden/<id>` over
+//! `sys/menu/hidden/<id>`).
 
 #![cfg_attr(not(test), no_std)]
 
@@ -26,8 +31,15 @@ pub const KEY: &str = "sys/ui/menu";
 pub const MAX_ENTRIES: usize = 24;
 /// Longest label, in characters.
 pub const MAX_LABEL: usize = 32;
-/// Longest app id, in bytes.
-pub const MAX_APP: usize = 32;
+/// Longest app id, in bytes: room for a core app's `os.lazy.<short>`
+/// `system_name` (issue #509).
+pub const MAX_APP: usize = 64;
+/// Longest package `system_name`, in bytes (`lazypkg`'s limit). Hidden-app
+/// keys accept any installed package, so they use this bound, not
+/// [`MAX_APP`].
+pub const MAX_SYSTEM_NAME: usize = 128;
+
+pub mod hidden;
 
 /// One menu row: which registry app it launches and what it says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,24 +67,27 @@ impl Entry {
 }
 
 /// The built-in list: what the menu shows when confd has nothing usable.
-/// Terminal first.
+/// Terminal first. The desktop apps are core packages, named by their
+/// `system_name` (issue #509); the Terminal, the Installer and Devices are
+/// built-in programs. `init` still answers the bare short ids (`editor`) a menu saved
+/// before F5 holds.
 pub fn defaults() -> Vec<Entry> {
     const ITEMS: [(&str, &str); 13] = [
         ("terminal", "Terminal"),
-        ("sysmon", "System Monitor"),
-        ("fabricmon", "Fabric Monitor"),
-        ("counter", "Counter"),
-        ("editor", "Editor"),
-        ("paint", "Paint"),
-        ("files", "Files"),
-        ("settings", "Settings"),
+        ("os.lazy.sysmon", "System Monitor"),
+        ("os.lazy.fabricmon", "Fabric Monitor"),
+        ("os.lazy.counter", "Counter"),
+        ("os.lazy.editor", "Editor"),
+        ("os.lazy.paint", "Paint"),
+        ("os.lazy.files", "Files"),
+        ("os.lazy.settings", "Settings"),
         // Shipped only when the build had the zig toolchain; an image
         // without it answers the launch as unavailable.
-        ("docs", "Docs"),
+        ("os.lazy.docs", "Docs"),
         // Last, so the rows above keep the positions the screenshot sessions
         // click by coordinate.
-        ("widget", "CPU & Memory"),
-        ("confd", "Config"),
+        ("os.lazy.widget", "CPU & Memory"),
+        ("os.lazy.confd", "Config"),
         ("installer", "Package Installer"),
         ("devices", "Devices"),
     ];
@@ -82,14 +97,42 @@ pub fn defaults() -> Vec<Entry> {
         .collect()
 }
 
-/// Whether `app` looks like an `init` registry id: the lowercase program
-/// stem, `[a-z0-9_-]`, bounded.
+/// The namespace of the core apps' `system_name`s (issue #509).
+pub const CORE_PREFIX: &str = "os.lazy.";
+
+/// Whether two app ids name the same app: equal, or a core app's
+/// `system_name` and the bare short id a menu saved before F5 holds
+/// (`os.lazy.editor` and `editor`; `init` launches the one for the other).
+pub fn same_app(a: &str, b: &str) -> bool {
+    a == b || core_short(a) == Some(b) || core_short(b) == Some(a)
+}
+
+/// The short id of a core `system_name` (`os.lazy.editor` -> `editor`).
+fn core_short(id: &str) -> Option<&str> {
+    id.strip_prefix(CORE_PREFIX)
+        .filter(|short| !short.contains('.'))
+}
+
+/// Whether `app` looks like an `init` registry id: a bare program stem
+/// (`terminal`) or a dotted `system_name` (`os.lazy.terminal`), at most
+/// [`MAX_APP`] bytes. See [`valid_system_name`] for the alphabet.
 pub fn valid_app_id(app: &str) -> bool {
-    !app.is_empty()
-        && app.len() <= MAX_APP
-        && app
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    app.len() <= MAX_APP && valid_system_name(app)
+}
+
+/// Whether `name` is a well-formed id of at most [`MAX_SYSTEM_NAME`] bytes:
+/// `[a-z0-9_.-]`, with no dot at either end and no two dots in a row. That is
+/// also one valid confd path segment (never `.` or `..`), so an id can name a
+/// key such as `sys/menu/hidden/<id>`.
+pub fn valid_system_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_SYSTEM_NAME
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.contains("..")
+        && name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b'.')
+        })
 }
 
 /// A label with control characters removed, edges trimmed, capped at
@@ -165,6 +208,16 @@ pub fn to_value(entries: &[Entry]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_id_is_the_same_app_as_its_core_system_name() {
+        assert!(same_app("os.lazy.editor", "editor"));
+        assert!(same_app("editor", "os.lazy.editor"));
+        assert!(same_app("editor", "editor"));
+        assert!(!same_app("org.lazy.editor", "editor"));
+        assert!(!same_app("os.lazy.a.b", "a.b"));
+        assert!(!same_app("os.lazy.paint", "editor"));
+    }
 
     fn any(_: &str) -> bool {
         true
@@ -253,6 +306,38 @@ mod tests {
         assert!(!valid_app_id(&id));
         assert!(valid_app_id("fabricmon"));
         assert!(!valid_app_id("Term"));
+        let longest: String = "a".repeat(MAX_APP);
+        assert!(valid_app_id(&longest));
+    }
+
+    #[test]
+    fn dotted_system_names_are_app_ids() {
+        for ok in ["os.lazy.terminal", "org.lazy.counter", "a.b", "x-y_z.1"] {
+            assert!(valid_app_id(ok), "{ok}");
+        }
+        for bad in [
+            ".lazy",
+            "lazy.",
+            "os..lazy",
+            ".",
+            "..",
+            "os.lazy/x",
+            "os.Lazy",
+        ] {
+            assert!(!valid_app_id(bad), "{bad}");
+        }
+        let entry = Entry::new("os.lazy.paint", "Paint").unwrap();
+        let text = encode(core::slice::from_ref(&entry));
+        assert_eq!(parse(&text, &any), alloc::vec![entry]);
+    }
+
+    #[test]
+    fn system_names_may_exceed_the_app_id_cap() {
+        let long: String = "a".repeat(MAX_SYSTEM_NAME);
+        assert!(valid_system_name(&long));
+        assert!(!valid_app_id(&long));
+        let longer: String = "a".repeat(MAX_SYSTEM_NAME + 1);
+        assert!(!valid_system_name(&longer));
     }
 
     #[test]

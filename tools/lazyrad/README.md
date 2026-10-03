@@ -26,11 +26,10 @@ leaving a silently empty image.
 ## Embedding in the image
 
 With `LAZYOS_LAZYRAD=1` set for the OS build, `build_support/lazyrad_embed.rs`
-adds the 8.3 names `LRPLAY.ELF` and `LAZYRAD.ELF` to the boot volume and copies
+adds `/system/bin/lrplay` and `/system/bin/lazyrad` to the OS volume and copies
 every sample project directory named by `LAZYRAD_SAMPLES` (a platform path list,
 `;` on Windows and `:` elsewhere; relative entries resolve against the repo
-root) under `/LAZYRAD/<directory>/`. Long sample names are kept; the ELFs use
-8.3 because the kernel's FAT reader resolves short names. A missing ELF fails
+root) under `/system/share/lazyrad/<directory>/`. Names are kept exactly (ext2 is case-sensitive). A missing ELF fails
 the OS build with a message to run this script. With the switch unset nothing
 changes.
 
@@ -47,15 +46,15 @@ output-path logic without invoking cargo.
 
 `package.py` packages a LazyRAD project as a LazyOS `.lzp` on the host, with
 the permissions the LazyOS platform derives from its scripts (as the IDE's Make
-LazyOS App does): by default the MOD player sample, as `target/pkg/MODPLAY.LZP`
-(`org.lazy.modplayer`), which `LAZYOS_MODPLAYER=1` puts at `/MODPLAY.LZP`.
+LazyOS App does): by default the MOD player sample, as `target/pkg/modplayer.lzp`
+(`org.lazy.modplayer`), which `LAZYOS_MODPLAYER=1` puts at `/system/share/samples/modplayer.lzp`.
 `gen_demo_song.py` writes the sample's built-in song; `modplayer_run.py` builds,
 plays it from the Terminal and as an installed app, records both and judges the
 recordings with `modjudge.py` (`test_modjudge.py` tests the judge). See
 [`docs/lazyrad-modplay.md`](../../docs/lazyrad-modplay.md).
 
 ```bash
-python tools/lazyrad/package.py                   # build lrplay, then MODPLAY.LZP
+python tools/lazyrad/package.py                   # build lrplay, then modplayer.lzp
 python tools/lazyrad/gen_demo_song.py --check     # the built-in song is current
 python tools/lazyrad/modplayer_run.py             # build, boot twice, record, judge
 ```

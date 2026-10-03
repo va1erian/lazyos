@@ -20,11 +20,13 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | `name` | registry name (`"ata0"`, `"virtio0"`) |
 | `sector_size` / `sector_count` | geometry (512 bytes everywhere today) |
 | `read_sectors` / `write_sectors` | whole sectors into/from a caller buffer |
+| `read_sectors_vectored` / `write_sectors_vectored` | one consecutive sector range as a list of buffers (the ext2 cache's pages); default: one call per buffer, virtio-blk: as few 64 KiB requests as the range allows, partitions translate |
+| `stats` | request counters ([`stats.rs`](../../kernel/src/block/stats.rs)), virtio-blk only; partitions answer `None` |
 | `flush` | durability point; devices without a cache complete immediately |
 | `is_writable` | whether `write_sectors` can succeed (default: false) |
 | `check_range` | shared bounds validation via `check_range(...)` |
 
-- Registry: fixed array of `&'static dyn BlockDevice`, `MAX_DEVICES = 8`, no
+- Registry: fixed array of `&'static dyn BlockDevice`, `MAX_DEVICES = 24`, no
   heap. Drivers are `'static` singletons (`ata::probe`, `virtio::probe`).
 - `init()` is a thin wrapper over `dev::init` (device core, #239). The one-shot
   guards are `dev::INITED` (enumeration) and `dev::driver::PROBED` (driver
@@ -62,6 +64,18 @@ trait, a fixed registry with a selected boot device, and three drivers.
   no such constraint. The driver is split into `virtio.rs` (request path and
   device), `virtio/io.rs` (ports and attach) and `virtio/queue.rs` (ring
   memory and descriptors).
+
+**Vectored requests and counters.** The ext2 block cache
+([`block-cache.md`](block-cache.md)) writes back runs of consecutive blocks
+whose pages are scattered frames, and reads ahead the same way; virtio-blk
+gathers such a list into its bounce region and scatters reads back out of it
+(`virtio/gather.rs`), so a 64 KiB run is one request. Every virtio request is
+counted (`IoStats`: reads, writes, bytes); once a disk has been idle for 3 s
+after activity the kernel task prints
+`block: virtio0 reads N (K KiB) writes M (K KiB) flushes F`, which is how the
+harnesses read the cost of a run. There is no cache in the block layer itself:
+the ext2 driver caches above it (the block-cache doc says why), FAT `/boot`
+reads go straight to the device.
 
 **Partitions (`block/partition.rs`, plan F1).** After the drivers attach,
 `block::init` reads the MBR of every whole disk (not `ram0`, not partitions) and

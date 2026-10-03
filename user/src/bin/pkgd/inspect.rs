@@ -80,6 +80,8 @@ pub(crate) fn assess(bytes: &[u8]) -> Result<Assessed<'_>, Box<PackageInfo>> {
             .collect(),
         permissions,
         problems: cap(problems),
+        category: String::from(manifest.app.category().as_str()),
+        autostart: manifest.entry.autostart,
     };
     Ok(Assessed { package, info })
 }

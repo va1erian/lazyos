@@ -1,0 +1,17 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 120},
+  {"at": 2.0, "shot": "01_provisioned"},
+  {"at": 3.0, "type": "pkgctl list | cut -c1-60"},
+  {"at": 3.5, "key": "enter"},
+  {"at": 7.0, "shot": "02_pkgctl_list"},
+  {"at": 8.0, "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"},
+  {"at": 8.5, "key": "enter"},
+  {"at": 9.5, "type": "echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai"},
+  {"at": 10.0, "key": "enter"},
+  {"at": 11.0, "type": "clear; rhai /tmp/l.rhai os.lazy.sysmon fabricmon os.lazy.widget os.lazy.counter editor os.lazy.files os.lazy.paint os.lazy.settings os.lazy.confd os.lazy.docs"},
+  {"at": 11.5, "key": "enter"},
+  {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.docs", "timeout": 90},
+  {"at": 20.0, "shot": "03_all"},
+  {"at": 21.0, "quit": true}
+]

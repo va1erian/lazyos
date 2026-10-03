@@ -41,7 +41,15 @@ const MISSES: &[&str] = &[
 ];
 
 /// Applet aliases that must still resolve, through every stat entry point.
-const APPLETS: &[&str] = &["/bin/ls", "/sbin/ls", "/usr/bin/ls", "/usr/local/bin/rhai"];
+/// `/system/bin` is a session's `$PATH` (issue #508), so an applet resolves
+/// there too while no file of that name exists.
+const APPLETS: &[&str] = &[
+    "/bin/ls",
+    "/sbin/ls",
+    "/usr/bin/ls",
+    "/usr/local/bin/rhai",
+    "/system/bin/ls",
+];
 
 fn fs_error(error: FsError) -> String {
     String::from(error.message())
@@ -54,10 +62,18 @@ fn setup() -> Result<(), String> {
     crate::fs::install_abi_ramfs_for_test();
     credentials::set(task::current(), Cred::ROOT);
     let id = Id::current();
-    crate::fs::abi_create(id, fhs::boot::BUSYBOX_PATH, 0o755).map_err(fs_error)?;
-    crate::fs::abi_write(id, fhs::boot::BUSYBOX_PATH, 0, b"\x7fELF busybox").map_err(fs_error)?;
+    mkdir_p(id, fhs::SYSTEM_BIN)?;
+    crate::fs::abi_create(id, fhs::bin::BUSYBOX, 0o755).map_err(fs_error)?;
+    crate::fs::abi_write(id, fhs::bin::BUSYBOX, 0, b"\x7fELF busybox").map_err(fs_error)?;
+    mkdir_p(id, APP_BIN)?;
+    task::set_cwd("/");
+    Ok(())
+}
+
+/// Create `path` and every missing parent.
+fn mkdir_p(id: Id, path: &str) -> Result<(), String> {
     let mut dir = String::new();
-    for part in APP_BIN.split('/').filter(|part| !part.is_empty()) {
+    for part in path.split('/').filter(|part| !part.is_empty()) {
         dir.push('/');
         dir.push_str(part);
         match crate::fs::abi_mkdir(id, &dir, 0o755) {
@@ -65,7 +81,6 @@ fn setup() -> Result<(), String> {
             Err(error) => return Err(format!("mkdir {dir}: {}", error.message())),
         }
     }
-    task::set_cwd("/");
     Ok(())
 }
 

@@ -20,6 +20,12 @@ members = [
     # logic shared by the `confd` service and host tests, with no Messenger or
     # syscall dependencies.
     "libs/confd",
+    # logd's persistent journals (issue #508): source naming, the line format,
+    # rotation and the /logs budget, shared by `logd` and the kernel suite.
+    "libs/logstore",
+    # The account file /system/etc/passwd (issue #508): strict, fail-closed
+    # parsing shared by `accountsd` and the image build, host-tested.
+    "libs/passwd",
     # Buffer-slot state machines for the pipelined display present (#361).
     "libs/surfbuf",
     # Time-zone and DST resolution for the `timed` service (issue #369): pure
@@ -104,6 +110,12 @@ bootloader = "0.11.17"
 # reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
 # a volume that stopped uncleanly (`Ext2::recover`).
 ext2fs = { path = "libs/ext2fs", features = ["check"] }
+# Every destination the build writes names its `libs/fhs` constant
+# (docs/filesystem-plan.md F3).
+fhs = { path = "libs/fhs", features = ["alloc"] }
+# The image's `/system/etc/passwd` is checked with the parser `accountsd`
+# loads it with, so a file the daemon would refuse never ships (issue #508).
+passwd = { path = "libs/passwd" }
 
 [profile.dev]
 panic = "abort"

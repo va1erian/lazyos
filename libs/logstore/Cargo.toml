@@ -1,0 +1,16 @@
+[package]
+name = "logstore"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "logd's persistent journals: source naming, line format, rotation and budget (issue #508)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "logstore"
+path = "src/lib.rs"
+
+[dev-dependencies]
+# The full-scale soak runs the store on a real ext2 volume (`memio`) and judges
+# it with the library's independent checker (`check::fsck`).
+ext2fs = { path = "../ext2fs", features = ["fuzz"] }

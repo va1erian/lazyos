@@ -12,6 +12,7 @@ use alloc::vec::Vec;
 use serde::Deserialize;
 
 use crate::error::{ManifestError, Problem};
+use crate::version::Version;
 
 /// The parsed manifest.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -35,6 +36,73 @@ pub struct App {
     pub version: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// The menu group: one of [`Category::ALL`]'s names. Absent means
+    /// [`Category::Accessories`]; read it through [`App::category`].
+    #[serde(default)]
+    pub category: Option<String>,
+}
+
+impl App {
+    /// The menu category. A validated manifest always names a known one; an
+    /// absent (or, in an unvalidated manifest, unknown) one is the default.
+    pub fn category(&self) -> Category {
+        self.category
+            .as_deref()
+            .and_then(Category::parse)
+            .unwrap_or_default()
+    }
+
+    /// `version` as a [`Version`]; `None` only for an unvalidated manifest.
+    pub fn parsed_version(&self) -> Option<Version> {
+        Version::parse(&self.version).ok()
+    }
+}
+
+/// The menu group an app is listed under (`[app] category`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Category {
+    #[default]
+    Accessories,
+    Development,
+    Games,
+    Graphics,
+    Internet,
+    Office,
+    System,
+    Utilities,
+}
+
+impl Category {
+    /// Every category, in menu order.
+    pub const ALL: [Category; 8] = [
+        Category::Accessories,
+        Category::Development,
+        Category::Games,
+        Category::Graphics,
+        Category::Internet,
+        Category::Office,
+        Category::System,
+        Category::Utilities,
+    ];
+
+    /// The manifest spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Category::Accessories => "accessories",
+            Category::Development => "development",
+            Category::Games => "games",
+            Category::Graphics => "graphics",
+            Category::Internet => "internet",
+            Category::Office => "office",
+            Category::System => "system",
+            Category::Utilities => "utilities",
+        }
+    }
+
+    /// The category spelled `name`, exactly (lowercase).
+    pub fn parse(name: &str) -> Option<Category> {
+        Category::ALL.into_iter().find(|c| c.as_str() == name)
+    }
 }
 
 /// `[entry]`: the program to run.
@@ -49,6 +117,10 @@ pub struct Entry {
     /// cannot tell the two apart, so the package says which one it is.
     #[serde(default)]
     pub abi: Option<String>,
+    /// Start the app when the user logs in. For a user package this is shown
+    /// at consent and honoured only after it.
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 impl Entry {
@@ -125,6 +197,25 @@ binary = \"bin/app.elf\"
         assert_eq!(manifest.entry.binary, "bin/app.elf");
         assert!(manifest.mime.is_empty());
         assert!(manifest.permissions.network.is_empty());
+        assert_eq!(manifest.app.category(), Category::Accessories);
+        assert!(!manifest.entry.autostart);
+        assert_eq!(manifest.app.parsed_version(), Version::parse("1.0").ok());
+    }
+
+    #[test]
+    fn category_and_autostart_parse() {
+        let text = MINIMAL.replace(
+            "version = \"1.0.0\"",
+            "version = \"1.0.0\"\ncategory = \"graphics\"",
+        ) + "autostart = true\n";
+        let manifest = parse(&text).expect("valid");
+        assert_eq!(manifest.app.category(), Category::Graphics);
+        assert!(manifest.entry.autostart);
+        assert!(parse(&format!("{MINIMAL}autostart = \"yes\"\n")).is_err());
+        for category in Category::ALL {
+            assert_eq!(Category::parse(category.as_str()), Some(category));
+        }
+        assert_eq!(Category::parse("Graphics"), None);
     }
 
     #[test]

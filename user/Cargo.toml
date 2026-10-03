@@ -25,6 +25,14 @@ lazyos-crypto = { path = "../libs/crypto" }
 # `os.lazy.confd.v1` stubs (issue #260): the `confd` service and `confctl` drive
 # the same store the kernel test suite exercises.
 confd = { path = "../libs/confd" }
+# `logd`'s persistent journals under `/logs` (issue #508): the store the kernel
+# test suite drives against ext2.
+logstore = { path = "../libs/logstore" }
+# The account file `/system/etc/passwd`, parsed strictly by `accountsd`
+# (issue #508): the same parser the image build checks the file with.
+passwd = { path = "../libs/passwd" }
+# `init`'s session table (account name and home per session, issue #508).
+spin = "0.9"
 # Display buffer-slot state machines (issue #361), shared by `xuid` and clients.
 surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
@@ -67,6 +75,8 @@ inputmap = { path = "../libs/inputmap" }
 # and the host-tested policy/audit/layout logic built on it.
 lazypkg = { path = "../libs/lazypkg" }
 pkgstore = { path = "../libs/pkgstore" }
+# The hidden-app keys `init` resolves for `ListApps` (issue #509).
+deskmenu = { path = "../libs/deskmenu" }
 
 # Build-time only: rasterizes the bundled Droid Sans / Droid Serif into the
 # proportional glyph atlases `xuid` draws its chrome text with.
@@ -322,7 +332,7 @@ bench = false
 
 # The system mixer (docs/audio-plan.md A3): serves `os.lazy.audio.v1` and
 # `os.lazy.audio.mixer.v1` under `os.lazy.audio`, mixes every client stream and
-# feeds the card's one stream. Embedded with the sound stack as `AUDIOD.ELF`.
+# feeds the card's one stream. Embedded with the sound stack as `/system/bin/audiod`.
 [[bin]]
 name = "audiod"
 path = "src/bin/audiod.rs"
@@ -330,7 +340,7 @@ test = false
 bench = false
 
 # `mixer` (docs/audio-plan.md A5): the volume control panel from the shell,
-# and the control-interface probe of the boot evidence. `MIXER.ELF`.
+# and the control-interface probe of the boot evidence. `/system/bin/mixer`.
 [[bin]]
 name = "mixer"
 path = "src/bin/mixer.rs"

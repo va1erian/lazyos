@@ -1,0 +1,11 @@
+[package]
+name = "passwd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The account file /system/etc/passwd: strict, fail-closed parsing shared by accountsd and the image build (issue #508)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "passwd"
+path = "src/lib.rs"

@@ -1,104 +1,91 @@
-//! `init`'s app registry (issue #158): what the start menu lists and what
-//! `Launch` resolves an app id to, plus which rows the image actually ships
-//! and which of them the desktop session opens at boot (issues #215/#216).
+//! `init`'s built-in app registry (issue #158): the programs that are not
+//! packages. Since F5 (issue #509) every desktop app is a core package that
+//! `pkgd` installs into `/apps`, and [`super::installed`] is the source of
+//! desktop apps; what stays here is what must not be a package:
+//!
+//! * LazyShell, the desktop itself (started by `logind`, `Restart::Always`);
+//! * the Installer, `pkgd`'s trusted UI, which a labelled app may never be
+//!   (`pkgstore::access` refuses every labelled caller);
+//! * the Terminal: its shell and every command typed in it are its children,
+//!   and a child inherits its parent's label, so a packaged Terminal would run
+//!   `pkgctl`, `powerctl` and `messengerctl` sandboxed as an app;
+//! * Devices, which reads the kernel's device inspection calls
+//!   (`os.kernel.dev`), something no package permission can name;
+//! * the console programs (`top`, `messengerctl`, BusyBox `sh`), the LazyRAD
+//!   IDE (`LAZYOS_LAZYRAD=1`) and the `runner` placeholder `mimed` names for
+//!   `application/x-elf`.
 //!
 //! Split out of `init.rs`, which is far past the file-size budget.
 //!
 //! # Availability
 //!
-//! A row is [`Ship::Always`] when its ELF (or, for the shell, the `BUSYBOX`
-//! applet alias) is part of every services image (`sh`, `MSGCTL.ELF`,
-//! `TOP.ELF`) and [`Ship::Manifest`] when it exists
-//! only if the image builder embedded it. The builder lists what it embedded
-//! in `XAPPS.LST` (one 8.3 name per line, optionally followed by `autostart`);
-//! [`load_manifest`] reads it once at boot. A row whose ELF is not shipped is
-//! *unavailable*: `ListApps` omits it and `Launch` refuses it with `-ENOENT`
-//! without logging a failure, so the registry never advertises (or noisily
-//! fails to start) a program the image does not carry.
+//! A row is *available* when its program is in `/system/bin` ([`load`]
+//! checks each once at boot; the console shell is a BusyBox applet alias and
+//! always is). An unavailable row is omitted from `ListApps` and refused by
+//! `Launch` with `-ENOENT` without logging a failure, so the registry never
+//! advertises (or noisily fails to start) a program the image does not carry.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use user::messenger::services;
-use user::sys;
 
 use super::state::Restart;
 
-/// The most bytes of the manifest read (a few 8.3 names per line).
-const MANIFEST_BYTES: usize = 1024;
-
-/// Whether a row's ELF is always in the image.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Ship {
-    /// Part of every services image.
-    Always,
-    /// Present only when listed in `XAPPS.LST`.
-    Manifest,
-}
-
-/// One app-registry row: what the start menu enumerates and what `Launch`
-/// resolves an app id to.
+/// One built-in registry row: what the start menu enumerates and what
+/// `Launch` resolves an app id to.
 pub struct AppSpec {
-    /// Lowercase program stem (`top`, `editor`); `mimed` registers these ids.
+    /// Lowercase program stem (`top`, `installer`).
     pub id: &'static str,
     /// Display name for menus.
     pub name: &'static str,
-    /// On-disk ELF path (8.3 on the FAT boot image).
+    /// The program's path in `/system/bin` (`fhs::bin`), or a console alias.
     pub path: &'static str,
     /// Default restart policy for launches.
     pub restart: Restart,
     /// MIME verbs the app handles.
     pub verbs: &'static [&'static str],
-    /// Whether the app is a static Linux-ABI (musl) program: the kernel's
-    /// spawn needs the `linux:` personality prefix for those.
+    /// Whether the app is a static Linux-ABI (musl) program: it is spawned
+    /// under the Linux personality.
     pub linux: bool,
-    /// Arguments every launch passes first (the desktop apps are `xuid`
-    /// clients: `--client` keeps them off the display grant).
-    pub args: &'static str,
-    /// Whether the image is guaranteed to carry the ELF.
-    pub ship: Ship,
+    /// Arguments every launch passes first (an xui program is an `xuid`
+    /// client: `--client` keeps it off the display grant).
+    pub args: &'static [&'static str],
     /// Whether `ListApps` reports the row. Only the desktop shell is unlisted:
-    /// it is the start menu, not an entry in it, and Settings -> Menu offers
-    /// whatever `ListApps` returns. `Launch` still resolves it by id.
+    /// it is the start menu, not an entry in it. `Launch` still resolves it.
     pub listed: bool,
+    /// The start-menu group (`lazypkg::Category` spelling) of a desktop
+    /// program; empty for a console one, which the menu leaves out.
+    pub category: &'static str,
 }
 
-/// A desktop (xui) app: Linux ABI, `xuid` client, listed in `XAPPS.LST`.
-const fn xui_app(id: &'static str, name: &'static str, path: &'static str) -> AppSpec {
-    AppSpec {
-        id,
-        name,
-        path,
-        restart: Restart::OnFailure,
-        verbs: &["open"],
-        linux: true,
-        args: "--client",
-        ship: Ship::Manifest,
-        listed: true,
-    }
-}
-
-/// An [`xui_app`] with its own MIME verbs (the document apps `mimed` opens).
-const fn xui_app_verbs(
+/// An xui program that is not a package: Linux ABI, `xuid` client.
+const fn xui_app(
     id: &'static str,
     name: &'static str,
     path: &'static str,
     verbs: &'static [&'static str],
 ) -> AppSpec {
     AppSpec {
+        id,
+        name,
+        path,
+        restart: Restart::OnFailure,
         verbs,
-        ..xui_app(id, name, path)
+        linux: true,
+        args: &["--client"],
+        listed: true,
+        category: "system",
     }
 }
 
-/// A native program the image may ship (`Manifest`) or always ships.
+/// A native console program.
 const fn native_app(
     id: &'static str,
     name: &'static str,
     path: &'static str,
     restart: Restart,
     verbs: &'static [&'static str],
-    ship: Ship,
 ) -> AppSpec {
     AppSpec {
         id,
@@ -107,206 +94,130 @@ const fn native_app(
         restart,
         verbs,
         linux: false,
-        args: "",
-        ship,
+        args: &[],
         listed: true,
-    }
-}
-
-/// A Linux-ABI console program the services image always ships: BusyBox's
-/// `sh` (a bare applet name the kernel's Linux loader aliases to `BUSYBOX`,
-/// issue #254), which draws in `init`'s mux window. Unlike [`xui_app`] it is
-/// not a `xuid` client and takes no arguments.
-const fn linux_console_app(id: &'static str, name: &'static str, path: &'static str) -> AppSpec {
-    AppSpec {
-        id,
-        name,
-        path,
-        restart: Restart::OnFailure,
-        verbs: &["open"],
-        linux: true,
-        args: "",
-        ship: Ship::Always,
-        listed: true,
-    }
-}
-
-/// The desktop shell (issue #157): an [`xui_app`] that is never listed and
-/// always restarted. The image builder tags its `XAPPS.LST` line `autostart`
-/// whatever `LAZYOS_XUI_AUTOSTART` says, and it is the first row, so
-/// [`autostart_ids`] opens it before the apps. A graphical login asks for it by
-/// id (`logind`), with the session's credentials.
-const fn shell_app(id: &'static str, name: &'static str, path: &'static str) -> AppSpec {
-    AppSpec {
-        restart: Restart::Always,
-        verbs: &[],
-        listed: false,
-        ..xui_app(id, name, path)
+        category: "",
     }
 }
 
 /// The desktop shell's registry id (`Launch("lazyshell", ...)`).
 pub const SHELL_APP_ID: &str = "lazyshell";
 
-/// The built-in app registry. `editor`, `files`, `paint`, `viewer` and
-/// `runner` are the ids `mimed`'s open-with defaults register, so an `Open`
-/// resolution names an app the supervisor knows; `editor`, `files` and `paint`
-/// are xui desktop apps (shipped with the desktop image, launched on demand),
-/// `viewer` and `runner` have no ELF yet and stay unavailable. The
-/// rest are launchable system programs (`top` proves the path end to end in a
-/// headless boot) and the desktop's xui apps.
+/// The built-in registry.
 ///
 /// A `static`, not a `const`: [`is_available`] identifies a row by address, so
 /// the table must have one stable storage location.
 pub static APPS: &[AppSpec] = &[
-    // First: autostart opens rows in registry order, and the shell must be up
-    // before the apps so their windows land on its taskbar from the start.
-    shell_app(SHELL_APP_ID, "LazyShell", fhs::boot::XSHELL_ELF),
-    xui_app_verbs(
-        "editor",
-        "Editor",
-        fhs::boot::XEDITOR_ELF,
-        &["open", "edit"],
+    // First: autostart opens it before the apps, so their windows land on its
+    // taskbar from the start. A graphical login asks for it by id (`logind`).
+    AppSpec {
+        restart: Restart::Always,
+        listed: false,
+        ..xui_app(SHELL_APP_ID, "LazyShell", fhs::bin::LAZYSHELL, &[])
+    },
+    // The package installer (docs/packages.md section 8); `mimed` routes
+    // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
+    xui_app(
+        "installer",
+        "Package Installer",
+        fhs::bin::INSTALLER,
+        &["open", "install"],
     ),
-    xui_app_verbs("files", "Files", fhs::boot::XFILES_ELF, &["open", "reveal"]),
-    xui_app_verbs("paint", "Paint", fhs::boot::XPAINT_ELF, &["open", "edit"]),
-    xui_app("settings", "Settings", fhs::boot::XSETTNG_ELF),
-    xui_app("confd", "Config", fhs::boot::XCONFD_ELF),
-    native_app(
-        "viewer",
-        "Image Viewer",
-        fhs::boot::VIEW_ELF,
-        Restart::OnFailure,
-        &["open", "reveal"],
-        Ship::Manifest,
-    ),
+    // The desktop Terminal hosts the shell in a `xuid` window (`shell` below
+    // is the console shell, drawn in `init`'s mux window).
+    xui_app("terminal", "Terminal", fhs::bin::TERMINAL, &["open"]),
+    // Devices, owners, rights and the driver class rules (issue #481).
+    xui_app("devices", "Devices", fhs::bin::DEVICES, &["open"]),
+    // The LazyRAD IDE (`LAZYOS_LAZYRAD=1`); apps it builds are packages.
+    AppSpec {
+        category: "development",
+        ..xui_app("lazyrad", "LazyRAD", fhs::bin::LAZYRAD, &["open"])
+    },
+    // `mimed`'s handler for `application/x-elf`; no image ships it yet.
     native_app(
         "runner",
         "Program Runner",
-        fhs::boot::RUNNER_ELF,
+        fhs::bin::RUNNER,
         Restart::Once,
         &["open"],
-        Ship::Manifest,
     ),
-    // The desktop Terminal hosts the shell in a `xuid` window; `shell` is the
-    // console shell (BusyBox `sh`; it draws in `init`'s mux window, so it is
-    // only useful in a console session).
-    xui_app("terminal", "Terminal", fhs::boot::XTERM_ELF),
-    linux_console_app("shell", "Console Shell", "sh"),
-    xui_app("sysmon", "System Monitor", fhs::boot::XSYSMON_ELF),
-    xui_app("fabricmon", "Fabric Monitor", fhs::boot::XFABMON_ELF),
-    // Devices, owners, rights and the driver class rules (issue #481).
-    xui_app("devices", "Devices", fhs::boot::XDEVICES_ELF),
-    xui_app("widget", "CPU & Memory", fhs::boot::XWIDGET_ELF),
-    xui_app("counter", "Counter", fhs::boot::XCOUNTR_ELF),
-    xui_app_verbs("docs", "Docs", fhs::boot::XDOCS_ELF, &["open", "view"]),
-    // The LazyRAD IDE (`LAZYOS_LAZYRAD=1` embeds it and lists it in
-    // `XAPPS.LST`); apps it builds are installed packages, not rows here.
-    xui_app("lazyrad", "LazyRAD", fhs::boot::LAZYRAD_ELF),
-    // The package installer (docs/packages.md section 8); `mimed` routes
-    // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
-    xui_app_verbs(
-        "installer",
-        "Package Installer",
-        fhs::boot::XINSTALL_ELF,
-        &["open", "install"],
-    ),
+    // The console shell (BusyBox `sh`, a bare applet name the kernel's Linux
+    // loader aliases to BusyBox); it draws in `init`'s mux window.
+    AppSpec {
+        args: &[],
+        category: "",
+        ..xui_app("shell", "Console Shell", "sh", &["open"])
+    },
     native_app(
         "top",
         "System Monitor (text)",
-        fhs::boot::TOP_ELF,
+        fhs::bin::TOP,
         Restart::Once,
         &["open"],
-        Ship::Always,
     ),
     native_app(
         "messengerctl",
         "Messenger Console",
-        fhs::boot::MSGCTL_ELF,
+        fhs::bin::MESSENGERCTL,
         Restart::OnFailure,
         &[],
-        Ship::Always,
     ),
 ];
 
-/// Bit `i` is set when `APPS[i]` is shipped (see [`load_manifest`]).
+/// Bit `i` is set when `APPS[i]`'s program is in the image (see [`load`]).
 static AVAILABLE: AtomicU64 = AtomicU64::new(0);
-/// Bit `i` is set when `APPS[i]` opens at boot.
-static AUTOSTART: AtomicU64 = AtomicU64::new(0);
 
-// The masks are 64 bits wide.
+// The mask is 64 bits wide.
 const _: () = assert!(APPS.len() <= 64);
 
-/// The app registry row for `id` (case-insensitive), if any.
+/// The built-in row for `id` (case-insensitive), if any.
 pub fn find_app(id: &str) -> Option<&'static AppSpec> {
     APPS.iter()
         .find(|app| app.id.eq_ignore_ascii_case(id.trim()))
 }
 
-/// Whether `app`'s ELF is shipped in this image.
+/// Whether `app`'s program is in this image.
 pub fn is_available(app: &AppSpec) -> bool {
     APPS.iter()
         .position(|row| core::ptr::eq(row, app))
         .is_some_and(|index| AVAILABLE.load(Ordering::Relaxed) & (1 << index) != 0)
 }
 
-/// The ids of the shipped apps that open at boot, in registry order.
+/// The built-in rows the image build asked to open at boot, comma-separated
+/// registry ids (`LAZYOS_XUI_AUTOSTART`, read by `user/build.rs`): the
+/// Terminal by default, Devices on request.
+const BUILTIN_AUTOSTART: &str = env!("LAZYOS_BUILTIN_AUTOSTART");
+
+/// The built-in rows that open at boot: the desktop shell first, then those
+/// the build asked for, each when the image ships it. The other apps that
+/// autostart are packages ([`super::installed`]).
 pub fn autostart_ids() -> Vec<&'static str> {
-    let mask = AUTOSTART.load(Ordering::Relaxed);
-    APPS.iter()
-        .enumerate()
-        .filter(|(index, _)| mask & (1 << index) != 0)
-        .map(|(_, app)| app.id)
+    let wanted = |id: &str| BUILTIN_AUTOSTART.split(',').any(|want| want == id);
+    let shell = APPS.iter().filter(|app| app.id == SHELL_APP_ID);
+    let others = BUILTIN_AUTOSTART.split(',').filter_map(|id| {
+        APPS.iter()
+            .find(|app| app.id == id && app.id != SHELL_APP_ID)
+    });
+    shell
+        .chain(others)
+        .filter(|app| is_available(app) && (app.id == SHELL_APP_ID || wanted(app.id)))
+        .map(|app| app.id)
         .collect()
 }
 
-/// Record what the image ships, from the `XAPPS.LST` text (`NAME.ELF
-/// [autostart]` per line). `Always` rows are shipped regardless; a name the
-/// registry does not know is ignored.
-pub fn apply_manifest(text: &str) {
+/// Record which built-in programs the image carries: each `/system/bin` path
+/// is looked up once; the console alias is always there.
+pub fn load() {
     let mut available = 0u64;
-    let mut autostart = 0u64;
     for (index, app) in APPS.iter().enumerate() {
-        // `top` is the boot launch self-test's target: normally always shipped,
-        // but the desktop profile (`LAZYOS_DESKTOP=1`) leaves its ELF out, so
-        // its row must not advertise a program the image does not carry.
-        let desktop_skip = cfg!(lazyos_desktop) && app.path == fhs::boot::TOP_ELF;
-        if app.ship == Ship::Always && !desktop_skip {
+        if is_console_alias(app) || user::files::stat(app.path).is_ok() {
             available |= 1 << index;
         }
     }
-    for line in text.lines() {
-        let mut words = line.split_whitespace();
-        let Some(name) = words.next() else { continue };
-        let Some(index) = APPS
-            .iter()
-            .position(|app| app.path.eq_ignore_ascii_case(name))
-        else {
-            continue;
-        };
-        available |= 1 << index;
-        if words.any(|word| word == "autostart") {
-            autostart |= 1 << index;
-        }
-    }
     AVAILABLE.store(available, Ordering::Relaxed);
-    AUTOSTART.store(autostart, Ordering::Relaxed);
 }
 
-/// Read `XAPPS.LST` from the boot volume and apply it. An image without the
-/// file ships no optional apps.
-pub fn load_manifest() {
-    let mut buffer = [0u8; MANIFEST_BYTES];
-    // The image builder's list of shipped optional apps, NUL-terminated.
-    let manifest_z = alloc::format!("{}\0", fhs::boot::XAPPS_LST);
-    let text = match sys::read_file(manifest_z.as_bytes(), &mut buffer) {
-        Some(count) => core::str::from_utf8(&buffer[..count.min(MANIFEST_BYTES)]).unwrap_or(""),
-        None => "",
-    };
-    apply_manifest(text);
-}
-
-/// The registry as wire rows for `ListApps`: shipped, listed apps only (the
+/// The registry as wire rows for `ListApps`: available, listed rows only (the
 /// desktop shell is launchable but never offered as a menu entry).
 pub fn app_infos() -> Vec<services::AppInfo> {
     APPS.iter()
@@ -318,57 +229,60 @@ pub fn app_infos() -> Vec<services::AppInfo> {
             restart: app.restart.label().to_string(),
             verbs: app.verbs.iter().map(|verb| verb.to_string()).collect(),
             installed: false,
+            origin: String::from("system"),
+            category: app.category.to_string(),
+            // Set per caller by `InstalledApps::infos`.
+            hidden: false,
+            autostart: autostart_ids().contains(&app.id),
+            icon: String::new(),
         })
         .collect()
 }
 
-/// The console shell row: a bare BusyBox applet name (no `.ELF` suffix) that
-/// the Linux loader resolves, drawn in `init`'s mux window rather than a
-/// `xuid` client window.
+/// The console shell row: a bare BusyBox applet name (not a path) that the
+/// Linux loader resolves, drawn in `init`'s mux window.
 fn is_console_alias(app: &AppSpec) -> bool {
-    app.linux && app.ship == Ship::Always && !app.path.contains('.')
+    app.linux && !app.path.contains('/')
 }
 
-/// The registry self-test: every row is well formed and the ids `mimed`
-/// registers are present. Prints `INIT:APPS:PASS` (the count is the whole
-/// registry) and, once the manifest is applied, `INIT:APPS:SHIPPED` with the
-/// number of rows this image can launch.
-pub fn selftest_apps() -> String {
-    let mut ok = !APPS.is_empty();
-    for app in APPS {
-        let verbs = app.verbs.len();
-        ok &= !app.id.is_empty()
+/// Whether `path` is a program directly in `/system/bin` (`fhs::SYSTEM_BIN`).
+fn in_system_bin(path: &str) -> bool {
+    path.strip_prefix(fhs::SYSTEM_BIN)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+}
+
+/// The built-in registry's self-test: every row is well formed, the shell is
+/// the first row, unlisted and always restarted, the xui programs are `xuid`
+/// clients, and no desktop app that is now a package is still built in.
+/// Returns whether it holds; [`super::installed::selftest`] adds the packages
+/// and prints the markers.
+pub fn selftest_builtins() -> bool {
+    let rows_ok = APPS.iter().all(|app| {
+        !app.id.is_empty()
             && !app.name.is_empty()
-            && (app.path.ends_with(".ELF") || is_console_alias(app))
-            && (verbs == 0 || verbs <= 4);
-    }
-    let has_editor = APPS
-        .iter()
-        .find(|app| app.id == "editor")
-        .map(|app| app.verbs.contains(&"open") && app.verbs.contains(&"edit"))
-        .unwrap_or(false);
-    let has_top = APPS
-        .iter()
-        .any(|app| app.id == "top" && app.path == fhs::boot::TOP_ELF);
-    // The desktop rows must be launchable as `xuid` clients.
-    let desktop_ok = APPS
+            && (in_system_bin(app.path) || is_console_alias(app))
+            && app.verbs.len() <= 4
+    });
+    let clients_ok = APPS
         .iter()
         .filter(|app| app.linux && !is_console_alias(app))
-        .all(|app| app.args == "--client" && app.ship == Ship::Manifest);
-    // The shell is the first row, unlisted and always restarted; every other
-    // row is listed.
+        .all(|app| app.args == ["--client"]);
     let shell_ok = APPS
         .first()
         .is_some_and(|app| app.id == SHELL_APP_ID && !app.listed && app.restart == Restart::Always)
         && APPS.iter().skip(1).all(|app| app.listed);
-    ok &= has_editor && has_top && desktop_ok && shell_ok;
-    let shipped = APPS.iter().filter(|app| is_available(app)).count();
-    if ok {
-        alloc::format!(
-            "INIT:APPS:PASS count={}\nINIT:APPS:SHIPPED count={shipped}\n",
-            APPS.len()
-        )
-    } else {
-        String::from("INIT:APPS:FAIL registry is malformed\n")
-    }
+    // The desktop apps are packages now; a row for one would shadow it.
+    let no_packaged = ["editor", "files", "paint", "settings", "sysmon"]
+        .iter()
+        .all(|id| find_app(id).is_none());
+    let has_top = APPS
+        .iter()
+        .any(|app| app.id == "top" && app.path == fhs::bin::TOP);
+    rows_ok && clients_ok && shell_ok && no_packaged && has_top
+}
+
+/// How many built-in rows this image can launch.
+pub fn available_count() -> usize {
+    APPS.iter().filter(|app| is_available(app)).count()
 }

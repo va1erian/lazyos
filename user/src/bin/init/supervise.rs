@@ -60,27 +60,18 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
     Some(own)
 }
 
-/// Start one supervised row as a child of this task: `spawn_as` with the
-/// row's stamped credentials for a launched app, plain `spawn` (inheriting the
-/// supervisor's identity) for a manifest service.
+/// Start one supervised row as a child of this task: stamped with the row's
+/// credentials for a launched app, with the manifest credentials (or this
+/// supervisor's own identity) for a manifest service.
 pub(super) fn spawn_service(
     services: &mut [Service],
     index: usize,
     broker: &mut router::TopicBroker,
 ) {
-    let command = command_line(&services[index], services[index].restarts);
-    let spawned = match services[index]
+    let cred = services[index]
         .cred
-        .or_else(|| manifest_cred(services[index].name))
-    {
-        // A restarted installed app keeps its label: the kernel stamps it again
-        // at the spawn, so a crash never launders the sandbox.
-        Some(cred) => match services[index].label {
-            Some(label) => sys::spawn_as_labelled(&command, &cred, label),
-            None => sys::spawn_as(&command, &cred),
-        },
-        None => sys::spawn(&command),
-    };
+        .or_else(|| manifest_cred(services[index].name));
+    let spawned = spawn_row(&services[index], services[index].restarts, cred);
     match spawned {
         Some(pid) => {
             services[index].pid = pid;
@@ -135,22 +126,39 @@ pub(super) fn spawn_service(
     }
 }
 
-/// The NUL-terminated command line for a spawn: `PATH <args> attempt=<n>`.
-pub(super) fn command_line(service: &Service, restarts: u64) -> Vec<u8> {
-    // The kernel's spawn picks the Linux ABI personality from this prefix.
-    let mut line = String::from(if service.linux { "linux:" } else { "" });
-    line.push_str(service.path);
-    if !service.args.is_empty() {
-        line.push(' ');
-        line.push_str(&service.args);
-    }
-    line.push_str(&format!(" attempt={}", restarts + 1));
-    let mut bytes = line.into_bytes();
-    while bytes.last() == Some(&b' ') {
-        bytes.pop();
-    }
-    bytes.push(0);
-    bytes
+/// The `argv` of a spawn: `[path, args..., attempt=<n>]`. Each argument is
+/// one item as the row holds it, so a path with spaces stays whole.
+pub(super) fn argv(service: &Service, restarts: u64) -> Vec<String> {
+    let mut argv = Vec::with_capacity(service.args.len() + 2);
+    argv.push(String::from(service.path));
+    argv.extend(service.args.iter().cloned());
+    argv.push(format!("attempt={}", restarts + 1));
+    argv
+}
+
+/// Spawn `service` (its [`argv`] for attempt `restarts + 1`) as a child of
+/// this task, under its personality, stamped with `cred` (and the row's label,
+/// for an installed app) or inheriting this task's identity when `None`.
+///
+/// A restarted installed app keeps its label: the kernel stamps it again at
+/// the spawn, so a crash never launders the sandbox. The environment is the
+/// row's own (a launched app's session `HOME`, `USER` and `PATH`, fixed at
+/// launch), so a respawn sees the same one.
+pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred>) -> Option<u64> {
+    let argv = argv(service, restarts);
+    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let personality = if service.linux {
+        sys::Personality::Linux
+    } else {
+        sys::Personality::Native
+    };
+    let stamp = match (cred, service.label) {
+        (Some(cred), Some(label)) => sys::SpawnCred::AsLabelled(cred, label),
+        (Some(cred), None) => sys::SpawnCred::As(cred),
+        (None, _) => sys::SpawnCred::Inherit,
+    };
+    let env: Vec<&str> = service.env.iter().map(String::as_str).collect();
+    sys::spawnv(service.path, &argv, &env, personality, stamp).ok()
 }
 
 /// A service exited: apply its restart policy and publish the event.
@@ -222,7 +230,7 @@ pub(super) fn child_exited(
             attempt + 1
         ));
         // The machine-parseable restart/backoff marker: a crashing supervised
-        // app (`FLAKY.ELF`) proves the path in a headless boot.
+        // app (`/system/bin/flaky`) proves the path in a headless boot.
         sys::write_str(&format!(
             "INIT:RESTART:PASS name={name} status={status} attempt={} delay={delay}\n",
             attempt + 1

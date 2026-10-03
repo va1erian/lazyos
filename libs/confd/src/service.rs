@@ -15,7 +15,7 @@
 
 use alloc::vec::Vec;
 
-use crate::fs::{load, persist, retire, StoreFs};
+use crate::fs::{load, load_read_only, persist, retire, StoreFs};
 use crate::store::{Caller, Change, Error, Store};
 use crate::value::Value;
 
@@ -206,6 +206,56 @@ impl<F: StoreFs, S: ChangeSink> Confd<F, S> {
             added: added.len(),
             skipped,
         })
+    }
+
+    /// Seeds the live store from the legacy store (`/data/confd`) **once**.
+    ///
+    /// The marker [`crate::dir::SEEDED_MARKER_FILE`] in the live store's
+    /// directory records that it happened; with the marker present this is a
+    /// no-op returning `Ok(None)`, so a setting deleted after the migration
+    /// does not come back. Otherwise the entries of `legacy` (if any: `None`
+    /// is an absent legacy store) the live store lacks are merged in and
+    /// persisted, then the marker is written. `legacy` itself is never
+    /// written: it is read-only seed data until F7 removes it.
+    ///
+    /// # Errors
+    ///
+    /// [`ServiceError::Io`] when the marker cannot be read or written, the
+    /// legacy store cannot be read or the merged store cannot be persisted;
+    /// no marker is written then, so the next start retries.
+    pub fn seed_once<G: StoreFs>(
+        &mut self,
+        legacy: Option<&mut G>,
+    ) -> Result<Option<Migration>, ServiceError> {
+        let marker = crate::dir::SEEDED_MARKER_FILE;
+        if self
+            .fs
+            .read_file(marker)
+            .map_err(|_| ServiceError::Io)?
+            .is_some()
+        {
+            return Ok(None);
+        }
+        let mut report = Migration::default();
+        if let Some(source) = legacy {
+            let other = load_read_only(source).map_err(|_| ServiceError::Io)?;
+            let mut draft = self.store.clone();
+            let (added, skipped) = draft.merge_missing(&other);
+            if !added.is_empty() {
+                persist(&mut self.fs, &draft).map_err(|_| ServiceError::Io)?;
+                let old_store = core::mem::replace(&mut self.store, draft);
+                self.announce_differences(&old_store);
+            }
+            report = Migration {
+                added: added.len(),
+                skipped,
+            };
+        }
+        self.fs
+            .write_file(marker, b"seeded\n")
+            .and_then(|()| self.fs.fsync(marker))
+            .map_err(|_| ServiceError::Io)?;
+        Ok(Some(report))
     }
 
     /// Announce every announceable path whose value differs from `old`

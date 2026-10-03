@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 fn sample() -> Option<Vec<u8>> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/pkg/PKGDEMO.LZP");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/pkg/pkgdemo.lzp");
     match std::fs::read(&path) {
         Ok(bytes) => Some(bytes),
         Err(_) => {

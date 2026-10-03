@@ -21,9 +21,17 @@
 **Syscall wrappers** (`sys.rs`) - register convention: `rax` = number, args in
 `rdi/rsi/rdx`, result in `rax`. `rcx`/`r11` are clobbered, so every wrapper
 declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
-3 `read_file`, 4 `sbrk`, 5 `messenger`, 6 `spawn`, 7 `wait`, 8 `clock`,
-9 `service_args`, 10 `cred_set`/`cred_get`/`spawn_as`, 12 `display_*`,
-13 `tasks`, 14 `system_stats`, 15-21 filesystem and `power` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`).
+3 `read_file`, 4 `sbrk`, 5 `messenger`, 7 `wait`, 8 `clock`,
+9 `args()`/`env()`/`getenv()`/`service_args` (`sys/spawn.rs`: the `argv` and
+`envp` blocks, read once and kept; `service_args` joins `argv[1..]` with spaces
+for services that parse one string), 10 `cred_set`/`cred_get`/`label_name`, 12 `display_*`,
+13 `tasks`, 14 `system_stats`, 15-22 filesystem, `power` and `fsync`, 28 `append_file`, 30 `read_at` and 32 `chmod` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
+31 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
+only spawn; `SpawnCred::{Inherit, As, AsLabelled}` stamps the child's identity
+and `Personality::Linux` selects the Linux ABI), with the shorthands
+`spawn_native(path, &args)`/`spawn_linux(path, &args)` (`argv` = the path then
+`args`, inherited identity, no environment). The command-line `spawn` (6),
+`spawn_as`, `spawn_as_labelled` and the `user::cmdline` composer are gone.
 See [processes.md](processes.md) and [display.md](display.md).
 
 **Blocking Messenger client** (`messenger/`)
@@ -65,28 +73,28 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `libs/generated` | `midlc` output for every `idl/*.midl` (`os_lazy_echo_v1`, `os_lazy_messenger_registry_v1`, `os_lazy_messenger_topics_v1`, ...); also linked by the static-musl `xui-app` | `cargo test -p messenger-generated` |
 | `libs/crypto` | SHA-256, HMAC-SHA256, HKDF-SHA256, Argon2id, RNG pool, wrap/unwrap, hex | `cargo test -p lazyos-crypto` (KATs); issue #102 |
 
-**Services** (`user/src/bin/`; image names are 8.3)
+**Services** (`user/src/bin/`; each ships as `/system/bin/<program>`, `fhs::bin`)
 
 | Binary | Image | Role | Started by |
 |---|---|---|---|
-| `init` / `messengerd` | `SUPER` / `MSGRD.ELF` | Supervisor serving `os.lazy.init.v1` (`idl/init.midl`): the manifest, spawn/wait, restart backoff, the `Services` table, the app registry with `ListApps`/`Launch`/`Stop`; `XAPPS.LST` decides which registered apps the image ships, and `autostart` rows open at boot as the desktop's apps (#215/#216); the `lazyshell` row, `XSHELL.ELF`, is unlisted in `ListApps`, autostarted first and restarted `Always` (#157); `Shutdown` stops the apps (LazyShell included, never restarted once the shutdown starts), then the services in reverse dependency order, then calls the kernel's `power` ([../shutdown.md](../shutdown.md)) / bootstrap registry proxy and central topics broker | kernel / `init` |
-| `powerctl` | `POWERCTL.ELF` | `powerctl poweroff\|reboot [-f] [reason]`: asks `init` for an orderly stop; the shell's `shutdown`, `poweroff`, `halt` and `reboot` run it ([../shutdown.md](../shutdown.md)) | shell (`sh` native exec) |
-| `logd` / `healthd` | `LOGD` / `HEALTHD.ELF` | Hash-chained event log / health aggregation serving `os.lazy.healthd.v1` (`idl/healthd.midl`): one row per supervised service, retained on `system/health/<name>`, plus the aggregate on `system/health/summary` | `init` |
-| `confd` / `confctl` | `CONFD` / `CONFCTL.ELF` | Configuration registry `os.lazy.confd.v1` (`idl/confd.midl`, #260; [confd-plan](../confd-plan.md)) / its command line and `demo=1` self-test | `init` (after `messengerd`) / shell or `confd` (`demo=1`) |
-| `pkgd` / `pkgctl` | `PKGD` / `PKGCTL.ELF` | Application package manager `os.lazy.pkgd.v1` (`idl/pkgd.midl`; [packages.md](../packages.md)): owns `/data/apps`, records installs in `confd`, registers types with `mimed`, loads app policy into the kernel / its command line | `init` (after `confd` and `mimed`) / shell |
-| `keyd` / `accountsd` / `logind` | `KEYD` / `ACCTD` / `LOGIND.ELF` | Secrets and crypto (#102) / accounts (#101) / console login and credentialed spawn; with the confd key `sys/session/mode` = `graphical` a login asks `init` to `Launch("lazyshell", "", <session>)` instead of spawning `sh` (#157) | `init` |
-| `clipboardd` / `mimed` / `flaky` | `CLIPD` / `MIMED` / `FLAKY.ELF` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
-| `clipcopy` / `clippaste` / `messengerctl` | `CLIPCP` / `CLIPPS` / `MSGCTL.ELF` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
-| `netd` / `netctl` / `ping` | `NETD.ELF` / `NETCTL.ELF` / `PING.ELF` | The network stack service (smoltcp in `libs/netstack`): DHCP, ARP, echo, `os.lazy.net.stack.v1` (`idl/net.midl`), supervised by `init` as `_netd` (uid 903, no capabilities); the only client of `netdrv`. `netctl` shows and drives it, `ping` is the native ping. `LAZYOS_NETD=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netd` (`demo=1`) |
-| `netdrv` / `nicctl` | `NETDRV.ELF` / `NICCTL.ELF` | virtio-net driver serving `os.lazy.net.nic.v1` (`idl/net.midl`), supervised by `init` as `_net` (uid 902); `nicctl [arp]` is its shell command and the network harness's client. `LAZYOS_NET=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netdrv` (`demo=1`) |
-| `sndd` / `beep` | `SNDD` / `BEEP.ELF` | virtio-sound driver serving `os.lazy.audio.v1` (`idl/audio.midl`), supervised by `init` as `_snd`; `beep [freq_hz [ms]]` is its shell command and the sound harness's client. `LAZYOS_SOUND=1` or the desktop profile ships them; see [audio.md](audio.md) | `init` / shell (`sh` native exec) or `sndd` (`demo=1`) |
-| `timed` / `timectl` | `TIMED` / `TIMECTL.ELF` | Time-of-day service `os.lazy.timed.v1` (`idl/timed.midl`, #369): UTC from syscall 24, zone from `confd` `sys/time/zone` (UTC when unset, follows change notifications), retained `time/tick` topic each minute; zone/DST tables and resolution live in `libs/timed` (`timezone`). `timectl` is its command line and `demo=1` self-test | `init` (after `messengerd` and `confd`) / `timed` (`demo=1`) |
-| `inputd` | `INPUTD.ELF` | Input policy service (`docs/input-plan.md`): the only holder of the kernel `input.raw` capability. Drains the raw HID-coded key bus (syscall 25), applies the compiled-in US/FR keymap (`libs/inputmap`; `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`), modifier/lock state, key repeat (500 ms delay, 30 ms interval, flagged `Repeat`) and hotkeys, and serves `os.lazy.input.v1` (client sessions) and `os.lazy.input.shell.v1` (the compositor: surface registration, focus, hotkeys) from `idl/input.midl`. `trace=1` (debug images) echoes `INPUTD:KEY`/`INPUTD:TEXT` to serial (`tools/input/verify_trace.py`) | `init` (after `confd`, with only `CAP_INPUT_RAW`) |
-| `sysmond` / `top` | `SYSD` / `TOP.ELF` | System-stats service `os.lazy.sysmond.v1` (`idl/sysmond.midl`) over syscall 14 with retained `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
-| `usbd` | `USBD.ELF` | xHCI USB HID driver feeding `inputd` (keyboard, mouse, tablet, hot-plug; [usb-hid-plan](../usb-hid-plan.md)). `LAZYOS_USB=1` ships it | `init` (after `inputd`, `OnFailure`) |
-| `hello` / `xuid` / `xdemo` | `HELLO` / `XUID` / `XDEMO.ELF` | demo / compositor and display demo (#113). The system shell is BusyBox `sh` (`BUSYBOX`, a Linux-ABI binary built by `tools/abi/busybox.py`, #254) | kernel |
-| `faultprobe` | `FAULTPRB.ELF` | Deliberate ring-3 faults (#7); run by hand from `sh` (`faultprobe null`, `kernel`, `priv`, `div`, `ud`) | - |
-| `dragdemo` / `shellprobe` | `DRAGDMO` / `SHELLPRB.ELF` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
+| `init` / `messengerd` | `init` / `messengerd` | Supervisor serving `os.lazy.init.v1` (`idl/init.midl`): the manifest, spawn/wait, restart backoff, the `Services` table, the app registry with `ListApps`/`Launch`/`Stop`: the built-ins (Terminal, Devices, the Installer, the console tools) plus every app `pkgd` installed, read from confd's `sys/apps/*` (since F5 every desktop app is a core package; a bare short id such as `editor` is an alias of `os.lazy.editor`), with `ListApps` reporting each one's origin, category, icon and whether the caller hides it; installed apps whose manifest sets `autostart` open at login once `pkgd` has provisioned (#509); the `lazyshell` row, `/system/bin/lazyshell`, is unlisted in `ListApps`, autostarted first and restarted `Always` (#157); `Shutdown` stops the apps (LazyShell included, never restarted once the shutdown starts), then the services in reverse dependency order, then calls the kernel's `power` ([../shutdown.md](../shutdown.md)) / bootstrap registry proxy and central topics broker | kernel / `init` |
+| `powerctl` | `powerctl` | `powerctl poweroff\|reboot [-f] [reason]`: asks `init` for an orderly stop; the shell's `shutdown`, `poweroff`, `halt` and `reboot` run it ([../shutdown.md](../shutdown.md)) | shell (`sh` native exec) |
+| `logd` / `healthd` | `logd` / `healthd` | Hash-chained event log serving `os.lazy.logd.v1` (`idl/logd.midl`): a 64-record ring (`Tail`/`Count`/`Verify`) plus one persistent journal per source in `/logs/<source>.log` (`libs/logstore`: tab-separated escaped lines, a `boot` line and a hash chain per boot, rotation at 256 KiB to `.1`/`.2`, an 8 MiB budget that leaves `pkg.log` alone; `Sources`/`TailFile` for uid 0; `LOGD:STORE:ABSENT` and health `degraded` without a writable `/logs`) / health aggregation serving `os.lazy.healthd.v1` (`idl/healthd.midl`): one row per supervised service, retained on `system/health/<name>`, plus the aggregate on `system/health/summary` | `init` |
+| `confd` / `confctl` | `confd` / `confctl` | Configuration registry `os.lazy.confd.v1` (`idl/confd.midl`, #260; [confd-plan](../confd-plan.md)), its store in `/conf` (0700 root; `/data/confd` seeded once) / its command line and `demo=1` self-test | `init` (after `messengerd`) / shell or `confd` (`demo=1`) |
+| `pkgd` / `pkgctl` | `pkgd` / `pkgctl` | Application package manager `os.lazy.pkgd.v1` (`idl/pkgd.midl`; [packages.md](../packages.md)): owns `/apps` and `/docs/apps` and writes `/logs/pkg.log`, records installs in `confd`, registers types with `mimed`, loads app policy into the kernel, serves `os.lazy.lifecycle.v1` / its command line | `init` (after `confd` and `mimed`) / shell |
+| `keyd` / `accountsd` / `logind` | `keyd` / `accountsd` / `logind` | Secrets and crypto (#102) / accounts (#101; `admin` and `user` from `/system/etc/passwd` only, failing closed without it, #508) / console login and credentialed spawn; with the confd key `sys/session/mode` = `graphical` a login asks `init` to `Launch("lazyshell", "", <session>)` instead of spawning `sh` (#157) | `init` |
+| `clipboardd` / `mimed` / `flaky` | `clipboardd` / `mimed` / `flaky` | Per-session clipboard (#115) / MIME and open-with (#116) / crash-test service (#93, never started by `LAZYOS_DESKTOP=1`) | `init` |
+| `clipcopy` / `clippaste` / `messengerctl` | `clipcp` / `clippaste` / `messengerctl` | Clipboard demo pair (#115, `demo=1` only) / fabric+services views (#70/#89/#93) | `clipboardd`, kernel flag |
+| `netd` / `netctl` / `ping` | `netd` / `netctl` / `ping` | The network stack service (smoltcp in `libs/netstack`): DHCP, ARP, echo, `os.lazy.net.stack.v1` (`idl/net.midl`), supervised by `init` as `_netd` (uid 903, no capabilities); the only client of `netdrv`. `netctl` shows and drives it, `ping` is the native ping. `LAZYOS_NETD=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netd` (`demo=1`) |
+| `netdrv` / `nicctl` | `netdrv` / `nicctl` | virtio-net driver serving `os.lazy.net.nic.v1` (`idl/net.midl`), supervised by `init` as `_net` (uid 902); `nicctl [arp]` is its shell command and the network harness's client. `LAZYOS_NET=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netdrv` (`demo=1`) |
+| `sndd` / `beep` | `sndd` / `beep` | virtio-sound driver serving `os.lazy.audio.v1` (`idl/audio.midl`), supervised by `init` as `_snd`; `beep [freq_hz [ms]]` is its shell command and the sound harness's client. `LAZYOS_SOUND=1` or the desktop profile ships them; see [audio.md](audio.md) | `init` / shell (`sh` native exec) or `sndd` (`demo=1`) |
+| `timed` / `timectl` | `timed` / `timectl` | Time-of-day service `os.lazy.timed.v1` (`idl/timed.midl`, #369): UTC from syscall 24, zone from `confd` `sys/time/zone` (UTC when unset, follows change notifications), retained `time/tick` topic each minute; zone/DST tables and resolution live in `libs/timed` (`timezone`). `timectl` is its command line and `demo=1` self-test | `init` (after `messengerd` and `confd`) / `timed` (`demo=1`) |
+| `inputd` | `inputd` | Input policy service (`docs/input-plan.md`): the only holder of the kernel `input.raw` capability. Drains the raw HID-coded key bus (syscall 25), applies the compiled-in US/FR keymap (`libs/inputmap`; `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`), modifier/lock state, key repeat (500 ms delay, 30 ms interval, flagged `Repeat`) and hotkeys, and serves `os.lazy.input.v1` (client sessions) and `os.lazy.input.shell.v1` (the compositor: surface registration, focus, hotkeys) from `idl/input.midl`. `trace=1` (debug images) echoes `INPUTD:KEY`/`INPUTD:TEXT` to serial (`tools/input/verify_trace.py`) | `init` (after `confd`, with only `CAP_INPUT_RAW`) |
+| `sysmond` / `top` | `sysmond` / `top` | System-stats service `os.lazy.sysmond.v1` (`idl/sysmond.midl`) over syscall 14 with retained `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
+| `usbd` | `usbd` | xHCI USB HID driver feeding `inputd` (keyboard, mouse, tablet, hot-plug; [usb-hid-plan](../usb-hid-plan.md)). `LAZYOS_USB=1` ships it | `init` (after `inputd`, `OnFailure`) |
+| `hello` / `xuid` / `xdemo` | `hello` / `xuid` / `xdemo` | demo / compositor and display demo (#113). The system shell is BusyBox `sh` (`/system/bin/busybox`, a Linux-ABI binary built by `tools/abi/busybox.py`, #254) | kernel |
+| `faultprobe` | `faultprobe` | Deliberate ring-3 faults (#7); run by hand from `sh` (`faultprobe null`, `kernel`, `priv`, `div`, `ud`) | - |
+| `dragdemo` / `shellprobe` | `dragdemo` / `shellprobe` | Drag & drop evidence pair (#145) / shell-protocol evidence client (#167); `LAZYOS_XUID=1` images | kernel |
 | `async_echo` / `async_service` | not on disk | `messenger_async` examples (#91) | - |
 
 **Running native programs from `sh`** (#315): `top`, `confctl`, `msgctl`
@@ -106,7 +114,7 @@ workspace: `rhai-host/` (thin wrapper: argv, stdio, files, clock) around
 filesystem/environment). `python tools/rhai/build.py` builds it (rust-lld
 self-contained on Windows, no C compiler; it reports "unavailable" and exits 0
 when the musl target cannot be installed) to `target/rhai/rhai.elf`; the root
-`build.rs` (`build_support/rhai_embed.rs`) embeds it as `RHAI.ELF` when present
+`build.rs` (`build_support/rhai_embed.rs`) embeds it as `/system/bin/rhai` when present
 (`LAZYOS_RHAI` overrides; the ABI bench's `LAZYOS_INIT` skips it).
 `tools/run_demo.py` runs `build.py` before every image build, and
 `python tools/rhai/run.py [--desktop]` does build, image, boot and verdict in one
@@ -148,11 +156,11 @@ command.
   scripted runs (no banner, prompts or echo). `isatty` is not usable to pick
   the mode: the shim reports every stdio fd as a terminal.
 - **Resolution.** `rhai` typed at `sh` (or `/usr/local/bin/rhai`, `/bin/rhai`)
-  is loaded from the image root `RHAI.ELF`: `load_executable`
-  (`kernel/src/process/linux/path.rs`) tries the exact path, then the
-  `<NAME>.ELF` of an applet-shaped name (at most 8 characters, mandatory
-  `.ELF`, so a data file such as `PASSWD` never shadows the `passwd` applet),
-  then the BusyBox alias. The `linux:` spawn path uses the same function.
+  is loaded from `/system/bin/rhai`: `load_executable`
+  (`kernel/src/process/linux/path.rs`) tries the exact path, then
+  `/system/bin/<name>` for an applet-shaped name (byte for byte; only
+  programs live there, so a data file such as `/system/etc/passwd` never
+  shadows the `passwd` applet), then the BusyBox alias. A Linux-personality `spawnv` uses the same function.
 - **Feature set.** `rhai =1.26.1`, `default-features = false` (no `ahash`
   runtime RNG, so no `getrandom`), `sync` off, no `no_*` language feature; no
   `libc` dependency. Tests: `cargo test` in `libs/rhai-lazy` (bindings, limits,

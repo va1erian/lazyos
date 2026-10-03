@@ -36,10 +36,9 @@ path = "src/main.rs"
 xui-app = { path = "../xui-app" }
 # The parcel type the event channels decode to (`xui-app` re-uses it too).
 libmessenger = { path = "../libs/messenger" }
-# Every well-known path (`/tmp/doom`, the headless result file) lives here.
-fhs = { path = "../libs/fhs" }
-# `getuid`, to find the player's home when `init` passes no `HOME`.
-libc = "0.2"
+# Every well-known path (`/tmp/doom`, the headless result file, the app's
+# per-user folder) lives here.
+fhs = { path = "../libs/fhs", features = ["alloc"] }
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }

@@ -19,11 +19,11 @@
   "wait": 0.5
  },
  {
-  "type": "/LRPLAY.ELF --client /LAZYRAD/modplayer &"
+  "type": "/system/bin/lrplay --client /system/share/lazyrad/modplayer &"
  },
  {
   "key": "enter",
-  "until": "TERM:CMD:/LRPLAY.ELF --client /LAZYRAD/modplayer &",
+  "until": "TERM:CMD:/system/bin/lrplay --client /system/share/lazyrad/modplayer &",
   "timeout": 30,
   "retries": 1
  },

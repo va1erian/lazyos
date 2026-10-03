@@ -8,10 +8,7 @@ use super::{DEFAULT_HISTORY, DEMO_PROGRAMS, MAX_HISTORY};
 
 /// The service's manifest-argument history depth (`history=N`, clamped).
 pub(super) fn history_from_args() -> usize {
-    let mut buffer = [0u8; 128];
-    let len = sys::service_args(&mut buffer).min(buffer.len());
-    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-    for part in text.split_whitespace() {
+    for part in sys::args().skip(1) {
         if let Some(value) = part.strip_prefix("history=") {
             if let Ok(depth) = value.parse::<usize>() {
                 return depth.clamp(1, MAX_HISTORY);
@@ -23,10 +20,7 @@ pub(super) fn history_from_args() -> usize {
 
 /// Whether the manifest asked for the demo pair (`demo=1`).
 pub(super) fn demo_from_args() -> bool {
-    let mut buffer = [0u8; 128];
-    let len = sys::service_args(&mut buffer).min(buffer.len());
-    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-    text.split_whitespace().any(|part| part == "demo=1")
+    sys::args().skip(1).any(|arg| arg == "demo=1")
 }
 
 /// Spawn the two demo clients as children of this service; returns how many
@@ -35,9 +29,7 @@ pub(super) fn demo_from_args() -> bool {
 pub(super) fn spawn_demo() -> u64 {
     let mut started = 0u64;
     for program in DEMO_PROGRAMS {
-        let mut command = program.as_bytes().to_vec();
-        command.push(0);
-        match sys::spawn(&command) {
+        match sys::spawn_native(program, &[]) {
             Some(pid) => {
                 started += 1;
                 sys::write_str(&format!("clipboardd: started demo {program} (pid {pid})\n"));

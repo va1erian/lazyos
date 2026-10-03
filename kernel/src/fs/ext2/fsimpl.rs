@@ -8,6 +8,13 @@ use ext2fs::{AttrChange, FsStats, InodeMeta, Owner};
 use super::{hidden, Ext2};
 use crate::fs::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs, Times};
 
+/// Bytes one library read or write moves before the next piece. A syscall
+/// runs with interrupts off, and a 1 MiB write into the block cache takes
+/// about 40 ms of CPU, long enough for the keyboard controller's queue to
+/// overflow (`input::ps2`); between pieces the controller is drained, so the
+/// stretch without input servicing stays near 2 ms whatever the size.
+const PIECE: usize = 64 * 1024;
+
 impl Filesystem for Ext2 {
     fn name(&self) -> &'static str {
         // A volume on a device that cannot be written is mounted read-only;
@@ -24,11 +31,29 @@ impl Filesystem for Ext2 {
     }
 
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
-        Ok(self.volume.read(path, offset, buf)?)
+        let mut done = 0;
+        for piece in buf.chunks_mut(PIECE) {
+            crate::input::ps2::service();
+            let read = self.volume.read(path, offset + done as u64, piece)?;
+            done += read;
+            if read < piece.len() {
+                break;
+            }
+        }
+        Ok(done)
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
-        Ok(self.volume.write(path, offset, data)?)
+        let mut done = 0;
+        for piece in data.chunks(PIECE) {
+            crate::input::ps2::service();
+            let written = self.volume.write(path, offset + done as u64, piece)?;
+            done += written;
+            if written < piece.len() {
+                break;
+            }
+        }
+        Ok(done)
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
@@ -76,6 +101,10 @@ impl Filesystem for Ext2 {
 
     fn flush(&self) -> Result<(), FsError> {
         Ok(self.volume.flush()?)
+    }
+
+    fn writeback(&self, pressure: bool) -> Result<(), FsError> {
+        Ext2::writeback(self, pressure)
     }
 
     fn statfs(&self) -> Result<StatFs, FsError> {

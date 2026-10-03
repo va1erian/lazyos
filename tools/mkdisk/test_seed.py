@@ -24,7 +24,7 @@ from mkdisk import accounts, geometry, layout, volume  # noqa: E402
 from mkdisk.__main__ import main as mkdisk_main, octal_mode  # noqa: E402
 from test_mkdisk import MIB, Volume, format_bytes, kernel_open_errors  # noqa: E402
 
-ALICE = accounts.Account("alice", 1000, 1000, "/home/alice", "sh")
+USER = accounts.Account("user", 1000, 1000, "/home/user", "sh")
 BOB = accounts.Account("bob", 1001, 100, "/home/bob", "sh")
 SHAPES = [(1 * MIB, 1024), (1 * MIB, 4096), (64 * MIB, 4096), (40 * MIB, 1024),
           (200 * MIB, 4096), (200 * MIB, 2048)]  # the last three span several groups
@@ -33,8 +33,8 @@ S_ISVTX = 0o1000
 
 def demo_layout(**root) -> layout.Layout:
     """Two users plus a nested directory, so parent links and depth are covered."""
-    seeded = layout.seeded(accounts=[ALICE, BOB], **root)
-    nested = layout.DirSpec("/home/alice/docs", 0o700, ALICE.uid, ALICE.gid)
+    seeded = layout.seeded(accounts=[USER, BOB], **root)
+    nested = layout.DirSpec("/home/user/docs", 0o700, USER.uid, USER.gid)
     return layout.Layout(seeded.root_mode, seeded.root_uid, seeded.root_gid,
                          seeded.dirs + (nested,))
 
@@ -63,9 +63,9 @@ class SeededTreeTests(unittest.TestCase):
         return node["mode"], node["uid"], node["gid"]
 
     def test_owner_and_mode_round_trip(self) -> None:
-        self.assertEqual(self.attributes("/home/alice"), (0o040755, 1000, 1000))
-        self.assertEqual(self.attributes("/home/bob"), (0o040755, 1001, 100))
-        self.assertEqual(self.attributes("/home/alice/docs"), (0o040700, 1000, 1000))
+        self.assertEqual(self.attributes("/home/user"), (0o040700, 1000, 1000))
+        self.assertEqual(self.attributes("/home/bob"), (0o040700, 1001, 100))
+        self.assertEqual(self.attributes("/home/user/docs"), (0o040700, 1000, 1000))
         self.assertEqual(self.attributes("/home"), (0o040755, 0, 0))
 
     def test_tmp_is_sticky_and_world_writable(self) -> None:
@@ -84,8 +84,8 @@ class SeededTreeTests(unittest.TestCase):
         self.assertEqual((root["mode"], root["uid"], root["gid"]), (0o041777, 1000, 1000))
 
     def test_the_tree_is_exactly_what_was_asked_for(self) -> None:
-        self.assertEqual(set(self.tree), {"/", "/lost+found", "/home", "/home/alice",
-                                          "/home/alice/docs", "/home/bob", "/tmp"})
+        self.assertEqual(set(self.tree), {"/", "/lost+found", "/home", "/home/user",
+                                          "/home/user/docs", "/home/bob", "/tmp"})
         self.assertEqual([e[2] for e in self.v.entries(geometry.ROOT_INO)],
                          [b".", b"..", b"lost+found", b"home", b"tmp"])
 
@@ -99,7 +99,7 @@ class SeededTreeTests(unittest.TestCase):
             self.assertEqual(self.v.inode(ino)["links"], 2 + len(subdirs), path)
 
     def test_seeded_inodes_follow_lost_found(self) -> None:
-        self.assertEqual([self.tree[p] for p in ("/home", "/home/alice", "/home/bob")],
+        self.assertEqual([self.tree[p] for p in ("/home", "/home/user", "/home/bob")],
                          [12, 13, 14])
 
 
@@ -183,19 +183,19 @@ class LayoutRuleTests(unittest.TestCase):
             format_bytes(8 * MIB, 1024, layout=layout.Layout(dirs=many))
 
     def test_home_dirs_only_for_accounts_homed_under_home(self) -> None:
-        root = accounts.Account("root", 0, 0, "/root", "sh")
+        nobody = accounts.Account("nobody", 65534, 65534, "/", "sh")
         odd = accounts.Account("svc", 5, 5, "/var/svc", "sh")
-        self.assertEqual([d.path for d in layout.home_dirs([root, ALICE, odd])],
-                         ["/home/alice"])
+        self.assertEqual([d.path for d in layout.home_dirs([nobody, USER, odd])],
+                         ["/home/user"])
 
 
 class HomeVolumeLayoutTests(unittest.TestCase):
     """`--home-volume`: <user>/ at the root, the same owners and modes as /home/<user>."""
 
     def test_users_sit_at_the_volume_root(self) -> None:
-        plan = layout.home_volume(accounts=[ALICE, BOB])
+        plan = layout.home_volume(accounts=[USER, BOB])
         self.assertEqual([(d.path, d.mode, d.uid, d.gid) for d in plan.dirs],
-                         [("/alice", 0o755, 1000, 1000), ("/bob", 0o755, 1001, 100)])
+                         [("/user", 0o700, 1000, 1000), ("/bob", 0o700, 1001, 100)])
 
     def test_no_home_or_tmp_directory(self) -> None:
         paths = {d.path for d in layout.home_volume().dirs}
@@ -208,31 +208,40 @@ class HomeVolumeLayoutTests(unittest.TestCase):
         self.assertEqual(home, seeded)
 
     def test_services_and_foreign_homes_are_skipped(self) -> None:
-        root = accounts.Account("root", 0, 0, "/root", "sh")
+        nobody = accounts.Account("nobody", 65534, 65534, "/", "sh")
         odd = accounts.Account("svc", 5, 5, "/var/svc", "sh")
-        self.assertEqual(layout.home_volume(accounts=[root, ALICE, odd]).dirs[0].path, "/alice")
-        self.assertEqual(len(layout.home_volume(accounts=[root, ALICE, odd]).dirs), 1)
+        self.assertEqual(layout.home_volume(accounts=[nobody, USER, odd]).dirs[0].path, "/user")
+        self.assertEqual(len(layout.home_volume(accounts=[nobody, USER, odd]).dirs), 1)
 
     def test_formatted_tree_is_exactly_lost_found_plus_the_users(self) -> None:
-        plan = layout.home_volume(accounts=[ALICE, BOB])
+        plan = layout.home_volume(accounts=[USER, BOB])
         v = Volume(format_bytes(8 * MIB, layout=plan))
         tree = walk(v)
-        self.assertEqual(set(tree), {"/", "/lost+found", "/alice", "/bob"})
+        self.assertEqual(set(tree), {"/", "/lost+found", "/user", "/bob"})
         node = v.inode(tree["/bob"])
-        self.assertEqual((node["mode"], node["uid"], node["gid"]), (0o040755, 1001, 100))
+        self.assertEqual((node["mode"], node["uid"], node["gid"]), (0o040700, 1001, 100))
 
 
 class DemoAccountsTests(unittest.TestCase):
-    """The seed reads ``accountsd.rs``; these fail if the copies drift apart."""
+    """The seed reads the one account file the build installs (issue #508)."""
 
-    def test_accountsd_and_the_boot_image_agree(self) -> None:
-        # build.rs writes the PASSWD the boot volume carries as a second literal.
-        self.assertEqual(accounts.builtin_passwd(), accounts.image_passwd())
+    def test_the_build_installs_the_same_file(self) -> None:
+        # No second copy: build.rs embeds this very file as /system/etc/passwd.
+        build = accounts.BUILD_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('include_bytes!("build_support/passwd")', build)
+        self.assertNotIn("BUILTIN", (accounts.ROOT / "user" / "src" / "bin" / "accountsd.rs")
+                         .read_text(encoding="utf-8"))
 
-    def test_demo_accounts_include_alice(self) -> None:
-        by_name = {a.name: a for a in accounts.demo_accounts()}
-        self.assertEqual(by_name["root"].uid, 0)
-        self.assertEqual((by_name["alice"].uid, by_name["alice"].home), (1000, "/home/alice"))
+    def test_demo_accounts_are_admin_and_user(self) -> None:
+        self.assertEqual(
+            [(a.name, a.uid, a.gid, a.home) for a in accounts.demo_accounts()],
+            [("admin", 0, 0, "/home/admin"), ("user", 1000, 1000, "/home/user")])
+
+    def test_home_volume_owners_match_passwd(self) -> None:
+        # #447: the home volume's owners are the account file's, nothing else.
+        dirs = {d.path: (d.mode, d.uid, d.gid) for d in layout.home_volume().dirs}
+        self.assertEqual(dirs, {f"/{a.name}": (0o700, a.uid, a.gid)
+                                for a in accounts.demo_accounts()})
 
     def test_default_seed_has_a_home_per_account(self) -> None:
         homes = {d.path: d for d in layout.seeded().dirs}
@@ -241,20 +250,18 @@ class DemoAccountsTests(unittest.TestCase):
                 spec = homes[account.home]
                 self.assertEqual((spec.uid, spec.gid), (account.uid, account.gid))
 
-    def test_parser_and_unescape(self) -> None:
-        text = accounts.unescape_rust("a:1:2:s:/home/a:sh\\nb:3:4:s:/home/b:sh\\n")
+    def test_parser(self) -> None:
+        text = "# accounts\n\na:1:2:s:/home/a:sh\nb:3:4:s:/home/b:sh\n"
         self.assertEqual([a.name for a in accounts.parse_passwd(text)], ["a", "b"])
         with self.assertRaises(ValueError):
-            accounts.unescape_rust("bad\\x41")
-        with self.assertRaises(ValueError):
             accounts.parse_passwd("only:three:fields")
+        with self.assertRaises(ValueError):
+            accounts.parse_passwd("a:-1:2:s:/home/a:sh")
 
-    def test_missing_source_pattern_is_reported(self) -> None:
+    def test_missing_file_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "empty.rs"
-            source.write_text("fn main() {}\n")
             with self.assertRaises(ValueError):
-                accounts.demo_accounts(source)
+                accounts.demo_accounts(Path(tmp) / "passwd")
 
 
 class CommandLineTests(unittest.TestCase):
@@ -278,7 +285,8 @@ class CommandLineTests(unittest.TestCase):
     def test_default_image_is_seeded_with_root_owned_0755_root(self) -> None:
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
-        self.assertIn("/home/alice (mode 0755, uid 1000, gid 1000)", out)
+        self.assertIn("/home/user (mode 0700, uid 1000, gid 1000)", out)
+        self.assertIn("/home/admin (mode 0700, uid 0, gid 0)", out)
         v = Volume(self.path.read_bytes())
         self.assertEqual(v.inode(geometry.ROOT_INO)["mode"], 0o040755)
         self.assertIn("/tmp", walk(v))
@@ -296,10 +304,11 @@ class CommandLineTests(unittest.TestCase):
         code, out, _ = self.run_main("--home-volume")
         self.assertEqual(code, 0)
         self.assertIn("label 'lazyhome'", out)
-        self.assertIn("/alice (mode 0755, uid 1000, gid 1000)", out)
+        self.assertIn("/admin (mode 0700, uid 0, gid 0)", out)
+        self.assertIn("/user (mode 0700, uid 1000, gid 1000)", out)
         image = self.path.read_bytes()
         self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")  # s_volume_name
-        self.assertEqual(set(walk(Volume(image))), {"/", "/lost+found", "/alice"})
+        self.assertEqual(set(walk(Volume(image))), {"/", "/lost+found", "/admin", "/user"})
 
     def test_home_volume_label_can_be_overridden(self) -> None:
         code, out, _ = self.run_main("--home-volume", "--label", "other")
@@ -326,7 +335,7 @@ class CommandLineTests(unittest.TestCase):
 
     def test_format_image_defaults_to_seeded_and_can_be_bare(self) -> None:
         volume.format_image(self.path, 8 * MIB)
-        self.assertIn("/home/alice", walk(Volume(self.path.read_bytes())))
+        self.assertIn("/home/user", walk(Volume(self.path.read_bytes())))
         volume.format_image(self.path, 8 * MIB, layout=layout.EMPTY)
         self.assertEqual(set(walk(Volume(self.path.read_bytes()))), {"/", "/lost+found"})
 
@@ -347,7 +356,7 @@ class E2fsckSeededTests(unittest.TestCase):
             with self.subTest(size=size, block_size=block_size), \
                     tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "home.img"
-                plan = layout.home_volume(accounts=[ALICE, BOB])
+                plan = layout.home_volume(accounts=[USER, BOB])
                 path.write_bytes(format_bytes(size, block_size, layout=plan, label="lazyhome"))
                 done = subprocess.run(["e2fsck", "-fn", str(path)], capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

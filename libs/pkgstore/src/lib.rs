@@ -14,12 +14,21 @@
 //! * [`explain`]: the plain-language sentence and risk for every permission,
 //!   keyed by MIDL interface name (a test proves it covers every `idl/*.midl`
 //!   interface);
-//! * [`audit`]: the hash-chained `/data/log/pkg.log` format and its verifier;
+//! * [`audit`]: the hash-chained `/logs/pkg.log` format and its verifier;
 //! * [`layout`]: install directory paths and the extraction plan, with the
 //!   path-safety checks a root writer must make even for a validated package;
+//! * [`docs`]: where an app's documentation goes (`/docs/apps/<system_name>`)
+//!   and how an interrupted replacement is repaired;
+//! * [`tree`]: extraction, documentation and removal over a [`tree::TreeFs`],
+//!   the same code under `pkgd`'s syscalls, the host tests and the kernel
+//!   suite;
+//! * [`provision`]: which core packages (`/system/packages`) to install,
+//!   upgrade, keep or demote, the provisioning stamp, and the refusals a core
+//!   app adds to `Remove` and `Install`;
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
-//! The crate is `no_std` + `alloc` and touches no syscall.
+//! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
+//! the filesystem only through the trait its caller implements.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -27,7 +36,10 @@ extern crate alloc;
 
 pub mod access;
 pub mod audit;
+pub mod docs;
 pub mod explain;
 pub mod hash;
 pub mod layout;
+pub mod provision;
 pub mod rules;
+pub mod tree;

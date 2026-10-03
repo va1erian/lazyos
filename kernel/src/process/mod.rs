@@ -14,7 +14,7 @@
 //! declared, because native programs have no `argv` stack yet:
 //!
 //! ```text
-//!   rax = 6  rdi -> "PATH.ELF [args...]" (NUL-terminated)   -> pid | -1
+//!   rax = 6  rdi -> "PATH [args...]" (NUL-terminated)   -> pid | -1
 //!   rax = 7  rdi = absolute PIT deadline (0 = forever)       -> pid<<32 | status, or -1
 //!   rax = 8                                                  -> PIT ticks
 //!   rax = 9  rdi -> buffer, rsi = capacity                   -> argument length
@@ -36,7 +36,7 @@
 //!   rax = 10  rdi = op
 //!   op 0 (set):   rsi = target pid (u64::MAX = caller), rdx -> Cred block
 //!   op 1 (get):   rsi = target pid (u64::MAX = caller), rdx <- Cred block
-//!   op 2 (spawn): rsi -> "PATH.ELF [args...]" (NUL),       rdx -> Cred block
+//!   op 2 (spawn): rsi -> "PATH [args...]" (NUL),       rdx -> Cred block
 //! ```
 //!
 //! Every request is validated by [`credentials::transition`] (only an actor
@@ -112,13 +112,14 @@ use crate::{fs, input::keyboard, mem};
 
 #[allow(unused_imports)] // part of the module ABI; referenced by tests and userspace docs
 pub use creds::cred_op;
-use creds::{sys_creds, sys_quota, sys_tasks, syscall_error, EFAULT};
-use spawn::{sys_spawn, SERVICE_ARGS};
+use creds::{sys_creds, sys_quota, sys_tasks};
 
+mod argstore;
 mod credio;
 mod creds;
+mod exec_perm;
 pub mod fsops;
-mod gate;
+pub(crate) mod gate;
 pub mod inetsys;
 pub mod killsys;
 pub mod linux;
@@ -126,7 +127,7 @@ pub mod loader;
 pub mod power;
 pub mod randsys;
 mod spawn;
-pub mod spawn_line;
+pub mod spawnv;
 pub mod wallsys;
 
 use credio::{read_cred, write_cred};
@@ -146,10 +147,25 @@ pub const USER_STACK_TOP: u64 = 0x0800_0000;
 /// User stack size.
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
 
-/// Record the argument string syscall 9 hands to the task in `slot` (the
-/// Linux `execve` path for native programs, `process::linux::native`).
-pub(crate) fn set_service_args(slot: usize, args: &[u8]) {
-    SERVICE_ARGS.lock()[slot] = Some(args.to_vec());
+/// Record the `argv` of the native task in `slot`, `argv[0]` included, with an
+/// empty environment: the per-task block `spawnv` fills, for the spawns that
+/// do not come through it (the kernel's boot spawns and the Linux `execve` of
+/// a native program, `process::linux::native`). Each item is one argument as
+/// given, never split; syscall 9 hands the block to the program.
+pub(crate) fn set_task_argv<A: AsRef<[u8]>>(slot: usize, argv: &[A]) {
+    argstore::set(slot, argstore::block(argv), alloc::vec::Vec::new());
+}
+
+/// Forget the argument blocks of the task in `slot`; the task table calls
+/// this when it frees the slot.
+pub(crate) fn forget_task_args(slot: usize) {
+    argstore::forget(slot);
+}
+
+/// Test-harness view of how many task slots hold argument blocks.
+#[cfg(lazyos_tests)]
+pub fn task_args_live_for_test() -> usize {
+    argstore::live_count()
 }
 
 /// Test-harness view of [`intern_service_name`], so the suite can prove the
@@ -330,21 +346,6 @@ fn pack_exit(slot: usize, status: u64) -> u64 {
 /// syscall 8: the PIT tick counter (100 Hz), the supervisor's clock.
 fn sys_clock() -> u64 {
     task::ticks()
-}
-
-/// syscall 9: copy this task's service argument string into `buf`.
-///
-/// Returns the full argument length; at most `buf_len` bytes are copied, so a
-/// caller can size the buffer from a first zero-capacity call.
-fn sys_args(buf_ptr: u64, buf_len: u64) -> u64 {
-    let args = SERVICE_ARGS.lock()[task::current()]
-        .clone()
-        .unwrap_or_default();
-    let count = args.len().min(buf_len as usize);
-    if count > 0 && user_ptr::try_copy_to(buf_ptr, &args[..count]).is_err() {
-        return syscall_error(EFAULT);
-    }
-    args.len() as u64
 }
 
 /// Load a static ELF64 image and map the native user stack.

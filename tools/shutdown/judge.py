@@ -2,19 +2,26 @@
 """Judge an orderly shutdown or reboot from a LazyOS serial log.
 
 docs/shutdown.md. The markers are printed by `init` (`INIT:SHUTDOWN:*`), the
-persistence services (`CONFD:STOP`, `LOGD:STOP`) and the kernel (`power: ...`);
+persistence services (`CONFD:STOP`, `LOGD:STOP`, `PKGD:STOP`) and the kernel
+(`power: ...`);
 this checks they all appear, in the order the sequence promises, and that
 nothing went wrong on the way:
 
 * `init` armed the kernel watchdog and it never had to fire;
 * the phases ran in order: stopping, apps, services, quiesced, power;
 * `confd` synced and `logd`'s hash chain verified, both inside the services
-  phase;
+  phase, and (on a desktop boot, the default) `logd` persisted records to its
+  journals in `/logs` (`LOGD:STOP ... persisted=<n>`, n > 0) and `confd`'s
+  store is `/conf` (`CONFD:STOP dir=/conf`);
+* when `pkgd` ran, it stopped through the lifecycle contract inside the
+  services phase, synced `/logs/pkg.log` (`PKGD:STOP sync=ok|none`) and did so
+  before `confd`, which it depends on;
 * nothing was killed at a deadline, nothing restarted after the request;
 * the kernel synced the filesystems and did not fall back (no "8042 reset
   ignored", no "no ACPI power-off").
 
     python tools/shutdown/judge.py shots/shutdown/serial.log --mode poweroff
+    python tools/shutdown/judge.py serial.log --console   # no /logs requirement
 
 Exit status is non-zero on any failure.
 """
@@ -61,8 +68,11 @@ def kernel_tail(mode: str) -> list[str]:
             "power: filesystems synced"]
 
 
-def judge(log: str, mode: str) -> list[str]:
-    """Every failure found in `log` for a stop with `mode`; empty when it passed."""
+def judge(log: str, mode: str, desktop: bool = True) -> list[str]:
+    """Every failure found in `log` for a stop with `mode`; empty when it passed.
+
+    `desktop` (an image with the ext2 OS volume, where `/logs` is writable)
+    also requires `logd` to have persisted records."""
     failures: list[str] = []
     begin = log.find(ORDERED[0])
     if begin < 0:
@@ -78,17 +88,33 @@ def judge(log: str, mode: str) -> list[str]:
         position = found
     services = tail.find("INIT:SHUTDOWN:PHASE services")
     quiesced = tail.find("INIT:SHUTDOWN:QUIESCED")
-    for marker in PERSIST:
+    persist = PERSIST + (["PKGD:STOP"] if "init: started pkgd" in log else [])
+    for marker in persist:
         found = tail.find(marker)
         if found < 0:
             failures.append(f"missing {marker!r}")
         elif not services < found < quiesced:
             failures.append(f"{marker} outside the services phase")
+    if "init: started pkgd" in log:
+        if "init: stopping pkgd (lifecycle)" not in tail:
+            failures.append("pkgd was not stopped through the lifecycle contract")
+        if 0 <= tail.find("CONFD:STOP") < tail.find("PKGD:STOP"):
+            failures.append("pkgd stopped after confd, which it depends on")
+        if (match := re.search(r"PKGD:STOP sync=(\S+)", tail)) and match.group(1) not in ("ok", "none"):
+            failures.append(f"pkgd's final sync of pkg.log failed ({match.group(1)})")
     if (match := re.search(r"CONFD:STOP \S+ sync=(\S+)", tail)) and match.group(1) != "ok":
         failures.append(f"confd's final sync failed ({match.group(1)})")
     if (match := re.search(r"LOGD:STOP records=\d+ verified=(\S+)", tail)) and \
             match.group(1) != "true":
         failures.append("logd's hash chain did not verify")
+    if desktop:
+        if (match := re.search(r"CONFD:STOP dir=(\S+)", tail)) and match.group(1) != "/conf":
+            failures.append(f"confd's store is {match.group(1)}, not /conf")
+        match = re.search(r"LOGD:STOP records=\d+ verified=\S+ persisted=(\d+)", tail)
+        if match is None:
+            failures.append("LOGD:STOP does not report persisted=<n>")
+        elif int(match.group(1)) == 0:
+            failures.append("logd persisted no records to /logs")
     if (match := re.search(r"INIT:SHUTDOWN:QUIESCED killed=(\d+)", tail)) and \
             match.group(1) != "0":
         failures.append(f"{match.group(1)} program(s) had to be killed")
@@ -103,8 +129,11 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("serial_log", type=Path)
     parser.add_argument("--mode", choices=["poweroff", "reboot"], default="poweroff")
+    parser.add_argument("--console", action="store_true",
+                        help="not a desktop boot: do not require logd's journals")
     args = parser.parse_args()
-    failures = judge(args.serial_log.read_text(encoding="utf-8", errors="replace"), args.mode)
+    failures = judge(args.serial_log.read_text(encoding="utf-8", errors="replace"), args.mode,
+                     desktop=not args.console)
     for failure in failures:
         print(f"FAIL: {failure}")
     print("PASS" if not failures else f"{len(failures)} failure(s)")

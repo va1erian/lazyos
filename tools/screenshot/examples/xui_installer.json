@@ -1,198 +1,154 @@
 [
- {
-  "wait_for": "TERM:UP:PASS",
-  "timeout": 240
- },
- {
-  "wait": 2.0
- },
- {
-  "type": "pkgctl"
- },
- {
-  "wait": 0.8
- },
- {
-  "type": " open "
- },
- {
-  "wait": 0.8
- },
- {
-  "type": "/PKGDE"
- },
- {
-  "wait": 0.8
- },
- {
-  "type": "MO.LZP"
- },
- {
-  "wait": 1.0
- },
- {
-  "shot": "01_typed"
- },
- {
-  "key": "enter",
-  "until": "INSTALLER:CONSENT:SHOWN",
-  "timeout": 90,
-  "retries": 1
- },
- {
-  "wait": 8.0
- },
- {
-  "shot": "02_review"
- },
- {
-  "mouse_move": [
-   2000,
-   2000
-  ]
- },
- {
-  "wait": 0.3
- },
- {
-  "mouse_move": [
-   -716,
-   -139
-  ]
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_click": "left",
-  "until": "INSTALLER:STEP:PERMISSIONS",
-  "timeout": 60,
-  "retries": 1
- },
- {
-  "wait": 3.0
- },
- {
-  "shot": "02_permissions"
- },
- {
-  "mouse_move": [
-   2000,
-   2000
-  ]
- },
- {
-  "wait": 0.3
- },
- {
-  "mouse_move": [
-   -716,
-   -139
-  ]
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_click": "left",
-  "until": "INSTALLER:INSTALL:",
-  "timeout": 120,
-  "retries": 1
- },
- {
-  "wait": 5.0
- },
- {
-  "shot": "03_after_install"
- },
- {
-  "mouse_move": [
-   2000,
-   2000
-  ]
- },
- {
-  "wait": 0.3
- },
- {
-  "mouse_move": [
-   -603,
-   -139
-  ]
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_click": "left"
- },
- {
-  "wait": 4.0
- },
- {
-  "shot": "04_list_installed"
- },
- {
-  "mouse_move": [
-   2000,
-   2000
-  ]
- },
- {
-  "wait": 0.3
- },
- {
-  "mouse_move": [
-   -604,
-   -530
-  ]
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_click": "left"
- },
- {
-  "wait": 4.0
- },
- {
-  "shot": "05_confirm_remove"
- },
- {
-  "mouse_move": [
-   2000,
-   2000
-  ]
- },
- {
-  "wait": 0.3
- },
- {
-  "mouse_move": [
-   -716,
-   -139
-  ]
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_click": "left",
-  "until": "INSTALLER:REMOVE:",
-  "timeout": 120,
-  "retries": 1
- },
- {
-  "wait": 5.0
- },
- {
-  "shot": "06_after_remove"
- },
- {
-  "wait": 1.0
- },
- {
-  "quit": true
- }
+ {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+ {"wait_for": "TERM:UP:PASS", "timeout": 240},
+ {"wait": 2.0},
+ {"type": "cp /sy"},
+ {"wait": 0.5},
+ {"type": "stem/s"},
+ {"wait": 0.5},
+ {"type": "hare/s"},
+ {"wait": 0.5},
+ {"type": "amples"},
+ {"wait": 0.5},
+ {"type": "/pkgde"},
+ {"wait": 0.5},
+ {"type": "mo.lzp"},
+ {"wait": 0.5},
+ {"type": " /tran"},
+ {"wait": 0.5},
+ {"type": "sient/"},
+ {"wait": 0.5},
+ {"type": " && ec"},
+ {"wait": 0.5},
+ {"type": "ho sta"},
+ {"wait": 0.5},
+ {"type": "ged"},
+ {"wait": 0.5},
+ {"key": "enter", "until": "TERM:CMD:cp /system/share/samples/pkgdemo.lzp /transient/ && echo staged", "timeout": 30, "retries": 1},
+ {"wait_for": "TERM:OUT:staged", "timeout": 60},
+ {"wait": 1.0},
+ {"type": "pkgctl"},
+ {"wait": 0.8},
+ {"type": " open "},
+ {"wait": 0.8},
+ {"type": "/trans"},
+ {"wait": 0.8},
+ {"type": "ient/p"},
+ {"wait": 0.8},
+ {"type": "kgdemo"},
+ {"wait": 0.8},
+ {"type": ".lzp"},
+ {"wait": 1.0},
+ {"shot": "01_typed"},
+ {"key": "enter", "until": "INSTALLER:CONSENT:SHOWN", "timeout": 90, "retries": 1},
+ {"wait": 8.0},
+ {"shot": "02_review"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-716, -139]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:STEP:PERMISSIONS", "timeout": 60, "retries": 1},
+ {"wait": 3.0},
+ {"shot": "02_permissions"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-716, -139]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:INSTALL:", "timeout": 120, "retries": 1},
+ {"wait": 5.0},
+ {"shot": "03_after_install"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-603, -139]},
+ {"wait": 0.5},
+ {"mouse_click": "left"},
+ {"wait": 4.0},
+ {"shot": "04_list_installed"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-604, -530]},
+ {"wait": 0.5},
+ {"mouse_click": "left"},
+ {"wait": 4.0},
+ {"shot": "05_confirm_remove"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-716, -139]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:REMOVE:", "timeout": 120, "retries": 1},
+ {"wait": 5.0},
+ {"shot": "06_after_remove"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-1064, -175]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:STEP:CHOOSE", "timeout": 60, "retries": 1},
+ {"wait": 3.0},
+ {"shot": "07_choose"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-590, -467]},
+ {"wait": 0.5},
+ {"mouse_click": "left"},
+ {"wait": 5.0},
+ {"shot": "08_picker"},
+ {"key": "esc"},
+ {"wait": 2.0},
+ {"key": "esc", "until": "INSTALLER:STEP:LIST", "timeout": 30, "retries": 1},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-1199, -419]},
+ {"wait": 0.5},
+ {"mouse_click": "left"},
+ {"wait": 1.0},
+ {"type": "cp /sy"},
+ {"wait": 0.5},
+ {"type": "stem/p"},
+ {"wait": 0.5},
+ {"type": "ackage"},
+ {"wait": 0.5},
+ {"type": "s/os.l"},
+ {"wait": 0.5},
+ {"type": "azy.co"},
+ {"wait": 0.5},
+ {"type": "unter."},
+ {"wait": 0.5},
+ {"type": "lzp /t"},
+ {"wait": 0.5},
+ {"type": "ransie"},
+ {"wait": 0.5},
+ {"type": "nt/c.l"},
+ {"wait": 0.5},
+ {"type": "zp && "},
+ {"wait": 0.5},
+ {"type": "pkgctl"},
+ {"wait": 0.5},
+ {"type": " open "},
+ {"wait": 0.5},
+ {"type": "/trans"},
+ {"wait": 0.5},
+ {"type": "ient/c"},
+ {"wait": 0.5},
+ {"type": ".lzp"},
+ {"wait": 0.5},
+ {"key": "enter", "until": "TERM:CMD:cp /system/packages/os.lazy.counter.lzp /transient/c.lzp && pkgctl open /transient/c.lzp", "timeout": 30, "retries": 1},
+ {"wait_for": "INSTALLER:STEP:REVIEW", "timeout": 90},
+ {"wait": 4.0},
+ {"shot": "09_core_review"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-684, -107]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:STEP:PERMISSIONS", "timeout": 60, "retries": 1},
+ {"wait": 3.0},
+ {"shot": "10_core_permissions"},
+ {"mouse_move": [2000, 2000]},
+ {"wait": 0.3},
+ {"mouse_move": [-571, -107]},
+ {"wait": 0.5},
+ {"mouse_click": "left", "until": "INSTALLER:STEP:LIST", "timeout": 60, "retries": 1},
+ {"wait": 3.0},
+ {"shot": "11_list_after_cancel"},
+ {"wait": 1.0},
+ {"quit": true}
 ]

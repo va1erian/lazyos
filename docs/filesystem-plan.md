@@ -7,7 +7,15 @@ long case-sensitive names and persistent storage. Companion to
 [`architecture/block-devices.md`](architecture/block-devices.md) and
 [`packages.md`](packages.md).
 
-## 1. Today
+## 1. Where it started
+
+History: the layout before F0. F2 replaced the FAT root with the ext2 OS
+volume, and F3 moved every program to `/system/bin` under its real name
+(`/system/bin/init`, `/system/bin/busybox`, ...), `PASSWD` to
+`/system/etc/passwd`, `MIME.TYP` to `/system/share/mime.types`, the samples to
+`/system/share/samples` and the docs to `/docs/os`; see
+[`architecture/filesystem.md`](architecture/filesystem.md) for the current
+state.
 
 - `bootloader 0.11` `DiskImageBuilder` makes an MBR with one FAT partition that
   holds the kernel and ~60 flat files (`SUPER.ELF`, `XTERM.ELF`, `PASSWD`,
@@ -103,16 +111,25 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 ### F4: services on the tree
 
-- **confd** stores in `/conf`; `/transient/conf` remains the degraded fallback.
+- **confd** stores in `/conf`; `/transient/conf` remains the degraded fallback
+  (done: `/data/confd` is merged in once, then `/conf/.seeded-from-data`;
+  `/conf/svc/<service>/` is documented for non-key/value state).
 - **logd** writes persistent journals to `/logs/<service>.log` with size caps
-  and rotation.
+  and rotation (done: `libs/logstore`, 256 KiB per file, `.1`/`.2`, an 8 MiB
+  budget excluding `pkg.log`; `Sources`/`TailFile` for uid 0).
 - **accountsd** reads `/system/etc/passwd` (`admin`, `user`); rename `root` and
   `alice` across code, tests and tools.
 - **pkgd** installs to `/apps`, logs to `/logs/pkg.log`, writes package docs to
   `/docs/apps/<system_name>/`; its install-source rule ("single-component path
-  = boot volume") is replaced by `/transient` and the caller's home.
+  = boot volume") is replaced by `/transient` and the caller's home (done:
+  `pkgstore::tree` shared with the host and kernel soaks, a writability probe,
+  `pkgd` in the lifecycle contract).
+- **image layout** (done): `/conf` and `/conf/svc` 0700, `/logs` 0750,
+  `/apps` and `/docs/apps` 0755, a 0700 `/home/<name>` per passwd account;
+  `/data/home` and `/data/tmp` are no longer seeded.
 - **lazyrad** moves `/data/...` to `/home/<user>/...`.
-- **mimed** reads `/system/share/mime.types`.
+- **mimed** reads `/system/share/mime.types` (done in F3; the services evidence
+  fails on `MIME:GUESS:INFO no override file`).
 
 ### F5: every app is an lzp
 
@@ -156,5 +173,17 @@ and passes `python tools/test/run.py --accel none` (see `AGENTS.md`).
 
 Account management (`CreateUser`, password changes, persistent account
 database), crash safety (boot-time consistency check, then a journal), ext2
-symlinks, quotas on `/home` and `/logs`, a block cache, and AHCI/NVMe for real
-hardware.
+symlinks, quotas on `/home` and `/logs`, and AHCI/NVMe for real hardware.
+
+**Block cache: done** ([`architecture/block-cache.md`](architecture/block-cache.md)).
+A write-back cache inside `libs/ext2fs`, used by every kernel ext2 mount and
+the host image build: frames as pages, writeback in a crash-safe phase order
+(fresh blocks, bitmaps, inode tables, other content, superblock) coalesced into
+64 KiB virtio requests, frees deferred to the commit, barriers where an
+operation needs an order the phases cannot give (renames, orphan deletes,
+unaligned truncates), and a periodic flusher bounding the loss window to about
+5 s. First-boot provisioning went from 139.6 s to about 4 s under WHPX. It makes
+the missing fsck more pressing, not less: a crash between syncs now leaves a
+wider (documented) set of repairable inconsistencies, and is still flagged by
+`s_state`. Next for the block layer: DMA into the cache's frames (no bounce
+copy) and several requests in flight.

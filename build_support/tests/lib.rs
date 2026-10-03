@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+#[path = "../core_packages.rs"]
+mod core_packages;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
 #[path = "../os_disk.rs"]
@@ -15,8 +17,18 @@ mod os_image;
 mod os_layout;
 #[path = "../os_manifest.rs"]
 mod os_manifest;
+#[path = "../os_recover.rs"]
+mod os_recover;
 
+#[cfg(test)]
+mod f3_layout_tests;
+#[cfg(test)]
+mod f4_layout_tests;
+#[cfg(test)]
+mod f5_layout_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
+#[cfg(test)]
+mod recover_tests;

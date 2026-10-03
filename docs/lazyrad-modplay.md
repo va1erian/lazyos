@@ -1,8 +1,8 @@
 # The LazyRAD MOD player and the `modplay` script module
 
 A ProTracker MOD player written in LazyRAD: forms and Rhai, shipped both as a
-LazyRAD sample (`/LAZYRAD/modplayer`) and as an installable package
-(`/MODPLAY.LZP`, `org.lazy.modplayer`). Its window shows the song, the transport,
+LazyRAD sample (`/system/share/lazyrad/modplayer`) and as an installable package
+(`/system/share/samples/modplayer.lzp`, `org.lazy.modplayer`). Its window shows the song, the transport,
 the mix (volume, stereo separation, interpolation), a meter and a mute button
 per channel, a pattern view that follows the row being heard, the playlist and
 the instruments.
@@ -10,11 +10,12 @@ the instruments.
 ```bash
 python tools/run_demo.py --modplayer                # desktop + LazyRAD + the package, with a sound card
 python tools/lazyrad/modplayer_run.py               # build, play both ways, record, judge
-python tools/lazyrad/package.py                     # just target/pkg/MODPLAY.LZP
+python tools/lazyrad/package.py                     # just target/pkg/modplayer.lzp
 ```
 
-In the desktop Terminal: `/LRPLAY.ELF --client /LAZYRAD/modplayer &`, or
-`pkgctl install /MODPLAY.LZP` and then **ModPlayer** from the Start menu. The
+In the desktop Terminal: `/system/bin/lrplay --client /system/share/lazyrad/modplayer &`,
+or `cp /system/share/samples/modplayer.lzp ~/ && pkgctl install ~/modplayer.lzp` and then **ModPlayer**
+from the Start menu. The
 GUI launcher has the same choice under Simple → Extras and Advanced (the
 `LAZYOS_MODPLAYER` switch).
 
@@ -108,8 +109,8 @@ saw bass, triangle pad, swept-sine kick, noise snare and hat), arpeggios,
 vibrato, a tone portamento and a fade. A packaged LazyRAD app ships only its
 forms and scripts, so the song travels as `demo_song.rhai`.
 `python tools/lazyrad/gen_demo_song.py --check` (CI) fails if it is stale. More
-songs: put `.mod` files in the app's `music` folder (`/data/lazyrad-data/music`
-for the sample, `/data/apps/org.lazy.modplayer/data/music` installed) and
+songs: put `.mod` files in the app's `music` folder (`~/.apps/lazyrad/data/music`
+for the sample, `~/.apps/org.lazy.modplayer/music` installed) and
 press **Rescan**.
 
 ## Verification
@@ -120,7 +121,7 @@ press **Rescan**.
 | musl audio transport | `cd xui-app && cargo test --lib platform::audio` |
 | decks, sinks, the script surface | `cd lazyrad-os && cargo test --lib tracker`: a mixer-like sink with an odd ring and period-granular reads, lossless pause against a fake card, handler errors, a deck soak |
 | the sample itself | `lazyrad-os/tests/modplayer.rs` runs the real form on xui's offscreen backend, clicks through it, plays the song to the end, and fails if any handler raised an error |
-| on LazyOS, by ear | `python tools/lazyrad/modplayer_run.py`: the Terminal session (`lazyrad_modplayer.json`: play, mute, pause, resume, end) and the installed-app session (`lazyrad_modplayer_installed.json`: `pkgctl install`, Start menu, label `app:org.lazy.modplayer`). Each recording must be the whole song (`modjudge.py`, mono, against a host render; `test_modjudge.py` shows it fails on a 62 ms skip or repeat, silence, truncation or another song) |
+| on LazyOS, by ear | `python tools/lazyrad/modplayer_run.py`: the Terminal session (`lazyrad_modplayer.json`: play, mute, pause, resume, end) and the installed-app session (`lazyrad_modplayer_installed.json`: copy to the home, `pkgctl install`, Start menu, label `app:org.lazy.modplayer`). Each recording must be the whole song (`modjudge.py`, mono, against a host render; `test_modjudge.py` shows it fails on a 62 ms skip or repeat, silence, truncation or another song) |
 
 Found while building it, fixed:
 

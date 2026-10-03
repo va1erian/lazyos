@@ -1,0 +1,16 @@
+[
+  {"wait_for": "ACCOUNTS:LOAD:FAIL reason=missing", "timeout": 400},
+  {"wait_for": "LazyOS login: ", "timeout": 120},
+  {"at": 1.0, "type": "user"},
+  {"at": 1.6, "key": "enter"},
+  {"at": 2.2, "type": "lazy"},
+  {"at": 2.8, "key": "enter", "until": "LOGIN:DENIED:PASS user=user reason=no-accounts", "timeout": 60, "retries": 1},
+  {"wait_for": "LazyOS login: ", "occurrence": 2, "timeout": 60},
+  {"at": 1.0, "type": "admin"},
+  {"at": 1.6, "key": "enter"},
+  {"at": 2.2, "type": "nimda"},
+  {"at": 2.8, "key": "enter", "until": "LOGIN:DENIED:PASS user=admin reason=no-accounts", "timeout": 60, "retries": 1},
+  {"wait": 2.0},
+  {"shot": "accounts_failclosed"},
+  {"quit": true}
+]

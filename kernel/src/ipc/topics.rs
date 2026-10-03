@@ -197,6 +197,11 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
         let decision =
             crate::ipc::authorize(actor_slot, interface, segment_method(segment), txn_id);
         if decision.denied() {
+            #[cfg(lazyos_label_trace)]
+            crate::ipc::label_trace::denied(
+                cred.label_id,
+                format_args!("topic={name} mode={mode} segment={segment}"),
+            );
             return Err(Error::Denied);
         }
     }

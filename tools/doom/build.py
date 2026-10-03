@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Doom for LazyOS: the engine, the program and the `DOOM.LZP` package.
+"""Build Doom for LazyOS: the engine, the program and the `doom.lzp` package.
 
 Steps (``docs/doom-port-plan.md``, ``doom/README.md``):
 
@@ -9,9 +9,10 @@ Steps (``docs/doom-port-plan.md``, ``doom/README.md``):
 3. fetch Freedoom's release zip (pinned SHA-256) for ``freedoom1.wad``;
 4. assemble the package tree (``doom/package/`` + ``bin/doom.elf`` +
    ``resources/freedoom1.wad`` + the licence files) and build it with
-   ``tools/pkg/build.py`` -> ``target/pkg/DOOM.LZP``, which the image embeds
-   when ``LAZYOS_DOOM=1``. Install it on LazyOS with
-   ``pkgctl install /DOOM.LZP`` (or open it in Files).
+   ``tools/pkg/build.py`` -> ``target/pkg/doom.lzp``, which the image embeds
+   when ``LAZYOS_DOOM=1`` as ``/system/share/samples/doom.lzp``. Install it on
+   LazyOS as a user package: copy it to your home and run ``pkgctl install``
+   on the copy (or open it in Files).
 
 Usage::
 
@@ -52,7 +53,7 @@ CARGO_TARGET_DIR = OUT_DIR / "cargo"
 ELF = OUT_DIR / "doom.elf"
 PACKAGE_DIR = ROOT / "target" / "pkg"
 #: The 8.3 name the image embeds the package under (`build_support`).
-PACKAGE_NAME = "DOOM.LZP"
+PACKAGE_NAME = "doom.lzp"
 
 
 def build_engine(debug: bool) -> Path | None:
@@ -96,7 +97,7 @@ def build_engine(debug: bool) -> Path | None:
 
 
 def build_package(elf: Path) -> Path | None:
-    """`target/pkg/DOOM.LZP` from the checked-in tree plus the built and
+    """`target/pkg/doom.lzp` from the checked-in tree plus the built and
     fetched files, or None when Freedoom is unavailable."""
     import build as pkg_build  # tools/pkg/build.py
 

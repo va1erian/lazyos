@@ -227,9 +227,43 @@ class LazyRadTests(unittest.TestCase):
         self.assertEqual(plan[-1]["argv"][1:], ["tools/lazyrad/build.py"])
 
 
+class CorePackageTests(unittest.TestCase):
+    """Issue #509: the desktop apps are core packages, built after the apps."""
+
+    def labels(self, cfg: dict) -> list[str]:
+        return [step["label"] for step in catalog.build_plan(cfg)]
+
+    def test_the_build_mode_packages_after_building(self) -> None:
+        plan = catalog.build_plan({"mode": "Build xui app", "lazyrad": False})
+        self.assertEqual([s["label"] for s in plan],
+                         ["Build xui apps (static musl)", "Build core packages"])
+        self.assertEqual(plan[0]["argv"][1:], ["tools/xui/build.py", "--no-core-packages"])
+        self.assertEqual(plan[1]["argv"][1:], ["tools/xui/core_packages.py"])
+
+    def test_a_desktop_demo_packages_before_running(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop")
+        labels = self.labels(cfg)
+        self.assertEqual(labels[:2], ["Build xui apps (static musl)", "Build core packages"])
+        self.assertEqual(labels[-1], "Interactive demo")
+        self.assertNotIn("Build core packages",
+                         self.labels(catalog.simple_config(demo_config(), "dev", "CLI")))
+
+    def test_desktop_scripts_package_the_apps_before_the_image(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        cfg = {"mode": "Scripted session", "script": index["xui_settings.json"], "profile": "dev",
+               "skip_build": False, "accel": "auto", "memory": "512M", "qemu": "",
+               "out": "shots", "timeout": "300", "tablet": False, "lazyrad": False}
+        labels = self.labels(cfg)
+        self.assertEqual(labels[:2], ["Build core packages", "Build image (cargo build)"])
+        viewer = {**cfg, "script": index["xui_editor.json"]}
+        self.assertEqual(self.labels(viewer)[:3], ["Build xui apps (static musl)",
+                                                   "Build core packages",
+                                                   "Build image (cargo build)"])
+
+
 class DoomTests(unittest.TestCase):
-    """The launcher can put the Doom package on the image (`/DOOM.LZP`, then
-    `pkgctl install`), from the Simple tab, the Advanced tab and run_demo."""
+    """The launcher can put the Doom package on the image
+    (`/system/share/samples/doom.lzp`, then `pkgctl install`), from the Simple tab, the Advanced tab and run_demo."""
 
     def base(self) -> dict:
         return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
@@ -268,7 +302,7 @@ class DoomTests(unittest.TestCase):
 
 
 class ModPlayerTests(unittest.TestCase):
-    """The LazyRAD MOD player as a package (`/MODPLAY.LZP`, then `pkgctl
+    """The LazyRAD MOD player as a package (`/system/share/samples/modplayer.lzp`, then `pkgctl
     install`), from the Simple tab, the Advanced tab and run_demo."""
 
     def base(self) -> dict:
@@ -385,7 +419,8 @@ class ResetTests(unittest.TestCase):
 
     def test_summary_names_the_home_directories(self) -> None:
         text = datavol.seed_summary()
-        self.assertIn("/alice (755)", text)
+        self.assertIn("/admin (700)", text)
+        self.assertIn("/user (700)", text)
         self.assertIn("lazyhome", text)
         self.assertNotIn("/tmp", text)
 
@@ -393,14 +428,14 @@ class ResetTests(unittest.TestCase):
         outcome = datavol.reset(str(self.path), busy=False)  # no file yet: no prompt
         self.assertTrue(outcome and outcome[0])
         image = self.path.read_bytes()
-        self.assertIn(b"alice", image)
+        self.assertIn(b"admin", image)
         self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")
 
     def test_confirmation_lists_what_will_be_created_and_can_decline(self) -> None:
         self.path.write_bytes(b"precious")
         with mock.patch.object(datavol.messagebox, "askyesno", return_value=False) as ask:
             self.assertIsNone(datavol.reset(str(self.path), busy=False))
-        self.assertIn("/alice (mode 0755, uid 1000, gid 1000)", ask.call_args.args[1])
+        self.assertIn("/user (mode 0700, uid 1000, gid 1000)", ask.call_args.args[1])
         self.assertEqual(self.path.read_bytes(), b"precious")
 
     def test_refused_while_a_run_is_active(self) -> None:

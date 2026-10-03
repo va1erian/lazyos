@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! cargo run --manifest-path lazyrad-os/Cargo.toml --example lzpack -- \
-//!     <project dir> --player target/lazyrad/lrplay.elf --out target/pkg/MODPLAY.LZP \
+//!     <project dir> --player target/lazyrad/lrplay.elf --out target/pkg/modplayer.lzp \
 //!     [--system-name org.lazy.modplayer] [--author LazyOS] [--description <text>]
 //! ```
 //!
@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lazyrad_os::platform::LazyOsPlatform;
+use lazyrad_os::platform::{Home, LazyOsPlatform};
 use lazyrad_packager::lzp::{build_package, read_player, HostPermissions, PackageRequest};
 use lazyrad_runtime::platform::Platform;
 
@@ -75,7 +75,7 @@ fn project_file(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn permissions(scripts: &[&str]) -> HostPermissions {
-    let found = LazyOsPlatform::ide().script_permissions(scripts);
+    let found = LazyOsPlatform::ide(Home::from_env()).script_permissions(scripts);
     HostPermissions {
         interfaces: found.interfaces,
         topics: found.topics,

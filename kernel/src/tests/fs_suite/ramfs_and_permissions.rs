@@ -250,8 +250,21 @@ pub fn permission_matrix_owner_group_other() -> Result<(), String> {
         "other was allowed r"
     );
     check!(
-        vfs::check_access(&file, Id::ROOT, vfs::READ | vfs::WRITE | vfs::EXECUTE).is_ok(),
+        vfs::check_access(&file, Id::ROOT, vfs::READ | vfs::WRITE).is_ok(),
         "root did not bypass the mode bits"
+    );
+    // Executing a regular file needs one `x` bit even for root (Linux).
+    check!(
+        vfs::check_access(&file, Id::ROOT, vfs::EXECUTE).err() == Some(FsError::Access),
+        "root could execute a file with no x bit"
+    );
+    let other_x = Meta {
+        mode: vfs::S_IFREG | 0o641,
+        ..file
+    };
+    check!(
+        vfs::check_access(&other_x, Id::ROOT, vfs::EXECUTE).is_ok(),
+        "root was denied x on a file others may execute"
     );
     check!(
         vfs::check_access(&file, other, 0).is_ok(),

@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "EDITOR:UP:PASS", "timeout": 240},
   {"at": 2.0, "shot": "01_editor_empty"},
   {"at": 2.5, "type": "Hello from LazyOS"},
@@ -59,7 +60,7 @@
   {"shot": "09_start_menu", "at": 30.0},
   {"mouse_move": [90, -272], "at": 30.5},
   {"shot": "10_menu_editor_hover", "at": 31.0},
-  {"mouse_click": "left", "until": "SHELL:LAUNCH:PASS app=editor", "timeout": 30, "retries": 1, "at": 31.5},
+  {"mouse_click": "left", "until": "SHELL:LAUNCH:PASS app=os.lazy.editor", "timeout": 30, "retries": 1, "at": 31.5},
   {"wait_for": "EDITOR:UP:PASS", "occurrence": 2, "timeout": 120},
   {"at": 2.0, "shot": "11_second_editor_up"},
   {"at": 2.5, "mouse_move": [398, -152]},

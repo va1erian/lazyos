@@ -160,12 +160,18 @@ impl FsError {
 ///
 /// The actor matches the owner bits when uids are equal, the group bits when
 /// gids are equal (there are no supplementary groups yet), and the other bits
-/// otherwise. Root bypasses the bits entirely: `docs/security-model.md` section
-/// 4.1 grants that bypass to the kernel-init profile only, and uid 0 is that
-/// profile until sessions land.
+/// otherwise. Root bypasses the bits (`docs/security-model.md` section 4.1
+/// grants that bypass to the kernel-init profile only, and uid 0 is that
+/// profile until sessions land) with one exception, as on Linux: executing a
+/// regular file needs at least one `x` bit even for root, or a `0644` file
+/// could be run by init and by every root service. Directory search keeps the
+/// full bypass.
 pub fn check_access(meta: &Meta, id: Id, mask: u8) -> Result<(), FsError> {
-    if mask == 0 || id.is_root() {
+    if mask == 0 {
         return Ok(());
+    }
+    if id.is_root() {
+        return root_access(meta, mask);
     }
     let bits = if id.uid == meta.uid {
         (meta.mode >> 6) & 0o7
@@ -178,6 +184,17 @@ pub fn check_access(meta: &Meta, id: Id, mask: u8) -> Result<(), FsError> {
         Ok(())
     } else {
         Err(FsError::Access)
+    }
+}
+
+/// Root's access: everything, except running a regular file that nobody may
+/// execute (no `x` bit for owner, group or other).
+fn root_access(meta: &Meta, mask: u8) -> Result<(), FsError> {
+    let executes_file = mask & EXECUTE != 0 && meta.kind == FileKind::File;
+    if executes_file && meta.mode & 0o111 == 0 {
+        Err(FsError::Access)
+    } else {
+        Ok(())
     }
 }
 

@@ -416,7 +416,7 @@ ERR_DENIED
   you cannot call os.lazy.fs.reader.Read because app "com.example.editor"
   was not granted the "files.read" permission
   hint: approve it in Settings > Apps > Editor > Permissions, or run:
-        lazyosctl grant com.example.editor files.read /home/alice/docs
+        lazyosctl grant com.example.editor files.read /home/user/docs
   docs: err.messenger.denied
 ```
 
@@ -442,7 +442,7 @@ The first kernel-side slice of this surface is live: the native `messenger`
 syscall's `stats` op serves a versioned `FabricStats` snapshot (ABI v2)
 aggregating services/endpoints/channels, message counters, shared buffers and
 fences, handles, ACL/audit state and per-slot usage; the `totals` op keeps the
-compact v1 counters. The `messengerctl` tool (`MSGCTL.ELF`, 8.3 on the FAT
+compact v1 counters. The `messengerctl` tool (`/system/bin/messengerctl`, on the OS
 image) renders the snapshot as a table (boot the demo with
 `LAZYOS_MESSENGERCTL=1`).
 

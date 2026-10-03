@@ -160,10 +160,11 @@ fn service_event_publish_and_subscribe_use_the_generated_helpers() {
 #[test]
 fn login_session_publish_rejects_bad_ids_and_subscribe_takes_a_wildcard() {
     let session = logind::LoginSession {
-        user: String::from("alice"),
+        user: String::from("user"),
         uid: 1000,
         pid: 4,
         state: String::from("active"),
+        home: String::from("/home/user"),
     };
     let mut publisher = MockPublisher::default();
     logind::publish_system_events_login_session(&mut publisher, "3", &session).unwrap();

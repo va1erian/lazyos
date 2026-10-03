@@ -1,5 +1,9 @@
 [
  {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
   "wait_for": "TERM:UP:PASS",
   "timeout": 300
  },
@@ -11,23 +15,63 @@
   "wait": 2
  },
  {
+  "type": "cp /sy"
+ },
+ {
+  "type": "stem/s"
+ },
+ {
+  "type": "hare/s"
+ },
+ {
+  "type": "amples"
+ },
+ {
+  "type": "/modpl"
+ },
+ {
+  "type": "ayer.l"
+ },
+ {
+  "type": "zp ~/ "
+ },
+ {
+  "type": "&& ech"
+ },
+ {
+  "type": "o stag"
+ },
+ {
+  "type": "ed"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:cp /system/share/samples/modplayer.lzp ~/ && echo staged",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:staged",
+  "timeout": 120
+ },
+ {
   "type": "pkgctl"
  },
  {
   "type": " insta"
  },
  {
-  "type": "ll /MO"
+  "type": "ll ~/m"
  },
  {
-  "type": "DPLAY."
+  "type": "odplay"
  },
  {
-  "type": "LZP"
+  "type": "er.lzp"
  },
  {
   "key": "enter",
-  "until": "TERM:CMD:pkgctl install /MODPLAY.LZP",
+  "until": "TERM:CMD:pkgctl install ~/modplayer.lzp",
   "timeout": 30,
   "retries": 2
  },
@@ -105,7 +149,7 @@
  {
   "mouse_move": [
    23,
-   -392
+   -440
   ]
  },
  {
@@ -130,7 +174,7 @@
  {
   "mouse_move": [
    141,
-   -22
+   26
   ]
  },
  {

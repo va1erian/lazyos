@@ -6,8 +6,9 @@ mod common;
 use std::io::Read;
 use std::process::{Command, Stdio};
 
-/// The fixture's own on-disk name, so a child `execve` finds it again.
-const PROGRAM: &str = "INIT.ELF";
+/// The fixture's own name (`/system/bin/abi-init`), so a child `execve`
+/// finds it again through the `$PATH` search the kernel maps onto `/system/bin`.
+const PROGRAM: &str = "abi-init";
 const ENV_KEY: &str = "LAZYOS_ABI_CHILD";
 
 fn note(first: &mut Option<String>, reason: String) {

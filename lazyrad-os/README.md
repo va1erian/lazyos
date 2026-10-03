@@ -3,7 +3,7 @@
 LazyRAD on LazyOS (see [`docs/lazyrad-plan.md`](../docs/lazyrad-plan.md)): a
 standalone Rust workspace, like `xui-app` and `rhai-host`, built for
 `x86_64-unknown-linux-musl` by `python tools/lazyrad/build.py` and embedded in the
-disk image as `LRPLAY.ELF` and `LAZYRAD.ELF` (`LAZYOS_LAZYRAD=1`).
+disk image as `/system/bin/lrplay` and `/system/bin/lazyrad` (`LAZYOS_LAZYRAD=1`).
 
 | Bin | What |
 |---|---|
@@ -34,10 +34,39 @@ starts and `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out.
 
 `samples/` holds LazyOS-only sample projects (`samples/messenger`: confd, a
 change topic and a served method; `samples/modplayer`: the MOD player, also
-packaged as `/MODPLAY.LZP` by `tools/lazyrad/package.py` with
+packaged as `/system/share/samples/modplayer.lzp` by `tools/lazyrad/package.py` with
 `examples/lzpack.rs`). `run_demo.py --lazyrad` and the GUI
-launcher embed them under `/LAZYRAD/` next to any `LAZYRAD_SAMPLES` entries;
+launcher embed them under `/system/share/lazyrad/` next to any `LAZYRAD_SAMPLES` entries;
 `python tools/rhai/run.py --lazyrad` boots the Messenger one and judges it.
+
+## Where LazyRAD writes
+
+Everything lives in the home of the user running it (`$HOME`, which `init`
+passes to every session app; filesystem plan F4). Nothing is written under
+`/data`, and installed apps never write inside `/apps` (`pkgd` owns it).
+
+| What | Where |
+|---|---|
+| IDE settings | `$HOME/.apps/lazyrad/config/` |
+| projects (the file dialog's first stop) | `$HOME/projects/`, created by the IDE |
+| data of a project run from the IDE or a shell | `$HOME/.apps/lazyrad/data/` |
+| data of an installed app | `$HOME/.apps/<system_name>/` (manifest `read:`/`write:$HOME/.apps/<system_name>`) |
+| packages staged for `pkgd` | `/transient/lazyrad-<system_name>-<version>.lzp`, deleted afterwards |
+
+Without `$HOME` (a program started outside a session) the home is
+`/transient/lazyrad` on the ramfs, so nothing survives a reboot; both programs
+say so with `LRPLAY:HOME:WARN` / `LRIDE:HOME:WARN` on serial and stderr.
+`lrplay` reports the folder its scripts may write as `LRPLAY:DATA:PASS:<dir>`.
+
+Three sessions, run in order on one image (built with `LAZYOS_RESET_OS=1`, so
+nothing is installed yet), check it end to end: `lazyrad_home.json` makes and
+installs a copy of `hello` whose `form_load` writes `proof.txt`
+(`LRPLAY:DATA:PASS:/home/admin/.apps/user.admin.hello`), then after a reboot
+`lazyrad_home_project.json` reads that file back and creates `MyApp` with
+File -> New Project (the dialog opens in `/home/admin/projects`), and after
+another reboot `lazyrad_home_reboot.json` finds
+`/home/admin/projects/MyApp/MyApp.lrp` and `proof.txt`, and nothing under
+`/apps/<id>/*/data`.
 
 ## Running
 
@@ -49,7 +78,12 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lr
     --script tools/screenshot/examples/lazyrad_hello.json --fail-on "LRPLAY:[A-Z]+:FAIL"
 ```
 
-In the Terminal: `/LRPLAY.ELF --client /LAZYRAD/hello &`. Command line:
+The `lazyrad_*.json` sessions need the samples: an image built without
+`LAZYRAD_SAMPLES` has no `/system/share/lazyrad/hello`, and `lrplay` then stops
+with `LRPLAY:ARGS:FAIL:no project at ...`. From the CLI front end:
+`python tools/run_demo.py --desktop --lazyrad-samples "<lazyrad>/examples/hello;<lazyrad>/examples/calculator;lazyrad-os/samples/perf2000"`.
+
+In the Terminal: `/system/bin/lrplay --client /system/share/lazyrad/hello &`. Command line:
 `lrplay [--client] [--project <dir> | <dir>] [attempt=N]`; see `src/args.rs` for
 how a relative `--project` and the default `resources/project` resolve (against
 the install directory, located from `argv[0]`; `current_exe()` is `/busybox` on

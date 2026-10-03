@@ -9,6 +9,9 @@ impl Ext2 {
         if block >= u64::from(self.blocks_count) || buf.len() < size {
             return Err(Ext2Error::Invalid);
         }
+        if let Some(cache) = &self.cache {
+            return self.with_cache(cache, |cache, io| cache.read(io, block, &mut buf[..size]));
+        }
         self.io
             .read_sectors(block * u64::from(self.sectors_per_block), &mut buf[..size])
             .map_err(io_error)
@@ -23,14 +26,22 @@ impl Ext2 {
     /// garbage, uninitialized bytes) surface where a hole should read as
     /// zero -- a cross-file, potentially cross-user information leak
     /// (CWE-200) if the write of the caller's actual data then fails.
+    ///
+    /// Cached, the zeroed block is also marked *fresh*: the writeback puts it
+    /// on the disk before anything that points at it (`cache/roles.rs`).
     pub(super) fn zero_block(&self, block: u64) -> Result<(), Ext2Error> {
         let size = self.block_size as usize;
         let zeroed = [0u8; MAX_BLOCK_SIZE];
-        self.write_block(block, &zeroed[..size])
+        self.store_block(block, &zeroed[..size], true)
     }
 
     /// Write one filesystem block from `buf`.
     pub(super) fn write_block(&self, block: u64, buf: &[u8]) -> Result<(), Ext2Error> {
+        self.store_block(block, buf, false)
+    }
+
+    /// [`Ext2::write_block`], saying whether the block was just allocated.
+    fn store_block(&self, block: u64, buf: &[u8], fresh: bool) -> Result<(), Ext2Error> {
         let size = self.block_size as usize;
         if block >= u64::from(self.blocks_count) || buf.len() < size {
             return Err(Ext2Error::Invalid);
@@ -40,9 +51,29 @@ impl Ext2 {
         }
         // Before the first change lands, the volume must already say "dirty".
         self.mark_dirty()?;
+        if let Some(cache) = &self.cache {
+            return self.with_cache(cache, |cache, io| {
+                cache.write(io, block, &buf[..size], fresh)
+            });
+        }
         self.io
             .write_sectors(block * u64::from(self.sectors_per_block), &buf[..size])
             .map_err(io_error)
+    }
+
+    /// Run `call` on the cache, recording a write-back that failed inside it
+    /// (a miss or a full dirty set writes back) as a volume error.
+    pub(super) fn with_cache<T>(
+        &self,
+        cache: &Mutex<cache::BlockCache>,
+        call: impl FnOnce(&mut cache::BlockCache, &dyn BlockIo) -> Result<T, IoError>,
+    ) -> Result<T, Ext2Error> {
+        let mut cache = cache.lock();
+        let result = call(&mut cache, &*self.io);
+        if cache.take_failure() {
+            self.note_write_back_failure();
+        }
+        result.map_err(io_error)
     }
 
     /// Read the 1024-byte superblock, wherever its block starts.

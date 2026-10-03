@@ -179,8 +179,8 @@ pub fn flags_are_reported() -> Result<(), String> {
     vfs.mount("/home", Arc::new(RamFs::new()), NOSUID)
         .map_err(fs_error)?;
     check!(
-        vfs.mount_flags("/boot/INIT.ELF") == LOCKED,
-        "/boot/INIT.ELF"
+        vfs.mount_flags("/boot/KERNEL.BIN") == LOCKED,
+        "/boot/KERNEL.BIN"
     );
     check!(vfs.mount_flags("/boot") == LOCKED, "/boot itself");
     check!(
@@ -192,7 +192,10 @@ pub fn flags_are_reported() -> Result<(), String> {
         vfs.mount_flags("/etc/passwd") == MountFlags::default(),
         "/etc/passwd"
     );
-    check!(vfs.mount_flags("/boot/INIT.ELF").noexec, "noexec on /boot");
+    check!(
+        vfs.mount_flags("/boot/KERNEL.BIN").noexec,
+        "noexec on /boot"
+    );
     Ok(())
 }
 

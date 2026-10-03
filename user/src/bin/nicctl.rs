@@ -1,4 +1,4 @@
-//! `nicctl` (`NICCTL.ELF`): the NIC driver's control tool and evidence client.
+//! `nicctl` (`/system/bin/nicctl`): the NIC driver's control tool and evidence client.
 //!
 //! With no arguments it prints the card's MAC, MTU, link state and counters
 //! (the stage D5 demo). The other modes exercise the driver the way the boot

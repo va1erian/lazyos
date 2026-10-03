@@ -107,6 +107,7 @@ pub mod errno {
     pub const EINVAL: i64 = 22;
     pub const EPIPE: i64 = 32;
     pub const EDEADLK: i64 = 35;
+    pub const ENOSYS: i64 = 38;
     pub const EBADMSG: i64 = 74;
     pub const ENOTSUP: i64 = 95;
     pub const ETIMEDOUT: i64 = 110;

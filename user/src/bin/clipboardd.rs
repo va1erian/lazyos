@@ -1,4 +1,4 @@
-//! `clipboardd` (`CLIPD.ELF`): the per-session clipboard service (issue #115).
+//! `clipboardd` (`/system/bin/clipboardd`): the per-session clipboard service (issue #115).
 //!
 //! This is the S4 clipboard from `docs/platform-plan.md` section 4.5 and the
 //! worked example in `docs/messenger.md` section 19:
@@ -64,7 +64,7 @@ const SERIALIZE_DEADLINE: u64 = 100;
 /// How long the serve loop parks between housekeeping checks (PIT ticks).
 const POLL_TICKS: u64 = 5;
 /// The evidence programs `demo=1` spawns at startup and reaps.
-const DEMO_PROGRAMS: [&str; 2] = [fhs::boot::CLIPCP_ELF, fhs::boot::CLIPPS_ELF];
+const DEMO_PROGRAMS: [&str; 2] = [fhs::bin::CLIPCP, fhs::bin::CLIPPASTE];
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {

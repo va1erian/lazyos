@@ -14,20 +14,21 @@ use crate::os_image::{
 use crate::os_layout::{dirs, parse_passwd, DirSpec, MANIFEST_PATH};
 
 const SIZE: u64 = 8 << 20;
-const STAMP: i64 = 1_700_000_000;
+pub(crate) const STAMP: i64 = 1_700_000_000;
 
-fn settings() -> Settings {
+pub(crate) fn settings() -> Settings {
     Settings {
         os_size: SIZE,
         reset: false,
+        update_damaged: false,
     }
 }
 
 /// A scratch directory unique to one test, removed on drop.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new() -> Scratch {
+    pub(crate) fn new() -> Scratch {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "lazyos-image-test-{}-{}",
@@ -38,7 +39,7 @@ impl Scratch {
         Scratch(dir)
     }
 
-    fn image(&self) -> PathBuf {
+    pub(crate) fn image(&self) -> PathBuf {
         self.0.join("lazyos.img")
     }
 }
@@ -58,7 +59,7 @@ fn bios(fill: u8) -> Vec<u8> {
 }
 
 fn layout() -> Vec<DirSpec> {
-    dirs(&parse_passwd("alice:1000:1000:x:/home/alice:sh\n"))
+    dirs(&parse_passwd("user:1000:1000:x:/home/user:sh\n"))
 }
 
 fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
@@ -69,33 +70,33 @@ fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
     }
 }
 
-fn first_files() -> Vec<OsFile> {
+pub(crate) fn first_files() -> Vec<OsFile> {
     vec![
         file("/SUPER.ELF", b"super v1", 0o755),
-        file("/PASSWD", b"root:0:0\n", 0o644),
+        file("/PASSWD", b"admin:0:0\n", 0o644),
         file("/OLD.ELF", b"old", 0o755),
         file("/docs/README.md", b"# readme", 0o644),
         file("/docs/gone/page.md", b"page", 0o644),
     ]
 }
 
-fn build(dir: &Scratch, files: &[OsFile], settings: &Settings) -> Result<Plan, String> {
+pub(crate) fn build(dir: &Scratch, files: &[OsFile], settings: &Settings) -> Result<Plan, String> {
     let planned = plan(&dir.image(), settings)?;
     compose(&planned, &dir.image(), &bios(1), settings, &layout(), files)?;
     Ok(planned)
 }
 
-fn partition_bytes(image: &Path) -> Vec<u8> {
+pub(crate) fn partition_bytes(image: &Path) -> Vec<u8> {
     std::fs::read(image).unwrap()[(OS_START_LBA * SECTOR) as usize..].to_vec()
 }
 
-fn assert_fsck_clean(image: &Path) {
+pub(crate) fn assert_fsck_clean(image: &Path) {
     let problems = ext2fs::check::fsck(&partition_bytes(image));
     assert!(problems.is_empty(), "fsck: {problems:#?}");
 }
 
 /// Open the image's volume writable, for a test to act as a user would.
-fn open_rw(image: &Path) -> Ext2 {
+pub(crate) fn open_rw(image: &Path) -> Ext2 {
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -129,10 +130,24 @@ fn a_missing_image_is_created_with_three_mbr_entries_and_a_clean_volume() {
     assert_eq!(volume.read_file("/SUPER.ELF").unwrap(), b"super v1");
     let meta = volume.lookup("/SUPER.ELF").unwrap();
     assert_eq!((meta.mode & 0o7777, meta.uid, meta.gid), (0o755, 0, 0));
-    let tmp = volume.lookup("/data/tmp").unwrap();
-    assert_eq!(tmp.mode & 0o7777, 0o1777);
-    let alice = volume.lookup("/data/home/alice").unwrap();
-    assert_eq!((alice.uid, alice.gid), (1000, 1000));
+    for (path, mode, owner) in [
+        ("/home/user", 0o700, 1000),
+        ("/conf", 0o700, 0),
+        ("/logs", 0o750, 0),
+        ("/apps", 0o755, 0),
+        ("/docs/apps", 0o755, 0),
+    ] {
+        let meta = volume.lookup(path).unwrap();
+        assert_eq!(
+            (meta.mode & 0o7777, meta.uid, meta.gid),
+            (mode, owner, owner),
+            "{path}"
+        );
+    }
+    assert!(
+        volume.lookup("/data/tmp").is_err(),
+        "the build seeds nothing under /data"
+    );
     assert!(volume.read_file(MANIFEST_PATH).is_ok());
 }
 
@@ -141,7 +156,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     let dir = Scratch::new();
     let first = build(&dir, &first_files(), &settings()).unwrap();
 
-    // The user installs something, writes into /data and /conf, and drops a
+    // The user installs something, writes into a home and /conf, and drops a
     // file into a directory the build will stop shipping.
     let volume = open_rw(&dir.image());
     volume.mkdir_p("/apps/demo", 0o755, 1000, 1000).unwrap();
@@ -149,14 +164,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
         .write_file("/apps/demo/app.bin", b"installed", 0o755, 1000, 1000, STAMP)
         .unwrap();
     volume
-        .write_file(
-            "/data/home/alice/note.txt",
-            b"mine",
-            0o644,
-            1000,
-            1000,
-            STAMP,
-        )
+        .write_file("/home/user/note.txt", b"mine", 0o644, 1000, 1000, STAMP)
         .unwrap();
     volume
         .write_file("/conf/settings", b"k=v", 0o600, 0, 0, STAMP)
@@ -171,7 +179,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     // NEW.ELF added.
     let second_files = vec![
         file("/SUPER.ELF", b"super v2 is a bit longer", 0o755),
-        file("/PASSWD", b"root:0:0\n", 0o644),
+        file("/PASSWD", b"admin:0:0\n", 0o644),
         file("/NEW.ELF", b"new", 0o755),
         file("/docs/README.md", b"# readme", 0o644),
     ];
@@ -201,7 +209,7 @@ fn an_update_keeps_the_uuid_and_user_files_and_applies_the_manifest_diff() {
     // Files in neither manifest survive, and so does the directory holding one.
     for (path, bytes) in [
         ("/apps/demo/app.bin", &b"installed"[..]),
-        ("/data/home/alice/note.txt", b"mine"),
+        ("/home/user/note.txt", b"mine"),
         ("/conf/settings", b"k=v"),
         ("/docs/gone/mine.txt", b"keep me"),
     ] {
@@ -230,7 +238,7 @@ fn an_empty_directory_that_left_the_manifest_is_removed() {
     build(&dir, &files, &settings()).unwrap();
     let volume = open_rw(&dir.image());
     assert!(volume.lookup("/docs/gone").is_err());
-    assert!(volume.lookup("/docs").is_err());
+    assert!(volume.lookup("/docs/apps").is_ok(), "layout dirs stay");
     assert!(volume.lookup("/data").is_ok(), "layout dirs stay");
 }
 
@@ -296,7 +304,7 @@ fn a_size_change_of_an_existing_image_is_refused() {
     build(&dir, &first_files(), &settings()).unwrap();
     let bigger = Settings {
         os_size: SIZE * 2,
-        reset: false,
+        ..settings()
     };
     let error = plan(&dir.image(), &bigger).unwrap_err();
     assert!(error.contains("LAZYOS_RESET_OS=1"), "{error}");
@@ -412,72 +420,18 @@ fn a_built_image_is_consistent() {
         manifest.entries.len()
     );
     assert_fsck_clean(&image);
-}
-
-/// `s_state` of the image's OS volume.
-fn volume_state(image: &Path) -> u8 {
-    partition_bytes(image)[1024 + 0x3A]
-}
-
-/// An unclean stop (a change with no flush) is checked by the next update,
-/// which marks the volume clean again and keeps the user's file; without the
-/// check the kernel would restore "unclean" at every shutdown, for good.
-#[test]
-fn an_update_recovers_a_volume_that_stopped_uncleanly() {
-    let dir = Scratch::new();
-    build(&dir, &first_files(), &settings()).unwrap();
-    let volume = open_rw(&dir.image());
-    volume
-        .write_file("/data/mine.txt", b"user data", 0o644, 0, 0, STAMP)
-        .unwrap();
-    volume
-        .write_file("/data/.unlinked-4", b"parked", 0o644, 0, 0, STAMP)
-        .unwrap();
-    drop(volume); // never flushed: the window was closed
-    assert_eq!(volume_state(&dir.image()) & 1, 0);
-
-    build(&dir, &first_files(), &settings()).unwrap();
-    assert_eq!(
-        volume_state(&dir.image()),
-        1,
-        "the update left the volume unclean"
-    );
-    let volume = open_rw(&dir.image());
-    assert!(volume.was_clean_at_mount());
-    assert_eq!(volume.read_file("/data/mine.txt").unwrap(), b"user data");
+    // F3: every build-placed file is below a directory, so nothing the
+    // manifest lists sits at the root.
+    let at_root: Vec<&String> = manifest
+        .entries
+        .iter()
+        .filter(|(path, kind)| {
+            **kind == crate::os_manifest::Kind::File && path.rfind('/') == Some(0)
+        })
+        .map(|(path, _)| path)
+        .collect();
     assert!(
-        volume.lookup("/data/.unlinked-4").is_err(),
-        "the orphan survived"
-    );
-    drop(volume);
-    assert_fsck_clean(&dir.image());
-}
-
-/// A volume the checker finds inconsistent is updated but stays flagged
-/// unclean, and nothing of the user's is removed.
-#[test]
-fn an_update_leaves_an_inconsistent_volume_flagged() {
-    let dir = Scratch::new();
-    build(&dir, &first_files(), &settings()).unwrap();
-    let volume = open_rw(&dir.image());
-    volume
-        .write_file("/data/mine.txt", b"user data", 0o644, 0, 0, STAMP)
-        .unwrap();
-    drop(volume);
-    // Lose one block from the superblock's free counter.
-    let mut bytes = std::fs::read(dir.image()).unwrap();
-    let counter = (OS_START_LBA * SECTOR) as usize + 1024 + 0x0C;
-    bytes[counter] = bytes[counter].wrapping_sub(1);
-    std::fs::write(dir.image(), &bytes).unwrap();
-
-    build(&dir, &first_files(), &settings()).unwrap();
-    assert_eq!(
-        volume_state(&dir.image()) & 1,
-        0,
-        "an inconsistent volume was blessed"
-    );
-    assert_eq!(
-        open_rw(&dir.image()).read_file("/data/mine.txt").unwrap(),
-        b"user data"
+        at_root.is_empty(),
+        "build-placed files at the root: {at_root:?}"
     );
 }

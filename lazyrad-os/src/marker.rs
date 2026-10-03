@@ -6,7 +6,7 @@
 //! terminal, serial included) and only falls back to stdout when that device
 //! cannot be opened (a host build, or an unusual sandbox). Each one-shot marker
 //! fires at most once per process so a session script can assert on it. The
-//! format is `<PREFIX>:<STAGE>:<PASS|FAIL>[:<detail>]`.
+//! format is `<PREFIX>:<STAGE>:<PASS|FAIL|WARN>[:<detail>]`.
 
 use std::cell::Cell;
 use std::io::Write;
@@ -31,11 +31,7 @@ impl Markers {
     /// The line for a failing `stage`; newlines in `detail` are flattened so a
     /// marker is always exactly one line.
     pub fn fail_line(&self, stage: &str, detail: &str) -> String {
-        let flat: String = detail
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        format!("{}:{stage}:FAIL:{flat}", self.prefix)
+        format!("{}:{stage}:FAIL:{}", self.prefix, flatten(detail))
     }
 
     /// Prints a passing `stage`.
@@ -45,16 +41,25 @@ impl Markers {
 
     /// Prints a passing `stage` with a `detail` (a path, say), one line.
     pub fn pass_with(&self, stage: &str, detail: &str) {
-        let flat: String = detail
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        emit(&format!("{}:{stage}:PASS:{flat}", self.prefix));
+        emit(&format!("{}:{stage}:PASS:{}", self.prefix, flatten(detail)));
     }
 
     /// Prints a failing `stage`.
     pub fn fail(&self, stage: &str, detail: &str) {
         emit(&self.fail_line(stage, detail));
+    }
+
+    /// The line for a `stage` that works in a degraded way.
+    pub fn warn_line(&self, stage: &str, detail: &str) -> String {
+        format!("{}:{stage}:WARN:{}", self.prefix, flatten(detail))
+    }
+
+    /// Prints a degraded `stage` on the console and on stderr (the Terminal
+    /// window that started the program, when there is one).
+    pub fn warn(&self, stage: &str, detail: &str) {
+        let line = self.warn_line(stage, detail);
+        emit(&line);
+        eprintln!("{line}");
     }
 
     /// Reports a panic as a `PANIC` failure marker on the console before the
@@ -88,6 +93,14 @@ impl Markers {
     }
 }
 
+/// `detail` on one line: control characters become spaces.
+fn flatten(detail: &str) -> String {
+    detail
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
 /// Writes `line` and a newline to the console device, else to stdout.
 fn emit(line: &str) {
     let written = std::fs::OpenOptions::new()
@@ -118,5 +131,9 @@ mod tests {
         let line = Markers::PLAYER.fail_line("LOAD", "a\nb\r\nc");
         assert!(!line.contains('\n') && !line.contains('\r'));
         assert_eq!(line, "LRPLAY:LOAD:FAIL:a b  c");
+        assert_eq!(
+            Markers::IDE.warn_line("HOME", "x\ny"),
+            "LRIDE:HOME:WARN:x y"
+        );
     }
 }

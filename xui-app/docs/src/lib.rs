@@ -196,7 +196,8 @@ mod tests {
         assert_eq!(text, "ok \u{FFFD}\u{FFFD} done");
     }
 
-    /// The fixture the image ships as `/TESTDOC.MD` and the Docs session opens.
+    /// The fixture the image ships as `/system/share/samples/testdoc.md`, which
+    /// the Docs session opens.
     const TESTDOC: &str = include_str!("../testdata/testdoc.md");
 
     #[test]

@@ -7,8 +7,9 @@
 // The application package manager (`docs/packages.md`, phase 3 of the
 // package system).
 //
-// `pkgd` is the only task that writes `/data/apps`, records installed apps in
-// `confd`, registers their MIME verbs with `mimed` and loads their Messenger
+// `pkgd` is the only task that writes `/apps` and `/docs/apps`, records
+// installed apps in `confd`, registers their MIME verbs with `mimed` and loads
+// their Messenger
 // policy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is
 // an unprivileged client: it calls `Inspect`, shows the user what the package
 // asks for, and forwards the user's yes as `Install`. Failures are returned
@@ -27,8 +28,9 @@ fn connect() {
 
 /// `Inspect(path: String) -> (info: PackageInfo)`
 ///
-/// Open and validate the `.lzp` at `path` (an absolute path the caller may
-/// read) without changing anything. `problems` is empty for a package that
+/// Open and validate the `.lzp` at `path` without changing anything. Root
+/// may name any absolute path; anyone else a file under `/transient` or
+/// their own home folder (the path is normalised first). `problems` is empty for a package that
 /// could be installed; otherwise it lists every reason it cannot be.
 fn inspect(path) {
     msg::connect("os.lazy.pkgd.v1").invoke("Inspect", [path])
@@ -36,8 +38,10 @@ fn inspect(path) {
 
 /// `Install(path: String) -> (app: Installed)`
 ///
-/// Install the package at `path`: extract it to its install directory,
-/// record it, register its MIME verbs, load its policy, then publish
+/// Install the package at `path` (the same source rule as `Inspect`):
+/// extract it to its install directory under `/apps`, copy its
+/// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+/// MIME verbs, load its policy, then publish
 /// `system/events/pkg/install`. Fails if the same `system_name` is already
 /// installed at this version and digest. Needs the caller to be the
 /// session owner or root; `pkgd` audits who asked.
@@ -48,8 +52,9 @@ fn install(path) {
 /// `Remove(system_name: String) -> ()`
 ///
 /// Remove `system_name`: stop its running instances, unregister its MIME
-/// verbs, revoke its policy, delete its install directory, then publish
-/// `system/events/pkg/remove`. User data under `/data/home` is kept.
+/// verbs, revoke its policy, delete its install directory and its
+/// documentation, then publish `system/events/pkg/remove`. User data
+/// under `/home` is kept.
 fn remove(system_name) {
     msg::connect("os.lazy.pkgd.v1").invoke("Remove", [system_name])
 }
@@ -68,18 +73,42 @@ fn installed(system_name) {
     msg::connect("os.lazy.pkgd.v1").invoke("Installed", [system_name])
 }
 
+/// `Provisioned() -> (state: ProvisionState)`
+///
+/// Whether this start's core package provisioning is finished, and what
+/// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+/// provisions, so a client such as `init`'s autostart can wait for it
+/// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+/// until `done`.
+fn provisioned() {
+    msg::connect("os.lazy.pkgd.v1").invoke("Provisioned", [])
+}
+
+/// A `ProvisionState` with every field at its zero value.
+///
+/// Core package provisioning progress.
+fn new_provision_state() {
+    #{ done: false, ready: false, installed: 0, upgraded: 0, kept: 0, failed: 0 }
+}
+
 /// A `PackageInfo` with every field at its zero value.
 ///
+/// The pass of this start is over (successfully or not).
+/// The packages that open at login (`entry.autostart`) are provisioned
+/// (they go first), so a session can start before `done`.
+/// Newer versions the user installed over a core app, left in place.
 /// What a package declares, as the consent screen shows it.
 fn new_package_info() {
-    #{ name: "", system_name: "", author: "", version: "", description: "", digest: "", install_dir: "", mime: [], permissions: [], problems: [] }
+    #{ name: "", system_name: "", author: "", version: "", description: "", digest: "", install_dir: "", mime: [], permissions: [], problems: [], category: "", autostart: false }
 }
 
 /// A `MimeHandler` with every field at its zero value.
 ///
 /// Lowercase hex SHA-256 of the archive.
-/// Where it would be installed, relative to `/data/apps`.
+/// Where it would be installed, relative to `/apps`.
 /// Empty when the package can be installed.
+/// The menu group (`lazypkg::Category`), `accessories` by default.
+/// Whether the app asks to start when the user logs in.
 /// One handled file type.
 fn new_mime_handler() {
     #{ mime_type: "", verbs: [], has_icon: false }
@@ -100,28 +129,42 @@ fn new_permission() {
 ///
 /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
 fn new_installed() {
-    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [] }
+    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [] }
 }
 
 /// A `PkgEvent` with every field at its zero value.
 ///
-/// Install directory relative to `/data/apps`.
+/// Install directory relative to `/apps`.
 /// Entry binary, relative to the install directory (`bin/<name>.elf`).
 /// Kernel ticks at install time.
 /// The program's ABI, `native` or `linux`: `init` needs it to pick the
 /// spawn personality, and an ELF header cannot tell them apart.
 /// The manifest's fixed `entry.args`, passed before any launch path.
+/// An `Origin` value, cached from the shipped set at provisioning and
+/// install time so readers need not open `/system/packages`.
+/// The menu group (`lazypkg::Category`).
+/// Whether the app starts when a session opens (`entry.autostart`).
+/// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
 /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-/// is `install`, `remove` or `denied`. The same record, hex-encoded with
-/// a chained SHA-256, is appended to `/data/log/pkg.log`.
+/// is `install`, `remove`, `denied` or `provision` (a core package
+/// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
+/// a chained SHA-256, is appended to `/logs/pkg.log`.
 fn new_pkg_event() {
     #{ op: "", system_name: "", version: "", install_dir: "", digest: "", actor_uid: 0, ok: false, detail: "" }
 }
 
+// The variants of `Origin`, in wire order.
+export const ORIGIN = ["User", "Core"];
+
+export const ORIGIN_USER = "User";
+
+export const ORIGIN_CORE = "Core";
+
 // Filter for every event of the topic `system/events/pkg/{op}` (payload `PkgEvent`, qos latest).
 // uid of the task that asked.
 // Friendly text: the error for a failure, empty on success.
-// Published on every install, removal and refused request. Not retained:
+// Published on every install, removal, refused request and provisioning
+// step. Not retained:
 // `List` is the state, the events are the trail.
 export const PKG_PATTERN = "system/events/pkg/+";
 

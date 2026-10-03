@@ -1,4 +1,4 @@
-//! `clippaste` (`CLIPPS.ELF`): the clipboard paste demo (issue #115).
+//! `clippaste` (`/system/bin/clippaste`): the clipboard paste demo (issue #115).
 //!
 //! `init` starts this program (and `clipcopy`) on every services boot. It:
 //!

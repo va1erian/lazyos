@@ -361,6 +361,8 @@ The structured, hash-chained event log service (issue #93).
 | `tail(count)` | `Tail(count: Option<U64>) -> (records: Array<LogRecord>)` | Return the newest `count` records; an absent `count` means `10`. |
 | `count()` | `Count() -> (count: U64)` | Return the number of records appended since boot. |
 | `verify()` | `Verify() -> (ok: Bool, index: U64)` | Recompute the hash chain and report `ok`/first bad `index` (the record |
+| `sources()` | `Sources() -> (sources: Array<String>)` | The sources that have a persisted journal (`/logs/<source>.log`), |
+| `tail_file(source, count)` | `TailFile(source: String, count: U64) -> (lines: Array<String>)` | The newest `count` lines of `/logs/<source>.log` (records of earlier |
 | `new_log_record()` | struct `LogRecord` | a `LogRecord` at its zero value |
 
 ## `sys::logind`
@@ -502,16 +504,20 @@ The application package manager (`docs/packages.md`, phase 3 of the
 
 | Function | IDL | About |
 |---|---|---|
-| `inspect(path)` | `Inspect(path: String) -> (info: PackageInfo)` | Open and validate the `.lzp` at `path` (an absolute path the caller may |
-| `install(path)` | `Install(path: String) -> (app: Installed)` | Install the package at `path`: extract it to its install directory, |
+| `inspect(path)` | `Inspect(path: String) -> (info: PackageInfo)` | Open and validate the `.lzp` at `path` without changing anything. Root |
+| `install(path)` | `Install(path: String) -> (app: Installed)` | Install the package at `path` (the same source rule as `Inspect`): |
 | `remove(system_name)` | `Remove(system_name: String) -> ()` | Remove `system_name`: stop its running instances, unregister its MIME |
 | `list()` | `List() -> (apps: Array<Installed>)` | Every installed app, in install order. |
 | `installed(system_name)` | `Installed(system_name: String) -> (app: Option<Installed>)` | One installed app by `system_name`, if present. |
+| `provisioned()` | `Provisioned() -> (state: ProvisionState)` | Whether this start's core package provisioning is finished, and what |
+| `new_provision_state()` | struct `ProvisionState` | a `ProvisionState` at its zero value |
 | `new_package_info()` | struct `PackageInfo` | a `PackageInfo` at its zero value |
 | `new_mime_handler()` | struct `MimeHandler` | a `MimeHandler` at its zero value |
 | `new_permission()` | struct `Permission` | a `Permission` at its zero value |
 | `new_installed()` | struct `Installed` | a `Installed` at its zero value |
 | `new_pkg_event()` | struct `PkgEvent` | a `PkgEvent` at its zero value |
+
+- `ORIGIN` = the `Origin` variants; `ORIGIN_USER`, `ORIGIN_CORE`
 
 | Topic | Payload | Helpers |
 |---|---|---|

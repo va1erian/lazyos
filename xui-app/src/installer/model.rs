@@ -24,7 +24,7 @@ pub struct MimeHandler {
 pub struct Permission {
     /// `interface`, `topic`, `file` or `network`.
     pub kind: String,
-    /// The concrete value (`os.lazy.clipboard.v1`, `read:/data/home/*`, ...).
+    /// The concrete value (`os.lazy.clipboard.v1`, `read:$HOME/*`, ...).
     pub value: String,
     /// `high`, `medium`, `low`, or anything else (treated as "other").
     pub risk: String,
@@ -47,7 +47,7 @@ pub struct Package {
     pub description: String,
     /// Lowercase hex SHA-256 of the archive.
     pub digest: String,
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     pub install_dir: String,
     /// Handled file types.
     pub mime: Vec<MimeHandler>,
@@ -55,6 +55,10 @@ pub struct Package {
     pub permissions: Vec<Permission>,
     /// Non-empty when the package cannot be installed.
     pub problems: Vec<String>,
+    /// The menu group (`lazypkg::Category`).
+    pub category: String,
+    /// Whether the app asks to start when the user logs in.
+    pub autostart: bool,
 }
 
 /// One installed app, as `pkgd`'s `List`/`Install` report it.
@@ -66,7 +70,7 @@ pub struct Installed {
     pub name: String,
     /// `MAJOR.MINOR.PATCH`.
     pub version: String,
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     pub install_dir: String,
     /// Lowercase hex SHA-256 of the archive.
     pub digest: String,
@@ -74,6 +78,17 @@ pub struct Installed {
     pub binary: String,
     /// Kernel ticks at install time.
     pub installed_at: u64,
+    /// Shipped with LazyOS (a core package, issue #509): it cannot be
+    /// removed, only hidden from the menu in Settings.
+    pub core: bool,
+}
+
+/// Why a core app has no Remove button (the same words `pkgd` refuses with).
+pub fn core_removal_refused(name: &str) -> String {
+    format!(
+        "{} is part of LazyOS and can't be removed; you can hide it from the menu in Settings.",
+        clean(name)
+    )
 }
 
 /// Which screen the window shows.
@@ -185,6 +200,13 @@ impl Model {
         self.last_installed = None;
     }
 
+    /// The apps the user installed first, then the built-in ones, each group
+    /// in `pkgd`'s order: the rows with a Remove button stay at the top
+    /// however many core apps the image ships.
+    fn order_rows(&mut self) {
+        self.packages.sort_by_key(|app| app.core);
+    }
+
     /// Records what the user typed in the path field.
     pub fn set_path(&mut self, text: &str) {
         self.path_input = text.to_owned();
@@ -193,6 +215,7 @@ impl Model {
     /// `List` answered. Replaces the list and returns to it.
     pub fn list_loaded(&mut self, packages: Vec<Installed>) {
         self.packages = packages;
+        self.order_rows();
         self.list_loaded = true;
         self.clear_transient();
         self.screen = Screen::List;
@@ -310,6 +333,7 @@ impl Model {
             Some(slot) => *slot = app.clone(),
             None => self.packages.push(app.clone()),
         }
+        self.order_rows();
         self.last_installed = Some(app);
         self.screen = Screen::Done;
     }
@@ -322,11 +346,53 @@ impl Model {
         self.screen = Screen::Permissions;
     }
 
-    /// The user asked to remove `app`: ask for confirmation first.
-    pub fn remove_asked(&mut self, app: Installed) {
+    /// The user asked to remove `app`: ask for confirmation first. A core
+    /// app is refused here, before any confirmation, whatever sent the
+    /// request (its row has no Remove button, but a message is a message);
+    /// the list stays up with the reason. Returns whether the confirmation
+    /// is now showing.
+    pub fn remove_asked(&mut self, app: Installed) -> bool {
+        let core = app.core
+            || self
+                .packages
+                .iter()
+                .any(|listed| listed.core && listed.system_name == app.system_name);
+        if core {
+            self.clear_transient();
+            self.banner = Some(core_removal_refused(&app.name));
+            self.screen = Screen::List;
+            return false;
+        }
         self.banner = None;
         self.pending_remove = Some(app);
         self.screen = Screen::ConfirmRemove;
+        true
+    }
+
+    /// The listed core app the package under consent would update, if any.
+    pub fn updates_core(&self) -> Option<&Installed> {
+        let package = self.inspected.as_ref()?;
+        self.packages
+            .iter()
+            .find(|app| app.core && app.system_name == package.system_name)
+    }
+
+    /// What the consent screen says about the package besides its
+    /// permissions: that it updates a built-in app, and that it starts when
+    /// the user logs in (honoured only because the user consents here).
+    pub fn consent_notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if let Some(app) = self.updates_core() {
+            notes.push(format!("Updates built-in app {}", clean(&app.name)));
+        }
+        if self
+            .inspected
+            .as_ref()
+            .is_some_and(|package| package.autostart)
+        {
+            notes.push("Starts when you log in".to_owned());
+        }
+        notes
     }
 
     /// `Remove` succeeded. The app leaves the list and the banner is cleared.

@@ -53,16 +53,24 @@ impl ReviewScreen {
         let author = format!("Author (unverified): {}", or_unknown(&package.author, 60));
         let author = Label::new(page, rect(MARGIN, top + 26, inner, 16), &author).map_err(fail)?;
         let meta = format!(
-            "Version {}   ·   installs to /data/apps/{}   ·   sha256 {}",
+            "Version {}   ·   installs to {}/{}   ·   sha256 {}",
             or_unknown(&package.version, 20),
+            fhs::state::APPS_ROOT,
             elide(&package.install_dir, 60),
             short_digest(&package.digest),
         );
         let meta = Label::new(page, rect(MARGIN, top + 44, inner, 16), &meta).map_err(fail)?;
+        // "Updates built-in app <name>" / "Starts when you log in" lead the
+        // description line, so the layout below does not move.
+        let mut about = model.consent_notes();
+        let summary = elide(&package.description, 180);
+        if !summary.is_empty() {
+            about.push(summary);
+        }
         let description = Label::new(
             page,
             rect(MARGIN, top + 64, inner, 16),
-            &elide(&package.description, 180),
+            &elide(&about.join("   ·   "), 200),
         )
         .map_err(fail)?;
 
@@ -108,6 +116,7 @@ pub struct PermissionsScreen {
     _panel: Panel<Msg>,
     _header: Header,
     _intro: Label<Msg>,
+    _notes: Label<Msg>,
     _perms: ListView<Msg>,
     _banner: Label<Msg>,
     _nav: NavBar,
@@ -139,7 +148,17 @@ impl PermissionsScreen {
             &elide(&intro, 120),
         )
         .map_err(fail)?;
-        let list_top = CONTENT_TOP + 24;
+        // What installing does beyond the permissions (replace a built-in
+        // app, start at log-in); the list moves down only when it says
+        // something.
+        let notes = model.consent_notes().join("   ·   ");
+        let notes_label = Label::new(
+            page,
+            rect(MARGIN, CONTENT_TOP + 22, inner, 18),
+            &elide(&notes, 160),
+        )
+        .map_err(fail)?;
+        let list_top = CONTENT_TOP + if notes.is_empty() { 24 } else { 46 };
         let list_h = (height - FOOTER_H - list_top).max(40);
         let items = permission_items(package);
         let refs: Vec<&str> = items.iter().map(String::as_str).collect();
@@ -157,6 +176,7 @@ impl PermissionsScreen {
             _panel: panel,
             _header: header,
             _intro: intro,
+            _notes: notes_label,
             _perms: perms,
             _banner: banner,
             _nav: nav,

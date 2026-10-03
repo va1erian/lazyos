@@ -3,10 +3,11 @@
 
 Two sessions on a desktop image with a virtio-sound card recorded to WAV:
 
-* ``dev``: the sample run from the Terminal (``/LRPLAY.ELF --client
-  /LAZYRAD/modplayer``): play, mute a channel, pause, resume, play to the end
+* ``dev``: the sample run from the Terminal (``/system/bin/lrplay --client
+  /system/share/lazyrad/modplayer``): play, mute a channel, pause, resume, play to the end
   (``tools/screenshot/examples/lazyrad_modplayer.json``);
-* ``installed``: ``pkgctl install /MODPLAY.LZP``, started from the Start menu
+* ``installed``: the package copied from ``/system/share/samples`` to the
+  home and installed with ``pkgctl install``, started from the Start menu
   as the installed app ``org.lazy.modplayer`` under its manifest's rules,
   played to the end (``lazyrad_modplayer_installed.json``).
 
@@ -61,7 +62,7 @@ def run(argv: list[str], env: dict[str, str] | None = None) -> None:
 
 def image_env() -> dict[str, str]:
     """The image the sessions need: desktop, LazyRAD and its samples, the
-    package at /MODPLAY.LZP, sound, and a fresh OS volume."""
+    package in /system/share/samples, sound, and a fresh OS volume."""
     env = dict(os.environ)
     env.update({
         "LAZYOS_RESET_OS": "1",
@@ -75,8 +76,8 @@ def image_env() -> dict[str, str]:
 
 
 def build() -> None:
-    if not (ROOT / "target" / "xui" / "xui-shell.elf").is_file():
-        run([PY, "tools/xui/build.py"])
+    # The desktop's apps and core packages (incremental when unchanged).
+    run([PY, "tools/xui/build.py"])
     run([PY, "tools/lazyrad/build.py"])
     run([PY, "tools/lazyrad/package.py", "--no-build", "--require"])
     run(["cargo", "build"], env=image_env())

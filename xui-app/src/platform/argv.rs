@@ -98,7 +98,7 @@ mod tests {
     fn file_arg_skips_the_program_flags_and_attempt() {
         let absolute = std::env::current_dir().unwrap().join("notes.txt");
         let args = vec![
-            OsString::from("XEDITOR.ELF"),
+            OsString::from("/system/bin/editor"),
             OsString::from("--client"),
             absolute.clone().into_os_string(),
             OsString::from("attempt=1"),
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn file_arg_is_none_without_a_path() {
         let args = vec![
-            OsString::from("XFILES.ELF"),
+            OsString::from("/system/bin/files"),
             OsString::from("--client"),
             OsString::from("attempt=1"),
         ];

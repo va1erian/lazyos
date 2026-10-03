@@ -823,6 +823,16 @@
         "name": "Verify",
         "id": 761007172,
         "oneway": false
+      },
+      {
+        "name": "Sources",
+        "id": 583496657,
+        "oneway": false
+      },
+      {
+        "name": "TailFile",
+        "id": 571114525,
+        "oneway": false
       }
     ],
     "topics": []
@@ -1181,6 +1191,11 @@
       {
         "name": "Installed",
         "id": 1755800129,
+        "oneway": false
+      },
+      {
+        "name": "Provisioned",
+        "id": 1076218465,
         "oneway": false
       }
     ],

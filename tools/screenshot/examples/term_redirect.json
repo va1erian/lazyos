@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "TERM:UP:PASS", "timeout": 240},
   {"at": 2.0, "type": "rhai -e 'print(\"REDIR:\" + (6*7))' >/tmp/d 2>&1; echo done $?"},
   {"at": 2.5, "key": "enter", "until": "TERM:OUT:done 0", "timeout": 60, "retries": 2},

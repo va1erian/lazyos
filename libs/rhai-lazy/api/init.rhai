@@ -42,8 +42,9 @@ fn launch(app, args, session) {
 /// `ListApps() -> (apps: Array<AppInfo>)`
 ///
 /// Enumerate the app registry: the built-in apps first, then the apps the
-/// package manager installed (`AppInfo.installed`), read afresh from the
-/// configuration registry on every call.
+/// package manager installed (`AppInfo.installed`; the core packages
+/// first, then the others by `system_name`), read afresh from the
+/// configuration registry on every call. `hidden` is the caller's own.
 fn list_apps() {
     msg::connect("os.lazy.init.v1").invoke("ListApps", [])
 }
@@ -100,18 +101,31 @@ fn new_service_status() {
 /// One row of `init`'s built-in app registry (issue #158): the S5 start
 /// menu's enumeration unit and the resolution table `Launch` uses.
 fn new_app_info() {
-    #{ id: "", name: "", path: "", restart: "", verbs: [], installed: false }
+    #{ id: "", name: "", path: "", restart: "", verbs: [], installed: false, origin: "", category: "", hidden: false, autostart: false, icon: "" }
 }
 
 /// A `ServiceEvent` with every field at its zero value.
 ///
-/// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+/// App id: the lowercase program stem (`top` -> `/system/bin/top`).
 /// Display name for menus.
 /// On-disk ELF path.
 /// Default restart policy (`always`/`on-failure`/`once`).
 /// MIME verbs the app handles, in registration order.
 /// Whether the package manager installed the app (`id` is then its
 /// `system_name`) rather than the image shipping it.
+/// `core` (a package the image ships, not removable), `user` (a
+/// package someone installed) or `system` (a built-in program such as
+/// the desktop shell or the installer).
+/// The menu group (`lazypkg::Category`): the package's, `system` (or
+/// `development` for LazyRAD) for a built-in desktop program, empty for
+/// a console one, which the start menu leaves out.
+/// Whether the start menu leaves the app out for the caller: their
+/// `user/<uid>/menu/hidden/<id>`, else the machine's
+/// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
+/// Whether the app opens when a session starts.
+/// An installed app's 32-pixel icon, `icons/app-32.png` in its
+/// install directory (every package ships one); empty for a
+/// built-in, which the shell draws from its own icon set.
 /// One service lifecycle event (issue #307): the payload of
 /// `system/events/service/<name>`. The topic carries the service name, so
 /// it is not repeated here; `health` is the service's retained health

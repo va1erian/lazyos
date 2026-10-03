@@ -152,6 +152,7 @@ pub fn reclaim_pending() {
         // The table lock is released (the guard was a temporary): closing
         // the dead task's descriptors may now wake a peer safely.
         drop(dead);
+        crate::process::forget_task_args(slot);
         // Release what the dead task still holds in the Messenger fabric
         // before its address space goes away (`ipc::teardown_task` explains
         // why the order matters).
@@ -309,6 +310,8 @@ fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
     // blocked on a pipe it held. Must happen with `TASKS` unlocked: pipe
     // release takes the wait-queue lock and then the task table.
     drop(dead);
+    // Its argument blocks (syscall 9) die with it.
+    crate::process::forget_task_args(index);
     // The dead task's Messenger handles, buffers and mappings go before its
     // address space does.
     crate::ipc::teardown_task(index, pml4, shared);

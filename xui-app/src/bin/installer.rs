@@ -22,6 +22,7 @@
 //! INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
 //! INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 //! INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
+//! INSTALLER:REMOVE:REFUSED <system_name>   (a core app: no confirmation)
 //! ```
 
 use std::cell::Cell;
@@ -77,13 +78,14 @@ struct Installer {
 }
 
 impl Installer {
-    /// Builds the app, performing the initial `List` (or `Inspect` when the app
-    /// was launched with a package path).
+    /// Builds the app, performing the initial `List`, then `Inspect` when the
+    /// app was launched with a package path (the list tells the consent
+    /// screen whether the package updates a built-in app).
     fn build(ui: &mut Ui<Msg>, start: Option<std::path::PathBuf>) -> Result<Installer, String> {
         let mut model = Model::new();
-        match start {
-            Some(path) => inspect(&mut model, &path.to_string_lossy()),
-            None => reload(&mut model),
+        reload(&mut model);
+        if let Some(path) = start {
+            inspect(&mut model, &path.to_string_lossy());
         }
         let picker = Picker::build(ui)?;
         install_hooks(ui, picker.gate());
@@ -208,7 +210,9 @@ impl App for Installer {
                     .find(|app| app.system_name == system_name)
                     .cloned();
                 if let Some(app) = target {
-                    self.model.remove_asked(app);
+                    if !self.model.remove_asked(app) {
+                        println!("INSTALLER:REMOVE:REFUSED {}", clean(&system_name));
+                    }
                     dirty = true;
                 }
             }

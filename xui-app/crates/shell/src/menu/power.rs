@@ -43,6 +43,8 @@ pub enum Action {
     Confirm(Power),
     /// Leave the confirmation.
     Cancel,
+    /// A category title in the installed-app section; never chosen.
+    Header,
 }
 
 /// The outcome of choosing a row.
@@ -105,6 +107,7 @@ impl Menu {
                 self.set_power_rows(ask_rows());
                 Choice::Close
             }
+            Action::Header => Choice::Nothing,
         }
     }
 

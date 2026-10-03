@@ -1,13 +1,13 @@
 //! Embed the documentation tree in the OS volume.
 //!
 //! Every `*.md` under `docs/` (recursively, so `docs/architecture/boot.md`
-//! included) and the repository `README.md` are stored under `docs/<same
-//! relative path>` on the OS volume, so the Docs app and the Editor can read
-//! them through the VFS at `/docs/...` (the root `README.md` becomes
-//! `/docs/README.md`).
+//! included) and the repository `README.md` are stored under
+//! `/docs/os/<same relative path>` on the OS volume (`fhs::docs::OS_DOCS`), so
+//! the Docs app and the Editor can read them through the VFS (the root
+//! `README.md` becomes `/docs/os/README.md`). `/docs/apps` (F4) sits next to it.
 //!
 //! **Case.** The OS volume is ext2, which is case-sensitive: the Docs app and the
-//! Editor open `/docs/README.md` by exactly that spelling (`fhs::docs`), so the
+//! Editor open `/docs/os/README.md` by exactly that spelling (`fhs::docs`), so the
 //! destination keeps the case the source file has, and `docs/` wins over the
 //! root `README.md` under any case. Directories and long names are created as
 //! needed by the image composer.
@@ -17,10 +17,11 @@ use std::path::{Path, PathBuf};
 
 use crate::os_image::Sink;
 
-/// The directory the docs tree is copied to, under the OS volume root.
+/// The checkout directory the docs tree is collected from (and the first
+/// component of a collected destination; [`image_path`] maps it to `/docs/os`).
 const DISK_ROOT: &str = "docs";
 
-/// The repository README, embedded as `docs/README.md`.
+/// The repository README, collected as `docs/README.md`.
 const README: &str = "README.md";
 
 /// Skip a file larger than this. The bootloader reads the whole image over slow
@@ -189,9 +190,22 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     }
     let count = docs.len();
     for doc in docs {
-        sink.add_bytes(&doc.dest, doc.bytes);
+        sink.add_bytes(&image_path(&doc.dest), doc.bytes);
     }
-    println!("cargo:warning=docs: embedded {count} markdown file(s) at /{DISK_ROOT}/");
+    println!(
+        "cargo:warning=docs: embedded {count} markdown file(s) at {}/",
+        fhs::docs::OS_DOCS
+    );
+}
+
+/// Where a collected document goes on the volume: `docs/a/b.md` (its
+/// destination relative to the checkout) becomes `/docs/os/a/b.md`.
+pub fn image_path(dest: &str) -> String {
+    let relative = dest
+        .strip_prefix(DISK_ROOT)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(dest);
+    format!("{}/{relative}", fhs::docs::OS_DOCS)
 }
 
 #[cfg(test)]

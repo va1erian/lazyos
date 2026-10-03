@@ -38,7 +38,7 @@ per-path ACLs, audit trail, compaction, queries, quotas, `keyd` delegation.
 | Mediation | Userspace service `confd` over Messenger; kernel stays mechanism-only. |
 | Namespace | Hierarchical paths: `sys/net/eth0/mtu`, `user/1000/shell/theme`. |
 | Data model | One **value** per path: `bool`, `i64`, `u64`, `string`, or `bytes`. No records, no schemas. Structure comes from the path tree (`.../eth0/dhcp`, `.../eth0/mtu`). |
-| Persistence | The whole tree in memory; on every write, serialize to `<dir>/store.tmp` (`/data/confd` preferred, see §5), fsync, rename over `<dir>/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
+| Persistence | The whole tree in memory; on every write, serialize to `<dir>/store.tmp` (`/conf`, see §5), fsync, rename over `<dir>/store`. Rename is atomic, so a crash leaves the old or the new store, never a torn one. Config is small; this is fast enough. |
 | Access | Messenger interface `os.lazy.confd.v1` only. `confd` alone holds a handle to its store directory. |
 | Notification | One Messenger topic per changed path. |
 | Access control | Two fixed rules using the kernel-stamped `uid` (see §4). |
@@ -86,8 +86,15 @@ call:
 - `user/<uid>/**` — only that user (and uid 0) can read or write.
 - Any other top-level path is rejected (`CONFD_BAD_PATH`).
 
-`confd` runs unprivileged with only the `/system/confd` grant. Secrets do not go
-in `confd` in v1; use `keyd` directly.
+The store lives in `/conf`, 0700 root: only `confd` reads the raw store. (The
+plan's "unprivileged with only its own grant" waits for per-service uids,
+#446/#447; `confd` runs as uid 0 today.) Secrets do not go in `confd` in v1;
+use `keyd` directly.
+
+`/conf/svc/<service>/` (`fhs::state::CONF_SVC`, 0700 root) is the documented
+home of service state that is not key/value, such as `keyd`'s verifiers
+(#447): each service creates and owns its own directory there. `confd` creates
+nothing under it and never reads it.
 
 ---
 
@@ -103,24 +110,30 @@ in `confd` in v1; use `keyd` directly.
   after reconnecting, since change topics are best-effort.
 - *Corrupt store file:* `confd` starts empty, logs to `logd`, and keeps the bad
   file as `store.corrupt` for inspection.
-- *Where the store lives:* on the shipped image `/system` is the read-only FAT
-  boot volume (`mkdir` fails with `EROFS`) and `/tmp` is volatile ramfs, so the
-  only persistent, writable location is the ext2 data volume. Preference order
-  is `/data/confd`, `/system/confd` (for a future writable system volume),
-  then `/tmp/confd` (reported *degraded*). The kernel mounts `/data` before
-  userspace starts (there is no mount syscall), so normally `confd` finds it
-  ready; there is no retry in `init` because the mount is not asynchronous.
-- *Data volume arrives late, or an earlier run used a lower location:* settings
-  must not be silently lost. At startup `confd` merges any store left in a
-  lower-ranked directory into the chosen one (`Confd::absorb`); while running
-  on a lower-ranked directory it re-probes `/data/confd` every ~200 ticks and
-  on success moves onto it (`Confd::rebind`). Both merges only add paths the
-  destination lacks, so existing `/data` values always win; persist happens
-  before the switch, so a failure leaves the running store unchanged and is
-  retried. A fully merged source store is renamed `store.migrated`, so a value
-  deleted afterwards is never resurrected. Entries that do not fit the limits
-  are skipped (and the source kept) rather than dropped. Changed `sys/` paths
-  are announced; `CONFD:SEED`/`CONFD:MIGRATED` serial lines record it.
+- *Where the store lives:* `/conf` on the ext2 OS volume (F4,
+  docs/filesystem-plan.md). `/system` is written only by image updates and is
+  never a store. If `/conf` cannot be created or written (a recovery boot with
+  a read-only `/`), `confd` logs why and falls back to `/transient/conf`
+  (ramfs, reported *degraded*): settings then last until the next boot. The
+  serial marker is `CONFD:READY dir=/conf persistent=true` on a normal boot.
+- *`/conf` becomes writable later, or an earlier run used the ramfs:* settings
+  must not be silently lost. At startup `confd` merges any store left in
+  `/transient/conf` into `/conf` (`Confd::absorb`); while running on the
+  fallback it re-probes `/conf` every ~200 ticks and on success moves onto it
+  (`Confd::rebind`). Both merges only add paths the destination lacks, so
+  existing `/conf` values always win; persist happens before the switch, so a
+  failure leaves the running store unchanged and is retried. A fully merged
+  source store is renamed `store.migrated`, so a value deleted afterwards is
+  never resurrected. Entries that do not fit the limits are skipped (and the
+  source kept) rather than dropped. Changed `sys/` paths are announced;
+  `CONFD:SEED`/`CONFD:MIGRATED` serial lines record it.
+- *An image updated from F3 or earlier:* its settings are in `/data/confd`
+  (`fhs::state::LEGACY_DATA_CONFD`). The first start on `/conf` merges them in
+  the same way (`Confd::seed_once`, `CONFD:SEED:ONCE from=/data/confd ...`),
+  then writes `/conf/.seeded-from-data` and never reads `/data/confd` again,
+  so a setting deleted after the migration does not come back. `/data/confd`
+  is only read, never written or renamed; F7 removes it. A corrupt legacy
+  store contributes nothing; an unreadable one is retried at the next start.
 
 **Rollout**
 

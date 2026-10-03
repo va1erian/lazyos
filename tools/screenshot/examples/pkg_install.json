@@ -1,5 +1,9 @@
 [
  {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
   "wait_for": "TERM:UP:PASS",
   "timeout": 300
  },
@@ -70,6 +74,61 @@
  },
  {
   "at": 0.4,
+  "type": "cp /sy"
+ },
+ {
+  "at": 0.4,
+  "type": "stem/s"
+ },
+ {
+  "at": 0.4,
+  "type": "hare/s"
+ },
+ {
+  "at": 0.4,
+  "type": "amples"
+ },
+ {
+  "at": 0.4,
+  "type": "/pkgde"
+ },
+ {
+  "at": 0.4,
+  "type": "mo.lzp"
+ },
+ {
+  "at": 0.4,
+  "type": " /tran"
+ },
+ {
+  "at": 0.4,
+  "type": "sient/"
+ },
+ {
+  "at": 0.4,
+  "type": " && ec"
+ },
+ {
+  "at": 0.4,
+  "type": "ho sta"
+ },
+ {
+  "at": 0.4,
+  "type": "ged"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:cp /system/share/samples/pkgdemo.lzp /transient/ && echo staged",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:staged",
+  "timeout": 60
+ },
+ {
+  "at": 0.4,
   "type": "pkgctl"
  },
  {
@@ -78,20 +137,28 @@
  },
  {
   "at": 0.4,
-  "type": "ct /PK"
+  "type": "ct /tr"
  },
  {
   "at": 0.4,
-  "type": "GDEMO."
+  "type": "ansien"
  },
  {
   "at": 0.4,
-  "type": "LZP"
+  "type": "t/pkgd"
+ },
+ {
+  "at": 0.4,
+  "type": "emo.lz"
+ },
+ {
+  "at": 0.4,
+  "type": "p"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl inspect /PKGDEMO.LZP",
+  "until": "TERM:CMD:pkgctl inspect /transient/pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },
@@ -113,20 +180,28 @@
  },
  {
   "at": 0.4,
-  "type": "ll /PK"
+  "type": "ll /tr"
  },
  {
   "at": 0.4,
-  "type": "GDEMO."
+  "type": "ansien"
  },
  {
   "at": 0.4,
-  "type": "LZP"
+  "type": "t/pkgd"
+ },
+ {
+  "at": 0.4,
+  "type": "emo.lz"
+ },
+ {
+  "at": 0.4,
+  "type": "p"
  },
  {
   "at": 0.8,
   "key": "enter",
-  "until": "TERM:CMD:pkgctl install /PKGDEMO.LZP",
+  "until": "TERM:CMD:pkgctl install /transient/pkgdemo.lzp",
   "timeout": 30,
   "retries": 2
  },
@@ -136,6 +211,37 @@
  },
  {
   "wait_for": "TERM:OUT:PKGCTL:INSTALL:PASS",
+  "timeout": 60
+ },
+ {
+  "at": 0.4,
+  "type": "ls /do"
+ },
+ {
+  "at": 0.4,
+  "type": "cs/app"
+ },
+ {
+  "at": 0.4,
+  "type": "s/org."
+ },
+ {
+  "at": 0.4,
+  "type": "lazy.c"
+ },
+ {
+  "at": 0.4,
+  "type": "ounter"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:ls /docs/apps/org.lazy.counter",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:README.md",
   "timeout": 60
  },
  {
@@ -254,6 +360,49 @@
  {
   "wait_for": "INIT:STOP:PASS app=org.lazy.counter stopped=1",
   "timeout": 30
+ },
+ {
+  "at": 0.4,
+  "type": "ls -A "
+ },
+ {
+  "at": 0.4,
+  "type": "/docs/"
+ },
+ {
+  "at": 0.4,
+  "type": "apps |"
+ },
+ {
+  "at": 0.4,
+  "type": " grep "
+ },
+ {
+  "at": 0.4,
+  "type": "-c org"
+ },
+ {
+  "at": 0.4,
+  "type": ".lazy."
+ },
+ {
+  "at": 0.4,
+  "type": "counte"
+ },
+ {
+  "at": 0.4,
+  "type": "r"
+ },
+ {
+  "at": 0.8,
+  "key": "enter",
+  "until": "TERM:CMD:ls -A /docs/apps | grep -c org.lazy.counter",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:0",
+  "timeout": 60
  },
  {
   "at": 2.0,

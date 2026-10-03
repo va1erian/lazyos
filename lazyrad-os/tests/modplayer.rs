@@ -3,10 +3,11 @@
 //! offscreen backend with the `modplay` extension installed (a silent clock
 //! stands in for the mixer), and the test clicks through it.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use lazyrad_os::platform::LazyOsPlatform;
+use lazyrad_os::platform::{Home, LazyOsPlatform};
 use lazyrad_os::tracker::sink::{ClockSink, Sink};
 use lazyrad_os::tracker::{self, song::decode_base64, Output};
 use lazyrad_runtime::extensions;
@@ -285,7 +286,7 @@ fn the_packaged_sample_may_use_the_mixer() {
         .map(|name| std::fs::read_to_string(sample().join(name)).unwrap())
         .collect();
     let scripts: Vec<&str> = scripts.iter().map(String::as_str).collect();
-    let found = LazyOsPlatform::ide().script_permissions(&scripts);
+    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user")))).script_permissions(&scripts);
     assert_eq!(found.interfaces, ["os.lazy.audio.v1"]);
     assert!(found.topics.is_empty());
 }

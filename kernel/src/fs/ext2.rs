@@ -23,24 +23,46 @@ use super::hidden;
 use super::vfs::FsError;
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 
+mod cache;
 mod fsimpl;
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 pub struct Ext2 {
     volume: ext2fs::Ext2,
+    /// The registry name of the device, for the log lines.
+    device: &'static str,
 }
 
 impl Ext2 {
-    /// Probe `device` for an ext2 superblock and mount it. Any malformed or
-    /// unsupported image is refused with a friendly [`FsError`]; nothing here
-    /// trusts the disk.
+    /// Probe `device` for an ext2 superblock and mount it, reading and
+    /// writing the device directly. Any malformed or unsupported image is
+    /// refused with a friendly [`FsError`]; nothing here trusts the disk. The
+    /// tests that judge the device's bytes after every write use this; real
+    /// mounts go through [`Ext2::open_cached`].
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn open(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
+        Ext2::mount(device, None)
+    }
+
+    /// [`Ext2::open`] through the write-back block cache (`cache.rs`).
+    pub fn open_cached(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
+        Ext2::mount(device, Some(cache::config()))
+    }
+
+    fn mount(
+        device: &'static dyn BlockDevice,
+        config: Option<ext2fs::CacheConfig>,
+    ) -> Result<Ext2, FsError> {
         // Every block device in this tree speaks 512-byte sectors, which is
         // what the library's `BlockIo` assumes; another size is refused.
         if device.sector_size() != SECTOR_SIZE {
             return Err(FsError::NotSupported);
         }
-        let volume = ext2fs::Ext2::open(Box::new(device), super::vfs::now)?;
+        let io = Box::new(device);
+        let volume = match config {
+            Some(config) => ext2fs::Ext2::open_cached(io, super::vfs::now, config)?,
+            None => ext2fs::Ext2::open(io, super::vfs::now)?,
+        };
         // A mount never repairs anything (no fsck here); it only makes the
         // situation visible. The flag survives our own clean shutdowns: only
         // a check clears it (the image build's `Ext2::recover`).
@@ -53,7 +75,10 @@ impl Ext2 {
         if volume.had_errors_at_mount() {
             serial_println!("ext2: {} has recorded filesystem errors", device.name());
         }
-        Ok(Ext2 { volume })
+        Ok(Ext2 {
+            volume,
+            device: device.name(),
+        })
     }
 
     /// The superblock's volume UUID (`s_uuid`), as stored.
@@ -158,17 +183,37 @@ impl From<ext2fs::Ext2Error> for FsError {
 /// A registered device is the library's disk. The explicit `BlockDevice::`
 /// calls matter: method syntax on `&&dyn BlockDevice` would find this very
 /// impl first and recurse.
+///
+/// Every transfer first collects the i8042's bytes (`input::ps2`): a file
+/// syscall runs with interrupts off and may do hundreds of these, long enough
+/// for the keyboard controller's own queue to overflow.
 impl ext2fs::BlockIo for &'static dyn BlockDevice {
     fn sector_count(&self) -> u64 {
         BlockDevice::sector_count(*self)
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::read_sectors(*self, lba, buf).map_err(io_error)
     }
 
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
         BlockDevice::write_sectors(*self, lba, buf).map_err(io_error)
+    }
+
+    fn read_sectors_vectored(
+        &self,
+        lba: u64,
+        bufs: &mut [&mut [u8]],
+    ) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
+        BlockDevice::read_sectors_vectored(*self, lba, bufs).map_err(io_error)
+    }
+
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), ext2fs::IoError> {
+        crate::input::ps2::service();
+        BlockDevice::write_sectors_vectored(*self, lba, bufs).map_err(io_error)
     }
 
     fn flush(&self) -> Result<(), ext2fs::IoError> {

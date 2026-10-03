@@ -5,7 +5,7 @@
   {"at": 13.0, "type": "nope"},
   {"at": 13.6, "key": "enter"},
   {"at": 15.0, "shot": "login_denied"},
-  {"at": 15.6, "type": "alice"},
+  {"at": 15.6, "type": "user"},
   {"at": 16.2, "key": "enter"},
   {"at": 16.6, "type": "lazy"},
   {"at": 17.2, "key": "enter"},

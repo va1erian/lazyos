@@ -1,4 +1,4 @@
-// Drives the Messenger sample from outside: `rhai /LAZYRAD/messenger/poke.rhai`
+// Drives the Messenger sample from outside: `rhai /system/share/lazyrad/messenger/poke.rhai`
 // while the form runs (as root: `sys/` is root-writable). It waits for the
 // form's service, changes the confd key the form watches, then calls the
 // service, and prints one serial-checkable line (the desktop Terminal reports

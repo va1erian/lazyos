@@ -39,11 +39,10 @@ const BUILTIN_NAMES: &[(&str, &str)] = &[
     ("LICENSE", "text/plain"),
 ];
 
-/// Override files tried in order at boot. The first is the conventional
-/// `/etc/mime.types` path (an ext2 volume can carry it); the second is the
-/// 8.3-safe name the FAT boot image ships, because the FAT reader only
-/// resolves short names in the root directory.
-const OVERRIDE_PATHS: &[&str] = &["/etc/mime.types", fhs::boot::MIME_TYP];
+/// Override files tried in order at boot: the `mime.types` the image ships in
+/// `/system/share` (F3). LazyOS has no `/etc`; that name is a Linux ABI
+/// concept only.
+const OVERRIDE_PATHS: &[&str] = &[fhs::share::MIME_TYPES];
 
 /// Largest override file read at boot.
 pub(crate) const OVERRIDE_BUFFER: usize = 4096;

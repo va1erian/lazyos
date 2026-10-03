@@ -2,10 +2,11 @@
 //! and compile cleanly with LazyRAD's own check, and declare the Messenger
 //! permissions its scripts need when packaged.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use lazyrad_os::platform::LazyOsPlatform;
+use lazyrad_os::platform::{Home, LazyOsPlatform};
 use lazyrad_runtime::platform::Platform;
 
 fn samples() -> Vec<PathBuf> {
@@ -35,7 +36,8 @@ fn every_sample_checks_clean() {
 fn the_messenger_sample_declares_what_it_uses() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/messenger");
     let script = fs::read_to_string(dir.join("main_form.rhai")).unwrap();
-    let found = LazyOsPlatform::ide().script_permissions(&[&script]);
+    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user"))))
+        .script_permissions(&[&script]);
     assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
     assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
 }

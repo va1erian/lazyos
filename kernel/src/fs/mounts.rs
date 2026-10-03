@@ -47,7 +47,7 @@ pub(crate) fn select_root(devices: Devices) -> Option<(Arc<dyn Filesystem>, &'st
             .iter()
             .filter(|device| !device.is_partition())
             .find_map(|device| {
-                let volume = ext2::Ext2::open(*device).ok()?;
+                let volume = ext2::Ext2::open_cached(*device).ok()?;
                 Some((Arc::new(volume) as Arc<dyn Filesystem>, device.name()))
             })
     })
@@ -63,7 +63,7 @@ fn find_ext2(
         .iter()
         .filter(|device| Some(device.name()) != skip)
         .find_map(|device| {
-            let volume = ext2::Ext2::open(*device).ok()?;
+            let volume = ext2::Ext2::open_cached(*device).ok()?;
             wanted(&volume).then_some((volume, *device))
         })
 }

@@ -11,10 +11,8 @@ pub mod cred_op {
     pub const SET: u64 = 0;
     /// Read a task's credential block.
     pub const GET: u64 = 1;
-    /// Spawn an ELF with a credential block, stamped before it can run.
-    pub const SPAWN: u64 = 2;
-    /// Spawn an ELF stamped with a label string (`CAP_SETUID`).
-    pub const SPAWN_LABELLED: u64 = 3;
+    // 2 and 3 were the command-line credentialed spawns, folded into
+    // `spawnv` (syscall 31, fs F3); the kernel refuses them with `-EINVAL`.
     /// Read the label string for a label id.
     pub const LABEL_NAME: u64 = 4;
 }
@@ -39,10 +37,10 @@ pub const CAP_SYS_ADMIN: u32 = 1 << 2;
 /// A task's kernel-stamped identity (issue #101), the userspace mirror of
 /// `kernel/src/ipc/credentials.rs::Cred`.
 ///
-/// Userspace can never choose this freely: [`cred_set`]/[`spawn_as`] ask the
+/// Userspace can never choose this freely: [`cred_set`]/[`super::spawnv`] ask the
 /// kernel to validate and audit the request, and the kernel refuses a stamp
 /// that would widen the caller's privilege. Login reads the user database,
-/// builds one of these, and hands it to `spawn_as`.
+/// builds one of these, and hands it to `spawnv`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Cred {
     /// User id; `0` is the system/root user.
@@ -147,48 +145,6 @@ pub fn cred_get(target: Option<u64>, out: &mut Cred) -> Result<(), i64> {
     } else {
         Err(code)
     }
-}
-
-/// Spawn the program named by a **NUL-terminated** command line as a child of
-/// the calling task, stamped with `cred` before it can execute one
-/// instruction. Returns the child's pid, or `None` when the kernel refused the
-/// request or the program could not be started.
-///
-/// This is the login path: `logind` authenticates a user and starts the user's
-/// shell already owning that user's identity, with no window in which the
-/// child could run as root.
-pub fn spawn_as(cmdline_z: &[u8], cred: &Cred) -> Option<u64> {
-    let words = cred.to_words();
-    let code = creds_syscall(
-        cred_op::SPAWN,
-        cmdline_z.as_ptr() as u64,
-        words.as_ptr() as u64,
-    );
-    (code >= 0).then_some(code as u64)
-}
-
-/// Like [`spawn_as`], but the child is stamped with the label string `label`
-/// (`app:<reverse.dns.name>` or `system:<name>`) as well: the kernel interns
-/// it and records the id in the child's credentials. The `label_id` inside
-/// `cred` is ignored. Only a `CAP_SETUID` holder that is unlabelled (or already
-/// in that label) may do this, and a label can never change afterwards.
-pub fn spawn_as_labelled(cmdline_z: &[u8], cred: &Cred, label: &str) -> Option<u64> {
-    let cred = cred.to_words();
-    let block = [
-        cred[0],
-        cred[1],
-        cred[2],
-        0,
-        cred[4],
-        label.as_ptr() as u64,
-        label.len() as u64,
-    ];
-    let code = creds_syscall(
-        cred_op::SPAWN_LABELLED,
-        cmdline_z.as_ptr() as u64,
-        block.as_ptr() as u64,
-    );
-    (code >= 0).then_some(code as u64)
 }
 
 /// Read the label string for `label_id` into `out`, returning its length.

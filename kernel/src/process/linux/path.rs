@@ -18,7 +18,7 @@ use crate::task::{self, Fd};
 use super::cwd::user_path;
 use super::errno::{err, fs_err, EEXIST, EISDIR, ENOENT, ENOTDIR, EROFS};
 use super::fd::{file_meta, open_device_fd, open_snapshot};
-use super::native::BIN_DIRS;
+use super::native::{BIN_DIRS, SYSTEM_BIN_DIR};
 use super::vfsfd::open_vfs_fd;
 
 /// `openat(2)` access mode mask.
@@ -59,11 +59,13 @@ impl Access {
 
 /// A plain applet name that isn't a real file aliases to the BusyBox binary,
 /// but only where a command is looked up: one of the synthetic `$PATH`
-/// directories ([`BIN_DIRS`]: `/bin/ls`, `/usr/local/bin/rhai`), or a bare
-/// name with no directory at all (the kernel's own `execvp`-style callers).
+/// directories ([`BIN_DIRS`]: `/bin/ls`, `/usr/local/bin/rhai`), `/system/bin`
+/// (a session's `$PATH`, issue #508: `ls` there is BusyBox's while no file of
+/// that name exists), or a bare name with no directory at all (the kernel's
+/// own `execvp`-style callers).
 ///
 /// Nowhere else: a resolved absolute path at `/` (`/nope`) or in some other
-/// directory that merely has `bin` in it (an app's `/data/apps/<id>/bin/`)
+/// directory that merely has `bin` in it (an app's `/apps/<id>/bin/`)
 /// must name a real file, or `stat` would report a file that does not exist
 /// and `open(O_CREAT)` would refuse to create one there.
 fn applet_name(path: &str) -> Option<&str> {
@@ -76,7 +78,7 @@ fn applet_name(path: &str) -> Option<&str> {
         None => (None, path),
     };
     let in_bin_dir = match dir {
-        Some(dir) => BIN_DIRS.contains(&dir),
+        Some(dir) => BIN_DIRS.contains(&dir) || dir == SYSTEM_BIN_DIR,
         None => !path.contains('/'),
     };
     let plain = !base.is_empty()
@@ -115,7 +117,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
         return Some(meta);
     }
     if applet_name(path).is_some() {
-        return crate::fs::abi_stat(Id::current(), fhs::boot::BUSYBOX_PATH)
+        return crate::fs::abi_stat(Id::current(), fhs::bin::BUSYBOX)
             .ok()
             .map(|meta| Meta {
                 ino: 0,
@@ -161,41 +163,37 @@ fn load_file_as(id: Id, path: &str) -> Result<Vec<u8>, FsError> {
     match crate::fs::abi_read(id, path) {
         Ok(data) => Ok(data),
         Err(FsError::NotFound) if applet_name(path).is_some() => {
-            crate::fs::abi_read(id, fhs::boot::BUSYBOX_PATH).map_err(|_| FsError::NotFound)
+            crate::fs::abi_read(id, fhs::bin::BUSYBOX).map_err(|_| FsError::NotFound)
         }
         Err(error) => Err(error),
     }
 }
 
-/// The image-root program an applet-shaped name stands for: `rhai`,
-/// `/usr/local/bin/rhai` and `/bin/rhai` all mean `/RHAI.ELF` (issue #319).
-/// The root holds the flat names the image build stores (`fhs::boot`: at most
-/// eight characters plus `.ELF`), so longer names never match, and the
-/// mandatory `.ELF` keeps data files (`PASSWD`, `HELLO.TXT`) from shadowing a
-/// BusyBox applet of the same name.
+/// The `/system/bin` program an applet-shaped name stands for: `rhai`,
+/// `/usr/local/bin/rhai` and `/bin/rhai` all mean `/system/bin/rhai` (issue
+/// #319, docs/filesystem-plan.md F3). Only programs live in `/system/bin`, so
+/// a data file can never shadow a BusyBox applet of the same name.
 ///
-/// The root is ext2, which is case-sensitive: the names are stored uppercase,
-/// so the lookup spells them uppercase to match exactly (it is not a case
-/// fold). F3 (docs/filesystem-plan.md) turns this into a lookup in
-/// `/system/bin`.
-fn root_elf_path(path: &str) -> Option<String> {
+/// The volume is ext2, which is case-sensitive, and the name is used as typed:
+/// `RHAI` is `/system/bin/RHAI`, which does not exist.
+pub(super) fn system_bin_path(path: &str) -> Option<String> {
     let base = applet_name(path)?;
-    (base.len() <= 8).then(|| format!("/{}.ELF", base.to_ascii_uppercase()))
+    Some(format!("{}/{base}", fhs::SYSTEM_BIN))
 }
 
 /// Load an executable for `execve`. In order:
 ///
 /// 1. the file at `path` itself;
 /// 2. for an applet-shaped name (`rhai`, `/bin/rhai`), the program of that
-///    name at the image root ([`root_elf_path`]) — this must precede the
+///    name in `/system/bin` ([`system_bin_path`]) — this must precede the
 ///    BusyBox alias, which would otherwise claim every plain name in a `bin`
 ///    directory;
 /// 3. the BusyBox applet alias, and — when a `$PATH` lookup names a
 ///    directory LazyOS does not back with files — the basename resolved
-///    through these same steps (its image-root program, else its alias, else
-///    the file of that name). The executable store is the flat image root,
-///    so this is what lets `execvp("INIT.ELF")` find `/INIT.ELF` after trying
-///    `/usr/local/bin`, `/bin` and `/usr/bin`.
+///    through these same steps (its `/system/bin` program, else its alias,
+///    else the file of that name). This is what lets `execvp("rhai")` find
+///    `/system/bin/rhai` after trying `/usr/local/sbin`, `/usr/local/bin`,
+///    `/bin` and `/usr/bin` (issue #515).
 pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
     let id = Id::current();
     match crate::fs::abi_read(id, path) {
@@ -203,8 +201,8 @@ pub(super) fn load_executable(path: &str) -> Result<Vec<u8>, FsError> {
         Err(FsError::NotFound) => {}
         Err(error) => return Err(error),
     }
-    if let Some(root) = root_elf_path(path) {
-        match crate::fs::abi_read(id, &root) {
+    if let Some(program) = system_bin_path(path) {
+        match crate::fs::abi_read(id, &program) {
             Ok(elf) => return Ok(elf),
             Err(FsError::NotFound) => {}
             Err(error) => return Err(error),

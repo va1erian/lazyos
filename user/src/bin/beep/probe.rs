@@ -289,8 +289,8 @@ fn stray_transfers(
 
 /// Run the intruder task and report whether it was refused everywhere.
 fn intruder(stream: u32) -> Result<bool, String> {
-    let command = format!("{} role=intruder stream={stream}\0", fhs::boot::BEEP_ELF);
-    let Some(pid) = sys::spawn(command.as_bytes()) else {
+    let stream_arg = format!("stream={stream}");
+    let Some(pid) = sys::spawn_native(fhs::bin::BEEP, &["role=intruder", &stream_arg]) else {
         return Err(String::from("could not spawn the intruder"));
     };
     let deadline = now() + 1000;

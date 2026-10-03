@@ -1,4 +1,4 @@
-//! `flaky` (`FLAKY.ELF`): the supervisor's crash-test service (issue #93).
+//! `flaky` (`/system/bin/flaky`): the supervisor's crash-test service (issue #93).
 //!
 //! `init` starts this program through the native `spawn` syscall and appends
 //! `attempt=<n>` to its manifest arguments. On the first attempt it parks for a

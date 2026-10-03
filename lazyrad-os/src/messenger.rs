@@ -90,10 +90,7 @@ pub fn install_over(bus: Rc<dyn Bus>, observer: Option<HandledObserver>) -> Rc<F
             eprintln!("lrplay: the sys::* modules are unavailable: {error}");
         }
     });
-    extensions::add_event_source(Rc::new(MessengerEvents::new(
-        Rc::clone(&fabric),
-        observer,
-    )));
+    extensions::add_event_source(Rc::new(MessengerEvents::new(Rc::clone(&fabric), observer)));
     fabric
 }
 

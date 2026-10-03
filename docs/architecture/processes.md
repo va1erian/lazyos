@@ -9,7 +9,7 @@ syscall shim.
 | Path | Role |
 |---|---|
 | `kernel/src/task/process.rs` | Tree, groups, sessions, `finish`, `reap_child` |
-| `kernel/src/process/mod.rs` (+ `creds.rs`, `spawn.rs`) | ELF loader, syscalls 6-11 (creds/quota/tasks in `creds.rs`, spawn in `spawn.rs`) |
+| `kernel/src/process/mod.rs` (+ `creds.rs`, `spawn.rs`, `spawnv.rs`, `argstore.rs`) | ELF loader, syscalls 7-11 and 30 (creds/quota/tasks in `creds.rs`, task-name interning and the exec gate in `spawn.rs`, `spawnv` in `spawnv.rs`, the per-task argv/envp blocks syscall 9 reads in `argstore.rs`) |
 | `kernel/src/process/gate.rs` | The `int 0x80` gate: register-save stub and the syscall routing table (native dispatch) |
 | `kernel/src/process/linux/` | Linux ELF loader + syscall dispatch, futex, clone (split by syscall family; see its `mod.rs` doc comment) |
 | `kernel/src/ipc/pipe.rs` | Pipes (`pipe`/`pipe2`) and `AF_UNIX` socket pairs |
@@ -37,11 +37,11 @@ syscall shim.
 | 0 | `exit(code)` | finish current task; status visible to the supervisor |
 | 1-4 | `write`, `read_char`, `read_file`, `sbrk` | demo surface |
 | 5 | `messenger(op, args, result)` | fabric (see [ipc-fabric.md](ipc-fabric.md)) |
-| 6 | `spawn("PATH.ELF [args]")` | child of caller; stores args per slot |
+| 6 | (retired) | was the command-line `spawn("PATH [args]")`; `spawnv` (31) replaced it in fs F3 and the number is now an unknown syscall |
 | 7 | `wait(deadline)` | reap a child; returns packed pid/status, or `-1` on timeout |
 | 8 | `clock()` | PIT ticks (100 Hz) for backoff and polls |
-| 9 | `args(buf, len)` | copy the manifest argument string |
-| 10 | `creds(op, a1, a2)` | audited credential gate: `set`, `get`, `spawn`, labelled `spawn` and label-name read (see [ipc-security.md](ipc-security.md)) |
+| 9 | `args(buf, len, which)` | copy the caller's `argv` (`which` 0, `argv[0]` included) or `envp` (`which` 1) block of NUL-terminated strings; returns the full length, copies at most `len`; `-EINVAL` for another `which` (`process/argstore.rs`) |
+| 10 | `creds(op, a1, a2)` | audited credential gate: `set`, `get` and label-name read (see [ipc-security.md](ipc-security.md)); the spawn ops moved into `spawnv` |
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
@@ -55,28 +55,66 @@ syscall shim.
 | 27 | `inet(op, a1, a2, a3)` | the `AF_INET` pump: `netd` (root or `_netd` only) fetches the socket requests the kernel queued for Linux programs, answers them, and moves bytes through the kernel's side of each socket (`process/inetsys.rs`, `ipc/inet/`, networking plan N5) |
 | 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
 | 28 | `append_file(path, data, len)` | append up to 1 MiB to the end of a file, creating it when absent (`process/fsops.rs`); `write_file` of the first chunk plus one append per further chunk writes a file larger than one call, which the package manager `pkgd` needs for binaries |
-| 30 | `read_at(path, request)` | read up to `len` bytes of a file at `offset` into `buf`, where `request` points at three `u64`s `[buf, len, offset]`; at most 1 MiB per call, 0 at the end of the file (`process/fsops.rs`). Unlike syscall 3 it never loads the whole file into the kernel heap, so `pkgd` streams packages of any size with it (`user::files::read_large`) |
 | 29 | `kill(slot, sig)` | end one task by slot (what `spawn` returned) with signal 0 (probe), `SIGTERM` or `SIGKILL`; the sender must share the target's uid or hold `CAP_KILL`; `-ESRCH`/`-EPERM`/`-EINVAL`, no group or broadcast form (`process/killsys.rs`); `init` uses it to stop an app being removed |
+| 30 | `read_at(path, request)` | read up to `len` bytes of a file at `offset` into `buf`, where `request` points at three `u64`s `[buf, len, offset]`; at most 1 MiB per call, 0 at the end of the file (`process/fsops.rs`). Unlike syscall 3 it never loads the whole file into the kernel heap, so `pkgd` streams packages of any size with it (`user::files::read_large`) |
+| 31 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
+| 32 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
 
-- `spawn` reads the ELF from the FAT image, leaks one interned `&'static str`
+- `spawnv` reads the ELF from the OS volume (`/system/bin/<name>`), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
   `service`), and gives the child a copy of the *caller's* credentials before it
-  can run; `SERVICE_ARGS` is keyed by slot and cleared on reuse. `fork`, `clone`
+  can run; the child's `argv`/`envp` blocks are keyed by slot, written before
+  it can run and forgotten when it is reaped. `fork`, `clone`
   and threads inherit the same way, and only a program the kernel itself starts
-  begins as root. The credential gate (syscall 10) has five ops: `0` set,
-  `1` get, `2` spawn-with-credentials, `3` **spawn labelled** (`a1` = command
-  line, `a2` -> seven words: the five credential words, then a pointer and byte
-  length of the label string; the block's `label_id` word is ignored, the
-  kernel interns the string and stamps the id) and `4` **label name** (`a1` = a
-  label id, `a2` -> a `8 + 160` byte buffer that receives a length word and the
-  label bytes; needs `CAP_SETUID`, or the id must be the caller's own label).
-  A label only ever goes from `0` to a value, once, on a child being created
-  by a `CAP_SETUID` holder that is unlabelled (or already in that label); ops
-  `0` and `2` must keep the label they land on, so a task cannot relabel or
-  unlabel itself or hand a peer another label (`-EPERM`). `load_image`
+  begins as root. The credential gate (syscall 10) has three ops: `0` set,
+  `1` get and `4` **label name** (`a1` = a label id, `a2` -> a `8 + 160` byte
+  buffer that receives a length word and the label bytes; needs `CAP_SETUID`,
+  or the id must be the caller's own label). Ops `2` and `3` were the
+  command-line spawn-with-credentials and spawn-labelled; `spawnv`'s `As` and
+  `AsLabelled` modes replaced them with the same checks, and the gate answers
+  them `-EINVAL`. A label only ever goes from `0` to a value, once, on a child
+  being created (`spawnv` `AsLabelled`) by a `CAP_SETUID` holder that is
+  unlabelled (or already in that label); op `0` and an `As` spawn must keep the
+  label they land on, so a task cannot relabel or unlabel itself or hand a peer
+  another label (`-EPERM`). `load_image`
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x0800_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
+
+**`spawnv`** (syscall 31, `process/spawnv.rs`, fs F3 / issue #507). The one
+spawn entry point; it replaced the command-line spawns (6 and the credential
+gate's ops 2/3, deleted with their last caller). Nothing is split, so a path or
+an argument may contain spaces. `rdi` points at a 17-word (`u64`, little-endian)
+request:
+
+| Word | Field |
+|---|---|
+| 0, 1 | `path_ptr`, `path_len` (no NUL; at most 255 bytes) |
+| 2, 3, 4 | `argv_ptr`, `argv_len`, `argc`: `argc` NUL-terminated strings, `argv[0]` included; at most 4 KiB and 64 strings |
+| 5, 6, 7 | `envp_ptr`, `envp_len`, `envc`: `envc` NUL-terminated `KEY=VALUE` strings (non-empty key); at most 4 KiB and 64; `envc` 0 needs `envp_len` 0 |
+| 8 | personality: `0` native, `1` Linux (replaces the `linux:` prefix) |
+| 9 | cred: `0` inherit, `1` as (the credential words), `2` as labelled (the credential words and the label) |
+| 10-14 | `uid`, `gid`, `caps`, `label_id`, `session`: the credential block of syscall 10 |
+| 15, 16 | `label_ptr`, `label_len` (mode 2; 1..=160 bytes of UTF-8) |
+
+Everything is validated before anything is allocated or loaded: a path over
+255 bytes is `-ENAMETOOLONG`; a block over 4 KiB or a count over 64 is
+`-E2BIG`; `argc` 0, a count that does not match the block's NULs, a block that
+does not end in NUL, an `envp` entry without `KEY=`, a NUL or non-UTF-8 byte in
+the path, non-UTF-8 `argv`/`envp` for a native child, or an unknown
+personality/cred selector is `-EINVAL`; an empty path is `-ENOENT`; memory that
+is not readable user memory is `-EFAULT`. The cred modes run exactly the
+credential gate's checks (`CAP_SETUID`, no widening, the label rules; `-EPERM`/
+`-EACCES`) before a task exists. Then the `noexec` check (`-EACCES`), the file
+(`-ENOENT`), the child (`-ENOMEM`), the stamp, and the blocks. Returns the
+child's pid. A native child reads its blocks through syscall 9
+(`sys::args()`, `sys::env()`); a Linux child gets them on its start stack
+byte for byte. The kernel's own boot spawns (`kernel/src/main.rs`) and the
+Linux `execve` of a native program fill the same per-task block from an `argv`
+vector (`process::set_task_argv`): `argv[0]` is the program path for a boot
+spawn and the caller's `argv[0]` for `execve`, and no argument is ever split or
+joined. Services that still parse one string read `sys::service_args()`
+(`argv[1..]` joined by spaces).
 
 **User faults** (`arch/fault.rs`, `arch/idt.rs`, #7). Every CPU exception is
 classified by the saved CS: a ring-0 fault still halts with a diagnostic, but a
@@ -84,7 +122,7 @@ ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
 faulting process (all threads of its address space) with status `128 + signal`
 (#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
 the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
-Evidence: the `fault_*` kernel tests; `faultprobe` (`FAULTPRB.ELF`) is also
+Evidence: the `fault_*` kernel tests; `faultprobe` (`/system/bin/faultprobe`) is also
 runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
@@ -187,8 +225,8 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `F_SETFL` carry `O_NONBLOCK`, `F_GETFD`/`F_SETFD` carry `FD_CLOEXEC`, and
   `execve` closes marked descriptors while `fork` inherits them.
 - `execve` replaces the image, resets the signal table, and tears down the old
-  PML4 when it has no other users. The ABI bench injects `INIT.ELF` via
-  `LAZYOS_INIT`; `BUSYBOX` runs BusyBox `sh` on the shim, and results are
+  PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
+  `LAZYOS_INIT`; `/system/bin/busybox` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 - `execve` of a `#!` script (`process/linux/shebang.rs`, issue #491) runs the
   interpreter named on its first line with argv `[interp, (one-arg), script,
@@ -205,24 +243,33 @@ How the kernel tells the two ABIs apart: it does not look at the image. Both a
 native LazyOS program and a static musl program are x86_64 ET_EXEC files at the
 same base, so a task's personality (`task::Kind::Native` vs `Kind::Linux`) is
 fixed by *how it was started*: `spawn`/`spawn_child` build a native task,
-`spawn_linux*` (the `linux:` prefix) and `fork`/`clone` build Linux ones. A
+`spawn_linux*` (`spawnv`'s Linux personality) and `fork`/`clone` build Linux ones. A
 native task talks through `int 0x80` and prints with syscall 1 (`write`), which
 the kernel appends to the terminal buffer of the task's root ancestor (and to
-serial); it has no `argv` (only the string syscall 9 returns) and reads keys
+serial); it has no start stack (its `argv`/`envp` blocks come from syscall 9) and reads keys
 with syscall 2.
 
 BusyBox `sh` runs a command with `fork` + `execve`, so `execve` has to start a
 native program without loading it over the Linux image. `sys_execve` first asks
-`native::lookup(path)`: a small table (`top`, `confctl`, `msgctl`/`messengerctl`,
-`faultprobe`) maps the name a user types (`top`, `/bin/top`, found through the
-synthetic `/bin` that `$PATH` searches, only while no real file has that path)
-or the boot-volume name (`/TOP.ELF`) to the 8.3 `.ELF` file. On a match the
-calling task, which is `sh`'s expendable fork child:
+`native::lookup(path)`. Programs live at their real names in `/system/bin`
+(F3), and a list of the native ones (`top`, `confctl`, `messengerctl`,
+`faultprobe`, `beep`, `pkgctl`, `powerctl`, ...) maps the name a user types
+(`top`, `/bin/top`, found through the synthetic `/bin` that `$PATH` searches,
+only while no real file has that path) or the full path (`/system/bin/top`)
+to `/system/bin/<name>`, byte for byte: `TOP` and `top.elf` are not found.
+An alias table adds the names that differ from the file: `msgctl` is
+`messengerctl`, and `shutdown`/`poweroff`/`halt`/`reboot` run `powerctl` with
+a preset first argument. The list exists because nothing in the ELF tells a
+native program from a Linux one; every other file in `/system/bin` (`busybox`,
+`rhai`, the xui apps) goes through the Linux loader, which resolves an
+applet-shaped name to `/system/bin/<name>` before the BusyBox applet alias. A
+native program this image does not ship is left to the Linux loader too. On a
+match the calling task, which is `sh`'s expendable fork child:
 
-1. checks the execute bit, reads the ELF from the boot volume (`ENOENT` if the
-   image does not ship it, e.g. `top` in the `LAZYOS_DESKTOP=1` image) and joins
+1. checks the execute bit, reads the ELF from `/system/bin` and joins
    `argv[1..]` into the string syscall 9 hands the program (`E2BIG` past 4 KiB);
-2. spawns it as a native child (`task::spawn_child_inheriting_fds`), which copies
+2. spawns it as a native child named after the file (`top`;
+   `task::spawn_child_inheriting_fds`), which copies
    the caller's descriptor table except `FD_CLOEXEC` entries (`EAGAIN` when no
    task slot is free, `ENOMEM`, `ENOEXEC` for an image that will not load, all
    without leaking the slot or the half-built address space);
@@ -240,8 +287,8 @@ stdout is a pipe). Limits, all by design of the minimum viable version:
   keystrokes arrive that way), and a newline at end of input so a line reader
   ends instead of hanging. Only `read_char` reads it (no stderr; everything
   is descriptor 1);
-- arguments are one whitespace-split string, so an argument that contains spaces
-  is split; there is no environment;
+- the program gets the shell's `argv` item for item (an argument with spaces
+  stays whole), but no environment;
 - there is no controlling tty and no job control, so `^C` is not delivered to
   the foreground job (a Linux `sleep` in the desktop Terminal has the same
   limit), a background job (`top &`) is not stopped by `SIGTTIN` when it reads

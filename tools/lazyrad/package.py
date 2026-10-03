@@ -10,7 +10,7 @@ work is ``lazyrad-os/examples/lzpack.rs``; this script picks the inputs.
 
 Usage::
 
-    python tools/lazyrad/package.py                    # the MOD player -> target/pkg/MODPLAY.LZP
+    python tools/lazyrad/package.py                    # the MOD player -> target/pkg/modplayer.lzp
     python tools/lazyrad/package.py --app modplayer --no-build
     python tools/lazyrad/package.py --project <dir> --out x.lzp --system-name user.me.x
 
@@ -34,7 +34,7 @@ PKG_DIR = ROOT / "target" / "pkg"
 APPS = {
     "modplayer": (
         ROOT / "lazyrad-os" / "samples" / "modplayer",
-        PKG_DIR / "MODPLAY.LZP",
+        PKG_DIR / "modplayer.lzp",
         "org.lazy.modplayer",
         "A ProTracker MOD player made with LazyRAD",
     ),

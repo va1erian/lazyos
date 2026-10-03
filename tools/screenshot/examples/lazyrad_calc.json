@@ -37,12 +37,12 @@
  },
  {
   "at": 4.0,
-  "type": "/LRPLAY.ELF --client /LAZYRAD/calculator &"
+  "type": "/system/bin/lrplay --client /system/share/lazyrad/calculator &"
  },
  {
   "at": 4.5,
   "key": "enter",
-  "until": "TERM:CMD:/LRPLAY.ELF --client /LAZYRAD/calculator &",
+  "until": "TERM:CMD:/system/bin/lrplay --client /system/share/lazyrad/calculator &",
   "timeout": 30,
   "retries": 2
  },

@@ -114,6 +114,7 @@ jobs:
         run: |
           python -m pip install ziglang==0.16.0
           python tools/xui/test_zig.py
+          python tools/xui/test_core_packages.py
           python tools/screenshot/test_qmp_mouse.py
 
       - name: Build the app (static musl)
@@ -309,7 +310,7 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
             --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
             --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for app in terminal sysmon fabricmon counter; do
+          for app in terminal os.lazy.sysmon os.lazy.fabricmon os.lazy.counter; do
             grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
           done
           grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log
@@ -369,7 +370,7 @@ jobs:
           first="$(grep -o "INIT:AUTOSTART:PASS app=[a-z]*" shots/shell/serial.log | head -n 1)"
           test "$first" = "INIT:AUTOSTART:PASS app=lazyshell"
           for marker in SHELL:UP:PASS SHELL:SERVICE:PASS SHELL:DESKTOP:PASS SHELL:MENU:OPEN \
-                        "SHELL:LAUNCH:PASS app=sysmon" "INIT:LAUNCH:PASS app=sysmon" \
+                        "SHELL:LAUNCH:PASS app=os.lazy.sysmon" "INIT:LAUNCH:PASS app=os.lazy.sysmon" \
                         SHELL:TASKBAR:ADD SHELL:TASKBAR:REMOVE \
                         "INIT:RESTART:PASS name=lazyshell" SHELL:RESTART:PASS; do
             grep -q "$marker" shots/shell/serial.log
@@ -496,7 +497,7 @@ jobs:
           ! grep -q "^init: launch .* failed" shots/docs/serial.log
 
       # Docs Open dialog: the toolbar button and Ctrl+O each show the portable
-      # file picker (which lists the `/TESTDOC.MD` fixture the image ships), a
+      # file picker (which lists the `/system/share/samples/testdoc.md` fixture the image ships), a
       # cancelled dialog leaves the page alone, and a typed path loads the
       # document into the view.
       - name: Capture Docs (Open dialog, test document)
@@ -510,7 +511,8 @@ jobs:
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs_open             --timeout 300 --script tools/screenshot/examples/xui_docs_open.json             --fail-on "DOCS:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/TESTDOC.MD \n                        DOCS:RENDER:PASS:/TESTDOC.MD; do
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS DOCS:OPEN:PASS:/system/share/samples/testdoc.md \
+                        DOCS:RENDER:PASS:/system/share/samples/testdoc.md; do
             grep -qF "$marker" shots/docs_open/serial.log
           done
           # The replacement view must have painted a document: compare decoded

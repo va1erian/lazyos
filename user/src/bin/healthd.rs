@@ -1,4 +1,4 @@
-//! `healthd` (`HEALTHD.ELF`): service health aggregation and the retained
+//! `healthd` (`/system/bin/healthd`): service health aggregation and the retained
 //! `system/health/*` topic (issue #93).
 //!
 //! `healthd` is the S2 health service from the platform plan section 4.3. It:

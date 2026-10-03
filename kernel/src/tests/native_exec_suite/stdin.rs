@@ -36,7 +36,7 @@ pub fn read_char_follows_redirected_stdin() -> Result<(), String> {
         "stdin pipe write returned {wrote}"
     );
 
-    let child = native::spawn("HELLO.ELF", &service_suite::minimal_elf(), "")
+    let child = native::spawn(fhs::bin::HELLO, &service_suite::minimal_elf(), &["hello"])
         .map_err(|e| format!("spawn errno {e}"))?;
     check!(
         task::harness::fd_kind_at(child, 0) == FdKind::Pipe,

@@ -70,8 +70,7 @@ impl ModifierPair {
         (before != after).then_some(after)
     }
 
-    /// Only the `#[cfg(lazyos_tests)]` harness hook below calls this.
-    #[allow(dead_code)]
+    /// Forget both sides (after lost bytes, and in the test harness).
     fn reset(&self) {
         self.left.store(false, Ordering::SeqCst);
         self.right.store(false, Ordering::SeqCst);
@@ -91,6 +90,28 @@ static EXTENDED: AtomicBool = AtomicBool::new(false);
 /// logic, so the raw stream is complete even where the legacy path swallows a
 /// key (AltGr on AZERTY, unmapped keys).
 static RAW: Mutex<raw_tap::Tap> = Mutex::new(raw_tap::Tap::new());
+
+/// i8042 bytes were lost (`ps2`'s FIFO overflowed): whatever release they
+/// carried will never come, so every held key and modifier is let go, on the
+/// raw bus and towards a bound compositor alike. Interrupt context only, like
+/// [`push_scancode`].
+pub fn release_all_after_loss() {
+    RAW.lock().release_all();
+    EXTENDED.store(false, Ordering::SeqCst);
+    ALTGR.reset();
+    for (pair, key) in [
+        (&SHIFT, Key::Shift),
+        (&CTRL, Key::Ctrl),
+        (&ALT, Key::Alt),
+        (&SUPER, Key::Super),
+    ] {
+        let held = pair.held();
+        pair.reset();
+        if held && display::bound() {
+            display::push_key(key, false);
+        }
+    }
+}
 
 /// Feed a raw scancode from the i8042 (called from the IRQ1 handler).
 pub fn push_scancode(scancode: u8) {

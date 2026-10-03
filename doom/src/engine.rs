@@ -79,7 +79,7 @@ fn start(args: &[String]) {
 /// make that a writable per-user directory. Best effort: on failure the engine
 /// still runs, it just cannot save.
 fn enter_config_dir() {
-    let home = std::env::var("HOME").ok().or_else(owned_home);
+    let home = std::env::var("HOME").ok();
     let dir = launch::config_dir(home.as_deref());
     let fallback = launch::config_dir(None);
     for candidate in [dir, fallback] {
@@ -89,28 +89,4 @@ fn enter_config_dir() {
             return;
         }
     }
-}
-
-/// The player's home without `HOME` (an installed app gets no environment from
-/// `init`): the directory under the per-user roots that this uid owns.
-fn owned_home() -> Option<String> {
-    use std::os::unix::fs::MetadataExt;
-
-    // SAFETY: `getuid` takes no arguments, cannot fail and touches no memory.
-    let uid = unsafe { libc::getuid() };
-    let mut candidates = Vec::new();
-    for root in [fhs::mount::HOME, fhs::state::HOME_ROOT] {
-        let Ok(entries) = std::fs::read_dir(root) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_dir() {
-                    let dir = entry.path().to_string_lossy().into_owned();
-                    candidates.push((dir, meta.uid()));
-                }
-            }
-        }
-    }
-    launch::owned_home(&candidates, uid)
 }

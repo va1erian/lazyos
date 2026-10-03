@@ -1,0 +1,18 @@
+[
+ {"wait_for": "TERM:UP:PASS", "timeout": 240},
+ {"at": 2.0, "mouse_move": [-300, -300]},
+ {"at": 2.2, "mouse_move": [-300, -300]},
+ {"at": 2.4, "mouse_move": [-300, -300]},
+ {"at": 3.0, "mouse_move": [200, 300]},
+ {"at": 3.4, "mouse_click": "left"},
+ {"at": 1.0, "type": "find /home/admin/projects -name '*.lrp'"},
+ {"at": 0.5, "key": "enter", "until": "TERM:CMD:find /home/admin/projects", "timeout": 30, "retries": 2},
+ {"wait_for": "TERM:OUT:/home/admin/projects/.*MyApp\\.lrp", "regex": true, "timeout": 60},
+ {"at": 1.0, "type": "cat /home/admin/.apps/user.*/proof.txt"},
+ {"at": 0.5, "key": "enter", "until": "TERM:CMD:cat /home/admin/.apps/user.", "timeout": 30, "retries": 2},
+ {"wait_for": "TERM:OUT:F4-installed-app", "timeout": 60},
+ {"at": 1.0, "type": "ls -d /apps/user.*/*/data /home/admin/.apps/*"},
+ {"at": 0.5, "key": "enter", "until": "TERM:CMD:ls -d /apps/", "timeout": 30, "retries": 2},
+ {"at": 4.0, "shot": "01_project_and_app_data_after_reboot"},
+ {"at": 1.0, "quit": true}
+]

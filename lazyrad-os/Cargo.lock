@@ -529,6 +529,7 @@ name = "lazypkg"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "fhs",
  "lazyos-crypto",
  "miniz_oxide 0.8.9",
  "serde",
@@ -538,7 +539,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-designer"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "lazyrad-project",
  "thiserror",
@@ -550,7 +551,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-ide"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "embed-resource",
  "lazyrad-designer",
@@ -593,7 +594,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-packager"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "editpe",
  "lazyrad-project",
@@ -607,7 +608,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-player"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "embed-resource",
  "lazyrad-packager",
@@ -620,7 +621,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-project"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "libc",
  "serde",
@@ -632,7 +633,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-runtime"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "lazyrad-project",
  "rhai",
@@ -1649,7 +1650,7 @@ dependencies = [
 [[package]]
 name = "xui-form"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "serde",
  "thiserror",
@@ -1675,7 +1676,7 @@ dependencies = [
 [[package]]
 name = "xui-rhai"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
+source = "git+https://github.com/va1erian/lazyrad?rev=0043b1f5c1bd5f2b306d1932a430c2459ff829ea#0043b1f5c1bd5f2b306d1932a430c2459ff829ea"
 dependencies = [
  "rhai",
  "xui-core",

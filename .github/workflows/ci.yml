@@ -108,7 +108,7 @@ jobs:
       # the serial log must show the FAT volume listing and a file read. Every
       # step waits on a serial marker, so a hang or a wrong result fails the
       # job. (Ring-3 fault containment is covered by the `fault_*` kernel tests
-      # now that the native shell that used to launch `FAULTPRB.ELF` is gone.)
+      # now that the native shell that used to launch `/system/bin/faultprobe` is gone.)
       - name: Boot and assert on serial output
         run: |
           python tools/screenshot/qemu_session.py --image target/lazyos.img \
@@ -117,7 +117,8 @@ jobs:
           python tools/screenshot/pngstats.py shots/boot/*.png --min-nonblack 0.01
 
       # Issue #260: the services image starts `confd`, which spawns one
-      # `confctl` self-test at boot. The session gates on `CONFD:READY` and
+      # `confctl` self-test at boot. The session gates on
+      # `CONFD:READY dir=/conf persistent=true` (the store on the OS volume) and
       # `CONFCTL:SELFTEST:PASS`, so the store, the VFS `StoreFs` (write tmp ->
       # fsync -> rename) and the change publisher are exercised over the real
       # Messenger transport, not just in the unit suite.
@@ -161,6 +162,23 @@ jobs:
           grep -q "^PIPED-USAGE: confctl" shots/native/serial.log
           grep -q "^waited=0" shots/native/serial.log
           python tools/screenshot/pngstats.py shots/native/*.png --min-nonblack 0.01
+
+      # Issue #508 section 3: the accounts are `admin` and `user` from
+      # /system/etc/passwd. `user` logs in on the console, lands in its home
+      # with HOME/USER/PATH set, and cannot read /home/admin, /conf or
+      # /logs/kernel.log; `admin` lands in /home/admin. Then an image without
+      # the account file: accountsd fails closed and no login succeeds.
+      - name: Accounts, homes and permissions
+        run: |
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/accounts --script tools/screenshot/examples/accounts_perms.json \
+            --fail-on "PANIC" --fail-on "EXCEPTION:"
+          grep -q "^ACCOUNTS:LOAD:PASS rows=2 " shots/accounts/serial.log
+          LAZYOS_SERVICES=1 LAZYOS_OMIT_PASSWD=1 cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img \
+            --out shots/accounts-missing --script tools/screenshot/examples/accounts_failclosed.json \
+            --fail-on "PANIC" --fail-on "LOGIN:OK:PASS"
+          LAZYOS_SERVICES=1 cargo build
 
       # docs/input-plan.md: `inputd` turns the kernel's raw HID-coded key edges
       # into layout-aware events. The session presses a fixed set of physical

@@ -22,6 +22,11 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
         // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the
         // IRQ0 handler and the PIC has IRQ0 in service.
         unsafe { crate::arch::pic::end_of_interrupt(0) };
+        // Decode i8042 bytes a long syscall collected (`input::ps2`) even if
+        // the controller has no IRQ1 pending for them any more. Before the
+        // task table lock: the keyboard path takes it.
+        crate::input::ps2::service();
+        crate::input::ps2::dispatch();
     }
 
     #[cfg(lazyos_tests)]

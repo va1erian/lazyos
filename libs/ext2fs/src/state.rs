@@ -58,8 +58,11 @@ impl Ext2 {
         if !self.clean.swap(false, Ordering::Relaxed) {
             return Ok(());
         }
+        // Cached, the cache holds nothing dirty while the volume is clean (a
+        // sync left it so), so this writes back the marker alone.
         let marked = self
-            .store_state(self.mount_state & !STATE_VALID)
+            .store_state(self.base_state() & !STATE_VALID)
+            .and_then(|()| self.write_back())
             .and_then(|()| self.io.flush().map_err(io_error));
         if marked.is_err() {
             self.clean.store(true, Ordering::Relaxed);
@@ -71,17 +74,23 @@ impl Ext2 {
     ///
     /// The clean marker is written only when this mount had dirtied the volume,
     /// and it restores the state found at mount: a volume that arrived unclean
-    /// (or with recorded errors) is not laundered by our own shutdown.
+    /// (or with recorded errors) is not laundered by our own shutdown. A
+    /// write-back that failed since the last call is reported here, once, and
+    /// leaves the error bit in the state written (`commit.rs`).
     pub(super) fn sync_volume(&self) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
-        self.io.flush().map_err(io_error)?; // 1. data and metadata durable
+        let committed = self.commit_locked(); // 1. data and metadata durable
+        let unreported = self.take_unreported_error();
+        committed?;
         if self.read_only || self.clean.load(Ordering::Relaxed) {
-            return Ok(()); // nothing of ours to vouch for
+            return unreported; // nothing of ours to vouch for
         }
-        self.store_state(self.mount_state)?; // 2. the clean marker...
+        let state = self.base_state();
+        self.store_state(state)?; // 2. the clean marker...
+        self.write_back()?;
         self.io.flush().map_err(io_error)?; // 3. ...made durable
         self.clean
-            .store(self.mount_state & STATE_VALID != 0, Ordering::Relaxed);
-        Ok(())
+            .store(state & STATE_VALID != 0, Ordering::Relaxed);
+        unreported
     }
 }

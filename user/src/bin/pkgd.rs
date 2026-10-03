@@ -1,9 +1,9 @@
-//! `pkgd` (`PKGD.ELF`): the application package manager (`docs/packages.md`,
+//! `pkgd` (`/system/bin/pkgd`): the application package manager (`docs/packages.md`,
 //! phase 3).
 //!
-//! `pkgd` is the only task that writes `/data/apps`, records installed apps in
-//! `confd`, registers their file types with `mimed` and loads their Messenger
-//! policy into the kernel. It serves `os.lazy.pkgd.v1` (`idl/pkgd.midl`):
+//! `pkgd` is the only task that writes `/apps` and `/docs/apps`, records
+//! installed apps in `confd`, registers their file types with `mimed` and loads
+//! their Messenger policy into the kernel. It serves `os.lazy.pkgd.v1` (`idl/pkgd.midl`):
 //! `Inspect` (validate a `.lzp`, list what it asks for, change nothing),
 //! `Install`, `Remove`, `List` and `Installed`. A GUI installer is an
 //! unprivileged client that shows the user the `Inspect` result and forwards the
@@ -14,28 +14,44 @@
 //! `init` spawns `pkgd` with its own identity: **root with every capability
 //! except raw input**. That is deliberate and minimal in effect: `CAP_IPC_CONTROL`
 //! is what the kernel's `acl_load` operation needs to give an installed app its
-//! policy, and uid 0 is what writes `/data/apps` and `sys/apps` in `confd` and
-//! calls `mimed.Register`/`Unregister`. Because it is root, every request is
-//! checked against the kernel-stamped identity of the sender
-//! (`pkgstore::access`): only root or the owner of a login session may install or
-//! remove, a sandboxed application never may, and an unprivileged caller may
-//! only name package files in places it could read itself.
+//! policy, and uid 0 is what writes `/apps`, `/docs/apps`, `/logs/pkg.log` and
+//! `sys/apps` in `confd` and calls `mimed.Register`/`Unregister`. Because it is
+//! root, every request is checked against the kernel-stamped identity of the
+//! sender (`pkgstore::access`): only root or the owner of a login session may
+//! install or remove, a sandboxed application never may, and an unprivileged
+//! caller may only install from `/transient` or its own home folder.
 //!
 //! # What lives where
 //!
-//! * `/data/apps/<system_name>/<version>-<digest8>/`: the extracted package;
+//! * `/apps/<system_name>/<version>-<digest8>/`: the extracted package;
+//! * `/docs/apps/<system_name>/`: its `docs/**.md`, replaced whole on upgrade
+//!   and deleted on removal (`pkgstore::tree`);
 //! * `confd` `sys/apps/<system_name>`: one generated `Installed` record per app;
 //! * the kernel: the label `app:<system_name>` and its rules (in memory only, so
-//!   `pkgd` replays them at startup, see `install::reconcile`);
-//! * `/data/log/pkg.log`: the hash-chained audit trail (`pkgstore::audit`), also
-//!   published as `system/events/pkg/<op>`.
+//!   `pkgd` replays them at startup, see `reconcile`);
+//! * `/logs/pkg.log`: the hash-chained audit trail (`pkgstore::audit`), also
+//!   published as `system/events/pkg/<op>`; `logd`'s rotation leaves it alone.
 //!
 //! # Boot evidence
 //!
 //! `PKGD:UP:PASS`, `PKGD:AUDIT:PASS n=<count>` (or `FAIL`), `PKGD:RECONCILE:PASS`,
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (core
+//! packages, see `provision`),
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (see
+//! `provision`),
 //! `PKGD:INSTALL:PASS <system_name> <install_dir>` / `PKGD:INSTALL:FAIL <why>`,
-//! `PKGD:REMOVE:PASS <system_name>` / `...:FAIL`, and `PKGD:STORE:ABSENT` when
-//! there is no writable data disk (`Inspect` and `List` still answer).
+//! `PKGD:REMOVE:PASS <system_name>` / `...:FAIL`, `PKGD:STORE:ABSENT reason=<..>`
+//! when `/apps`, `/docs/apps` or `/logs` cannot be written (a recovery boot
+//! with a read-only `/`; `Inspect` and `List` still answer, installs are
+//! refused), and `PKGD:STOP` on shutdown.
+//!
+//! # Shutdown
+//!
+//! `pkgd` serves `os.lazy.lifecycle.v1` (docs/shutdown.md): on `init`'s
+//! `Shutdown` it finishes the request it is serving (every operation is
+//! synchronous), fsyncs `/logs/pkg.log` so the tail of the hash chain is on
+//! disk, prints `PKGD:STOP` and exits 0. It is stopped before `confd` and
+//! `mimed`, which it depends on.
 //!
 //! # Memory
 //!
@@ -61,12 +77,22 @@ mod install;
 mod peers;
 #[path = "pkgd/policy.rs"]
 mod policy;
+#[path = "pkgd/provision.rs"]
+mod provision;
+#[path = "pkgd/reconcile.rs"]
+mod reconcile;
 #[path = "pkgd/registry.rs"]
 mod registry;
+#[path = "pkgd/remove.rs"]
+mod remove;
 #[path = "pkgd/store.rs"]
 mod store;
 
+use alloc::format;
+use alloc::string::String;
 use core::panic::PanicInfo;
+use pkgstore::layout;
+use user::messenger::services::lifecycle;
 use user::messenger::{self, pkgd, registry as names};
 use user::sys;
 
@@ -90,24 +116,53 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let start_break = sys::sbrk(0);
     let (published, server) = messenger::create_pair()?;
-    names::register(pkgd::NAME, &published, &[pkgd::INTERFACE], 0)?;
+    names::register(
+        pkgd::NAME,
+        &published,
+        &[pkgd::INTERFACE, lifecycle::INTERFACE],
+        0,
+    )?;
 
     let mut state = Pkgd::new();
-    let volume_ok = store::data_mounted() && store::prepare_volume().is_ok();
+    let volume_ok = match store::probe_store() {
+        Ok(()) => true,
+        Err(reason) => {
+            sys::write_str(&format!(
+                "PKGD:STORE:ABSENT reason=\"{reason}\" installs are refused\n"
+            ));
+            false
+        }
+    };
     if volume_ok {
         state.audit.load();
     } else {
         state.audit.set_volatile();
-        sys::write_str("PKGD:STORE:ABSENT there is no writable data disk; installs are refused\n");
     }
     sys::write_str("PKGD:UP:PASS\n");
     state.reconcile(volume_ok);
+    state.begin_provisioning(volume_ok);
 
     // One receive buffer for the life of the service: the heap never reclaims
     // large per-request blocks.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let message = server.recv_with(&mut buffer, None)?;
+        // While the core packages are provisioned, one step runs between two
+        // polls, so `Provisioned` (and the read-only methods) still answer.
+        let message = if state.provisioned.done {
+            server.recv_with(&mut buffer, None)?
+        } else {
+            state.provision_step();
+            match server.poll_recv_with(&mut buffer)? {
+                Some(message) => message,
+                None => continue,
+            }
+        };
+        // An orderly shutdown (docs/shutdown.md): every operation is
+        // synchronous, so none is in flight between two messages.
+        if let Some(reason) = lifecycle::stop_requested(&message) {
+            stop(&reason);
+            return Ok(());
+        }
         let reply = state.dispatch(&message);
         if let Some(txn) = message.txn {
             // A failed reply means the caller timed out and its transaction is
@@ -119,6 +174,17 @@ fn run() -> messenger::Result<()> {
             return Ok(());
         }
     }
+}
+
+/// The lifecycle stop: every audit record was appended before its reply, so
+/// syncing `pkg.log` puts the whole hash chain on disk.
+fn stop(reason: &str) {
+    let synced = match user::files::fsync(layout::LOG_FILE) {
+        Ok(()) => String::from("ok"),
+        Err(code) if code == store::ENOENT => String::from("none"),
+        Err(code) => format!("errno {code}"),
+    };
+    sys::write_str(&format!("PKGD:STOP sync={synced} reason=\"{reason}\"\n"));
 }
 
 #[panic_handler]

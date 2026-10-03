@@ -1,5 +1,7 @@
 # Track B: system side of the Editor / Paint / Files migration
 
+> **History.** This describes the layout before filesystem F5 (issue #509): the 8.3 `X*.ELF` names and the app list `init` read are gone, and the desktop apps are core packages (`docs/packages.md`, core packages).
+
 Branch `xui-apps-system`. Everything outside `xui-app/` that
 `docs/xui-apps-migration.md` needs. Track A owns `xui-app/**`.
 
@@ -8,7 +10,7 @@ Branch `xui-apps-system`. Everything outside `xui-app/` that
 | Plan item | Change |
 |---|---|
 | P1.1 keyboard (G3) | PS/2 now decodes Delete, Insert and F1-F12 (`kernel/src/input/keyboard.rs`). Ctrl+letter reaches a compositor as the letter (not a C0 control) so Ctrl+H/I/M differ from Backspace/Tab/Enter. `xuid` ORs modifier bits (Shift/Ctrl/Alt/Super) into every forwarded `KeyDown`/`KeyUp`, and forwards a plain Tab to the focused client. Codes and rules: **`docs/architecture/display.md`, "Key codes clients receive"**. |
-| G5 launch args | `init`'s `Launch(app, args, session)`: `args` is empty or one absolute path (<= 1024 bytes, no control char, no `"`), appended after the registry's fixed args as ONE `argv` item; otherwise `EINVAL`. Kernel `spawn` keeps a double-quoted token whole (`spawn_line::argv`), so paths with spaces work. Argument order seen by the app: `<ELF> --client <path> attempt=<n>` (`attempt=` is last; ignore unknown trailing `key=value` items). `idl/init.midl` doc updated (no wire change, no regeneration needed). |
+| G5 launch args | `init`'s `Launch(app, args, session)`: `args` is empty or one absolute path (<= 1024 bytes, no control char), appended after the registry's fixed args as ONE `argv` item; otherwise `EINVAL`. `spawnv` (fs F3) passes the `argv` vector unsplit, so paths with spaces (and quotes) work. Argument order seen by the app: `<ELF> --client <path> attempt=<n>` (`attempt=` is last; ignore unknown trailing `key=value` items). `idl/init.midl` doc updated (no wire change, no regeneration needed). |
 | P2.4 registry / MIME (G9) | `init/apps.rs`: `editor` -> `XEDITOR.ELF`, `files` -> `XFILES.ELF`, new `paint` -> `XPAINT.ELF`, all `xui_app` rows (Linux ABI, `--client`, `Ship::Manifest`). `mimed`: `image/png` -> `paint` (`open`,`edit`), `files` `reveal`. `build.rs`: 8.3 names, `ON_DEMAND_XUI_STEMS` (the three never autostart, even under the default "autostart everything"), and the `SHIP_DOCUMENT_APPS` switch (below). `tools/lazygui/catalog.py` lists the sessions/viewers. |
 | G6 shim FS | New musl fixture `tools/abi/fixtures/src/fsops.rs` (bench row `fsops`) exercises `read_dir` + `file_type`, `symlink_metadata`, `create_dir`, create/write/truncate, `rename` (new name and over an existing file), `remove_file`, `remove_dir`, `remove_dir_all` on `/tmp`, the FAT root `/` and `/data`. Only gap found: ext2 had no `rmdir` (`ENOSYS`). Implemented (`kernel/src/fs/ext2/rmdir.rs`) with correctness + soak tests. |
 | P3 evidence | `tools/screenshot/examples/xui_editor.json`, `xui_paint.json`, `xui_files.json`; `.github/workflows/xui.yml` builds the bins (when `tools/xui/build.py` emits them) and runs three sessions with the markers below; uploads/comments their shots. |

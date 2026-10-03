@@ -20,8 +20,8 @@ Examples
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
-    python tools/run_demo.py --doom          # desktop + /DOOM.LZP; `pkgctl install /DOOM.LZP`
-    python tools/run_demo.py --modplayer     # desktop + LazyRAD + /MODPLAY.LZP, with sound
+    python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
+    python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -29,8 +29,8 @@ recreates it from scratch. A persistent ext2 home volume (default
 ``target/home.img``, label ``lazyhome``, 64 MiB) is attached as a second
 virtio-blk device and mounted at ``/home``. It is created on first use and never
 regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
-for the demo accounts (owned by them) and nothing else, so log in as ``alice``
-to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
+for the demo accounts (owned by them) and nothing else, so log in as ``user``
+(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
 data volume (not mounted anywhere new); it is off by default.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
@@ -158,6 +158,20 @@ def build_xui_shell() -> bool:
     return True
 
 
+def build_core_packages() -> bool:
+    """Package the built desktop apps (`tools/xui/core_packages.py`, issue
+    #509): the desktop image embeds `target/pkg/core/*.lzp` in
+    `/system/packages`. Cheap and reproducible (unchanged apps give the same
+    archives, so `pkgd` does nothing at the next boot), so it runs before every
+    desktop build; `tools/xui/build.py` runs it too."""
+    script = ROOT / "tools" / "xui" / "core_packages.py"
+    result = subprocess.run([sys.executable, str(script)], cwd=ROOT, stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: the core packages did not build (run `python tools/xui/build.py`)",
+              file=sys.stderr)
+    return result.returncode == 0
+
+
 def build_rhai() -> None:
     """Rebuild `target/rhai/rhai.elf` so the image never embeds a stale or
     missing `rhai` (issue #319). Optional: a host without the musl target
@@ -186,7 +200,7 @@ def build_lazyrad() -> bool:
 
 def build_doom() -> bool:
     """Build the Doom package (`tools/doom/build.py`: engine, Freedoom, then
-    `target/pkg/DOOM.LZP`). Explicitly requested with `--doom`, so a missing
+    `target/pkg/doom.lzp`). Explicitly requested with `--doom`, so a missing
     toolchain or download stops the run (`--require`)."""
     print("building Doom (tools/doom/build.py)…", flush=True)
     script = ROOT / "tools" / "doom" / "build.py"
@@ -298,19 +312,26 @@ def main(argv: list[str]) -> int:
                         help="build the LazyRAD IDE and player and embed them "
                              "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
                              "Settings -> Menu")
+    parser.add_argument("--lazyrad-samples", metavar="DIRS",
+                        help="sample project directories to copy under "
+                             "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
+                             "`:` elsewhere), e.g. <lazyrad>/examples/hello; the "
+                             "lazyrad_*.json sessions need them. Implies --lazyrad")
     parser.add_argument("--doom", action="store_true",
-                        help="the desktop profile with the Doom package at /DOOM.LZP "
-                             "(LAZYOS_DOOM=1; builds it with tools/doom/build.py, which "
-                             "fetches doomgeneric and Freedoom): install it with "
-                             "`pkgctl install /DOOM.LZP` or by opening it in Files, then "
-                             "start Doom from the menu")
+                        help="the desktop profile with the Doom package at "
+                             "/system/share/samples/doom.lzp (LAZYOS_DOOM=1; builds it "
+                             "with tools/doom/build.py, which fetches doomgeneric and "
+                             "Freedoom): install it with `pkgctl install "
+                             "/system/share/samples/doom.lzp` or by opening it in Files, "
+                             "then start Doom from the menu")
     parser.add_argument("--modplayer", action="store_true",
                         help="the desktop profile with LazyRAD, its MOD player sample at "
-                             "/LAZYRAD/modplayer and the same app packaged at /MODPLAY.LZP "
-                             "(LAZYOS_LAZYRAD=1 LAZYOS_MODPLAYER=1; builds it with "
-                             "tools/lazyrad/package.py) and a sound card: install it with "
-                             "`pkgctl install /MODPLAY.LZP` or by opening it in Files, then "
-                             "start MOD Player from the menu")
+                             "/system/share/lazyrad/modplayer and the same app packaged at "
+                             "/system/share/samples/modplayer.lzp (LAZYOS_LAZYRAD=1 "
+                             "LAZYOS_MODPLAYER=1; builds it with tools/lazyrad/package.py) "
+                             "and a sound card: copy it to your home and install it with "
+                             "`pkgctl install`, or open it in Files, then start ModPlayer "
+                             "from the menu")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -325,8 +346,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     # The Devices app is a desktop app: `--devices` implies `--desktop`.
     args.desktop = args.desktop or args.devices or args.doom or args.modplayer
-    # The MOD player is a LazyRAD app that wants speakers.
-    args.lazyrad = args.lazyrad or args.modplayer
+    # Samples are only embedded with the runtime that plays them, and the MOD
+    # player is a LazyRAD app that wants speakers.
+    args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
     if args.modplayer and not args.sound:
         args.sound = "auto"
     if args.no_data_disk and (args.reset_data or args.data_disk):
@@ -361,9 +383,10 @@ def main(argv: list[str]) -> int:
             if not build_lazyrad():
                 return 1
             env["LAZYOS_LAZYRAD"] = "1"
-            # The LazyOS-only samples (the Messenger demo at /LAZYRAD/messenger)
-            # join any the caller listed in LAZYRAD_SAMPLES.
-            env["LAZYRAD_SAMPLES"] = lazyrad_samples(os.environ.get("LAZYRAD_SAMPLES", ""))
+            # The caller's samples (--lazyrad-samples, else LAZYRAD_SAMPLES), then
+            # the LazyOS-only ones (the Messenger demo).
+            user = args.lazyrad_samples or os.environ.get("LAZYRAD_SAMPLES", "")
+            env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
         if args.doom:
             if not build_doom():
                 return 1
@@ -387,6 +410,8 @@ def main(argv: list[str]) -> int:
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():
+            return 1
+        if args.desktop and not build_core_packages():
             return 1
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:

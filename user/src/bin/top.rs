@@ -1,4 +1,4 @@
-//! `top` (`TOP.ELF`): the native system monitor (issue #144).
+//! `top` (`/system/bin/top`): the native system monitor (issue #144).
 //!
 //! `top` reads the kernel's read-only system-stats syscall (14) through the
 //! typed [`user::sysinfo`] client, renders a compact table — one memory line
@@ -10,8 +10,7 @@
 //! needed, so it also proves the syscall works on a plain ring-3 task. The
 //! `sysmond` service exposes the same snapshot over Messenger for dashboards.
 //!
-//! The on-disk name is `TOP.ELF` (8.3-safe: the kernel's FAT reader only
-//! resolves short names). `sysmond` spawns it once (manifest argument
+//! `sysmond` spawns it once (manifest argument
 //! `demo=1`) after its first snapshot is retained, and reaps it.
 
 #![no_std]

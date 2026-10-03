@@ -2655,7 +2655,8 @@ pub mod os_lazy_confd_v1 {
     }
 
     /// Where the store lives: the directory confd chose and whether it
-    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+    /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InfoReply {
@@ -5128,6 +5129,11 @@ pub mod os_lazy_init_v1 {
         pub restart: alloc::string::String,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
         pub installed: bool,
+        pub origin: alloc::string::String,
+        pub category: alloc::string::String,
+        pub hidden: bool,
+        pub autostart: bool,
+        pub icon: alloc::string::String,
     }
 
     pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
@@ -5142,6 +5148,11 @@ pub mod os_lazy_init_v1 {
         }
         target.array(5, &nested)?;
         target.bool(6, value.installed)?;
+        target.string(7, &value.origin)?;
+        target.string(8, &value.category)?;
+        target.bool(9, value.hidden)?;
+        target.bool(10, value.autostart)?;
+        target.string(11, &value.icon)?;
         Ok(target.finish())
     }
 
@@ -5171,19 +5182,47 @@ pub mod os_lazy_init_v1 {
                 6 => {
                     out.installed = field.as_bool()?;
                 }
+                7 => {
+                    out.origin = field.as_str()?.into();
+                }
+                8 => {
+                    out.category = field.as_str()?.into();
+                }
+                9 => {
+                    out.hidden = field.as_bool()?;
+                }
+                10 => {
+                    out.autostart = field.as_bool()?;
+                }
+                11 => {
+                    out.icon = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
         Ok(out)
     }
 
-    /// App id: the lowercase program stem (`top` -> `TOP.ELF`).
+    /// App id: the lowercase program stem (`top` -> `/system/bin/top`).
     /// Display name for menus.
     /// On-disk ELF path.
     /// Default restart policy (`always`/`on-failure`/`once`).
     /// MIME verbs the app handles, in registration order.
     /// Whether the package manager installed the app (`id` is then its
     /// `system_name`) rather than the image shipping it.
+    /// `core` (a package the image ships, not removable), `user` (a
+    /// package someone installed) or `system` (a built-in program such as
+    /// the desktop shell or the installer).
+    /// The menu group (`lazypkg::Category`): the package's, `system` (or
+    /// `development` for LazyRAD) for a built-in desktop program, empty for
+    /// a console one, which the start menu leaves out.
+    /// Whether the start menu leaves the app out for the caller: their
+    /// `user/<uid>/menu/hidden/<id>`, else the machine's
+    /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
+    /// Whether the app opens when a session starts.
+    /// An installed app's 32-pixel icon, `icons/app-32.png` in its
+    /// install directory (every package ships one); empty for a
+    /// built-in, which the shell draws from its own icon set.
     /// One service lifecycle event (issue #307): the payload of
     /// `system/events/service/<name>`. The topic carries the service name, so
     /// it is not repeated here; `health` is the service's retained health
@@ -5355,8 +5394,9 @@ pub mod os_lazy_init_v1 {
     }
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
-    /// package manager installed (`AppInfo.installed`), read afresh from the
-    /// configuration registry on every call.
+    /// package manager installed (`AppInfo.installed`; the core packages
+    /// first, then the others by `system_name`), read afresh from the
+    /// configuration registry on every call. `hidden` is the caller's own.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListAppsReply {
         pub apps: alloc::vec::Vec<AppInfo>,
@@ -7064,6 +7104,10 @@ pub mod os_lazy_logd_v1 {
     pub const METHOD_COUNT: u32 = 1642576020;
     /// `Verify` method id.
     pub const METHOD_VERIFY: u32 = 761007172;
+    /// `Sources` method id.
+    pub const METHOD_SOURCES: u32 = 583496657;
+    /// `TailFile` method id.
+    pub const METHOD_TAILFILE: u32 = 571114525;
 
     /// Return the newest `count` records; an absent `count` means `10`.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -7182,6 +7226,101 @@ pub mod os_lazy_logd_v1 {
                     out.index = field.as_u64()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The sources that have a persisted journal (`/logs/<source>.log`),
+    /// sorted; empty when the store is absent. Served to uid 0 only, like
+    /// `TailFile`: the journals carry every user's activity.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SourcesReply {
+        pub sources: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_sources_reply(value: &SourcesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.sources {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_sources_reply(body: &[u8]) -> Result<SourcesReply, Error> {
+        let mut out = SourcesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.sources.push(item.as_str()?.into());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The newest `count` lines of `/logs/<source>.log` (records of earlier
+    /// boots included), oldest first. Served to uid 0 only (`EACCES`
+    /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+    /// and one without a journal with `ENOENT`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailFileArgs {
+        pub source: alloc::string::String,
+        pub count: u64,
+    }
+
+    pub fn encode_tail_file_args(value: &TailFileArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.source)?;
+        target.u64(2, value.count)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_file_args(body: &[u8]) -> Result<TailFileArgs, Error> {
+        let mut out = TailFileArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.source = field.as_str()?.into();
+                }
+                2 => {
+                    out.count = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TailFileReply {
+        pub lines: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_tail_file_reply(value: &TailFileReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.lines {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tail_file_reply(body: &[u8]) -> Result<TailFileReply, Error> {
+        let mut out = TailFileReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.lines.push(item.as_str()?.into());
+                }
             }
         }
         Ok(out)
@@ -7331,6 +7470,7 @@ pub mod os_lazy_logind_v1 {
         pub uid: u32,
         pub pid: u64,
         pub state: alloc::string::String,
+        pub home: alloc::string::String,
     }
 
     pub fn encode_login_session(value: &LoginSession) -> Result<Vec<u8>, Error> {
@@ -7339,6 +7479,7 @@ pub mod os_lazy_logind_v1 {
         target.u32(2, value.uid)?;
         target.u64(3, value.pid)?;
         target.string(4, &value.state)?;
+        target.string(5, &value.home)?;
         Ok(target.finish())
     }
 
@@ -7359,6 +7500,9 @@ pub mod os_lazy_logind_v1 {
                 4 => {
                     out.state = field.as_str()?.into();
                 }
+                5 => {
+                    out.home = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -7369,6 +7513,9 @@ pub mod os_lazy_logind_v1 {
     /// User id stamped on the session.
     /// Task slot of the shell.
     /// Session state (`active`/`exited`).
+    /// The account's home directory (issue #508): `init` gives the
+    /// session's apps `HOME` from it, so it never looks the account up
+    /// again per launch.
     /// A refused attempt (issue #307): the payload of
     /// `system/events/login/denied`. The reason is a short, non-secret word
     /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.
@@ -10336,6 +10483,66 @@ pub mod os_lazy_pkgd_v1 {
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2e65545739956542;
 
+    /// `Origin::User` wire value.
+    pub const ORIGIN_USER: u32 = 0;
+    /// `Origin::Core` wire value.
+    pub const ORIGIN_CORE: u32 = 1;
+
+    /// Core package provisioning progress.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ProvisionState {
+        pub done: bool,
+        pub ready: bool,
+        pub installed: u64,
+        pub upgraded: u64,
+        pub kept: u64,
+        pub failed: u64,
+    }
+
+    pub fn encode_provision_state(value: &ProvisionState) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.done)?;
+        target.bool(2, value.ready)?;
+        target.u64(3, value.installed)?;
+        target.u64(4, value.upgraded)?;
+        target.u64(5, value.kept)?;
+        target.u64(6, value.failed)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_provision_state(body: &[u8]) -> Result<ProvisionState, Error> {
+        let mut out = ProvisionState::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.done = field.as_bool()?;
+                }
+                2 => {
+                    out.ready = field.as_bool()?;
+                }
+                3 => {
+                    out.installed = field.as_u64()?;
+                }
+                4 => {
+                    out.upgraded = field.as_u64()?;
+                }
+                5 => {
+                    out.kept = field.as_u64()?;
+                }
+                6 => {
+                    out.failed = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The pass of this start is over (successfully or not).
+    /// The packages that open at login (`entry.autostart`) are provisioned
+    /// (they go first), so a session can start before `done`.
+    /// Newer versions the user installed over a core app, left in place.
     /// What a package declares, as the consent screen shows it.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PackageInfo {
@@ -10349,6 +10556,8 @@ pub mod os_lazy_pkgd_v1 {
         pub mime: alloc::vec::Vec<MimeHandler>,
         pub permissions: alloc::vec::Vec<Permission>,
         pub problems: alloc::vec::Vec<alloc::string::String>,
+        pub category: alloc::string::String,
+        pub autostart: bool,
     }
 
     pub fn encode_package_info(value: &PackageInfo) -> Result<Vec<u8>, Error> {
@@ -10375,6 +10584,8 @@ pub mod os_lazy_pkgd_v1 {
             nested.string(1, item)?;
         }
         target.array(10, &nested)?;
+        target.string(11, &value.category)?;
+        target.bool(12, value.autostart)?;
         Ok(target.finish())
     }
 
@@ -10422,6 +10633,12 @@ pub mod os_lazy_pkgd_v1 {
                         out.problems.push(item.as_str()?.into());
                     }
                 }
+                11 => {
+                    out.category = field.as_str()?.into();
+                }
+                12 => {
+                    out.autostart = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -10429,8 +10646,10 @@ pub mod os_lazy_pkgd_v1 {
     }
 
     /// Lowercase hex SHA-256 of the archive.
-    /// Where it would be installed, relative to `/data/apps`.
+    /// Where it would be installed, relative to `/apps`.
     /// Empty when the package can be installed.
+    /// The menu group (`lazypkg::Category`), `accessories` by default.
+    /// Whether the app asks to start when the user logs in.
     /// One handled file type.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MimeHandler {
@@ -10531,6 +10750,10 @@ pub mod os_lazy_pkgd_v1 {
         pub installed_at: u64,
         pub abi: alloc::string::String,
         pub args: alloc::vec::Vec<alloc::string::String>,
+        pub origin: u32,
+        pub category: alloc::string::String,
+        pub autostart: bool,
+        pub verbs: alloc::vec::Vec<alloc::string::String>,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -10548,6 +10771,14 @@ pub mod os_lazy_pkgd_v1 {
             nested.string(1, item)?;
         }
         target.array(9, &nested)?;
+        target.u32(10, value.origin)?;
+        target.string(11, &value.category)?;
+        target.bool(12, value.autostart)?;
+        let mut nested = Encoder::new();
+        for item in &value.verbs {
+            nested.string(1, item)?;
+        }
+        target.array(13, &nested)?;
         Ok(target.finish())
     }
 
@@ -10586,21 +10817,42 @@ pub mod os_lazy_pkgd_v1 {
                         out.args.push(item.as_str()?.into());
                     }
                 }
+                10 => {
+                    out.origin = field.as_u32()?;
+                }
+                11 => {
+                    out.category = field.as_str()?.into();
+                }
+                12 => {
+                    out.autostart = field.as_bool()?;
+                }
+                13 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.verbs.push(item.as_str()?.into());
+                    }
+                }
                 _ => {}
             }
         }
         Ok(out)
     }
 
-    /// Install directory relative to `/data/apps`.
+    /// Install directory relative to `/apps`.
     /// Entry binary, relative to the install directory (`bin/<name>.elf`).
     /// Kernel ticks at install time.
     /// The program's ABI, `native` or `linux`: `init` needs it to pick the
     /// spawn personality, and an ELF header cannot tell them apart.
     /// The manifest's fixed `entry.args`, passed before any launch path.
+    /// An `Origin` value, cached from the shipped set at provisioning and
+    /// install time so readers need not open `/system/packages`.
+    /// The menu group (`lazypkg::Category`).
+    /// Whether the app starts when a session opens (`entry.autostart`).
+    /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-    /// is `install`, `remove` or `denied`. The same record, hex-encoded with
-    /// a chained SHA-256, is appended to `/data/log/pkg.log`.
+    /// is `install`, `remove`, `denied` or `provision` (a core package
+    /// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
+    /// a chained SHA-256, is appended to `/logs/pkg.log`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PkgEvent {
         pub op: alloc::string::String,
@@ -10671,9 +10923,12 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_LIST: u32 = 220805025;
     /// `Installed` method id.
     pub const METHOD_INSTALLED: u32 = 1755800129;
+    /// `Provisioned` method id.
+    pub const METHOD_PROVISIONED: u32 = 1076218465;
 
-    /// Open and validate the `.lzp` at `path` (an absolute path the caller may
-    /// read) without changing anything. `problems` is empty for a package that
+    /// Open and validate the `.lzp` at `path` without changing anything. Root
+    /// may name any absolute path; anyone else a file under `/transient` or
+    /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InspectArgs {
@@ -10719,8 +10974,10 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
-    /// Install the package at `path`: extract it to its install directory,
-    /// record it, register its MIME verbs, load its policy, then publish
+    /// Install the package at `path` (the same source rule as `Inspect`):
+    /// extract it to its install directory under `/apps`, copy its
+    /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+    /// MIME verbs, load its policy, then publish
     /// `system/events/pkg/install`. Fails if the same `system_name` is already
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
@@ -10769,8 +11026,9 @@ pub mod os_lazy_pkgd_v1 {
     }
 
     /// Remove `system_name`: stop its running instances, unregister its MIME
-    /// verbs, revoke its policy, delete its install directory, then publish
-    /// `system/events/pkg/remove`. User data under `/data/home` is kept.
+    /// verbs, revoke its policy, delete its install directory and its
+    /// documentation, then publish `system/events/pkg/remove`. User data
+    /// under `/home` is kept.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RemoveArgs {
         pub system_name: alloc::string::String,
@@ -10883,6 +11141,33 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
+    /// Whether this start's core package provisioning is finished, and what
+    /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+    /// provisions, so a client such as `init`'s autostart can wait for it
+    /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+    /// until `done`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ProvisionedReply {
+        pub state: ProvisionState,
+    }
+
+    pub fn encode_provisioned_reply(value: &ProvisionedReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_provision_state(&value.state)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_provisioned_reply(body: &[u8]) -> Result<ProvisionedReply, Error> {
+        let mut out = ProvisionedReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.state = decode_provision_state(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
@@ -10892,7 +11177,8 @@ pub mod os_lazy_pkgd_v1 {
 
     /// uid of the task that asked.
     /// Friendly text: the error for a failure, empty on success.
-    /// Published on every install, removal and refused request. Not retained:
+    /// Published on every install, removal, refused request and provisioning
+    /// step. Not retained:
     /// `List` is the state, the events are the trail.
     /// The declared `system/events/pkg/+` topic (`PkgEvent`, `latest`).
     pub const TOPIC_SYSTEM_EVENTS_PKG: &str = "system/events/pkg/+";

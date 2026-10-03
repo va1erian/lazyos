@@ -5,11 +5,12 @@
 //! file is only the routing table.
 
 use core::arch::global_asm;
+use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::structures::idt::HandlerFunc;
 
 use super::{
-    exit, fsops, sys_args, sys_clock, sys_creds, sys_quota, sys_read_char, sys_read_file, sys_sbrk,
-    sys_spawn, sys_tasks, sys_wait, sys_write,
+    argstore::sys_args, exit, fsops, spawnv::sys_spawnv, sys_clock, sys_creds, sys_quota,
+    sys_read_char, sys_read_file, sys_sbrk, sys_tasks, sys_wait, sys_write,
 };
 use crate::task;
 
@@ -63,6 +64,14 @@ pub fn syscall_gate() -> HandlerFunc {
     unsafe { core::mem::transmute::<*const (), HandlerFunc>(syscall_isr as *const ()) }
 }
 
+/// Bit set in [`LAST_SYSCALL`] for a native (`int 0x80`) syscall.
+pub const NATIVE_SYSCALL: u64 = 1 << 63;
+
+/// The syscall most recently entered (native ones tagged [`NATIVE_SYSCALL`]),
+/// for latency reports such as `PS2:GAP`: syscalls run with interrupts off,
+/// so a long interrupts-off stretch usually ends in the one recorded here.
+pub static LAST_SYSCALL: AtomicU64 = AtomicU64::new(0);
+
 #[no_mangle]
 extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // Safety: the stub passes a valid pointer to saved registers.
@@ -76,6 +85,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // deadlines (issue #240): the ISR only records the interrupt, so this is
     // the task-context half. Free when nothing is pending.
     crate::dev::intx::service();
+    LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }
@@ -87,11 +97,13 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 5: the native Messenger surface (issue #69): `rdi` is the op code,
         // `rsi` points at a `MsgArgs` block and `rdx` at a `MsgResult` block.
         5 => crate::ipc::syscalls::dispatch(regs.rdi, regs.rsi, regs.rdx),
-        // 6..9: the service supervision surface (issue #93).
-        6 => sys_spawn(regs.rdi),
+        // 6..9: the service supervision surface (issue #93). 6 was the
+        // command-line `spawn`, retired for `spawnv` (31, fs F3): it falls
+        // through to the unknown-syscall failure.
         7 => sys_wait(regs.rdi),
         8 => sys_clock(),
-        9 => sys_args(regs.rdi, regs.rsi),
+        // 9: `args(buf, len, which)`, the caller's argv/envp block.
+        9 => sys_args(regs.rdi, regs.rsi, regs.rdx),
         // 10: the credential gate (issue #101), see the module docs.
         10 => sys_creds(regs.rdi, regs.rsi, regs.rdx),
         // 11: per-uid quota introspection (issue #103), read-only.
@@ -124,12 +136,18 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 28: `append_file` (the application installer writes files larger
         // than one `write_file`), served with the other path calls.
         28 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
-        // 30: `read_at`, a bounded read at an offset, so a reader of a big
-        // file (the package installer) never makes the kernel hold all of it.
-        30 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         // 29: `kill(slot, sig)`, a supervisor ending one task it started
         // (`init` stops an app the package manager is removing).
         29 => super::killsys::dispatch(regs.rdi, regs.rsi),
+        // 30: `read_at`, a bounded read at an offset, so a reader of a big
+        // file (the package installer) never makes the kernel hold all of it.
+        30 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
+        // 31: `spawnv(req)`, the argv-vector spawn (fs F3), see
+        // `super::spawnv`.
+        31 => sys_spawnv(regs.rdi),
+        // 32: `chmod(path, mode)` (fs F3), served with the other path calls;
+        // the package manager marks an app's `bin/` files executable.
+        32 => fsops::dispatch(regs.rax, regs.rdi, regs.rsi, regs.rdx),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -151,10 +169,9 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         3 => sys_read_file(a1, a2, a3),
         4 => sys_sbrk(a1),
         5 => crate::ipc::syscalls::dispatch(a1, a2, a3),
-        6 => sys_spawn(a1),
         7 => sys_wait(a1),
         8 => sys_clock(),
-        9 => sys_args(a1, a2),
+        9 => sys_args(a1, a2, a3),
         10 => sys_creds(a1, a2, a3),
         11 => sys_quota(a1),
         12 => crate::display::dispatch(a1, a2, a3),
@@ -166,8 +183,9 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         25 => crate::input::rawsys::dispatch(a1, a2, a3),
         26 => super::randsys::dispatch(a1, a2),
         27 => super::inetsys::dispatch(a1, a2, a3, 0),
-        28 | 30 => fsops::dispatch(nr, a1, a2, a3),
+        28 | 30 | 32 => fsops::dispatch(nr, a1, a2, a3),
         29 => super::killsys::dispatch(a1, a2),
+        31 => sys_spawnv(a1),
         _ => u64::MAX,
     }
 }

@@ -119,7 +119,14 @@ fn unhex_hash(text: &str) -> Option<[u8; HASH_LEN]> {
 /// matches. A last line without its newline is a torn write and is refused: an
 /// append is one `write`, so a missing newline means it did not complete.
 pub fn verify(text: &str) -> Result<Chain, VerifyError> {
-    let mut chain = Chain::default();
+    verify_from(Chain::default(), text)
+}
+
+/// [`verify`] for the next part of a log, continuing `chain` (the state the
+/// part before it verified to), so a large log can be checked in pieces of
+/// whole lines without holding it all. Line numbers count from the piece.
+pub fn verify_from(chain: Chain, text: &str) -> Result<Chain, VerifyError> {
+    let mut chain = chain;
     let mut rest = text;
     let mut line_no = 0usize;
     while !rest.is_empty() {
@@ -268,6 +275,22 @@ mod tests {
         let tampered = format!("{}\n{}\n", lines[0], lines[1]);
         let error = verify(&tampered).unwrap_err();
         assert_eq!(error.line, 2);
+    }
+
+    #[test]
+    fn a_log_verifies_in_pieces_of_whole_lines() {
+        let mut chain = Chain::default();
+        let mut text = String::new();
+        for n in 0..6 {
+            text.push_str(&chain.append(&event("install", n % 2 == 0, "")));
+        }
+        let whole = verify(&text).unwrap();
+        let cut = text.match_indices('\n').nth(2).unwrap().0 + 1;
+        let first = verify_from(Chain::default(), &text[..cut]).unwrap();
+        assert_eq!(first.count, 3);
+        assert_eq!(verify_from(first, &text[cut..]).unwrap(), whole);
+        // The second piece alone does not start a chain.
+        assert!(verify_from(Chain::default(), &text[cut..]).is_err());
     }
 
     #[test]

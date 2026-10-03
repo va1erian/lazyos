@@ -1,5 +1,7 @@
 # xui apps integration round: Editor, Paint and Files
 
+> **History.** This describes the layout before filesystem F5 (issue #509): the 8.3 `X*.ELF` names and the app list `init` read are gone, and the desktop apps are core packages (`docs/packages.md`, core packages).
+
 The final round of [`docs/xui-apps-migration.md`](xui-apps-migration.md): the
 three portable apps built in Track A and the system side merged in Track B are
 wired together, driven by real QEMU sessions, and shipped in every desktop

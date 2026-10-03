@@ -1,4 +1,4 @@
-//! `dragdemo` (`DRAGDMO.ELF`): the compositor-mediated drag & drop demo pair
+//! `dragdemo` (`/system/bin/dragdemo`): the compositor-mediated drag & drop demo pair
 //! (issue #145).
 //!
 //! The kernel boots this program next to `xuid` with no manifest argument, so

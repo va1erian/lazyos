@@ -8,12 +8,15 @@ Freedoom: Phase 1, shipped as the installable package `org.lazy.doom`
 ## Build, install, play
 
 ```bash
-python tools/doom/build.py        # engine + doom.elf + target/pkg/DOOM.LZP
-python tools/run_demo.py --doom   # the desktop with /DOOM.LZP on the OS volume
+python tools/doom/build.py        # engine + doom.elf + target/pkg/doom.lzp
+python tools/run_demo.py --doom   # the desktop with /system/share/samples/doom.lzp
 ```
 
-In the desktop Terminal, `pkgctl install /DOOM.LZP` (or open the file in
-Files: the Installer shows the consent screen). Doom then appears in the start
+Doom is a user package, not a core one. In the desktop Terminal, copy it to
+your home and install the copy, as a user installs anything
+(`cp /system/share/samples/doom.lzp ~/ && pkgctl install ~/doom.lzp`; the
+ramfs `/transient` is too small for its 10 MiB), or open the copy in Files:
+the Installer shows the consent screen. Doom then appears in the start
 menu with the other installed apps. The OS volume keeps installed apps across
 boots; `run_demo.py --reset-os` starts over.
 
@@ -33,14 +36,14 @@ SHA-256 and cached under `target/doom/`. Neither is ever committed.
 | Headless mode | `src/headless.rs` |
 | Pure logic, host-tested | `src/{keymap,keys,pixels,launch,crc}.rs` (`cargo test --lib` here) |
 | Package tree | `package/` (manifest, icons, docs); the build adds `bin/doom.elf`, `resources/freedoom1.wad` and the licence files |
-| Image switch | `LAZYOS_DOOM=1` -> `build_support/doom_embed.rs` puts `/DOOM.LZP` on the OS volume |
+| Image switch | `LAZYOS_DOOM=1` -> `build_support/doom_embed.rs` puts `/system/share/samples/doom.lzp` on the OS volume |
 
 The game finds its IWAD from `argv[0]` (`init` starts it by its absolute path
 in the install directory): `<install>/resources/freedoom1.wad`. Config and
-saves go to `<home>/.doom`: `$HOME` when set, else the directory under `/home`
-(or `/data/home`) that the player's uid owns, since `init` starts installed
-apps with no environment. Only with no home at all do they go to `/tmp/doom`,
-which a reboot clears.
+saves go to the package's own folder in the player's home,
+`$HOME/.apps/org.lazy.doom` (the one write the manifest asks for; `init` starts
+an installed app with its session's `HOME`). Only with no `HOME` at all do they
+go to `/tmp/doom`, which a reboot clears.
 
 ## Checks
 

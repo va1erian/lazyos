@@ -1,4 +1,4 @@
-//! `nc` (`NC.ELF`): connect to a TCP or UDP port, or listen on one
+//! `nc` (`/system/bin/nc`): connect to a TCP or UDP port, or listen on one
 //! (`docs/networking-plan.md`, stage N3).
 //!
 //! ```text

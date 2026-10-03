@@ -15,7 +15,8 @@ interface os.lazy.confd.v1 {
     /// Every path the caller may read under `prefix`, in sorted order.
     method List(prefix: String) -> (paths: Array<String>);
     /// Where the store lives: the directory confd chose and whether it
-    /// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+    /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+    /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
     method Info() -> (store_dir: String, persistent: Bool);
 

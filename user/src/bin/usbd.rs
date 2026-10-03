@@ -1,4 +1,4 @@
-//! `usbd` (`USBD.ELF`): the USB HID driver (`docs/usb-hid-plan.md`, U2).
+//! `usbd` (`/system/bin/usbd`): the USB HID driver (`docs/usb-hid-plan.md`, U2).
 //!
 //! An ordinary ring-3 program, like `sndd`: it claims the xHCI controller
 //! through the device syscall (23), maps BAR 0, allocates DMA memory for the

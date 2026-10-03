@@ -1,4 +1,4 @@
-//! `sndd` (`SNDD.ELF`): the virtio-sound userspace driver
+//! `sndd` (`/system/bin/sndd`): the virtio-sound userspace driver
 //! (`docs/driver-plan.md`, stage D6).
 //!
 //! The driver is an ordinary ring-3 program. It claims the virtio-sound PCI

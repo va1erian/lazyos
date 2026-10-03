@@ -1,0 +1,13 @@
+[
+  {"wait_for": "SHELL:UP:PASS", "timeout": 300},
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 120},
+  {"at": 2.0, "type": "clear; pkgctl list | cut -c1-70"},
+  {"at": 2.5, "key": "enter"},
+  {"at": 6.0, "shot": "01_after_update"},
+  {"at": 7.0, "type": "pkgctl remove org.lazy.counter"},
+  {"at": 7.5, "key": "enter"},
+  {"wait_for": "PKGD:REMOVE:PASS org.lazy.counter", "timeout": 60},
+  {"at": 3.0, "shot": "02_sample_removed"},
+  {"at": 4.0, "quit": true}
+]

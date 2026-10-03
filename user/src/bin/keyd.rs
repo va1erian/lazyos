@@ -1,4 +1,4 @@
-//! `keyd` (`KEYD.ELF`): the secrets and crypto service (issue #102).
+//! `keyd` (`/system/bin/keyd`): the secrets and crypto service (issue #102).
 //!
 //! `docs/security-model.md` section 8 defines this service: `keyd` owns all
 //! long-term secrets (password verifiers first, signing/wrapping keys next),

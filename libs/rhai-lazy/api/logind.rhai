@@ -53,7 +53,7 @@ fn new_login_start() {
 /// One session's state (issue #307): the payload of
 /// `system/events/login/session/<id>`.
 fn new_login_session() {
-    #{ user: "", uid: 0, pid: 0, state: "" }
+    #{ user: "", uid: 0, pid: 0, state: "", home: "" }
 }
 
 /// A `LoginDenied` with every field at its zero value.
@@ -62,6 +62,9 @@ fn new_login_session() {
 /// User id stamped on the session.
 /// Task slot of the shell.
 /// Session state (`active`/`exited`).
+/// The account's home directory (issue #508): `init` gives the
+/// session's apps `HOME` from it, so it never looks the account up
+/// again per launch.
 /// A refused attempt (issue #307): the payload of
 /// `system/events/login/denied`. The reason is a short, non-secret word
 /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.
