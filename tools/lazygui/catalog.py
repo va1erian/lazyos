@@ -13,6 +13,8 @@ import shlex
 import shutil
 import sys
 
+from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
 
@@ -113,30 +115,6 @@ DISKS = ["virtio", "ata"]
 #: Guest RAM the GUI starts with; the same as every CLI launcher's default
 #: (`tools/screenshot/qemu_qmp.py` `DEFAULT_MEMORY`).
 DEFAULT_MEMORY = "1G"
-#: The kernel limits `lazyos.cfg` can set (`kernel/src/limits.rs`,
-#: docs/architecture/limits.md); `KEY=VALUE` becomes `LAZYOS_LIMIT_<KEY>`.
-LIMIT_KEYS = ("heap_max", "fd_max", "stack_size", "quota_user_memory",
-              "quota_kernel_memory", "shared_buffer_max")
-
-
-def limit_env(entries) -> dict[str, str]:
-    """`LAZYOS_LIMIT_*` variables for ``KEY=VALUE`` entries (a list, or one
-    whitespace-separated string). Raises ``ValueError`` on an unknown key or
-    an entry without ``=``; the image build checks the values themselves."""
-    if isinstance(entries, str):
-        entries = entries.split()
-    env: dict[str, str] = {}
-    for entry in entries or ():
-        key, sep, value = entry.partition("=")
-        key = key.strip().lower()
-        if not sep or not value.strip():
-            raise ValueError(f"kernel limit {entry!r}: expected KEY=VALUE")
-        if key not in LIMIT_KEYS:
-            raise ValueError(f"unknown kernel limit {key!r}; known: {', '.join(LIMIT_KEYS)}")
-        env[f"LAZYOS_LIMIT_{key.upper()}"] = value.strip()
-    return env
-
-
 #: The modes whose "Skip build" boots the image already built.
 SKIP_BUILD_MODES = ("Interactive demo", "Headless screenshots", "Scripted session",
                     "Kernel test suite")
@@ -196,8 +174,10 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
-        # Embeds /system/bin/lrplay and /system/bin/lazyrad (built by `tools/lazyrad/build.py`);
-        # `init` lists the IDE when its program is in the image, so Settings -> Menu offers it.
+        # Ships the core package os.lazy.lazyrad (the IDE and its player, built by
+        # `tools/lazyrad/build.py`, which repackages the core packages): `pkgd`
+        # installs it at boot, so Settings -> Menu offers it. Needs the desktop
+        # profile's core packages (`tools/xui/build.py`).
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
     if cfg.get("doom"):
@@ -256,7 +236,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
-    image (it is an xui app, so it means nothing on the CLI), ``shell``
+    image (a core package like the other desktop apps, so it means nothing on
+    the CLI), ``shell``
     keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
     opens the Devices app at boot, ``doom`` adds the Doom package and
     ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``

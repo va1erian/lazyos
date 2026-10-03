@@ -25,6 +25,11 @@
 //! * [`provision`]: which core packages (`/system/packages`) to install,
 //!   upgrade, keep or demote, the provisioning stamp, and the refusals a core
 //!   app adds to `Remove` and `Install`;
+//! * [`develop`]: development labels (`dev:<system_name>`, issue #529): the
+//!   rules `Develop` loads and the in-memory record of what was approved;
+//! * [`inspect`]: an archive turned into the `PackageInfo` the consent screen
+//!   shows, shared by `pkgd`'s `Inspect` and `Install` and by the LazyRAD IDE's
+//!   pre-check;
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
@@ -36,9 +41,11 @@ extern crate alloc;
 
 pub mod access;
 pub mod audit;
+pub mod develop;
 pub mod docs;
 pub mod explain;
 pub mod hash;
+pub mod inspect;
 pub mod layout;
 pub mod provision;
 pub mod rules;

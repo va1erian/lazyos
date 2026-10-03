@@ -32,13 +32,39 @@
   ]
  },
  {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
   "at": 1.0,
-  "type": "/system/bin/lazyrad --client &"
+  "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:/system/bin/lazyrad --client &",
+  "until": "TERM:CMD:echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "echo 'i.launch(\"os.lazy.lazyrad\", \"\", 0);' >> /tmp/l.rhai"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:echo 'i.launch(\"os.lazy.lazyrad\", \"\", 0);' >> /tmp/l.rhai",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "rhai /tmp/l.rhai"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:rhai /tmp/l.rhai",
   "timeout": 30,
   "retries": 2
  },

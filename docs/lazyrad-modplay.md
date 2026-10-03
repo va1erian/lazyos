@@ -13,7 +13,8 @@ python tools/lazyrad/modplayer_run.py               # build, play both ways, rec
 python tools/lazyrad/package.py                     # just target/pkg/modplayer.lzp
 ```
 
-In the desktop Terminal: `/system/bin/lrplay --client /system/share/lazyrad/modplayer &`,
+In the desktop Terminal, with the player of the LazyRAD core package:
+`$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf) --client /system/share/lazyrad/modplayer &`,
 or `cp /system/share/samples/modplayer.lzp ~/ && pkgctl install ~/modplayer.lzp` and then **ModPlayer**
 from the Start menu. The
 GUI launcher has the same choice under Simple → Extras and Advanced (the

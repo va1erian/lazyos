@@ -286,7 +286,11 @@ fn the_packaged_sample_may_use_the_mixer() {
         .map(|name| std::fs::read_to_string(sample().join(name)).unwrap())
         .collect();
     let scripts: Vec<&str> = scripts.iter().map(String::as_str).collect();
-    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user")))).script_permissions(&scripts);
-    assert_eq!(found.interfaces, ["os.lazy.audio.v1"]);
+    let found = LazyOsPlatform::ide(
+        Home::from_var(Some(OsStr::new("/home/user"))),
+        Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf"),
+    )
+    .script_permissions(&scripts);
+    assert_eq!(found.interfaces, ["os.lazy.audio.v1", "os.lazy.input.v1"]);
     assert!(found.topics.is_empty());
 }

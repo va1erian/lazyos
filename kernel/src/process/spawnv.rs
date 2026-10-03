@@ -14,6 +14,13 @@
 //! | 9 | `cred`: [`cred_mode::INHERIT`], [`cred_mode::AS`] or [`cred_mode::AS_LABELLED`] |
 //! | 10..=14 | the credential block (`uid`, `gid`, `caps`, `label_id`, `session`), read for `AS`/`AS_LABELLED` |
 //! | 15, 16 | `label_ptr`, `label_len`, read for `AS_LABELLED` |
+//! | 17, 18, 19 | only with [`personality::STDIO`]: the caller's descriptors that become the child's 0, 1 and 2 ([`STDIO_TERMINAL`] keeps the terminal) |
+//!
+//! Without [`personality::STDIO`] a child starts on the terminal, as always.
+//! With it, the block is [`REQ_WORDS_STDIO`] words and the child gets exactly
+//! those three descriptors of the caller (shared like `dup`), nothing else: an
+//! IDE keeps the pipes of a program it runs under a `dev:` label (issue
+//! #529). A descriptor that is out of range or closed is `-EBADF`.
 //!
 //! Everything is validated before anything is allocated or loaded: an
 //! overlong path is `-ENAMETOOLONG`; an overlong block or count `-E2BIG`; a
@@ -57,6 +64,12 @@ pub const ARGC_MAX: u64 = 64;
 pub const ENVC_MAX: u64 = 64;
 /// Words in the request block.
 pub const REQ_WORDS: usize = 17;
+/// Words in a request block with [`personality::STDIO`].
+pub const REQ_WORDS_STDIO: usize = 20;
+/// A stdio word that leaves the child's descriptor on the terminal.
+pub const STDIO_TERMINAL: u64 = u64::MAX;
+/// `EBADF`: a stdio word naming no open descriptor of the caller.
+pub const EBADF: i64 = 9;
 
 /// The `personality` word.
 pub mod personality {
@@ -64,6 +77,8 @@ pub mod personality {
     pub const NATIVE: u64 = 0;
     /// A Linux-ABI (static musl) program (arguments on the start stack).
     pub const LINUX: u64 = 1;
+    /// Flag: the block carries the child's standard streams (words 17-19).
+    pub const STDIO: u64 = 1 << 8;
 }
 
 /// The `cred` word.
@@ -90,6 +105,9 @@ struct Request {
     argv: Vec<u8>,
     envp: Vec<u8>,
     cred: CredReq,
+    /// The caller's descriptors for the child's 0, 1 and 2 (`None`: the
+    /// terminal), when the request asked for them.
+    stdio: Option<[Option<usize>; 3]>,
 }
 
 /// syscall 31: see the module docs.
@@ -103,39 +121,63 @@ pub(super) fn sys_spawnv(req_ptr: u64) -> u64 {
 /// The body of [`sys_spawnv`]; the error is the syscall return value.
 fn spawnv(req_ptr: u64) -> Result<usize, u64> {
     let words = read_words(req_ptr)?;
-    let request = read_request(&words)?;
-    let stamp = approve(request.cred)?;
+    let mut request = read_request(&words)?;
+    let stamp = approve(core::mem::replace(&mut request.cred, CredReq::Inherit))?;
     let elf = load(&request.path, request.linux)?;
-    start(
-        &request.path,
-        request.linux,
-        &elf,
-        request.argv,
-        request.envp,
-        stamp,
-    )
+    start(&request, &elf, stamp)
 }
 
-/// Copy the request block out of user memory.
-fn read_words(req_ptr: u64) -> Result<[u64; REQ_WORDS], u64> {
+/// Copy the request block out of user memory: [`REQ_WORDS`] words, or
+/// [`REQ_WORDS_STDIO`] when the personality word asks for stdio.
+fn read_words(req_ptr: u64) -> Result<[u64; REQ_WORDS_STDIO], u64> {
     if req_ptr == 0 {
         return Err(syscall_error(EFAULT));
     }
-    let bytes = user_ptr::try_bytes(req_ptr, REQ_WORDS * 8).map_err(|_| syscall_error(EFAULT))?;
-    let mut words = [0u64; REQ_WORDS];
-    for (word, chunk) in words.iter_mut().zip(bytes.as_chunks::<8>().0) {
-        *word = u64::from_le_bytes(*chunk);
+    let mut words = [STDIO_TERMINAL; REQ_WORDS_STDIO];
+    read_into(req_ptr, &mut words[..REQ_WORDS])?;
+    if words[8] & personality::STDIO != 0 {
+        read_into(req_ptr, &mut words)?;
     }
     Ok(words)
 }
 
+/// Fill `words` from the user block at `ptr`.
+fn read_into(ptr: u64, words: &mut [u64]) -> Result<(), u64> {
+    let bytes = user_ptr::try_bytes(ptr, words.len() * 8).map_err(|_| syscall_error(EFAULT))?;
+    for (word, chunk) in words.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *word = u64::from_le_bytes(*chunk);
+    }
+    Ok(())
+}
+
+/// The stdio words of a request: each a caller descriptor that is open, or
+/// [`STDIO_TERMINAL`]. `-EBADF` otherwise.
+fn read_stdio(words: &[u64; REQ_WORDS_STDIO]) -> Result<Option<[Option<usize>; 3]>, u64> {
+    if words[8] & personality::STDIO == 0 {
+        return Ok(None);
+    }
+    let mut map = [None; 3];
+    for (slot, word) in map.iter_mut().zip(&words[REQ_WORDS..]) {
+        if *word == STDIO_TERMINAL {
+            continue;
+        }
+        let fd = usize::try_from(*word).unwrap_or(usize::MAX);
+        // Out of range reads as closed: `fd_kind` looks the slot up.
+        if task::fd_kind(fd) == task::FdKind::Closed {
+            return Err(syscall_error(EBADF));
+        }
+        *slot = Some(fd);
+    }
+    Ok(Some(map))
+}
+
 /// Validate the request words: every length and selector first (no copy, no
 /// allocation), then the strings themselves.
-fn read_request(words: &[u64; REQ_WORDS]) -> Result<Request, u64> {
+fn read_request(words: &[u64; REQ_WORDS_STDIO]) -> Result<Request, u64> {
     let [path_ptr, path_len, argv_ptr, argv_len, argc, envp_ptr, envp_len, envc, personality, cred, ..] =
         *words;
     let fail = |code| Err(syscall_error(code));
-    let linux = match personality {
+    let linux = match personality & !personality::STDIO {
         personality::NATIVE => false,
         personality::LINUX => true,
         _ => return fail(EINVAL),
@@ -183,12 +225,14 @@ fn read_request(words: &[u64; REQ_WORDS]) -> Result<Request, u64> {
         return fail(EINVAL);
     }
     let cred = read_cred_req(cred, words)?;
+    let stdio = read_stdio(words)?;
     Ok(Request {
         path,
         linux,
         argv,
         envp,
         cred,
+        stdio,
     })
 }
 
@@ -223,7 +267,7 @@ fn entries(block: &[u8]) -> impl Iterator<Item = &[u8]> {
 }
 
 /// Read the credential half of the request.
-fn read_cred_req(mode: u64, words: &[u64; REQ_WORDS]) -> Result<CredReq, u64> {
+fn read_cred_req(mode: u64, words: &[u64; REQ_WORDS_STDIO]) -> Result<CredReq, u64> {
     let cred = Cred::from_words([words[10], words[11], words[12], words[13], words[14]]);
     match mode {
         cred_mode::INHERIT => Ok(CredReq::Inherit),
@@ -241,8 +285,9 @@ fn read_cred_req(mode: u64, words: &[u64; REQ_WORDS]) -> Result<CredReq, u64> {
 }
 
 /// The stamp an approved credential request applies to the child: the
-/// credential and whether its label is assigned (labelled) or kept.
-type Stamp = Option<(Cred, bool)>;
+/// credential and its label rule (`None` for `Keep`: the label the child
+/// inherited, read once it exists).
+type Stamp = Option<(Cred, Option<LabelStamp>)>;
 
 /// Run the credential gate's checks for the request, before a task exists.
 fn approve(cred: CredReq) -> Result<Stamp, u64> {
@@ -250,9 +295,12 @@ fn approve(cred: CredReq) -> Result<Stamp, u64> {
         CredReq::Inherit => Ok(None),
         CredReq::As(cred) => {
             credentials::check(task::current(), cred).map_err(transition_error)?;
-            Ok(Some((cred, false)))
+            Ok(Some((cred, None)))
         }
-        CredReq::AsLabelled(cred, label) => Ok(Some((approve_labelled(cred, &label)?, true))),
+        CredReq::AsLabelled(cred, label) => {
+            let (cred, rule) = approve_labelled(cred, &label)?;
+            Ok(Some((cred, Some(rule))))
+        }
     }
 }
 
@@ -276,41 +324,35 @@ fn load(path: &str, linux: bool) -> Result<VfsFile, u64> {
 /// Create the child, stamp it and record its blocks. Interrupts are off in
 /// the syscall gate, so the child cannot run before the stamp and the blocks
 /// are in place.
-fn start(
-    path: &str,
-    linux: bool,
-    elf: &VfsFile,
-    argv: Vec<u8>,
-    envp: Vec<u8>,
-    stamp: Stamp,
-) -> Result<usize, u64> {
-    let name = intern_service_name(path);
-    let started = if linux {
-        let argv: Vec<&[u8]> = entries(&argv).collect();
-        let envp: Vec<&[u8]> = entries(&envp).collect();
+fn start(request: &Request, elf: &VfsFile, stamp: Stamp) -> Result<usize, u64> {
+    let name = intern_service_name(&request.path);
+    let started = if request.linux {
+        let argv: Vec<&[u8]> = entries(&request.argv).collect();
+        let envp: Vec<&[u8]> = entries(&request.envp).collect();
         task::spawn_linux_child_env(name, elf, &argv, &envp)
     } else {
         task::spawn_child(name, elf)
     };
     let slot = started.map_err(|_| syscall_error(ENOMEM))?;
-    if let Some((cred, assign)) = stamp {
+    if let Some((cred, rule)) = stamp {
         // `approve` ran before the spawn, so this cannot fail; if it ever did,
         // the child would keep the identity it inherited from the caller (no
         // more privileged than the caller), as in `spawn_program`.
-        let label = if assign {
-            LabelStamp::Assign
-        } else {
-            LabelStamp::Keep {
-                current: credentials::of(slot).label_id,
-            }
-        };
+        let label = rule.unwrap_or(LabelStamp::Keep {
+            current: credentials::of(slot).label_id,
+        });
         let _ = credentials::transition_with(task::current(), slot, cred, label);
     }
-    if linux {
+    if let Some(map) = &request.stdio {
+        // Validated in `read_stdio` and nothing ran since (interrupts are off
+        // in the gate), so the descriptors are still open.
+        let _ = task::give_stdio(slot, map);
+    }
+    if request.linux {
         // The start stack holds them; nothing for syscall 9 to keep.
         argstore::forget(slot);
     } else {
-        argstore::set(slot, argv, envp);
+        argstore::set(slot, request.argv.clone(), request.envp.clone());
     }
     Ok(slot)
 }

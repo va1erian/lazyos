@@ -1,0 +1,34 @@
+# A test fixture, not a shipped app: the LazyRAD IDE as a *user* package with
+# `develop = true` (issue #529), so a session script can show Play running a
+# project under its own development label headlessly (`--play-dev`), and a
+# second package to decline consent for (the real IDE, `os.lazy.lazyrad`,
+# declares `develop = true` too). `tools/lazyrad/devtest.py` adds
+# `bin/lazyrad.elf` and the player beside it, `bin/lrplay.elf`, and writes
+# `target/pkg/lrdev-test.lzp`, which a
+# `LAZYOS_LAZYRAD=1` image embeds as /system/share/samples/lrdev-test.lzp.
+#
+# `--play-dev` makes the IDE do one development run of the path `init` appends
+# and exit (`lazyrad_os::playdev`); it opens no window, so the package asks for
+# no display or input.
+
+[app]
+name = "LazyRAD development-run test"
+system_name = "org.lazy.test.lrdev"
+author = "LazyOS"
+version = "0.1.0"
+description = "Test fixture: runs a LazyRAD project under its dev: label and exits."
+category = "development"
+
+[entry]
+binary = "bin/lazyrad.elf"
+args = ["--client", "--play-dev"]
+abi = "linux"
+
+[permissions]
+# `mimed.Open(path, "develop")` asks the Installer for the approval, and the
+# package events say when pkgd loaded it.
+interfaces = ["os.lazy.mimed.v1"]
+topics = ["subscribe:system/events/pkg/+"]
+files = ["write:$HOME/.apps/org.lazy.test.lrdev"]
+# Spawn the player into `dev:<system_name>`.
+develop = true

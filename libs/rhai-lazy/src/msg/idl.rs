@@ -2023,6 +2023,24 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "state", ty: Ty::Struct("ProvisionState") }],
                 transfers: &[],
             },
+            Method {
+                name: "Develop",
+                id: 803454394,
+                oneway: false,
+                doc: "Approve a development run of the package at `path` (the same source\nrule as `Inspect`; issue #529): validate it, compile its permissions and\nload them for the label `dev:<system_name>`, which an IDE whose\nmanifest says `develop = true` may then give the program it runs. Only\nthe session owner or root, unlabelled (the Installer), may call it.\nWith `confirm` false nothing is asked: the rules are loaded and\n`approved` is true only if this session already approved the same or a\nwider rule set for that label; otherwise `approved` is false and nothing\nchanges, so the Installer shows the consent screen and calls again with\n`confirm` true once the user accepts. Approvals live in `pkgd`'s memory\nonly, are dropped (and the label's rules revoked) when the session that\ngave them logs out, and every one is audited as\n`system/events/pkg/develop`.",
+                params: &[Field { name: "path", ty: Ty::String }, Field { name: "confirm", ty: Ty::Bool }],
+                returns: &[Field { name: "label", ty: Ty::String }, Field { name: "approved", ty: Ty::Bool }],
+                transfers: &[],
+            },
+            Method {
+                name: "DevelopDeclined",
+                id: 1386916580,
+                oneway: false,
+                doc: "The user declined the development consent for the package at `path`\n(same caller and source rules as `Develop`). Nothing is loaded; the\nrefusal is audited and published as `system/events/pkg/denied` under\nthe package's `system_name`, so the IDE waiting for the approval stops.",
+                params: &[Field { name: "path", ty: Ty::String }],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -2042,7 +2060,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "Permission",
-                doc: "Whether the package ships icons for this type.\nOne requested permission with the friendly explanation the installer\nshows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is\n`low`, `medium` or `high`. `explanation` comes from `pkgd`'s table\nkeyed by MIDL interface name, so every client shows the same words.",
+                doc: "Whether the package ships icons for this type.\nOne requested permission with the friendly explanation the installer\nshows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is\n`low`, `medium` or `high`. `explanation` comes from `pkgd`'s table\nkeyed by MIDL interface name, so every client shows the same words.",
                 fields: &[Field { name: "kind", ty: Ty::String }, Field { name: "value", ty: Ty::String }, Field { name: "risk", ty: Ty::String }, Field { name: "explanation", ty: Ty::String }],
             },
             Struct {
@@ -2052,7 +2070,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "PkgEvent",
-                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nAn `Origin` value, cached from the shipped set at provisioning and\ninstall time so readers need not open `/system/packages`.\nThe menu group (`lazypkg::Category`).\nWhether the app starts when a session opens (`entry.autostart`).\nThe manifest's `[[mime]]` verbs, de-duplicated, in manifest order.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove`, `denied` or `provision` (a core package\ninstalled, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
+                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nAn `Origin` value, cached from the shipped set at provisioning and\ninstall time so readers need not open `/system/packages`.\nThe menu group (`lazypkg::Category`).\nWhether the app starts when a session opens (`entry.autostart`).\nThe manifest's `[[mime]]` verbs, de-duplicated, in manifest order.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove`, `denied`, `provision` (a core package\ninstalled, upgraded or re-marked at startup, or the end of a pass),\n`develop` (a development run approved: `ok` true, `detail` the label)\nor `undevelop` (a session's development approvals dropped at logout). The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
                 fields: &[Field { name: "op", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "actor_uid", ty: Ty::U64 }, Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
             },
         ],
@@ -2105,6 +2123,25 @@ pub static INTERFACES: &[Interface] = &[
                 oneway: false,
                 doc: "Check that the actor may resolve `name`.",
                 params: &[Field { name: "name", ty: Ty::String }],
+                returns: &[],
+                transfers: &[],
+            },
+        ],
+        structs: &[],
+        enums: &[],
+        topics: &[],
+    },
+    Interface {
+        name: "os.lazy.process.label.spawn.v1",
+        id: 0x2b9f30ad1cbea35e,
+        doc: "Kernel ACL scope for spawning a child into a development label (issue #529,\n`docs/lazyrad-package-plan.md` section 3). A labelled task (an IDE) may give\na child it spawns the label `dev:<system_name>` only when its own rules\nallow this interface id with `fnv1a32(<the dev label>)` as the method, and\nonly while `pkgd` holds an approved rule set for that label. The child keeps\nthe caller's uid, gid and session, and never gains a capability. A manifest\nasks for it with `develop = true`, which compiles to the wildcard method.\nOnly the interface id is contractual; nothing ever serves this interface.",
+        methods: &[
+            Method {
+                name: "Assign",
+                id: 938075628,
+                oneway: false,
+                doc: "Check that the actor may spawn a child labelled `label`.",
+                params: &[Field { name: "label", ty: Ty::String }],
                 returns: &[],
                 transfers: &[],
             },

@@ -167,3 +167,51 @@ pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
     drop(replaced);
     result
 }
+
+/// Give a child the caller's descriptors as its standard streams (`spawnv`'s
+/// `STDIO` request, issue #529): `map[i]` is the caller's descriptor that
+/// becomes the child's descriptor `i`, or `None` to leave the terminal there.
+/// Nothing else is shared, so a sandboxed child sees only the pipes it was
+/// handed. Returns `false`, changing nothing, when a named descriptor is out
+/// of range or closed or either task is gone.
+///
+/// Called by the spawning syscall before the child first runs (interrupts are
+/// off in the gate), so no descriptor of the child is in use yet.
+pub fn give_stdio(child: usize, map: &[Option<usize>; 3]) -> bool {
+    let mut tasks = TASKS.lock();
+    let parent = current();
+    let Some(source) = tasks[parent].as_ref() else {
+        return false;
+    };
+    // Validate every source first, so a refusal clones (and so retains)
+    // nothing while the table is locked.
+    let open = |fd: &Option<usize>| fd.is_none_or(|fd| source.fds.is_open(fd));
+    if !map.iter().all(open) || tasks[child].is_none() {
+        return false;
+    }
+    let entries: [Fd; 3] = core::array::from_fn(|slot| {
+        map[slot]
+            .and_then(|fd| source.fds.get(fd).cloned())
+            .unwrap_or(Fd::Terminal)
+    });
+    let replaced: [Fd; 3] = match tasks[child].as_mut() {
+        Some(target) => {
+            let mut entries = entries.into_iter();
+            core::array::from_fn(|slot| {
+                let entry = entries.next().unwrap_or(Fd::Terminal);
+                // `put` clears the slot's flags. Slots 0-2 always fit (fd_max is
+                // at least 64); a refusal hands the entry back to drop unlocked.
+                target
+                    .fds
+                    .put(slot, entry)
+                    .unwrap_or_else(|refused| refused)
+            })
+        }
+        None => entries,
+    };
+    drop(tasks);
+    // The replaced entries may hold pipe references; they drop here, with the
+    // table unlocked (queue-before-table lock order).
+    drop(replaced);
+    true
+}

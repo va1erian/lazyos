@@ -252,8 +252,8 @@ mod tests {
             Path::new("/apps/user.me.todo/1.0.0-abcd1234")
         );
         assert_eq!(
-            install_dir(Path::new(fhs::bin::LRPLAY)),
-            Path::new(fhs::SYSTEM)
+            install_dir(Path::new("/transient/lrplay.elf")),
+            Path::new(fhs::mount::TRANSIENT)
         );
     }
 

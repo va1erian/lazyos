@@ -1,0 +1,15 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Development run"
+width = 360
+height = 120
+
+[[node]]
+kind = "Label"
+name = "theme_label"
+left = 16
+top = 16
+width = 320
+text = "theme: ?"

@@ -75,7 +75,10 @@ fn project_file(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn permissions(scripts: &[&str]) -> HostPermissions {
-    let found = LazyOsPlatform::ide(Home::from_env()).script_permissions(scripts);
+    // Only the derivation is used: the player comes from `--player`, so the
+    // IDE path (which locates the player beside it) is a placeholder.
+    let found =
+        LazyOsPlatform::ide(Home::from_env(), Path::new("lazyrad")).script_permissions(scripts);
     HostPermissions {
         interfaces: found.interfaces,
         topics: found.topics,

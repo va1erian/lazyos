@@ -185,6 +185,13 @@ and `midlc --rhai-api` generates one documented module per interface on top of
 it (`sys::confd::get(...)`, `libs/rhai-lazy/api/`). LazyRAD form scripts on
 LazyOS get both, with events delivered by the form's window
 ([`docs/lazyrad-messenger-plan.md`](docs/lazyrad-messenger-plan.md)).
+The LazyRAD IDE and its player ship as the core package `os.lazy.lazyrad` in
+images built with `LAZYOS_LAZYRAD=1` (`--lazyrad` implies `--desktop`): `pkgd`
+installs it at boot under its own label like every other desktop app, so the
+`lazyrad_*.json` sessions start the IDE through `init.Launch` and run the player
+from `/apps/os.lazy.lazyrad/*/bin/lrplay.elf`; Make LazyOS App hands the package
+to the Installer instead of calling `pkgd`
+([`docs/lazyrad-package-plan.md`](docs/lazyrad-package-plan.md)).
 One command builds `rhai`, BusyBox and the image, boots it and judges it:
 
 ```bash
@@ -199,8 +206,8 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 ## Packages and the label-policy trace
 
-Every desktop app except the Terminal, Devices, the Installer, LazyShell and
-the opt-in LazyRAD IDE (`LAZYOS_LAZYRAD=1`) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+Every desktop app except the Terminal, Devices, the Installer and LazyShell
+(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
 `pkgd` installs it into `/apps` at boot and the kernel confines it to the
 permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
 debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
@@ -215,6 +222,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/core_apps --script tools/screenshot/examples/core_apps.json
 grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
 ```
+
+An IDE package with `develop = true` runs the project it edits under
+`dev:<system_name>` (issue #529; `docs/packages.md`, "Development runs";
+`kernel/src/ipc/devspawn.rs`). The session `lazyrad_devplay.json` plays a sample
+that way from a test package of the IDE (build it with
+`python tools/lazyrad/build.py && python tools/lazyrad/devtest.py`, then an
+image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
+LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
+LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 

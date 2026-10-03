@@ -53,7 +53,9 @@ from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
-from lazygui.catalog import LIMIT_KEYS, lazyrad_samples, limit_env  # noqa: E402
+from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui.limits import add_limit_option, build_limits  # noqa: E402
+from demo_qemu import sound_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -131,19 +133,6 @@ def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
     elif mkdisk.ensure_volume(path, label=label, layout=layout):
         print(f"created {what}: {mkdisk.status(path).describe()}", flush=True)
     return True
-
-
-def sound_args(backend: str) -> list[str]:
-    """QEMU arguments for a virtio-sound card on `backend` (see `--sound`)."""
-    if backend == "auto":
-        backend = {"win32": "dsound", "darwin": "coreaudio"}.get(sys.platform, "pa")
-    if backend.startswith("wav:"):
-        # A comma in a path is doubled for QEMU's option parser.
-        path = Path(backend[4:]).resolve().as_posix().replace(",", ",,")
-        audiodev = f"wav,id=snd0,path={path}"
-    else:
-        audiodev = f"{backend},id=snd0"
-    return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
 
 
 def build_xui_shell() -> bool:
@@ -267,9 +256,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--image", default=str(DEFAULT_IMAGE), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
-    parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
-                        help="kernel limit written to lazyos.cfg (LAZYOS_LIMIT_<KEY>); "
-                             f"repeatable; keys: {', '.join(LIMIT_KEYS)}")
+    add_limit_option(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -322,9 +309,9 @@ def main(argv: list[str]) -> int:
         "server); see docs/networking-host-access.md. The packet-capture-judged run is "
         "`python tools/net/run.py`")
     parser.add_argument("--lazyrad", action="store_true",
-                        help="build the LazyRAD IDE and player and embed them "
-                             "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
-                             "Settings -> Menu")
+                        help="build the LazyRAD IDE and player and ship them as the core "
+                             "package os.lazy.lazyrad (LAZYOS_LAZYRAD=1); with --desktop "
+                             "pkgd installs it at boot and Settings -> Menu offers it")
     parser.add_argument("--lazyrad-samples", metavar="DIRS",
                         help="sample project directories to copy under "
                              "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
@@ -357,13 +344,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
-    # The Devices app is a desktop app: `--devices` implies `--desktop`.
-    args.desktop = args.desktop or args.devices or args.doom or args.modplayer
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
     if args.modplayer and not args.sound:
         args.sound = "auto"
+    # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
+    # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
+    # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
+    args.desktop = args.desktop or args.devices or args.doom or args.lazyrad
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
@@ -372,11 +361,9 @@ def main(argv: list[str]) -> int:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
         net_qemu, forwards = qemu_net.args_from_options(args)
-        limits = limit_env(args.limit)
+        limits = build_limits(args.limit, args.no_build)
     except ValueError as error:
         parser.error(str(error))
-    if limits and args.no_build:
-        parser.error("--limit needs a build: the limits are written into lazyos.cfg")
 
     if not args.no_build:
         cargo = ["cargo", "build"]

@@ -202,7 +202,7 @@ impl Drop for Fd {
 }
 
 /// Cheap classification of a descriptor for syscall dispatch.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FdKind {
     Closed,
     Terminal,

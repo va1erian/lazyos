@@ -15,6 +15,16 @@ is the LazyOS half; the LazyRAD half is the platform seam in P0.
 > Status: proposal. Everything marked **(verify)** is an assumption read from the
 > docs that a spike must confirm before the phase that depends on it.
 
+> **Update ([`lazyrad-package-plan.md`](lazyrad-package-plan.md), phase A).** LazyRAD
+> is no longer an unlabelled system program. The IDE and the player are the core
+> package `os.lazy.lazyrad` (`xui-app/packages/lazyrad`, `LAZYOS_LAZYRAD=1` images):
+> `pkgd` installs `bin/lazyrad.elf` and `bin/lrplay.elf` into `/apps` at boot,
+> the player is found beside the IDE, and the IDE's data is in
+> `$HOME/.apps/os.lazy.lazyrad`. Make LazyOS App no longer calls `pkgd` (it
+> refuses labelled callers): it hands the package to the Installer (section 9).
+> The `/system/bin/lrplay` and `/system/bin/lazyrad` paths in the P1-P4 text
+> below describe those phases as they were built.
+
 ---
 
 ## 1. Why this is mostly packaging, not porting
@@ -370,6 +380,17 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   content did not); not investigated.
 
 ## 9. P4: Make LazyOS App and the `pkgd` client (verified)
+
+> **Superseded by phase A.** The IDE is a labelled core package, and `pkgd`
+> refuses labelled callers, so `lazyrad-os/src/pkgd.rs` is gone. Today: the IDE
+> pre-checks the built `.lzp` in its own process (`pkgstore::inspect`, the
+> function `Inspect` runs), stages it in `/transient`, calls
+> `mimed.Open(path, "install")` (the Installer runs unlabelled, shows the
+> consent screen and calls `pkgd.Install`), follows `system/events/pkg/install|
+> denied` by `system_name` and digest, and starts the app with `init.Launch`
+> (`lazyrad-os/src/handoff`, the `Installer` seam unchanged). The text below is
+> the original `pkgd` client; the staging path, `argv[0]`, ABI and reboot
+> findings still hold.
 
 File → **Make LazyOS App…** (shown only when the platform gives the IDE an
 installer): save, compile check, build the `.lzp` with the same player the IDE

@@ -11,7 +11,13 @@
 //!   (config directory, script file sandbox, where the player lives);
 //! * [`launcher`]: starting the player from the IDE with pipes polled on the UI
 //!   thread (LazyOS threads cannot share descriptors);
-//! * [`pkgd`]: the `pkgd` client behind File → Make LazyOS App;
+//! * [`devplay`]: Play under the project's own permissions when the IDE is a
+//!   package (`dev:<system_name>`, issue #529);
+//! * [`handoff`]: File → Make LazyOS App: an in-process pre-check, then the
+//!   Package Installer through `mimed` (the IDE never calls `pkgd`);
+//! * [`transport`]: the Messenger call seam [`handoff`] runs over;
+//! * [`migrate`]: the one-time move of `.apps/lazyrad` to the package's
+//!   data folder;
 //! * [`marker`]: the `LRPLAY:*` / `LRIDE:*` serial evidence lines the
 //!   screenshot sessions grep for;
 //! * [`messenger`]: the `msg` module for form scripts (Messenger calls,
@@ -20,9 +26,14 @@
 //!   played through the system mixer), registered the same way.
 
 pub mod args;
+#[cfg(unix)]
+pub mod devplay;
+pub mod handoff;
 pub mod launcher;
 pub mod marker;
 pub mod messenger;
-pub mod pkgd;
+pub mod migrate;
 pub mod platform;
+pub mod playdev;
 pub mod tracker;
+pub mod transport;
