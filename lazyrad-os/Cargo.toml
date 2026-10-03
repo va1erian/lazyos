@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "d36ed3660f98cf5c214afa0a0c14efbbe54c103d" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d36ed3660f98cf5c214afa0a0c14efbbe54c103d", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -61,15 +61,15 @@ audioclient = { path = "../libs/audioclient" }
 # requires (filesystem F5, #509).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "26028a6636e812a67c8f8e7b6c9cad94eda8d4ed", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "26028a6636e812a67c8f8e7b6c9cad94eda8d4ed", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "26028a6636e812a67c8f8e7b6c9cad94eda8d4ed", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "26028a6636e812a67c8f8e7b6c9cad94eda8d4ed", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "8f8dd494752e4d82e2e0fb1a24122b21e5067a3b", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "8f8dd494752e4d82e2e0fb1a24122b21e5067a3b", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "8f8dd494752e4d82e2e0fb1a24122b21e5067a3b", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "8f8dd494752e4d82e2e0fb1a24122b21e5067a3b", default-features = false }
 
 [dev-dependencies]
 # The form values the sample tests read back (`tests/modplayer.rs`); pinned
 # with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "26028a6636e812a67c8f8e7b6c9cad94eda8d4ed" }
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "8f8dd494752e4d82e2e0fb1a24122b21e5067a3b" }
 # `modplay::synth` builds the songs the `modplay` script tests play.
 modplay = { path = "../libs/modplay", features = ["fuzz"] }
 

@@ -11,5 +11,5 @@ publish = false
 description = "A resizable offscreen backend for the xui-app test suites"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "d36ed3660f98cf5c214afa0a0c14efbbe54c103d" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d36ed3660f98cf5c214afa0a0c14efbbe54c103d", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50", default-features = false }
