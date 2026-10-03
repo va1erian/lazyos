@@ -709,7 +709,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -777,6 +777,9 @@ jobs:
             shots/writer/*.png
             shots/writer/serial.log
             shots/writer/summary.json
+            shots/writer_light/*.png
+            shots/writer_light/serial.log
+            shots/writer_light/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -818,7 +821,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -854,7 +857,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"
@@ -865,7 +868,7 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log shots/writer/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log shots/writer/serial.log shots/writer_light/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
