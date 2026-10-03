@@ -237,7 +237,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // (docs/networking-plan.md N2); it finds the driver by name and retries,
         // so the order does not matter.
         #[cfg(all(netd_demo, not(services_mode)))]
-        spawn_program(fhs::bin::NETD, &["demo=1"]);
+        spawn_program(fhs::bin::NETD, &netd_demo_args());
 
         // Issue #113: `LAZYOS_XUID=1` boots the userspace compositor (`xuid`)
         // and two instances of the display-protocol demo app (`xdemo`).
@@ -369,6 +369,19 @@ fn net_demo_args() -> alloc::vec::Vec<&'static str> {
         None => "demo=1",
     };
     NET_ARGS.split_ascii_whitespace().collect()
+}
+
+/// The `netd` boot arguments: `demo=1` runs the network harness's evidence
+/// clients, which talk to the harness's host servers. `LAZYOS_NETD_ARGS`
+/// overrides them at build time (`run_demo.py --net` passes `demo=0`: an
+/// interactive boot runs the stack alone).
+#[cfg(all(netd_demo, not(services_mode)))]
+fn netd_demo_args() -> alloc::vec::Vec<&'static str> {
+    const NETD_ARGS: &str = match option_env!("LAZYOS_NETD_ARGS") {
+        Some(args) => args,
+        None => "demo=1",
+    };
+    NETD_ARGS.split_ascii_whitespace().collect()
 }
 
 /// Load a static Linux-ABI (musl) program and spawn it, if present. The xui

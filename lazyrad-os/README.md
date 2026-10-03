@@ -31,8 +31,17 @@ platform also derives a packaged app's interfaces and topics from its scripts.
 The player prints `LRPLAY:MSG:PASS` once Messenger is installed and
 `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran.
 
+The `tracker` module is the same kind of extension for sound: `modplay::*`
+loads and plays ProTracker songs on *decks* through the system mixer
+(`libs/modplay`, `libs/audioclient` over `xui_app::platform::audio`), polled by
+the form's window; see [`docs/lazyrad-modplay.md`](../docs/lazyrad-modplay.md).
+The player prints `LRPLAY:MODPLAY:PASS:title=.. audio=0|1 rate=..` when a song
+starts and `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out.
+
 `samples/` holds LazyOS-only sample projects (`samples/messenger`: confd, a
-change topic and a served method). `run_demo.py --lazyrad` and the GUI
+change topic and a served method; `samples/modplayer`: the MOD player, also
+packaged as `/system/share/samples/modplayer.lzp` by `tools/lazyrad/package.py` with
+`examples/lzpack.rs`). `run_demo.py --lazyrad` and the GUI
 launcher embed them under `/system/share/lazyrad/` next to any `LAZYRAD_SAMPLES` entries;
 `python tools/rhai/run.py --lazyrad` boots the Messenger one and judges it.
 
@@ -141,6 +150,6 @@ procedure in [`docs/xui-plan.md`](../docs/xui-plan.md): LazyRAD's workspace, thi
 ## Tests
 
 ```bash
-cd lazyrad-os && cargo test    # args, platform, markers, tests/lzp_conformance.rs, tests/samples.rs
+cd lazyrad-os && cargo test    # args, platform, markers, tracker, tests/lzp_conformance.rs, tests/samples.rs, tests/modplayer.rs
 # LAZYRAD_SAMPLES=<lazyrad>/examples/hello;... adds the real samples to the conformance run
 ```

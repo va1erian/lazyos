@@ -21,7 +21,8 @@ import run_demo  # noqa: E402
 LABEL_OFFSET = 1024 + 120  # ext2 s_volume_name
 # No drive letter: on Linux `os.pathsep` is `:`, which would split `C:\...`.
 SAMPLES = [os.path.join(os.sep, "lr", "hello"), os.path.join(os.sep, "lr", "calc")]
-MESSENGER_SAMPLE = "lazyrad-os/samples/messenger"
+#: The LazyOS-only samples every LazyRAD image embeds (`catalog.LAZYOS_LAZYRAD_SAMPLES`).
+LAZYOS_SAMPLES = ["lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer"]
 
 
 class PrepareHomeDiskTests(unittest.TestCase):
@@ -200,9 +201,9 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, 0)
         built.assert_called_once()
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        # The caller's samples first, then the LazyOS-only Messenger demo.
+        # The caller's samples first, then the LazyOS-only ones.
         self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
-                         SAMPLES + [MESSENGER_SAMPLE])
+                         SAMPLES + LAZYOS_SAMPLES)
 
     def test_lazyrad_alone_embeds_only_the_lazyos_samples(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False), \
@@ -212,7 +213,19 @@ class MainTests(unittest.TestCase):
             os.environ.pop("LAZYRAD_SAMPLES", None)
             self.run_main("--lazyrad")
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES"), MESSENGER_SAMPLE)
+        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
+                         LAZYOS_SAMPLES)
+
+    def test_modplayer_brings_lazyrad_the_desktop_and_a_sound_card(self) -> None:
+        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as lazyrad,                 mock.patch.object(run_demo, "build_modplayer", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--modplayer")
+        self.assertEqual(code, 0)
+        lazyrad.assert_called_once()
+        package.assert_called_once()
+        env = self.builds[-1]
+        for switch in ("LAZYOS_MODPLAYER", "LAZYOS_LAZYRAD", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
+            self.assertEqual(env.get(switch), "1", switch)
+        self.assertIn("virtio-sound-pci,audiodev=snd0", command)
 
     def test_lazyrad_is_a_desktop_core_package_built_before_packaging(self) -> None:
         # os.lazy.lazyrad is a core package: `--lazyrad` implies the desktop,
@@ -232,6 +245,68 @@ class MainTests(unittest.TestCase):
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")
+
+
+class NetTests(unittest.TestCase):
+    """`--net`: the whole stack in the image, a card and forwards in QEMU."""
+
+    # The same faked build and QEMU, without inheriting MainTests' tests.
+    setUp = MainTests.setUp
+    run_main = MainTests.run_main
+
+    def run_net(self, *argv: str, busy: list[str] | None = None) -> tuple[int, list[str]]:
+        with mock.patch.object(run_demo.qemu_net, "busy_ports", return_value=busy or []), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LAZYOS_NETD_ARGS", None)
+            return self.run_main(*argv)
+
+    def netdev(self, command: list[str]) -> str:
+        return command[command.index("-netdev") + 1]
+
+    def test_net_builds_the_stack_without_the_harness_clients(self) -> None:
+        code, command = self.run_net("--net")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD_ARGS"), "demo=0")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+        # The Net Tools web server, reachable from this machine only.
+        self.assertIn("hostfwd=tcp:127.0.0.1:8080-:8080", self.netdev(command))
+
+    def test_forwards_restrict_and_capture_reach_qemu(self) -> None:
+        code, command = self.run_net("--net", "--no-build", "--net-forward", "2323:23",
+                                     "--net-forward", "udp:0.0.0.0:5353:53",
+                                     "--net-restrict", "--net-pcap", "net.pcap")
+        self.assertEqual(code, 0)
+        netdev = self.netdev(command)
+        self.assertIn("restrict=on", netdev)
+        self.assertIn("hostfwd=tcp:127.0.0.1:2323-:23", netdev)
+        self.assertIn("hostfwd=udp:0.0.0.0:5353-:53", netdev)
+        self.assertNotIn(":8080", netdev, "explicit forwards replace the default")
+        self.assertIn("filter-dump,id=netdump,netdev=n0,file=net.pcap", command)
+
+    def test_no_net_attaches_no_card(self) -> None:
+        _, command = self.run_net("--no-build")
+        self.assertNotIn("-netdev", command)
+        self.assertNotIn("LAZYOS_NETD", self.builds[-1] if self.builds else {})
+
+    def test_a_busy_host_port_stops_before_qemu(self) -> None:
+        code, command = self.run_net("--net", "--no-build", busy=["tcp/127.0.0.1:8080"])
+        self.assertEqual(code, 1)
+        self.assertEqual(command, [])
+
+    def test_bad_or_orphan_net_options_are_refused(self) -> None:
+        for argv in (["--net", "--net-forward", "80"], ["--net-forward", "8080:8080"],
+                     ["--net", "--net-forward", "none", "--net-forward", "1:2"]):
+            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                self.run_net("--no-build", *argv)
+
+    def test_a_net_desktop_builds_missing_network_apps(self) -> None:
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "NET_APPS", [self.dir / "missing.elf"]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            code, _ = self.run_net("--desktop", "--net")
+        self.assertEqual(code, 0)
+        built.assert_called_once()
 
 
 if __name__ == "__main__":

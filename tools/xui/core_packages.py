@@ -83,6 +83,11 @@ CORE_APPS: dict[str, CoreApp] = {
     "paint": xui_app("xui-paint.elf", "paint"),
     "settings": xui_app("xui-settings.elf", "settings"),
     "confd": xui_app("xui-confd.elf", "confd"),
+    # The network apps. Only a desktop image with the network stack ships them
+    # (`LAZYOS_NETD=1`, `build_support/xui_embed.rs` NETWORK_XUI_APPS, which
+    # fails that build when they are missing), so others need not build them.
+    "network": xui_app("xui-network.elf", "network", optional=True),
+    "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
     # C++ (litehtml), built only where zig is installed.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
     # The IDE and its player, built by `tools/lazyrad/build.py`.

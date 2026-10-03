@@ -133,6 +133,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "settings",
         "confd",
         "docs",
+        "network",
+        "nettools",
     ];
     CORE.contains(&short_of(stem))
 }

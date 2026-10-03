@@ -19,6 +19,8 @@ mod drivers;
 mod elf_trim;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/modplayer_embed.rs"]
+mod modplayer_embed;
 #[path = "build_support/os_disk.rs"]
 mod os_disk;
 #[path = "build_support/os_image.rs"]
@@ -440,6 +442,8 @@ fn main() {
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
     // through pkgd.
     doom_embed::embed(&mut files, &manifest_dir);
+    // The LazyRAD MOD player package (`LAZYOS_MODPLAYER=1`) in /system/share/samples.
+    modplayer_embed::embed(&mut files, &manifest_dir);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");

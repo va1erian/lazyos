@@ -42,6 +42,8 @@ static musl program using only `std::net` talks through the same stack.
 | `kernel/src/process/randsys.rs` | Native syscall 26, random bytes for services (with `CLOSE_RELEASE`, N2's only new kernel surface) |
 | `kernel/src/process/linux/native.rs` | `nicctl`, `netctl`, `ping`, `nc` and `nslookup` in the table of native programs a shell may run |
 | `fuzz/` | The cargo-fuzz crate (outside the OS workspace) and its checked-in seeds |
+| `xui-app/src/net/`, `xui-app/src/bin/network.rs`, `nettools.rs` | The desktop apps: Network (status; DHCP or a static setup checked with `netstack::config` and written to `confd`) and Net Tools (ping, lookups, an HTTP fetch and a web server over `std::net` on worker threads). Shipped by `LAZYOS_NETD=1` desktops; see [`../networking-host-access.md`](../networking-host-access.md) |
+| `tools/net/qemu_net.py` | The QEMU arguments of an interactive or scripted networked boot (`run_demo.py --net`, the launcher, the screenshot tools): card, user network, port forwards, isolation, capture |
 | `tools/net/` | `run.py` the harness, `analyze_pcap.py` + `pcap.py` the capture judge and `test_analyze_pcap.py` its tests; N3: `hostpeers.py` (the host's echo servers and inbound client), `sockets_pcap.py` (the TCP/UDP/DNS judge) and `test_sockets_pcap.py` |
 | `.github/workflows/net.yml` | Host tests, lints, seeds drift check, bounded fuzz runs, the harness in ten variants (five for the driver, five with `netd`) |
 

@@ -27,6 +27,9 @@ pub enum ModError {
 /// One instrument. `data` is signed 8-bit PCM, clipped to the bytes present.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sample {
+    /// The name as stored, NUL-padded. Trackers show these as the song's
+    /// instrument list, and musicians write messages in them.
+    pub name: [u8; 22],
     pub data: Vec<i8>,
     /// Default volume, `0..=64`.
     pub volume: u8,

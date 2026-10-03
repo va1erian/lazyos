@@ -135,6 +135,18 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
 /// missing one leaves a smaller desktop, not a broken one.
 const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
+/// The network apps, shipped by a desktop image that has the network stack
+/// (`LAZYOS_NETD=1`, docs/networking-host-access.md): Network (status and
+/// configuration) and Net Tools (ping, lookups, a web fetch and a web server
+/// the host can reach). Without the stack they would have nothing to show.
+const NETWORK_XUI_APPS: &[&str] = &["xui-network.elf", "xui-nettools.elf"];
+
+/// Whether this build has the network stack, which brings the network apps.
+fn network_stack() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
+    std::env::var_os("LAZYOS_NETD").as_deref() == Some(OsStr::new("1"))
+}
+
 /// Embed the desktop's apps (issues #215/#216/#509).
 ///
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
@@ -163,6 +175,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .iter()
             .chain(DOCUMENT_XUI_APPS)
             .chain(OPTIONAL_XUI_APPS)
+            .chain(NETWORK_XUI_APPS.iter().filter(|_| network_stack()))
             .map(|name| dir.join(name))
             .collect(),
         None => Vec::new(),

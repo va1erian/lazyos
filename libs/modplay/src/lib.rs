@@ -12,6 +12,10 @@
 //! let mut buf = [0i16; 2048];
 //! while player.render(&mut buf) > 0 { /* hand buf to the audio stream */ }
 //! ```
+//!
+//! A long-lived UI holds the module through an owning pointer instead
+//! (`Player::new(Rc::new(module), ..)`) and drives the player live: seek to an
+//! order, mute channels, change the stereo separation, read levels.
 
 #![no_std]
 
@@ -27,6 +31,8 @@ mod player;
 mod tables;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_controls;
 
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;

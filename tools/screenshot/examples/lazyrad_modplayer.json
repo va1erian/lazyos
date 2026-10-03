@@ -1,0 +1,183 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait": 2
+ },
+ {
+  "type": "PS1='# '"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:PS1='# '",
+  "timeout": 30,
+  "retries": 1
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "type": "P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "$P --client /system/share/lazyrad/modplayer &"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:$P --client /system/share/lazyrad/modplayer &",
+  "timeout": 30,
+  "retries": 1
+ },
+ {
+  "wait_for": "LRPLAY:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "01_loaded"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   208,
+   288
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "LRPLAY:MODPLAY:PASS",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 8
+ },
+ {
+  "shot": "02_playing"
+ },
+ {
+  "mouse_move": [
+   -62,
+   167
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "03_channel1_muted"
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "mouse_move": [
+   119,
+   -167
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "04_paused"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "mouse_move": [
+   -57,
+   0
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait_for": "LRPLAY:MODEND:PASS",
+  "timeout": 180
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "05_finished"
+ },
+ {
+  "quit": true
+ }
+]

@@ -52,6 +52,10 @@ jobs:
           FUZZ_CASES=3000 cargo test -p audiomix -p audioclient seeded
           cargo test -p messenger-generated --test audio
 
+      # The ProTracker engine the `modplay` binary and the LazyRAD MOD player use.
+      - name: Tracker engine (host)
+        run: cargo test -p modplay
+
       - name: Clippy (mixer engine and client library)
         run: cargo clippy -p audiomix -p audioclient --all-targets -- -D warnings
 
@@ -59,6 +63,8 @@ jobs:
         run: |
           python tools/sound/test_analyze_wav.py
           python tools/sound/test_mixcheck.py
+          python tools/lazyrad/test_modjudge.py
+          python tools/lazyrad/gen_demo_song.py --check
 
   harness:
     name: harness (${{ matrix.name }})

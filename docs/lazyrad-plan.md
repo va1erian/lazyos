@@ -257,8 +257,11 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
   installs `msg` and the generated `sys::*` modules (calls to any IDL
   interface, topics, services written in Rhai; [`rhai/msg.md`](rhai/msg.md)),
   the form's window delivers events, and Make LazyOS App declares the
-  interfaces and topics the scripts use. Still open: hand-written convenience
-  beyond the IDL (`notify`, `audio.beep` via `sndd`).
+  interfaces and topics the scripts use. **Done for sound**
+  ([`lazyrad-modplay.md`](lazyrad-modplay.md)): the `modplay` module plays
+  ProTracker songs through the system mixer, and the MOD player sample is
+  shipped as `/system/share/samples/modplayer.lzp`. Still open: `notify`, and plain PCM playback
+  (`audio.beep`) for scripts.
 - One shared player across packages (needs a package-dependency concept).
 - Multi-window forms (`form.show()`) once `xuid` clients can own several
   surfaces; until then show secondary forms as in-window dialogs (G16).

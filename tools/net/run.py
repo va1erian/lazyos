@@ -151,6 +151,9 @@ def build_netfix() -> bool:
 
 def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
     env = dict(os.environ, LAZYOS_NET="1")
+    # The harness judges `netd demo=1`'s clients: an interactive override
+    # (`run_demo.py --net` builds with `demo=0`) must not leak in.
+    env.pop("LAZYOS_NETD_ARGS", None)
     if netd:
         env["LAZYOS_NETD"] = "1"
     else:

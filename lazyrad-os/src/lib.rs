@@ -19,7 +19,9 @@
 //! * [`marker`]: the `LRPLAY:*` / `LRIDE:*` serial evidence lines the
 //!   screenshot sessions grep for;
 //! * [`messenger`]: the `msg` module for form scripts (Messenger calls,
-//!   topics, services), registered as a LazyRAD script extension.
+//!   topics, services), registered as a LazyRAD script extension;
+//! * [`tracker`]: the `modplay` module for form scripts (ProTracker songs
+//!   played through the system mixer), registered the same way.
 
 pub mod args;
 pub mod handoff;
@@ -28,4 +30,5 @@ pub mod marker;
 pub mod messenger;
 pub mod migrate;
 pub mod platform;
+pub mod tracker;
 pub mod transport;

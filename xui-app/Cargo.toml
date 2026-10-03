@@ -18,6 +18,8 @@ members = [
     "crates/confd-editor",
     "crates/testkit",
     "crates/shell",
+    # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
+    "crates/app-icons",
 ]
 
 [dependencies]
@@ -36,6 +38,9 @@ libmessenger = { path = "../libs/messenger" }
 # `idl/*.midl`): the fabric panel encodes and decodes those interfaces with the
 # same code the kernel and native clients use, never hand-copied field ids.
 messenger-generated = { path = "../libs/generated" }
+# The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
+# platform layer supplies its musl transport (`platform::audio`).
+audioclient = { path = "../libs/audioclient" }
 # The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
 # already in the dependency graph; a direct edge lets `term.rs` name `kill`.
 libc = "0.2"
@@ -70,6 +75,10 @@ lazyshell = { path = "crates/shell" }
 # (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
 deskmenu = { path = "../libs/deskmenu" }
+# The network apps validate a static setup with the very parser `netd` applies
+# it with (`netstack::config`), so the form refuses exactly what the stack
+# would silently replace with DHCP.
+netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
 xui-icons = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
 
@@ -136,6 +145,17 @@ path = "src/bin/confd_editor.rs"
 [[bin]]
 name = "xui-installer"
 path = "src/bin/installer.rs"
+
+# The network apps (docs/networking-host-access.md): Network shows the
+# interface and edits `netd`'s configuration; Net Tools pings, looks names up,
+# fetches a web page and serves one the host can open.
+[[bin]]
+name = "xui-network"
+path = "src/bin/network.rs"
+
+[[bin]]
+name = "xui-nettools"
+path = "src/bin/nettools.rs"
 
 # LazyShell (issue #157): desktop, taskbar, start menu and `os.lazy.shell`.
 [[bin]]

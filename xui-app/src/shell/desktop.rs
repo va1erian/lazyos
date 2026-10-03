@@ -105,13 +105,16 @@ impl IconModel for Launchers {
 /// The picture a launcher shows when its app has no package icon (the
 /// built-ins, or an `init` that did not answer): the core apps (by
 /// `system_name`, or the short id a launcher saved before F5 holds) get a
-/// matching picture, any other app the generic window.
+/// matching picture, any other app the generic window. The core packages'
+/// own icons are drawn from the same pictures (`crates/app-icons`).
 fn icon_for(app: &str) -> Icon {
     match app.strip_prefix("os.lazy.").unwrap_or(app) {
         "files" => Icon::Folder,
         "terminal" => Icon::Terminal,
-        "editor" | "docs" => Icon::Document,
-        "settings" | "confd" => Icon::Settings,
+        "editor" => Icon::Document,
+        "docs" => Icon::Help,
+        "settings" => Icon::Settings,
+        "confd" => Icon::Server,
         "sysmon" => Icon::Monitor,
         "paint" => Icon::Image,
         "fabricmon" => Icon::PubSub,
