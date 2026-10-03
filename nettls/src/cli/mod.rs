@@ -25,7 +25,7 @@ mode. https -> http redirects are refused. Bodies are limited to 64 MiB.
 
 fn version(name: &str) -> String {
     format!(
-        "{name} (LazyOS nettls {}) rustls 0.23 (ring), ureq 3; https http\n",
+        "{name} (LazyOS nettls {}) rustls 0.23 (RustCrypto provider), ureq 3; https http\n",
         env!("CARGO_PKG_VERSION")
     )
 }

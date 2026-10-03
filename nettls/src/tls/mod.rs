@@ -23,11 +23,11 @@ use ureq::Error;
 
 use crate::report::TlsFailure;
 
-/// The client configuration: TLS 1.2 and 1.3 with ring's default suites
+/// The client configuration: TLS 1.2 and 1.3 with `nettls-crypto`'s suites
 /// (AES-GCM and ChaCha20-Poly1305 with ECDHE only), SNI on, ALPN
 /// `http/1.1`, server certificates verified by webpki against `roots`.
 pub fn client_config(roots: RootCertStore) -> Result<Arc<ClientConfig>, String> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = nettls_crypto::provider_arc();
     let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| format!("TLS configuration: {e}"))?

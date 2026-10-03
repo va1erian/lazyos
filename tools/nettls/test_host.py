@@ -39,7 +39,7 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -53,8 +53,14 @@ def name(common: str) -> x509.Name:
     return x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common)])
 
 
-def make_ca(common: str):
-    key = ec.generate_private_key(ec.SECP256R1())
+def new_key(kind: str):
+    if kind == "rsa":
+        return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return ec.generate_private_key(ec.SECP384R1() if kind == "p384" else ec.SECP256R1())
+
+
+def make_ca(common: str, kind: str = "p256"):
+    key = new_key(kind)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name(common))
@@ -73,8 +79,8 @@ def make_ca(common: str):
     return key, cert
 
 
-def make_leaf(ca, dns: str, not_before, not_after, self_signed: bool = False):
-    key = ec.generate_private_key(ec.SECP256R1())
+def make_leaf(ca, dns: str, not_before, not_after, self_signed: bool = False, kind: str = "p256"):
+    key = new_key(kind)
     issuer_key, issuer_cert = ca if not self_signed else (key, None)
     builder = (
         x509.CertificateBuilder()
@@ -120,6 +126,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 (http.server naming)
         headers = {k.lower(): v for k, v in self.headers.items()}
         self.server.requests.append((self.path, headers))
+        self.server.ciphers.append(self.request.cipher())
         port = self.server.server_address[1]
         if self.path == "/":
             self.reply(200, PAGE, "text/html")
@@ -155,13 +162,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Server:
     """An HTTPS server on 127.0.0.1 with one leaf certificate."""
 
-    def __init__(self, workdir: Path, label: str, key, cert, chain: list = ()) -> None:
+    def __init__(self, workdir: Path, label: str, key, cert, chain: list = (),
+                 tls12_ciphers: str | None = None) -> None:
         cert_file = workdir / f"{label}.crt"
         key_file = workdir / f"{label}.key"
         cert_file.write_bytes(pem(cert) + b"".join(pem(c) for c in chain))
         key_file.write_bytes(key_pem(key))
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
+        if tls12_ciphers:
+            # TLS 1.2 only, with exactly these suites.
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+            context.set_ciphers(tls12_ciphers)
         context.load_cert_chain(cert_file, key_file)
         context.set_alpn_protocols(["http/1.1"])
         self.handshakes: list[tuple] = []
@@ -172,6 +184,7 @@ class Server:
         context.sni_callback = record
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.httpd.requests = []
+        self.httpd.ciphers = []
         self.httpd.socket = context.wrap_socket(self.httpd.socket, server_side=True)
         self.port = self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -273,6 +286,8 @@ def run_cases(r: Runner, work: Path) -> None:
         rc, _, err = r.run("curl", ["-sS", good.url()], None)
         r.check("system bundle does not trust the test CA", rc == 60, f"rc={rc} {err}")
 
+        variants(r, work)
+
         wrong_name = Server(work, "wrongname", *make_leaf(ca, "other.example", NOW - DAY, NOW + 30 * DAY))
         expired = Server(work, "expired", *make_leaf(ca, "localhost", NOW - 60 * DAY, NOW - 30 * DAY))
         future = Server(work, "future", *make_leaf(ca, "localhost", NOW + 30 * DAY, NOW + 60 * DAY))
@@ -290,6 +305,36 @@ def run_cases(r: Runner, work: Path) -> None:
         r.check("wget TLS failure: exit 5 + TLS:FAIL", rc == 5 and "TLS:FAIL reason=" in err, f"rc={rc} {err}")
     finally:
         for server in servers:
+            server.stop()
+
+
+def variants(r: Runner, work: Path) -> None:
+    """Every key type and TLS 1.2 suite the provider must handle, each
+    against a server that allows only that combination."""
+    cases = [
+        # label, CA/leaf key type, TLS 1.2 OpenSSL cipher (None: TLS 1.3)
+        ("tls13 rsa-2048 chain (PSS)", "rsa", None),
+        ("tls13 p384 chain", "p384", None),
+        ("tls12 ECDHE-ECDSA-AES128-GCM", "p256", "ECDHE-ECDSA-AES128-GCM-SHA256"),
+        ("tls12 ECDHE-ECDSA-CHACHA20", "p256", "ECDHE-ECDSA-CHACHA20-POLY1305"),
+        ("tls12 ECDHE-RSA-AES256-GCM", "rsa", "ECDHE-RSA-AES256-GCM-SHA384"),
+        ("tls12 ECDHE-RSA-CHACHA20", "rsa", "ECDHE-RSA-CHACHA20-POLY1305"),
+    ]
+    for label, kind, cipher in cases:
+        ca = make_ca(f"{kind} test CA", kind)
+        ca_file = work / f"ca-{kind}.pem"
+        ca_file.write_bytes(pem(ca[1]))
+        leaf = make_leaf(ca, "localhost", NOW - DAY, NOW + 30 * DAY, kind=kind)
+        server = Server(work, f"v-{kind}-{cipher}", *leaf, tls12_ciphers=cipher)
+        try:
+            rc, out, err = r.run("fetch", ["-v", server.url()], ca_file)
+            seen = server.httpd.ciphers[-1] if server.httpd.ciphers else None
+            want_version = "TLSv1.2" if cipher else "TLSv1.3"
+            ok = rc == 0 and out == PAGE and seen is not None and seen[1] == want_version
+            if cipher:
+                ok = ok and seen[0] == cipher
+            r.check(label, ok, f"rc={rc} server saw {seen} {err[-300:]}")
+        finally:
             server.stop()
 
 

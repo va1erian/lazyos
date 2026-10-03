@@ -2,7 +2,8 @@
 //! three command-line personalities (docs/tls-plan.md §7).
 //!
 //! The program is a static musl `std` binary: TLS runs in this process
-//! (rustls + webpki + ring), over `std::net` and the kernel's `AF_INET` shim.
+//! (rustls + webpki + the pure-Rust `nettls-crypto` provider), over
+//! `std::net` and the kernel's `AF_INET` shim.
 //! Everything runs on the calling thread, because the shim gives each thread
 //! its own descriptor table (plan §4.2): see [`resolve`].
 //!

@@ -110,6 +110,30 @@ def build_fixtures() -> dict[str, str]:
     return built
 
 
+#: `tlsfix` is its own workspace (it shares `nettls/crypto`, the TLS
+#: clients' provider), so the other fixtures keep their lockfile.
+TLSFIX = FIXTURES / "tlsfix"
+
+
+def build_tlsfix() -> dict[str, str]:
+    """Build the TLS fixture (docs/tls-plan.md §8); a failure is reported,
+    never fatal, like the other fixtures."""
+    if not ensure_target():
+        return {}
+    build = run(
+        ["cargo", "build", "--manifest-path", str(TLSFIX / "Cargo.toml"),
+         "--target", TARGET, "--release", "--locked"],
+        env=linker_env(),
+    )
+    if build.returncode != 0:
+        print("warning: tlsfix build failed", file=sys.stderr)
+        print(build.stderr[-2000:], file=sys.stderr)
+        return {}
+    dest = OUT_DIR / "tlsfix.elf"
+    dest.write_bytes((TLSFIX / "target" / TARGET / "release" / "tlsfix").read_bytes())
+    return {"tlsfix": str(dest)}
+
+
 def build_busybox() -> dict[str, str]:
     """Fetch/build the pinned BusyBox, or report it unavailable."""
     shell = busybox.ensure_busybox()
@@ -124,6 +148,7 @@ def build_busybox() -> dict[str, str]:
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     built = build_fixtures()
+    built.update(build_tlsfix())
     built.update(build_busybox())
     print(json.dumps(built, indent=2))
     return 0

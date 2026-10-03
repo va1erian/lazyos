@@ -2,36 +2,31 @@
 """Build `fetch` (also run as `curl` and `wget`) for LazyOS (docs/tls-plan.md §7).
 
 `fetch` is the static-musl HTTPS client in ``nettls/``: rustls with the
-``ring`` crypto provider, ``ureq`` for HTTP/1.1. It is not part of the OS
-workspace. ``ring`` contains C and assembly, so the C compiler and the final
-link are zig's (``tools/xui/zig.py``, as for Doom and the Docs app): zig ships
-musl, so the same recipe works on Linux and Windows hosts without a sysroot.
-The image build embeds the result as /system/bin/fetch, /system/bin/curl and
-/system/bin/wget when ``LAZYOS_TLS=1``.
+in-tree pure-Rust provider ``nettls/crypto`` (RustCrypto crates; no ring or
+aws-lc, whose licences a GPL-2.0 program cannot include; see
+``tools/nettls/licenses.py``), and ``ureq`` for HTTP/1.1. It is not part of
+the OS workspace. Everything is Rust, so the recipe is ``tools/rhai/build.py``'s:
+the default linker, or the toolchain's ``rust-lld`` on hosts without a C
+compiler. The image build embeds the result as /system/bin/fetch,
+/system/bin/curl and /system/bin/wget when ``LAZYOS_TLS=1``.
 
-ring and AVX (why this binary is safe on LazyOS): LazyOS saves FPU state with
-FXSAVE (x87 + SSE) and leaves CR4.OSXSAVE clear, so YMM state is not
-preserved across a context switch. ring 0.17.14 decides its AVX paths at run
-time: ``OPENSSL_cpuid_setup`` (``crypto/cpu_intel.c``) reads XCR0 only when
-CPUID.1:ECX.OSXSAVE[bit 27] is set, and when ``(XCR0 & 6) != 6`` it clears
-AVX, FMA, XOP, AVX2, VAES and VPCLMULQDQ from the CPUID words before
-``cpuid_to_caps_and_set_c_flags`` (``src/cpu/intel.rs``) turns them into
-capabilities. With OSXSAVE clear XCR0 reads as 0, so no AVX/AVX2/VAES code
-(ChaCha20 AVX2, AES-GCM VAES+VPCLMULQDQ) is ever chosen; AES-NI, PCLMULQDQ,
-SSSE3 (XMM only), ADX/BMI (general registers) remain. Nothing selects AVX at
-compile time either: Rust builds for the baseline ``x86_64`` target and zig's
-``-target x86_64-linux-musl`` defaults to the baseline CPU (no ``__AVX__``).
-The ABI fixture ``tlsfix`` (``tools/abi/fixtures/tlsfix``) checks the same
-condition on LazyOS and runs real handshakes.
+SIMD and LazyOS: AES, GHASH/POLYVAL, ChaCha20, SHA-2 and curve25519 select
+their backends at run time through the ``cpufeatures`` crate, whose AVX and
+AVX2 checks need CPUID.1:ECX.XSAVE+OSXSAVE and then XCR0's XMM|YMM bits
+(``cpufeatures`` 0.2.17 ``src/x86.rs``, ``__xgetbv!``). LazyOS saves FPU
+state with FXSAVE and leaves CR4.OSXSAVE clear, so no AVX/AVX2 path is ever
+chosen; AES-NI, PCLMULQDQ and SSSE3 (XMM only) remain. Nothing is compiled
+for AVX statically (the baseline ``x86_64`` target). The ABI fixture
+``tlsfix`` re-checks this on LazyOS.
 
 Usage::
 
     python tools/nettls/build.py             # target/nettls/fetch.elf
-    python tools/nettls/build.py --require   # a missing toolchain or a failed build exits 1
+    python tools/nettls/build.py --require   # an unavailable target or a failed build exits 1
     python tools/nettls/build.py --debug
 
-Prints a JSON map of what it built on stdout. Without zig or the musl target
-it warns and exits 0 (unless ``--require``); a compile error always exits 1.
+Prints a JSON map of what it built on stdout. Without the musl target it
+warns and exits 0 (unless ``--require``); a compile error always exits 1.
 """
 
 from __future__ import annotations
@@ -44,17 +39,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
-sys.path.insert(0, str(ROOT / "tools" / "xui"))
-import zig  # noqa: E402
-
-TARGET = "x86_64-unknown-linux-musl"
+ROOT = Path(__file__).resolve().parent.parent.parent
 CRATE = ROOT / "nettls"
+TARGET = "x86_64-unknown-linux-musl"
 OUT_DIR = ROOT / "target" / "nettls"
-#: Its own cargo target directory: the zig-linked build uses a different
-#: RUSTFLAGS environment from the crate's host (test) builds.
-CARGO_TARGET_DIR = OUT_DIR / "cargo"
 ELF = OUT_DIR / "fetch.elf"
 BIN = "fetch"
 
@@ -63,54 +51,63 @@ def log(message: str) -> None:
     print(f"nettls: {message}", file=sys.stderr)
 
 
+def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
+
+
 def ensure_target() -> bool:
     """True when the musl target is installed (adding it if needed)."""
     try:
-        installed = subprocess.run(["rustup", "target", "list", "--installed"],
-                                   capture_output=True, text=True)
+        installed = run(["rustup", "target", "list", "--installed"])
     except FileNotFoundError:
         log("rustup not found; cannot check for the musl target")
         return False
     if TARGET in installed.stdout:
         return True
-    added = subprocess.run(["rustup", "target", "add", TARGET], capture_output=True, text=True)
+    added = run(["rustup", "target", "add", TARGET])
     if added.returncode != 0:
         log(f"cannot add {TARGET}: {added.stderr.strip()}")
         return False
     return True
 
 
-def build_env(command: list[str]) -> dict[str, str]:
-    """The cargo environment: zig compiles ring's C and links the program."""
-    wrappers = zig.write_wrappers(command, OUT_DIR / "zig")
+def build_env() -> dict[str, str]:
+    """The cargo environment: the bundled lld where there is no `cc`."""
     env = dict(os.environ)
-    env.update(zig.cargo_env(TARGET, wrappers))
+    if shutil.which("cc") is None:
+        env[f"CARGO_TARGET_{TARGET.upper().replace('-', '_')}_LINKER"] = "rust-lld"
+        flags = "-C linker-flavor=ld.lld -C link-self-contained=yes"
+        env["RUSTFLAGS"] = (env.get("RUSTFLAGS", "") + " " + flags).strip()
     return env
 
 
+def no_linker(stderr: str) -> bool:
+    """True when cargo failed only because no linker could be run."""
+    lowered = stderr.lower()
+    return "linker" in lowered and (
+        "not found" in lowered or "could not exec" in lowered or "no such file" in lowered
+    )
+
+
 def build(debug: bool) -> Path | None:
-    """`target/nettls/fetch.elf`, or None when a prerequisite is missing.
+    """`target/nettls/fetch.elf`, or None when the toolchain is unavailable.
     A compile error is fatal: an image must never ship a stale client."""
     if not ensure_target():
         return None
-    command = zig.find_zig()
-    if command is None:
-        log(f"zig not found; fetch/curl/wget unavailable (install: {zig.INSTALL_HINT})")
-        return None
-    found = zig.version(command)
-    if found != zig.ZIG_VERSION:
-        log(f"zig {found} found, {zig.ZIG_VERSION} is the tested version")
     cargo = ["cargo", "build", "--manifest-path", str(CRATE / "Cargo.toml"),
-             "--target", TARGET, "--target-dir", str(CARGO_TARGET_DIR), "--locked"]
+             "--target", TARGET, "--locked"]
     if not debug:
         cargo.append("--release")
-    log("building fetch (rustls + ring, zig cc, static musl)")
-    built = subprocess.run(cargo, cwd=ROOT, env=build_env(command), capture_output=True, text=True)
+    log("building fetch (rustls + nettls-crypto, static musl)")
+    built = run(cargo, env=build_env())
     if built.returncode != 0:
+        if no_linker(built.stderr):
+            log("no linker for the musl target; fetch/curl/wget unavailable")
+            return None
         log("fetch build failed")
         print(built.stderr[-4000:], file=sys.stderr)
         raise SystemExit(1)
-    output = CARGO_TARGET_DIR / TARGET / ("debug" if debug else "release") / BIN
+    output = CRATE / "target" / TARGET / ("debug" if debug else "release") / BIN
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy(output, ELF)  # keeps the executable bit for host runs
     log(f"{ELF} ({ELF.stat().st_size} bytes)")
@@ -122,7 +119,7 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--debug", action="store_true", help="build the debug profile")
     parser.add_argument("--require", action="store_true",
-                        help="fail (exit 1) when zig or the musl target is unavailable")
+                        help="fail (exit 1) when the musl target or a linker is unavailable")
     args = parser.parse_args()
     built: dict[str, str] = {}
     elf = build(args.debug)
