@@ -19,6 +19,7 @@ pre-SPDX ``/`` separator means ``OR``.
 Usage::
 
     python tools/nettls/licenses.py            # nettls/ and tools/abi/fixtures/tlsfix/
+    python tools/nettls/licenses.py --lazyweb  # also xui-app/web/ (LazyWeb, GPL-2.0-only)
     python tools/nettls/licenses.py --verbose  # also print every crate and its licence
 
 Exit status 1 when any linked crate has no acceptable licence choice.
@@ -34,6 +35,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFESTS = [ROOT / "nettls" / "Cargo.toml", ROOT / "tools" / "abi" / "fixtures" / "tlsfix" / "Cargo.toml"]
+#: LazyWeb links the TLS stack into a GPL-2.0-only program (NetSurf), so its
+#: whole tree must be GPLv2-compatible too. Opt-in (``--lazyweb``) until the
+#: tree passes: `unicode-linebreak` (Apache-2.0, through xui-canvas's
+#: cosmic-text) does not yet. Its manifest is a member of the `xui-app`
+#: workspace; `cargo tree` reports just this package's graph.
+LAZYWEB = ROOT / "xui-app" / "web" / "Cargo.toml"
 TARGET = "x86_64-unknown-linux-musl"
 
 #: Licences a GPL-2.0 binary can include (FSF's GPL-compatible list, the
@@ -180,10 +187,11 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--verbose", action="store_true", help="print every crate and its licence")
+    parser.add_argument("--lazyweb", action="store_true", help="also check LazyWeb (xui-app/web)")
     args = parser.parse_args()
     self_test()
     problems: list[str] = []
-    for manifest in MANIFESTS:
+    for manifest in MANIFESTS + ([LAZYWEB] if args.lazyweb else []):
         problems += check(manifest, args.verbose)
     if problems:
         print("licences not GPLv2-compatible:")
