@@ -5,7 +5,8 @@
 //! installed apps in `confd`, registers their file types with `mimed` and loads
 //! their Messenger policy into the kernel. It serves `os.lazy.pkgd.v1` (`idl/pkgd.midl`):
 //! `Inspect` (validate a `.lzp`, list what it asks for, change nothing),
-//! `Install`, `Remove`, `List` and `Installed`. A GUI installer is an
+//! `Install`, `Remove`, `List`, `Installed` and `Develop` (approve the rules of
+//! a development run, `dev:<system_name>`; see `develop`). A GUI installer is an
 //! unprivileged client that shows the user the `Inspect` result and forwards the
 //! user's yes as `Install`; `pkgd` re-validates and re-checks the caller itself.
 //!
@@ -67,6 +68,8 @@ extern crate alloc;
 
 #[path = "pkgd/audit.rs"]
 mod audit;
+#[path = "pkgd/develop.rs"]
+mod develop;
 #[path = "pkgd/handlers.rs"]
 mod handlers;
 #[path = "pkgd/inspect.rs"]
@@ -139,6 +142,9 @@ fn run() -> messenger::Result<()> {
         state.audit.set_volatile();
     }
     sys::write_str("PKGD:UP:PASS\n");
+    // Before any request: no development rule set outlives the approvals a
+    // previous `pkgd` held in memory.
+    state.revoke_stale_dev_labels();
     state.reconcile(volume_ok);
     state.begin_provisioning(volume_ok);
 
@@ -148,7 +154,19 @@ fn run() -> messenger::Result<()> {
     loop {
         // While the core packages are provisioned, one step runs between two
         // polls, so `Provisioned` (and the read-only methods) still answer.
-        let message = if state.provisioned.done {
+        // While a development label is approved, wake up now and then to
+        // revoke the approvals of a session that logged out.
+        state.watch_logouts();
+        let message = if state.provisioned.done && state.holds_dev_approvals() {
+            let deadline = Some(sys::clock() + develop::LOGOUT_POLL_TICKS);
+            match server.recv_with(&mut buffer, deadline) {
+                Ok(message) => message,
+                Err(messenger::Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => {
+                    continue
+                }
+                Err(error) => return Err(error),
+            }
+        } else if state.provisioned.done {
             server.recv_with(&mut buffer, None)?
         } else {
             state.provision_step();

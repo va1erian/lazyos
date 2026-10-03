@@ -33,6 +33,8 @@ mod image_tests;
 #[cfg(test)]
 mod layout_tests;
 #[cfg(test)]
+mod limits_tests;
+#[cfg(test)]
 mod recover_tests;
 #[cfg(test)]
 mod samples_tests;

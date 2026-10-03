@@ -312,6 +312,79 @@ pub fn soak_clock_monotone_and_settable() -> Result<(), String> {
     Ok(())
 }
 
+/// The monotonic clock (`arch::clock::monotonic_ns`): never decreasing,
+/// always inside the current tick, finer than a tick when the TSC is
+/// calibrated, and what `clock_gettime(CLOCK_MONOTONIC)` and
+/// `clock_getres` report.
+pub fn monotonic_clock_is_fine_and_bounded() -> Result<(), String> {
+    use crate::arch::clock;
+    let period = 10_000_000u64;
+    let mut previous = clock::monotonic_ns();
+    for round in 0..100_000u32 {
+        let now = clock::monotonic_ns();
+        check!(now >= previous, "round {round}: {now} < {previous}");
+        let ticks = task::ticks();
+        check!(
+            now < (ticks + 2) * period,
+            "round {round}: {now} ns is past tick {ticks}"
+        );
+        previous = now;
+    }
+    // The interpolation itself (the live clock cannot move here: interrupts
+    // are off in the harness, so the ticks stand still and the reading stays
+    // capped inside the current tick).
+    let per = 3_000_000u64;
+    check!(clock::interpolate(5, 0, per) == 5 * period, "whole ticks");
+    check!(
+        clock::interpolate(5, per / 10, per) == 5 * period + period / 10,
+        "a tenth of a period: {}",
+        clock::interpolate(5, per / 10, per)
+    );
+    check!(
+        clock::interpolate(5, 10 * per, per) < 6 * period,
+        "the fraction escaped its tick"
+    );
+    check!(
+        clock::interpolate(5, per / 2, 0) == 5 * period,
+        "uncalibrated"
+    );
+    let expected = if clock::cycles_per_tick() == 0 {
+        period
+    } else {
+        1
+    };
+    check!(
+        clock::resolution_ns() == expected,
+        "resolution {}",
+        clock::resolution_ns()
+    );
+    let mut ts = [0i64; 2];
+    process::linux::dispatch_for_test(
+        SYS_CLOCK_GETTIME,
+        CLOCK_MONOTONIC,
+        ts.as_mut_ptr() as u64,
+        0,
+    );
+    let read = ts[0] as u64 * 1_000_000_000 + ts[1] as u64;
+    check!(
+        (0..1_000_000_000).contains(&ts[1]) && read >= previous,
+        "CLOCK_MONOTONIC read {ts:?} before {previous}"
+    );
+    let mut res = [0i64; 2];
+    process::linux::dispatch_for_test(229, CLOCK_MONOTONIC, res.as_mut_ptr() as u64, 0);
+    check!(
+        res[0] == 0 && res[1] as u64 == clock::resolution_ns(),
+        "clock_getres {res:?}"
+    );
+    let mut tv = [0i64; 2];
+    process::linux::dispatch_for_test(96, tv.as_mut_ptr() as u64, 0, 0);
+    check!(
+        (0..1_000_000).contains(&tv[1]) && tv[0] >= Y2026 - 366 * 86_400,
+        "gettimeofday {tv:?}"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "wallclock_civil_known_dates",
@@ -332,5 +405,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "wallclock_soak_monotone_and_settable",
         soak_clock_monotone_and_settable,
+    ),
+    (
+        "wallclock_monotonic_clock_is_fine_and_bounded",
+        monotonic_clock_is_fine_and_bounded,
     ),
 ];

@@ -39,3 +39,9 @@ interfaces = [
     "os.lazy.init.v1",
 ]
 topics = ["subscribe:system/events/pkg/+"]
+# Play runs the project as a child labelled `dev:<system_name>`, under the
+# permissions its scripts need (approved on the Installer's consent screen,
+# loaded by `pkgd`); `mimed` asks for that approval and the package events
+# carry the answer (lazyrad-os/src/devplay.rs, docs/lazyrad-package-plan.md
+# phase B).
+develop = true

@@ -33,9 +33,13 @@ use super::errno::*;
 use super::report::{self, reason};
 use super::syscall::Resolved;
 
-/// Largest single DMA allocation. Bounds the pool a single call can hold and
-/// the copy-out a client must map.
-pub const MAX_DMA_BYTES: u64 = 4 << 20;
+/// Largest single DMA allocation: the whole pool (sized from RAM, see
+/// `limits::dma_pool_bytes`). The pool and the claimant's `DmaMemory` quota
+/// bound what a driver holds; a request larger than the pool can never fit,
+/// so it is refused as malformed rather than as out of memory.
+pub fn max_dma_bytes() -> u64 {
+    crate::mem::dma_stats().total_pages * PAGE
+}
 /// Physical address just past the 32-bit boundary.
 const FOUR_GIB: u64 = 1 << 32;
 const PAGE: u64 = 4096;
@@ -80,7 +84,7 @@ pub fn dma_alloc(r: &Resolved, len: u64, flags: u64, out: u64) -> Result<u64, Er
     let bytes = len
         .checked_add(PAGE - 1)
         .map(|value| value & !(PAGE - 1))
-        .filter(|bytes| *bytes > 0 && *bytes <= MAX_DMA_BYTES)
+        .filter(|bytes| *bytes > 0 && *bytes <= max_dma_bytes())
         .ok_or_else(|| refuse(r, reason::DMA_BAD_REQUEST, EINVAL))?;
     let pages = bytes / PAGE;
     // Validate the destination now, so a hostile pointer costs no pool/quota

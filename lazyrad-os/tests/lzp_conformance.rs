@@ -197,7 +197,7 @@ fn save() { file_write_text("n.txt", "x"); }
     let permissions = &pkg.manifest().permissions;
     assert_eq!(
         permissions.interfaces,
-        ["os.lazy.display.v1", "os.lazy.confd.v1"]
+        ["os.lazy.display.v1", "os.lazy.confd.v1", "os.lazy.input.v1"]
     );
     assert_eq!(
         permissions.topics,

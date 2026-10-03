@@ -234,9 +234,9 @@ fn spawn_errno(error: SpawnError) -> u64 {
 /// inheriting its descriptors, and record its `argv` (`argv[0]` included). The
 /// task is named after the file (`/system/bin/top` runs as `top`). Returns the
 /// child's slot, or the errno (as a positive value) for a failed spawn.
-pub(crate) fn spawn<A: AsRef<[u8]>>(
+pub(crate) fn spawn<A: AsRef<[u8]>, I: crate::process::image::Image + ?Sized>(
     file: &'static str,
-    elf: &[u8],
+    elf: &I,
     argv: &[A],
 ) -> Result<usize, u64> {
     let slot = task::spawn_child_inheriting_fds(fhs::bin::name(file), elf).map_err(spawn_errno)?;
@@ -291,7 +291,8 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
     if let Err(error) = crate::process::exec_perm::native(file) {
         return Some(fs_err(error));
     }
-    let Some(elf) = crate::fs::read(file) else {
+    // Streamed into the child's address space, never held whole here.
+    let Ok(elf) = crate::process::image::VfsFile::native(Id::current(), file) else {
         return Some(err(ENOENT));
     };
     let Some(argv) = exec_argv(path, argv) else {
@@ -301,9 +302,6 @@ pub(crate) fn try_exec(path: &str, argv: &[Vec<u8>]) -> Option<u64> {
         Ok(slot) => slot,
         Err(errno) => return Some(err(errno)),
     };
-    // The image now lives in the child's address space; free ours before
-    // parking for what may be a long-running program.
-    drop(elf);
     let status = wait_for(slot);
     Some(sys_exit_group(status & 0xff))
 }

@@ -29,15 +29,21 @@ fn now_ticks() -> u64 {
     crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed)
 }
 
+/// `CLOCK_MONOTONIC_RAW`, `CLOCK_MONOTONIC_COARSE` and `CLOCK_BOOTTIME`: the
+/// same boot-relative clock here (nothing is slewed, and suspend does not
+/// exist).
+const MONOTONIC_ALIASES: [u64; 3] = [4, 6, 7];
+
 pub(super) fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
-    // CLOCK_MONOTONIC counts from boot; everything else is wall time.
-    let (seconds, centis) = if clock == CLOCK_MONOTONIC {
-        let ticks = now_ticks();
-        ((ticks / 100) as i64, (ticks % 100) as u32)
+    // The monotonic clocks count from boot with the TSC's sub-tick
+    // resolution (`arch::clock`); everything else is wall time.
+    let (seconds, nanos) = if clock == CLOCK_MONOTONIC || MONOTONIC_ALIASES.contains(&clock) {
+        let ns = crate::arch::clock::monotonic_ns();
+        ((ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as u32)
     } else {
-        crate::wallclock::now()
+        crate::wallclock::now_ns()
     };
-    write_timespec(out, seconds as u64, u64::from(centis) * 10_000_000);
+    write_timespec(out, seconds as u64, u64::from(nanos));
     0
 }
 
@@ -50,17 +56,17 @@ fn write_timespec(out: u64, sec: u64, nsec: u64) {
 }
 
 pub(super) fn sys_clock_getres(out: u64) -> u64 {
-    // 100 Hz PIT => 10 ms resolution.
-    write_timespec(out, 0, 10_000_000);
+    // 1 ns with a calibrated TSC, the 10 ms tick without one.
+    write_timespec(out, 0, crate::arch::clock::resolution_ns());
     0
 }
 
 pub(super) fn sys_gettimeofday(tv: u64) -> u64 {
-    let (seconds, centis) = crate::wallclock::now();
+    let (seconds, nanos) = crate::wallclock::now_ns();
     // Safety: user buffer holds a `struct timeval` (the syscall ABI's contract).
     unsafe {
         user_ptr::write::<i64>(tv, seconds);
-        user_ptr::write::<i64>(tv + 8, i64::from(centis) * 10_000);
+        user_ptr::write::<i64>(tv + 8, i64::from(nanos / 1000));
     }
     0
 }

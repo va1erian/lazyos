@@ -35,6 +35,14 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
         "installer",
         &["open", "install"],
     ),
+    // An IDE's request to run a project under its own permissions (issue
+    // #529): the Installer's development consent, `init`'s
+    // `installer-develop` row.
+    (
+        "application/x-lazyos-package",
+        "installer-develop",
+        &["develop"],
+    ),
     ("application/octet-stream", "os.lazy.files", &["reveal"]),
 ];
 

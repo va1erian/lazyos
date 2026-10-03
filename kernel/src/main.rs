@@ -31,6 +31,7 @@ mod gfxlib;
 mod input;
 #[allow(dead_code)] // Kernel-side fabric; the native syscall surface landed in #69.
 mod ipc;
+mod limits;
 mod mem;
 mod mux;
 mod process;
@@ -52,10 +53,16 @@ use bootloader_api::info::Optional;
 use bootloader_api::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 
-/// Request a full physical-memory mapping so the kernel can manage page tables.
+/// Request a full physical-memory mapping so the kernel can manage page tables,
+/// and keep every bootloader mapping (kernel image, boot stack, boot info,
+/// framebuffer, physical map) in the kernel half below the heap, so the whole
+/// lower half below the shared-buffer window is user address space
+/// (`mem::layout`).
 const CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
     config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.mappings.dynamic_range_start = Some(mem::BOOT_DYNAMIC_START);
+    config.mappings.dynamic_range_end = Some(mem::BOOT_DYNAMIC_END);
     config
 };
 
@@ -95,6 +102,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // `mem::init` keeps the boot info borrowed, so read the ramdisk hand-off first.
     let (ramdisk_addr, ramdisk_len) = (boot_info.ramdisk_addr, boot_info.ramdisk_len);
     mem::init(boot_info);
+    // Machine-derived limits, before anything sizes itself from one;
+    // `lazyos.cfg` can override them once the boot volume is mounted.
+    limits::init_for_machine(mem::usable_ram(), display::screen_bytes());
     boot_phase!("mem_ready");
 
     // Device core (issue #239): enumerate platform + PCI devices, attach the
@@ -127,6 +137,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     boot_phase!("fs_ready");
+    limits::describe();
     // Descriptor tables, interrupts (PIC/PIT), and the PS/2 mouse.
     arch::init();
     boot_phase!("arch_ready");
@@ -157,7 +168,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // can host it (the console shell, `logind`, the desktop Terminal), not to
     // replace the whole session.
     if cfg!(busybox_test) {
-        match fs::read(fhs::bin::BUSYBOX) {
+        match open_program(fhs::bin::BUSYBOX) {
             Some(bytes) => {
                 serial_println!("LazyOS: launching busybox sh (bench)");
                 // `df` and `mount` list what `/proc/mounts` says; with a data
@@ -179,7 +190,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             }
             None => serial_println!("ABI:busybox:FAIL:no {} on image", fhs::bin::BUSYBOX),
         }
-    } else if let Some(bytes) = fs::read(fhs::bin::ABI_INIT) {
+    } else if let Some(bytes) = open_program(fhs::bin::ABI_INIT) {
         // The ABI bench's injected fixture owns the boot. Checked before the
         // demo profile so a stray BusyBox on an image cannot shadow a fixture.
         serial_println!("ABI:INIT:START");
@@ -316,13 +327,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     mux::run();
 }
 
+/// Open a program on the OS volume for the loader to stream, as the kernel
+/// (root). `None` when it is missing.
+fn open_program(path: &str) -> Option<process::image::VfsFile> {
+    process::image::VfsFile::native(fs::vfs::Id::current(), path).ok()
+}
+
 /// Load a program from the OS volume and spawn it as a task named after its
 /// file (`/system/bin/init` runs as `init`), if present. Its `argv` is the
 /// path then `args`, recorded in the per-task block `spawnv` fills, item for
 /// item (no command line is composed or parsed).
 fn spawn_program(path: &'static str, args: &[&str]) {
     let name = fhs::bin::name(path);
-    let bytes = fs::read(path);
+    let bytes = open_program(path);
     boot_phase!("read_{name}");
     let Some(bytes) = bytes else {
         return serial_println!("LazyOS: {path} not found");
@@ -388,7 +405,7 @@ fn netd_demo_args() -> alloc::vec::Vec<&'static str> {
 /// app is a `std` binary, so it boots through the Linux path (`spawn_linux`).
 #[cfg(xui_app)]
 fn spawn_linux_program(name: &'static str, path: &str) {
-    match fs::read(path) {
+    match open_program(path) {
         Some(bytes) => match task::spawn_linux(name, &bytes, name) {
             Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
@@ -404,7 +421,7 @@ fn spawn_linux_program(name: &'static str, path: &str) {
 /// one rather than crashing.
 #[cfg(not(services_mode))]
 fn spawn_console_shell() {
-    match fs::read(fhs::bin::BUSYBOX) {
+    match open_program(fhs::bin::BUSYBOX) {
         Some(bytes) => {
             serial_println!("LazyOS: launching busybox sh");
             match task::spawn_linux_args("sh", &bytes, &["sh"]) {

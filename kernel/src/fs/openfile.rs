@@ -60,7 +60,8 @@ impl Inode {
 }
 
 /// Every file with an open description. Bounded by the descriptor tables
-/// (`MAX_TASKS * FD_COUNT`), so a linear scan is cheap.
+/// (`MAX_TASKS * limit.fd_max`) and in practice holds a few dozen files, so a
+/// linear scan is cheap.
 static OPEN: Mutex<Vec<Arc<Inode>>> = Mutex::new(Vec::new());
 
 /// Source of unique hidden names; never reused within a boot.

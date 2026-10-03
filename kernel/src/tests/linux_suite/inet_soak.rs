@@ -259,7 +259,7 @@ pub fn inet_random_calls() -> Result<(), String> {
                 0 | 1 => {
                     let kind = 1 + rng.below(2);
                     let new = sys6(41, [AF_INET, kind | SOCK_NONBLOCK, 0, 0, 0, 0]);
-                    if new < 16 {
+                    if (new as i64) > 0 {
                         fds.push(new);
                     }
                 }
@@ -289,7 +289,7 @@ pub fn inet_random_calls() -> Result<(), String> {
                 }
                 10 => {
                     let new = sys6(32, [fd, 0, 0, 0, 0, 0]);
-                    if new < 16 {
+                    if (new as i64) > 0 {
                         fds.push(new);
                     }
                 }

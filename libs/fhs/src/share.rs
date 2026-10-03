@@ -26,6 +26,11 @@ pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
 /// Written by the image build.
 pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
 
+/// The development-run test package (`org.lazy.test.lrdev`, issue #529): the
+/// LazyRAD IDE with `develop = true`, built by `tools/lazyrad/devtest.py` and
+/// embedded in `LAZYOS_LAZYRAD=1` images when it was built.
+pub const LRDEV_TEST_LZP: &str = "/system/share/samples/lrdev-test.lzp";
+
 /// The LazyRAD MOD player package (`org.lazy.modplayer`,
 /// `LAZYOS_MODPLAYER=1` images): a user package, copied to the user's home
 /// and installed from there with `pkgctl install`, like [`DOOM_LZP`].
@@ -50,6 +55,7 @@ mod tests {
             WRITER_SAMPLE_IMAGE,
             PKGDEMO,
             DOOM_LZP,
+            LRDEV_TEST_LZP,
             MODPLAYER_LZP,
         ] {
             assert!(path.starts_with(SAMPLES), "{path}");

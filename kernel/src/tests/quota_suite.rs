@@ -104,7 +104,8 @@ pub fn charge_release_accounting() -> Result<(), String> {
         "an unseen uid has usage"
     );
     check!(
-        quota::limit(9999, Resource::Handles) == quota::DEFAULT_LIMITS[Resource::Handles.index()],
+        quota::limit(9999, Resource::Handles)
+            == quota::default_limits_regular()[Resource::Handles.index()],
         "an unseen uid did not read the default handle limit"
     );
     check!(

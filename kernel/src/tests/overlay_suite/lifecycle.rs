@@ -174,7 +174,7 @@ pub fn abi_syscalls() -> Result<(), String> {
     // fd-relative creation: open the directory, then create through it.
     let dirfd = process::linux::dispatch_for_test(257, AT_FDCWD, dir.as_ptr() as u64, O_DIRECTORY);
     check!(
-        (3..task::FD_COUNT as u64).contains(&dirfd),
+        (3..task::fd_max() as u64).contains(&dirfd),
         "dirfd is {dirfd:#x}"
     );
     let child = b"CHILD.TXT\0";
@@ -185,7 +185,7 @@ pub fn abi_syscalls() -> Result<(), String> {
         O_WRONLY | O_CREAT | O_EXCL,
     );
     check!(
-        (3..task::FD_COUNT as u64).contains(&childfd),
+        (3..task::fd_max() as u64).contains(&childfd),
         "fd-relative openat is {childfd:#x}"
     );
     check!(
@@ -265,7 +265,7 @@ pub fn unlink_while_open() -> Result<(), String> {
         O_RDWR | O_CREAT | O_TRUNC,
     );
     check!(
-        (3..task::FD_COUNT as u64).contains(&fd),
+        (3..task::fd_max() as u64).contains(&fd),
         "openat is {fd:#x}"
     );
     let payload = b"still readable";

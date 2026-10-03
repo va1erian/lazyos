@@ -22,10 +22,10 @@ fn reset_creds() {
     }
 }
 
-/// A frame built on a heap stack, with `regs` inside it, plus the `rsp` a
-/// `rt_sigreturn` would be entered with.
-fn frame_with(regs: &signal::UserRegs, stack: &mut [u8]) -> Result<u64, String> {
-    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+/// A frame built on a scratch user stack, with `regs` inside it, plus the
+/// `rsp` a `rt_sigreturn` would be entered with.
+fn frame_with(regs: &signal::UserRegs, stack: &UserStack) -> Result<u64, String> {
+    let top = stack.top();
     let info = SigInfo::user(0, signal::SI_USER);
     let result = signal::build_linux_frame(
         top,
@@ -57,10 +57,10 @@ fn sane_regs() -> signal::UserRegs {
 /// and the flags can never carry IOPL or clear `IF`.
 pub fn sigreturn_frame_is_sanitised() -> Result<(), String> {
     fresh()?;
-    let mut stack = vec![0u8; 8192];
+    let stack = UserStack::new()?;
 
     let good = sane_regs();
-    let rsp = frame_with(&good, &mut stack)?;
+    let rsp = frame_with(&good, &stack)?;
     let (restored, _) = harden::restore_frame(rsp).ok_or("a valid frame was refused")?;
     check!(restored == good, "valid frame changed: {restored:?}");
 
@@ -74,7 +74,7 @@ pub fn sigreturn_frame_is_sanitised() -> Result<(), String> {
             rip: bad_rip,
             ..good
         };
-        let rsp = frame_with(&forged, &mut stack)?;
+        let rsp = frame_with(&forged, &stack)?;
         check!(
             harden::restore_frame(rsp).is_none(),
             "forged rip {bad_rip:#x} was accepted"
@@ -85,7 +85,7 @@ pub fn sigreturn_frame_is_sanitised() -> Result<(), String> {
             rsp: bad_rsp,
             ..good
         };
-        let rsp = frame_with(&forged, &mut stack)?;
+        let rsp = frame_with(&forged, &stack)?;
         check!(
             harden::restore_frame(rsp).is_none(),
             "forged rsp {bad_rsp:#x} was accepted"
@@ -98,7 +98,7 @@ pub fn sigreturn_frame_is_sanitised() -> Result<(), String> {
         rflags: RFLAGS_IOPL | RFLAGS_TF | 0x0020_0000 | 0x4000 | 0x2_0000,
         ..good
     };
-    let rsp = frame_with(&forged, &mut stack)?;
+    let rsp = frame_with(&forged, &stack)?;
     let (restored, _) = harden::restore_frame(rsp).ok_or("flag-only forgery was refused")?;
     check!(
         restored.rflags & RFLAGS_IOPL == 0,

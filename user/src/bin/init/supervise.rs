@@ -158,7 +158,17 @@ pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred
         (None, _) => sys::SpawnCred::Inherit,
     };
     let env: Vec<&str> = service.env.iter().map(String::as_str).collect();
-    sys::spawnv(service.path, &argv, &env, personality, stamp).ok()
+    match sys::spawnv(service.path, &argv, &env, personality, stamp) {
+        Ok(pid) => Some(pid),
+        Err(code) => {
+            sys::write_str(&alloc::format!(
+                "init: spawnv {} failed: errno {}\n",
+                service.path,
+                -code
+            ));
+            None
+        }
+    }
 }
 
 /// A service exited: apply its restart policy and publish the event.

@@ -3,10 +3,7 @@
 use super::*;
 use crate::fs::openfile::OpenFile;
 
-/// Number of file descriptors per task.
-pub const FD_COUNT: usize = 16;
-
-/// Per-descriptor `FD_CLOEXEC` bit in [`Task::fd_flags`].
+/// Per-descriptor `FD_CLOEXEC` bit in a [`super::FdTable`] slot's flags.
 pub const FD_CLOEXEC: u16 = 1;
 
 /// The socket type an unbound `socket(2)` descriptor carries to `connect`.
@@ -205,7 +202,7 @@ impl Drop for Fd {
 }
 
 /// Cheap classification of a descriptor for syscall dispatch.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FdKind {
     Closed,
     Terminal,
@@ -226,27 +223,4 @@ pub enum FdKind {
     Unbound,
     /// An `AF_INET` socket in any state.
     Inet,
-}
-
-pub(super) fn new_fds() -> [Fd; FD_COUNT] {
-    // 0/1/2 are the standard streams.
-    core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
-}
-
-/// Copy a descriptor table (for `fork`): every entry shares its open file
-/// description with the parent's, and pipe references are retained.
-pub(super) fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
-    core::array::from_fn(|i| fds[i].clone())
-}
-
-/// The descriptor table an `execve`d program starts with: a copy of the
-/// caller's, except that entries marked `FD_CLOEXEC` are left closed.
-pub(super) fn clone_fds_exec(fds: &[Fd; FD_COUNT], flags: &[u16; FD_COUNT]) -> [Fd; FD_COUNT] {
-    core::array::from_fn(|i| {
-        if flags[i] & FD_CLOEXEC != 0 {
-            Fd::Closed
-        } else {
-            fds[i].clone()
-        }
-    })
 }

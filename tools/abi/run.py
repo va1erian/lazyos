@@ -114,6 +114,10 @@ def build_image(
     return image
 
 
+# Guest RAM for every boot (`--memory`); `None` keeps qemu_shot's default.
+GUEST_MEMORY: str | None = None
+
+
 def capture(
     name: str, image: Path, at: str, accel: str = "auto", data_disk: Path | None = None
 ) -> str:
@@ -132,6 +136,8 @@ def capture(
     ]
     if data_disk:
         command += ["--data-disk", str(data_disk)]
+    if GUEST_MEMORY:
+        command += ["--memory", GUEST_MEMORY]
     # A boot must be judged only by its own log: a stale one left by an earlier
     # run could carry the marker and pass a boot that never happened, and a
     # failed capture must not fall back to whatever is on disk.
@@ -294,10 +300,13 @@ def main() -> int:
     parser.add_argument("--only", help="comma-separated fixture names to run")
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
+    parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
     args = parser.parse_args()
+    global GUEST_MEMORY
+    GUEST_MEMORY = args.memory
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 

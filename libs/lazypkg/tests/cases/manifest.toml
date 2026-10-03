@@ -18,7 +18,8 @@
 #   [permissions]
 #   <permissions>
 #
-# `valid = true` cases may say what `category` and `autostart` read back as.
+# `valid = true` cases may say what `category`, `autostart` and `develop` read
+# back as.
 # `valid = false` cases name a substring (`error`) that one of the reported
 # problems must contain on both sides; pick one both wordings share.
 
@@ -127,6 +128,32 @@ name = "an unknown field is still an error"
 entry = "autorun = true"
 valid = false
 error = "autorun"
+
+# --- [permissions] develop ----------------------------------------------------
+
+[[manifest]]
+name = "develop true"
+permissions = "develop = true"
+valid = true
+develop = true
+
+[[manifest]]
+name = "develop defaults to false"
+permissions = 'interfaces = ["os.lazy.display.v1"]'
+valid = true
+develop = false
+
+[[manifest]]
+name = "develop must be a boolean"
+permissions = 'develop = "yes"'
+valid = false
+error = "develop"
+
+[[manifest]]
+name = "develop belongs in [permissions], not [entry]"
+entry = "develop = true"
+valid = false
+error = "develop"
 
 # --- [permissions] files ------------------------------------------------------
 

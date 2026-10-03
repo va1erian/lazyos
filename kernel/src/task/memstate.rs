@@ -63,6 +63,11 @@ pub fn brk() -> u64 {
     with_bump(|bump| bump.brk).unwrap_or(0)
 }
 
+/// Where the current address space's break started (its floor).
+pub fn brk_start() -> u64 {
+    with_bump(|bump| bump.brk_start).unwrap_or(0)
+}
+
 /// Set the current task's Linux `brk` break.
 pub fn set_brk(value: u64) {
     let _ = with_bump(|bump| bump.brk = value);

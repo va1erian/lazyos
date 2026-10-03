@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use crate::fs::vfs::Meta;
 use crate::task::{self, Fd, FdKind};
 
-use super::errno::{err, EBADF, EINVAL, ENOMEM, ESPIPE};
+use super::errno::{err, EBADF, EINVAL, EMFILE, ESPIPE};
 use super::flags::{O_NONBLOCK, S_IFCHR};
 
 /// `fcntl` commands and the `dup`/`dup2` descriptor-flag bit this module
@@ -26,11 +26,12 @@ const F_SETFL: u64 = 4;
 const F_DUPFD_CLOEXEC: u64 = 1030;
 const FD_CLOEXEC: u64 = 1;
 
-/// Allocate a descriptor, mapping failure to `-ENOMEM`.
+/// Allocate a descriptor, mapping failure to `-EMFILE`: the table is at
+/// `limit.fd_max` (or could not grow), as Linux reports a full table.
 pub(super) fn fd_result(slot: Option<usize>) -> u64 {
     match slot {
         Some(fd) => fd as u64,
-        None => err(ENOMEM),
+        None => err(EMFILE),
     }
 }
 
@@ -133,7 +134,11 @@ pub(super) fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
                 }
                 new as u64
             }
-            None => err(EBADF),
+            // Linux's order: a closed `fd` first, then a minimum at or past
+            // `RLIMIT_NOFILE` (`EINVAL`), else the table is full.
+            None if task::fd_kind(fd as usize) == FdKind::Closed => err(EBADF),
+            None if arg >= crate::limits::fd_max() as u64 => err(EINVAL),
+            None => err(EMFILE),
         },
         F_GETFD => match task::fd_kind(fd as usize) {
             FdKind::Closed => err(EBADF),

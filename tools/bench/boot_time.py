@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "screenshot"))
 from qemu_qmp import (  # noqa: E402
-    Qmp, accel_args, build_qemu_command, find_qemu, free_port, resolve_accel,
+    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port, resolve_accel,
 )
 
 # (milestone name, regex on a serial line, occurrence that counts). Order is
@@ -253,7 +253,7 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=5, help="measured iterations per accelerator")
     ap.add_argument("--warmup", type=int, default=1, help="discarded runs per accelerator")
     ap.add_argument("--qemu", help="path to qemu-system-x86_64")
-    ap.add_argument("--memory", default="256M")
+    ap.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     ap.add_argument("--timeout", type=float, default=120.0, help="per-run timeout, seconds")
     ap.add_argument("--gfx-width", type=int, default=1280,
                     help="framebuffer width of the guest graphics mode")

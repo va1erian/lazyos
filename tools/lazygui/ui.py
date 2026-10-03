@@ -8,9 +8,8 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from . import datavol, netopts
-from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT,
-                      SCRIPTS, XUI_VIEWERS, build_env, build_plan,
-                      app_steps, cargo_step, format_plan, simple_config)
+from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
+                      build_plan, format_plan, image_build, simple_config)
 from .runner import Runner, open_path
 from .simple import build_simple_tab, simple_choice
 from .variables import make_vars
@@ -64,6 +63,7 @@ class Launcher:
             "data_disk": self.v["data_disk"].get(),
             "reset_os": self.v["reset_os"].get(),
             "memory": self.v["memory"].get().strip(),
+            "limits": self.v["limits"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
             "abi_time": self.v["abi_time"].get().strip(),
@@ -204,6 +204,7 @@ class Launcher:
         self._field(g, "QEMU path:", "qemu", 44, browse=self._browse_qemu)
         self._field(g, "Output dir:", "out", 44, browse=self._browse_out)
         self._field(g, "QEMU args:", "extra", 44)
+        self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)
@@ -376,12 +377,14 @@ class Launcher:
 
     def _build_image(self) -> None:
         """Build just target/lazyos.img with the current switches."""
-        if self.runner.busy:
+        try:  # bad kernel limits: report before the buttons go busy
+            steps, env = image_build(self.cfg())
+        except ValueError as exc:
+            self._log(f"(plan error: {exc})\n", "fail")
             return
-        cfg = self.cfg()
-        steps = app_steps(cfg) + [cargo_step(cfg)]
-        self._begin(len(steps), "Build image")
-        self.runner.start(steps, build_env(cfg), ROOT)
+        if not self.runner.busy:
+            self._begin(len(steps), "Build image")
+            self.runner.start(steps, env, ROOT)
 
     def _begin(self, count: int, title: str) -> None:
         """Log a run banner and switch the buttons into the busy state."""

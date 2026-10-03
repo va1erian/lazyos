@@ -5,9 +5,11 @@ mod cow;
 pub mod dma;
 mod frames;
 mod heap;
+mod layout;
 pub mod mmio;
 pub mod pte;
 mod reclaim;
+mod regions;
 pub use reclaim::reclaim_empty_tables;
 pub mod slab;
 mod table_guard;
@@ -33,13 +35,20 @@ use x86_64::{PhysAddr, VirtAddr};
 
 use crate::error::{kstop, KError};
 
-/// Virtual base of the kernel heap.
-pub const HEAP_START: u64 = 0x_4444_4444_0000;
-/// Size of the kernel heap (16 MiB): enough for a full-screen RGBA pixmap.
-pub const HEAP_SIZE: u64 = 16 * 1024 * 1024;
+pub use heap::HEAP_START;
+pub use layout::*;
+pub use regions::{Regions, MAX_REGIONS};
 
-/// Maximum usable memory regions we track (no heap needed to bootstrap).
-pub const MAX_REGIONS: usize = 32;
+/// Physical address of the kernel's (boot) PML4, recorded by [`init`]: the
+/// table heap growth maps into, whatever address space is active.
+static KERNEL_PML4: AtomicU64 = AtomicU64::new(0);
+/// Usable RAM in bytes, as the memory map reported it.
+static USABLE_RAM: AtomicU64 = AtomicU64::new(0);
+
+/// Usable RAM in bytes (the merged usable regions of the memory map).
+pub fn usable_ram() -> u64 {
+    USABLE_RAM.load(Ordering::Relaxed)
+}
 
 #[cfg(lazyos_tests)]
 pub use heap::harness as heap_harness;
@@ -97,29 +106,26 @@ pub fn init(boot_info: &'static mut BootInfo) {
         Efer::update(|flags| flags.insert(EferFlags::NO_EXECUTE_ENABLE));
     }
 
-    // Gather the usable regions, clamping away the low megabyte that holds
-    // the kernel and the bootloader's metadata.
-    let mut starts = [0u64; MAX_REGIONS];
-    let mut ends = [0u64; MAX_REGIONS];
-    let mut count = 0;
-    let mut highest = LOWEST_FRAME;
-    for region in boot_info
-        .memory_regions
-        .iter()
-        .filter(|r| r.kind == MemoryRegionKind::Usable && r.end > LOWEST_FRAME)
-    {
-        if count == MAX_REGIONS {
-            break;
-        }
-        let start = region.start.max(LOWEST_FRAME);
-        if start + FRAME_SIZE > region.end {
-            continue;
-        }
-        starts[count] = start;
-        ends[count] = region.end;
-        count += 1;
-        highest = highest.max(region.end);
+    // Gather the usable regions (merged, sorted, clamped away from the low
+    // megabyte that holds the kernel and the bootloader's metadata).
+    let regions = Regions::gather(
+        boot_info
+            .memory_regions
+            .iter()
+            .filter(|r| r.kind == MemoryRegionKind::Usable)
+            .map(|r| (r.start, r.end)),
+    );
+    if regions.dropped > 0 {
+        serial_println!(
+            "mem: {} KiB of usable RAM left out (more than {} disjoint regions)",
+            regions.dropped / 1024,
+            MAX_REGIONS
+        );
     }
+    let (starts, ends, count) = (regions.starts, regions.ends, regions.count);
+    let highest = regions.highest().max(LOWEST_FRAME);
+    let ram = regions.bytes();
+    USABLE_RAM.store(ram, Ordering::Relaxed);
 
     // Carve the refcount table out of the first region with room: one `u32`
     // per frame up to the highest usable address.
@@ -166,9 +172,8 @@ pub fn init(boot_info: &'static mut BootInfo) {
     // general allocator (which skips `RESERVED` in `pop_free`) never hands them
     // out, and they are excluded from `total`/`free` like the metadata table.
     let mut pool_pages = 0usize;
-    if let Some((base, pages)) =
-        dma::choose_pool(&starts, &ends, count, in_regions, table_phys, table_frames)
-    {
+    let pool_bytes = crate::limits::dma_pool_bytes(ram);
+    if let Some((base, pages)) = dma::choose_pool(&regions, pool_bytes, table_phys, table_frames) {
         frames.pool.reserve(base, pages);
         for page in 0..u64::from(pages) {
             frames.set_refcount(Frames::index(base + page * FRAME_SIZE), RESERVED);
@@ -189,29 +194,45 @@ pub fn init(boot_info: &'static mut BootInfo) {
         boot.free
     );
 
-    // Map the kernel heap.
-    // Safety: `offset` is the kernel's physical memory mapping offset, which
-    // covers every frame the active level-4 table and its descendants name.
-    let mut mapper = unsafe { OffsetPageTable::new(active_level_4_table(offset), offset) };
-    let mut frames = GlobalFrames;
-    let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(HEAP_START));
-    let end_page = Page::containing_address(VirtAddr::new(HEAP_START + HEAP_SIZE - 1));
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    for page in Page::range_inclusive(start_page, end_page) {
-        // As above: no caller exists yet to receive a Result.
-        let frame = frames
-            .allocate_frame()
-            .unwrap_or_else(|| kstop(KError::OutOfMemory, "out of frames mapping the heap"));
-        // Safety: the heap range is reserved and not otherwise mapped.
-        unsafe {
-            match mapper.map_to(page, frame, flags, &mut frames) {
-                Ok(flush) => flush.flush(),
-                Err(_) => kstop(KError::Io, "failed to map heap page"),
-            }
-        }
+    serial_println!(
+        "mem: {} MiB in {} regions, highest {:#x}, DMA pool {} KiB",
+        ram >> 20,
+        count,
+        highest,
+        pool_pages * FRAME_SIZE as usize / 1024
+    );
+
+    let (pml4, _) = Cr3::read();
+    KERNEL_PML4.store(pml4.start_address().as_u64(), Ordering::Relaxed);
+    layout::check_kernel_table(pml4.start_address());
+
+    // Map the initial kernel heap; it grows on demand from here.
+    let initial = crate::limits::heap_initial_bytes(ram);
+    if map_kernel_range(HEAP_START, initial / FRAME_SIZE) * FRAME_SIZE != initial {
+        kstop(KError::OutOfMemory, "out of frames mapping the heap");
     }
     // Safety: the range was just mapped writable and is otherwise unused.
-    unsafe { heap::init(HEAP_START as usize, HEAP_SIZE as usize) };
+    unsafe { heap::init(initial) };
+}
+
+/// Map `pages` fresh frames at `start` in the kernel's own table, writable
+/// and no-execute, for kernel-half ranges every address space shares (the
+/// heap). Stops at the first failure and returns how many pages it mapped.
+/// The caller owns `[start, start + pages * 4 KiB)` and nothing else maps it.
+pub(crate) fn map_kernel_range(start: u64, pages: u64) -> u64 {
+    let table = PhysAddr::new(KERNEL_PML4.load(Ordering::Relaxed));
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    for index in 0..pages {
+        let Some(frame) = alloc_frame() else {
+            return index;
+        };
+        let va = VirtAddr::new(start + index * FRAME_SIZE);
+        if !map_page_in(table, va, frame, flags) {
+            free_frame(frame);
+            return index;
+        }
+    }
+    pages
 }
 
 /// Find the first region with room for `frame_count` contiguous frames and

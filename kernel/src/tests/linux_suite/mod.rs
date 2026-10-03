@@ -73,7 +73,7 @@ fn fresh() -> Result<(), String> {
     // let the CPU idle.
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
     unix::clear_for_test();
@@ -87,7 +87,7 @@ fn fresh() -> Result<(), String> {
 }
 
 fn fds_clean() -> bool {
-    (3..task::FD_COUNT).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
+    (3..task::harness::fd_table_len()).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
 }
 
 fn mmap_fixed(base: u64, len: u64) -> u64 {
@@ -202,6 +202,7 @@ mod affinity;
 mod brk_stack;
 mod creds;
 mod epoll;
+mod fd_table;
 mod inet_calls;
 mod inet_core;
 mod inet_soak;
@@ -218,6 +219,7 @@ pub(super) use affinity::*;
 pub(super) use brk_stack::*;
 pub(super) use creds::*;
 pub(super) use epoll::*;
+pub(super) use fd_table::*;
 pub(super) use inet_calls::*;
 pub(super) use inet_core::*;
 pub(super) use inet_soak::*;
@@ -292,7 +294,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_getrandom_statistics", getrandom_statistics),
     ("linux_entropy_reseeds", entropy_reseeds),
     ("linux_getrandom_soak", getrandom_soak),
+    (
+        "linux_fd_table_grows_to_the_limit",
+        fd_table_grows_to_the_limit,
+    ),
+    ("linux_fd_table_copies_at_scale", fd_table_copies_at_scale),
+    ("linux_fd_table_open_close_soak", fd_table_open_close_soak),
     ("linux_brk_stops_below_the_stack", brk_stops_below_the_stack),
+    (
+        "linux_brk_stops_at_the_layout_ceiling",
+        brk_stops_at_the_layout_ceiling,
+    ),
     ("linux_brk_stack_boundary_soak", brk_stack_boundary_soak),
     ("linux_mmap_reuses_freed_range", mmap_reuses_freed_range),
     (

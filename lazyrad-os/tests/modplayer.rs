@@ -291,6 +291,6 @@ fn the_packaged_sample_may_use_the_mixer() {
         Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf"),
     )
     .script_permissions(&scripts);
-    assert_eq!(found.interfaces, ["os.lazy.audio.v1"]);
+    assert_eq!(found.interfaces, ["os.lazy.audio.v1", "os.lazy.input.v1"]);
     assert!(found.topics.is_empty());
 }

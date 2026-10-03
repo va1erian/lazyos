@@ -204,6 +204,7 @@ def main() -> int:
     parser.add_argument("--image", type=Path, default=ROOT / "target/lazyos.img")
     parser.add_argument("--out", type=Path, default=ROOT / "shots/usb")
     parser.add_argument("--accel", default="auto")
+    parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
     parser.add_argument("--ps2", action="store_true", help="keep the i8042")
     parser.add_argument("--no-mouse", action="store_true")
     parser.add_argument("--timeout", type=float, default=1200.0)
@@ -247,7 +248,7 @@ def main() -> int:
         *image, "--out", str(args.out), "--script", str(script),
         "--accel", args.accel, "--timeout", str(args.timeout),
         "--fail-on", "USBD:(FATAL|PANIC)",
-    ] + [f"--extra-arg={arg}" for arg in extra]
+    ] + (["--memory", args.memory] if args.memory else []) + [f"--extra-arg={arg}" for arg in extra]
     print("booting: " + " ".join(extra), flush=True)
     session = subprocess.run(command, cwd=ROOT)
     log = args.out / "serial.log"

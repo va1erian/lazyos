@@ -71,8 +71,9 @@ def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
 #: `lazyrad` in the install directory) and shipped only in images built with
 #: `LAZYOS_LAZYRAD=1` (`build_support/lazyrad_embed.rs`). It installs the apps
 #: it builds through the Installer, never `pkgd`, which refuses labelled
-#: callers (`lazyrad-os/src/handoff`); its Play runs still inherit its label
-#: until development labels land (`docs/lazyrad-package-plan.md`, phase B).
+#: callers (`lazyrad-os/src/handoff`), and declares `develop = true` so Play
+#: runs the project under its own `dev:<system_name>` label
+#: (`docs/lazyrad-package-plan.md`, phase B).
 CORE_APPS: dict[str, CoreApp] = {
     "sysmon": xui_app("xui-sysmon.elf", "sysmon"),
     "fabricmon": xui_app("xui-fabricmon.elf", "fabricmon"),

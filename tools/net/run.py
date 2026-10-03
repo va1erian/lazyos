@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
+from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402,E501
 
 import analyze_pcap  # noqa: E402
 import hostpeers  # noqa: E402
@@ -351,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="shots/net", help="output dir (serial.log, net.pcap)")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
-    parser.add_argument("--memory", default="256M")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     parser.add_argument("--timeout", type=float, default=150.0, help="seconds to wait for the guest")
     parser.add_argument("--machine", help="QEMU machine type, e.g. q35 (default: i440fx)")
     parser.add_argument(

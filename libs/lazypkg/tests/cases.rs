@@ -30,6 +30,8 @@ struct ManifestCase {
     category: Option<String>,
     #[serde(default)]
     autostart: Option<bool>,
+    #[serde(default)]
+    develop: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +81,9 @@ fn manifest_cases() {
                 }
                 if let Some(autostart) = case.autostart {
                     assert_eq!(manifest.entry.autostart, autostart, "{}", case.name);
+                }
+                if let Some(develop) = case.develop {
+                    assert_eq!(manifest.permissions.develop, develop, "{}", case.name);
                 }
             }
             (true, Err(error)) => panic!("{}: expected valid, got {error}", case.name),

@@ -124,6 +124,29 @@ has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 `libs/fhs`. Host tests: `cargo test -p build-support-tests`.
 
+## Resource limits and guest memory
+
+Every launcher boots QEMU with **1 GiB** of RAM by default (`DEFAULT_MEMORY`
+in `tools/screenshot/qemu_qmp.py`; `--memory 4G` on any of them, including
+the abi/usb/shutdown/rhai runners and the GUI's Memory field). The kernel's
+tunable ceilings live in one module, `kernel/src/limits.rs`
+([`docs/architecture/limits.md`](docs/architecture/limits.md)): defaults are
+derived from usable RAM and the screen size, and `limit.<key>=<value>` lines
+in `/boot/lazyos.cfg` override them at boot (clamped, logged, never fatal).
+The build writes them from `LAZYOS_LIMIT_<KEY>` variables:
+
+```bash
+LAZYOS_LIMIT_HEAP_MAX=768M LAZYOS_LIMIT_FD_MAX=4096 cargo build
+python tools/run_demo.py --limit heap_max=768M --limit stack_size=16M
+```
+
+Keys: `heap_max` (kernel heap ceiling; the heap grows on demand), `fd_max`
+(descriptors per task, 1024), `stack_size` (Linux main stack, 8 MiB,
+demand-zero), `quota_user_memory`, `quota_kernel_memory`, `shared_buffer_max`.
+The boot log prints the table (`limits: ...`). `task::MAX_TASKS` (256) stays a
+compile-time constant. The kernel image runs at `0xffff_8000_0000_0000`
+(`mem::layout`): symbolize with `addr2line -e <kernel> <rip - 0xffff800000000000>`.
+
 ## Docs app and the C++ toolchain
 
 `xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
@@ -192,8 +215,8 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 ## Packages and the label-policy trace
 
-Every desktop app except the Terminal, Devices, the Installer, LazyShell and
-the opt-in LazyRAD IDE (`LAZYOS_LAZYRAD=1`) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+Every desktop app except the Terminal, Devices, the Installer and LazyShell
+(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
 `pkgd` installs it into `/apps` at boot and the kernel confines it to the
 permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
 debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
@@ -208,6 +231,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/core_apps --script tools/screenshot/examples/core_apps.json
 grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
 ```
+
+An IDE package with `develop = true` runs the project it edits under
+`dev:<system_name>` (issue #529; `docs/packages.md`, "Development runs";
+`kernel/src/ipc/devspawn.rs`). The session `lazyrad_devplay.json` plays a sample
+that way from a test package of the IDE (build it with
+`python tools/lazyrad/build.py && python tools/lazyrad/devtest.py`, then an
+image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
+LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
+LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 

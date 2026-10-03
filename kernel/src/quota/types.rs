@@ -79,22 +79,34 @@ impl Resource {
     }
 }
 
-/// The default limit table for a regular uid, documented per resource:
-/// 32 MiB of kernel memory, 256 MiB of user memory, 1024 handles, 256 fds,
-/// 4 MiB / 1024 messages of Messenger queueing, 2^32 CPU ticks (about 497 days
-/// at 100 Hz, i.e. effectively "metered, not capped" until CPU shares get a
-/// real policy), 8 device claims, and 8 MiB of DMA pool memory.
-pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
-    32 << 20,  // kernel memory
-    256 << 20, // user memory
-    1024,      // handles
-    256,       // fds
-    4 << 20,   // queued bytes
-    1024,      // queued messages
-    1 << 32,   // CPU ticks
-    8,         // device claims
-    8 << 20,   // DMA memory
-];
+/// The default limit table for a regular uid. The memory limits come from
+/// [`crate::limits`] (derived from RAM and the screen, overridable in
+/// `lazyos.cfg`); the rest are fixed policy:
+///
+/// * kernel memory: `limit.quota_kernel_memory` (32 MiB on a 256 MiB guest);
+/// * user memory: `limit.quota_user_memory` (256 MiB on a 256 MiB guest);
+/// * 1024 handles;
+/// * fds: four full descriptor tables (`limit.fd_max` each);
+/// * 4 MiB / 1024 messages of Messenger queueing;
+/// * 2^32 CPU ticks (about 497 days at 100 Hz, i.e. effectively "metered, not
+///   capped" until CPU shares get a real policy);
+/// * 8 device claims;
+/// * DMA memory: half the DMA pool, at least 8 MiB.
+pub fn default_limits_regular() -> [u64; Resource::COUNT] {
+    use crate::limits::{self, Id};
+    let pool = limits::dma_pool_bytes(limits::ram_bytes());
+    [
+        limits::get(Id::QuotaKernelMemory),
+        limits::get(Id::QuotaUserMemory),
+        1024,
+        limits::get(Id::FdMax).saturating_mul(4),
+        4 << 20,
+        1024,
+        1 << 32,
+        8,
+        (pool / 2).max(8 << 20),
+    ]
+}
 
 /// The limit table for uid 0. The kernel task and bring-up children run as root
 /// before any login, so root is metered but not capped; a real policy source
@@ -102,12 +114,12 @@ pub const DEFAULT_LIMITS: [u64; Resource::COUNT] = [
 pub const ROOT_LIMITS: [u64; Resource::COUNT] = [u64::MAX; Resource::COUNT];
 
 /// The default limits for `uid`: root is uncapped, everyone else gets
-/// [`DEFAULT_LIMITS`].
-pub(super) const fn default_limits(uid: u32) -> [u64; Resource::COUNT] {
+/// [`default_limits_regular`].
+pub(super) fn default_limits(uid: u32) -> [u64; Resource::COUNT] {
     if uid == 0 {
         ROOT_LIMITS
     } else {
-        DEFAULT_LIMITS
+        default_limits_regular()
     }
 }
 

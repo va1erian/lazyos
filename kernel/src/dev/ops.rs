@@ -25,13 +25,14 @@ use super::{BarKind, BusId};
 
 const PAGE: u64 = 4096;
 
-/// Userspace virtual range MMIO mappings come from. It lies in PML4 entry 0
-/// (below 512 GiB), the per-process user half: unlike the shared-buffer range
-/// (`ipc::shared_va`), whose page-table subtree is one object shared by every
-/// address space, a mapping here exists only in the claimant's own tables.
-pub const MMIO_VA_BASE: u64 = 0x0000_0030_0000_0000;
+/// Userspace virtual range MMIO mappings come from. It lies in the private
+/// user window (`process::layout`), between the `mmap` area and the stack:
+/// unlike the shared-buffer range (`ipc::shared_va`), whose page-table subtree
+/// is one object shared by every address space, a mapping here exists only in
+/// the claimant's own tables.
+pub const MMIO_VA_BASE: u64 = crate::process::layout::MMIO_BASE;
 /// End of the MMIO range (exclusive): 32 GiB of address space.
-pub const MMIO_VA_END: u64 = 0x0000_0038_0000_0000;
+pub const MMIO_VA_END: u64 = crate::process::layout::MMIO_END;
 /// Largest BAR `map_bar` will map. Bigger windows (a GPU aperture) need their
 /// own design; this bounds page-table memory a single call can consume.
 pub const MAX_MAP_BYTES: u64 = 64 << 20;

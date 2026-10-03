@@ -13,6 +13,8 @@ import shlex
 import shutil
 import sys
 
+from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
 
@@ -111,6 +113,25 @@ DEVICES_AUTOSTART = "term,devices"
 DOCUMENT_APPS = ("editor", "files", "paint", "writer")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
+#: Guest RAM the GUI starts with; the same as every CLI launcher's default
+#: (`tools/screenshot/qemu_qmp.py` `DEFAULT_MEMORY`).
+DEFAULT_MEMORY = "1G"
+#: The modes whose "Skip build" boots the image already built.
+SKIP_BUILD_MODES = ("Interactive demo", "Headless screenshots", "Scripted session",
+                    "Kernel test suite")
+
+
+def check_limits(cfg: dict) -> None:
+    """Refuse kernel limits that cannot take effect: malformed entries, or any
+    entry with "Skip build", since the build writes them into `lazyos.cfg`."""
+    if (limit_env(cfg.get("limits", "")) and cfg.get("skip_build")
+            and cfg["mode"] in SKIP_BUILD_MODES):
+        raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
+
+
+def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
+    """The "Build image" button's steps and environment (``ValueError`` on bad limits)."""
+    return app_steps(cfg) + [cargo_step(cfg)], build_env(cfg)
 
 
 def build_env(cfg: dict) -> dict[str, str]:
@@ -176,6 +197,8 @@ def build_env(cfg: dict) -> dict[str, str]:
         # evidence clients that need `tools/net/run.py`'s host servers.
         env["LAZYOS_NETD"] = "1"
         env["LAZYOS_NETD_ARGS"] = "demo=0"
+    # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
+    env.update(limit_env(cfg.get("limits", "")))
     return env
 
 
@@ -235,6 +258,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "mode": "Interactive demo",
         "profile": build,
         "skip_build": False,
+        # Kernel limits are an Advanced-only control: never carried into Simple.
+        "limits": "",
         "headless": False,
         "extra": base.get("extra", ""),
         "busybox": "",
@@ -328,6 +353,7 @@ def _script(cfg: dict) -> tuple:
 
 def build_plan(cfg: dict) -> list[dict]:
     """Turn a configuration dict into an ordered list of steps."""
+    check_limits(cfg)
     mode = cfg["mode"]
     steps: list[dict] = []
 

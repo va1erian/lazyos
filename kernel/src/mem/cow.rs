@@ -6,15 +6,15 @@ use x86_64::PhysAddr;
 
 use super::pte;
 use super::{
-    alloc_zeroed_frame, entry_table, free_frame, free_table, kernel_table, new_user_table,
-    share_frame, switch_to, vma, COW_BIT, PTE_ADDR, PTE_PRESENT, PTE_WRITABLE,
+    alloc_zeroed_frame, entry_table, free_table, free_user_table, kernel_table, new_user_table,
+    share_frame, switch_to, vma, COW_BIT, PTE_ADDR, PTE_PRESENT, PTE_WRITABLE, USER_PML4_ENTRIES,
 };
 
-/// Share the user half (PML4 entry 0) of `parent` with a fresh address space
-/// using copy-on-write: both keep the same frames with an extra reference,
-/// read-only; the first writer gets a private copy (see [`cow_fault`]). Flushes
-/// the parent's TLB. All user VAs live below 512 GiB, so PML4 entry 0 covers
-/// them; the kernel's higher-half entries are shared by `new_user_table`.
+/// Share the private user window (PML4 entries `0..USER_PML4_ENTRIES`) of
+/// `parent` with a fresh address space using copy-on-write: both keep the
+/// same frames with an extra reference, read-only; the first writer gets a
+/// private copy (see [`cow_fault`]). Flushes the parent's TLB. The entries
+/// above the window are shared with the kernel by `new_user_table`.
 pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
     let child = new_user_table()?;
     let mut failed = false;
@@ -22,18 +22,25 @@ pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
     unsafe {
         let src = entry_table(parent);
         let dst = entry_table(child);
-        let entry = *src.add(0);
-        if entry & PTE_PRESENT != 0 {
+        for index in 0..USER_PML4_ENTRIES {
+            let entry = *src.add(index);
+            if entry & PTE_PRESENT == 0 {
+                continue;
+            }
             match cow_clone_level(entry & PTE_ADDR, 3) {
-                Some(sub) => *dst.add(0) = sub | (entry & !PTE_ADDR),
-                None => failed = true,
+                Some(sub) => *dst.add(index) = sub | (entry & !PTE_ADDR),
+                None => {
+                    failed = true;
+                    break;
+                }
             }
         }
     }
     if failed {
-        // `cow_clone_level` already released the partial subtree; drop the
-        // PML4 allocated by `new_user_table`.
-        free_frame(child);
+        // `cow_clone_level` already released the failing subtree; the
+        // entries cloned before it are released with the child's table. The
+        // child has no VMA list yet, so `free_user_table` only drops frames.
+        free_user_table(child);
     } else {
         // Fork inherits the parent's layout: the child can demand-fault and
         // `mprotect` exactly the same ranges.

@@ -1,7 +1,8 @@
 # LazyRAD as a package
 
 Status: **phase A done** (issue #528: the package, the Installer handoff and
-the docs; see "Phase A as built" below); phase B (issue #529) is planned.
+the docs; see "Phase A as built" below); phase B (issue #529) is
+**done** too (section 3).
 Before phase A the LazyRAD IDE and its player were unlabelled system
 programs (`/system/bin/lazyrad`, `/system/bin/lrplay`, embedded by
 `build_support/lazyrad_embed.rs` when `LAZYOS_LAZYRAD=1`, registered by hand in
@@ -9,7 +10,7 @@ programs (`/system/bin/lazyrad`, `/system/bin/lrplay`, embedded by
 Installer, the Terminal and Devices is a core package
 ([`packages.md`](packages.md), "Core packages"). This plan makes LazyRAD one too.
 
-## 1. Why it is not a package today
+## 1. Why it was not a package (before phase A)
 
 Two things a package label would break:
 
@@ -135,7 +136,7 @@ Done as planned (sections 2.1 to 2.3), with these specifics and findings.
 * **Known limit.** Play still forks `lrplay` under the IDE's label; the run
   console now says why when a Messenger call is refused
   (`launcher::DENIED_HINT`), `docs/packages.md` and the package's `docs`
-  describe it, and phase B removes it.
+  describe it, and phase B removes it (the IDE now declares `develop = true`).
 * **Sessions.** `lazyrad_*.json` start the IDE with `init.Launch` (a
   two-line `rhai` helper) and the player from `/apps/os.lazy.lazyrad/*/bin`.
   `lazyrad_makeapp.json` and `lazyrad_home.json` drive the Installer;
@@ -146,7 +147,27 @@ Done as planned (sections 2.1 to 2.3), with these specifics and findings.
   about half the runs, with the IDE packaged or run unlabelled from the
   Terminal alike: injected input is dropped, which is outside this change.
 
-## 3. Phase B: development labels for Play (issue: LazyRAD B)
+## 3. Phase B: development labels for Play (issue #529)
+
+**Status: implemented** (issue #529). Done: the
+`dev:` label kind and its namespace; the spawn rule
+(`kernel/src/ipc/devspawn.rs`, `LabelStamp::Develop`) with correctness and soak
+tests in `kernel/src/tests/spawn_suite/dev*.rs`; `spawnv`'s
+`personality::STDIO` (the child's 0/1/2 from three of the caller's
+descriptors, which the table below did not foresee: a `spawnv` child starts on
+the terminal, so "keeping the pipes" needed it); `os.lazy.process.label.spawn.v1`
+in `idl/policy.midl`; `develop = true`; `pkgd`'s `Develop` (with a `confirm`
+argument: `false` loads only an already approved set, `true` after the
+Installer's consent) and its in-memory approvals revoked at logout; the
+Installer's `develop` verb (`installer-develop` row, `--develop`);
+`pkgctl develop`; `lazyrad_os::devplay` (Play under the label when the IDE runs
+labelled, the plain fork otherwise) and `lazyrad --play-dev`. With phase A
+merged, the IDE's own manifest (`xui-app/packages/lazyrad/manifest.toml`)
+declares `develop = true` next to `os.lazy.mimed.v1` and
+`subscribe:system/events/pkg/+`, so Play from the packaged IDE takes this path.
+`tools/lazyrad/devtest.py` still packages the IDE as a second test app,
+`org.lazy.test.lrdev`, which `tools/screenshot/examples/lazyrad_devplay.json`
+uses to exercise the whole path, a declined consent included.
 
 Play must run the project under the permissions the installed app would get,
 while the IDE keeps the child's pipes (fork + exec, not `init.Launch`).

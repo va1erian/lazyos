@@ -39,6 +39,7 @@ fn event_at(events: &[u8], index: usize) -> (u32, i32) {
 mod bind_and_input;
 mod buffers;
 mod keys;
+mod large_screens;
 mod modifiers;
 mod present;
 mod slots;
@@ -47,6 +48,7 @@ mod wheel;
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
 pub(super) use keys::*;
+pub(super) use large_screens::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
@@ -99,4 +101,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_wheel_reaches_compositor", wheel_reaches_compositor),
     ("display_plain_mouse_and_resync", plain_mouse_and_resync),
     ("display_wheel_soak_bounded_queue", wheel_soak_bounded_queue),
+    (
+        "display_large_screens_fit_the_budgets",
+        large_screens_fit_the_budgets,
+    ),
 ];

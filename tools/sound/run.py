@@ -31,7 +31,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
+from qemu_qmp import (  # noqa: E402
+    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port,
+)
 
 import analyze_wav  # noqa: E402
 import mixcheck  # noqa: E402
@@ -172,7 +174,7 @@ def main() -> int:
     parser.add_argument("--out", default="shots/sound", help="output dir (serial.log, out.wav)")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
-    parser.add_argument("--memory", default="256M")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for the driver")
     parser.add_argument("--machine", help="QEMU machine type, e.g. q35 (default: i440fx)")
     parser.add_argument(

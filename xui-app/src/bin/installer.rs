@@ -23,7 +23,12 @@
 //! INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 //! INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
 //! INSTALLER:REMOVE:REFUSED <system_name>   (a core app: no confirmation)
+//! INSTALLER:DEVELOP:PASS <label> asked=<0|1>   INSTALLER:DEVELOP:DENIED
+//! INSTALLER:DEVELOP:ASK perms=<n>           INSTALLER:DEVELOP:FAIL <reason>
 //! ```
+//!
+//! Started with `--develop <path>` (the `develop` verb, `mimed` from an IDE),
+//! it shows only the development consent instead ([`develop`]).
 
 use std::cell::Cell;
 use std::path::Path;
@@ -40,6 +45,8 @@ use xui_core::Key;
 
 #[path = "installer/consent.rs"]
 mod consent;
+#[path = "installer/develop.rs"]
+mod develop;
 #[path = "installer/list_screen.rs"]
 mod list_screen;
 #[path = "installer/msg.rs"]
@@ -329,6 +336,9 @@ fn inspect(model: &mut Model, path: &str) {
 }
 
 fn main() -> ExitCode {
+    if let Some(path) = develop::requested(std::env::args_os()) {
+        return develop::main(path);
+    }
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {

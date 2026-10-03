@@ -247,7 +247,7 @@ pub fn getdents64_ramfs_directory() -> Result<(), String> {
     // and a2 is the path.
     let fd = process::linux::dispatch_for_test(257, 0, path.as_ptr() as u64, 0);
     check!(
-        (3..task::FD_COUNT as u64).contains(&fd),
+        (3..task::fd_max() as u64).contains(&fd),
         "openat returned {fd:#x}"
     );
 

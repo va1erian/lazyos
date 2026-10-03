@@ -31,7 +31,8 @@ fn every_scriptable_interface_has_a_module_and_kernel_scopes_have_none() {
         let kernel_scope = interface.name.contains(".topics.publish.")
             || interface.name.contains(".topics.subscribe.")
             || interface.name.contains(".names.resolve.")
-            || interface.name.contains(".messenger.policy.");
+            || interface.name.contains(".messenger.policy.")
+            || interface.name.contains(".process.label.spawn.");
         assert_eq!(module.is_none(), kernel_scope, "{}", interface.name);
     }
     let confd = api::module("confd").expect("sys::confd");

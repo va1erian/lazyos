@@ -20,10 +20,19 @@ import sys
 import time
 from pathlib import Path
 
+# The volume options live beside this module; re-exported for the launchers.
+from qemu_disks import (  # noqa: E402,F401
+    add_data_disk_option, add_home_disk_option, data_disk_args, existing_data_disk,
+    existing_home_disk, home_disk_args,
+)
+
 _WINDOWS_QEMU = (
     r"C:\Program Files\qemu\qemu-system-x86_64.exe",
     r"C:\Program Files (x86)\qemu\qemu-system-x86_64.exe",
 )
+
+# Guest RAM every launcher defaults to (`--memory`; docs/architecture/limits.md).
+DEFAULT_MEMORY = "1G"
 
 
 def find_qemu(explicit: str | None = None) -> str:
@@ -124,77 +133,12 @@ def accel_args(accel: str, qemu: str) -> list[str]:
     return ["-accel", accel]
 
 
-def data_disk_args(path: str | Path) -> list[str]:
-    """QEMU arguments attaching the persistent data volume as virtio-blk.
-
-    It is always a *second*, separate device from the boot disk. QEMU's option
-    parser treats a comma as a separator, so a literal one in the path is
-    doubled.
-    """
-    file = Path(path).resolve().as_posix().replace(",", ",,")
-    return ["-drive", f"format=raw,file={file},if=none,id=data",
-            "-device", "virtio-blk-pci,drive=data"]
-
-
-def home_disk_args(path: str | Path) -> list[str]:
-    """QEMU arguments attaching the home volume (``target/home.img``) as virtio-blk.
-
-    Attached after the boot disk and after any data disk, so the order the
-    kernel enumerates virtio devices in (PCI order) is deterministic. The kernel
-    finds the volume by its ``lazyhome`` label, not by position.
-    """
-    file = Path(path).resolve().as_posix().replace(",", ",,")
-    return ["-drive", f"format=raw,file={file},if=none,id=home",
-            "-device", "virtio-blk-pci,drive=home"]
-
-
-def add_home_disk_option(parser) -> None:
-    """Add ``--home-disk PATH`` (off by default so CI runs stay hermetic)."""
-    parser.add_argument("--home-disk", metavar="PATH",
-                        help="attach this existing home volume as a virtio-blk device after "
-                             "the boot disk (create one with "
-                             "`python -m tools.mkdisk PATH --home-volume`)")
-
-
-def existing_home_disk(value: str | None) -> Path | None:
-    """The ``--home-disk`` file, or exit with a hint if it does not exist."""
-    if not value:
-        return None
-    path = Path(value).resolve()
-    if not path.is_file():
-        raise SystemExit(f"--home-disk not found: {path}\n"
-                         f"Create it with: python -m tools.mkdisk {value} --home-volume")
-    return path
-
-
-def add_data_disk_option(parser) -> None:
-    """Add ``--data-disk PATH`` (off by default so CI runs stay hermetic)."""
-    parser.add_argument("--data-disk", metavar="PATH",
-                        help="attach this existing ext2 volume as a second virtio-blk "
-                             "device (create one with `python -m tools.mkdisk PATH`)")
-
-
-def existing_data_disk(value: str | None) -> Path | None:
-    """The ``--data-disk`` file, or exit with a hint if it does not exist.
-
-    The scripted tools never create it: a missing volume is more likely a typo
-    than a request to format a new one.
-    """
-    if not value:
-        return None
-    path = Path(value).resolve()
-    if not path.is_file():
-        raise SystemExit(f"--data-disk not found: {path}\n"
-                         f"Create it with: python -m tools.mkdisk {value}")
-    return path
-
-
 def build_qemu_command(
     qemu: str,
     image: str | None,
     qmp_port: int,
     serial_log: Path,
-    memory: str = "256M",
+    memory: str = DEFAULT_MEMORY,
     extra_args: list[str] | None = None,
     data_disk: str | Path | None = None,
     ide: bool = False,

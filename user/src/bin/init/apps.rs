@@ -104,6 +104,8 @@ const fn native_app(
 
 /// The desktop shell's registry id (`Launch("lazyshell", ...)`).
 pub const SHELL_APP_ID: &str = "lazyshell";
+/// The Installer started for the `develop` verb (issue #529).
+pub const DEVELOP_APP_ID: &str = "installer-develop";
 
 /// The built-in registry.
 ///
@@ -125,6 +127,20 @@ pub static APPS: &[AppSpec] = &[
         fhs::bin::INSTALLER,
         &["open", "install"],
     ),
+    // The Installer for the `develop` verb (issue #529): an IDE asks `mimed`
+    // to open its project's package with `develop`, and `--develop` shows only
+    // the development consent (`pkgd.Develop`). Reached through `mimed` alone,
+    // so it is not a menu entry.
+    AppSpec {
+        listed: false,
+        args: &["--client", "--develop"],
+        ..xui_app(
+            DEVELOP_APP_ID,
+            "Development Approval",
+            fhs::bin::INSTALLER,
+            &["develop"],
+        )
+    },
     // The desktop Terminal hosts the shell in a `xuid` window (`shell` below
     // is the console shell, drawn in `init`'s mux window).
     xui_app("terminal", "Terminal", fhs::bin::TERMINAL, &["open"]),
@@ -264,11 +280,14 @@ pub fn selftest_builtins() -> bool {
     let clients_ok = APPS
         .iter()
         .filter(|app| app.linux && !is_console_alias(app))
-        .all(|app| app.args == ["--client"]);
+        .all(|app| app.args.first() == Some(&"--client"));
     let shell_ok = APPS
         .first()
         .is_some_and(|app| app.id == SHELL_APP_ID && !app.listed && app.restart == Restart::Always)
-        && APPS.iter().skip(1).all(|app| app.listed);
+        && APPS
+            .iter()
+            .skip(1)
+            .all(|app| app.listed || app.id == DEVELOP_APP_ID);
     // The desktop apps are packages now; a row for one would shadow it.
     let no_packaged = ["editor", "files", "paint", "settings", "sysmon"]
         .iter()
