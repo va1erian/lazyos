@@ -2,6 +2,7 @@
 //! section headings and horizontal gauges, all on semantic theme tokens.
 
 use xui_core::backend::TextAlign;
+use xui_core::theme::look;
 use xui_core::{Canvas, Color, Dip, Point, Rect, TextStyle, Theme};
 
 /// Title text size.
@@ -51,7 +52,7 @@ pub const CONTENT_TOP: i32 = 76;
 /// content rectangle (inside the margins).
 pub fn frame(canvas: &mut dyn Canvas, theme: Theme, title: &str, subtitle: &str) -> Rect {
     let bounds = crate::hidpi::design_bounds(canvas);
-    canvas.clear(theme.background);
+    look::paint_background(canvas, bounds, bounds, &theme);
 
     let header = Rect::new(MARGIN, 16, bounds.right - MARGIN, 52);
     canvas.draw_text(
@@ -86,10 +87,17 @@ pub fn frame(canvas: &mut dyn Canvas, theme: Theme, title: &str, subtitle: &str)
     )
 }
 
-/// A raised card with a border.
+/// A raised card with a border (the theme's card gradient and bevel where
+/// it has them).
 pub fn card(canvas: &mut dyn Canvas, theme: Theme, rect: Rect) {
-    canvas.fill_rounded_rect(rect, 8.0, theme.raised);
-    canvas.stroke_rounded_rect(rect, 8.0, theme.border, 1.0);
+    let mut card = theme;
+    card.corner_radius = 8;
+    let bottom = if look::decorated(&theme) {
+        theme.surface_end
+    } else {
+        theme.raised
+    };
+    look::card_with(canvas, rect, &card, theme.raised, bottom);
 }
 
 /// A section heading at the top-left of `rect`.
@@ -117,12 +125,17 @@ pub fn key_value(
 /// A horizontal gauge: a rounded track filled to `fraction` of its width.
 pub fn bar(canvas: &mut dyn Canvas, theme: Theme, rect: Rect, fraction: f64, color: Color) {
     let fraction = fraction.clamp(0.0, 1.0);
-    canvas.fill_rounded_rect(rect, rect.height() as f32 / 2.0, theme.scrollbar_track);
+    let groove = if look::decorated(&theme) {
+        theme.input_background
+    } else {
+        theme.scrollbar_track
+    };
+    canvas.fill_rounded_rect(rect, rect.height() as f32 / 2.0, groove);
     let filled = (rect.width() as f64 * fraction).round() as i32;
     if filled > 0 {
         let fill = Rect::new(rect.left, rect.top, rect.left + filled, rect.bottom);
         let radius = (fill.height() as f32 / 2.0).min(filled as f32);
-        canvas.fill_rounded_rect(fill, radius, color);
+        look::face(canvas, fill, radius, color, &theme);
     }
     canvas.stroke_rounded_rect(rect, rect.height() as f32 / 2.0, theme.border, 1.0);
 }

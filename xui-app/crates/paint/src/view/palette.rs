@@ -6,6 +6,7 @@
 //! which button was used, so this custom node maps left/right clicks to the
 //! primary/secondary colour and paints the active pair itself.
 
+use xui_core::theme::look;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -236,7 +237,7 @@ fn paint(
     theme: &xui_core::Theme,
 ) {
     let cell = cell_px(dpi);
-    canvas.clear(theme.surface);
+    look::band(canvas, theme);
     canvas.push_clip(bounds);
 
     let top = Rect::new(

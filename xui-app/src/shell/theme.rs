@@ -11,7 +11,7 @@
 
 use lazyshell::clock::{self, ClockFormat};
 use uitheme::{Mode, Palette, Settings};
-use xui_core::{Color, Theme};
+use xui_core::{Canvas, Color, Rect, Theme};
 
 use super::services;
 use crate::sys;
@@ -92,12 +92,43 @@ pub fn color(rgb: u32) -> Color {
 }
 
 /// The xui theme for the desktop surface: the preset's widget theme on the
-/// wallpaper colour, so the icon view's background is the wallpaper.
+/// wallpaper colour, so the icon view's background is the wallpaper. In dark
+/// mode the wallpaper deepens toward the bottom (Midnight's window gradient).
 pub fn desktop_theme(palette: &Palette, dark: bool) -> Theme {
-    let mut theme = if dark { Theme::dark() } else { Theme::light() };
+    let mut theme = chrome_look(dark);
     theme.background = color(palette.background);
+    theme.background_end = if dark {
+        color(uitheme::mix(palette.background, 0, 1, 3))
+    } else {
+        theme.background
+    };
     theme.accent = color(palette.overlay_selected);
+    // The preset's ink was chosen for its own accent; match the one in use.
+    theme.text_on_accent = color(uitheme::text_on(palette.overlay_selected));
     theme
+}
+
+/// The decoration the shell's own surfaces (taskbar, menu) paint with:
+/// Midnight's gradients and bevels in dark mode, flat in light mode.
+pub fn chrome_look(dark: bool) -> Theme {
+    if dark {
+        Theme::midnight()
+    } else {
+        Theme::light()
+    }
+}
+
+/// Fills `rect` with a bar background around `rgb`: a vertical gradient from a
+/// little lighter to darker when `look` is decorated, flat otherwise.
+pub fn fill_bar(canvas: &mut dyn Canvas, rect: Rect, rgb: u32, look: &Theme) {
+    let mut bar = *look;
+    bar.background = color(rgb);
+    bar.background_end = color(rgb);
+    if xui_core::theme::look::decorated(look) {
+        bar.background = color(uitheme::mix(rgb, 0xFF_FF_FF, 1, 12));
+        bar.background_end = color(uitheme::mix(rgb, 0, 1, 4));
+    }
+    xui_core::theme::look::paint_background(canvas, rect, rect, &bar);
 }
 
 #[cfg(test)]
@@ -110,6 +141,10 @@ mod tests {
         let theme = desktop_theme(&palette, true);
         assert_eq!(theme.background, color(palette.background));
         assert!(theme.is_dark);
+        assert_eq!(
+            theme.text_on_accent,
+            color(uitheme::text_on(palette.overlay_selected))
+        );
         assert_eq!(color(0x12_34_56), Color::rgb(0x12, 0x34, 0x56));
     }
 }
