@@ -11,10 +11,10 @@ mod ca_bundle;
 mod core_packages;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
-#[path = "../lazyweb_embed.rs"]
-mod lazyweb_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
+#[path = "../lazyweb_embed.rs"]
+mod lazyweb_embed;
 #[path = "../os_disk.rs"]
 mod os_disk;
 #[path = "../os_image.rs"]
