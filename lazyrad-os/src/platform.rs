@@ -237,6 +237,10 @@ impl Platform for LazyOsPlatform {
         crate::desktop_mode::is_dark()
     }
 
+    fn system_theme(&self) -> Option<xui_core::Theme> {
+        crate::desktop_mode::theme()
+    }
+
     fn player_executable(&self) -> Option<PathBuf> {
         self.player.clone()
     }

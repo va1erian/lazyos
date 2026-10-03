@@ -63,10 +63,11 @@ struct Palette {
     cursor: Color,
 }
 
+/// Midnight's navy, a shade deeper than a window so the grid reads as a well.
 const DARK: Palette = Palette {
-    bg: Color::rgb(0x16, 0x18, 0x1d),
-    fg: Color::rgb(0xd7, 0xdb, 0xe0),
-    cursor: Color::rgb(0x6c, 0xb6, 0xff),
+    bg: Color::rgb(0x15, 0x19, 0x28),
+    fg: Color::rgb(0xdc, 0xe1, 0xf0),
+    cursor: Color::rgb(0x5f, 0xd0, 0x8f),
 };
 const LIGHT: Palette = Palette {
     bg: Color::rgb(0xfb, 0xfb, 0xfb),

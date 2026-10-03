@@ -3,7 +3,8 @@
 //! to `xuid` (client mode).
 
 use xui_canvas::Surface;
-use xui_core::backend::{Canvas, Painter, WindowId};
+use xui_core::backend::{Painter, WindowId};
+use xui_core::theme::look;
 use xui_core::Rect;
 
 use crate::client_window::copy_rect;
@@ -38,20 +39,25 @@ impl LazyOSBackend {
     /// on an already-borrowed `windows`. The window itself stays in the map, so
     /// those re-entrant reads still see its live size, DPI and theme.
     fn composite(&self, window: WindowId, damage: Rect) -> bool {
-        let (dpi, background, width, height, mut surface) = {
+        let (dpi, theme, width, height, mut surface) = {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return false;
             };
             (
                 entry.dpi,
-                entry.background,
+                entry.theme,
                 entry.width,
                 entry.height,
                 std::mem::replace(&mut entry.surface, Surface::new(1, 1)),
             )
         };
-        surface.with_canvas_at(damage, dpi, |canvas| canvas.fill_rect(damage, background));
+        // The window background (the theme's vertical gradient, spanning the
+        // whole window so a partial repaint matches the rest).
+        let window_rect = Rect::new(0, 0, width, height);
+        surface.with_canvas_at(damage, dpi, |canvas| {
+            look::paint_background(canvas, damage, window_rect, &theme)
+        });
         // Bounds are parent-relative: paint at the window-absolute position,
         // and skip a node hidden through any ancestor. A node just outside the
         // damage still runs: anti-aliased edges and focus rings spill a pixel
@@ -69,8 +75,10 @@ impl LazyOSBackend {
                 })
                 .collect()
         };
+        // In creation order a container paints before the widgets in it, so
+        // the widgets draw on it instead of filling their own background.
         for (bounds, painter) in paints {
-            surface.with_canvas_at(bounds, dpi, |canvas| painter(canvas));
+            surface.with_canvas_over_parents(bounds, dpi, |canvas| painter(canvas));
         }
         // Put the real surface back and fold the damage into the frame; a
         // painter that closed this window leaves no entry, so both drop.
@@ -399,7 +407,7 @@ mod tests {
         let (backend, _, _) = rig();
         backend.nodes.borrow_mut().remove(0);
         assert!(backend.composite(W, Rect::new(0, 0, 32, 64)));
-        let background = backend.windows.borrow()[&W.raw()].background;
+        let background = backend.windows.borrow()[&W.raw()].theme.background;
         assert_eq!(pixel(&backend, 10, 10), rgba(background));
         assert_eq!(pixel(&backend, 40, 10), rgba(BLUE));
     }

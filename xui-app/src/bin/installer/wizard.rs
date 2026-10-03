@@ -80,6 +80,7 @@ impl NavBar {
         let (label, message) = next;
         let next_button = Button::new(page, rect(width - MARGIN - 228, top, 100, 30), label)
             .map_err(fail)?
+            .primary()
             .on_click(move || Some(message.clone()));
         let cancel = Button::new(page, rect(width - MARGIN - 116, top, 100, 30), "Cancel")
             .map_err(fail)?
