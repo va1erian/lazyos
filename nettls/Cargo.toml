@@ -1,0 +1,46 @@
+[package]
+name = "nettls"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "HTTPS clients for LazyOS: `fetch`, and the same binary as `curl` and `wget` (docs/tls-plan.md §7)"
+
+# A standalone workspace, like `rhai-host`: the program builds for
+# x86_64-unknown-linux-musl via `tools/nettls/build.py` (zig compiles ring's
+# C) and is embedded in the image as /system/bin/{fetch,curl,wget}, so the OS
+# workspace never resolves rustls or ring.
+[workspace]
+resolver = "2"
+
+[dependencies]
+# Well-known paths (the CA bundle). No features: plain constants.
+fhs = { path = "../libs/fhs" }
+# TLS 1.2/1.3 with the `ring` provider only. Default features are off: they
+# pull aws-lc-rs (CMake, a large C build) and its post-quantum default.
+rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12", "ring"] }
+# PEM parsing for the CA bundle (`pem` lives in pki-types since
+# rustls-pemfile was retired).
+rustls-pki-types = { version = "1.15", features = ["std"] }
+# Blocking HTTP/1.1. No default features: no built-in TLS (we chain our own
+# rustls connector, which sets ALPN and reports the handshake), no
+# `webpki-roots`, no automatic gzip (decoded here under the body cap).
+ureq = { version = "=3.4.2", default-features = false }
+# gzip with the pure-Rust miniz_oxide backend.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+# URL parsing and relative redirect resolution (WHATWG URL, IDNA to punycode).
+url = "2.5"
+# Certificate subjects for `-v` only, after rustls/webpki verified the chain.
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+
+[[bin]]
+name = "fetch"
+path = "src/main.rs"
+
+# Embedded in the disk image and read over slow boot-time ATA: size first.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
