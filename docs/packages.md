@@ -522,7 +522,12 @@ be entered. A restart of `pkgd` (a crash or its heap recycle) forgets approvals,
 so at startup it walks the kernel's label table and revokes every `dev:` label
 (`PKGD:DEVELOP:RESET revoked=<n>`): no rule set outlives its approval, and the
 next Play asks again. `pkgd` subscribes to the logout feed from its first
-request, not its first approval.
+request, not its first approval. The feed retains only the latest logout, so
+whenever it may have missed one (a new subscription, a broker error, no
+broker), `pkgd` reconciles its approvals with `logind`'s active sessions and
+revokes the rest; when `logind` cannot be asked it revokes them all
+(`PKGD:DEVELOP:RECONCILE logind=absent`): a lost logout never leaves a label
+approved.
 The kernel side is in `docs/architecture/ipc-security.md`. Evidence:
 `PKGD:DEVELOP:ASK <label>`, `PKGD:DEVELOP:PASS <label> rules=<n> asked=<0|1>`,
 `PKGD:DEVELOP:FAIL <why>`.

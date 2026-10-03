@@ -15,7 +15,9 @@
 //! persisted, and when the session logs out (`system/events/login/end` on
 //! `init`'s broker) its labels are revoked: an empty rule list, which the
 //! kernel reads as "not approved". A forged logout event can only cause a
-//! second prompt.
+//! second prompt. The feed retains only the latest logout, so after any gap
+//! in it the approvals are reconciled with `logind`'s active sessions, or all
+//! revoked when `logind` cannot be asked.
 //!
 //! Evidence: `PKGD:DEVELOP:PASS <label> rules=<n> asked=<0|1>`,
 //! `PKGD:DEVELOP:ASK <label>` (consent needed), `PKGD:DEVELOP:FAIL <why>`,
@@ -60,21 +62,26 @@ impl Logouts {
     }
 
     /// The sessions that ended since the last call (subscribing first if
-    /// needed; a broker that is not up yet is retried next time).
-    fn ended(&mut self) -> Vec<u64> {
+    /// needed; a broker that is not up yet is retried next time), and whether
+    /// the feed may have missed some: it was just (re)subscribed, it failed,
+    /// or there is none. The topic retains only the latest logout, so after
+    /// such a gap only `logind`'s session list says who is still logged in.
+    fn ended(&mut self) -> (Vec<u64>, bool) {
+        let mut gap = false;
         if self.feed.is_none() {
             if self.bus.is_none() {
                 self.bus = router::Bus::connect(services::INIT_NAME).ok();
             }
             let topic = logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END;
             self.feed = self.bus.as_ref().and_then(|bus| bus.subscribe(topic).ok());
+            gap = true;
         }
         if self.buffer.is_empty() {
             self.buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
         }
         let mut ended = Vec::new();
         let Some(feed) = &self.feed else {
-            return ended;
+            return (ended, true);
         };
         loop {
             match feed.recv_with(&mut self.buffer, Some(messenger::EXPIRED_DEADLINE)) {
@@ -88,12 +95,26 @@ impl Logouts {
                     // The broker restarted: subscribe again next time.
                     self.feed = None;
                     self.bus = None;
+                    gap = true;
                     break;
                 }
             }
         }
-        ended
+        (ended, gap)
     }
+}
+
+/// The sessions `logind` reports active, or `None` when it cannot be asked.
+fn live_sessions() -> Option<Vec<u64>> {
+    let endpoint = services::resolve_service(logind::NAME).ok()?;
+    let (_, sessions) = logind::fetch_sessions(&endpoint).ok()?;
+    Some(
+        sessions
+            .iter()
+            .filter(|session| session.state == "active")
+            .map(|session| session.id)
+            .collect(),
+    )
 }
 
 impl Pkgd {
@@ -284,9 +305,23 @@ impl Pkgd {
     /// drained even while nothing is approved, so the subscription exists
     /// before the first approval: `init`'s broker retains only the latest
     /// logout, and a later subscriber could miss the approving session's.
+    ///
+    /// When the feed may have missed a logout, the approvals are reconciled
+    /// with `logind`'s active sessions instead; if `logind` cannot be asked,
+    /// every approval is revoked (fail closed: the next run asks again).
     pub(crate) fn watch_logouts(&mut self) {
-        for session in self.logouts.ended() {
+        let (ended, gap) = self.logouts.ended();
+        for session in ended {
             for label in self.approvals.end_session(session) {
+                self.revoke_dev(&label, session, 0);
+            }
+        }
+        if gap && !self.approvals.is_empty() {
+            let live = live_sessions();
+            if live.is_none() {
+                sys::write_str("PKGD:DEVELOP:RECONCILE logind=absent\n");
+            }
+            for (session, label) in self.approvals.keep_live(live.as_deref()) {
                 self.revoke_dev(&label, session, 0);
             }
         }

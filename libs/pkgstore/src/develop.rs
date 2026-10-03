@@ -159,6 +159,22 @@ impl Approvals {
         });
         ended
     }
+
+    /// Forget every approval whose session is not in `live`, the sessions
+    /// `logind` reports active; `None` (the list is unavailable) forgets them
+    /// all, so a lost logout can never leave a label approved. Returns each
+    /// forgotten label with its session, which the caller revokes.
+    pub fn keep_live(&mut self, live: Option<&[u64]>) -> Vec<(u64, String)> {
+        let mut ended = Vec::new();
+        self.entries.retain(|entry| {
+            let keep = live.is_some_and(|live| live.contains(&entry.session));
+            if !keep {
+                ended.push((entry.session, entry.label.clone()));
+            }
+            keep
+        });
+        ended
+    }
 }
 
 #[cfg(test)]
@@ -305,6 +321,33 @@ mod tests {
         assert_eq!(approvals.labels(), ["dev:a.b.d"]);
         assert!(approvals.end_session(1).is_empty());
         assert_eq!(approvals.end_session(2), ["dev:a.b.d"]);
+        assert!(approvals.is_empty());
+    }
+
+    #[test]
+    fn reconciling_keeps_only_live_sessions() {
+        let mut approvals = Approvals::new();
+        approvals.approve("dev:a.b.c", 1, &[SENTINEL]);
+        approvals.approve("dev:a.b.d", 2, &[SENTINEL]);
+        approvals.approve("dev:a.b.e", 3, &[SENTINEL]);
+        let ended = approvals.keep_live(Some(&[2, 9]));
+        assert_eq!(
+            ended,
+            [
+                (1, String::from("dev:a.b.c")),
+                (3, String::from("dev:a.b.e"))
+            ]
+        );
+        assert_eq!(approvals.labels(), ["dev:a.b.d"]);
+        assert!(approvals.keep_live(Some(&[2])).is_empty());
+    }
+
+    #[test]
+    fn reconciling_without_the_session_list_forgets_everything() {
+        let mut approvals = Approvals::new();
+        approvals.approve("dev:a.b.c", 1, &[SENTINEL]);
+        approvals.approve("dev:a.b.d", 2, &[SENTINEL]);
+        assert_eq!(approvals.keep_live(None).len(), 2);
         assert!(approvals.is_empty());
     }
 
