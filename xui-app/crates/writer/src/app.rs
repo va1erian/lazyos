@@ -15,7 +15,7 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::Mounted;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::TaskDialog;
-use xui_core::widget::{Dialog, DialogAction, FileDialog, StatusBar, TaskDialogAction};
+use xui_core::widget::{Dialog, DialogAction, FileDialog, Menu, StatusBar, TaskDialogAction};
 use xui_rich_text::RichTextEditor;
 use xui_rich_text::edit::Command;
 use xui_rich_text::model::{Align, ListKind, StyleSummary};
@@ -73,6 +73,14 @@ pub enum Msg {
     Outdent,
     /// A wrap was picked for the selected image (index into the list).
     Wrap(usize),
+    /// Ctrl+Enter from the toolbar: the rest of the paragraph starts a page.
+    PageBreak,
+    /// The Page view toggle: page view when on, draft view when off.
+    PageView(bool),
+    /// The Page setup button: show its menu.
+    PageSetup,
+    /// An entry of the Page setup menu was picked.
+    PageChoice(usize),
     /// The Save / Discard / Cancel prompt was dismissed.
     Unsaved(TaskDialogAction),
     /// The error message was dismissed.
@@ -103,6 +111,8 @@ pub struct Dialogs {
     pub link: Dialog<Msg>,
     /// An error message.
     pub message: Dialog<Msg>,
+    /// The Page setup menu: paper, orientation, margins.
+    pub page: Menu<Msg>,
 }
 
 /// The LazyWriter application.
@@ -193,6 +203,10 @@ impl App for Writer {
             Msg::Indent => commands::format(self, Command::Indent),
             Msg::Outdent => commands::format(self, Command::Outdent),
             Msg::Wrap(index) => commands::wrap(self, index),
+            Msg::PageBreak => commands::format(self, Command::InsertPageBreak),
+            Msg::PageView(on) => commands::page_view(self, on),
+            Msg::PageSetup => commands::page_menu(self, ui),
+            Msg::PageChoice(id) => commands::page_choice(self, id),
         }
     }
 }

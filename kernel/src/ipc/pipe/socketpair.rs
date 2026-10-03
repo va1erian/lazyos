@@ -168,20 +168,44 @@ impl SocketPair {
     /// Read bytes the peer wrote; `Ok(0)` once the peer side is fully closed
     /// or this side has been `SHUT_RD`.
     pub fn read(&self, side: Side, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
+        self.read_until(side, dst, nonblock, None)
+    }
+
+    /// [`SocketPair::read`] that waits no later than `deadline` (absolute
+    /// ticks), then reports [`Error::WouldBlock`] (`SO_RCVTIMEO`).
+    pub fn read_until(
+        &self,
+        side: Side,
+        dst: &mut [u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if self.is_shutdown(side, 0) {
             return Ok(0);
         }
         let (read, _) = self.directions(side);
-        read.read(End::Read, dst, nonblock)
+        read.read_until(End::Read, dst, nonblock, deadline)
     }
 
     /// Write bytes for the peer to read; `SHUT_WR` makes this `BrokenPipe`.
     pub fn write(&self, side: Side, src: &[u8], nonblock: bool) -> Result<usize, Error> {
+        self.write_until(side, src, nonblock, None)
+    }
+
+    /// [`SocketPair::write`] that waits for space no later than `deadline`
+    /// (absolute ticks), then reports [`Error::WouldBlock`] (`SO_SNDTIMEO`).
+    pub fn write_until(
+        &self,
+        side: Side,
+        src: &[u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if self.is_shutdown(side, 1) {
             return Err(Error::BrokenPipe);
         }
         let (_, write) = self.directions(side);
-        write.write(src, End::Write, nonblock)
+        write.write_until(src, End::Write, nonblock, deadline)
     }
 
     /// `poll` revents for one side, merging its read and write directions.

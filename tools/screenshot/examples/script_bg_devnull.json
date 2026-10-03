@@ -1,0 +1,20 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"at": 2.0, "type": "echo 'echo BG >/tmp/bg &' >/tmp/s.sh; echo W1"},
+  {"at": 2.5, "key": "enter", "until": "TERM:OUT:W1", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "echo 'sleep 1' >>/tmp/s.sh; echo W2"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:W2", "timeout": 60},
+  {"at": 1.0, "type": "sh /tmp/s.sh; cat /tmp/bg"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:BG", "timeout": 60},
+  {"at": 1.0, "type": "echo 'echo X >/dev/null; echo R:ok' >/tmp/r.sh"},
+  {"at": 1.5, "key": "enter"},
+  {"at": 2.0, "type": "sh /tmp/r.sh"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:R:ok", "timeout": 60},
+  {"at": 1.0, "type": "printf 'devices &\\nsleep 3\\n' >/tmp/d.sh; echo W3"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:W3", "timeout": 60},
+  {"at": 1.0, "type": "sh /tmp/d.sh; echo D:$?"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:DEVICES:UP:PASS", "timeout": 60},
+  {"at": 3.0, "shot": "01_script_bg_devnull"},
+  {"at": 2.0, "quit": true}
+]

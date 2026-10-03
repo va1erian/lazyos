@@ -192,3 +192,24 @@ line relay (native programs have a blocking `read_char` and no end-of-input, so 
 streaming both ways), `-n` no trailing newline, `-w secs` idle limit (default 3),
 `-g bytes` send a deterministic stream, `-x` expect an echo of what was sent (with
 `-l`, be an echo server) and decide the verdict on it.
+
+## Stage T3: HTTPS (`curl`, `wget`, `fetch`)
+
+`python tools/net/tls_run.py` (or `run.py --tls`) is the TLS harness of
+[docs/tls-plan.md](../../docs/tls-plan.md) §8. It generates a throwaway test CA and leaves
+(`tlscerts.py`, needs `pip install cryptography`), builds a console image with `LAZYOS_TLS=1`, the CA
+appended to the system bundle and `tls.test` mapped to the gateway in `/etc/hosts`, starts the host's
+servers (`tlspeers.py`: TLS 1.3 on 47790, TLS 1.2 only on 47791, an RSA chain on 47792, plain HTTP on
+47793, and the negative servers on 47794-47801: expired, not yet valid, wrong name, self-signed, unknown
+CA, TLS 1.0, CBC only, a truncated record), and types the checks of `tls_session.py` into the guest's
+shell. Each prints `TLS:<check>:PASS|FAIL`; the verdict also needs:
+
+- the servers' records: SNI `tls.test` (or `rsa.tls.test`), ALPN `http/1.1`, TLS 1.3 (1.2 on 47791), every
+  page requested, gzip offered, no `https`→`http` downgrade followed, and **no application data** at any
+  negative server;
+- the capture (`tls_pcap.py`): every connection to a TLS port opens with a ClientHello carrying the right
+  SNI and ALPN, nothing on those connections is plaintext HTTP, and no page body appears in the clear.
+
+`python tools/net/test_tls_pcap.py` shows the wire judge fails when it should. `--live` runs `curl`
+against real sites (default Google and Wikipedia; `--live-url`) on a normal image, so only the Mozilla
+roots are trusted; it is manual, never CI. Behind a proxy that re-signs TLS add `--extra-ca PEM`.

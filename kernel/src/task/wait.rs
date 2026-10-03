@@ -109,6 +109,8 @@ impl WaitQueue {
             // again before the re-check so the caller's contract (and its
             // next register-then-park) still holds when `wait` returns.
             super::nap();
+            #[cfg(lazyos_tests)]
+            super::harness::run_nap_hook();
         }
     }
 

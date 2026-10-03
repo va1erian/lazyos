@@ -118,7 +118,7 @@ impl Backend for LazyOSBackend {
                 surface: Surface::new(width, height),
                 frame: Vec::new(),
                 sink: None,
-                background: Theme::light().background,
+                theme: Theme::light(),
                 backdrop: None,
                 dpi,
                 width: width as i32,
@@ -398,7 +398,7 @@ impl Backend for LazyOSBackend {
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return;
             };
-            entry.background = theme.background;
+            entry.theme = *theme;
             Rect::new(0, 0, entry.width, entry.height)
         };
         // Only damaged pixels are repainted, and the background is under all

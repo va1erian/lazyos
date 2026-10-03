@@ -2,18 +2,19 @@
 
 //! The tool strip painter.
 
-use xui_core::Theme;
 use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
+use xui_core::theme::look;
+use xui_core::Theme;
 
 use super::super::icons;
-use super::{State, cell_px, item_rect};
+use super::{cell_px, item_rect, State};
 
 /// Draws the strip: surface, separators, active/hover fills and glyphs.
 pub(super) fn paint(canvas: &mut dyn Canvas, state: &State, theme: &Theme) {
     let bounds = canvas.bounds();
     let dpi = canvas.dpi();
-    canvas.clear(theme.surface);
+    look::band(canvas, theme);
     canvas.draw_line(
         Point::new(bounds.left, bounds.bottom - 1),
         Point::new(bounds.right, bounds.bottom - 1),

@@ -14,6 +14,7 @@
 //! and the About facts come through [`System`] (`timed`, `sysinfo`).
 
 pub mod about_page;
+pub mod appearance_page;
 pub mod app;
 pub mod layout;
 pub mod hidden_ops;

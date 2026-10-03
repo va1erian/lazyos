@@ -1,0 +1,28 @@
+[package]
+name = "tlsfix"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+description = "LazyOS ABI fixture: SIMD dispatch and in-memory rustls handshakes with the nettls provider (docs/tls-plan.md §8, T0)"
+
+# Its own workspace, apart from the other fixtures, so their lockfile and
+# build stay as they are; it shares `nettls`'s crypto provider and pins.
+[workspace]
+resolver = "2"
+
+[dependencies]
+rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
+# The clients' provider, plus a P-256 signer for the in-memory server.
+nettls-crypto = { path = "../../../../nettls/crypto", features = ["server"] }
+
+[[bin]]
+name = "tlsfix"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/busybox_embed.rs"]
 mod busybox_embed;
+#[path = "build_support/ca_bundle.rs"]
+mod ca_bundle;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
 #[path = "build_support/docs_embed.rs"]
@@ -19,6 +21,8 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/hosts_embed.rs"]
+mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -39,6 +43,8 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/tls_embed.rs"]
+mod tls_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]
@@ -411,6 +417,16 @@ fn main() {
     // The `rhai` scripting command (issue #319), found from `sh` in /system/bin.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut files, &manifest_dir);
+    // The resolver's host table and the TLS trust anchors, in every image
+    // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
+    // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
+    println!("cargo:rerun-if-changed=build_support/hosts_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/ca_bundle.rs");
+    println!("cargo:rerun-if-changed=build_support/tls_embed.rs");
+    hosts_embed::embed(&mut files);
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
+    ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
+    tls_embed::embed(&mut files, &manifest_dir);
     linuxapps_embed::embed(&mut files, &manifest_dir); // dash, lua, sqlite3, jq, rg
                                                        // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");

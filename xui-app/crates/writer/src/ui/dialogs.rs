@@ -61,6 +61,7 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
     let message = Dialog::message(ui, "LazyWriter", "")?.on_action(|_| Some(Msg::MessageClosed));
 
     Ok(Dialogs {
+        page: super::page_menu::build(ui),
         open,
         save,
         export,
