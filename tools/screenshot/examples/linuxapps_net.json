@@ -1,0 +1,22 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "NETD:ADDR", "timeout": 240},
+  {"at": 2.0, "type": "PS1='# '"},
+  {"key": "enter"},
+  {"wait": 2.0},
+  {"type": "cat /etc/resolv.conf"},
+  {"key": "enter", "until": "TERM:OUT:nameserver", "timeout": 60, "retries": 1},
+  {"wait": 1.0},
+  {"type": "wget -q -O - http://10.0.2.2:47790/hello.txt"},
+  {"key": "enter", "until": "TERM:OUT:HELLO-FROM-HOST", "timeout": 90, "retries": 1},
+  {"wait": 1.0},
+  {"type": "wget -q -O /tmp/d.json http://10.0.2.2:47790/data.json"},
+  {"key": "enter"},
+  {"wait": 5.0},
+  {"type": "jq -c '.items|length' /tmp/d.json"},
+  {"key": "enter", "until": "TERM:OUT:3", "timeout": 60, "retries": 1},
+  {"wait": 2.0},
+  {"shot": "01_desktop_wget"},
+  {"quit": true}
+]

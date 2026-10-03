@@ -41,12 +41,9 @@ class Launcher:
         if self.notebook.select() == str(self.tab_simple):
             profile, iface = simple_choice(self.v["simple_build"].get(),
                                            self.v["simple_iface"].get())
+            extras = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps")
             return simple_config(self._advanced_cfg(), profile, iface,
-                                 self.v["simple_lazyrad"].get(),
-                                 self.v["simple_shell"].get(),
-                                 self.v["simple_devices"].get(),
-                                 self.v["simple_doom"].get(),
-                                 self.v["simple_modplayer"].get(), self.v["simple_net"].get())
+                                 *(self.v[f"simple_{name}"].get() for name in extras))
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -95,6 +92,7 @@ class Launcher:
             "net": self.v["net"].get(),
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
+            "linuxapps": self.v["linuxapps"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -121,7 +119,7 @@ class Launcher:
                          self.v["simple_iface"], self.v["simple_lazyrad"],
                          self.v["simple_shell"], self.v["simple_devices"],
                          self.v["simple_doom"], self.v["simple_modplayer"],
-                         self.v["simple_net"], self._run)
+                         self.v["simple_net"], self._run, self.v["simple_linuxapps"])
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -147,6 +145,7 @@ class Launcher:
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
+        self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

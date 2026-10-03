@@ -182,6 +182,7 @@ mod ipc_suite;
 mod keyboard_suite;
 mod label_suite;
 mod limits_suite;
+mod linux_compat_suite;
 mod linux_suite;
 mod loader_suite;
 mod mem_suite;
@@ -225,6 +226,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     task_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
+    linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
     signal_suite::CASES,

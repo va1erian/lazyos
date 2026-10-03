@@ -133,6 +133,16 @@ programs! {
     CLIPPASTE = "clippaste";
     /// `rhai`, the scripting command (Linux ABI).
     RHAI = "rhai";
+    /// `dash`, the Debian Almquist shell (`LAZYOS_LINUXAPPS=1`, Linux ABI).
+    DASH = "dash";
+    /// `lua`, the Lua 5.4 interpreter (`LAZYOS_LINUXAPPS=1`, Linux ABI).
+    LUA = "lua";
+    /// `sqlite3`, the SQLite shell (`LAZYOS_LINUXAPPS=1`, Linux ABI).
+    SQLITE3 = "sqlite3";
+    /// `jq`, the JSON processor (`LAZYOS_LINUXAPPS=1`, Linux ABI).
+    JQ = "jq";
+    /// `rg`, ripgrep (`LAZYOS_LINUXAPPS=1`, Linux ABI).
+    RG = "rg";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

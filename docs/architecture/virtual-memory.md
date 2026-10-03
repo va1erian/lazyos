@@ -63,7 +63,7 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
 
 - The image may not reach `MMAP_BASE` (`layout::IMAGE_RESERVED`); everything
   above is placed by the kernel. Below the stack's reservation and above
-  `STACK_TOP` (2 GiB up to `USER_TOP`) nothing is mapped, so an overflow is a
+  `STACK_TOP` (512 GiB up to `USER_TOP`) nothing is mapped, so an overflow is a
   `SIGSEGV`.
 
 - `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED` (`linux.rs:237`); it records an

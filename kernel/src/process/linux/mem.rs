@@ -109,6 +109,39 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
     0
 }
 
+/// `madvise(MADV_DONTNEED)`: anonymous and heap pages in the range are
+/// released (their VMAs stay, so the next touch demand-zeroes a fresh page,
+/// which is exactly the contract), stack pages are zeroed in place (they are
+/// mapped eagerly), and a file segment, whose contract is "reload from the
+/// file", is refused with `EINVAL`.
+pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
+    let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
+        return err(EINVAL);
+    };
+    let table = crate::mem::kernel_table();
+    let vmas = crate::mem::vma::find_range(table, addr, end);
+    if vmas.iter().any(|vma| vma.kind == Kind::File) {
+        return err(EINVAL);
+    }
+    for vma in vmas {
+        let (start, stop) = (vma.start.max(addr), vma.end.min(end));
+        match vma.kind {
+            Kind::Stack => {
+                if vma.prot.has_write() {
+                    let zeros = [0u8; PAGE as usize];
+                    for page in (start..stop).step_by(PAGE as usize) {
+                        let _ = crate::user_ptr::try_copy_to(page, &zeros);
+                    }
+                }
+            }
+            _ => {
+                crate::mem::unmap_range(table, start, stop);
+            }
+        }
+    }
+    0
+}
+
 /// `mprotect(addr, len, prot)`: update the PTE flags for resident pages and
 /// the VMA for the whole range, so pages faulted in later honor the new access
 /// too. Resident COW pages are privatized first (their protection is per

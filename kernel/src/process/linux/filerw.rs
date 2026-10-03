@@ -7,7 +7,7 @@ use crate::fs::vfs::Id;
 use crate::task::{self, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM, ESPIPE};
+use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM, ENOSPC, ESPIPE};
 use super::fd::fd_meta_get;
 use super::vfsfd;
 
@@ -17,6 +17,9 @@ use super::vfsfd;
 /// path, and the descriptor's offset only advances once the copy succeeded, so
 /// a bad buffer is `-EFAULT` and loses nothing.
 pub(super) fn read_file_bytes(fd: u64, ptr: u64, len: u64) -> u64 {
+    if let Some(device) = device_path(fd) {
+        return read_device(&device, ptr, len);
+    }
     let Some(chunk) = task::fd_peek(fd as usize, len as usize) else {
         return 0;
     };
@@ -42,7 +45,12 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
         return err(EBADF);
     };
     if meta.device {
-        return len; // /dev/null and friends discard the bytes
+        // /dev/full is always full; the others discard the bytes.
+        return if meta.path.as_deref() == Some("/dev/full") {
+            err(ENOSPC)
+        } else {
+            len
+        };
     }
     if !meta.writable {
         return err(EBADF);
@@ -82,6 +90,31 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
             written as u64
         }
         Err(error) => fs_err(error),
+    }
+}
+
+/// The node a device descriptor was opened as, if `fd` is one.
+fn device_path(fd: u64) -> Option<alloc::string::String> {
+    fd_meta_get(fd as usize)
+        .filter(|meta| meta.device)
+        .and_then(|meta| meta.path)
+}
+
+/// Most bytes one device read produces (a short read is legal).
+const DEVICE_CHUNK: usize = 64 * 1024;
+
+/// A read from a data device: zeros, random bytes, or end-of-file.
+fn read_device(device: &str, ptr: u64, len: u64) -> u64 {
+    let n = (len as usize).min(DEVICE_CHUNK);
+    let mut bytes = alloc::vec![0u8; n];
+    match device {
+        "/dev/zero" | "/dev/full" => {}
+        "/dev/random" | "/dev/urandom" => super::uaccess::fill_random(&mut bytes),
+        _ => return 0,
+    }
+    match user_ptr::try_copy_to(ptr, &bytes) {
+        Ok(()) => n as u64,
+        Err(_) => err(EFAULT),
     }
 }
 

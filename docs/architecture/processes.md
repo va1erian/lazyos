@@ -247,9 +247,39 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   backend's `StatFs` (ext2 from the superblock, ramfs and the overlay from their
   caps). `pread64`/`pwrite64`/`ftruncate` also work on snapshot descriptors.
 - Honored `clone` flags: `CLONE_VM`, `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
-  `CLONE_CHILD_CLEARTID`. `CLONE_VM` with `CLONE_THREAD` is a pthread; without
-  it, musl's `posix_spawn` vfork child (a copy-on-write process with the
-  parent's descriptor table). Futex words get one `WaitQueue` per address.
+  `CLONE_CHILD_SETTID`, `CLONE_CHILD_CLEARTID`, `CLONE_FILES`, `CLONE_FS`
+  (`CLONE_SIGHAND`, `CLONE_SYSVSEM`, `CLONE_VFORK`, `CLONE_DETACHED` are
+  accepted as implied or moot; any other flag is `EINVAL`). `CLONE_VM` with
+  `CLONE_THREAD` is a pthread; without it, musl's `posix_spawn` vfork child
+  (a copy-on-write process with the parent's descriptor table); without
+  `CLONE_VM`, a fork. A thread starts with a *copy* of its creator's
+  descriptor table; with `CLONE_FILES` the two stay identical: every change
+  (open, close, `dup2`, `FD_CLOEXEC`) is mirrored into each live member of the
+  share group under the task-table lock (`task/fdshare.rs`, groups in
+  `task/linuxstate.rs`), each copy holding its own reference, so a close in
+  one thread closes everywhere and a thread's exit drops only its own copies.
+  `CLONE_FS` mirrors `chdir` the same way. `execve` leaves both groups.
+- `getpid` reports the thread group (the leader's slot), `gettid` the slot.
+  `wait4`/`waitid` honour the pid argument (one child, any, own group,
+  `-pgid`; `ECHILD` when none qualifies) and report a signal death as
+  `WIFSIGNALED` with the core bit (the signal is recorded with the task when
+  the signal layer ends it, `LinuxExtras::term_signal`). `vfork` is a fork.
+- Futexes (`futex.rs`, `futex_queue.rs`): one waiter table keyed by (address
+  space, address) with a bitset per waiter; `WAIT` (relative timeout),
+  `WAIT_BITSET` (absolute, `FUTEX_CLOCK_REALTIME` honoured), `WAKE`,
+  `WAKE_BITSET`, `REQUEUE`, `CMP_REQUEUE`, `WAKE_OP`; anything else `ENOSYS`.
+  A thread's exit walks its `set_robust_list` list (owner-died + one wake).
+- Terminals (`kernel/src/tty/`, `process/linux/tty.rs`): one line discipline
+  type serves the console window (kept with its root task, keys fed in when
+  someone reads or polls) and pseudo-terminals (`/dev/ptmx` + `/dev/pts/N`).
+  `TCGETS`/`TCSETS*`, canonical editing and echo, `VMIN`/`VTIME`, `ISIG` to
+  the foreground group `TIOCSPGRP` set (the console's `^C` is turned into
+  `SIGINT` by the keyboard path unless `ISIG` is off), window size with
+  `SIGWINCH`, `TIOCSCTTY`; `/dev/tty` is the controlling pty when there is
+  one. Only terminals answer the terminal `ioctl`s (`ENOTTY` otherwise).
+- Advisory locks (`locks.rs`): `flock` per open file description, `fcntl`
+  record locks per process (and the OFD forms), released at unlock or when the
+  owner is gone (checked lazily); `F_SETLKW` waits with a 100 ms re-check.
 - Pipes are bounded 64 KiB byte rings with reader/writer refcounts, blocking
   waits on the task wait queues, EOF when the last writer closes and `-EPIPE`
   when the last reader closes (no SIGPIPE; see the module docs). `F_GETFL`/
@@ -341,8 +371,12 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 **Status.** Working: BusyBox `sh`, the 14 static musl fixtures in
 `tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
-supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
-`SA_RESTART`, shared file tables (and `CLONE_FS`: a thread's `chdir` does not move its
-siblings), dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`. The
-`persist` fixture also sets and re-checks mode, owner and times across its two
-boots.
+supervision loop (`init`, app `Launch`), and real programs built from pinned
+sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, lua, sqlite3,
+jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
+linking; per-thread signal masks and targeting; `timerfd`/`signalfd`/`inotify`/
+`memfd_create`; `alarm`/`setitimer`; `SCM_RIGHTS`; `SIGTTIN`/`SIGTTOU`; the
+umask is global, not per process. `link`/`symlink` answer `EPERM` (no
+filesystem stores links). The `persist` fixture also sets and re-checks mode,
+owner and times across its two boots. Kernel tests for the round-3 calls:
+`kernel/src/tests/linux_compat_suite/`.

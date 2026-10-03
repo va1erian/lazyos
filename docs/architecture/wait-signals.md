@@ -55,7 +55,13 @@ delivery.
 - Linux frames follow `struct rt_sigframe`: restorer pointer, `ucontext_t`
   (with `sigcontext`), `siginfo_t`; `parse_linux_frame` reverses it for
   `rt_sigreturn`. `SA_SIGINFO`, `SA_ONSTACK`, `SA_NODEFER`, `SA_RESETHAND` are
-  honored; `SA_RESTORER`/`SA_RESTART` are informational.
+  honored; `SA_RESTORER` is informational. `SA_RESTART`: when a restartable
+  syscall (the transfers, waits and lock calls; not `poll`/`select`/
+  `epoll_wait`/sleeps) returns `-EINTR` and the first handler to run carries
+  the flag, `deliver_linux_restartable` rewinds the frame to the `syscall`
+  instruction (`rip - 2`, `rax` = the number), so `rt_sigreturn` issues the
+  call again with its saved arguments. The saved registers are read only when
+  a handler needs a frame.
 - Native frames are `[old_rip, old_rsp, old_rflags, sig, GP regs...]` and a bare
   `ret` returns to the interrupted instruction (native programs have no
   `sigreturn` syscall yet).
@@ -78,4 +84,6 @@ delivery.
 
 **Status.** Working: `kill`/`tkill`/`tgkill`, masks, alt stacks, handlers,
 `SIGSEGV` on unresolvable faults, stop/cont, `SIGCHLD` to `wait4`. Missing:
-`sigqueue` payloads, `SA_RESTART` semantics, job-control tty layer.
+`sigqueue` payloads, per-thread masks, `SIGTTIN`/`SIGTTOU`. The terminal
+layer (`kernel/src/tty/`) sends `SIGINT`/`SIGQUIT`/`SIGTSTP` to the foreground
+group and `SIGHUP` when a pty's master closes, `SIGWINCH` on a resize.

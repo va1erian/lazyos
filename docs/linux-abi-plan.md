@@ -17,6 +17,64 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > global updated on every context switch (see `arch.md`, "Linux entry
 > decisions"). Remaining gaps are listed in the processes page.
 
+> **Round 3 (2026-10-03): real CLI software.** Unmodified upstream programs
+> now run: `dash` 0.5.12, `lua` 5.4.7, `sqlite3` 3.46.1, `jq` 1.7.1 and
+> ripgrep 14.1.1, built from pinned, hash-checked sources by
+> `tools/linuxapps/build.py` (zig for C, the musl target for Rust) and placed
+> in `/system/bin` by `LAZYOS_LINUXAPPS=1` (`run_demo.py --linuxapps`, or the
+> launcher's checkbox). The bench runs each as a row (`dash`, `lua`, ...), plus
+> a `compat` fixture for the calls below. What changed in the shim:
+>
+> * **futex**: `REQUEUE`, `CMP_REQUEUE`, `WAKE_OP` and the bitset ops are real;
+>   wait timeouts are honoured (relative for `WAIT`, absolute on
+>   `CLOCK_MONOTONIC`/`CLOCK_REALTIME` for `WAIT_BITSET`); waiters are keyed by
+>   address space and address; the PI family and `FUTEX_FD` answer `ENOSYS`
+>   instead of a silent 0 (`process/linux/futex.rs`, `futex_queue.rs`).
+> * **processes**: `wait4` honours its pid argument (one child, any, own group,
+>   `-pgid`) and reports `WIFSIGNALED`/`WCOREDUMP`; `waitid`; `vfork` (as a
+>   copy-on-write fork); `clone` refuses unknown flags, does process-style
+>   clones, writes `pid_t`-sized tids, and implements `CLONE_FILES`/`CLONE_FS`
+>   (a thread used to get a *fresh* descriptor table); `getpid` of a thread is
+>   its group leader; `/proc/self/exe` names the running program.
+> * **signals**: `SA_RESTART` restarts interrupted transfers, waits and lock
+>   calls; `pause`; `ppoll`/`pselect6`/`epoll_pwait` install their mask like
+>   `sigsuspend`.
+> * **terminals**: a real line discipline (`kernel/src/tty/`) with
+>   `TCGETS`/`TCSETS*`, canonical editing and echo, `VMIN`/`VTIME`, `ISIG`
+>   to the foreground group (`TIOCSPGRP`), window size; pseudo-terminals
+>   (`/dev/ptmx`, `/dev/pts/N`, `TIOCGPTN`/`TIOCSPTLCK`/`TIOCSCTTY`), which the
+>   desktop Terminal now hosts its shell on. Pipes are no longer reported as
+>   terminals (`ioctl` and `fstat` used to lie for descriptors 0-2).
+> * **new syscalls**: `select`, `pselect6`, `ppoll`, `sched_yield`,
+>   `sched_getparam`/`getscheduler`/`get_priority_*`, `flock` and `fcntl`
+>   record locks (`F_GETLK`/`F_SETLK`/`F_SETLKW`, OFD forms), `sendmsg`/
+>   `recvmsg` (no ancillary data), `MSG_PEEK`/`MSG_DONTWAIT`/`MSG_WAITALL`,
+>   `getrlimit`/`setrlimit`/`prlimit64` (the real limits; only no-op changes
+>   accepted), `sysinfo`, `times`, `getrusage`, `getgroups`/`setgroups`,
+>   `readlinkat`, `faccessat`/`faccessat2`, `dup3`, `renameat2`
+>   (`RENAME_NOREPLACE`), `epoll_create`, `eventfd`, `getcpu`; `link`/
+>   `symlink`/`linkat`/`symlinkat` answer `EPERM` (no filesystem stores links).
+> * **no more silent stubs**: `madvise` (`DONTNEED` really zero-fills, unknown
+>   advice is `EINVAL`), `prctl` (names, dumpable, no-new-privs; the rest
+>   `EINVAL`), `set_robust_list` (walked at thread exit: owner-died + wake),
+>   `reboot` (`EPERM`: only `init` stops the machine).
+> * **files**: fabricated `/etc` (`passwd` and `group` from the account file
+>   without secrets, `hosts`, `resolv.conf` naming QEMU's `10.0.2.3`,
+>   `hostname`, `os-release`, `shells`), more `/proc` (`cpuinfo`, `meminfo`,
+>   `uptime`, `loadavg`, `stat`, `version`, `filesystems`, `self/stat`,
+>   `self/status`, `self/comm`, `self/fd/N` links), `/dev/zero`/`/dev/full`
+>   behave, `/dev/random`/`/dev/urandom` exist; `readlink` of a plain file is
+>   `EINVAL` (what `realpath` needs).
+>
+> Still missing, by how much software it blocks: dynamic linking (static-PIE
+> and static binaries only); a per-thread signal mask and per-thread signal
+> targeting (both still per process); `timerfd`/`signalfd`/`inotify`/
+> `memfd_create`; `alarm`/`setitimer`; descriptor passing (`SCM_RIGHTS`);
+> `SIGTTIN`/`SIGTTOU` job-control stops; symlinks and hard links in the
+> filesystems; record locks are not dropped when *one* descriptor of the file
+> closes (only at unlock or exit). The kernel test suite for all of this is
+> `kernel/src/tests/linux_compat_suite/`.
+
 **Goal:** run ordinary, prebuilt **`x86_64-unknown-linux-musl` static binaries**
 (including Rust programs that link `std`) on LazyOS, by implementing enough of
 the Linux x86_64 ABI that musl's startup and `std`'s runtime are satisfied — no

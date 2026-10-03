@@ -184,6 +184,16 @@ The Terminal reports one `TERM:OUT` per command, and a command that wraps past
 sets `PS1='# '` first). Shell command substitution (`$(...)`) works since #518
 (`cmdsubst_console.json`, `cmdsubst_desktop.json`).
 
+## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
+
+`python tools/linuxapps/build.py` builds unmodified dash, lua, sqlite3, jq and
+ripgrep from pinned, hash-checked sources (zig for C) into
+`target/linuxapps/bin`; `LAZYOS_LINUXAPPS=1` (`run_demo.py --linuxapps`) puts
+them in `/system/bin`. The ABI bench runs them (`tools/abi/run.py --only
+dash,lua,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
+drive them interactively (the desktop Terminal runs its shell on a pty, so
+`vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command

@@ -51,6 +51,8 @@ pub struct Interp<'a> {
 pub struct Image {
     pub file: VfsFile,
     pub argv: Vec<Vec<u8>>,
+    /// The file the ELF came from (`/proc/self/exe` of the new image).
+    pub path: String,
 }
 
 fn is_blank(byte: u8) -> bool {
@@ -109,14 +111,14 @@ fn c_arg(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Map special process paths to a real file (`/proc/self/exe` ->
-/// `/system/bin/busybox`) and drop the leading `/` the ABI VFS lookups take
-/// without.
-fn exe_target(path: &str) -> &str {
-    match path {
-        "/proc/self/exe" => fhs::bin::BUSYBOX.trim_start_matches('/'),
-        other => other.trim_start_matches('/'),
-    }
+/// Map special process paths to a real file (`/proc/self/exe` -> the program
+/// the caller runs) and drop the leading `/` the ABI VFS lookups take without.
+fn exe_target(path: &str) -> String {
+    let path = match path {
+        "/proc/self/exe" => super::path::self_exe(),
+        other => String::from(other),
+    };
+    String::from(path.trim_start_matches('/'))
 }
 
 /// Open one hop: refuse a `noexec` mount or a missing execute bit, then open
@@ -160,11 +162,15 @@ fn head(file: &VfsFile) -> Result<Vec<u8>, u64> {
 /// `./s.sh`, like Linux). Errors are `-errno`, ready to return.
 pub fn resolve(mut path: String, mut name: Vec<u8>, mut argv: Vec<Vec<u8>>) -> Result<Image, u64> {
     for depth in 0..=MAX_DEPTH {
-        let file = open_checked(exe_target(&path))?;
+        let target = exe_target(&path);
+        let file = open_checked(&target)?;
         let bytes = head(&file)?;
         let interp = match parse(&bytes) {
             Ok(Some(interp)) => interp,
-            Ok(None) => return Ok(Image { file, argv }),
+            Ok(None) => {
+                let path = super::path::real_exe_path(&target);
+                return Ok(Image { file, argv, path });
+            }
             Err(code) => return Err(err(code)),
         };
         if depth == MAX_DEPTH {

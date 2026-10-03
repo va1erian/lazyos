@@ -33,6 +33,25 @@ pub const CHUNK: usize = 128 * 1024;
 
 const PAGE: u64 = 4096;
 
+/// The load failures that mean frames or page-table pages ran out (`ENOMEM`):
+/// callers classify a reason with [`is_out_of_memory`], by exact match, so a
+/// new image-validation message can never be mistaken for one.
+pub const OUT_OF_MEMORY: &str = "out of memory";
+pub const WIDEN_FAILED: &str = "failed to widen shared page";
+pub const MAP_SEGMENT_FAILED: &str = "failed to map segment";
+pub const MAP_PAGE_FAILED: &str = "failed to map user page";
+
+/// Whether a loader reason is frame exhaustion rather than a bad image.
+pub fn is_out_of_memory(reason: &str) -> bool {
+    [
+        OUT_OF_MEMORY,
+        WIDEN_FAILED,
+        MAP_SEGMENT_FAILED,
+        MAP_PAGE_FAILED,
+    ]
+    .contains(&reason)
+}
+
 /// What a successful load produced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Loaded {
@@ -106,7 +125,7 @@ fn plan(
         if header.flags & PF_X != 0 {
             prot = prot | Prot::EXEC;
         }
-        segments.try_reserve(1).map_err(|_| "out of memory")?;
+        segments.try_reserve(1).map_err(|_| OUT_OF_MEMORY)?;
         segments.push(Segment {
             vaddr,
             vend,
@@ -185,9 +204,7 @@ fn map_plan<I: Image + ?Sized>(
     let mut prots: BTreeMap<u64, Prot> = BTreeMap::new();
     let mut shared: Vec<u64> = Vec::new();
     let mut chunk = Vec::new();
-    chunk
-        .try_reserve_exact(CHUNK)
-        .map_err(|_| "out of memory")?;
+    chunk.try_reserve_exact(CHUNK).map_err(|_| OUT_OF_MEMORY)?;
     chunk.resize(CHUNK, 0u8);
 
     for segment in segments {
@@ -232,17 +249,17 @@ fn map_eager_page(
         let union = *current | prot;
         if union != *current {
             if !mem::protect_range(table, va, va + PAGE, union) {
-                return Err("failed to widen shared page");
+                return Err(WIDEN_FAILED);
             }
             *current = union;
         }
         shared.push(va);
         return Ok(());
     }
-    let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
+    let phys = mem::alloc_zeroed_frame().ok_or(OUT_OF_MEMORY)?;
     if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
         mem::free_frame(phys);
-        return Err("failed to map segment");
+        return Err(MAP_SEGMENT_FAILED);
     }
     pages.insert(va, phys.as_u64());
     prots.insert(va, prot);

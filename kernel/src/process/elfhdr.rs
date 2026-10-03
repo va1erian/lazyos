@@ -6,7 +6,7 @@
 
 use alloc::vec::Vec;
 
-use super::image::Image;
+use super::image::{Image, READ_FAILED};
 
 /// `PT_LOAD`: a segment the loader maps.
 pub const PT_LOAD: u32 = 1;
@@ -57,13 +57,23 @@ fn u64_at(bytes: &[u8], at: usize) -> u64 {
 }
 
 /// Read and validate the file header and every program header of `image`:
+/// A header read that failed: an I/O error stays one ([`READ_FAILED`], so the
+/// caller reports `EIO`); a short file is the image's fault (`invalid`).
+fn io_or(error: &'static str, invalid: &'static str) -> &'static str {
+    if error == READ_FAILED {
+        error
+    } else {
+        invalid
+    }
+}
+
 /// a little-endian ELF64 x86-64 executable (`ET_EXEC`) or static PIE
 /// (`ET_DYN`), version 1, with standard-size program headers inside the file.
 pub fn read<I: Image + ?Sized>(image: &I) -> Result<Headers, &'static str> {
     let mut ehdr = [0u8; EHDR_SIZE];
     image
         .read_exact_at(0, &mut ehdr)
-        .map_err(|_| "not a valid ELF")?;
+        .map_err(|e| io_or(e, "not a valid ELF"))?;
     if ehdr[..4] != [0x7f, b'E', b'L', b'F'] || ehdr[4] != 2 || ehdr[5] != 1 || ehdr[6] != 1 {
         return Err("not a valid ELF");
     }
@@ -83,11 +93,11 @@ pub fn read<I: Image + ?Sized>(image: &I) -> Result<Headers, &'static str> {
     let mut table = Vec::new();
     table
         .try_reserve_exact(table_len)
-        .map_err(|_| "out of memory")?;
+        .map_err(|_| super::loader::OUT_OF_MEMORY)?;
     table.resize(table_len, 0);
     image
         .read_exact_at(phoff, &mut table)
-        .map_err(|_| "program headers out of file")?;
+        .map_err(|e| io_or(e, "program headers out of file"))?;
     let phdrs = table
         .chunks_exact(usize::from(PHDR_SIZE))
         .map(|raw| Phdr {

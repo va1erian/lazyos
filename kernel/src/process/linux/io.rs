@@ -53,7 +53,7 @@ pub(super) fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
 /// One non-blocking poll pass over the user's `pollfd` array. Every open
 /// descriptor kind is classified by the task layer, so pipes, sockets, files
 /// and the terminal all report `POLLIN`/`POLLOUT`/`POLLHUP`/`POLLERR`/`POLLNVAL`.
-fn scan_poll(fds: u64, nfds: u64) -> u64 {
+pub(super) fn scan_poll(fds: u64, nfds: u64) -> u64 {
     const POLLNVAL: u16 = 0x0020;
     let mut ready = 0u64;
     for i in 0..nfds {
@@ -91,6 +91,7 @@ fn scan_poll(fds: u64, nfds: u64) -> u64 {
 pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => write_terminal(ptr, len),
+        FdKind::Pty => super::tty::write_pty(fd, ptr, len),
         FdKind::Pipe | FdKind::Socket => write_stream(fd, ptr, len),
         FdKind::Inet => super::inet::sys_write(fd, ptr, len),
         FdKind::File => write_file(fd, ptr, len, None),
@@ -127,6 +128,11 @@ fn write_terminal(ptr: u64, len: u64) -> u64 {
 /// staged in one heap buffer (up to the pipe capacity, larger is `-EMSGSIZE`)
 /// so framing cannot be split.
 pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    write_stream_opts(fd, ptr, len, false)
+}
+
+/// [`write_stream`] that never blocks when `dont_wait` (`MSG_DONTWAIT`).
+pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) -> u64 {
     if len == 0 {
         return 0;
     }
@@ -144,7 +150,7 @@ pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
             Ok(bytes) => buf.copy_from_slice(bytes),
             Err(_) => return err(EFAULT),
         }
-        return match task::fd_stream_write(fd as usize, &buf) {
+        return match task::fd_stream_send(fd as usize, &buf, dont_wait) {
             Ok(n) => n as u64,
             Err(pipe::Error::WouldBlock) => err(EAGAIN),
             Err(pipe::Error::BrokenPipe) => err(EPIPE),
@@ -160,14 +166,9 @@ pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
         Ok(bytes) => buf[..want].copy_from_slice(bytes),
         Err(_) => return err(EFAULT),
     }
-    match task::fd_stream_write(fd as usize, &buf[..want]) {
+    match task::fd_stream_send(fd as usize, &buf[..want], dont_wait) {
         Ok(n) => n as u64,
-        Err(pipe::Error::WouldBlock) => err(EAGAIN),
-        Err(pipe::Error::BrokenPipe) => err(EPIPE),
-        Err(pipe::Error::Interrupted) => err(EINTR),
-        Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
-        Err(pipe::Error::Invalid) => err(EINVAL),
-        Err(pipe::Error::BadEnd) => err(EBADF),
+        Err(error) => pipe_error(error),
     }
 }
 
@@ -202,7 +203,8 @@ fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
 
 pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::Terminal => read_terminal(ptr, len),
+        FdKind::Terminal => super::tty::read_console(ptr, len),
+        FdKind::Pty => super::tty::read_pty(fd, ptr, len),
         FdKind::File => read_file_bytes(fd, ptr, len),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::read(file, ptr, len)),
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
@@ -219,6 +221,11 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
 /// A `SOCK_SEQPACKET` read stages only `min(len, capacity)` bytes, because the
 /// stream layer truncates and discards the rest of an oversized message.
 pub(super) fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
+    read_stream_opts(fd, ptr, len, task::RecvOpts::default())
+}
+
+/// [`read_stream`] with `recv` modifiers (`MSG_DONTWAIT`, `MSG_PEEK`).
+pub(super) fn read_stream_opts(fd: u64, ptr: u64, len: u64, opts: task::RecvOpts) -> u64 {
     if len == 0 {
         return 0;
     }
@@ -239,7 +246,7 @@ pub(super) fn read_stream(fd: u64, ptr: u64, len: u64) -> u64 {
     } else {
         &mut stack[..want]
     };
-    match task::fd_stream_read(fd as usize, buf) {
+    match task::fd_stream_recv(fd as usize, buf, opts) {
         Ok(n) => {
             if n > 0 {
                 // Safety: the caller passes a valid user buffer of `len` bytes
@@ -276,40 +283,5 @@ fn read_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::Invalid | pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => {
             err(EINVAL)
         }
-    }
-}
-
-/// Read terminal input as a byte stream: return once at least one key is
-/// available (raw-mode programs read a byte at a time). Between checks the
-/// task parks on the terminal wait queue, so an idle shell costs no CPU.
-fn read_terminal(ptr: u64, len: u64) -> u64 {
-    if len == 0 {
-        return 0;
-    }
-    loop {
-        if let Some(key) = task::take_key() {
-            // Safety: destination within the user buffer (the syscall ABI's contract).
-            unsafe { user_ptr::write::<u8>(ptr, key_to_byte(key)) };
-            return 1;
-        }
-        // A key may have gone to another task's window; spurious wakeups just
-        // loop. `read` has no timeout, so only an interrupt can end the wait.
-        match task::wait_terminal() {
-            WakeReason::Woken | WakeReason::TimedOut => {}
-            WakeReason::Interrupted => return err(EINTR),
-        }
-    }
-}
-
-fn key_to_byte(key: crate::input::keyboard::Key) -> u8 {
-    use crate::input::keyboard::Key;
-    match key {
-        Key::Char(c) => c as u8,
-        Key::Enter => b'\n',
-        Key::Space => b' ',
-        Key::Tab => b'\t',
-        Key::Backspace => 8,
-        Key::Escape => 27,
-        _ => 0,
     }
 }
