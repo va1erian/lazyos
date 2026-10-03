@@ -36,8 +36,11 @@ fn every_sample_checks_clean() {
 fn the_messenger_sample_declares_what_it_uses() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/messenger");
     let script = fs::read_to_string(dir.join("main_form.rhai")).unwrap();
-    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user"))))
-        .script_permissions(&[&script]);
+    let found = LazyOsPlatform::ide(
+        Home::from_var(Some(OsStr::new("/home/user"))),
+        Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf"),
+    )
+    .script_permissions(&[&script]);
     assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
     assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
 }

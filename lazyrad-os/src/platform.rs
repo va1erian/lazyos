@@ -5,7 +5,8 @@
 //! * which files a script may touch (decision D5: an app's private data
 //!   directory, its own project read-only, nothing else);
 //! * where LazyRAD keeps settings and projects (the user's home, [`Home`]);
-//! * where the player binary is (`/system/bin/lrplay`);
+//! * where the player binary is (`lrplay.elf` beside the running IDE in its
+//!   install directory, [`player_beside`]);
 //! * the monospace face (the bundled JetBrains Mono).
 //!
 //! Everything LazyRAD writes lives in the home of the user running it
@@ -28,8 +29,16 @@ use xui_core::widget::StdFileSystem;
 /// this). Read only: `pkgd` writes it.
 pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
 
-/// The player the image ships in `/system/bin`.
-pub const PLAYER_PATH: &str = fhs::bin::LRPLAY;
+/// The player's file name inside the package, beside `lazyrad.elf`
+/// (`bin/lrplay.elf`, `tools/xui/core_packages.py`).
+pub const PLAYER_FILE: &str = "lrplay.elf";
+
+/// The player that ships with the IDE at `exe`: the same install directory
+/// (`/apps/os.lazy.lazyrad/<version>-<hash>/bin/`). The packager copies it into
+/// every `.lzp` it builds, and Play runs it.
+pub fn player_beside(exe: &Path) -> PathBuf {
+    exe.with_file_name(PLAYER_FILE)
+}
 
 /// The home used when `$HOME` is unset or unusable: the ramfs, so nothing is
 /// kept across a reboot.
@@ -92,7 +101,7 @@ impl Home {
         PathBuf::from(fhs::app_data_dir(&self.path_text(), system_name))
     }
 
-    /// The IDE's settings, `<home>/.apps/lazyrad/config`.
+    /// The IDE's settings, `<home>/.apps/os.lazy.lazyrad/config`.
     pub fn config_dir(&self) -> PathBuf {
         self.app_data(fhs::state::LAZYRAD_APP)
             .join(fhs::state::LAZYRAD_CONFIG)
@@ -104,7 +113,7 @@ impl Home {
     }
 
     /// The read/write directory of a project that is not an installed app,
-    /// `<home>/.apps/lazyrad/data`.
+    /// `<home>/.apps/os.lazy.lazyrad/data`.
     pub fn dev_data_dir(&self) -> PathBuf {
         self.app_data(fhs::state::LAZYRAD_APP)
             .join(fhs::state::LAZYRAD_DATA)
@@ -141,11 +150,15 @@ pub fn installed_app_id(exe: &Path) -> Option<String> {
 }
 
 /// The read/write root for a script: an installed app's
-/// `<home>/.apps/<system_name>`, else `<home>/.apps/lazyrad/data`.
+/// `<home>/.apps/<system_name>`, else `<home>/.apps/os.lazy.lazyrad/data`.
+///
+/// A player that runs from the IDE's own install directory (Play) is not an
+/// installed app of its own: it gets the IDE's `data` folder, so a project's
+/// files never mix with the IDE's `config`.
 pub fn data_root(exe: &Path, home: &Home) -> PathBuf {
     match installed_app_id(exe) {
-        Some(id) => home.app_data(&id),
-        None => home.dev_data_dir(),
+        Some(id) if id != fhs::state::LAZYRAD_APP => home.app_data(&id),
+        _ => home.dev_data_dir(),
     }
 }
 
@@ -173,20 +186,28 @@ pub fn start_dir(home: &Home, exists: impl Fn(&Path) -> bool) -> PathBuf {
 pub struct LazyOsPlatform {
     policy: FsPolicy,
     home: Home,
+    player: Option<PathBuf>,
 }
 
 impl LazyOsPlatform {
-    /// The platform for a player whose scripts run under `policy`.
+    /// The platform for a player whose scripts run under `policy`. A player
+    /// starts no other player.
     pub fn player(policy: FsPolicy, home: Home) -> LazyOsPlatform {
-        LazyOsPlatform { policy, home }
+        LazyOsPlatform {
+            policy,
+            home,
+            player: None,
+        }
     }
 
-    /// The platform for the IDE: scripts (designer preview) may use the
-    /// projects folder only.
-    pub fn ide(home: Home) -> LazyOsPlatform {
+    /// The platform for the IDE running from `exe`: scripts (designer preview)
+    /// may use the projects folder only, and the player is the one beside
+    /// `exe` ([`player_beside`]).
+    pub fn ide(home: Home, exe: &Path) -> LazyOsPlatform {
         LazyOsPlatform {
             policy: FsPolicy::Sandboxed(Sandbox::new(home.projects_dir())),
             home,
+            player: Some(player_beside(exe)),
         }
     }
 }
@@ -209,7 +230,7 @@ impl Platform for LazyOsPlatform {
     }
 
     fn player_executable(&self) -> Option<PathBuf> {
-        Some(PathBuf::from(PLAYER_PATH))
+        self.player.clone()
     }
 
     /// The portable dialog over the shim's `std::fs`; the VFS lists mount
@@ -239,6 +260,7 @@ mod tests {
     use super::*;
 
     const APP_EXE: &str = "/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf";
+    const IDE_EXE: &str = "/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf";
 
     fn home(path: &str) -> Home {
         Home::from_var(Some(OsStr::new(path)))
@@ -280,16 +302,16 @@ mod tests {
         let user = home("/home/user");
         assert_eq!(
             user.config_dir(),
-            Path::new("/home/user/.apps/lazyrad/config")
+            Path::new("/home/user/.apps/os.lazy.lazyrad/config")
         );
         assert_eq!(user.projects_dir(), Path::new("/home/user/projects"));
         assert_eq!(
             user.dev_data_dir(),
-            Path::new("/home/user/.apps/lazyrad/data")
+            Path::new("/home/user/.apps/os.lazy.lazyrad/data")
         );
         assert_eq!(
             Home::from_var(None).config_dir(),
-            Path::new("/transient/lazyrad/.apps/lazyrad/config")
+            Path::new("/transient/lazyrad/.apps/os.lazy.lazyrad/config")
         );
     }
 
@@ -306,15 +328,25 @@ mod tests {
 
     #[test]
     fn a_dev_run_uses_lazyrads_own_data_folder() {
-        let exe = Path::new(PLAYER_PATH);
+        // A shell run, and Play: the player beside the installed IDE.
+        let play = player_beside(Path::new(IDE_EXE));
+        assert_eq!(
+            play,
+            Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lrplay.elf")
+        );
+        assert_eq!(
+            data_root(&play, &home("/home/admin")),
+            Path::new("/home/admin/.apps/os.lazy.lazyrad/data")
+        );
+        let exe = Path::new("/transient/lrplay.elf");
         assert_eq!(installed_app_id(exe), None);
         assert_eq!(
             data_root(exe, &home("/home/admin")),
-            Path::new("/home/admin/.apps/lazyrad/data")
+            Path::new("/home/admin/.apps/os.lazy.lazyrad/data")
         );
         assert_eq!(
             data_root(exe, &Home::from_var(None)),
-            Path::new("/transient/lazyrad/.apps/lazyrad/data")
+            Path::new("/transient/lazyrad/.apps/os.lazy.lazyrad/data")
         );
     }
 
@@ -380,7 +412,7 @@ mod tests {
 
     #[test]
     fn the_ide_platform_offers_an_in_window_filesystem() {
-        let platform = LazyOsPlatform::ide(home("/home/user"));
+        let platform = LazyOsPlatform::ide(home("/home/user"), Path::new(IDE_EXE));
         let fs = platform.file_system().expect("LazyOS has painted dialogs");
         // The root lists the mount points the VFS omits, through the wrapper.
         let _ = fs.list(Path::new("/"));
@@ -388,25 +420,28 @@ mod tests {
 
     #[test]
     fn packaged_apps_declare_the_services_their_scripts_call() {
-        let found = LazyOsPlatform::ide(home("/home/user")).script_permissions(&[
-            "fn form_load() { label.text = sys::confd::get(\"sys/ui/theme\").str_value; }",
-            "fn watch() { sys::confd::on_changed(|e| ()); }",
-        ]);
+        let found =
+            LazyOsPlatform::ide(home("/home/user"), Path::new(IDE_EXE)).script_permissions(&[
+                "fn form_load() { label.text = sys::confd::get(\"sys/ui/theme\").str_value; }",
+                "fn watch() { sys::confd::on_changed(|e| ()); }",
+            ]);
         assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
         assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
     }
 
     #[test]
     fn the_platform_reports_lazyos_places() {
-        let platform = LazyOsPlatform::ide(home("/home/user"));
+        let platform = LazyOsPlatform::ide(home("/home/user"), Path::new(IDE_EXE));
         assert_eq!(platform.name(), "lazyos");
         assert_eq!(
             platform.config_dir(),
-            Some(PathBuf::from("/home/user/.apps/lazyrad/config"))
+            Some(PathBuf::from("/home/user/.apps/os.lazy.lazyrad/config"))
         );
         assert_eq!(
             platform.player_executable(),
-            Some(PathBuf::from(PLAYER_PATH))
+            Some(PathBuf::from(
+                "/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lrplay.elf"
+            ))
         );
         assert!(!platform.default_monospace_font().is_empty());
     }

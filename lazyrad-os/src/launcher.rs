@@ -26,6 +26,24 @@ use lazyrad_ide::run::{
 /// the UI thread between frames.
 const READ_BUDGET: usize = 64 * 1024;
 
+/// What the run console adds when a Messenger call of the project is refused.
+///
+/// Play forks the player, and a child inherits its parent's label, so the
+/// project runs with the IDE's permissions (`os.lazy.lazyrad`), not the ones
+/// the installed app would get: a service the IDE's manifest does not name is
+/// refused (`docs/lazyrad-package-plan.md`, section 1). The installed app is
+/// granted what its scripts call, so the same project works once installed.
+pub const DENIED_HINT: &str = "Note: Play runs your project with LazyRAD's own permissions, so a \
+    service LazyRAD does not declare is refused. An app made with Make LazyOS App is granted the \
+    services its scripts call, and runs without this refusal.";
+
+/// Whether `line` is the player reporting a refused Messenger call: the
+/// `msg::`/`sys::` binding naming the kernel's permission denial.
+fn is_denied_call(line: &str) -> bool {
+    line.contains("permission denied (EACCES)")
+        && (line.contains("msg::") || line.contains("sys::"))
+}
+
 /// Launches the player with non-blocking pipes (see the module documentation).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PollingLauncher;
@@ -71,6 +89,7 @@ impl Launcher for PollingLauncher {
             out: Pipe::new(stdout),
             err: Pipe::new(stderr),
             done: false,
+            hinted: false,
         }))
     }
 }
@@ -137,16 +156,28 @@ struct PollingChild {
     out: Pipe<std::process::ChildStdout>,
     err: Pipe<std::process::ChildStderr>,
     done: bool,
+    /// [`DENIED_HINT`] was already shown for this run.
+    hinted: bool,
 }
 
 impl PollingChild {
     /// Reports what both pipes have for us, stdout first.
     fn drain_pipes(&mut self) {
         for line in self.out.drain() {
-            (self.sink)(self.run, RunEvent::Output(line));
+            self.report(RunEvent::Output(line.clone()), &line);
         }
         for line in self.err.drain() {
-            (self.sink)(self.run, stderr_event(line));
+            self.report(stderr_event(line.clone()), &line);
+        }
+    }
+
+    /// Sends `event` (made from `line`) and, the first time a line is a
+    /// refused Messenger call, the explanation after it.
+    fn report(&mut self, event: RunEvent, line: &str) {
+        (self.sink)(self.run, event);
+        if !self.hinted && is_denied_call(line) {
+            self.hinted = true;
+            (self.sink)(self.run, RunEvent::Output(DENIED_HINT.to_owned()));
         }
     }
 }
@@ -218,6 +249,25 @@ mod tests {
 
     fn script(items: Vec<io::Result<Vec<u8>>>) -> Pipe<Script> {
         Pipe::new(Script(items.into()))
+    }
+
+    #[test]
+    fn a_refused_messenger_call_is_recognised_and_other_errors_are_not() {
+        let refused = "main_form.rhai:8:28: Runtime error: msg::connect: no service for \
+                       os.lazy.confd.v1 (tried os.lazy.confd, os.lazy.confd.v1): permission \
+                       denied (EACCES) @ 'sys'";
+        assert!(is_denied_call(refused));
+        assert!(is_denied_call(
+            "sys::confd::get: permission denied (EACCES)"
+        ));
+        // A script file the sandbox refuses is not a label denial.
+        assert!(!is_denied_call(
+            "file_read_text: permission denied (EACCES)"
+        ));
+        assert!(!is_denied_call(
+            "msg::connect: no service for os.lazy.x (ENOENT)"
+        ));
+        assert!(DENIED_HINT.contains("Make LazyOS App"));
     }
 
     #[test]

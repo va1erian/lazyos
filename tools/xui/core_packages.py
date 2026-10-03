@@ -3,8 +3,9 @@
 
 Each app has a package source tree under `xui-app/packages/<short>/` (manifest,
 icons, docs). This copies the built `target/xui/<elf>` into a scratch copy of
-the tree as `bin/<short>.elf`, sets the manifest's `version` to the workspace
-version, and builds the archive with `tools/pkg/build.py`, twice: once with
+the tree as `bin/<short>.elf` (the LazyRAD IDE copies its two programs from
+`target/lazyrad/`, see `CORE_APPS`), sets the manifest's `version` to the
+workspace version, and builds the archive with `tools/pkg/build.py`, twice: once with
 `autostart = false` (`target/pkg/core/<sn>-<version>.lzp`) and once with
 `autostart = true` (`target/pkg/core/autostart/<sn>-<version>.lzp`). The root
 `build.rs` (`build_support/core_packages.rs`) embeds one of the two per app as
@@ -17,7 +18,8 @@ boot. Every archive is checked against `pkgd`'s 8 MiB package limit.
 
 `tools/xui/build.py` runs this after building the apps; by hand:
 
-    python tools/xui/core_packages.py [--xui-dir target/xui] [--out target/pkg/core]
+    python tools/xui/core_packages.py [--xui-dir target/xui] [--lazyrad-dir target/lazyrad] \
+        [--out target/pkg/core]
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import re
 import shutil
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,28 +39,59 @@ SOURCES = ROOT / "xui-app" / "packages"
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
 import build as pkgbuild  # noqa: E402
 
-#: short id -> (the built program under target/xui, optional). The order is
-#: `build_support/xui_embed.rs`'s `DESKTOP_XUI_APPS`, `DOCUMENT_XUI_APPS` and
-#: `OPTIONAL_XUI_APPS`, minus the xui programs that stay unlabelled system
-#: programs in `/system/bin` (`docs/packages.md`, core packages): LazyShell,
-#: the Installer (`pkgd`'s trusted UI), the Terminal (its shell and every
-#: command typed in it would inherit a package label) and Devices (it reads
-#: the kernel's device inspection calls, `os.kernel.dev`, which no package
-#: permission can name). The LazyRAD IDE (`lazyrad-os/`, not an xui app) is
-#: unlabelled too: it installs apps through `pkgd`, which refuses labelled
-#: callers, and its Play runs would inherit its label.
-CORE_APPS: dict[str, tuple[str, bool]] = {
-    "sysmon": ("xui-sysmon.elf", False),
-    "fabricmon": ("xui-fabricmon.elf", False),
-    "widget": ("xui-widget.elf", False),
-    "counter": ("xui-counter.elf", False),
-    "editor": ("xui-editor.elf", False),
-    "files": ("xui-files.elf", False),
-    "paint": ("xui-paint.elf", False),
-    "settings": ("xui-settings.elf", False),
-    "confd": ("xui-confd.elf", False),
+@dataclass(frozen=True)
+class CoreApp:
+    """One core package: which built programs go where in the archive."""
+
+    #: built file name -> path inside the package (the manifest's `binary` first).
+    programs: dict[str, str]
+    #: the directory the programs are built into: "xui" (`target/xui`) or
+    #: "lazyrad" (`target/lazyrad`).
+    build_dir: str = "xui"
+    #: a missing program skips the package (with a note) instead of failing.
+    optional: bool = False
+    #: how to build it, for the skip note.
+    built_by: str = "python tools/xui/build.py"
+
+
+def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
+    """A desktop xui app: `target/xui/<elf>` as `bin/<short>.elf`."""
+    return CoreApp({elf: f"bin/{short}.elf"}, optional=optional)
+
+
+#: short id -> the package. The xui apps are `build_support/xui_embed.rs`'s
+#: `DESKTOP_XUI_APPS`, `DOCUMENT_XUI_APPS` and `OPTIONAL_XUI_APPS`, minus the
+#: xui programs that stay unlabelled system programs in `/system/bin`
+#: (`docs/packages.md`, core packages): LazyShell, the Installer (`pkgd`'s
+#: trusted UI), the Terminal (its shell and every command typed in it would
+#: inherit a package label) and Devices (it reads the kernel's device
+#: inspection calls, `os.kernel.dev`, which no package permission can name).
+#: The LazyRAD IDE (`lazyrad-os/`, not an xui app) is a core package too, built
+#: from `target/lazyrad/` with its player beside it (`lrplay` is found next to
+#: `lazyrad` in the install directory) and shipped only in images built with
+#: `LAZYOS_LAZYRAD=1` (`build_support/lazyrad_embed.rs`). It installs the apps
+#: it builds through the Installer, never `pkgd`, which refuses labelled
+#: callers (`lazyrad-os/src/handoff`); its Play runs still inherit its label
+#: until development labels land (`docs/lazyrad-package-plan.md`, phase B).
+CORE_APPS: dict[str, CoreApp] = {
+    "sysmon": xui_app("xui-sysmon.elf", "sysmon"),
+    "fabricmon": xui_app("xui-fabricmon.elf", "fabricmon"),
+    "widget": xui_app("xui-widget.elf", "widget"),
+    "counter": xui_app("xui-counter.elf", "counter"),
+    "editor": xui_app("xui-editor.elf", "editor"),
+    "files": xui_app("xui-files.elf", "files"),
+    "paint": xui_app("xui-paint.elf", "paint"),
+    "settings": xui_app("xui-settings.elf", "settings"),
+    "confd": xui_app("xui-confd.elf", "confd"),
     # C++ (litehtml), built only where zig is installed.
-    "docs": ("xui-docs.elf", True),
+    "docs": xui_app("xui-docs.elf", "docs", optional=True),
+    # The IDE and its player, built by `tools/lazyrad/build.py`.
+    "lazyrad": CoreApp(
+        {"lazyrad.elf": "bin/lazyrad.elf", "lrplay.elf": "bin/lrplay.elf"},
+        build_dir="lazyrad",
+        optional=True,
+        built_by="python tools/lazyrad/build.py",
+    ),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
@@ -93,17 +127,20 @@ def render_manifest(text: str, version: str, autostart: bool) -> str:
     return text
 
 
-def build_one(short: str, program: Path, version: str, autostart: bool, out_dir: Path) -> Path:
-    """Build one variant of one package into `out_dir`; returns the archive."""
+def build_one(short: str, programs: dict[Path, str], version: str, autostart: bool,
+              out_dir: Path) -> Path:
+    """Build one variant of one package into `out_dir`; returns the archive.
+    `programs` maps each built program to its path inside the package."""
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / short
         shutil.copytree(SOURCES / short, tree)
         manifest = tree / "manifest.toml"
         manifest.write_text(render_manifest(manifest.read_text(encoding="utf-8"), version, autostart),
                             encoding="utf-8", newline="\n")
-        binary = tree / "bin" / f"{short}.elf"
-        binary.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(program, binary)
+        for program, inside in programs.items():
+            binary = tree / inside
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(program, binary)
         try:
             archive = pkgbuild.build(tree, Path(scratch) / "dist")
         except pkgbuild.BuildError as error:
@@ -122,28 +159,33 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None) -> list[Path]:
-    """Build every core package whose program exists; returns the archives.
+def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None,
+                        lazyrad_dir: Path | None = None) -> list[Path]:
+    """Build every core package whose programs exist; returns the archives.
 
-    A missing optional program (Docs without zig) is skipped with a warning; a
-    missing mandatory one is an error. Stale archives are removed first, so an
-    app dropped from the set leaves the image at the next build.
+    A missing optional program (Docs without zig, LazyRAD not built) is skipped
+    with a note; a missing mandatory one is an error. Stale archives are
+    removed first, so an app dropped from the set leaves the image at the next
+    build.
     """
     version = version or workspace_version()
+    build_dirs = {"xui": xui_dir, "lazyrad": lazyrad_dir or ROOT / "target" / "lazyrad"}
     for stale in list(out_dir.glob("*.lzp")) + list((out_dir / AUTOSTART_DIR).glob("*.lzp")):
         stale.unlink()
     lines = ["# short system_name version file digest autostart_file autostart_digest"]
     written = []
-    for short, (elf, optional) in CORE_APPS.items():
-        program = xui_dir / elf
-        if not program.is_file():
-            if optional:
-                print(f"warning: core package {short} skipped: {program} is not built",
-                      file=sys.stderr)
+    for short, app in CORE_APPS.items():
+        programs = {build_dirs[app.build_dir] / name: inside
+                    for name, inside in app.programs.items()}
+        missing = [path for path in programs if not path.is_file()]
+        if missing:
+            if app.optional:
+                print(f"note: core package {short} skipped: {missing[0]} is not built "
+                      f"(`{app.built_by}`)", file=sys.stderr)
                 continue
-            raise CoreError(f"core package {short}: {program} is not built")
-        plain = build_one(short, program, version, False, out_dir)
-        auto = build_one(short, program, version, True, out_dir / AUTOSTART_DIR)
+            raise CoreError(f"core package {short}: {missing[0]} is not built")
+        plain = build_one(short, programs, version, False, out_dir)
+        auto = build_one(short, programs, version, True, out_dir / AUTOSTART_DIR)
         system_name = plain.name[: -len(f"-{version}.lzp")]
         lines.append(" ".join([short, system_name, version,
                                plain.relative_to(out_dir).as_posix(), digest(plain),
@@ -157,10 +199,11 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--xui-dir", type=Path, default=ROOT / "target" / "xui")
+    parser.add_argument("--lazyrad-dir", type=Path, default=ROOT / "target" / "lazyrad")
     parser.add_argument("--out", type=Path, default=ROOT / "target" / "pkg" / "core")
     args = parser.parse_args(argv)
     try:
-        for archive in build_core_packages(args.xui_dir, args.out):
+        for archive in build_core_packages(args.xui_dir, args.out, lazyrad_dir=args.lazyrad_dir):
             print(archive)
     except CoreError as error:
         print(f"error: {error}", file=sys.stderr)

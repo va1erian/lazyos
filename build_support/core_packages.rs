@@ -119,7 +119,8 @@ pub fn short_of(stem: &str) -> &str {
 }
 
 /// The xui binary stems that are core packages (`tools/xui/core_packages.py`
-/// `CORE_APPS`): whether `stem`'s app ships as a package, built or not.
+/// `CORE_APPS`, minus the LazyRAD IDE, which is not an xui binary and is added
+/// by `lazyrad_embed`): whether `stem`'s app ships as a package, built or not.
 pub fn is_core_stem(stem: &str) -> bool {
     const CORE: &[&str] = &[
         "sysmon",

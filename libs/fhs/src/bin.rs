@@ -81,8 +81,6 @@ programs! {
     TERMINAL = "terminal";
     /// The Devices xui app (issue #481).
     DEVICES = "devices";
-    /// The LazyRAD IDE xui app (`LAZYOS_LAZYRAD=1` images).
-    LAZYRAD = "lazyrad";
     /// The Package Installer xui app.
     INSTALLER = "installer";
     /// LazyShell, the desktop shell xui app (issue #157).
@@ -135,8 +133,6 @@ programs! {
     CLIPPASTE = "clippaste";
     /// `rhai`, the scripting command (Linux ABI).
     RHAI = "rhai";
-    /// The `lazyrad` player (Linux ABI).
-    LRPLAY = "lrplay";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

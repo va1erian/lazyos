@@ -3,9 +3,16 @@
 
 `lazyrad-os/` is a standalone Rust workspace (bins `lrplay` and `lazyrad`) built
 for ``x86_64-unknown-linux-musl`` (static, ``std``): it is *not* part of the OS
-workspace. The root ``build.rs`` embeds the two ELFs in the disk image as
-``/system/bin/lrplay`` and ``/system/bin/lazyrad`` whenever ``LAZYOS_LAZYRAD=1`` is set, and
-copies the sample projects named by ``LAZYRAD_SAMPLES`` under ``/system/share/lazyrad/``.
+workspace. The two ELFs are the contents of the core package ``os.lazy.lazyrad``
+(``xui-app/packages/lazyrad``, ``bin/lazyrad.elf`` + ``bin/lrplay.elf``, the
+player beside the IDE): after a full build this script repackages the core
+packages (``tools/xui/core_packages.py``; skipped with a note when the xui apps
+are not built yet, ``tools/xui/build.py`` packages it then). The root
+``build.rs`` embeds the package as ``/system/packages/os.lazy.lazyrad.lzp``
+whenever ``LAZYOS_LAZYRAD=1`` is set, ``pkgd`` installs it at boot like every
+desktop app, and the build copies the sample projects named by
+``LAZYRAD_SAMPLES`` under ``/system/share/lazyrad/``. Nothing of LazyRAD is in
+``/system/bin`` and it is not an unlabelled exception.
 
 The recipe mirrors ``tools/rhai/build.py`` and ``tools/xui/build.py``: on
 Windows the musl target has no host linker, so cargo is pointed at the
@@ -19,7 +26,8 @@ Usage::
     python tools/lazyrad/build.py --bin lrplay
     python tools/lazyrad/build.py --bin all --debug
 
-Output: ``target/lazyrad/lrplay.elf`` and/or ``target/lazyrad/lazyrad.elf``,
+Output: ``target/lazyrad/lrplay.elf`` and/or ``target/lazyrad/lazyrad.elf``
+(and, after a full build, ``target/pkg/core/os.lazy.lazyrad-<version>.lzp``),
 plus a JSON map on stdout. If ``lazyrad-os/`` is not checked out the script
 says so and exits non-zero. If the musl target or a linker is unavailable the
 script warns and exits 0 with an empty map, so a host without them (and CI's
@@ -47,6 +55,8 @@ BINS = {
     "lazyrad": "lazyrad.elf",
 }
 ALL = "all"
+#: Builds the core packages from the built programs.
+CORE_PACKAGES = ROOT / "tools" / "xui" / "core_packages.py"
 
 
 def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -157,6 +167,18 @@ def dest_path(out_name: str) -> Path:
     return OUT_DIR / out_name
 
 
+def package_core() -> None:
+    """Repack the core packages so `os.lazy.lazyrad` carries the new programs.
+
+    Best effort: the other packages need the xui apps, which may not be built
+    yet; `tools/xui/build.py` (or `tools/run_demo.py`) packages it then.
+    """
+    result = run([sys.executable, str(CORE_PACKAGES), "--lazyrad-dir", str(OUT_DIR)])
+    if result.returncode != 0:
+        print("note: os.lazy.lazyrad was not packaged (build the xui apps with "
+              "`python tools/xui/build.py`, which packages it)", file=sys.stderr)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -224,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         dest.write_bytes(source.read_bytes())
         built[bin] = str(dest)
         print(f"{bin}: {dest} ({dest.stat().st_size} bytes)", file=sys.stderr)
+    if set(bins) == set(BINS):
+        package_core()
     print(json.dumps(built, indent=2))
     return 0
 

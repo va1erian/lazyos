@@ -1,0 +1,41 @@
+# LazyRAD: the form designer, editor and runner, a core LazyOS package
+# (docs/lazyrad-package-plan.md, phase A).
+#
+# `bin/lazyrad.elf` and `bin/lrplay.elf` are not checked in: the build copies
+# the programs `tools/lazyrad/build.py` built (`lazyrad-os/`) into a scratch
+# copy of this tree. `lrplay.elf` is the player: Play runs it beside the IDE,
+# and Make LazyOS App copies it into every package it produces. `version` is
+# replaced by the workspace version and `autostart` is set from
+# `LAZYOS_XUI_AUTOSTART`. The package ships only in images built with
+# `LAZYOS_LAZYRAD=1`.
+
+[app]
+name = "LazyRAD"
+system_name = "os.lazy.lazyrad"
+author = "LazyOS"
+version = "0.1.0"
+description = "Design forms, write Rhai scripts and package them as LazyOS apps"
+category = "development"
+
+[entry]
+binary = "bin/lazyrad.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# Derived from runs of the app under its label (`LAZYOS_LABEL_TRACE=1`, which
+# prints every refused call); see docs/packages.md, core packages.
+# `mimed` + `init` + the package events are the install handoff
+# (lazyrad-os/src/handoff): the IDE never calls `pkgd`, whose answer to a
+# labelled caller is no.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.clipboard.v1",
+    "os.lazy.mimed.v1",
+    "os.lazy.init.v1",
+]
+topics = ["subscribe:system/events/pkg/+"]

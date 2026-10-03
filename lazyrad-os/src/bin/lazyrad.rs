@@ -2,7 +2,8 @@
 //!
 //! A `xuid` desktop client running the portable `lazyrad-ide` on
 //! `xui_app::backend::LazyOSBackend`, with the LazyOS platform installed
-//! (docs/lazyrad-plan.md, P3). Serial evidence: `LRIDE:HOME:PASS:<home>` (or
+//! (docs/lazyrad-plan.md, P3); it ships as the core package `os.lazy.lazyrad`
+//! with the player beside it (`docs/lazyrad-package-plan.md`). Serial evidence: `LRIDE:HOME:PASS:<home>` (or
 //! `LRIDE:HOME:WARN` when `$HOME` is unset), `LRIDE:UP:PASS` after the first
 //! frame reached the compositor, `LRIDE:OPEN:PASS:<project>` when a project
 //! opened, `LRIDE:RUN:PASS:<project>` when Run started the player and
@@ -16,9 +17,10 @@ use std::path::PathBuf;
 
 use lazyrad_ide::{IdeEvent, RunOptions};
 use lazyrad_os::args;
+use lazyrad_os::handoff::HandoffInstaller;
 use lazyrad_os::launcher::PollingLauncher;
 use lazyrad_os::marker::Markers;
-use lazyrad_os::pkgd::PkgdInstaller;
+use lazyrad_os::migrate::{migrate_legacy_data, Migration};
 use lazyrad_os::platform::{Home, LazyOsPlatform};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::{Backend, PlatformSpec};
@@ -56,6 +58,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Not `current_exe()`: the kernel answers `/busybox` (see `lazyrad_os::args`).
+    // The player is the `lrplay.elf` beside this program in its install directory.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+    let exe = args::exe_from_argv0(std::env::args_os().next().as_deref(), &cwd);
     let home = Home::from_env();
     if let Some(warning) = home.fallback_warning() {
         MARK.warn("HOME", &warning);
@@ -64,8 +70,17 @@ fn main() -> ExitCode {
     // preview's sandbox; a fresh home does not have it yet. Best effort: an
     // unwritable home only means the dialog starts in the home instead.
     let _ = std::fs::create_dir_all(home.projects_dir());
+    // From before LazyRAD was a package: `.apps/lazyrad` -> `.apps/os.lazy.lazyrad`.
+    match migrate_legacy_data(&home) {
+        Ok(Migration::Moved) => MARK.pass("MIGRATE"),
+        Ok(Migration::NotNeeded) => {}
+        Err(error) => MARK.warn(
+            "MIGRATE",
+            &format!("the old data folder was not moved: {error}"),
+        ),
+    }
     MARK.pass_with("HOME", &home.path().to_string_lossy());
-    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::ide(home))).is_err() {
+    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::ide(home, &exe))).is_err() {
         MARK.fail("PLATFORM", "a platform was already installed");
         return ExitCode::FAILURE;
     }
@@ -103,7 +118,7 @@ fn main() -> ExitCode {
         open,
         observer: Some(observer),
         launcher: Some(Rc::new(PollingLauncher)),
-        installer: Some(Rc::new(PkgdInstaller::on_lazyos())),
+        installer: Some(Rc::new(HandoffInstaller::on_lazyos())),
         author: std::env::var("USER").unwrap_or_else(|_| "lazyos".to_owned()),
     };
     match lazyrad_ide::run_with_options(Rc::new(backend) as Rc<dyn Backend>, options) {

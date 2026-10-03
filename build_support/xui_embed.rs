@@ -221,6 +221,22 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         );
         sink.add_file(&destination, app);
     }
+    // The LazyRAD IDE is a core package too, built and shipped only for
+    // `LAZYOS_LAZYRAD=1`; asking for it without having built it is an error.
+    if crate::lazyrad_embed::enabled() {
+        let short = crate::lazyrad_embed::PACKAGE_SHORT;
+        match built.iter().find(|p| p.short == short) {
+            Some(package) => {
+                if !packages.iter().any(|p| p.short == short) {
+                    packages.push(package);
+                }
+            }
+            None => panic!(
+                "LAZYOS_LAZYRAD=1 but core package {short} is not built; run \
+                 `python tools/lazyrad/build.py` and `python tools/xui/core_packages.py`"
+            ),
+        }
+    }
     core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
 }
 
