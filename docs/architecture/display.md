@@ -51,6 +51,14 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   to the real framebuffer (`console::with_framebuffer`). Direct scanout is not
   used because the bootloader framebuffer frames live outside the allocator's
   usable regions (zero-copy scanout is an S8 follow-up).
+- Budgets follow the screen (docs/architecture/limits.md): the per-process
+  shared-buffer allowance (`limit.shared_buffer_max`) defaults to three
+  screen-sized surfaces (the screen buffer plus a double-buffered full-screen
+  window), at least 16 MiB, and the per-uid kernel-memory quota to eight; the
+  kernel heap (the console's pixmap lives there) grows on demand. So a
+  1920x1080 or 3840x2160 mode binds like a 1280x720 one, given the RAM.
+  QEMU's BIOS path still boots at 1280x720 at most: the `bootloader` crate's
+  BIOS stage 2 caps the VESA mode at 1280x720 (docs/real-pc-boot-plan.md).
 - Input events (`Event`, 16 bytes) are pushed by keyboard/mouse IRQs into a
   256-entry queue and drained only by the owner; kinds are pointer move/down/up,
   key down/up with `key::*` codes for non-printables, and the wheel

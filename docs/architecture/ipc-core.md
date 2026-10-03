@@ -74,8 +74,8 @@ userspace never names another task's handles.
 
 | Item | Value |
 |---|---|
-| `MAX_BUFFER_SIZE` / registry | 64 MiB / `MAX_BUFFERS = 256` |
-| Per-process quota / mapping base | 8 MiB or 64 buffers / `0x0000_5000_0000_0000`, never reused |
+| Largest buffer / registry | `max_bytes_per_process()` / `MAX_BUFFERS = 256` |
+| Per-process quota / mapping base | `limit.shared_buffer_max` bytes (3 screens, at least 16 MiB; [limits.md](limits.md)) or 64 buffers / `SHARED_WINDOW_BASE = 0x0000_7f80_0000_0000` (PML4 entry 255) |
 | Flags | `READ`, `WRITE`, `SHARE_ONLY`, `EXECUTABLE` (denied), `PINNED` (recorded) |
 
 - `create` zero-fills frames, maps the creator and opens a handle; `map` is
