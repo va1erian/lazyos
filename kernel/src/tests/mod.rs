@@ -197,6 +197,7 @@ mod preempt_lock_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
+mod preempt_wake_suite;
 mod sched_suite;
 mod service_suite;
 mod signal_suite;
@@ -229,6 +230,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    preempt_wake_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,
     ipc_suite::CASES,

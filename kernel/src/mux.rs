@@ -46,10 +46,14 @@ pub fn run() -> ! {
         // An orderly shutdown that never reached `power` (docs/shutdown.md):
         // past the armed deadline the kernel forces the stop itself.
         crate::process::power::watchdog::service();
-        // Report each disk's request counters after a burst of I/O.
-        crate::block::stats::service();
-        // Write cached filesystem data back every few seconds.
-        crate::fs::flusher::service();
+        // Report each disk's request counters after a burst of I/O, and
+        // write cached filesystem data back every few seconds. Both take
+        // spin locks (the serial port, the VFS) that syscalls take with
+        // interrupts off: holding one here with interrupts on would let the
+        // timer, or a wake (P1.1), switch to a task that then spins on it
+        // forever with the timer masked (the #382 rule).
+        without_interrupts(crate::block::stats::service);
+        without_interrupts(crate::fs::flusher::service);
         // `PERF:` latency lines (LAZYOS_PERF=1 images only).
         crate::perf::service();
         // A bound compositor owns the screen and input: stop painting entirely

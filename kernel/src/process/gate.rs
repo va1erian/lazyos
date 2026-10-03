@@ -156,6 +156,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // mode, instead of waiting for a tick to catch it there.
     task::signal::deliver_native();
     crate::perf::syscall_exit();
+    // A task this call woke may outrank the caller (P1.1): run it now.
+    task::preempt_point();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

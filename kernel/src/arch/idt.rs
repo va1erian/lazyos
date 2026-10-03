@@ -430,6 +430,8 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
     crate::perf::irq_exit();
+    // A key may have woken a task that should run now (P1.1).
+    crate::task::preempt_point();
 }
 
 extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
@@ -439,4 +441,5 @@ extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     // Safety: we are in the IRQ12 handler.
     unsafe { pic::end_of_interrupt(12) };
     crate::perf::irq_exit();
+    crate::task::preempt_point();
 }

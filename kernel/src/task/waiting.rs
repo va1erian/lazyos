@@ -69,7 +69,9 @@ pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
             task.pass = task.pass.max(now);
-            crate::perf::on_wake(index, CURRENT.load(Ordering::Relaxed));
+            let cur = CURRENT.load(Ordering::Relaxed);
+            crate::perf::on_wake(index, cur);
+            super::preempt::note_wake(&tasks, index, cur);
             return true;
         }
     }

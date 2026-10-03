@@ -17,6 +17,8 @@ macro_rules! irq_stub {
         $(
             extern "x86-interrupt" fn $name(_stack: InterruptStackFrame) {
                 crate::dev::irq::dispatch($line);
+                // A kernel driver's handler may have woken a task (P1.1).
+                crate::task::preempt_point();
             }
         )*
         /// Install the stub for every line that has no built-in handler.
