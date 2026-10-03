@@ -160,12 +160,12 @@ and overlaps no other becomes a `<disk>pN` block device (see
 [`block-devices.md`](block-devices.md)). The legacy probe looks at whole disks
 only, so a partitioned image still boots as today.
 
-**Docs on the boot volume.** The build embeds the repository's Markdown —
-every `*.md` under `docs/` recursively, plus the root `README.md` — into the FAT
-boot volume at `/docs/<relative path>` (`build_support/docs_embed.rs`), e.g.
-`/docs/architecture/boot.md` and `/docs/README.md`. The Docs app and the Editor
-read them through the VFS; FAT long names and the nested subdirectories carry
-the tree as written, with no flattening.
+**Docs on the OS volume.** The build embeds the repository's Markdown —
+every `*.md` under `docs/` recursively, plus the root `README.md` — into the
+ext2 OS volume at `/docs/os/<relative path>` (`build_support/docs_embed.rs`,
+`fhs::docs::OS_DOCS`), e.g. `/docs/os/architecture/boot.md` and
+`/docs/os/README.md`. The Docs app and the Editor read them through the VFS;
+names keep their case (ext2 is case-sensitive) and the tree is kept as written.
 
 **Durability** (`fs::sync_all`, `ext2/state.rs`)
 
@@ -270,11 +270,15 @@ user string (`EFAULT`/`ENAMETOOLONG`).
 - Lexical folding means `a/..` never checks that `a` exists or is a directory
   (there are no symlinks, so this differs from POSIX only for that case).
 
-**Two mount tables** (`mod.rs`, issue #136)
+**Two mount tables** (`mod.rs`, `mounts.rs`, issue #136)
 
-Native tasks use the raw table (`FS`): the boot volume exactly as its backend
-presents it. The Linux ABI gets its own table (`ABI_FS`, reached through the
-`abi_*` helpers) where `/` is an **overlay**:
+Native tasks use the raw table (`FS`); the Linux ABI gets its own table
+(`ABI_FS`, reached through the `abi_*` helpers). In the configured layout both
+tables mount the same volume instances with the same flags, so there is no
+overlay and ABI writes land on ext2. The rest of this section describes the
+**legacy layout only** (no `lazyos.cfg`, or its root not found), where the
+native table has the boot volume exactly as its backend presents it and the
+ABI's `/` is an **overlay**:
 
 | ABI mount | Lower | Upper | Lifetime |
 |---|---|---|---|

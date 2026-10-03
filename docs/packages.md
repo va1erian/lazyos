@@ -233,7 +233,7 @@ impl App {
 }
 // `Entry::autostart: bool` is a plain field (absent: false).
 
-pub enum Category { Accessories, Development, Graphics, Internet, Office, System, Utilities }
+pub enum Category { Accessories, Development, Games, Graphics, Internet, Office, System, Utilities }
 pub struct Version { /* parsed text; Ord/Eq as in "Versions" above */ }
 impl Version {
     pub fn parse(text: &str) -> Result<Version, VersionError>;
@@ -260,7 +260,7 @@ zip64 archives are not supported
 entry "bin/../x" contains a `.` or `..` component
 entry "bin/app.elf" differs only in case from another entry
 too many entries: 1025 (maximum 1024)
-the package expands to 67108864 bytes (maximum 67108864)
+the package expands to 1073741825 bytes (maximum 1073741824)
 manifest: app.system_name "Bad" is not a reverse-DNS name; app.version "1" must have two to four numbers
 ```
 
@@ -589,9 +589,10 @@ UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
 inherits its parent's label, so a packaged Terminal would run the shell and
 every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
 app), Devices (it reads the kernel's device inspection calls,
-`os.kernel.dev`, which no package permission can name) and the LazyRAD IDE
-(`LAZYOS_LAZYRAD=1`) for both the Installer's and the Terminal's reasons:
-Make LazyOS App calls `pkgd`'s `Inspect` and `Install`, which
+`os.kernel.dev`, which no package permission can name) and the opt-in LazyRAD
+IDE (`LAZYOS_LAZYRAD=1`, a built-in row of `init`'s registry,
+`user/src/bin/init/apps.rs`) for both the Installer's and the Terminal's
+reasons: Make LazyOS App calls `pkgd`'s `Inspect` and `Install`, which
 `pkgstore::access` refuses to a labelled caller, and Play forks `lrplay` on
 the project being edited, whose scripts may call any service through
 `sys::*`; under the IDE's label every service its manifest did not name would

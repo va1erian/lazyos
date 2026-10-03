@@ -49,6 +49,13 @@
 | `clippy.yml` | `cargo clippy -p kernel` with `-D clippy::undocumented_unsafe_blocks` (issue #124 gate); host libraries with `--all-targets -D warnings` (issue #247) |
 | `xui.yml` | Builds the xui apps, boots the owner (`m0`, `counter`, then `sysmon` and `fabricmon` over `LAZYOS_SERVICES=1`), client sessions and the `LAZYOS_DESKTOP=1` session headless, checks `XUIAPP:*`/`SYSMON:*`/`FABMON:*` markers and pixels |
 | `mcp-bridge.yml` | `tools/mcp/test_debug_bridge.py` (serial-line matcher; no QEMU) |
+| `ci.yml` | formatting, clippy, host library tests, the image build and a headless boot with serial assertions |
+| `mkdisk.yml` | `tools/mkdisk` tests (seeding, parity with the image build) |
+| `net.yml` | network library tests and clippy, the fuzz corpus check, `tools/net/run.py` variants judged from the capture |
+| `sound.yml` | driver and mixer library tests, `tools/sound/run.py` variants judged from the recording |
+| `usb.yml` | `usbhid`/`xhci`/`usbpolicy` tests, `tools/usb/run.py` variants and the judge's own tests |
+| `rhai.yml` | builds `rhai`, then console, desktop and `msg` sessions through `qemu_session.py` |
+| `doom.yml` | `tools/doom/build.py`, then a Doom session judged with `pngstats.py` |
 
 **Invariants**
 
@@ -62,5 +69,5 @@
 - The ABI bench and kernel suite are regression gates for changes to memory,
   scheduling and the syscall surface.
 
-**Status.** All eight workflows exist; `docs/test/` and `docs/compat/` are
+**Status.** Every workflow above exists; `docs/test/` and `docs/compat/` are
 generated, so only the tools and (in the repository) the scripts are tracked.
