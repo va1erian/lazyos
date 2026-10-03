@@ -54,5 +54,20 @@
   {"wait_for": "INSTALLER:DEVELOP:PASS dev:user.admin.devplay asked=0", "timeout": 300},
   {"wait_for": "PKGD:DEVELOP:PASS dev:user.admin.devplay rules=10 asked=0", "timeout": 60},
   {"at": 1.0, "shot": "04_approved_again"},
-  {"at": 2.0, "quit": true}
+  {"at": 0.4, "type": "pkgctl"},
+  {"at": 0.4, "type": " devel"},
+  {"at": 0.4, "type": "op /sy"},
+  {"at": 0.4, "type": "stem/s"},
+  {"at": 0.4, "type": "hare/s"},
+  {"at": 0.4, "type": "amples"},
+  {"at": 0.4, "type": "/lrdev"},
+  {"at": 0.4, "type": "-test."},
+  {"at": 0.4, "type": "lzp"},
+  {"at": 0.8, "key": "enter", "until": "TERM:CMD:pkgctl develop /system/share/samples/lrdev-test.lzp", "timeout": 30, "retries": 2},
+  {"wait_for": "PKGD:DEVELOP:ASK dev:org.lazy.test.lrdev", "timeout": 300},
+  {"wait_for": "INSTALLER:DEVELOP:ASK perms=", "occurrence": 2, "timeout": 300},
+  {"at": 2.0, "shot": "05_second_consent"},
+  {"at": 2.5, "key": "esc", "until": "PKGD:DEVELOP:DECLINED org.lazy.test.lrdev", "timeout": 60, "retries": 1},
+  {"wait_for": "INSTALLER:DEVELOP:DENIED", "timeout": 60},
+  {"at": 1.0, "quit": true}
 ]

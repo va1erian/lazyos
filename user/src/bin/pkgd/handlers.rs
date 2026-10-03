@@ -172,6 +172,11 @@ impl Pkgd {
                 wire::encode_develop_reply(&wire::DevelopReply { label, approved })
                     .map_err(malformed)
             }
+            wire::METHOD_DEVELOPDECLINED => {
+                let args = wire::decode_develop_declined_args(body).map_err(malformed)?;
+                self.develop_declined(caller, &args.path)?;
+                Ok(Vec::new())
+            }
             wire::METHOD_PROVISIONED => {
                 let state = self.provisioned.clone();
                 wire::encode_provisioned_reply(&wire::ProvisionedReply { state }).map_err(malformed)

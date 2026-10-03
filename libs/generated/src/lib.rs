@@ -10929,6 +10929,8 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_PROVISIONED: u32 = 1076218465;
     /// `Develop` method id.
     pub const METHOD_DEVELOP: u32 = 803454394;
+    /// `DevelopDeclined` method id.
+    pub const METHOD_DEVELOPDECLINED: u32 = 1386916580;
 
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
@@ -11240,6 +11242,32 @@ pub mod os_lazy_pkgd_v1 {
                     out.approved = field.as_bool()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The user declined the development consent for the package at `path`
+    /// (same caller and source rules as `Develop`). Nothing is loaded; the
+    /// refusal is audited and published as `system/events/pkg/denied` under
+    /// the package's `system_name`, so the IDE waiting for the approval stops.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DevelopDeclinedArgs {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_develop_declined_args(value: &DevelopDeclinedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_develop_declined_args(body: &[u8]) -> Result<DevelopDeclinedArgs, Error> {
+        let mut out = DevelopDeclinedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
             }
         }
         Ok(out)

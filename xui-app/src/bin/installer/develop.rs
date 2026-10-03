@@ -14,7 +14,8 @@
 //!    environment with these permissions", every permission grouped by risk as
 //!    `Inspect` explains it, and **Allow** / **Cancel**. Allow calls
 //!    `Develop(path, confirm = true)` (`INSTALLER:DEVELOP:PASS <label> asked=1`);
-//!    Cancel, Esc or the close button refuse (`INSTALLER:DEVELOP:DENIED`).
+//!    Cancel, Esc or the close button refuse: `pkgd.DevelopDeclined` publishes
+//!    the refusal the IDE waits on (`INSTALLER:DEVELOP:DENIED`).
 //!
 //! Like every Installer screen, the window takes nothing from the IDE but the
 //! path: what it shows comes from `pkgd`, which re-reads the package itself.
@@ -104,7 +105,13 @@ impl App for Consent {
                 }
                 Err(reason) => println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason)),
             },
-            DevMsg::Deny => println!("INSTALLER:DEVELOP:DENIED"),
+            DevMsg::Deny => {
+                // Tell pkgd, so the IDE waiting for the answer stops now.
+                if let Err(reason) = pkg::develop_declined(&self.path) {
+                    println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+                }
+                println!("INSTALLER:DEVELOP:DENIED");
+            }
         }
         ui.quit();
     }

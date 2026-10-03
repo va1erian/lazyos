@@ -505,7 +505,8 @@ the rules `pkgd` loaded for it.
    Installer exits without a window. Otherwise nothing changes and the
    Installer shows "Run <app> from your development environment?" with every
    permission grouped by risk; **Allow** calls `Develop(path, confirm = true)`,
-   **Cancel**/`Esc` refuses.
+   **Cancel**/`Esc`/closing refuses: `DevelopDeclined(path)` makes `pkgd`
+   publish `system/events/pkg/denied` for the package, which stops the waiting IDE.
 3. `pkgd` publishes `system/events/pkg/develop` (`detail` is the label) and
    appends it to `pkg.log`; the IDE, subscribed to `system/events/pkg/+`,
    then `spawnv`s the player with `AS_LABELLED "dev:<system_name>"` and
@@ -517,7 +518,11 @@ in `pkgd`'s memory only, per label and session; when the session logs out
 (`system/events/login/end`) `pkgd` revokes its labels by loading an empty rule
 set (`PKGD:UNDEVELOP:PASS`, audited as `undevelop`), and the kernel refuses to
 spawn into a label without rules, so a revoked or never-approved label cannot
-be entered. A restart of `pkgd` forgets approvals (the next Play asks again).
+be entered. A restart of `pkgd` (a crash or its heap recycle) forgets approvals,
+so at startup it walks the kernel's label table and revokes every `dev:` label
+(`PKGD:DEVELOP:RESET revoked=<n>`): no rule set outlives its approval, and the
+next Play asks again. `pkgd` subscribes to the logout feed from its first
+request, not its first approval.
 The kernel side is in `docs/architecture/ipc-security.md`. Evidence:
 `PKGD:DEVELOP:ASK <label>`, `PKGD:DEVELOP:PASS <label> rules=<n> asked=<0|1>`,
 `PKGD:DEVELOP:FAIL <why>`.

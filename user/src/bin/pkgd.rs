@@ -142,6 +142,9 @@ fn run() -> messenger::Result<()> {
         state.audit.set_volatile();
     }
     sys::write_str("PKGD:UP:PASS\n");
+    // Before any request: no development rule set outlives the approvals a
+    // previous `pkgd` held in memory.
+    state.revoke_stale_dev_labels();
     state.reconcile(volume_ok);
     state.begin_provisioning(volume_ok);
 

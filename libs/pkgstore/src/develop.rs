@@ -38,9 +38,12 @@ pub const SENTINEL: LabelRule = LabelRule {
 /// revokes) the oldest.
 pub const MAX_APPROVALS: usize = 32;
 
+/// The prefix of every development label.
+pub const DEV_PREFIX: &str = "dev:";
+
 /// The development label of `system_name`.
 pub fn label(system_name: &str) -> String {
-    format!("dev:{system_name}")
+    format!("{DEV_PREFIX}{system_name}")
 }
 
 /// The rules `Develop` loads for `manifest`'s development label: the same

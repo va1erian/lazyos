@@ -2032,6 +2032,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "label", ty: Ty::String }, Field { name: "approved", ty: Ty::Bool }],
                 transfers: &[],
             },
+            Method {
+                name: "DevelopDeclined",
+                id: 1386916580,
+                oneway: false,
+                doc: "The user declined the development consent for the package at `path`\n(same caller and source rules as `Develop`). Nothing is loaded; the\nrefusal is audited and published as `system/events/pkg/denied` under\nthe package's `system_name`, so the IDE waiting for the approval stops.",
+                params: &[Field { name: "path", ty: Ty::String }],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

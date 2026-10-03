@@ -103,6 +103,16 @@ fn develop(path, confirm) {
     msg::connect("os.lazy.pkgd.v1").invoke("Develop", [path, confirm])
 }
 
+/// `DevelopDeclined(path: String) -> ()`
+///
+/// The user declined the development consent for the package at `path`
+/// (same caller and source rules as `Develop`). Nothing is loaded; the
+/// refusal is audited and published as `system/events/pkg/denied` under
+/// the package's `system_name`, so the IDE waiting for the approval stops.
+fn develop_declined(path) {
+    msg::connect("os.lazy.pkgd.v1").invoke("DevelopDeclined", [path])
+}
+
 /// A `ProvisionState` with every field at its zero value.
 ///
 /// Core package provisioning progress.

@@ -83,6 +83,16 @@ pub fn develop(path: &str, confirm: bool) -> Result<(String, bool), String> {
     Ok((decoded.label, decoded.approved))
 }
 
+/// `DevelopDeclined(path)`: the user refused the development consent, so
+/// `pkgd` publishes the refusal the waiting IDE stops on.
+pub fn develop_declined(path: &str) -> Result<(), String> {
+    let body = wire::encode_develop_declined_args(&wire::DevelopDeclinedArgs {
+        path: path.to_owned(),
+    })
+    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
+    call(wire::METHOD_DEVELOPDECLINED, body).map(|_| ())
+}
+
 /// Remove `system_name`. `pkgd` keeps the user's documents under `/home`.
 pub fn remove(system_name: &str) -> Result<(), String> {
     let body = wire::encode_remove_args(&wire::RemoveArgs {

@@ -53,6 +53,11 @@ interface os.lazy.pkgd.v1 {
     /// gave them logs out, and every one is audited as
     /// `system/events/pkg/develop`.
     method Develop(path: String, confirm: Bool) -> (label: String, approved: Bool);
+    /// The user declined the development consent for the package at `path`
+    /// (same caller and source rules as `Develop`). Nothing is loaded; the
+    /// refusal is audited and published as `system/events/pkg/denied` under
+    /// the package's `system_name`, so the IDE waiting for the approval stops.
+    method DevelopDeclined(path: String) -> ();
 
     /// Where an installed app came from. `Core`: its `system_name` is shipped
     /// in `/system/packages`, so it cannot be removed (a newer version the

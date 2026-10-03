@@ -37,6 +37,9 @@ use super::inspect::assess;
 use super::install::{event, one_line, problem_text, Subject};
 use super::store;
 
+/// Most labels the kernel interns (`ipc::labels::CAPACITY`).
+const MAX_LABELS: u32 = 256;
+
 /// Ticks between two looks at the logout feed while approvals are held.
 pub(crate) const LOGOUT_POLL_TICKS: u64 = 50;
 
@@ -117,6 +120,71 @@ impl Pkgd {
         let outcome = self.develop_bytes(&bytes, caller, confirm);
         self.buffer = bytes;
         outcome
+    }
+
+    /// `DevelopDeclined(path)`: the user refused the development consent.
+    /// Audited and published as `denied` under the package's own
+    /// `system_name` (read here, never taken from the caller), so the IDE
+    /// waiting for the approval stops at once. Same caller rule as `Develop`.
+    pub(crate) fn develop_declined(&mut self, caller: &Caller, path: &str) -> Result<(), Failure> {
+        let uid = u64::from(caller.uid);
+        let nobody = Subject::none();
+        if let Err(why) = pkgstore::access::may_manage(caller) {
+            return Err(self.refuse(&nobody, uid, "DEVELOP", fail(EPERM, why)));
+        }
+        let path = match self.check_source(caller, path) {
+            Ok(path) => path,
+            Err(failure) => return Err(self.refuse(&nobody, uid, "DEVELOP", failure)),
+        };
+        if let Err(code) = store::read_package(&mut self.buffer, &path) {
+            return Err(self.refuse(&nobody, uid, "DEVELOP", read_failure(code)));
+        }
+        let bytes = core::mem::take(&mut self.buffer);
+        let subject = match assess(&bytes) {
+            Ok(assessed) => Subject {
+                system_name: assessed.info.system_name.clone(),
+                version: assessed.info.version.clone(),
+                install_dir: String::new(),
+                digest: assessed.info.digest.clone(),
+            },
+            Err(_) => Subject::none(),
+        };
+        self.buffer = bytes;
+        self.audit.record(&event(
+            "denied",
+            &subject,
+            uid,
+            false,
+            "the development run was declined",
+        ));
+        sys::write_str(&format!(
+            "PKGD:DEVELOP:DECLINED {}\n",
+            one_line(&subject.system_name)
+        ));
+        Ok(())
+    }
+
+    /// Revoke every `dev:` label the kernel still holds rules for. Run once
+    /// at startup: approvals live in this process's memory, so after a
+    /// restart (a crash, or the heap recycle) no rule set may outlive the
+    /// approval that loaded it. The label table is append-only and readable by
+    /// a `CAP_SETUID` holder, so ids `1..` are walked until the first unknown
+    /// one; nothing is interned.
+    pub(crate) fn revoke_stale_dev_labels(&mut self) {
+        let mut revoked = 0;
+        let mut name = [0u8; sys::MAX_LABEL_BYTES];
+        for id in 1..=MAX_LABELS {
+            let Ok(len) = sys::label_name(id, &mut name) else {
+                break;
+            };
+            let Ok(label) = core::str::from_utf8(&name[..len]) else {
+                continue;
+            };
+            if label.starts_with(develop::DEV_PREFIX) && policy::load_label(label, &[]).is_ok() {
+                revoked += 1;
+            }
+        }
+        sys::write_str(&format!("PKGD:DEVELOP:RESET revoked={revoked}\n"));
     }
 
     fn develop_bytes(
@@ -212,11 +280,11 @@ impl Pkgd {
         !self.approvals.is_empty()
     }
 
-    /// Revoke the approvals of every session that logged out.
+    /// Revoke the approvals of every session that logged out. The feed is
+    /// drained even while nothing is approved, so the subscription exists
+    /// before the first approval: `init`'s broker retains only the latest
+    /// logout, and a later subscriber could miss the approving session's.
     pub(crate) fn watch_logouts(&mut self) {
-        if self.approvals.is_empty() {
-            return;
-        }
         for session in self.logouts.ended() {
             for label in self.approvals.end_session(session) {
                 self.revoke_dev(&label, session, 0);
