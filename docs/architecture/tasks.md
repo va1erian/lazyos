@@ -104,10 +104,32 @@ ISR that performs context switches.
 - Program images are loaded before the task table is locked (they are
   streamed from disk); the slot is claimed after.
 
+**Wakes and preemption** (docs/performance-plan.md P1)
+
+- A wake (`wake_task_with`) raises `need_resched` (`task/preempt.rs`) when
+  the woken task should run before the next tick: the current task is blocked
+  or done (the CPU is idle; the resumed parked task halts in its wait loop,
+  there is no idle task), or the woken task is in a strictly higher class.
+  Same-class wakes wait for a tick, so the stride scheduler still shares the
+  CPU. `preempt_point` yields on the flag at the end of every device
+  interrupt (keyboard, mouse, PIC line stubs) and every syscall (native gate,
+  Linux `syscall` stub); every selection clears it.
+- `exit`, `exit_group`, signal termination and a fatal user fault end in
+  `task::exit_cpu`, which yields at once instead of halting until a tick.
+- `task::nap` marks the current task as napping (per task, so a task switched
+  away mid-nap still counts when resumed); an interrupt that lands there or
+  in user code may run the device bottom half in place (P1.2).
+- Tests run real switches on ring-0 test threads (`task::kthread`,
+  `LAZYOS_TESTS` only): `preempt_wake_suite`, `waitset_suite` and
+  `dev_suite::irq_prompt`.
+
 **Locks and preemption** (issue #382)
 
 - Syscalls and ISRs run with interrupts off; the kernel task (the mux) runs
-  with them on and is preempted by the timer. A spin lock that both sides
+  with them on and is preempted by the timer (and, since P1.1, by an
+  interrupt's preemption point, at the same instants). Its periodic services
+  that take the serial port or the VFS (block stats, the flusher) run with
+  interrupts off. A spin lock that both sides
   take must therefore always be held with interrupts off: a tick that
   preempts the mux while it holds the lock hands the CPU to a task whose
   syscall then spins on it with the timer masked, and the machine stops

@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generated": "2026-10-03T21:19:58Z",
-    "commit": "c58c94ca+dirty",
-    "label": "P1.4 compositor wait set",
+    "generated": "2026-10-03T21:44:09Z",
+    "commit": "8fa51ec1+dirty",
+    "label": "P1.5 exit hands CPU on (all of P1)",
     "accel": "whpx",
     "profile": "dev (panic = \"abort\" opt-level = 2; kernel crate inherits it)",
     "moves": 200,
@@ -10,48 +10,48 @@
   },
   "metrics": {
     "irqoff": {
-      "n": 51978,
-      "p50_us": 1.8,
-      "p90_us": 13.1,
-      "p99_us": 31.0,
-      "max_us": 29890.8,
-      "mean_us": 4.7
+      "n": 3604365,
+      "p50_us": 3.1,
+      "p90_us": 6.5,
+      "p99_us": 9.3,
+      "max_us": 30882.6,
+      "mean_us": 3.3
     },
     "irq_wake": {
-      "n": 515,
-      "p50_us": 108.1,
-      "p90_us": 226.6,
-      "p99_us": 1717.5,
-      "max_us": 12042.0,
-      "mean_us": 212.0
+      "n": 432,
+      "p50_us": 145.2,
+      "p90_us": 229.1,
+      "p99_us": 7085.5,
+      "max_us": 19753.3,
+      "mean_us": 311.6
     },
     "input_read": {
       "n": 200,
-      "p50_us": 333.9,
-      "p90_us": 503.3,
-      "p99_us": 1513.6,
-      "max_us": 2190.8,
-      "mean_us": 387.5
+      "p50_us": 134.2,
+      "p90_us": 255.6,
+      "p99_us": 393.0,
+      "max_us": 516.0,
+      "mean_us": 158.0
     },
     "input_present": {
       "n": 200,
-      "p50_us": 472.4,
-      "p90_us": 727.5,
-      "p99_us": 1893.4,
-      "max_us": 2790.7,
-      "mean_us": 535.1
+      "p50_us": 279.7,
+      "p90_us": 397.7,
+      "p99_us": 545.0,
+      "max_us": 661.2,
+      "mean_us": 299.9
     },
     "ipc_rt": {
       "n": 2000,
-      "p50_us": 5.1,
-      "p90_us": 5.3,
-      "p99_us": 5.5,
-      "max_us": 90.8,
-      "mean_us": 5.2
+      "p50_us": 2.3,
+      "p90_us": 5.0,
+      "p99_us": 5.2,
+      "max_us": 69.8,
+      "mean_us": 3.3
     }
   },
   "irqoff_worst": {
-    "us": 29890.8,
+    "us": 30882.6,
     "syscall": "0x800000000000001f"
   }
 }
