@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -32,21 +32,28 @@ fhs = { path = "../libs/fhs", features = ["alloc"] }
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
 messenger-generated = { path = "../libs/generated" }
+# The `msg` module and the generated `sys::*` modules (Messenger from scripts,
+# docs/rhai/msg.md) with the real `int 0x80` transport, registered as a LazyRAD
+# script extension. Same exact Rhai pin as LazyRAD, so one Rhai links.
+rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
+# The event-source callback types name Rhai's own; the exact pin LazyRAD and
+# rhai-lazy use, so one Rhai links.
+rhai = { version = "=1.26.1", default-features = false, features = ["std"] }
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is LazyRAD branch `lazyos-f5-home` (va1erian/lazyrad#87): `main`
-# after the home-data change (#86), plus the packager granting
-# `$HOME/.apps/<id>` instead of `/home/*/.apps/<id>`, the form LazyOS's F5
-# manifest grammar requires (filesystem F5, #509). Move it to the merge commit
-# once #87 is merged.
+# PIN: `rev` is LazyRAD `main` at the merge of va1erian/lazyrad#88 (`lazyos-msg`:
+# Messenger in form scripts, event sources, scoped extensions, host
+# permissions and xui 4c2a4fb; docs/lazyrad-messenger-plan.md) on top of the
+# home-data change (#86) and the packager granting `$HOME/.apps/<id>` (#87),
+# the form LazyOS's F5 manifest grammar requires (filesystem F5, #509).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "04e08afdaff4d976d385cfbaea65b82da84ccf7a", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by

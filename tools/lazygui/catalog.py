@@ -15,6 +15,11 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
+
+#: LazyOS-only LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
+#: `/system/share/lazyrad/` with every LazyRAD image next to any the user lists. Relative
+#: entries resolve against the repo root (`build_support/lazyrad_embed.rs`).
+LAZYOS_LAZYRAD_SAMPLES = ("lazyrad-os/samples/messenger",)
 CARGO = shutil.which("cargo") or "cargo"
 IMAGE = os.path.join(ROOT, "target", "lazyos.img")
 # The persistent ext2 home volume (mounted at /home); `run_demo.py` creates it
@@ -148,13 +153,19 @@ def build_env(cfg: dict) -> dict[str, str]:
         # Embeds /system/bin/lrplay and /system/bin/lazyrad (built by `tools/lazyrad/build.py`);
         # `init` lists the IDE when its program is in the image, so Settings -> Menu offers it.
         env["LAZYOS_LAZYRAD"] = "1"
-        if cfg.get("lazyrad_samples"):
-            env["LAZYRAD_SAMPLES"] = cfg["lazyrad_samples"]
+        env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
     if cfg.get("doom"):
         # Places the Doom package (built by `tools/doom/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
         env["LAZYOS_DOOM"] = "1"
     return env
+
+
+def lazyrad_samples(user: str) -> str:
+    """`LAZYRAD_SAMPLES`: the user's list, then the LazyOS samples it lacks."""
+    entries = [entry for entry in user.split(os.pathsep) if entry]
+    entries += [entry for entry in LAZYOS_LAZYRAD_SAMPLES if entry not in entries]
+    return os.pathsep.join(entries)
 
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,

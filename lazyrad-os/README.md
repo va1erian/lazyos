@@ -12,8 +12,23 @@ disk image as `/system/bin/lrplay` and `/system/bin/lazyrad` (`LAZYOS_LAZYRAD=1`
 
 The library (`src/lib.rs`) holds the LazyOS glue shared by both: command-line
 parsing (`args`), the `lazyrad_runtime::platform::Platform` LazyOS installs
-(`platform`: script file sandbox, config dir, player path) and the serial
-evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`).
+(`platform`: script file sandbox, config dir, player path), the serial
+evidence markers (`marker`: `LRPLAY:UP|EVENT|EXIT`, `LRIDE:*`) and Messenger
+for form scripts (`messenger`). That module installs `msg` and the generated
+`sys::*` modules into every form's engine (`lazyrad_runtime::extensions::
+add_scoped`) and registers the event source the form's window polls, so
+`sys::confd::get("sys/ui/theme")`, `sys::confd::on_changed(...)` and
+`msg::serve(...)` work in any form script; see
+[`docs/rhai/msg.md`](../docs/rhai/msg.md#in-lazyrad-form-scripts) and
+[`docs/lazyrad-messenger-plan.md`](../docs/lazyrad-messenger-plan.md). The
+platform also derives a packaged app's interfaces and topics from its scripts.
+The player prints `LRPLAY:MSG:PASS` once Messenger is installed and
+`LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran.
+
+`samples/` holds LazyOS-only sample projects (`samples/messenger`: confd, a
+change topic and a served method). `run_demo.py --lazyrad` and the GUI
+launcher embed them under `/system/share/lazyrad/` next to any `LAZYRAD_SAMPLES` entries;
+`python tools/rhai/run.py --lazyrad` boots the Messenger one and judges it.
 
 ## Where LazyRAD writes
 
@@ -68,15 +83,14 @@ LazyOS today).
 ## LazyRAD dependency and the rev pin
 
 LazyRAD is a git dependency on `va1erian/lazyrad` with `default-features = false`
-(no `winit`, `rfd`, `directories`, `dark-light`, local-time). The LazyRAD side of
-this work (feature gating, the `Platform` trait, `run_with_backend`, the
-packager) lives on LazyRAD's `lazyos-p0` branch.
-
-**The pinned `rev` in `Cargo.toml` is LazyRAD `main` before that branch merged, so
-`lazyrad-os` does not build from the pin alone.** Until the LazyRAD PR merges,
-develop against a local checkout by appending a patch to the LazyOS repo's
-`.cargo/config.toml` (cargo reads config from the working directory, which
-`tools/lazyrad/build.py` sets to the repo root; do not commit it):
+(no `winit`, `rfd`, `directories`, `dark-light`, local-time). The pinned `rev`
+is the head of LazyRAD's `lazyos-msg` branch (event sources, scoped
+extensions, host permissions; see the comment in `Cargo.toml`) until it
+merges. To develop against a local checkout, patch every LazyRAD crate, either
+on the command line (`cargo test --config 'patch."https://github.com/va1erian/lazyrad".lazyrad-runtime.path="<lazyrad>/crates/lazyrad-runtime"' ...`)
+or in the LazyOS repo's `.cargo/config.toml` (cargo reads config from the
+working directory, which `tools/lazyrad/build.py` sets to the repo root; do
+not commit it), and restore `Cargo.lock` afterwards (a patch rewrites it):
 
 ```toml
 [patch."https://github.com/va1erian/lazyrad"]
@@ -92,11 +106,11 @@ xui-rhai         = { path = "<lazyrad>/crates/xui-rhai" }
 the merge commit, delete the patch, and commit `Cargo.lock`. Bumping xui is the
 procedure in [`docs/xui-plan.md`](../docs/xui-plan.md): LazyRAD's workspace, this
 `Cargo.toml` and `xui-app/Cargo.toml` must all name one xui revision (today
-`58c1a6e`).
+`4c2a4fb`).
 
 ## Tests
 
 ```bash
-cd lazyrad-os && cargo test    # args, platform, markers, and tests/lzp_conformance.rs
+cd lazyrad-os && cargo test    # args, platform, markers, tests/lzp_conformance.rs, tests/samples.rs
 # LAZYRAD_SAMPLES=<lazyrad>/examples/hello;... adds the real samples to the conformance run
 ```

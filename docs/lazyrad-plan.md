@@ -242,9 +242,13 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
 
 ### P6 - Stretch (unscheduled)
 
-- LazyOS stdlib modules in the Rhai runtime: `os.topics` (Messenger pub/sub
-  through `messenger-generated`), `notify`, `audio.beep` (via `sndd`), `settings`
-  on `confd`. Any new Messenger surface is defined in `idl/*.midl`.
+- LazyOS stdlib modules in the Rhai runtime. **Done for Messenger**
+  ([`lazyrad-messenger-plan.md`](lazyrad-messenger-plan.md)): the player
+  installs `msg` and the generated `sys::*` modules (calls to any IDL
+  interface, topics, services written in Rhai; [`rhai/msg.md`](rhai/msg.md)),
+  the form's window delivers events, and Make LazyOS App declares the
+  interfaces and topics the scripts use. Still open: hand-written convenience
+  beyond the IDL (`notify`, `audio.beep` via `sndd`).
 - One shared player across packages (needs a package-dependency concept).
 - Multi-window forms (`form.show()`) once `xuid` clients can own several
   surfaces; until then show secondary forms as in-window dialogs (G16).

@@ -92,19 +92,57 @@ pub fn core_removal_refused(name: &str) -> String {
 }
 
 /// Which screen the window shows.
+///
+/// Installing a package is a wizard: [`Screen::Choose`], [`Screen::Review`],
+/// [`Screen::Permissions`], then [`Screen::Installing`] and [`Screen::Done`]
+/// (both the last step). [`Screen::step`] numbers them for the step header.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
-    /// The installed list plus the "open a package" field.
+    /// The installed list.
     #[default]
     List,
-    /// The consent screen for [`Model::inspected`].
-    Consent,
-    /// The progress screen while `Install` runs.
+    /// Wizard step 1: pick the `.lzp` (a path field and a file picker).
+    Choose,
+    /// Wizard step 2: what the package is, or why it cannot be installed.
+    Review,
+    /// Wizard step 3: the consent to the package's permissions.
+    Permissions,
+    /// Wizard step 4: the progress screen while `Install` runs.
     Installing,
-    /// The success screen after `Install` returned.
+    /// Wizard step 4: the success screen after `Install` returned.
     Done,
     /// The confirmation before `Remove`.
     ConfirmRemove,
+}
+
+/// The wizard's step titles, in order; [`Screen::step`] indexes them.
+pub const WIZARD_STEPS: [&str; 4] = ["Choose", "Review", "Permissions", "Install"];
+
+impl Screen {
+    /// The wizard step (an index into [`WIZARD_STEPS`]) this screen belongs
+    /// to, or `None` outside the wizard.
+    pub fn step(self) -> Option<usize> {
+        match self {
+            Screen::Choose => Some(0),
+            Screen::Review => Some(1),
+            Screen::Permissions => Some(2),
+            Screen::Installing | Screen::Done => Some(3),
+            Screen::List | Screen::ConfirmRemove => None,
+        }
+    }
+
+    /// The name the serial evidence uses for the screen.
+    pub fn marker(self) -> &'static str {
+        match self {
+            Screen::List => "LIST",
+            Screen::Choose => "CHOOSE",
+            Screen::Review => "REVIEW",
+            Screen::Permissions => "PERMISSIONS",
+            Screen::Installing => "INSTALLING",
+            Screen::Done => "DONE",
+            Screen::ConfirmRemove => "CONFIRM_REMOVE",
+        }
+    }
 }
 
 /// A request the app queued but has not completed. It is dropped whenever the
@@ -128,9 +166,9 @@ pub struct Model {
     pub packages: Vec<Installed>,
     /// Whether `List` has answered (so an empty list is "none", not "loading").
     pub list_loaded: bool,
-    /// What the user typed in the "open a package" field.
+    /// The package path on the Choose step (typed or picked).
     pub path_input: String,
-    /// The package the consent screen is showing.
+    /// The package the Review and Permissions steps are showing.
     pub inspected: Option<Package>,
     /// The path [`Model::inspected`] was read from (what `Install` will use).
     pub inspected_path: Option<String>,
@@ -191,22 +229,86 @@ impl Model {
         self.screen = Screen::List;
     }
 
-    /// `Inspect` succeeded: show the consent screen for `package`, which was
-    /// read from `path`. The typed path is cleared so `q` quits again once the
-    /// user is back on the list.
-    pub fn inspect_ok(&mut self, path: String, package: Package) {
+    /// "Install a package…": open the wizard on the Choose step, prefilled
+    /// with the last path the user chose.
+    pub fn start_wizard(&mut self) {
         self.clear_transient();
-        self.inspected = Some(package);
-        self.inspected_path = Some(path);
-        self.path_input.clear();
-        self.screen = Screen::Consent;
+        self.screen = Screen::Choose;
     }
 
-    /// `Inspect` failed: stay on the list and show why.
+    /// The file picker returned `path`: it becomes the Choose step's path.
+    pub fn path_picked(&mut self, path: &str) {
+        self.banner = None;
+        self.path_input = path.to_owned();
+    }
+
+    /// `Inspect` succeeded: show the Review step for `package`, which was read
+    /// from `path`. The path stays in the field so Back returns to it.
+    pub fn inspect_ok(&mut self, path: String, package: Package) {
+        self.clear_transient();
+        self.path_input = path.clone();
+        self.inspected = Some(package);
+        self.inspected_path = Some(path);
+        self.screen = Screen::Review;
+    }
+
+    /// `Inspect` failed: stay on (or go to) the Choose step and show why.
     pub fn inspect_failed(&mut self, reason: impl Into<String>) {
         self.clear_transient();
         self.banner = Some(clean(&reason.into()));
-        self.screen = Screen::List;
+        self.screen = Screen::Choose;
+    }
+
+    /// Whether the Review step may advance: a package without problems.
+    pub fn can_advance(&self) -> bool {
+        self.screen == Screen::Review && self.installable()
+    }
+
+    /// Whether the Permissions step may install: a package without problems
+    /// and no install already queued.
+    pub fn can_install(&self) -> bool {
+        self.screen == Screen::Permissions && self.pending.is_none() && self.installable()
+    }
+
+    /// Whether the inspected package has no problems.
+    fn installable(&self) -> bool {
+        self.inspected
+            .as_ref()
+            .is_some_and(|package| package.problems.is_empty())
+    }
+
+    /// Next on the Review step: on to the permissions. Returns whether the
+    /// screen changed (a package with problems never gets past Review).
+    pub fn advance(&mut self) -> bool {
+        if !self.can_advance() {
+            return false;
+        }
+        self.banner = None;
+        self.screen = Screen::Permissions;
+        true
+    }
+
+    /// Back: one wizard step earlier. Leaving Review drops the package (the
+    /// path stays in the field), and Back from Choose leaves the wizard.
+    /// Screens outside the wizard's editable steps ignore it.
+    pub fn back(&mut self) {
+        match self.screen {
+            Screen::Permissions => {
+                self.banner = None;
+                self.pending = None;
+                self.screen = Screen::Review;
+            }
+            Screen::Review => {
+                let path = self.inspected_path.take();
+                self.clear_transient();
+                if let Some(path) = path {
+                    self.path_input = path;
+                }
+                self.screen = Screen::Choose;
+            }
+            Screen::Choose => self.cancel(),
+            Screen::List | Screen::Installing | Screen::Done | Screen::ConfirmRemove => {}
+        }
     }
 
     /// The user accepted the consent: queue the install and show progress.
@@ -236,12 +338,12 @@ impl Model {
         self.screen = Screen::Done;
     }
 
-    /// `Install` failed: the consent screen stays up with the error, and the
-    /// package is *not* shown as installed.
+    /// `Install` failed: the Permissions step comes back with the error (so
+    /// the user can retry), and the package is *not* shown as installed.
     pub fn install_failed(&mut self, reason: impl Into<String>) {
         self.pending = None;
         self.banner = Some(clean(&reason.into()));
-        self.screen = Screen::Consent;
+        self.screen = Screen::Permissions;
     }
 
     /// The user asked to remove `app`: ask for confirmation first. A core
@@ -283,7 +385,11 @@ impl Model {
         if let Some(app) = self.updates_core() {
             notes.push(format!("Updates built-in app {}", clean(&app.name)));
         }
-        if self.inspected.as_ref().is_some_and(|package| package.autostart) {
+        if self
+            .inspected
+            .as_ref()
+            .is_some_and(|package| package.autostart)
+        {
             notes.push("Starts when you log in".to_owned());
         }
         notes
@@ -304,8 +410,9 @@ impl Model {
         self.screen = Screen::List;
     }
 
-    /// Esc / Cancel / Close: return to the list, dropping the transient state.
-    /// A running install cannot be cancelled.
+    /// Esc / Cancel / Close: leave the wizard (or the confirmation) for the
+    /// list, dropping the transient state. A running install cannot be
+    /// cancelled.
     pub fn cancel(&mut self) {
         if self.screen == Screen::Installing {
             return;

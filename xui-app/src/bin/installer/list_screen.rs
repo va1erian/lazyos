@@ -1,13 +1,13 @@
 //! The list screen: the installed applications, a `Remove` button per row (a
 //! "Built-in" badge instead for the core apps LazyOS ships, which cannot be
-//! removed), and the "open a package" field.
+//! removed), and the button that starts the install wizard.
 //!
 //! The rows live in a [`ScrollView`] rebuilt from the model, so a list of any
 //! length scrolls instead of overflowing; an empty list says so in words.
 
 use xui_core::app::Ui;
 use xui_core::units::Dip;
-use xui_core::widget::{Button, Edit, Label, Panel, ScrollView};
+use xui_core::widget::{Button, Label, Panel, ScrollView};
 
 use xui_app::installer::{elide, Model};
 
@@ -19,7 +19,7 @@ const ROW_H: i32 = 40;
 /// The width reserved for the scrollbar so a row's Remove button never sits
 /// under it.
 const BAR_RESERVE: i32 = 14;
-/// The bottom strip holding the path field and the status banner.
+/// The bottom strip holding the action buttons and the status banner.
 const BOTTOM_H: i32 = 96;
 
 /// One installed-app row: the panel that owns it and its child widgets.
@@ -45,8 +45,7 @@ pub struct ListScreen {
     _empty: Label<Msg>,
     _scroll: ScrollView<Msg>,
     _rows: Vec<AppRow>,
-    _path: Edit<Msg>,
-    _inspect: Button<Msg>,
+    _install: Button<Msg>,
     _reload: Button<Msg>,
     _banner: Label<Msg>,
 }
@@ -119,39 +118,24 @@ impl ListScreen {
         let empty = Label::new(
             page,
             rect(MARGIN + 8, scroll_top + 12, width - 2 * MARGIN - 16, 18),
-            "No applications are installed yet. Open a package below to add one.",
+            "No applications are installed yet. Install a package to add one.",
         )
         .map_err(fail)?;
         ui.set_visible(empty.id(), model.packages.is_empty());
         ui.raise(empty.id());
 
-        let edit_w = (width - 2 * MARGIN - 210).max(80);
-        let path = Edit::new(
+        let install = Button::new(
             page,
-            rect(MARGIN, height - 84, edit_w, 26),
-            &model.path_input,
+            rect(MARGIN, height - 84, 180, 30),
+            "Install a package…",
         )
         .map_err(fail)?
-        .cue("Absolute path to a .lzp package")
-        .on_change(|text| Some(Msg::PathChanged(text.to_owned())));
-        // The field is where a keyboard user starts: focus it so typing a path
-        // works without a click, and so a pointer click on it is not needed to
-        // leave the last-built button.
-        path.focus();
-        let inspect = Button::new(
-            page,
-            rect(MARGIN + edit_w + 8, height - 84, 96, 26),
-            "Inspect",
-        )
-        .map_err(fail)?
-        .on_click(|| Some(Msg::Inspect));
-        let reload = Button::new(
-            page,
-            rect(MARGIN + edit_w + 112, height - 84, 96, 26),
-            "Refresh",
-        )
-        .map_err(fail)?
-        .on_click(|| Some(Msg::Reload));
+        .on_click(|| Some(Msg::StartInstall));
+        // The wizard is the screen's main action: Enter starts it.
+        page.focus(install.id());
+        let reload = Button::new(page, rect(MARGIN + 188, height - 84, 96, 30), "Refresh")
+            .map_err(fail)?
+            .on_click(|| Some(Msg::Reload));
 
         let banner_text = model.banner.as_deref().unwrap_or("");
         let banner = Label::new(
@@ -167,8 +151,7 @@ impl ListScreen {
             _empty: empty,
             _scroll: scroll,
             _rows: rows,
-            _path: path,
-            _inspect: inspect,
+            _install: install,
             _reload: reload,
             _banner: banner,
         })

@@ -11,12 +11,15 @@
 //! `python` (the builder cross-check is skipped with a note when absent).
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use lazypkg::Package;
-use lazyrad_packager::lzp::{build_package, BuiltPackage, PackageRequest};
+use lazyrad_os::platform::{Home, LazyOsPlatform};
+use lazyrad_packager::lzp::{build_package, BuiltPackage, HostPermissions, PackageRequest};
+use lazyrad_runtime::platform::Platform;
 
 fn fake_player(extra: usize) -> Vec<u8> {
     let mut elf = vec![0u8; 64 + extra];
@@ -96,8 +99,20 @@ fn package(lrp: &Path, player: &[u8], author: &str) -> BuiltPackage {
         description: Some("conformance"),
         icons: None,
         check: None,
+        permissions: Some(&lazyos_permissions),
     })
     .unwrap_or_else(|e| panic!("{}: {e}", lrp.display()))
+}
+
+/// What Make LazyOS App asks: the LazyOS platform's derivation from the
+/// scripts (`rhai_lazy::msg::permissions`).
+fn lazyos_permissions(scripts: &[&str]) -> HostPermissions {
+    let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user"))))
+        .script_permissions(scripts);
+    HostPermissions {
+        interfaces: found.interfaces,
+        topics: found.topics,
+    }
 }
 
 /// Opens `built` with the LazyOS reader and checks it says what we wrote.
@@ -155,6 +170,48 @@ fn every_project_is_accepted_by_lazypkg() {
             );
         }
     }
+}
+
+#[test]
+fn derived_messenger_permissions_pass_the_lazyos_reader() {
+    let dir = scratch("messenger");
+    let sub = subdir(&dir, "watcher");
+    let lrp = generated(&sub, "watcher", 2, false);
+    fs::write(
+        sub.join("m0.rhai"),
+        r#"fn form_load() {
+    let t = sys::confd::get("sys/ui/theme");
+    sys::confd::on_changed("sys/ui/#", |e| ());
+    msg::publish("app/user.conformance.watcher/hello", "hi");
+}
+fn save() { file_write_text("n.txt", "x"); }
+"#,
+    )
+    .unwrap();
+    let built = package(&lrp, &fake_player(0), "Conformance");
+    open_with_lazypkg(&built);
+    let pkg = Package::open(&built.bytes).unwrap();
+    let permissions = &pkg.manifest().permissions;
+    assert_eq!(
+        permissions.interfaces,
+        ["os.lazy.display.v1", "os.lazy.confd.v1"]
+    );
+    assert_eq!(
+        permissions.topics,
+        [
+            "publish:app/user.conformance.watcher/hello",
+            "subscribe:system/confd/changed/#",
+        ]
+    );
+    // Next to the derived Messenger rules, the storage rule keeps the F5
+    // grammar: `$HOME` as the first segment only, never an absolute home
+    // (lazypkg's REJECT_ABSOLUTE_HOME already refused anything else above).
+    let data = fhs::app_data_dir(lazypkg::HOME_VAR, &pkg.manifest().app.system_name);
+    assert_eq!(
+        permissions.files,
+        [format!("read:{data}"), format!("write:{data}")]
+    );
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]

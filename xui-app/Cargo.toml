@@ -26,8 +26,8 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9", default-features = false }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -71,7 +71,7 @@ lazyshell = { path = "crates/shell" }
 confd = { path = "../libs/confd" }
 deskmenu = { path = "../libs/deskmenu" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "7e31d5d6d120fb479e1ff0731bd6a44601acafee" }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
 
 [[bin]]
 name = "xui-m0"

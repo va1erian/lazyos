@@ -50,6 +50,7 @@ from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # no
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
+from lazygui.catalog import lazyrad_samples  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -356,8 +357,10 @@ def main(argv: list[str]) -> int:
             if not build_lazyrad():
                 return 1
             env["LAZYOS_LAZYRAD"] = "1"
-            if args.lazyrad_samples:
-                env["LAZYRAD_SAMPLES"] = args.lazyrad_samples
+            # The caller's samples (--lazyrad-samples, else LAZYRAD_SAMPLES), then
+            # the LazyOS-only ones (the Messenger demo).
+            user = args.lazyrad_samples or os.environ.get("LAZYRAD_SAMPLES", "")
+            env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
         if args.doom:
             if not build_doom():
                 return 1

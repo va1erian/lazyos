@@ -1,59 +1,57 @@
-//! The consent screen: what a package declares, grouped by risk, with the
-//! friendly explanations `pkgd` supplied.
+//! Wizard steps 2 and 3: what a package is, then the permissions it asks for,
+//! grouped by risk, with the friendly explanations `pkgd` supplied.
 //!
 //! Every package field is untrusted, so it is elided and stripped of control
-//! characters before it reaches a widget. The permissions, MIME types and
+//! characters before it reaches a widget. The MIME types, permissions and
 //! problems each live in a [`ListView`], so any number of them scrolls rather
-//! than overflowing; when there are problems, only `Close` is offered.
+//! than overflowing. A package with problems stops at Review: the problems
+//! replace the file types and `Next` is disabled.
 
 use xui_core::app::Ui;
-use xui_core::widget::{Button, Label, ListView, Panel};
-use xui_core::HasText;
+use xui_core::widget::{Label, ListView, Panel};
 
 use xui_app::installer::{elide, group_by_risk, permission_line, short_digest, Model, Package};
 
 use crate::msg::Msg;
 use crate::view::{fail, rect, MARGIN};
+use crate::wizard::{banner, Header, NavBar, CONTENT_TOP, FOOTER_H};
 
-/// The consent screen's widgets.
-pub struct ConsentScreen {
+/// Step 2: the package's identity and the file types it handles.
+pub struct ReviewScreen {
     _panel: Panel<Msg>,
+    _header: Header,
     _name: Label<Msg>,
     _author: Label<Msg>,
     _meta: Label<Msg>,
     _description: Label<Msg>,
-    _mime_label: Label<Msg>,
-    _mime: ListView<Msg>,
-    _perms_label: Label<Msg>,
-    _perms: ListView<Msg>,
-    _problems_label: Label<Msg>,
-    _problems: ListView<Msg>,
-    _install: Button<Msg>,
-    _cancel: Button<Msg>,
+    _list_label: Label<Msg>,
+    _list: ListView<Msg>,
     _banner: Label<Msg>,
+    _nav: NavBar,
 }
 
-impl ConsentScreen {
+impl ReviewScreen {
     /// Builds the screen at `width` x `height` from `model`.
     pub fn build(
         ui: &Ui<Msg>,
         width: i32,
         height: i32,
         model: &Model,
-    ) -> Result<ConsentScreen, String> {
+    ) -> Result<ReviewScreen, String> {
         let fallback = Package::default();
         let package = model.inspected.as_ref().unwrap_or(&fallback);
         let has_problems = !package.problems.is_empty();
 
         let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
         let page = panel.ui();
+        let header = Header::build(page, width, model.screen)?;
+        let inner = width - 2 * MARGIN;
+        let top = CONTENT_TOP;
 
-        let name = display_name(package);
-        let name_label =
-            Label::new(page, rect(MARGIN, 10, width - 2 * MARGIN, 24), &name).map_err(fail)?;
+        let name =
+            Label::new(page, rect(MARGIN, top, inner, 24), &display_name(package)).map_err(fail)?;
         let author = format!("Author (unverified): {}", or_unknown(&package.author, 60));
-        let author_label =
-            Label::new(page, rect(MARGIN, 36, width - 2 * MARGIN, 16), &author).map_err(fail)?;
+        let author = Label::new(page, rect(MARGIN, top + 26, inner, 16), &author).map_err(fail)?;
         let meta = format!(
             "Version {}   ·   installs to {}/{}   ·   sha256 {}",
             or_unknown(&package.version, 20),
@@ -61,117 +59,127 @@ impl ConsentScreen {
             elide(&package.install_dir, 60),
             short_digest(&package.digest),
         );
-        let meta_label =
-            Label::new(page, rect(MARGIN, 54, width - 2 * MARGIN, 16), &meta).map_err(fail)?;
+        let meta = Label::new(page, rect(MARGIN, top + 44, inner, 16), &meta).map_err(fail)?;
         // "Updates built-in app <name>" / "Starts when you log in" lead the
         // description line, so the layout below does not move.
         let mut about = model.consent_notes();
-        let description = elide(&package.description, 180);
-        if !description.is_empty() {
-            about.push(description);
+        let summary = elide(&package.description, 180);
+        if !summary.is_empty() {
+            about.push(summary);
         }
-        let description_label = Label::new(
+        let description = Label::new(
             page,
-            rect(MARGIN, 74, width - 2 * MARGIN, 16),
+            rect(MARGIN, top + 64, inner, 16),
             &elide(&about.join("   ·   "), 200),
         )
         .map_err(fail)?;
 
-        let mime_label = Label::new(
-            page,
-            rect(MARGIN, 100, width - 2 * MARGIN, 16),
-            "Handled file types",
-        )
-        .map_err(fail)?;
-        let mime_strings = mime_items(package);
-        let mime_refs: Vec<&str> = mime_strings.iter().map(String::as_str).collect();
-        let mime = ListView::new(page, rect(MARGIN, 118, width - 2 * MARGIN, 64), &mime_refs)
-            .map_err(fail)?;
-        mime.select(None);
+        // A broken package shows its problems where the file types would be.
+        let (title, items) = if has_problems {
+            ("This package cannot be installed", problem_items(package))
+        } else {
+            ("Handled file types", mime_items(package))
+        };
+        let list_label =
+            Label::new(page, rect(MARGIN, top + 92, inner, 16), title).map_err(fail)?;
+        let list_top = top + 110;
+        let list_h = (height - FOOTER_H - list_top).max(40);
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        let list =
+            ListView::new(page, rect(MARGIN, list_top, inner, list_h), &refs).map_err(fail)?;
+        list.select(None);
 
-        let perms_label = Label::new(
-            page,
-            rect(MARGIN, 190, width - 2 * MARGIN, 16),
-            "Permissions requested",
-        )
-        .map_err(fail)?;
-        let permission_strings = permission_items(package);
-        let permission_refs: Vec<&str> = permission_strings.iter().map(String::as_str).collect();
-        let perms_h = (height - 208 - 72).max(40);
-        let perms = ListView::new(
-            page,
-            rect(MARGIN, 208, width - 2 * MARGIN, perms_h),
-            &permission_refs,
-        )
-        .map_err(fail)?;
-        perms.select(None);
-
-        let problems_label = Label::new(
-            page,
-            rect(MARGIN, 100, width - 2 * MARGIN, 16),
-            "This package cannot be installed",
-        )
-        .map_err(fail)?;
-        let problem_strings = problem_items(package);
-        let problem_refs: Vec<&str> = problem_strings.iter().map(String::as_str).collect();
-        let problems_h = (height - 118 - 72).max(40);
-        let problems = ListView::new(
-            page,
-            rect(MARGIN, 118, width - 2 * MARGIN, problems_h),
-            &problem_refs,
-        )
-        .map_err(fail)?;
-        problems.select(None);
-
-        let install = Button::new(
-            page,
-            rect(width - MARGIN - 228, height - 48, 100, 30),
-            "Install",
-        )
-        .map_err(fail)?
-        .on_click(|| Some(Msg::Install));
-        let cancel = Button::new(
-            page,
-            rect(width - MARGIN - 116, height - 48, 100, 30),
-            "Cancel",
-        )
-        .map_err(fail)?
-        .on_click(|| Some(Msg::Cancel));
-        if has_problems {
-            cancel.set_text("Close");
+        let banner = banner(page, width, height, model)?;
+        let nav = NavBar::build(page, width, height, true, ("Next >", Msg::Next))?;
+        nav.set_next_enabled(model.can_advance());
+        if !has_problems {
+            nav.focus_next(page);
         }
 
-        let banner_text = model.banner.as_deref().unwrap_or("");
-        let banner = Label::new(
+        Ok(ReviewScreen {
+            _panel: panel,
+            _header: header,
+            _name: name,
+            _author: author,
+            _meta: meta,
+            _description: description,
+            _list_label: list_label,
+            _list: list,
+            _banner: banner,
+            _nav: nav,
+        })
+    }
+}
+
+/// Step 3: the consent. `Install` forwards the user's yes to `pkgd`.
+pub struct PermissionsScreen {
+    _panel: Panel<Msg>,
+    _header: Header,
+    _intro: Label<Msg>,
+    _notes: Label<Msg>,
+    _perms: ListView<Msg>,
+    _banner: Label<Msg>,
+    _nav: NavBar,
+}
+
+impl PermissionsScreen {
+    /// Builds the screen at `width` x `height` from `model`.
+    pub fn build(
+        ui: &Ui<Msg>,
+        width: i32,
+        height: i32,
+        model: &Model,
+    ) -> Result<PermissionsScreen, String> {
+        let fallback = Package::default();
+        let package = model.inspected.as_ref().unwrap_or(&fallback);
+
+        let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
+        let page = panel.ui();
+        let header = Header::build(page, width, model.screen)?;
+        let inner = width - 2 * MARGIN;
+
+        let intro = format!(
+            "{} asks for these permissions. Install only if you trust it.",
+            display_name(package)
+        );
+        let intro = Label::new(
             page,
-            rect(MARGIN, height - 72, width - 2 * MARGIN, 18),
-            &elide(banner_text, 160),
+            rect(MARGIN, CONTENT_TOP, inner, 18),
+            &elide(&intro, 120),
         )
         .map_err(fail)?;
+        // What installing does beyond the permissions (replace a built-in
+        // app, start at log-in); the list moves down only when it says
+        // something.
+        let notes = model.consent_notes().join("   ·   ");
+        let notes_label = Label::new(
+            page,
+            rect(MARGIN, CONTENT_TOP + 22, inner, 18),
+            &elide(&notes, 160),
+        )
+        .map_err(fail)?;
+        let list_top = CONTENT_TOP + if notes.is_empty() { 24 } else { 46 };
+        let list_h = (height - FOOTER_H - list_top).max(40);
+        let items = permission_items(package);
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        let perms =
+            ListView::new(page, rect(MARGIN, list_top, inner, list_h), &refs).map_err(fail)?;
+        perms.select(None);
 
-        ui.set_visible(mime_label.id(), !has_problems);
-        ui.set_visible(mime.id(), !has_problems);
-        ui.set_visible(perms_label.id(), !has_problems);
-        ui.set_visible(perms.id(), !has_problems);
-        ui.set_visible(install.id(), !has_problems);
-        ui.set_visible(problems_label.id(), has_problems);
-        ui.set_visible(problems.id(), has_problems);
+        let banner = banner(page, width, height, model)?;
+        let nav = NavBar::build(page, width, height, true, ("Install", Msg::Install))?;
+        nav.set_next_enabled(model.can_install());
+        // Install is deliberately not focused: a second Enter after Review's
+        // Next must not consent on the user's behalf.
 
-        Ok(ConsentScreen {
+        Ok(PermissionsScreen {
             _panel: panel,
-            _name: name_label,
-            _author: author_label,
-            _meta: meta_label,
-            _description: description_label,
-            _mime_label: mime_label,
-            _mime: mime,
-            _perms_label: perms_label,
+            _header: header,
+            _intro: intro,
+            _notes: notes_label,
             _perms: perms,
-            _problems_label: problems_label,
-            _problems: problems,
-            _install: install,
-            _cancel: cancel,
             _banner: banner,
+            _nav: nav,
         })
     }
 }

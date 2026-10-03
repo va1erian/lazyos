@@ -33,14 +33,25 @@ fn a_fresh_model_is_an_empty_list() {
 }
 
 #[test]
-fn the_consent_flow_reaches_done_and_returns_to_the_list() {
+fn the_wizard_reaches_done_and_returns_to_the_list() {
     let mut model = Model::new();
+    model.start_wizard();
+    assert_eq!(model.screen, Screen::Choose);
     model.set_path("/transient/paint.lzp");
-    model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
-    assert_eq!(model.screen, Screen::Consent);
-    assert_eq!(model.inspected_path.as_deref(), Some("/transient/paint.lzp"));
-    // Inspecting clears the typed path so `q` quits again from the list.
-    assert!(model.path_input.is_empty());
+    model.inspect_ok(
+        "/transient/paint.lzp".into(),
+        package("org.lazy.paint", &[]),
+    );
+    assert_eq!(model.screen, Screen::Review);
+    assert_eq!(
+        model.inspected_path.as_deref(),
+        Some("/transient/paint.lzp")
+    );
+
+    assert!(!model.can_install(), "Review is not the consent");
+    assert!(model.advance());
+    assert_eq!(model.screen, Screen::Permissions);
+    assert!(model.can_install());
 
     model.install_started();
     assert_eq!(model.screen, Screen::Installing);
@@ -76,18 +87,30 @@ fn a_package_with_problems_offers_only_close() {
         "/transient/bad.lzp".into(),
         package("org.lazy.bad", &["version \"1\" is not semver"]),
     );
-    assert_eq!(model.screen, Screen::Consent);
+    assert_eq!(model.screen, Screen::Review);
     assert_eq!(model.inspected.as_ref().unwrap().problems.len(), 1);
+    assert!(!model.can_advance());
+    assert!(
+        !model.advance(),
+        "a broken package never reaches the consent"
+    );
+    assert_eq!(model.screen, Screen::Review);
     model.cancel();
     assert_eq!(model.screen, Screen::List);
     assert!(model.inspected.is_none(), "Close drops the package");
 }
 
 #[test]
-fn inspect_failure_stays_on_the_list_with_the_reason() {
+fn inspect_failure_returns_to_the_choose_step_with_the_reason() {
     let mut model = Model::new();
+    model.start_wizard();
+    model.set_path("/transient/x.lzp");
     model.inspect_failed("not a zip archive");
-    assert_eq!(model.screen, Screen::List);
+    assert_eq!(model.screen, Screen::Choose);
+    assert_eq!(
+        model.path_input, "/transient/x.lzp",
+        "the path can be corrected"
+    );
     assert_eq!(model.banner.as_deref(), Some("not a zip archive"));
     assert!(model.inspected.is_none());
 }
@@ -96,6 +119,7 @@ fn inspect_failure_stays_on_the_list_with_the_reason() {
 fn inspect_again_drops_the_previous_package_and_pending_request() {
     let mut model = Model::new();
     model.inspect_ok("/transient/a.lzp".into(), package("org.lazy.a", &[]));
+    model.advance();
     model.install_started();
     assert!(model.pending.is_some());
     // A second inspect while the first is pending must not reuse the first.
@@ -108,10 +132,15 @@ fn inspect_again_drops_the_previous_package_and_pending_request() {
 #[test]
 fn install_failure_keeps_the_package_and_shows_the_error() {
     let mut model = Model::new();
-    model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
+    model.inspect_ok(
+        "/transient/paint.lzp".into(),
+        package("org.lazy.paint", &[]),
+    );
+    model.advance();
     model.install_started();
     model.install_failed("pkgd error 13");
-    assert_eq!(model.screen, Screen::Consent);
+    assert_eq!(model.screen, Screen::Permissions);
+    assert!(model.can_install(), "the user can retry");
     assert_eq!(model.banner.as_deref(), Some("pkgd error 13"));
     assert!(model.inspected.is_some(), "the user can retry");
     assert!(model.pending.is_none());
@@ -154,9 +183,14 @@ fn a_failed_remove_keeps_the_app_and_shows_the_error() {
 #[test]
 fn cancel_does_not_interrupt_a_running_install() {
     let mut model = Model::new();
-    model.inspect_ok("/transient/paint.lzp".into(), package("org.lazy.paint", &[]));
+    model.inspect_ok(
+        "/transient/paint.lzp".into(),
+        package("org.lazy.paint", &[]),
+    );
+    model.advance();
     model.install_started();
     model.cancel();
+    model.back();
     assert_eq!(model.screen, Screen::Installing);
     assert!(model.pending.is_some());
 }
@@ -187,6 +221,106 @@ fn a_second_install_of_the_same_id_replaces_the_row() {
     assert_eq!(model.packages[0].version, "2.0.0");
 }
 
+#[test]
+fn back_walks_the_wizard_one_step_at_a_time() {
+    let mut model = Model::new();
+    model.start_wizard();
+    model.inspect_ok(
+        "/transient/paint.lzp".into(),
+        package("org.lazy.paint", &[]),
+    );
+    model.advance();
+    model.banner = Some("pkgd error 13".into());
+
+    model.back();
+    assert_eq!(model.screen, Screen::Review);
+    assert!(
+        model.banner.is_none(),
+        "the install error belongs to Permissions"
+    );
+    assert!(model.inspected.is_some());
+
+    model.back();
+    assert_eq!(model.screen, Screen::Choose);
+    assert!(
+        model.inspected.is_none(),
+        "leaving Review drops the package"
+    );
+    assert!(model.inspected_path.is_none());
+    assert_eq!(model.path_input, "/transient/paint.lzp", "the path is kept");
+
+    model.back();
+    assert_eq!(model.screen, Screen::List);
+}
+
+#[test]
+fn a_package_opened_from_files_starts_at_review_and_backs_into_choose() {
+    let mut model = Model::new();
+    model.inspect_ok("/home/user/a.lzp".into(), package("org.lazy.a", &[]));
+    assert_eq!(model.screen, Screen::Review);
+    model.back();
+    assert_eq!(model.screen, Screen::Choose);
+    assert_eq!(model.path_input, "/home/user/a.lzp");
+}
+
+#[test]
+fn back_is_ignored_outside_the_editable_steps() {
+    let mut model = Model::new();
+    model.list_loaded(vec![installed("org.lazy.a", "1.0.0")]);
+    model.back();
+    assert_eq!(model.screen, Screen::List);
+    model.remove_asked(model.packages[0].clone());
+    model.back();
+    assert_eq!(model.screen, Screen::ConfirmRemove);
+    model.install_ok(installed("org.lazy.b", "1.0.0"));
+    model.back();
+    assert_eq!(model.screen, Screen::Done);
+}
+
+#[test]
+fn a_picked_path_replaces_the_field_and_clears_the_error() {
+    let mut model = Model::new();
+    model.start_wizard();
+    model.inspect_failed("not a zip archive");
+    model.path_picked("/transient/DOOM.LZP");
+    assert_eq!(model.path_input, "/transient/DOOM.LZP");
+    assert!(model.banner.is_none());
+    assert_eq!(model.screen, Screen::Choose);
+}
+
+#[test]
+fn start_wizard_keeps_the_last_path_and_drops_the_banner() {
+    let mut model = Model::new();
+    model.set_path("/transient/a.lzp");
+    model.list_failed("pkgd is unavailable");
+    model.start_wizard();
+    assert_eq!(model.screen, Screen::Choose);
+    assert_eq!(model.path_input, "/transient/a.lzp");
+    assert!(model.banner.is_none());
+}
+
+#[test]
+fn install_is_refused_twice_and_outside_permissions() {
+    let mut model = Model::new();
+    model.inspect_ok("/transient/a.lzp".into(), package("org.lazy.a", &[]));
+    assert!(!model.can_install(), "Review cannot install");
+    model.advance();
+    model.pending = Some(Request::Install("/transient/a.lzp".into()));
+    assert!(!model.can_install(), "an install is already queued");
+}
+
+#[test]
+fn every_wizard_screen_has_a_step_and_the_others_none() {
+    assert_eq!(Screen::Choose.step(), Some(0));
+    assert_eq!(Screen::Review.step(), Some(1));
+    assert_eq!(Screen::Permissions.step(), Some(2));
+    assert_eq!(Screen::Installing.step(), Some(3));
+    assert_eq!(Screen::Done.step(), Some(3));
+    assert_eq!(Screen::List.step(), None);
+    assert_eq!(Screen::ConfirmRemove.step(), None);
+    assert!(Screen::Done.step().unwrap() < WIZARD_STEPS.len());
+}
+
 fn core(system_name: &str, name: &str) -> Installed {
     Installed {
         name: name.to_owned(),
@@ -198,7 +332,10 @@ fn core(system_name: &str, name: &str) -> Installed {
 #[test]
 fn a_core_app_cannot_be_asked_for_removal() {
     let mut model = Model::new();
-    model.list_loaded(vec![core("os.lazy.paint", "Paint"), installed("org.lazy.a", "1.0.0")]);
+    model.list_loaded(vec![
+        core("os.lazy.paint", "Paint"),
+        installed("org.lazy.a", "1.0.0"),
+    ]);
     let paint = model.packages.iter().find(|a| a.core).unwrap().clone();
     let user = model.packages.iter().find(|a| !a.core).unwrap().clone();
     // The Remove button is absent, but a scripted AskRemove still arrives.
@@ -226,19 +363,30 @@ fn a_newer_core_package_says_it_updates_the_built_in_app() {
     let mut newer = package("os.lazy.paint", &[]);
     newer.version = "9.0.0".into();
     model.inspect_ok("/home/user/paint.lzp".into(), newer);
-    assert_eq!(model.updates_core().map(|app| app.name.as_str()), Some("Paint"));
+    assert_eq!(
+        model.updates_core().map(|app| app.name.as_str()),
+        Some("Paint")
+    );
     assert_eq!(model.consent_notes(), vec!["Updates built-in app Paint"]);
-    // A lower version is refused by pkgd: the error shows on the consent screen.
+    // A lower version is refused by pkgd: the error shows on the Permissions step.
+    assert!(model.advance());
     model.install_started();
     model.install_failed("os.lazy.paint 0.0.1 is older than the built-in 0.1.0");
-    assert_eq!(model.screen, Screen::Consent);
-    assert!(model.banner.as_deref().unwrap().contains("older than the built-in"));
+    assert_eq!(model.screen, Screen::Permissions);
+    assert!(model
+        .banner
+        .as_deref()
+        .unwrap()
+        .contains("older than the built-in"));
 }
 
 #[test]
 fn a_user_package_is_not_an_update_and_autostart_is_announced() {
     let mut model = Model::new();
-    model.list_loaded(vec![core("os.lazy.paint", "Paint"), installed("org.lazy.a", "1.0.0")]);
+    model.list_loaded(vec![
+        core("os.lazy.paint", "Paint"),
+        installed("org.lazy.a", "1.0.0"),
+    ]);
     let mut other = package("org.lazy.a", &[]);
     other.autostart = true;
     model.inspect_ok("/home/user/a.lzp".into(), other);
@@ -254,9 +402,25 @@ fn user_packages_are_listed_before_the_built_in_ones() {
         installed("org.lazy.a", "1.0.0"),
         core("os.lazy.paint", "Paint"),
     ]);
-    let names: Vec<&str> = model.packages.iter().map(|a| a.system_name.as_str()).collect();
+    let names: Vec<&str> = model
+        .packages
+        .iter()
+        .map(|a| a.system_name.as_str())
+        .collect();
     assert_eq!(names, ["org.lazy.a", "os.lazy.editor", "os.lazy.paint"]);
     model.install_ok(installed("org.lazy.b", "1.0.0"));
-    let names: Vec<&str> = model.packages.iter().map(|a| a.system_name.as_str()).collect();
-    assert_eq!(names, ["org.lazy.a", "org.lazy.b", "os.lazy.editor", "os.lazy.paint"]);
+    let names: Vec<&str> = model
+        .packages
+        .iter()
+        .map(|a| a.system_name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "org.lazy.a",
+            "org.lazy.b",
+            "os.lazy.editor",
+            "os.lazy.paint"
+        ]
+    );
 }

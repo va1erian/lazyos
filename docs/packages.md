@@ -602,24 +602,38 @@ can be installed next to the core Counter (`os.lazy.counter`) and removed.
 The GUI installer (`xui-installer`, `xui-app/src/bin/installer.rs`) is an
 unprivileged `pkgd` client. It opens on the installed list: one row per app
 (name, version, system name) with a `Remove` button, the apps the user
-installed first; a core app (`Installed.origin = core`) shows a "Built-in"
-badge instead, and the model refuses a removal request for it whatever sent it
-(`INSTALLER:REMOVE:REFUSED <system_name>`, with `pkgd`'s wording). Below the
-list are an "open a package" text field and an `Inspect` button (there is no
-file picker in v1). Opening a `.lzp` from Files or the desktop passes its path
-as the app's argument: the Installer lists, then shows the consent screen.
+installed first, plus `Install a package…` and `Refresh`. A core app
+(`Installed.origin = core`) shows a "Built-in" badge instead of `Remove`, and
+the model refuses a removal request for it whatever sent it
+(`INSTALLER:REMOVE:REFUSED <system_name>`, with `pkgd`'s wording). Installing is
+a four-step wizard with a step header and a `Back` / `Next` / `Cancel` bar:
 
-The consent screen is the whole point: it shows the package's name, version and
-`Author (unverified)`, its description, the MIME types it handles, and its
-requested permissions **grouped by risk (high first)** with the friendly
-explanation `pkgd` supplied. The install directory and the short archive digest
-are shown too, so the same archive can be recognised later. A package that
-replaces a core app says "Updates built-in app <name>" (a lower version than
-the shipped one is refused by `pkgd`, whose error the screen shows), and one
-whose manifest sets `autostart` says "Starts when you log in". `Install` forwards
-the user's yes to `pkgd`; `Cancel` (or `Esc`) returns to the list. When
-`PackageInfo.problems` is non-empty the package cannot be installed, so the
-screen lists every problem and offers only `Close`.
+1. **Choose**: a path field and `Browse…`, which opens a file picker (xui's
+   `FileDialog`) filtered to `.lzp` (case-insensitive, so `PKGDEMO.LZP` is
+   listed; an `All files` filter is one click away). The picker starts in the
+   user's `$HOME`, one of the places `pkgd` lets an unprivileged caller install
+   from (the other is `/transient`; see the source rule above). A picked path
+   goes through the same absolute-path check as a typed one. `Next` asks `pkgd`
+   to inspect it; a failure stays on this step with the reason.
+2. **Review**: the package's name, version and `Author (unverified)`, its
+   description, the install directory, the short archive digest (so the same
+   archive can be recognised later) and the MIME types it handles. When
+   `PackageInfo.problems` is non-empty the problems replace the MIME types and
+   `Next` is disabled: a broken package never reaches the consent.
+3. **Permissions**: the consent itself, the requested permissions **grouped by
+   risk (high first)** with the friendly explanation `pkgd` supplied. A package
+   that replaces a core app says "Updates built-in app <name>" (a lower version
+   than the shipped one is refused by `pkgd`, whose error the wizard shows), and
+   one whose manifest sets `autostart` says "Starts when you log in". `Install`
+   forwards the user's yes to `pkgd`; it is never the focused button, so a
+   second `Enter` after Review cannot consent by accident. A failed install
+   comes back here with the error.
+4. **Install**: progress while `pkgd` works, then the result and `Finish`.
+
+`Back` walks one step back (leaving Review drops the inspected package but keeps
+its path in the field), and `Cancel` (or `Esc`) leaves the wizard for the list.
+Opening a `.lzp` from Files or the desktop passes its path as the app's
+argument, so the wizard starts at Review.
 
 Everything the package declares is untrusted: the installer strips control
 characters and elides long names, explanations and problems before showing
@@ -633,7 +647,9 @@ session can follow the flow from the serial markers, one per line:
 
 ```text
 INSTALLER:UP:PASS
+INSTALLER:STEP:<screen>                  LIST, CHOOSE, REVIEW, PERMISSIONS, INSTALLING, DONE, CONFIRM_REMOVE
 INSTALLER:LIST:PASS count=<n>            INSTALLER:LIST:FAIL <reason>
+INSTALLER:PICK:PASS <path>               INSTALLER:PICK:FAIL <reason>
 INSTALLER:INSPECT:PASS <system_name>     INSTALLER:INSPECT:FAIL <reason>
 INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
 INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>

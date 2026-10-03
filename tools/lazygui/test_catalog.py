@@ -179,12 +179,16 @@ class LazyRadTests(unittest.TestCase):
     def test_the_switch_sets_the_embed_variable(self) -> None:
         env = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True})
         self.assertEqual(env["LAZYOS_LAZYRAD"], "1")
-        self.assertNotIn("LAZYRAD_SAMPLES", env)
+        # The LazyOS-only samples (the Messenger demo) always come along.
+        self.assertEqual(env["LAZYRAD_SAMPLES"], "lazyrad-os/samples/messenger")
 
     def test_samples_are_passed_only_with_the_switch(self) -> None:
         on = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True,
-                                "lazyrad_samples": "C:\a;C:\b"})
-        self.assertEqual(on["LAZYRAD_SAMPLES"], "C:\a;C:\b")
+                                "lazyrad_samples": os.pathsep.join(["a", "b"])})
+        self.assertEqual(on["LAZYRAD_SAMPLES"].split(os.pathsep),
+                         ["a", "b", "lazyrad-os/samples/messenger"])
+        listed = catalog.lazyrad_samples("lazyrad-os/samples/messenger")
+        self.assertEqual(listed, "lazyrad-os/samples/messenger", "no duplicate entry")
         off = catalog.build_env({**self.base(), "desktop": True, "lazyrad": False,
                                  "lazyrad_samples": "C:\a"})
         self.assertNotIn("LAZYOS_LAZYRAD", off)

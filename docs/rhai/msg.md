@@ -8,11 +8,34 @@ scriptable as soon as the table is regenerated.
 
 ```bash
 rhai -e 'msg::connect("os.lazy.confd.v1").info()'
-#{"persistent": true, "store_dir": "/data/confd"}
+#{"persistent": true, "store_dir": "/conf"}
 ```
 
 The module exists only when `rhai` runs on LazyOS (it checks the kernel name),
 so a host build of the command has no `msg`.
+
+## Generated modules (`sys::*`)
+
+`midlc --rhai-api` also writes one Rhai module per interface, so a script can
+use named, documented functions instead of strings. `sys::<alias>` is the
+interface name without `os.lazy.` and `.vN`:
+
+```rhai
+sys::confd::get("sys/ui/theme");                // = msg::connect("os.lazy.confd.v1").get(...)
+let v = sys::confd::new_value();                // a struct with every field at its zero value
+v.kind = 3; v.str_value = "hi";
+sys::confd::set("sys/test/x", v);
+sys::confd::on_changed("sys/ui/#", |e| print(e.payload.path));   // a typed topic helper
+sys::messenger_topics::QOS_RELIABLE;            // enum variants are constants
+```
+
+Every function is one call into `msg`, so everything below (values, errors,
+timeouts) applies unchanged. The reference, generated with the modules, is
+[`libs/rhai-lazy/api/README.md`](../../libs/rhai-lazy/api/README.md); each
+module's `.rhai` source sits next to it. Methods whose request transfers a
+channel, buffer or ring are not generated (a script cannot create those), and
+neither are the kernel ACL scopes. Regenerate after an IDL change with
+`python tools/midlc/midlc.py --rhai-api libs/rhai-lazy/api idl/*.midl`.
 
 ## Discovering services
 
@@ -67,6 +90,113 @@ confd.invoke("Info");                                   // generic, no arguments
 | enum | the variant name as a string (an `int` index is accepted when sending) |
 | `Handle`, `Buffer` | received as `int` or a map; scripts cannot send them |
 
+## Topics
+
+```rhai
+let s = msg::subscribe("system/confd/changed/sys/#");   // returns a Subscription
+let e = s.next(2000);              // wait up to 2 s; () when nothing arrived
+print(e.topic + " " + e.payload.path);
+msg::publish("demo/rhai/x", "hi");                      // returns how many subscribers it reached
+```
+
+- `msg::subscribe(filter[, #{ qos: "buffered", depth: 16 }])` takes `+` (one
+  segment) and a trailing `#` (the rest). The QoS (`latest`, `buffered`,
+  `conflate`, `reliable`) defaults to the topic's declaration in the IDL, or
+  `buffered` for an undeclared topic. `depth` (1 to 64) applies to `buffered`.
+- `sub.next()` waits up to `msg::timeout()`, and `sub.next(ms)` waits up to
+  `ms` (`0` waits forever). An event is a map with `topic`, `publisher`,
+  `sequence`, `retained`, `payload` and `bytes`. On a reliable subscription,
+  `sub.ack(event.sequence)` retires events, and `sub.close()` unsubscribes.
+- **Payloads.** A topic declared in an IDL file (`topic "..." : Type`) carries
+  that type, so `payload` is a map (or an enum's variant name) and
+  `msg::publish` encodes your map the same way. Any other topic carries bytes:
+  publish a string or blob, and read `payload` as a blob. `bytes` is always
+  the raw payload.
+- `msg::publish(topic, value, retained)` overrides the declared retained flag.
+- On the broker, payloads travel in the same one-field wrapper parcel the
+  native services use (`user/src/central.rs`). That lets a script read
+  `confd`'s change events, and lets native subscribers read a script's events.
+
+## The event loop
+
+Rhai runs one thing at a time, so a script that reacts to the fabric
+registers handlers and then hands control to `msg::run`:
+
+```rhai
+msg::on("demo/#", |e| print(e.topic));                     // subscribe + handler
+msg::on("jobs/#", #{ qos: "reliable" }, |e| process(e));   // acked after the handler returns
+msg::run();          // until msg::stop() is called from a handler
+msg::run(10000);     // or for at most 10 s; returns how many events and calls were handled
+```
+
+An error thrown by a topic handler ends `msg::run` with that error. The
+event still counts as delivered: a reliable event is acked first, because
+redelivering it would only fail again.
+
+## Writing a service in Rhai
+
+```rhai
+msg::serve("demo.rhai", "os.lazy.echo.v1", #{
+    Echo: |text, count| { let r = ""; for i in 0..count { r += text } r },
+    ping: || true,
+});
+msg::run();
+```
+
+- `msg::serve(name, interface, handlers)` registers `name` with the kernel.
+  `msg::serve(interface, handlers)` uses the default name (`os.lazy.echo`).
+  Handler keys are IDL method names in either spelling. A key the interface
+  does not have is an error, so typos are caught.
+- A handler receives the decoded arguments in IDL order. Its return value is
+  the reply: the value itself for one return value, or a map for several.
+- A handler that throws answers with a structured error, which the caller sees
+  as a catchable error. `throw "text"` sends `EIO` with that text.
+  `throw #{ code: 13, message: "denied" }` sends a chosen errno.
+- A call to a method without a handler is answered with `ENOSYS`. One-way
+  methods run their handler and send no reply.
+- Names under `os.lazy.` are reserved for system services. An unlabelled
+  process may register other names, such as `demo.rhai`.
+
+## In LazyRAD form scripts
+
+The LazyRAD player on LazyOS (`lrplay`, `lazyrad-os/`) gives every form script
+`msg` and `sys::*` (`docs/lazyrad-messenger-plan.md`). All the player's forms
+share one connection to the fabric, and the generated modules are compiled
+once per process.
+
+```rhai
+fn form_load() {
+    theme_label.text = sys::confd::get("sys/ui/theme").str_value;
+    sys::confd::on_changed("sys/ui/#", |e| theme_label.text = e.payload.path);
+    msg::serve("demo.lazyrad", "os.lazy.echo.v1", #{ Ping: || true });
+}
+```
+
+- **Events need no loop.** `on_*` and `msg::on` handlers, and calls to a service
+  the form serves, run on the form's window: while the form has something
+  registered, its window polls the fabric every 50 ms without blocking and
+  runs what is ready in the form's script. `msg::run()` is an error in a form.
+- **Errors** in a handler are shown like an event handler's error (a message
+  box) and the program keeps running. A handler that fails on every event is
+  shown once; the repeats are counted on stderr.
+- **Closing a form** unsubscribes its topics and withdraws the names it served.
+- **Blocking calls** still block the window: a call waits up to
+  `msg::timeout()` (5 s) for a stuck service, so keep slow work out of click
+  handlers or lower the timeout.
+- **Installed apps.** Make LazyOS App declares the interfaces and topics the
+  scripts use (`sys::<alias>::...` and literal `msg::connect`, `msg::on`,
+  `msg::subscribe`, `msg::publish` arguments; `rhai_lazy::msg::permissions`),
+  so the app's kernel rules allow exactly those. A name built at run time
+  cannot be seen; the consent screen lists what was found. Serving a name is a
+  development feature: an installed app's manifest cannot grant it.
+
+The player prints `LRPLAY:MSG:PASS` on serial once `msg` and `sys` are
+installed, and `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran in
+a form. The sample is `lazyrad-os/samples/messenger` (`/system/share/lazyrad/messenger` in
+a `--lazyrad` image) and the guest check is `python tools/rhai/run.py
+--lazyrad` (`tools/screenshot/examples/lazyrad_msg.json`): the form starts,
+`poke.rhai` changes the confd key it watches and calls the service it serves.
+
 ## Errors
 
 Every failure is an ordinary Rhai error that `try`/`catch` can handle, phrased
@@ -96,8 +226,14 @@ try {
   `messenger-generated` codecs, so the schema codec is cross-checked against
   the compiled one.
 - Guest: `python tools/rhai/run.py --desktop` (or `--msg-only`) boots the
-  desktop and runs `tools/screenshot/examples/rhai_msg.json` in the Terminal:
-  list services, `confd` `Info`, a `Set`/`Get` round trip, the topics broker,
-  a refused call and a missing service.
-- Generated table: `python tools/midlc/midlc.py --check --schema
-  libs/rhai-lazy/src/msg/idl.rs idl/*.midl` (CI runs it).
+  desktop and runs two sessions in the Terminal.
+  `tools/screenshot/examples/rhai_msg.json` covers: list services, `confd`
+  `Info`, a `Set`/`Get` round trip, the topics broker, a refused call and a
+  missing service. `rhai_msg_loop.json` covers: a topic round trip through the
+  broker, a `confd` change event reaching a script, and a service written in
+  Rhai, run in the background, answering another script.
+- Generated table and modules: `python tools/midlc/midlc.py --check --schema
+  libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl`
+  (CI runs it), and `python tools/midlc/test_midlc_rhai.py`.
+- LazyRAD: `python tools/rhai/run.py --lazyrad` (above); the host side is
+  `cd lazyrad-os && cargo test` and LazyRAD's `crates/lazyrad-runtime/tests/events.rs`.

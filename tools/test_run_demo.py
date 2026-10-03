@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_demo  # noqa: E402
 
 LABEL_OFFSET = 1024 + 120  # ext2 s_volume_name
+SAMPLES = [r"C:\lr\hello", r"C:\lr\calc"]
+MESSENGER_SAMPLE = "lazyrad-os/samples/messenger"
 
 
 class PrepareHomeDiskTests(unittest.TestCase):
@@ -191,18 +193,21 @@ class MainTests(unittest.TestCase):
 
     def test_lazyrad_samples_are_passed_to_the_build_and_imply_lazyrad(self) -> None:
         with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as built:
-            code, _ = self.run_main("--lazyrad-samples", "C:\lr\hello;C:\lr\calc")
+            code, _ = self.run_main("--lazyrad-samples", os.pathsep.join(SAMPLES))
         self.assertEqual(code, 0)
         built.assert_called_once()
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES"), "C:\lr\hello;C:\lr\calc")
+        # The caller's samples first, then the LazyOS-only Messenger demo.
+        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
+                         SAMPLES + [MESSENGER_SAMPLE])
 
-    def test_lazyrad_alone_embeds_no_samples(self) -> None:
-        with mock.patch.dict(os.environ, {}, clear=False),                 mock.patch.object(run_demo, "build_lazyrad", return_value=True):
+    def test_lazyrad_alone_embeds_only_the_lazyos_samples(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(run_demo, "build_lazyrad", return_value=True):
             os.environ.pop("LAZYRAD_SAMPLES", None)
             self.run_main("--lazyrad")
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        self.assertNotIn("LAZYRAD_SAMPLES", self.builds[-1])
+        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES"), MESSENGER_SAMPLE)
 
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
