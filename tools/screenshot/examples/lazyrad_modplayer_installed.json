@@ -1,0 +1,164 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 300
+ },
+ {
+  "wait_for": "PKGD:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "wait": 2
+ },
+ {
+  "type": "pkgctl"
+ },
+ {
+  "type": " insta"
+ },
+ {
+  "type": "ll /MO"
+ },
+ {
+  "type": "DPLAY."
+ },
+ {
+  "type": "LZP"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl install /MODPLAY.LZP",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:INSTALL:PASS org.lazy.modplayer",
+  "timeout": 300
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:INSTALL:PASS",
+  "timeout": 60
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "01_installed"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   44,
+   702
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "02_menu"
+ },
+ {
+  "mouse_move": [
+   23,
+   -392
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "LRPLAY:UP:PASS",
+  "timeout": 120,
+  "retries": 1
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.modplayer",
+  "timeout": 30
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "03_launched"
+ },
+ {
+  "mouse_move": [
+   141,
+   -22
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "LRPLAY:MODPLAY:PASS",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 10
+ },
+ {
+  "shot": "04_playing"
+ },
+ {
+  "wait_for": "LRPLAY:MODEND:PASS",
+  "timeout": 180
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "05_finished"
+ },
+ {
+  "quit": true
+ }
+]

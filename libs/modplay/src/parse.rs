@@ -7,6 +7,7 @@ use crate::module::{ModError, Module, Note, Sample, CHANNELS, ROWS_PER_PATTERN};
 const SAMPLES: usize = 31;
 const SAMPLE_HEADER: usize = 30;
 const TITLE: usize = 20;
+const SAMPLE_NAME: usize = 22;
 const ORDERS_AT: usize = TITLE + SAMPLES * SAMPLE_HEADER + 2;
 const SIGNATURE_AT: usize = ORDERS_AT + 128;
 const HEADER: usize = SIGNATURE_AT + 4;
@@ -102,7 +103,11 @@ pub fn parse(bytes: &[u8]) -> Result<Module, ModError> {
         } else {
             None
         };
+        let mut name = [0u8; SAMPLE_NAME];
+        let at = TITLE + index * SAMPLE_HEADER;
+        name.copy_from_slice(&bytes[at..at + SAMPLE_NAME]);
         samples.push(Sample {
+            name,
             data,
             volume,
             finetune,

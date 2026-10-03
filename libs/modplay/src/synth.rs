@@ -12,6 +12,7 @@ const HEADER: usize = 1084;
 /// One sample slot of the file being built.
 #[derive(Clone, Default)]
 struct Slot {
+    name: Vec<u8>,
     data: Vec<i8>,
     volume: u8,
     finetune: u8,
@@ -21,6 +22,7 @@ struct Slot {
 
 /// A `.mod` under construction. `build` writes a valid `M.K.` file.
 pub struct ModBuilder {
+    title: Vec<u8>,
     slots: Vec<Slot>,
     orders: Vec<u8>,
     patterns: Vec<Vec<Note>>,
@@ -36,6 +38,7 @@ impl ModBuilder {
     /// One empty pattern, an order list of `[0]` and no samples.
     pub fn new() -> ModBuilder {
         ModBuilder {
+            title: b"synth".to_vec(),
             slots: vec![Slot::default(); 31],
             orders: vec![0],
             patterns: vec![vec![Note::default(); ROWS_PER_PATTERN * CHANNELS]],
@@ -50,6 +53,28 @@ impl ModBuilder {
         slot.loop_len = if looped { data.len() } else { 0 };
         slot.data = data;
         slot.volume = volume;
+        self
+    }
+
+    /// Loop sample `number` over `len` bytes from `start` (both even), so a
+    /// sample can have an attack that plays once and a sustained tail.
+    pub fn loop_range(mut self, number: usize, start: usize, len: usize) -> Self {
+        let slot = &mut self.slots[number - 1];
+        slot.loop_start = start;
+        slot.loop_len = len;
+        self
+    }
+
+    /// The song title (cut to 20 bytes).
+    pub fn title(mut self, title: &str) -> Self {
+        self.title = title.bytes().take(20).collect();
+        self
+    }
+
+    /// The name of sample `number` (cut to 22 bytes). An empty slot may have
+    /// a name too: trackers show all 31 lines.
+    pub fn name(mut self, number: usize, name: &str) -> Self {
+        self.slots[number - 1].name = name.bytes().take(22).collect();
         self
     }
 
@@ -83,9 +108,11 @@ impl ModBuilder {
     /// The file's bytes.
     pub fn build(&self) -> Vec<u8> {
         let mut out = vec![0u8; HEADER];
-        out[..5].copy_from_slice(b"synth");
+        out[..self.title.len()].copy_from_slice(&self.title);
         for (i, slot) in self.slots.iter().enumerate() {
-            let at = 20 + i * 30 + 22;
+            let named = 20 + i * 30;
+            out[named..named + slot.name.len()].copy_from_slice(&slot.name);
+            let at = named + 22;
             out[at..at + 2].copy_from_slice(&((slot.data.len() / 2) as u16).to_be_bytes());
             out[at + 2] = slot.finetune;
             out[at + 3] = slot.volume;

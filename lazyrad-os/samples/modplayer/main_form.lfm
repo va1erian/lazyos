@@ -1,0 +1,401 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "MOD Player"
+width = 724
+height = 458
+
+[[node]]
+kind = "Label"
+name = "heading_label"
+left = 12
+top = 10
+width = 300
+height = 20
+text = "LazyRAD MOD Player"
+
+[[node]]
+kind = "Label"
+name = "title_label"
+left = 12
+top = 34
+width = 300
+height = 20
+text = "Song: -"
+
+[[node]]
+kind = "Label"
+name = "info_label"
+left = 12
+top = 56
+width = 300
+height = 20
+text = ""
+
+[[node]]
+kind = "Label"
+name = "position_label"
+left = 12
+top = 78
+width = 300
+height = 20
+text = "Order -  Pattern -  Row -"
+
+[[node]]
+kind = "Label"
+name = "time_label"
+left = 12
+top = 100
+width = 300
+height = 20
+text = "0:00"
+
+[[node]]
+kind = "ProgressBar"
+name = "song_progress"
+left = 12
+top = 124
+width = 300
+height = 10
+value = 0
+max = 64
+
+[[node]]
+kind = "Button"
+name = "prev_button"
+left = 12
+top = 142
+width = 52
+height = 28
+text = "Prev"
+
+[[node]]
+kind = "Button"
+name = "play_button"
+left = 68
+top = 142
+width = 52
+height = 28
+text = "Play"
+
+[[node]]
+kind = "Button"
+name = "pause_button"
+left = 124
+top = 142
+width = 56
+height = 28
+text = "Pause"
+
+[[node]]
+kind = "Button"
+name = "stop_button"
+left = 184
+top = 142
+width = 52
+height = 28
+text = "Stop"
+
+[[node]]
+kind = "Button"
+name = "next_button"
+left = 240
+top = 142
+width = 52
+height = 28
+text = "Next"
+
+[[node]]
+kind = "Separator"
+name = "mix_separator"
+left = 12
+top = 178
+width = 300
+height = 8
+
+[[node]]
+kind = "Label"
+name = "volume_caption"
+left = 12
+top = 192
+width = 84
+height = 20
+text = "Volume"
+
+[[node]]
+kind = "Slider"
+name = "volume_slider"
+left = 100
+top = 190
+width = 160
+height = 24
+value = 80.0
+min = 0.0
+max = 100.0
+
+[[node]]
+kind = "Label"
+name = "volume_value"
+left = 266
+top = 192
+width = 46
+height = 20
+text = "80%"
+
+[[node]]
+kind = "Label"
+name = "separation_caption"
+left = 12
+top = 220
+width = 84
+height = 20
+text = "Stereo"
+
+[[node]]
+kind = "Slider"
+name = "separation_slider"
+left = 100
+top = 218
+width = 160
+height = 24
+value = 50.0
+min = 0.0
+max = 100.0
+
+[[node]]
+kind = "Label"
+name = "separation_value"
+left = 266
+top = 220
+width = 46
+height = 20
+text = "50%"
+
+[[node]]
+kind = "CheckBox"
+name = "interpolate_check"
+left = 12
+top = 246
+width = 140
+height = 24
+text = "Smooth (interpolate)"
+checked = true
+
+[[node]]
+kind = "CheckBox"
+name = "repeat_check"
+left = 160
+top = 246
+width = 140
+height = 24
+text = "Repeat song"
+checked = false
+
+[[node]]
+kind = "Separator"
+name = "channel_separator"
+left = 12
+top = 276
+width = 300
+height = 8
+
+[[node]]
+kind = "Label"
+name = "channels_caption"
+left = 12
+top = 286
+width = 300
+height = 20
+text = "Channels (click a number to mute it)"
+
+[[node]]
+kind = "ToggleButton"
+name = "ch1_button"
+left = 12
+top = 310
+width = 40
+height = 24
+text = "1"
+checked = true
+
+[[node]]
+kind = "ProgressBar"
+name = "ch1_meter"
+left = 60
+top = 316
+width = 140
+height = 12
+value = 0
+max = 64
+
+[[node]]
+kind = "Label"
+name = "ch1_note"
+left = 210
+top = 312
+width = 102
+height = 20
+text = ""
+
+[[node]]
+kind = "ToggleButton"
+name = "ch2_button"
+left = 12
+top = 338
+width = 40
+height = 24
+text = "2"
+checked = true
+
+[[node]]
+kind = "ProgressBar"
+name = "ch2_meter"
+left = 60
+top = 344
+width = 140
+height = 12
+value = 0
+max = 64
+
+[[node]]
+kind = "Label"
+name = "ch2_note"
+left = 210
+top = 340
+width = 102
+height = 20
+text = ""
+
+[[node]]
+kind = "ToggleButton"
+name = "ch3_button"
+left = 12
+top = 366
+width = 40
+height = 24
+text = "3"
+checked = true
+
+[[node]]
+kind = "ProgressBar"
+name = "ch3_meter"
+left = 60
+top = 372
+width = 140
+height = 12
+value = 0
+max = 64
+
+[[node]]
+kind = "Label"
+name = "ch3_note"
+left = 210
+top = 368
+width = 102
+height = 20
+text = ""
+
+[[node]]
+kind = "ToggleButton"
+name = "ch4_button"
+left = 12
+top = 394
+width = 40
+height = 24
+text = "4"
+checked = true
+
+[[node]]
+kind = "ProgressBar"
+name = "ch4_meter"
+left = 60
+top = 400
+width = 140
+height = 12
+value = 0
+max = 64
+
+[[node]]
+kind = "Label"
+name = "ch4_note"
+left = 210
+top = 396
+width = 102
+height = 20
+text = ""
+
+[[node]]
+kind = "Label"
+name = "pattern_caption"
+left = 324
+top = 10
+width = 388
+height = 20
+text = "Pattern"
+
+[[node]]
+kind = "ListView"
+name = "pattern_list"
+left = 324
+top = 32
+width = 388
+height = 200
+items = []
+selected = -1
+
+[[node]]
+kind = "Label"
+name = "songs_caption"
+left = 324
+top = 240
+width = 220
+height = 20
+text = "Songs (double-click to play)"
+
+[[node]]
+kind = "Button"
+name = "rescan_button"
+left = 640
+top = 238
+width = 72
+height = 24
+text = "Rescan"
+
+[[node]]
+kind = "ListView"
+name = "songs_list"
+left = 324
+top = 266
+width = 388
+height = 76
+items = []
+selected = -1
+
+[[node]]
+kind = "Label"
+name = "samples_caption"
+left = 324
+top = 348
+width = 388
+height = 20
+text = "Instruments"
+
+[[node]]
+kind = "ListView"
+name = "samples_list"
+left = 324
+top = 370
+width = 388
+height = 54
+items = []
+selected = -1
+
+[[node]]
+kind = "Label"
+name = "status_label"
+left = 12
+top = 430
+width = 700
+height = 20
+text = ""

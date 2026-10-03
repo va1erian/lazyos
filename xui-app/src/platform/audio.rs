@@ -1,0 +1,255 @@
+//! The `libs/audioclient` transport for Linux-ABI (musl) programs
+//! (docs/audio-plan.md A4).
+//!
+//! `audioclient` holds the audio API: typed `os.lazy.audio.v1` calls and the
+//! `PlaybackStream` over a shared ring. The native runtime plugs it in with
+//! `user::audio`; this is the same seam over this crate's `int 0x80` helpers,
+//! so a static musl program (the LazyRAD player, an xui app) can play sound
+//! through the system mixer like any native client:
+//!
+//! ```ignore
+//! let audio = xui_app::platform::audio::Audio::try_connect().ok_or("no sound")?;
+//! let mut out = PlaybackStream::open(audio, Params::new(22_050, 2))?;
+//! out.try_write(&samples)?;
+//! ```
+//!
+//! Requests travel over the mixer's Messenger endpoint, resolved by name;
+//! rings are display shared buffers, which the mixer maps when the ring is
+//! attached. Every call is bounded (`CALL_TICKS`), so a stalled mixer costs a
+//! UI thread an error rather than a frozen window.
+
+use std::cell::RefCell;
+use std::ptr;
+
+use audioclient::{Error, Result, RingBuffer, RingRef, Transfers, Transport};
+use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
+
+use crate::sys::{self, errno};
+
+pub use audioclient::{Params, PlaybackStream, NAME, TICK_HZ, UNITY_GAIN};
+
+/// The structured error field `os.lazy.audio.v1` services reply with.
+const ERROR_FIELD: u16 = 15;
+
+/// Bytes offered for a reply; audio replies are a few dozen bytes.
+const REPLY_BUF: usize = 4096;
+
+/// The longest a call may take when the caller set no deadline (2 s).
+const CALL_TICKS: u64 = 2 * TICK_HZ;
+
+/// A failed syscall (a negative errno) as the audio API reports it.
+fn errno_of(code: i64) -> Error {
+    Error::Errno(code.unsigned_abs() as i64)
+}
+
+thread_local! {
+    /// Endpoints resolved by this task, by service name.
+    static RESOLVED: RefCell<Vec<(String, u64)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The system mixer (or a card) reached over a resolved endpoint.
+///
+/// The endpoint is never closed: the kernel opens every resolver onto the
+/// service's one endpoint, so closing a resolved handle would look like the
+/// service's peer dying (the reason `platform::messenger` caches its handles
+/// for the life of the task, too). It is resolved once per name and reused;
+/// a call that finds the service gone forgets it, so the next connect finds a
+/// restarted mixer.
+pub struct Audio {
+    name: String,
+    endpoint: u64,
+}
+
+impl Audio {
+    /// The endpoint for `name`, resolving it once; `None` when no such service
+    /// runs (an image without a sound card), so a caller can fall back
+    /// without waiting.
+    pub fn try_connect_to(name: &str) -> Option<Audio> {
+        let cached = RESOLVED.with(|resolved| {
+            resolved
+                .borrow()
+                .iter()
+                .find(|(known, _)| known == name)
+                .map(|&(_, endpoint)| endpoint)
+        });
+        let endpoint = match cached {
+            Some(endpoint) => endpoint,
+            None => {
+                let endpoint = sys::msg_resolve(name).ok()?;
+                RESOLVED.with(|resolved| resolved.borrow_mut().push((name.to_owned(), endpoint)));
+                endpoint
+            }
+        };
+        Some(Audio {
+            name: name.to_owned(),
+            endpoint,
+        })
+    }
+
+    /// The system mixer, [`NAME`].
+    pub fn try_connect() -> Option<Audio> {
+        Audio::try_connect_to(NAME)
+    }
+}
+
+impl Transport for Audio {
+    type Ring = SharedRing;
+
+    fn call(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        transfers: Transfers,
+        deadline: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        let request = Parcel {
+            header: Header {
+                version: VERSION,
+                // The window's own event receive must not trip the kernel's
+                // per-channel cycle check while a call is in flight.
+                flags: libmessenger::flags::ALLOW_NESTED,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            handles: transfers.handles,
+            buffers: transfers.buffers,
+        };
+        // Never 0 ("forever") nor `EXPIRED_DEADLINE` (a poll the callee may
+        // answer only during its own turn).
+        let deadline = deadline
+            .unwrap_or_else(|| sys::clock_ticks().saturating_add(CALL_TICKS))
+            .max(sys::EXPIRED_DEADLINE + 1);
+        let mut buf = vec![0u8; REPLY_BUF];
+        let reply = sys::msg_call(self.endpoint, &request, &mut buf, deadline).map_err(|code| {
+            if code == -errno::EPIPE || code == -errno::ENOENT {
+                RESOLVED.with(|resolved| resolved.borrow_mut().retain(|(known, _)| *known != self.name));
+            }
+            errno_of(code)
+        })?;
+        match error_field(&reply)? {
+            Some(code) => Err(Error::Errno(code)),
+            None => Ok(reply.body),
+        }
+    }
+
+    fn create_ring(&self, bytes: usize) -> Result<SharedRing> {
+        let (handle, va, _) = sys::display_create_buffer(bytes as u64).map_err(errno_of)?;
+        if va == 0 {
+            let _ = sys::display_close_buffer(handle);
+            return Err(Error::Errno(errno::EINVAL));
+        }
+        Ok(SharedRing {
+            handle,
+            base: va as *mut u8,
+            len: bytes,
+        })
+    }
+
+    fn now(&self) -> u64 {
+        sys::clock_ticks()
+    }
+
+    fn sleep(&self) {
+        sys::sleep_millis(1000 / TICK_HZ);
+    }
+}
+
+/// The service's errno when the reply is a refusal.
+fn error_field(reply: &Parcel) -> Result<Option<i64>> {
+    let mut decoder = Decoder::new(&reply.body);
+    while let Some(field) = decoder.next().map_err(|_| Error::Malformed)? {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
+            let (code, _message) = field.error_parts().map_err(|_| Error::Malformed)?;
+            return Ok(Some(i64::from(code)));
+        }
+    }
+    Ok(None)
+}
+
+/// A shared buffer this task created and writes samples into; closed (and
+/// unmapped) when dropped.
+pub struct SharedRing {
+    handle: u64,
+    base: *mut u8,
+    len: usize,
+}
+
+impl RingBuffer for SharedRing {
+    fn share(&self) -> RingRef {
+        RingRef {
+            handle: self.handle,
+            len: self.len as u64,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn write(&mut self, offset: usize, bytes: &[u8]) {
+        let fits = offset
+            .checked_add(bytes.len())
+            .is_some_and(|end| end <= self.len);
+        assert!(fits, "ring write out of bounds");
+        // SAFETY: `offset + bytes.len() <= len`, checked above, and `base` is
+        // the `len`-byte mapping `display_create_buffer` returned, live until
+        // `drop` closes it. The mixer only reads this memory, so a raw copy
+        // (no reference into the mapping) is all that is needed.
+        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), self.base.add(offset), bytes.len()) };
+    }
+}
+
+impl Drop for SharedRing {
+    fn drop(&mut self) {
+        let _ = sys::display_close_buffer(self.handle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libmessenger::Encoder;
+
+    fn reply(body: Vec<u8>) -> Parcel {
+        Parcel {
+            header: Header {
+                version: VERSION,
+                flags: 0,
+                interface_id: 0,
+                method: 0,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_refusal_carries_the_service_errno() {
+        let mut encoder = Encoder::new();
+        encoder.u32(1, 7).unwrap();
+        encoder.error(ERROR_FIELD, 16, "busy").unwrap();
+        assert_eq!(error_field(&reply(encoder.finish())), Ok(Some(16)));
+    }
+
+    #[test]
+    fn a_plain_reply_has_no_error() {
+        let mut encoder = Encoder::new();
+        encoder.u32(1, 7).unwrap();
+        assert_eq!(error_field(&reply(encoder.finish())), Ok(None));
+        assert_eq!(error_field(&reply(vec![0xFF; 3])), Err(Error::Malformed));
+    }
+
+    #[test]
+    fn syscall_errnos_become_positive() {
+        assert_eq!(errno_of(-11), Error::Errno(11));
+    }
+}

@@ -46,7 +46,8 @@ class Launcher:
                                  self.v["simple_lazyrad"].get(),
                                  self.v["simple_shell"].get(),
                                  self.v["simple_devices"].get(),
-                                 self.v["simple_doom"].get())
+                                 self.v["simple_doom"].get(),
+                                 self.v["simple_modplayer"].get())
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -90,6 +91,7 @@ class Launcher:
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
             "doom": self.v["doom"].get(),
+            "modplayer": self.v["modplayer"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -115,7 +117,7 @@ class Launcher:
         build_simple_tab(self.tab_simple, self.v["simple_build"],
                          self.v["simple_iface"], self.v["simple_lazyrad"],
                          self.v["simple_shell"], self.v["simple_devices"],
-                         self.v["simple_doom"], self._run)
+                         self.v["simple_doom"], self.v["simple_modplayer"], self._run)
         self._build_left(self._scrollable(tab_adv))
         self._build_right(right)
 
@@ -139,6 +141,8 @@ class Launcher:
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package at /DOOM.LZP (LAZYOS_DOOM)", "doom")
+        self._check(g, "LazyRAD MOD player package at /MODPLAY.LZP (LAZYOS_MODPLAYER)",
+                    "modplayer")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

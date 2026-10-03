@@ -21,6 +21,7 @@ Examples
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --doom          # desktop + /DOOM.LZP; `pkgctl install /DOOM.LZP`
+    python tools/run_demo.py --modplayer     # desktop + LazyRAD + /MODPLAY.LZP, with sound
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -196,6 +197,20 @@ def build_doom() -> bool:
     return result.returncode == 0
 
 
+def build_modplayer() -> bool:
+    """Package the LazyRAD MOD player (`tools/lazyrad/package.py`:
+    `target/pkg/MODPLAY.LZP` from `lazyrad-os/samples/modplayer`). Explicitly
+    requested with `--modplayer`, so a missing toolchain stops the run."""
+    print("packaging the MOD player (tools/lazyrad/package.py)…", flush=True)
+    script = ROOT / "tools" / "lazyrad" / "package.py"
+    result = subprocess.run([sys.executable, str(script), "--no-build", "--require"],
+                            cwd=ROOT, stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        print("error: the MOD player package did not build "
+              "(run `python tools/lazyrad/package.py`)", file=sys.stderr)
+    return result.returncode == 0
+
+
 def build_xui_apps() -> bool:
     """Build the desktop's xui apps (`tools/xui/build.py`), which include the
     Devices app. Explicitly requested with `--devices`, so a failure stops."""
@@ -289,6 +304,13 @@ def main(argv: list[str]) -> int:
                              "fetches doomgeneric and Freedoom): install it with "
                              "`pkgctl install /DOOM.LZP` or by opening it in Files, then "
                              "start Doom from the menu")
+    parser.add_argument("--modplayer", action="store_true",
+                        help="the desktop profile with LazyRAD, its MOD player sample at "
+                             "/LAZYRAD/modplayer and the same app packaged at /MODPLAY.LZP "
+                             "(LAZYOS_LAZYRAD=1 LAZYOS_MODPLAYER=1; builds it with "
+                             "tools/lazyrad/package.py) and a sound card: install it with "
+                             "`pkgctl install /MODPLAY.LZP` or by opening it in Files, then "
+                             "start MOD Player from the menu")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -302,7 +324,11 @@ def main(argv: list[str]) -> int:
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
     # The Devices app is a desktop app: `--devices` implies `--desktop`.
-    args.desktop = args.desktop or args.devices or args.doom
+    args.desktop = args.desktop or args.devices or args.doom or args.modplayer
+    # The MOD player is a LazyRAD app that wants speakers.
+    args.lazyrad = args.lazyrad or args.modplayer
+    if args.modplayer and not args.sound:
+        args.sound = "auto"
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
@@ -342,6 +368,11 @@ def main(argv: list[str]) -> int:
             if not build_doom():
                 return 1
             env["LAZYOS_DOOM"] = "1"
+        if args.modplayer:
+            # After build_lazyrad: the package carries the player it just built.
+            if not build_modplayer():
+                return 1
+            env["LAZYOS_MODPLAYER"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

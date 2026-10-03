@@ -38,6 +38,10 @@ rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
 # The event-source callback types name Rhai's own; the exact pin LazyRAD and
 # rhai-lazy use, so one Rhai links.
 rhai = { version = "=1.26.1", default-features = false, features = ["std"] }
+# ProTracker parsing and mixing for the `modplay` script module, and the audio
+# API it plays through (the transport is `xui_app::platform::audio`).
+modplay = { path = "../libs/modplay" }
+audioclient = { path = "../libs/audioclient" }
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
@@ -56,6 +60,11 @@ lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a918
 # LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
 # PR #431; the packager is pinned like the other LazyRAD crates.
 lazypkg = { path = "../libs/lazypkg" }
+# The form values the sample tests read back (`tests/modplayer.rs`); pinned
+# with the other LazyRAD crates.
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf" }
+# `modplay::synth` builds the songs the `modplay` script tests play.
+modplay = { path = "../libs/modplay", features = ["fuzz"] }
 
 [lib]
 name = "lazyrad_os"
