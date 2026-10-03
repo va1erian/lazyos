@@ -39,6 +39,9 @@ pub const PACKAGES: &[(&str, Art)] = &[
     ("xui-app/packages/settings", Art::Village(Icon::Settings)),
     ("xui-app/packages/sysmon", Art::Village(Icon::Monitor)),
     ("xui-app/packages/widget", Art::Village(Icon::Widget)),
+    // LazyWriter: Lucide `file-text`, the outline its own toolbar uses for a
+    // document (needs the xui pin with the formatting icons, issue #533).
+    ("xui-app/packages/writer", Art::Lucide(Lucide::FileText, Tone::Cobalt)),
     // The user-package copy of the Counter (`org.lazy.counter`).
     ("tools/pkg/samples/counter", Art::Lucide(Lucide::Plus, Tone::Teal)),
     ("doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),

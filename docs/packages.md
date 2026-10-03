@@ -547,6 +547,14 @@ so the project's `sys::*` calls are judged against the IDE's permissions, not
 the ones the installed app would get; a service the IDE does not declare is
 `LABEL:DENY` in Play and works once installed.
 
+**LazyWriter**, the word processor (`os.lazy.writer`, `xui-app/packages/writer`,
+category `office`, issue #533), ships in every desktop image like the Editor:
+the cargo bin `writer` is built as `target/xui/xui-writer.elf` and packaged as
+`bin/writer.elf`, and `LAZYOS_XUI_AUTOSTART=writer` opens it at boot. It
+declares one type, `application/x-lazywriter` (`open`, `edit`), which `mimed`
+maps from `.lzw` (a manifest cannot name extensions), so Files opens `.lzw`
+documents in it; plain text and Markdown stay with the Editor and Docs.
+
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
   `args = ["--client"]`, a `category`, `[[mime]]` mirroring `mimed`'s defaults,

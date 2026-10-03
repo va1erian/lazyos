@@ -75,6 +75,7 @@ SCRIPTS = [
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
+    ("xui_writer.json", "XUI app: LazyWriter (format, save, export)", ("desktop",), "writer"),
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
     ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
     ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
@@ -95,7 +96,7 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "settings", "devices"]
+               "editor", "paint", "files", "writer", "settings", "devices"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481): the Terminal first (it takes the focus), then Devices. Matches
 # `run_demo.py --devices`.
@@ -107,7 +108,7 @@ DEVICES_AUTOSTART = "term,devices"
 # open-with), never at boot. The GUI does not list the embedded apps: the
 # desktop profile (`LAZYOS_DESKTOP=1`) makes `build.rs` embed its own default
 # set, so a new app needs no change here.
-DOCUMENT_APPS = ("editor", "files", "paint")
+DOCUMENT_APPS = ("editor", "files", "paint", "writer")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
 

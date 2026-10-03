@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -187,6 +188,35 @@ class MainTests(unittest.TestCase):
         cargo = next(i for i, command in enumerate(self.commands) if "cargo" in command[0])
         self.assertLess(packaged, cargo)
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+
+    def test_a_desktop_build_builds_missing_desktop_apps_first(self) -> None:
+        # A `target/xui` from before LazyWriter (issue #533) lacks
+        # xui-writer.elf, which the desktop image build requires.
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "DESKTOP_ELFS", [self.dir / "xui-writer.elf"]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            code, _ = self.run_main("--desktop")
+        self.assertEqual(code, 0)
+        built.assert_called_once()
+        (self.dir / "xui-writer.elf").write_bytes(b"\x7fELF")
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "DESKTOP_ELFS", [self.dir / "xui-writer.elf"]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            code, _ = self.run_main("--desktop")
+        self.assertEqual(code, 0)
+        built.assert_not_called()
+
+    def test_the_desktop_apps_match_the_image_build(self) -> None:
+        # `build_support/xui_embed.rs` fails a desktop build without any of
+        # DESKTOP_XUI_APPS and DOCUMENT_XUI_APPS; run_demo checks the same set.
+        source = (run_demo.ROOT / "build_support" / "xui_embed.rs").read_text(encoding="utf-8")
+        wanted = []
+        for name in ("DESKTOP_XUI_APPS", "DOCUMENT_XUI_APPS"):
+            block = re.search(rf"const {name}: &\[&str\] = &\[(.*?)\];", source, re.S)
+            self.assertIsNotNone(block, name)
+            wanted += re.findall(r'"([^"]+\.elf)"', block.group(1))
+        self.assertIn("xui-writer.elf", wanted)
+        self.assertEqual(sorted(path.name for path in run_demo.DESKTOP_ELFS), sorted(wanted))
 
     def test_a_console_build_does_not_package_apps(self) -> None:
         code, _ = self.run_main()

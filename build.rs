@@ -33,6 +33,8 @@ mod os_manifest;
 mod os_recover;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/samples_embed.rs"]
+mod samples_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -123,19 +125,8 @@ fn main() {
     if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
         builder.set_ramdisk(PathBuf::from(ramdisk));
     }
-    let sample = |name: &str| format!("{}/{name}", fhs::share::SAMPLES);
-    files.add_bytes(&sample("hello.txt"), b"Hello from LazyOS!\n\nThis file lives on the ext2 OS volume.\nYou are reading it through the block driver and the ext2 reader.\n".to_vec(),
-    );
-    files.add_bytes(&sample("notes.txt"), b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- ext2 OS volume plus a FAT /boot\n".to_vec(),
-    );
-    // The Docs app's test document (`xui-app/docs/testdata/`): opened by the
-    // Docs screenshot session through the Open dialog, and by hand in the Docs
-    // app or the Editor.
-    println!("cargo:rerun-if-changed=xui-app/docs/testdata/testdoc.md");
-    files.add_bytes(
-        fhs::share::TESTDOC,
-        include_bytes!("xui-app/docs/testdata/testdoc.md").to_vec(),
-    );
+    // The sample files (text, the Docs test document, LazyWriter's picture).
+    samples_embed::embed(&mut files);
     // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
     // embedded separately below.
     let hello =

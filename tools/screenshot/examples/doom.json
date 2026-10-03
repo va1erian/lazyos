@@ -70,7 +70,7 @@
   {"at": 1.0, "shot": "03_headless"},
   {"at": 1.0, "mouse_move": [-356, 646]},
   {"at": 1.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 30, "retries": 2},
-  {"at": 1.0, "mouse_move": [90, -392]},
+  {"at": 1.0, "mouse_move": [90, -440]},
   {"at": 1.0, "shot": "04_menu_with_doom"},
   {"at": 0.5, "mouse_click": "left", "until": "SHELL:LAUNCH:PASS app=org.lazy.doom", "timeout": 60, "retries": 1},
   {"wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.doom", "timeout": 60},

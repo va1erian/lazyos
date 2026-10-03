@@ -19,6 +19,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "../os_recover.rs"]
 mod os_recover;
+#[path = "../samples_embed.rs"]
+mod samples_embed;
 
 #[cfg(test)]
 mod f3_layout_tests;
@@ -32,3 +34,5 @@ mod image_tests;
 mod layout_tests;
 #[cfg(test)]
 mod recover_tests;
+#[cfg(test)]
+mod samples_tests;
