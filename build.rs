@@ -21,10 +21,10 @@ mod drivers;
 mod elf_trim;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
-#[path = "build_support/modplayer_embed.rs"]
-mod modplayer_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
+#[path = "build_support/modplayer_embed.rs"]
+mod modplayer_embed;
 #[path = "build_support/os_disk.rs"]
 mod os_disk;
 #[path = "build_support/os_image.rs"]
@@ -402,7 +402,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut files, &manifest_dir);
     linuxapps_embed::embed(&mut files, &manifest_dir); // dash, lua, sqlite3, jq, rg
-    // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
+                                                       // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     docs_embed::embed(&mut files, &manifest_dir);
     // The LazyRAD IDE is a core package (embedded with the others above when
