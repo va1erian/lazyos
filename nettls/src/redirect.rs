@@ -7,6 +7,9 @@
 //! - A redirect from `https` to `http` is refused: following it would hand
 //!   the rest of the exchange to anyone on the path, silently.
 //! - Each redirect counts against the limit; exceeding it is a failure.
+//! - Credential headers the user gave (`Authorization`, `Cookie`, ...) go
+//!   only to the origin they named, as curl does without
+//!   `--location-trusted`: a redirect must not hand them to another host.
 
 use url::Url;
 
@@ -15,7 +18,14 @@ use crate::report::Failure;
 /// Parse the URL a user typed.
 pub fn parse_user_url(text: &str) -> Result<Url, Failure> {
     let text = text.trim();
-    let with_scheme = if text.contains("://") {
+    // Only a leading `scheme://` counts: `a.example/?to=https://b` has none.
+    let has_scheme = text.split_once("://").is_some_and(|(scheme, _)| {
+        !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+    });
+    let with_scheme = if has_scheme {
         text.to_string()
     } else {
         format!("https://{text}")
@@ -79,6 +89,20 @@ pub fn next_hop(
     Ok(next)
 }
 
+/// True when `a` and `b` share scheme, host and port.
+pub fn same_origin(a: &Url, b: &Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// Headers that carry credentials, sent only to the origin the user named.
+pub fn is_credential_header(name: &str) -> bool {
+    ["authorization", "proxy-authorization", "cookie"]
+        .iter()
+        .any(|c| name.eq_ignore_ascii_case(c))
+}
+
 /// The URL as sent on the wire: without the fragment.
 pub fn request_target(url: &Url) -> String {
     let mut url = url.clone();
@@ -108,6 +132,10 @@ mod tests {
             parse_user_url("ftp://a/"),
             Err(Failure::UnsupportedScheme(_))
         ));
+        assert_eq!(
+            parse_user_url("example.com/a?u=http://b").unwrap().as_str(),
+            "https://example.com/a?u=http://b"
+        );
         assert!(parse_user_url("file:///etc/passwd").is_err());
         assert!(matches!(
             parse_user_url("https://u:p@a/"),
@@ -186,5 +214,17 @@ mod tests {
             Err(Failure::BadUrl(_))
         ));
         assert!(is_redirect(302) && is_redirect(308) && !is_redirect(304) && !is_redirect(200));
+    }
+
+    #[test]
+    fn credentials_stay_with_their_origin() {
+        let start = url("https://a.example/x");
+        assert!(same_origin(&start, &url("https://a.example:443/y")));
+        assert!(!same_origin(&start, &url("https://evil.example/")));
+        assert!(!same_origin(&start, &url("https://a.example:8443/")));
+        assert!(!same_origin(&url("http://a.example/"), &start));
+        assert!(is_credential_header("Authorization") && is_credential_header("COOKIE"));
+        assert!(is_credential_header("proxy-authorization"));
+        assert!(!is_credential_header("Accept") && !is_credential_header("X-Cookie"));
     }
 }

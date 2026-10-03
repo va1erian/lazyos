@@ -81,11 +81,13 @@ impl Client {
         observer: &mut dyn Observer,
     ) -> Result<Outcome, Failure> {
         let deadline = opts.max_time.map(|limit| Instant::now() + limit);
+        let origin = url.clone();
         let mut url = url;
         let mut redirects = 0;
         loop {
             observer.before(&url);
-            let response = self.send(opts, &url, remaining(deadline)?)?;
+            let trusted = redirect::same_origin(&origin, &url);
+            let response = self.send(opts, &url, trusted, remaining(deadline)?)?;
             observer.after(&url, &response);
             let status = response.status().as_u16();
             if !opts.follow || !redirect::is_redirect(status) {
@@ -105,6 +107,7 @@ impl Client {
         &self,
         opts: &Options,
         url: &Url,
+        trusted: bool,
         limit: Option<Duration>,
     ) -> Result<Response<Body>, Failure> {
         if let Ok(mut log) = self.tls_log.lock() {
@@ -113,14 +116,14 @@ impl Client {
         let target = redirect::request_target(url);
         let result = if opts.head {
             let mut req = self.agent.head(&target);
-            for (name, value) in &opts.headers {
-                req = req.header(name.as_str(), value.as_str());
+            for (name, value) in sent_headers(opts, trusted) {
+                req = req.header(name, value);
             }
             req.config().timeout_global(limit).build().call()
         } else {
             let mut req = self.agent.get(&target);
-            for (name, value) in &opts.headers {
-                req = req.header(name.as_str(), value.as_str());
+            for (name, value) in sent_headers(opts, trusted) {
+                req = req.header(name, value);
             }
             req.config().timeout_global(limit).build().call()
         };
@@ -153,6 +156,15 @@ impl Client {
             other => Failure::Recv(printable(other.to_string().as_bytes())),
         }
     }
+}
+
+/// The user's headers for one hop: credential headers only when `trusted`
+/// (the hop is on the origin the user named).
+fn sent_headers(opts: &Options, trusted: bool) -> impl Iterator<Item = (&str, &str)> {
+    opts.headers
+        .iter()
+        .filter(move |(name, _)| trusted || !redirect::is_credential_header(name))
+        .map(|(name, value)| (name.as_str(), value.as_str()))
 }
 
 /// Connection-stage I/O errors are "could not connect"; the rest are

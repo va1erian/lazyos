@@ -36,6 +36,10 @@ class DoomTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", doom=True)["doom"])
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["doom"])
 
+    def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
+
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         self.assertIn("--doom", demo_argv(doom=True, skip_build=False))
         self.assertNotIn("--doom", demo_argv(skip_build=False))
@@ -80,6 +84,10 @@ class ModPlayerTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI",
                                                modplayer=True)["modplayer"])
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["modplayer"])
+
+    def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         self.assertIn("--modplayer", demo_argv(modplayer=True, skip_build=False))
@@ -126,6 +134,10 @@ class LinuxAppsTests(unittest.TestCase):
             cfg = catalog.simple_config(demo_config(), "dev", iface, linuxapps=True)
             self.assertTrue(cfg["linuxapps"], iface)
             self.assertFalse(catalog.simple_config(demo_config(), "dev", iface)["linuxapps"])
+
+    def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         self.assertIn("--linuxapps", demo_argv(linuxapps=True, skip_build=False))
@@ -177,6 +189,10 @@ class TlsTests(unittest.TestCase):
             off = catalog.simple_config(demo_config(), "dev", iface)
             self.assertFalse(off["tls"])
             self.assertFalse(off["net"])
+
+    def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         self.assertIn("--tls", demo_argv(tls=True, skip_build=False))

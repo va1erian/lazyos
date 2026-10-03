@@ -228,7 +228,7 @@ def net_specs(cfg: dict) -> list[str]:
 def net_flags(cfg: dict) -> list[str]:
     """The `--net` flags run_demo and the screenshot tools share, or none.
     A malformed forward raises ValueError (shown as a plan error)."""
-    if not cfg.get("net"):
+    if not (cfg.get("net") or cfg.get("tls")):  # the HTTPS clients need the card
         return []
     specs = net_specs(cfg)
     qemu_net.forwards_from(specs)  # validate now, not after a long build

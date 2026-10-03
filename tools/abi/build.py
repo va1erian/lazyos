@@ -129,8 +129,12 @@ def build_tlsfix() -> dict[str, str]:
         print("warning: tlsfix build failed", file=sys.stderr)
         print(build.stderr[-2000:], file=sys.stderr)
         return {}
+    source = TLSFIX / "target" / TARGET / "release" / "tlsfix"
+    if not source.is_file():
+        print("warning: tlsfix binary missing after the build", file=sys.stderr)
+        return {}
     dest = OUT_DIR / "tlsfix.elf"
-    dest.write_bytes((TLSFIX / "target" / TARGET / "release" / "tlsfix").read_bytes())
+    dest.write_bytes(source.read_bytes())
     return {"tlsfix": str(dest)}
 
 
