@@ -280,3 +280,62 @@ pub fn stale_completion() -> Result<(), String> {
     teardown();
     result
 }
+
+/// A requester `SIGKILL`ed while parked mid-request (holding the request
+/// slot, as a `/home` reader holds the volume's gate around it) is not ended
+/// inside the kernel: the request completes, the slot is released, the next
+/// request goes straight through, and the requester dies only once it is
+/// back in user mode.
+pub fn kill_mid_request_releases_slot() -> Result<(), String> {
+    let disk = setup(Mode::Normal)?;
+    let result = (|| {
+        task::harness::switch_current(task::KERNEL_TASK);
+        let requester = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+        // Parked in a syscall, its saved frame is a kernel frame.
+        let user_cs =
+            task::harness::set_kernel_frame(requester).ok_or("the requester has no frame")?;
+        mode(Mode::KillRequester(requester));
+        task::harness::switch_current(requester);
+        let read = read_one(disk);
+        task::harness::switch_current(task::KERNEL_TASK);
+        with_fake(|fake| fake.killed.take()).ok_or("the provider never killed the requester")??;
+        check!(read.is_ok(), "the killed requester's read failed: {read:?}");
+        check!(
+            task::harness::state(requester) == Some(task::TaskState::Runnable),
+            "the requester ended inside the kernel: {:?}",
+            task::harness::state(requester)
+        );
+        check!(
+            crate::task::signal::killed(requester),
+            "the kill is no longer pending"
+        );
+
+        // The slot was released: another request needs no deadline to pass.
+        let clock = test_clock::offset();
+        check!(read_one(disk).is_ok(), "the request after the kill failed");
+        check!(
+            test_clock::offset() == clock,
+            "the request after the kill waited for the slot"
+        );
+        let (stats, alive) = state()?;
+        check!(
+            alive && stats.errors == 0 && stats.timeouts == 0 && stats.requests == 2,
+            "stats {stats:?} alive {alive}"
+        );
+
+        // Back in user mode, the requester dies with the kill's status.
+        task::harness::set_frame_cs(requester, user_cs);
+        check!(
+            task::harness::resume_delivery(requester),
+            "the killed requester was resumed in user mode"
+        );
+        check!(
+            task::reap_child() == Some((requester, 128 + crate::task::signal::SIGKILL as u64)),
+            "the requester did not exit with 128 + SIGKILL"
+        );
+        Ok(())
+    })();
+    crate::task::signal::harness::reset();
+    teardown();
+    result
+}
