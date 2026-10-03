@@ -119,6 +119,7 @@ impl Backend for LazyOSBackend {
                 frame: Vec::new(),
                 sink: None,
                 background: Theme::light().background,
+                backdrop: None,
                 dpi,
                 width: width as i32,
                 height: height as i32,

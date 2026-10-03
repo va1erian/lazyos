@@ -50,6 +50,19 @@ sessions (S6); GPU acceleration (S8).
   context menu. `xuid` composites it at the bottom of the z-order. With no shell
   attached, xuid paints its current background color as today, so the compositor
   remains usable alone (`xdemo`).
+- **Desktop picture.** The wallpaper is the `sys/ui/bg` colour, or the PNG or
+  JPEG file `sys/ui/wallpaper` names (an absolute path; Settings, Appearance,
+  *Desktop picture* lists the ones in `/system/share/wallpapers`, and
+  `confctl set sys/ui/wallpaper str <path>` takes any file). LazyShell re-reads
+  the key with the theme, checks the size the file's header declares before
+  decoding it (at most 32 MiB and 16 Mpx), cuts it to the screen's aspect ratio
+  and scales it once to the screen, then hands it to the xui backend as the
+  desktop window's backdrop (`xui-app/src/backend/backdrop.rs`). The launcher
+  labels take light or dark ink from the picture's brightness under them, not
+  from the mode. A missing or bad file leaves the colour
+  (`SHELL:WALLPAPER:PASS|FAIL|NONE`). The four shipped pictures (Aurora, Dunes,
+  LazyOS Night, LazyOS Green) are rendered by `tools/wallpaper/gen.py` into
+  `assets/wallpapers`; session `tools/screenshot/examples/shell_wallpaper.json`.
 - **Window chrome stays in xuid.** Title bar, border, close/minimize buttons,
   drag-to-move, click-to-raise, z-order, and focus are compositor policy
   (#143) and remain there: one implementation, every client. LazyShell does not

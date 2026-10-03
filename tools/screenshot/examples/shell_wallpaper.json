@@ -1,0 +1,21 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "SHELL:DESKTOP:PASS", "timeout": 120},
+  {"at": 3.0, "shot": "01_plain"},
+  {"at": 3.5, "type": "cd /system/share/wallpapers; PS1='# '"},
+  {"at": 12.0, "key": "enter", "until": "TERM:CMD:cd /system/share/wallpapers", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "confctl set sys/ui/wallpaper str $PWD/Aurora.jpg"},
+  {"at": 12.0, "key": "enter", "until": "SHELL:WALLPAPER:PASS path=/system/share/wallpapers/Aurora.jpg size=2560x1440", "timeout": 90, "retries": 2, "note": "LazyShell re-reads the setting every three seconds"},
+  {"at": 3.0, "shot": "02_aurora"},
+  {"at": 3.5, "type": "confctl set sys/ui/wallpaper str $PWD/Dunes.jpg"},
+  {"at": 14.0, "key": "enter", "until": "SHELL:WALLPAPER:PASS path=/system/share/wallpapers/Dunes.jpg", "timeout": 90, "retries": 2},
+  {"at": 3.0, "shot": "03_dunes", "note": "a light picture: the launcher labels turn dark"},
+  {"at": 3.5, "type": "confctl set sys/ui/wallpaper str /no/such.png"},
+  {"at": 14.0, "key": "enter", "until": "SHELL:WALLPAPER:FAIL path=/no/such.png", "timeout": 90, "retries": 2},
+  {"at": 3.0, "shot": "04_missing_is_plain"},
+  {"at": 3.5, "type": "/apps/os.lazy.settings/*/bin/settings.elf --client &"},
+  {"at": 16.0, "key": "enter", "until": "SETTINGS:UP:PASS", "timeout": 240, "retries": 2},
+  {"at": 3.0, "shot": "05_settings_list"},
+  {"at": 4.0, "quit": true}
+]

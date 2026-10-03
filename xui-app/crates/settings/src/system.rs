@@ -41,6 +41,11 @@ pub trait System {
     fn uptime_secs(&self) -> Option<u64>;
     /// Where the settings live, or `None` when `confd` cannot be reached.
     fn store_status(&self) -> Option<StoreStatus>;
+    /// The desktop pictures the system ships, as absolute paths in list
+    /// order; empty when there are none.
+    fn wallpapers(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// An in-memory [`System`] for tests and previews.
@@ -48,6 +53,8 @@ pub struct MemSystem {
     pub now: RefCell<Option<Now>>,
     pub uptime: Option<u64>,
     pub store: Option<StoreStatus>,
+    /// The desktop pictures [`System::wallpapers`] reports.
+    pub pictures: Vec<String>,
     /// When set, `set_time` and `set_zone` fail with this message.
     pub fail: RefCell<Option<String>>,
 }
@@ -65,6 +72,7 @@ impl Default for MemSystem {
                 dir: String::from("(memory)"),
                 persistent: true,
             }),
+            pictures: Vec::new(),
             fail: RefCell::new(None),
         }
     }
@@ -112,5 +120,9 @@ impl System for MemSystem {
 
     fn store_status(&self) -> Option<StoreStatus> {
         self.store.clone()
+    }
+
+    fn wallpapers(&self) -> Vec<String> {
+        self.pictures.clone()
     }
 }
