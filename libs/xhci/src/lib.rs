@@ -13,6 +13,11 @@
 //! * [`ring`]: producer rings (command and transfer, with a Link TRB and the
 //!   cycle bit) and the event ring consumer, over [`ring::TrbMem`].
 //! * [`context`]: slot, endpoint and input-control contexts (32- or 64-byte).
+//! * [`extcap`]: the extended capability list: the BIOS-to-OS handoff and
+//!   which root ports are USB 2 and which USB 3.
+//! * [`route`]: where a device sits (root port, hub ports): route string,
+//!   transaction translator and depth for its slot context.
+//! * [`setup`]: the USB control requests (standard, HID, hub).
 //!
 //! Everything the controller writes (event TRBs, completion pointers,
 //! context state) is untrusted: a completion that names a TRB outside the
@@ -24,8 +29,11 @@
 extern crate std;
 
 pub mod context;
+pub mod extcap;
 pub mod regs;
 pub mod ring;
+pub mod route;
+pub mod setup;
 pub mod trb;
 
 #[cfg(test)]

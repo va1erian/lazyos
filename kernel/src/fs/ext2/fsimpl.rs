@@ -1,5 +1,6 @@
 //! The [`Filesystem`] impl over the library: path in, library call, errors and
-//! metadata converted to the VFS types.
+//! metadata converted to the VFS types. Every call holds the volume's gate
+//! ([`Ext2`]'s `gate`) for its whole length.
 
 use alloc::vec::Vec;
 
@@ -27,10 +28,12 @@ impl Filesystem for Ext2 {
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {
+        let _gate = self.gate.lock();
         Ok(meta(self.volume.lookup(path)?))
     }
 
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let _gate = self.gate.lock();
         let mut done = 0;
         for piece in buf.chunks_mut(PIECE) {
             crate::input::ps2::service();
@@ -44,6 +47,7 @@ impl Filesystem for Ext2 {
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        let _gate = self.gate.lock();
         let mut done = 0;
         for piece in data.chunks(PIECE) {
             crate::input::ps2::service();
@@ -57,10 +61,12 @@ impl Filesystem for Ext2 {
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.truncate(path, size)?)
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+        let _gate = self.gate.lock();
         let change = AttrChange {
             mode: attr.mode,
             uid: attr.uid,
@@ -73,14 +79,17 @@ impl Filesystem for Ext2 {
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        let _gate = self.gate.lock();
         Ok(meta(self.volume.create(path, mode, owner_of(owner))?))
     }
 
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        let _gate = self.gate.lock();
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         // A parked orphan (a reserved name) is deleted inode-first so a stop
         // part-way can be resumed by the next mount's reclaim.
         let name = path.trim_matches('/').rsplit('/').next().unwrap_or("");
@@ -92,14 +101,17 @@ impl Filesystem for Ext2 {
     }
 
     fn rmdir(&self, path: &str) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.rmdir(path)?)
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.rename(from, to)?)
     }
 
     fn flush(&self) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.flush()?)
     }
 
@@ -108,6 +120,7 @@ impl Filesystem for Ext2 {
     }
 
     fn statfs(&self) -> Result<StatFs, FsError> {
+        let _gate = self.gate.lock();
         let FsStats {
             magic,
             block_size,
@@ -129,6 +142,7 @@ impl Filesystem for Ext2 {
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
+        let _gate = self.gate.lock();
         Ok(self
             .volume
             .readdir(path)?

@@ -18,6 +18,9 @@ python tools/usb/run.py --hotplug 200    # U3: unplug/replug cycles over QMP
 python tools/usb/run.py --tablet         # U4: usb-tablet (absolute) instead of the mouse
 python tools/usb/run.py --restart        # U5: usbd dies holding a key; init restarts it
 python tools/usb/run.py --machine q35 --virtio-disk   # U5: on q35
+python tools/usb/run.py --hub            # H3: keyboard and mouse behind a usb-hub; the hub unplugged
+python tools/usb/run.py --full-speed     # H3: USB 1.1 keyboard and mouse on root ports
+python tools/usb/run.py --controllers 2  # H3: two controllers, keyboard on the second
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # the libraries (host, seeded fuzz)
 ```
@@ -34,6 +37,25 @@ Verdict (all must pass):
   descriptors (`USBD:DESC:*`) are QEMU's, byte for byte (the golden bytes
   `libs/usbhid` is tested against); no `USBD:FATAL`, `USBD:PANIC` or
   `USBD:PORT:FAIL`.
+
+**Real-hardware variants** (docs/real-pc-boot-plan.md H3). `--hub` puts
+QEMU's `usb-hub` (a full-speed USB 1.1 hub, the only one QEMU has) on root
+port 1 with the keyboard and mouse on its ports 1 and 2: `usbd` must
+configure the hub (`USBD:HUB`), power its ports, find both devices through
+its status-change endpoint and enumerate them at full speed with a route
+string (`port=0-5.1`, `port=0-5.2`; QEMU's USB 2 root ports are 5..=8).
+`judge.py --hub` checks they were bound one tier below the hub, their
+descriptors are QEMU's full-speed ones (endpoint 0 of 8 bytes, 10 ms
+intervals), the typing and pointer steps arrived, and when the session
+unplugs the hub both devices detach before it. `--full-speed` attaches the
+same devices with `usb_version=1` straight to root ports: endpoint 0 starts
+at 64 bytes and is fixed to 8 by Evaluate Context. `--controllers N` adds N
+controllers with the mouse on the first and the keyboard on the last;
+`judge.py --controllers N` checks each came up (`USBD:XHCI hc=<n>`) and the
+devices were bound on the right one. What QEMU cannot model (64-byte
+contexts, a BIOS that owns the controller, USB 3 warm reset, high-speed
+hubs and their transaction translators, SuperSpeed hubs) is covered by the
+host tests of `libs/xhci` and `libs/usbhid`.
 
 **Restart** (`--restart`, U5) builds `usbd` with `LAZYOS_USB_CRASH_TEST=1`:
 on its first attempt it exits (status 3) right after publishing a key press.
@@ -60,13 +82,17 @@ unplug; then `a b c` is typed on the last keyboard. `judge.py --hotplug N`
 checks every cycle detached and re-attached, the held key and button were
 released (by `usbd` on detach, traced as `USBD:KEY ... up`), `inputd` saw
 exactly `usbd`'s key edges, the typing arrived, and the DMA allocation count
-`regions=` never exceeded the 8 slots `usbd` enables (no leak; regions are
+`regions=` never exceeded the 12 slots `usbd` enables (no leak; regions are
 reused per slot, never freed). No `USBD:SLOT:LEAK` either: a Disable Slot that
 fails keeps its memory out of reuse and is reported.
 
-Serial markers: `USBD:XHCI` (controller up), `USBD:PORT`, `USBD:DESC:DEVICE`,
-`USBD:DESC:CONFIG`, `USBD:HID:KBD` / `USBD:HID:MOUSE`, `USBD:READY devices=N`,
-`USBD:DETACH port= slot= regions=` (an unplug or a failed pipe);
+Serial markers: `USBD:XHCI hc=<n>` (a controller up: its BIOS handoff, USB 2
+and USB 3 port counts, context size), `USBD:PORT port=<hc>-<root>[.<hub port>...]`
+(`USBD:PORT:RETRY` before another reset, `USBD:PORT:SKIP` for a device with
+nothing to bind), `USBD:DESC:DEVICE`, `USBD:DESC:CONFIG`, `USBD:HUB`,
+`USBD:HID:KBD` / `USBD:HID:MOUSE`, `USBD:READY devices=N controllers=M`,
+`USBD:DETACH port= slot= regions= functions=` (an unplug or a failed pipe;
+everything below a hub detaches before it);
 with `trace=1` (only on `LAZYOS_USB_TRACE=1` test images, which `run.py`
 builds: the trace carries every keystroke, so ordinary USB images never
 enable it) `USBD:REPORT <hex>` and `USBD:KEY` per report and edge. A machine without xHCI prints `USBD:XHCI:NONE` and exits 0.

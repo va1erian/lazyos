@@ -16,7 +16,8 @@ fn bind_three_surfaces(width: usize, height: usize) -> Result<(), String> {
     let code =
         process::dispatch_for_test(12, crate::display::op::BIND, info.as_mut_ptr() as u64, 0);
     check!(code == 0, "{width}x{height}: bind -> {code:#x}");
-    let size = (width * height * 4) as u64;
+    // The screen buffer is the logical screen, capped at 1080p.
+    let size = crate::display::logical::fit(width, height).rgba_bytes();
     check!(
         info[6] == size,
         "{width}x{height}: screen buffer {}",

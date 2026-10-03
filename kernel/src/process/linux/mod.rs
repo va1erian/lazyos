@@ -283,6 +283,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         95 => pathops::sys_umask(a1),                   // umask(mask)
         96 => time::sys_gettimeofday(a1),               // gettimeofday(tv, tz)
         102 | 107 => creds::sys_getuid(),               // getuid/geteuid
+        103 => misc::sys_syslog(a1, a2, a3),            // syslog (dmesg)
         104 | 108 => creds::sys_getgid(),               // getgid/getegid
         105 => creds::sys_setuid(a1),                   // setuid
         106 => creds::sys_setgid(a1),                   // setgid

@@ -81,6 +81,8 @@ extern crate alloc;
 mod apps;
 #[path = "init/autostart.rs"]
 mod autostart;
+#[path = "init/home.rs"]
+mod home;
 #[path = "init/installed.rs"]
 mod installed;
 #[path = "init/launch.rs"]
@@ -198,11 +200,18 @@ fn run() -> messenger::Result<()> {
             if BOOT_EVIDENCE {
                 selftest.step(&mut services, &mut broker, now);
             }
+            // A home volume on a USB stick (`home`): once it is mounted, or
+            // the bounded wait for it ends, start what was held for it.
+            if home::step(&services, now) {
+                start_ready(&mut services, &mut broker);
+            }
             // The desktop's apps (issue #215): open the shipped `autostart` rows.
-            autostart.step(&mut services, &mut broker, &mut installed, now);
+            if home::ready() {
+                autostart.step(&mut services, &mut broker, &mut installed, now);
+            }
         }
         // Reap one exit (or time out to serve requests).
-        if let Some((pid, status)) = sys::wait(wake_deadline(&services, now)) {
+        if let Some((pid, status)) = sys::wait(home::wake(wake_deadline(&services, now), now)) {
             child_exited(&mut services, pid, status, &mut broker);
             // The exit may unblock dependents (only a stop can; still cheap).
             if shutdown.is_none() {

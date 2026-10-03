@@ -48,6 +48,26 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_label_trace");
     }
 
+    // Tick source (docs/real-pc-boot-plan.md H2): `LAZYOS_TIMER=lapic` uses the
+    // local APIC timer even where the PIT ticks, so the path a PIT-less PC
+    // takes can be tested under QEMU; unset (or `pit`), the PIT stays the tick
+    // wherever it works. `arch::timer` reads it with `option_env!`.
+    // `LAZYOS_X2APIC=1` makes the kernel switch the APIC to x2APIC mode itself
+    // (when the CPU has it) to test the MSR path firmware may leave on.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TIMER");
+    match env::var("LAZYOS_TIMER").as_deref() {
+        Ok("lapic") | Ok("pit") | Ok("") | Err(_) => {}
+        Ok(other) => println!("cargo:warning=LAZYOS_TIMER={other} is not pit or lapic; ignored"),
+    }
+    // `LAZYOS_TIMER_REF=hpet|none` narrows the reference clocks (`arch::refclock`)
+    // so the HPET and PIT-only calibrations can be tested under QEMU.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TIMER_REF");
+    println!("cargo:rerun-if-env-changed=LAZYOS_X2APIC");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_x2apic)");
+    if env::var_os("LAZYOS_X2APIC").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_x2apic");
+    }
+
     // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`
     // boots the `messengerctl` tool (`/system/bin/messengerctl`) in the hello window
     // instead of `hello`.

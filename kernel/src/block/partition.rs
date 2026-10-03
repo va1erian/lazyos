@@ -7,8 +7,11 @@
 //! bad one is logged and skipped, never clamped.
 //!
 //! Slots are a fixed static pool so the registry keeps holding
-//! `&'static dyn BlockDevice` without a heap. Only whole disks are scanned
-//! (`ram0` and partitions are not), and GPT/extended tables are out of scope.
+//! `&'static dyn BlockDevice` without a heap. Only whole disks are scanned,
+//! never partitions; GPT/extended tables are out of scope. [`scan_all`] skips
+//! `ram0`, which [`super::mem::register_ramdisk`] scans itself because it
+//! registers after the drivers; [`scan_disk`] is the entry point for any
+//! device that appears later (the USB stick through `usbd`, track 5).
 
 use super::{check_range, BlockDevice, BlockError, SECTOR_SIZE};
 use core::str;
@@ -56,7 +59,7 @@ pub fn parse_mbr(
     disk: &str,
 ) -> [Option<Entry>; ENTRIES] {
     let mut found = [None; ENTRIES];
-    if mbr[SIGNATURE_OFFSET..] != [0x55, 0xAA] {
+    if mbr[SIGNATURE_OFFSET..] != [0x55, 0xAA] || is_fat_boot_record(mbr) {
         return found;
     }
     let table = &mbr[TABLE_OFFSET..SIGNATURE_OFFSET];
@@ -115,6 +118,13 @@ pub fn parse_mbr(
         }
     }
     found
+}
+
+/// A FAT volume boot record (a bare FAT image, like the issue #5 ramdisk) also
+/// ends in 0x55AA, but its bytes 446.. are boot code, not a partition table:
+/// a jump instruction plus the `FAT` type string of a FAT12/16 or FAT32 BPB.
+fn is_fat_boot_record(sector: &[u8; SECTOR_SIZE]) -> bool {
+    matches!(sector[0], 0xEB | 0xE9) && (&sector[54..57] == b"FAT" || &sector[82..87] == b"FAT32")
 }
 
 /// A window onto a whole disk.
@@ -270,22 +280,27 @@ fn register_entry(
     Some(partition)
 }
 
-/// Read the MBR of one whole disk and register its partitions.
-pub fn scan_disk(disk: &'static dyn BlockDevice) {
+/// Read the MBR of one whole disk and register its partitions as
+/// `<disk>p<n>`; returns how many were registered. Call it once per disk: a
+/// second scan finds the names taken and spends pool slots for nothing. A
+/// partition device is refused (no nested tables).
+pub fn scan_disk(disk: &'static dyn BlockDevice) -> usize {
     let mut mbr = [0u8; SECTOR_SIZE];
-    if disk.sector_size() != SECTOR_SIZE || disk.read_sectors(0, &mut mbr).is_err() {
-        return;
+    if disk.is_partition()
+        || disk.sector_size() != SECTOR_SIZE
+        || disk.read_sectors(0, &mut mbr).is_err()
+    {
+        return 0;
     }
-    for entry in parse_mbr(&mbr, disk.sector_count(), disk.name())
+    parse_mbr(&mbr, disk.sector_count(), disk.name())
         .iter()
         .flatten()
-    {
-        register_entry(disk, entry);
-    }
+        .filter(|entry| register_entry(disk, entry).is_some())
+        .count()
 }
 
-/// Scan every registered whole disk, once. `ram0` is the bootloader's ramdisk
-/// image, whose FAT reader already walks the MBR itself.
+/// Scan every registered whole disk, once. `ram0` is skipped: the ramdisk
+/// registers after this runs and scans itself (`mem::register_ramdisk`).
 pub fn scan_all() {
     if SCANNED.swap(true, Ordering::AcqRel) {
         return;

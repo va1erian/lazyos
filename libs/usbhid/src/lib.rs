@@ -7,8 +7,10 @@
 //! [`Error`] or a counted, dropped record, never a panic or an out-of-bounds
 //! read.
 //!
-//! * [`desc`] parses the device and configuration descriptors and picks the
-//!   first boot-capable HID interface with an interrupt-IN endpoint.
+//! * [`desc`] parses the device and configuration descriptors: every
+//!   interface with its endpoints, and the boot-capable HID interfaces.
+//! * [`hub`] parses hub descriptors, port status words and the
+//!   status-change bitmap (USB 2 and SuperSpeed hubs).
 //! * [`boot`] turns successive boot keyboard and mouse reports into key and
 //!   button edges (a report is a *state*; the bus carries *edges*).
 //! * [`report`] reads enough of a HID report descriptor to find a pointer's
@@ -26,6 +28,7 @@ pub mod boot;
 pub mod desc;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod hub;
 pub mod report;
 #[cfg(test)]
 mod tests;

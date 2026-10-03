@@ -1,0 +1,19 @@
+[package]
+name = "acpi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Hostile-input ACPI table walker (RSDP, XSDT/RSDT, FADT, MADT, HPET) for the LazyOS kernel"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "acpi"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-image entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/acpi.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

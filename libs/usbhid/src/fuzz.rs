@@ -24,6 +24,25 @@ use crate::report::{parse_pointer, Field, MAX_REPORT};
 /// Parse `data` both ways; panics on an inconsistent result.
 pub fn run_desc(data: &[u8]) {
     let _ = parse_device(data);
+    for superspeed in [false, true] {
+        if let Ok(hub) = crate::hub::parse_hub(data, superspeed) {
+            assert!(
+                hub.ports != 0 && hub.think_time <= 3,
+                "hub descriptor fields"
+            );
+        }
+        if let Ok(status) = crate::hub::PortStatus::decode(data, superspeed) {
+            assert!(status.change_features().count() <= 6, "change selectors");
+        }
+    }
+    let ports: Vec<u8> =
+        crate::hub::changed_ports(data, data.first().copied().unwrap_or(0)).collect();
+    assert!(
+        ports
+            .iter()
+            .all(|&p| (1..=crate::hub::MAX_PORTS).contains(&p)),
+        "bitmap ports"
+    );
     let Ok(config) = parse_config(data) else {
         return;
     };
@@ -38,8 +57,14 @@ pub fn run_desc(data: &[u8]) {
             assert!(endpoint.max_packet <= 0x07FF, "packet size bits");
         }
     }
-    if let Some(boot) = config.first_boot() {
+    for boot in config.boot_interfaces() {
         assert!(boot.protocol != Protocol::None && boot.endpoint.is_some());
+    }
+    for interface in config.interfaces() {
+        assert!(interface.endpoints().count() <= crate::desc::MAX_ENDPOINTS);
+        assert!(interface
+            .endpoints()
+            .all(|e| e.number() != 0 && e.extra <= 2 && e.max_burst <= 15));
     }
 }
 

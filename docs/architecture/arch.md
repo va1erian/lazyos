@@ -10,7 +10,12 @@
 | `kernel/src/arch/mod.rs` | `init()` order: `cpu` -> `gdt` -> `idt::init_hardware` -> `linux` -> mouse |
 | `kernel/src/arch/gdt.rs` | GDT, TSS, ring-3 selectors, kernel stack / IST |
 | `kernel/src/arch/idt.rs` | IDT, exception handlers, IRQs, page-fault dispatch, `TICKS` |
-| `kernel/src/arch/pic.rs` | 8259 remap (IRQ 0-15 -> vectors 32-47), PIT at 100 Hz |
+| `kernel/src/arch/pic.rs` | 8259 remap (IRQ 0-15 -> vectors 32-47), PIT at 100 Hz; line 0 masks whichever source is the tick |
+| `kernel/src/arch/timer.rs` | tick source choice: PIT unless it is frozen or its IRQ0 never arrives (or `LAZYOS_TIMER=lapic`), then the local APIC timer; prints `HW:TIMER:<pit\|lapic> <source> <hz>` |
+| `kernel/src/arch/timer_cal.rs` | pure decisions: PIT verdict, CPUID 0x15 crystal, APIC count |
+| `kernel/src/arch/lapic.rs` | local APIC (x2APIC MSRs or uncached xAPIC MMIO), virtual wire (LINT0 ExtINT, LINT1 NMI), periodic timer |
+| `kernel/src/arch/refclock.rs` | ACPI PM timer and HPET as reference clocks; PIT channel-0 reads |
+| `kernel/src/arch/acpi_tables.rs` | `libs/acpi` over the physical map: RSDP -> XSDT/RSDT -> FADT, MADT, HPET, DSDT (`HW:ACPI:` line) |
 | `kernel/src/arch/cpu.rs` | FPU/SSE enable (clear `CR0.EM`, set `CR4.OSFXSR`) |
 | `kernel/src/arch/msr.rs` | `IA32_EFER/STAR/LSTAR/FMASK/FS_BASE` read/write wrappers |
 | `kernel/src/arch/linux.rs` | `linux_syscall_entry`, `linux_dispatch` plumbing |
@@ -42,7 +47,9 @@
 | 44 | mouse IRQ | pushes bytes |
 | other PIC lines | device-core stubs (`irq_stubs.rs`) | delivered to claimed device lines (issue #240) |
 | `0x81` | `yield_isr` (naked, DPL 0, `task/switch.rs`) | voluntary reschedule from `WaitQueue::wait`: no tick, no EOI (issue #338) |
+| `0x30` | `timer_isr` again | the local APIC timer when it is the tick; `timer::end_of_tick` sends the APIC EOI instead of the 8259 one |
 | `0x80` | `syscall_isr` (DPL 3) | native syscalls; saves `rdi/rsi/rdx/r8/r9/r10/rax` |
+| `0xFF` | APIC spurious | no EOI |
 
 **MSRs** (`arch/linux.rs:175`): `STAR` encodes `CS=0x08/SS=0x10` on entry and
 `CS=0x20/SS=0x18` on return; `LSTAR` = `linux_syscall_entry`; `FMASK` clears
@@ -74,5 +81,7 @@ per-task thread pointer, restored on every context switch.
   and are being converted to `-EFAULT` one by one.
 
 **Status.** Working: preemptive demo boot, Linux `syscall` shim, native gate,
-page-fault COW/demand-zero/`SIGSEGV`. No SMP, no APIC (PIC only); the CMOS RTC (`arch/rtc.rs`) is read at boot for the
-wall clock.
+page-fault COW/demand-zero/`SIGSEGV`. No SMP. Device interrupts go through
+the 8259 only; the local APIC is enabled (virtual wire) only when its timer is
+the tick, and the I/O APIC is recorded from the MADT but not used. The CMOS RTC
+(`arch/rtc.rs`) is read at boot for the wall clock.

@@ -8,6 +8,7 @@
 //! one region, so a 60-entry map usually needs a handful of slots. If a map
 //! still has more disjoint ranges than [`MAX_REGIONS`], the smallest are
 //! dropped and counted in [`Regions::dropped`], never the large ones.
+//! Ranges are clamped below [`PHYS_LIMIT`].
 //!
 //! Pure (no allocation, no globals), so the suite can feed it synthetic maps.
 
@@ -15,6 +16,11 @@ use super::frames::{FRAME_SIZE, LOWEST_FRAME};
 
 /// Maximum disjoint usable regions tracked (no heap needed to bootstrap).
 pub const MAX_REGIONS: usize = 128;
+
+/// Highest physical address tracked. Architectural x86_64 physical addresses
+/// have at most 52 bits, and `PhysAddr::new` refuses anything above; a
+/// firmware map claiming RAM up there is lying.
+pub const PHYS_LIMIT: u64 = 1 << 52;
 
 /// A sorted set of disjoint, frame-aligned usable regions.
 #[derive(Clone, Copy)]
@@ -42,7 +48,7 @@ impl Regions {
         let mut regions = Regions::empty();
         for (start, end) in ranges {
             let start = start.max(LOWEST_FRAME).saturating_add(FRAME_SIZE - 1) & !(FRAME_SIZE - 1);
-            let end = end & !(FRAME_SIZE - 1);
+            let end = end.min(PHYS_LIMIT) & !(FRAME_SIZE - 1);
             if start < end {
                 regions.insert(start, end);
             }
@@ -61,6 +67,16 @@ impl Regions {
             0
         } else {
             self.ends[self.count - 1]
+        }
+    }
+
+    /// Drop the highest region, counting it in [`dropped`](Self::dropped).
+    /// Used when the frame refcount table cannot be placed: one bogus
+    /// far-away range inflates the table past every region.
+    pub fn drop_highest(&mut self) {
+        if self.count > 0 {
+            self.count -= 1;
+            self.dropped += self.ends[self.count] - self.starts[self.count];
         }
     }
 

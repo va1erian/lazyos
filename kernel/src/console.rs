@@ -7,6 +7,9 @@ use core::fmt;
 use spin::Mutex;
 
 static CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
+/// The framebuffer as handed over, for the panic screen: it must draw even
+/// when a panic struck while [`CONSOLE`] was locked, so it never takes it.
+static RAW: spin::Once<(usize, FrameBufferInfo)> = spin::Once::new();
 
 const FOREGROUND: Color = Color::rgb(0xE8, 0xE8, 0xF0);
 const BACKGROUND: Color = Color::rgb(0x0D, 0x0F, 0x17);
@@ -118,8 +121,22 @@ impl fmt::Write for Console {
 
 /// Initialise the global console over the bootloader-provided framebuffer.
 pub fn init(base: usize, info: FrameBufferInfo) {
+    RAW.call_once(|| (base, info));
     let console = Console::new(Framebuffer::new(base, info));
     *CONSOLE.lock() = Some(console);
+}
+
+/// The framebuffer's virtual base and length in bytes, as handed over.
+pub fn framebuffer_span() -> Option<(u64, u64)> {
+    RAW.get()
+        .map(|&(base, info)| (base as u64, info.byte_len as u64))
+}
+
+/// A second handle on the whole framebuffer for the panic screen, built
+/// without any lock. Whatever it draws may interleave with a half-finished
+/// blit of the code that panicked; the machine is stopping, so that is fine.
+pub fn panic_framebuffer() -> Option<Framebuffer> {
+    RAW.get().map(|&(base, info)| Framebuffer::new(base, info))
 }
 
 /// Whether the console lock is held right now (the NMI hang report, issue #382).
@@ -140,4 +157,39 @@ pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {
     x86_64::instructions::interrupts::without_interrupts(|| {
         CONSOLE.lock().as_mut().map(|console| f(&mut console.fb))
     })
+}
+
+/// [`with_framebuffer`] on the logical screen (`display::logical`): a view
+/// at its centring offset, clipped to it, so a blit sized and placed for the
+/// logical screen lands centred and cannot touch the borders or run past
+/// the framebuffer. On a mode within the cap this is the whole framebuffer.
+pub fn with_screen<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {
+    let screen = crate::display::logical();
+    with_framebuffer(|fb| f(&mut fb.view(screen.x, screen.y, screen.width, screen.height)))
+}
+
+/// Paint everything outside the logical screen black (the borders of a
+/// reduced screen), once the desktop or the mux takes over from the boot
+/// console. A no-op when the logical screen is the whole mode.
+pub fn clear_outside_logical() {
+    let screen = crate::display::logical();
+    with_framebuffer(|fb| {
+        let (width, height) = (fb.width(), fb.height());
+        if (screen.width, screen.height) == (width, height) {
+            return;
+        }
+        let black = Color::rgb(0, 0, 0);
+        let bottom = screen.y + screen.height;
+        let right = screen.x + screen.width;
+        fb.fill_rect(0, 0, width, screen.y, black);
+        fb.fill_rect(0, bottom, width, height.saturating_sub(bottom), black);
+        fb.fill_rect(0, screen.y, screen.x, screen.height, black);
+        fb.fill_rect(
+            right,
+            screen.y,
+            width.saturating_sub(right),
+            screen.height,
+            black,
+        );
+    });
 }

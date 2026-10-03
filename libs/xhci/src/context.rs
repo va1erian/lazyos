@@ -40,13 +40,78 @@ impl EndpointType {
 /// Slot context fields the driver sets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SlotContext {
-    /// Route string (0 for a device on a root port).
+    /// Route string (0 for a device on a root port; [`crate::route`]).
     pub route: u32,
     pub speed: Speed,
     /// The highest valid endpoint DCI (1 for just endpoint 0).
     pub entries: u8,
     /// Root hub port number, 1-based.
     pub root_port: u8,
+    /// The transaction translator a low- or full-speed device behind a
+    /// high-speed hub is reached through (6.2.2, TT Hub Slot ID and Port).
+    pub tt: Option<Tt>,
+    /// Set when the device is itself a hub (Hub, Number of Ports, TTT, MTT).
+    pub hub: Option<HubSlot>,
+}
+
+/// A transaction translator: the high-speed hub's slot and the port of it
+/// the device hangs off, and whether that hub runs one TT per port.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Tt {
+    pub hub_slot: u8,
+    pub port: u8,
+    pub multi: bool,
+}
+
+/// What the slot context of a hub declares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HubSlot {
+    pub ports: u8,
+    /// A high-speed hub with its multiple-TT interface selected.
+    pub multi_tt: bool,
+    /// TT Think Time, `wHubCharacteristics` bits 5..=6 (high-speed hubs).
+    pub think_time: u8,
+}
+
+impl SlotContext {
+    /// A device on root port `root_port` with only endpoint 0.
+    pub fn root(speed: Speed, root_port: u8) -> SlotContext {
+        SlotContext {
+            route: 0,
+            speed,
+            entries: 1,
+            root_port,
+            tt: None,
+            hub: None,
+        }
+    }
+
+    fn dwords(&self) -> Result<[u32; 3], Error> {
+        if self.route >= 1 << 20 || !(1..=31).contains(&self.entries) || self.root_port == 0 {
+            return Err(Error::BadArgument);
+        }
+        let mut dwords = [
+            self.route | self.speed.id() << 20 | u32::from(self.entries) << 27,
+            u32::from(self.root_port) << 16,
+            0,
+        ];
+        if let Some(tt) = self.tt {
+            if tt.hub_slot == 0 || tt.port == 0 {
+                return Err(Error::BadArgument);
+            }
+            dwords[0] |= u32::from(tt.multi) << 25;
+            dwords[2] |= u32::from(tt.hub_slot) | u32::from(tt.port) << 8;
+        }
+        if let Some(hub) = self.hub {
+            if hub.ports == 0 || hub.think_time > 3 {
+                return Err(Error::BadArgument);
+            }
+            dwords[0] |= 1 << 26 | u32::from(hub.multi_tt) << 25;
+            dwords[1] |= u32::from(hub.ports) << 24;
+            dwords[2] |= u32::from(hub.think_time) << 16;
+        }
+        Ok(dwords)
+    }
 }
 
 /// Endpoint context fields the driver sets.
@@ -60,8 +125,70 @@ pub struct EndpointContext {
     /// The transfer ring's dequeue pointer with its cycle state in bit 0
     /// ([`crate::ring::ProducerRing::dequeue_pointer`]).
     pub dequeue: u64,
-    /// Average TRB length: 8 for control, the report size for interrupt.
+    /// Average TRB length: 8 for control, the report size for interrupt,
+    /// 3072 for bulk (4.14.1.1).
     pub average_trb: u16,
+    /// Max Burst Size: extra packets per burst (high-speed periodic: the
+    /// `wMaxPacketSize` transaction bits; SuperSpeed: the companion's
+    /// `bMaxBurst`), 0 otherwise.
+    pub max_burst: u8,
+    /// Max ESIT Payload: bytes per service interval of a periodic endpoint
+    /// (`max_packet * (max_burst + 1)`, or the SuperSpeed companion's
+    /// `wBytesPerInterval`); 0 for control and bulk.
+    pub max_esit: u32,
+}
+
+impl EndpointContext {
+    /// Endpoint 0 with `max_packet` bytes per packet.
+    pub fn control(max_packet: u16, dequeue: u64) -> EndpointContext {
+        EndpointContext {
+            kind: EndpointType::Control,
+            max_packet,
+            interval: 0,
+            dequeue,
+            average_trb: 8,
+            max_burst: 0,
+            max_esit: 0,
+        }
+    }
+
+    /// A bulk endpoint (`kind` is [`EndpointType::BulkIn`] or `BulkOut`).
+    pub fn bulk(
+        kind: EndpointType,
+        max_packet: u16,
+        max_burst: u8,
+        dequeue: u64,
+    ) -> EndpointContext {
+        EndpointContext {
+            kind,
+            max_packet,
+            interval: 0,
+            dequeue,
+            average_trb: 3072,
+            max_burst,
+            max_esit: 0,
+        }
+    }
+
+    /// A periodic (interrupt) endpoint; the ESIT payload is one burst of
+    /// full packets unless the caller sets a SuperSpeed `wBytesPerInterval`.
+    pub fn interrupt(
+        kind: EndpointType,
+        max_packet: u16,
+        max_burst: u8,
+        interval: u8,
+        dequeue: u64,
+    ) -> EndpointContext {
+        EndpointContext {
+            kind,
+            max_packet,
+            interval,
+            dequeue,
+            average_trb: max_packet.min(1024),
+            max_burst,
+            max_esit: u32::from(max_packet) * (u32::from(max_burst) + 1),
+        }
+    }
 }
 
 /// An input context being built in a caller-provided dword buffer.
@@ -101,12 +228,8 @@ impl<'a> InputContext<'a> {
 
     /// Write the slot context and add it.
     pub fn slot(&mut self, slot: &SlotContext) -> Result<(), Error> {
-        if slot.route >= 1 << 20 || !(1..=31).contains(&slot.entries) || slot.root_port == 0 {
-            return Err(Error::BadArgument);
-        }
-        let ctx = self.context(1);
-        ctx[0] = slot.route | slot.speed.id() << 20 | u32::from(slot.entries) << 27;
-        ctx[1] = u32::from(slot.root_port) << 16;
+        let dwords = slot.dwords()?;
+        self.context(1)[..3].copy_from_slice(&dwords);
         self.add(0)
     }
 
@@ -117,21 +240,21 @@ impl<'a> InputContext<'a> {
             || ep.max_packet > 1024
             || ep.interval > 15
             || ep.dequeue & 0xE != 0
+            || ep.max_esit >= 1 << 24
         {
             return Err(Error::BadArgument);
         }
         let ctx = self.context(usize::from(dci) + 1);
-        ctx[0] = u32::from(ep.interval) << 16;
+        // Max ESIT Payload Hi in bits 24..=31, Interval in 16..=23.
+        ctx[0] = u32::from(ep.interval) << 16 | (ep.max_esit >> 16) << 24;
         // Error Count 3: retry a failed transaction three times.
-        ctx[1] = 3 << 1 | ep.kind.value() << 3 | u32::from(ep.max_packet) << 16;
+        ctx[1] = 3 << 1
+            | ep.kind.value() << 3
+            | u32::from(ep.max_burst) << 8
+            | u32::from(ep.max_packet) << 16;
         ctx[2] = ep.dequeue as u32;
         ctx[3] = (ep.dequeue >> 32) as u32;
-        // Max ESIT payload (interrupt only): one packet per service interval.
-        let esit = match ep.kind {
-            EndpointType::InterruptIn | EndpointType::InterruptOut => u32::from(ep.max_packet),
-            _ => 0,
-        };
-        ctx[4] = u32::from(ep.average_trb) | esit << 16;
+        ctx[4] = u32::from(ep.average_trb) | (ep.max_esit & 0xFFFF) << 16;
         self.add(dci)
     }
 

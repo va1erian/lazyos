@@ -3,10 +3,9 @@
 
 use super::*;
 use crate::dev::{
-    attach_all, pci, Bar, BarKind, BusId, DevError, DeviceHandle, DeviceId, DeviceInfo,
-    DeviceTable, Driver, Resources, TaskSlot,
+    attach_all, pci, Bar, BarKind, BusId, DevError, DeviceHandle, DeviceId, DeviceInfo, Driver,
+    Resources, TaskSlot,
 };
-use spin::Mutex;
 
 /// A synthetic device for table tests, independent of hardware.
 fn test_device(class: u8) -> DeviceInfo {
@@ -204,7 +203,8 @@ pub fn pci_capability_walk() -> Result<(), String> {
 
 /// Claim/unclaim, double-claim refusal, and an independent second device.
 pub fn claim_unclaim_double() -> Result<(), String> {
-    let mut table = DeviceTable::new();
+    let mut guard = super::capacity::scratch_table().lock();
+    let table = &mut *guard;
     let id = table
         .insert(test_device(0x02))
         .map_err(|error| format!("insert failed: {error:?}"))?;
@@ -255,7 +255,8 @@ pub fn claim_unclaim_double() -> Result<(), String> {
 
 /// A handle from a released claim must never act on the slot again.
 pub fn stale_generation_rejected() -> Result<(), String> {
-    let mut table = DeviceTable::new();
+    let mut guard = super::capacity::scratch_table().lock();
+    let table = &mut *guard;
     let id = table
         .insert(test_device(0x02))
         .map_err(|error| format!("insert failed: {error:?}"))?;
@@ -296,7 +297,8 @@ pub fn stale_generation_rejected() -> Result<(), String> {
 /// slot, or a generation, and every older handle must stay stale afterwards.
 pub fn claim_release_soak() -> Result<(), String> {
     const CYCLES: u32 = 1_000_000;
-    let mut table = DeviceTable::new();
+    let mut guard = super::capacity::scratch_table().lock();
+    let table = &mut *guard;
     let id = table
         .insert(test_device(0x02))
         .map_err(|error| format!("insert failed: {error:?}"))?;
@@ -354,7 +356,7 @@ impl Driver for MockDriver {
 /// not disturb a device another driver attached, and must not deadlock on the
 /// table lock. This is the path a boot with no ATA disk takes.
 pub fn attach_failure_rolls_back() -> Result<(), String> {
-    let table = Mutex::new(DeviceTable::new());
+    let table = super::capacity::scratch_table();
     let (bad, good) = {
         let mut guard = table.lock();
         let bad = guard
@@ -376,7 +378,7 @@ pub fn attach_failure_rolls_back() -> Result<(), String> {
         },
     ];
     check!(
-        attach_all(&table, &drivers) == 1,
+        attach_all(table, &drivers) == 1,
         "expected exactly the good device to attach"
     );
     let guard = table.lock();
@@ -395,7 +397,7 @@ pub fn attach_failure_rolls_back() -> Result<(), String> {
 /// leaves the device claimable every time.
 pub fn attach_failure_soak() -> Result<(), String> {
     const ROUNDS: u32 = 100_000;
-    let table = Mutex::new(DeviceTable::new());
+    let table = super::capacity::scratch_table();
     let id = table
         .lock()
         .insert(test_device(0x01))
@@ -405,7 +407,7 @@ pub fn attach_failure_soak() -> Result<(), String> {
         fail: true,
     }];
     for round in 0..ROUNDS {
-        check!(attach_all(&table, &drivers) == 0, "round {round} attached");
+        check!(attach_all(table, &drivers) == 0, "round {round} attached");
         check!(
             table.lock().owner(id).is_none(),
             "round {round} leaked a claim"

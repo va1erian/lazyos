@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "acpi"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -163,6 +170,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "ext2fs",
+ "fatfs",
  "fhs",
 ]
 
@@ -532,6 +540,7 @@ dependencies = [
 name = "kernel"
 version = "0.1.0"
 dependencies = [
+ "acpi",
  "bootloader_api",
  "confd",
  "ext2fs",
@@ -562,6 +571,7 @@ version = "0.1.0"
 dependencies = [
  "bootloader",
  "ext2fs",
+ "fatfs",
  "fhs",
  "kernel",
  "passwd",
@@ -1166,6 +1176,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "usbmsc"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "usbpolicy"
 version = "0.1.0"
 
@@ -1201,6 +1218,7 @@ dependencies = [
  "timezone",
  "uitheme",
  "usbhid",
+ "usbmsc",
  "usbpolicy",
  "virtio",
  "virtio-net",

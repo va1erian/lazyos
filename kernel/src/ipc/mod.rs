@@ -55,6 +55,9 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     // A dead input driver's sources release every key and button they held
     // (`docs/usb-hid-plan.md` U1), so a crash cannot leave one stuck.
     crate::input::sources::teardown_task(slot);
+    // A dead storage driver's disks die with it: their pending and future
+    // requests fail instead of waiting out their timeouts.
+    crate::block::provider::teardown_task(slot);
     registry::release_owner(slot);
     for (handle, entry) in handles::entries_for_task(slot) {
         match entry.kind {

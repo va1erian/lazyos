@@ -192,6 +192,14 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
+    if cfg.get("usb_image"):
+        # Also writes target/lazyos-usb.img, the real-PC USB stick image
+        # (docs/usb-stick.md); the run itself still boots target/lazyos.img.
+        env["LAZYOS_USB_IMAGE"] = "1"
+        # The stick ships `usbd` and boots `init` to start it: the target PC
+        # may have no PS/2 port (the build refuses otherwise).
+        env["LAZYOS_USB"] = "1"
+        env.setdefault("LAZYOS_SERVICES", "1")
     if cfg.get("net"):
         # The network stack (driver, `netd`, the shell tools and, on the
         # desktop, the Network and Net Tools apps). `demo=0` leaves out the

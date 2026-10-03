@@ -117,11 +117,28 @@ impl Region {
     /// Clear the whole region before it serves another device. Only called
     /// once the controller has let go of it (after Disable Slot).
     pub(super) fn zero(&mut self) {
-        for offset in (0..self.len).step_by(4) {
-            // SAFETY: inside the region and dword-aligned (its length is a
-            // whole number of pages); volatile like every DMA access.
-            unsafe { self.va.add(offset).cast::<u32>().write_volatile(0) };
+        self.clear(0, self.len);
+    }
+
+    /// Clear `len` bytes at `offset`: a buffer about to receive a transfer
+    /// that may come back short, so nothing stale is read after it.
+    pub(super) fn clear(&mut self, offset: usize, len: usize) {
+        assert!(offset.checked_add(len).is_some_and(|end| end <= self.len));
+        for at in offset..offset + len {
+            // SAFETY: inside the region (checked above); volatile like
+            // every DMA access.
+            unsafe { self.va.add(at).write_volatile(0) };
         }
+    }
+
+    /// Copy `data` to `offset`, for the device to read (a bulk OUT stage).
+    pub(super) fn write(&mut self, offset: usize, data: &[u8]) {
+        assert!(offset
+            .checked_add(data.len())
+            .is_some_and(|end| end <= self.len));
+        // SAFETY: inside the region (checked above); the device reads it only
+        // after the doorbell the caller rings next, which fences.
+        unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), self.va.add(offset), data.len()) };
     }
 
     /// Copy `out.len()` bytes the device wrote at `offset`. The copy is what
