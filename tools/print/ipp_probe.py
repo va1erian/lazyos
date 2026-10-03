@@ -8,6 +8,7 @@
 import argparse
 import struct
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 
 def attr(tag, name, value):
     """Encode one attribute: value tag, name, value."""
@@ -102,9 +103,10 @@ def main():
     parser.add_argument("--raw", metavar="FILE", help="also save the raw IPP reply to FILE")
     args = parser.parse_args()
     uri = args.printer if "://" in args.printer else f"ipp://{args.printer}/ipp/print"
-    url = uri.replace("ipps://", "https://").replace("ipp://", "http://")
-    if url.count(":") < 2:
-        url = url.replace("/ipp/", ":631/ipp/", 1)
+    parts = urlsplit(uri)
+    netloc = parts.netloc if parts.port else f"{parts.netloc}:631"  # IPP's default port
+    scheme = "https" if parts.scheme == "ipps" else "http"
+    url = urlunsplit((scheme, netloc, parts.path, parts.query, parts.fragment))
     req = urllib.request.Request(url, data=request(uri), headers={"Content-Type": "application/ipp"})
     data = urllib.request.urlopen(req, timeout=15).read()
     if args.raw:
