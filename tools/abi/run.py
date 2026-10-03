@@ -61,6 +61,9 @@ ORDER = [
     "fdinherit",
     "statmiss",
     "compat",
+    # rustls + the nettls provider in memory, and no AVX dispatch on LazyOS
+    # (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
+    "tlsfix",
     "busybox",
     # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
     # fixture, one row per program (see `LINUXAPPS`).

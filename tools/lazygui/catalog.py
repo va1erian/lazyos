@@ -15,7 +15,7 @@ import sys
 
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
-from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step  # noqa: F401
+from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step, tls_step  # noqa: F401,E501
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -204,7 +204,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # may have no PS/2 port (the build refuses otherwise).
         env["LAZYOS_USB"] = "1"
         env.setdefault("LAZYOS_SERVICES", "1")
-    if cfg.get("net"):
+    if cfg.get("net") or cfg.get("tls"):
         # The network stack (driver, `netd`, the shell tools and, on the
         # desktop, the Network and Net Tools apps). `demo=0` leaves out the
         # evidence clients that need `tools/net/run.py`'s host servers.
@@ -218,6 +218,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if cfg.get("tls"):
+        # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
+        # /system/bin; HTTPS needs the network stack above.
+        env["LAZYOS_TLS"] = "1"
     return env
 
 
@@ -230,7 +234,7 @@ def net_specs(cfg: dict) -> list[str]:
 def net_flags(cfg: dict) -> list[str]:
     """The `--net` flags run_demo and the screenshot tools share, or none.
     A malformed forward raises ValueError (shown as a plan error)."""
-    if not cfg.get("net"):
+    if not (cfg.get("net") or cfg.get("tls")):  # the HTTPS clients need the card
         return []
     specs = net_specs(cfg)
     qemu_net.forwards_from(specs)  # validate now, not after a long build
@@ -252,7 +256,8 @@ def lazyrad_samples(user: str) -> str:
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   modplayer: bool = False, net: bool = False,
-                  linuxapps: bool = False, hidpi: bool = False) -> dict:
+                  linuxapps: bool = False, hidpi: bool = False,
+                  tls: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -265,8 +270,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     adds networking to either interface (the stack, QEMU's user network with
     host port 8080 forwarded, and on the desktop the Network and Net Tools
     apps), ``linuxapps`` the Linux command-line programs (dash, lua,
-    sqlite3, jq, rg), and ``hidpi`` a 2560x1440 screen showing a 1280x720
-    desktop at 2x (docs/hidpi-plan.md). Machine settings (accelerator, memory, QEMU path)
+    sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720
+    desktop at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl,
+    wget, fetch; it implies ``net``). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -308,10 +314,11 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devices": desktop and devices,
         "doom": desktop and doom,
         "modplayer": desktop and modplayer,
-        "net": net,
+        "net": net or tls,
         "net_forwards": "",
         "net_restrict": False,
         "linuxapps": linuxapps,
+        "tls": tls,
         "display_mode": HIDPI_MODE if hidpi else "",
     })
     return cfg
@@ -368,6 +375,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("linuxapps") and not cfg["skip_build"]:
             # run_demo builds the programs and sets LAZYOS_LINUXAPPS itself.
             argv.append("--linuxapps")
+        if cfg.get("tls") and not cfg["skip_build"]:
+            # run_demo builds the HTTPS tools and sets LAZYOS_TLS itself.
+            argv.append("--tls")
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

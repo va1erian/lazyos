@@ -21,6 +21,17 @@ impl Pipe {
     /// Like [`Pipe::read`], but the bytes stay queued. A seqpacket peek
     /// returns (a prefix of) the oldest message.
     pub fn peek(&self, end: End, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
+        self.peek_until(end, dst, nonblock, None)
+    }
+
+    /// [`Pipe::peek`] with [`Pipe::read_until`]'s deadline.
+    pub fn peek_until(
+        &self,
+        end: End,
+        dst: &mut [u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if end != End::Read {
             return Err(Error::BadEnd);
         }
@@ -45,10 +56,7 @@ impl Pipe {
             if nonblock {
                 return Err(Error::WouldBlock);
             }
-            match self.read_wq.wait(crate::task::current(), None) {
-                WakeReason::Interrupted => return Err(Error::Interrupted),
-                WakeReason::Woken | WakeReason::TimedOut => {}
-            }
+            block_on(&self.read_wq, deadline)?;
         }
     }
 
@@ -67,11 +75,22 @@ impl Pipe {
 impl SocketPair {
     /// [`Pipe::peek`] on the direction `side` reads from.
     pub fn peek(&self, side: Side, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
+        self.peek_until(side, dst, nonblock, None)
+    }
+
+    /// [`SocketPair::peek`] that waits no later than `deadline`.
+    pub fn peek_until(
+        &self,
+        side: Side,
+        dst: &mut [u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if self.is_shutdown(side, 0) {
             return Ok(0);
         }
         let (read, _) = self.directions(side);
-        read.peek(End::Read, dst, nonblock)
+        read.peek_until(End::Read, dst, nonblock, deadline)
     }
 
     /// Bytes queued for `side` to read.

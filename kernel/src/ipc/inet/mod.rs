@@ -40,9 +40,11 @@ use crate::ipc::pipe::SocketPair;
 
 mod pump;
 mod sock;
+mod timeout;
 
 pub use pump::*;
 pub use sock::InetSock;
+pub use timeout::Dir;
 
 /// Sockets alive or awaiting `netd`'s acknowledgement of their close.
 pub const MAX_SOCKETS: usize = 64;
