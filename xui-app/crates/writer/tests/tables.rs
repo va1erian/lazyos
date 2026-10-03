@@ -101,9 +101,11 @@ fn a_saved_table_opens_again() {
         pump(stage);
         stage.emit(Msg::New);
         pump(stage);
+        // A new document has no table under the caret.
+        let after_new = rig.status(4);
         stage.emit(Msg::OpenChosen(path));
         pump(stage);
-        rig.editor.with_document(|d| {
+        let mut seen = rig.editor.with_document(|d| {
             let span = &d.table_spans()[0];
             let table = d.tables().get(span.id).expect("the table");
             vec![
@@ -111,9 +113,11 @@ fn a_saved_table_opens_again() {
                 table.header.to_string(),
                 table.border.to_string(),
             ]
-        })
+        });
+        seen.push(after_new);
+        seen
     });
-    assert_eq!(seen, ["3x3", "true", "true"]);
+    assert_eq!(seen, ["3x3", "true", "true", ""]);
 }
 
 #[test]

@@ -127,7 +127,11 @@ impl Transport for Audio {
         let mut buf = vec![0u8; REPLY_BUF];
         let reply = sys::msg_call(self.endpoint, &request, &mut buf, deadline).map_err(|code| {
             if code == -errno::EPIPE || code == -errno::ENOENT {
-                RESOLVED.with(|resolved| resolved.borrow_mut().retain(|(known, _)| *known != self.name));
+                RESOLVED.with(|resolved| {
+                    resolved
+                        .borrow_mut()
+                        .retain(|(known, _)| *known != self.name)
+                });
             }
             errno_of(code)
         })?;
