@@ -301,7 +301,7 @@ stdout is a pipe). Limits, all by design of the minimum viable version:
 - a program that is not in the table cannot be launched from `sh`; add a row to
   `PROGRAMS` for a new command-line tool.
 
-Tests: `kernel/src/tests/native_exec_suite.rs` (name lookup and shadowing, the
+Tests: `kernel/src/tests/native_exec_suite/` (name lookup and shadowing, the
 argument line, descriptor/argument inheritance and redirected output, exit-status
 propagation and reaping, `ENOEXEC`/`ENOENT`/`EAGAIN` without leaks, the `&`
 lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
