@@ -86,7 +86,7 @@ pub const CAP_INPUT_RAW: u32 = 1 << 9;
 /// grants no reading; the kernel stamps each source's device id, so a holder
 /// cannot pose as another device.
 pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
-/// Serve a block device to the kernel from user space (syscall 32 ops 0-3,
+/// Serve a block device to the kernel from user space (syscall 33 ops 0-3,
 /// `block::provider`, docs/architecture/usb-storage.md): what the USB
 /// storage driver (`usbd`) needs. The kernel also requires the caller's uid
 /// to be a block-provider uid (`usbpolicy::BLOCK_PROVIDER_UIDS`).

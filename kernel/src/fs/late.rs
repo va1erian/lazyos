@@ -4,7 +4,7 @@
 //! At boot [`super::mounts`] looks for the configured home volume
 //! (`home=LABEL=...` or `home=UUID=...` in `lazyos.cfg`) on the disks the
 //! kernel drives. When it is not there, the request is kept here, `/home`
-//! starts as a plain directory on `/`, and [`settle`] (syscall 32 op 4,
+//! starts as a plain directory on `/`, and [`settle`] (syscall 33 op 4,
 //! called by `init`) finishes the job once a provider has registered its
 //! disk: each new provider disk has its MBR scanned, and the first ext2
 //! volume on a provider disk or partition that carries the configured label

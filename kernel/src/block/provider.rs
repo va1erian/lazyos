@@ -3,7 +3,7 @@
 //!
 //! Block drivers live in the kernel and USB lives in user space
 //! (docs/driver-plan.md D1/D2), so a stick reaches the filesystem through
-//! this seam. A provider registers a [`UserDisk`] (syscall 32, [`sys`]); the
+//! this seam. A provider registers a [`UserDisk`] (syscall 33, [`sys`]); the
 //! disk joins the block registry under `usb<n>` and filesystems use it like
 //! any other [`BlockDevice`].
 //!

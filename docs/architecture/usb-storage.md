@@ -5,7 +5,7 @@ as a block device by the user-space USB driver, `usbd`, and the configured
 home volume on it is mounted at `/home` after boot. Block drivers live in the
 kernel and USB lives in user space ([driver-plan.md](../driver-plan.md)
 D1/D2), so the stick reaches the filesystem through a new seam: a
-**user-space block provider** (syscall 32). The goal is the real-PC plan's
+**user-space block provider** (syscall 33). The goal is the real-PC plan's
 persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.md)).
 
 **Key files**
@@ -16,7 +16,7 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
 | `libs/xhci/` | Plus the bulk Normal TRB (`trb::bulk`, at most 64 KiB) |
 | `user/src/bin/usbd/msc.rs` | The mass-storage class (`class.rs` binds it): bulk pipes, disk bring-up, registration, serving the kernel's requests, idle flush, removal |
 | `user/src/bin/usbd/msc_link.rs` | The `usbmsc` transport (`Link`): bulk transfers through the controller's bulk window, control requests, controller-side endpoint recovery |
-| `kernel/src/block/provider.rs`, `provider/` | `UserDisk` (a `BlockDevice` served from user space), the request slot, timeouts and death; `sys.rs` is syscall 32 |
+| `kernel/src/block/provider.rs`, `provider/` | `UserDisk` (a `BlockDevice` served from user space), the request slot, timeouts and death; `sys.rs` is syscall 33 |
 | `kernel/src/task/relax.rs` | `YieldMutex`: locks that may be held across a park |
 | `kernel/src/fs/late.rs` | The late `/home` mount (`SETTLE`) |
 | `user/src/bin/init/home.rs` | `init`'s bounded wait for the home volume |
@@ -69,7 +69,7 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
                               usbd: msc ── usbmsc (BOT/SCSI) ── xHCI bulk
 ```
 
-## Syscall 32
+## Syscall 33
 
 | Op | Who | Arguments | Result |
 |---|---|---|---|

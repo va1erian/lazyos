@@ -1,4 +1,4 @@
-//! Syscall 32: the storage surface (docs/architecture/usb-storage.md).
+//! Syscall 33: the storage surface (docs/architecture/usb-storage.md).
 //!
 //! ```text
 //!   rdi = op, rsi/rdx/r10/r8 = a1..a4; every return is a value or -errno

@@ -1,4 +1,4 @@
-//! Syscall 32: who may provide, and the REGISTER / NEXT / COMPLETE cycle
+//! Syscall 33: who may provide, and the REGISTER / NEXT / COMPLETE cycle
 //! driven through the syscall surface with hostile records, lengths and
 //! buffers.
 
@@ -25,7 +25,7 @@ fn call(operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
 fn register_call(sectors: u64, sector_size: u64, flags: u64) -> u64 {
     let info = [sectors, sector_size, flags, 0];
     // Through the gate's own test entry, like a real REGISTER.
-    process::dispatch_for_test(32, op::REGISTER, info.as_ptr() as u64, 0)
+    process::dispatch_for_test(33, op::REGISTER, info.as_ptr() as u64, 0)
 }
 
 /// A task with `uid` and `caps`, made current.
@@ -80,7 +80,7 @@ pub fn gate() -> Result<(), String> {
         check!(register_call(64, 512, 4) == failed(EINVAL), "unknown flags");
         check!(register_call(0, 512, 0) == failed(EINVAL), "an empty disk");
         let previous = user_ptr::set_trust_kernel_pointers(false);
-        let null = process::dispatch_for_test(32, op::REGISTER, 0, 0);
+        let null = process::dispatch_for_test(33, op::REGISTER, 0, 0);
         user_ptr::set_trust_kernel_pointers(previous);
         check!(null == failed(EFAULT), "a null record: {null:#x}");
         check!(call(9, 0, 0, 0, 0) == failed(EINVAL), "an unknown op");
@@ -125,7 +125,7 @@ pub fn gate() -> Result<(), String> {
             "the provider settled"
         );
         task_with(0, CAP_SYS_ADMIN)?;
-        let settled = process::dispatch_for_test(32, op::SETTLE, 0, 0);
+        let settled = process::dispatch_for_test(33, op::SETTLE, 0, 0);
         check!(
             settled == u64::from(crate::fs::late::state::NONE),
             "settle with nothing pending: {settled:#x}"
@@ -159,7 +159,7 @@ fn take_results() -> Vec<u64> {
     core::mem::take(&mut TRICK.lock().1)
 }
 
-/// The fake provider, through syscall 32: NEXT into its own buffers, serve
+/// The fake provider, through syscall 33: NEXT into its own buffers, serve
 /// from the backing store, COMPLETE.
 fn serve_sys(index: usize) {
     let trick = core::mem::replace(&mut TRICK.lock().0, Trick::None);

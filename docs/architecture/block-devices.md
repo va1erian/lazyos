@@ -138,7 +138,7 @@ same.
 
 **User-space block providers (`block/provider.rs`).** A ring-3 driver
 holding `CAP_BLOCK_PROVIDER` (only `usbd`, for a USB stick) registers a
-`UserDisk` through syscall 32; it joins the registry as `usb<n>` and is driven
+`UserDisk` through syscall 33; it joins the registry as `usb<n>` and is driven
 like any other device, one request at a time through a kernel bounce buffer,
 with a per-request timeout and the disk failing fast once its provider dies.
 Its partitions are scanned when the late home mount runs (`fs::late`), not

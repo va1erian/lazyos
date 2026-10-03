@@ -2,7 +2,7 @@
 //! docs/architecture/usb-storage.md): the request path with a fake provider
 //! that the waiting requester runs in place of parking, an ext2 volume and
 //! the late `/home` mount on top of it, hostile replies, a provider that
-//! dies or stops answering mid-request, and the syscall 32 gate.
+//! dies or stops answering mid-request, and the syscall 33 gate.
 
 mod hostile;
 mod io;
