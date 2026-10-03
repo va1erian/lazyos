@@ -23,9 +23,9 @@ fn generated_calls_need_their_interface() {
 #[test]
 fn topic_helpers_need_their_declared_filter_not_the_interface() {
     let found = of(r#"
-        sys::confd::on_changed("sys/ui/#", |e| ());
+        sys::confd::on_changed(|e| ());
         let s = sys::healthd::subscribe_summary();
-        sys::confd::publish_changed("sys/x", sys::confd::new_change());
+        sys::confd::publish_changed(path, sys::confd::new_change());
         let name = sys::confd::changed_topic("sys/y");
         let all = sys::confd::CHANGED_PATTERN;
     "#);
@@ -82,4 +82,27 @@ fn several_scripts_are_merged_sorted_and_unique() {
     ];
     let found = derive(scripts);
     assert_eq!(found.interfaces, ["os.lazy.confd.v1", "os.lazy.echo.v1"]);
+}
+
+#[test]
+fn literal_helper_arguments_narrow_the_filter() {
+    // The kernel authorizes each segment, so `system/confd/changed/#` alone
+    // would refuse the `sys` segment of the form's subscription.
+    let found = of(r#"
+        sys::confd::on_changed("sys/lazyrad/#", |event| ());
+        sys::confd::publish_changed("sys/x", sys::confd::new_change());
+        let s = sys::audio::subscribe_event("main");
+        sys::healthd::on_health(name, |e| ());
+        sys::confd::on_changed("Bad Path", |e| ());
+    "#);
+    assert_eq!(
+        found.topics,
+        [
+            "publish:system/confd/changed/sys/x",
+            "subscribe:system/audio/main/event",
+            "subscribe:system/confd/changed/#",
+            "subscribe:system/confd/changed/sys/lazyrad/#",
+            "subscribe:system/health/+",
+        ]
+    );
 }

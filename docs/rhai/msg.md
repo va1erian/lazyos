@@ -187,8 +187,14 @@ fn form_load() {
   scripts use (`sys::<alias>::...` and literal `msg::connect`, `msg::on`,
   `msg::subscribe`, `msg::publish` arguments; `rhai_lazy::msg::permissions`),
   so the app's kernel rules allow exactly those. A name built at run time
-  cannot be seen; the consent screen lists what was found. Serving a name is a
-  development feature: an installed app's manifest cannot grant it.
+  cannot be seen; the consent screen lists what was found. A topic helper's
+  literal arguments narrow its rule (`sys::confd::on_changed("sys/ui/#", ..)`
+  declares `subscribe:system/confd/changed/sys/ui/#`); one built at run time
+  leaves the bare pattern, which the kernel's per-segment check refuses past
+  its wildcard. Serving a name is a development feature: an installed app's
+  manifest cannot grant it, so wrap `msg::serve` in `try`/`catch` (as the
+  sample does). An error escaping `form_load` ends the app, and `init`
+  restarts it.
 
 The player prints `LRPLAY:MSG:PASS` on serial once `msg` and `sys` are
 installed, and `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran in
