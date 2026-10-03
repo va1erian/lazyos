@@ -245,6 +245,8 @@ def main() -> int:
     parser.add_argument("--pause", type=float, default=0.06, help="seconds between packets")
     parser.add_argument("--boot-timeout", type=float, default=180.0)
     parser.add_argument("--label", help="append this run to docs/perf/history.md under this label")
+    parser.add_argument("--no-knock", action="store_true",
+                        help="no host traffic (no device interrupts; isolates the input path)")
     args = parser.parse_args()
 
     image = Path(args.image) if args.no_build else build_image()
@@ -275,13 +277,15 @@ def main() -> int:
         print("desktop up; knocking on the NIC, waiting for the IPC benchmark", flush=True)
         stop = threading.Event()
         knocker = threading.Thread(target=knock, args=(knock_port, stop), daemon=True)
-        knocker.start()
+        if not args.no_knock:
+            knocker.start()
         boot = time.time()
         time.sleep(max(5.0, IPC_BENCH_S + 3 - (time.time() - boot)))
         print(f"moving the mouse: {args.moves} packets", flush=True)
         move_mouse(qmp, args.moves, args.pause)
         stop.set()
-        knocker.join()
+        if knocker.is_alive():
+            knocker.join()
         time.sleep(REPORT_PERIOD_S * 2 + 1)
     finally:
         stop_qemu(proc, qmp)

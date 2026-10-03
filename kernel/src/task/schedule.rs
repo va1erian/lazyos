@@ -14,6 +14,10 @@ use super::*;
 #[no_mangle]
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     let tick = tick != 0;
+    // SAFETY: `current_rsp` is the frame the gate just saved: 15 registers,
+    // then RIP and CS.
+    let code_segment = unsafe { sys::frame_word(current_rsp, 16) };
+    let quiet = preempt::interrupted_quiet_context(code_segment);
     if tick {
         // Periods lost to interrupts-off stretches are caught up here
         // (issue #344); a normal entry is exactly one.
@@ -27,6 +31,11 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
         // task table lock: the keyboard path takes it.
         crate::input::ps2::service();
         crate::input::ps2::dispatch();
+        // Device interrupts raised while this tick's target held a lock wait
+        // no longer than one tick that lands in user code or a nap (P1.2).
+        if quiet {
+            crate::dev::intx::service_in_interrupt();
+        }
     }
 
     #[cfg(lazyos_tests)]

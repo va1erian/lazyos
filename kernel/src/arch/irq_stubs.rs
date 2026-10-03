@@ -15,9 +15,17 @@ const VECTOR_BASE: u8 = 32;
 macro_rules! irq_stub {
     ($($name:ident => $line:literal),* $(,)?) => {
         $(
-            extern "x86-interrupt" fn $name(_stack: InterruptStackFrame) {
+            extern "x86-interrupt" fn $name(stack: InterruptStackFrame) {
+                let quiet = crate::task::interrupted_quiet_context(stack.code_segment.0 as u64);
                 crate::dev::irq::dispatch($line);
-                // A kernel driver's handler may have woken a task (P1.1).
+                // Tell a userspace claimant now rather than at the next
+                // syscall or mux pass (P1.2), when what this interrupt
+                // stopped holds no lock the bottom half takes.
+                if quiet {
+                    crate::dev::intx::service_in_interrupt();
+                }
+                // The claimant (or a kernel driver's waiter) may outrank
+                // what was running (P1.1).
                 crate::task::preempt_point();
             }
         )*

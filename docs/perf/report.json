@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generated": "2026-10-03T20:38:24Z",
-    "commit": "9cf0db77+dirty",
-    "label": "P1.1 reschedule on wake",
+    "generated": "2026-10-03T20:58:14Z",
+    "commit": "fd8fa6df+dirty",
+    "label": "P1.2 prompt device IRQs",
     "accel": "whpx",
     "profile": "dev (panic = \"abort\" opt-level = 2; kernel crate inherits it)",
     "moves": 200,
@@ -10,48 +10,48 @@
   },
   "metrics": {
     "irqoff": {
-      "n": 93244,
-      "p50_us": 1.6,
-      "p90_us": 8.1,
-      "p99_us": 22.4,
-      "max_us": 29483.0,
-      "mean_us": 3.1
+      "n": 66585,
+      "p50_us": 1.7,
+      "p90_us": 5.0,
+      "p99_us": 13.5,
+      "max_us": 29099.7,
+      "mean_us": 2.6
     },
     "irq_wake": {
-      "n": 476,
-      "p50_us": 4665.3,
-      "p90_us": 8888.9,
-      "p99_us": 10131.8,
-      "max_us": 22950.0,
-      "mean_us": 4658.9
-    },
-    "ipc_rt": {
-      "n": 2000,
-      "p50_us": 2.3,
-      "p90_us": 2.5,
-      "p99_us": 2.7,
-      "max_us": 51.0,
-      "mean_us": 2.4
+      "n": 437,
+      "p50_us": 81.3,
+      "p90_us": 184.4,
+      "p99_us": 706.7,
+      "max_us": 25562.5,
+      "mean_us": 187.6
     },
     "input_read": {
       "n": 200,
-      "p50_us": 9860.8,
-      "p90_us": 18183.7,
-      "p99_us": 19702.4,
-      "max_us": 24894.2,
-      "mean_us": 9890.7
+      "p50_us": 9344.3,
+      "p90_us": 28044.5,
+      "p99_us": 31668.6,
+      "max_us": 31946.6,
+      "mean_us": 11533.6
     },
     "input_present": {
       "n": 200,
-      "p50_us": 30403.9,
-      "p90_us": 39438.5,
-      "p99_us": 57773.0,
-      "max_us": 62892.7,
-      "mean_us": 31360.7
+      "p50_us": 40188.1,
+      "p90_us": 61363.3,
+      "p99_us": 83418.9,
+      "max_us": 87887.9,
+      "mean_us": 40952.3
+    },
+    "ipc_rt": {
+      "n": 2000,
+      "p50_us": 4.8,
+      "p90_us": 4.9,
+      "p99_us": 5.2,
+      "max_us": 178.8,
+      "mean_us": 4.9
     }
   },
   "irqoff_worst": {
-    "us": 29483.0,
+    "us": 29099.7,
     "syscall": "0x800000000000001f"
   }
 }
