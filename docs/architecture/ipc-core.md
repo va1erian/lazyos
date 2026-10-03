@@ -46,6 +46,15 @@ userspace never names another task's handles.
   allowed: resolved names alias one endpoint, so a service's independent
   clients share its channel. One shared `MESSENGER` wait
   queue with advisory wakeups handles all blocking.
+- **Wait sets** (`channels/recv/waitset.rs`, native op `wait` = 19): park on
+  up to 8 endpoints at once, and optionally on the caller's raw input ring
+  (`WAIT_RAW_INPUT`, `inputd` only), until one is ready; nothing is received,
+  the op returns a ready mask and the caller takes the message with
+  `try_recv`. Registration is `recv`'s (each endpoint's waiter list under the
+  lock that saw it empty, the bus's doorbell under the bus lock), so a
+  delivery, a peer close or an input publication wakes it through
+  `MESSENGER`. `inputd` and `xuid` use it instead of short-deadline polling
+  (docs/performance-plan.md P1.3, P1.4).
 - **Poll calls.** A call with deadline `POLL_DEADLINE` (1, the user library's
   `EXPIRED_DEADLINE`) is not dead on arrival. `begin_call` gives its
   transaction a short real deadline (`POLL_GRACE_TICKS` = 3 ticks, so a callee

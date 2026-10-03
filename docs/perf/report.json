@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generated": "2026-10-03T20:58:14Z",
-    "commit": "fd8fa6df+dirty",
-    "label": "P1.2 prompt device IRQs",
+    "generated": "2026-10-03T21:12:58Z",
+    "commit": "6aa9a647+dirty",
+    "label": "P1.3 input doorbell",
     "accel": "whpx",
     "profile": "dev (panic = \"abort\" opt-level = 2; kernel crate inherits it)",
     "moves": 200,
@@ -10,48 +10,48 @@
   },
   "metrics": {
     "irqoff": {
-      "n": 66585,
-      "p50_us": 1.7,
-      "p90_us": 5.0,
-      "p99_us": 13.5,
-      "max_us": 29099.7,
-      "mean_us": 2.6
+      "n": 59576,
+      "p50_us": 1.5,
+      "p90_us": 6.4,
+      "p99_us": 21.6,
+      "max_us": 28676.1,
+      "mean_us": 2.9
     },
     "irq_wake": {
-      "n": 437,
-      "p50_us": 81.3,
-      "p90_us": 184.4,
-      "p99_us": 706.7,
-      "max_us": 25562.5,
-      "mean_us": 187.6
+      "n": 506,
+      "p50_us": 88.3,
+      "p90_us": 186.3,
+      "p99_us": 353.5,
+      "max_us": 19313.9,
+      "mean_us": 193.7
     },
     "input_read": {
       "n": 200,
-      "p50_us": 9344.3,
-      "p90_us": 28044.5,
-      "p99_us": 31668.6,
-      "max_us": 31946.6,
-      "mean_us": 11533.6
+      "p50_us": 245.6,
+      "p90_us": 405.6,
+      "p99_us": 638.3,
+      "max_us": 11140.1,
+      "mean_us": 332.3
     },
     "input_present": {
       "n": 200,
-      "p50_us": 40188.1,
-      "p90_us": 61363.3,
-      "p99_us": 83418.9,
-      "max_us": 87887.9,
-      "mean_us": 40952.3
+      "p50_us": 20243.7,
+      "p90_us": 32018.4,
+      "p99_us": 58291.3,
+      "max_us": 63436.1,
+      "mean_us": 20965.9
     },
     "ipc_rt": {
       "n": 2000,
-      "p50_us": 4.8,
-      "p90_us": 4.9,
-      "p99_us": 5.2,
-      "max_us": 178.8,
-      "mean_us": 4.9
+      "p50_us": 4.4,
+      "p90_us": 4.5,
+      "p99_us": 5.0,
+      "max_us": 57.6,
+      "mean_us": 4.5
     }
   },
   "irqoff_worst": {
-    "us": 29099.7,
+    "us": 28676.1,
     "syscall": "0x800000000000001f"
   }
 }

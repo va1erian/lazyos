@@ -349,6 +349,11 @@ impl Hub {
         }
     }
 
+    /// Whether a client's backlog waits for room (the loop then retries soon).
+    pub(super) fn backlogged(&self) -> bool {
+        self.delivery.backlogged()
+    }
+
     /// Hand every backlog what its client has room for now (once per pass of
     /// the service loop).
     pub(super) fn flush(&mut self) {

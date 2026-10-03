@@ -97,6 +97,19 @@ pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 /// number of rules now held by the label.
 pub const OP_ACL_LOAD: u64 = 18;
 
+/// Park until one of several endpoints is ready (docs/performance-plan.md
+/// P1.3, P1.4): `parcel_ptr` points at `parcel_len` endpoint handles (`u64`,
+/// at most `channels::MAX_WAIT_ENDPOINTS`), `deadline` as for `recv`, and
+/// `flags` may hold [`WAIT_RAW_INPUT`]. Nothing is received; `value` is the
+/// ready mask (bit `i` for handle `i`, `channels::RAW_INPUT_READY` for the
+/// raw input bus). A kernel ABI op, not a Messenger interface: no parcel
+/// crosses it, so there is nothing for MIDL to describe.
+pub const OP_WAIT: u64 = 19;
+
+/// `OP_WAIT` flag: also wake when the caller's raw input ring (syscall 25)
+/// holds records. Needs a consumer ring (`CAP_INPUT_RAW`), else `-ENOENT`.
+pub const WAIT_RAW_INPUT: u64 = 1;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
