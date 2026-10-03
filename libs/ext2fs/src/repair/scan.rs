@@ -120,7 +120,19 @@ impl Ext2 {
         let mut bitmap = [0u8; MAX_BLOCK_SIZE];
         for group in 0..self.groups {
             let desc = self.read_group(group)?;
-            let start = self.first_data_block + group * self.blocks_per_group;
+            // A hostile superblock can describe groups that start past the end
+            // of the volume; no crash leaves that, so refuse rather than wrap.
+            let start = group
+                .checked_mul(self.blocks_per_group)
+                .and_then(|offset| offset.checked_add(self.first_data_block))
+                .filter(|start| *start < self.blocks_count)
+                .ok_or_else(|| refuse(format!("block group {group} starts past the volume")))?;
+            let base = group
+                .checked_mul(self.inodes_per_group)
+                .filter(|base| *base < self.inodes_count)
+                .ok_or_else(|| {
+                    refuse(format!("block group {group}'s inodes lie past the count"))
+                })?;
             let span = self.blocks_per_group.min(self.blocks_count - start);
             self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
             for bit in 0..span {
@@ -129,7 +141,7 @@ impl Ext2 {
                 }
             }
             self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-            let (base, count) = self.group_inodes(group);
+            let count = self.inodes_per_group.min(self.inodes_count - base);
             for bit in 0..count {
                 if Self::bitmap_test(&bitmap[..size], bit)? {
                     scan.inode_used.set(base + bit + 1);

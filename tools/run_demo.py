@@ -22,6 +22,8 @@ Examples
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
+    python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
+    python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -56,12 +58,17 @@ from lazygui.catalog import lazyrad_samples  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
+import qemu_net  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 # LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
 # The desktop apps `--devices` opens at boot: the Terminal, then Devices.
 DEVICES_AUTOSTART = "term,devices"
+# The network apps a `--net` desktop ships (`build_support/xui_embed.rs`).
+NET_APPS = [ROOT / "target" / "xui" / name for name in ("xui-network.elf", "xui-nettools.elf")]
 
 
 def confirm(question: str) -> bool:
@@ -303,11 +310,14 @@ def main(argv: list[str]) -> int:
                              "which boots the `sndd` driver and plays its test tones. "
                              "BACKEND is a QEMU -audiodev driver (dsound, pa, alsa, sdl, "
                              "none, ...) or wav:PATH; default: this OS's usual one")
-    parser.add_argument("--net", action="store_true",
-                        help="attach a virtio-net card on QEMU's user-mode network and build "
-                             "with LAZYOS_NET=1, which boots the `netdrv` driver (an ARP "
-                             "self-test and the `nicctl` clients; `nicctl` also runs from the "
-                             "shell). The packet-capture-judged run is `python tools/net/run.py`")
+    qemu_net.add_net_options(
+        parser,
+        "attach a virtio-net card on QEMU's user-mode network and build the network "
+        "stack (LAZYOS_NETD=1: the `netdrv` driver, `netd` with DHCP, `ping`, `nslookup`, "
+        "`nc` and `ftp` in the shell, and on the desktop the Network and Net Tools apps). "
+        f"Host port {qemu_net.NETTOOLS_PORT} is forwarded to the guest's (Net Tools' web "
+        "server); see docs/networking-host-access.md. The packet-capture-judged run is "
+        "`python tools/net/run.py`")
     parser.add_argument("--lazyrad", action="store_true",
                         help="build the LazyRAD IDE and player and embed them "
                              "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
@@ -357,6 +367,10 @@ def main(argv: list[str]) -> int:
         parser.error("--reset-home conflicts with --no-home-disk")
     if args.reset_os and args.no_build:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
+    try:
+        net_qemu, forwards = qemu_net.args_from_options(args)
+    except ValueError as error:
+        parser.error(str(error))
 
     if not args.no_build:
         cargo = ["cargo", "build"]
@@ -400,7 +414,13 @@ def main(argv: list[str]) -> int:
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
         if args.net:
-            env["LAZYOS_NET"] = "1"
+            # The whole stack (it implies the driver). `demo=0`: an interactive
+            # boot runs `netd` without the harness's evidence clients, which
+            # talk to host servers only `tools/net/run.py` starts.
+            env["LAZYOS_NETD"] = "1"
+            env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
+            if args.desktop and not all(app.is_file() for app in NET_APPS)                     and not build_xui_apps():
+                return 1
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
         if args.devices:
@@ -453,7 +473,13 @@ def main(argv: list[str]) -> int:
     if args.sound:
         command += sound_args(args.sound)
     if args.net:
-        command += ["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0"]
+        busy = qemu_net.busy_ports(forwards)
+        if busy:
+            print(f"host port(s) {', '.join(busy)} already in use; pick another with "
+                  "--net-forward HOSTPORT:GUESTPORT (or --net-forward none)", file=sys.stderr)
+            return 1
+        command += net_qemu
+        print(qemu_net.describe(forwards, args.net_restrict), flush=True)
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]

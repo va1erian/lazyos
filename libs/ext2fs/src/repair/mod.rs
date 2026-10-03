@@ -90,20 +90,6 @@ fn live_kind(inode: &[u8; INODE_CORE_SIZE]) -> Option<FileKind> {
 }
 
 impl Ext2 {
-    /// The first inode number minus one and the inode count of `group`.
-    ///
-    /// `open` lets the inodes span fewer groups than the blocks, so a later
-    /// group can hold no inodes at all (as the allocator in `blocks.rs`
-    /// assumes); that must not underflow on a damaged superblock.
-    fn group_inodes(&self, group: u32) -> (u32, u32) {
-        let base = group.saturating_mul(self.inodes_per_group);
-        let count = self
-            .inodes_count
-            .saturating_sub(base)
-            .min(self.inodes_per_group);
-        (base, count)
-    }
-
     /// Repair the inconsistencies an unclean stop can leave (see the module
     /// docs for the rules), returning what was changed.
     ///

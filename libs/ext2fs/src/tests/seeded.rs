@@ -98,3 +98,14 @@ fn repair_with_fewer_inode_groups_than_block_groups() {
         1, 3, 0x64, 0x30, 0, 4, 0x21, 0xff, 4, 0x2d, 0x22, 3, 0, 4, 0x21, 1,
     ]);
 }
+
+/// Inputs libFuzzer found (CI, `fuzz (ext2fs)`): a superblock whose last group
+/// claims more blocks or inodes than the volume holds underflowed the repair
+/// scan's per-group span (`repair/scan.rs`, `load_bitmaps`).
+#[test]
+fn group_spans_past_the_volume_end_are_repaired_or_refused() {
+    run(&[1, 4, 33, 1]);
+    run(&[
+        1, 4, 33, 34, 4, 241, 241, 4, 33, 3, 0, 0, 0, 0, 0, 0, 0, 34, 4, 241, 241, 241, 241, 241,
+    ]);
+}

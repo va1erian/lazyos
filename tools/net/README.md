@@ -57,8 +57,12 @@ python tools/net/analyze_pcap.py shots/net/net.pcap --min-arp-pairs 42 --expect-
 
 QEMU is discovered like the other tools (`--qemu`, then `PATH`, then
 `C:\Program Files\qemu` on Windows). Outputs go to `shots/net/` (`serial.log`,
-`net.pcap`); `shots/` is git-ignored. `python tools/run_demo.py --net` boots the
-same image interactively; `nicctl` then runs from the shell.
+`net.pcap`); `shots/` is git-ignored. `python tools/run_demo.py --net` boots an
+interactive image with the whole stack (`netd` without the evidence clients,
+host port 8080 forwarded); `nicctl`, `netctl`, `ping`, `nc` and the rest run
+from the shell. Reaching that guest from the host is
+[`docs/networking-host-access.md`](../../docs/networking-host-access.md); the
+QEMU arguments come from `qemu_net.py` (tests: `test_qemu_net.py`).
 
 The image is built with `LAZYOS_NET=1`, which embeds `/system/bin/netdrv` and
 `/system/bin/nicctl` and starts `netdrv demo=1` (from the kernel, or from `init`'s

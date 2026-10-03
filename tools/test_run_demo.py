@@ -228,5 +228,67 @@ class MainTests(unittest.TestCase):
             self.run_main("--no-build", "--reset-os")
 
 
+class NetTests(unittest.TestCase):
+    """`--net`: the whole stack in the image, a card and forwards in QEMU."""
+
+    # The same faked build and QEMU, without inheriting MainTests' tests.
+    setUp = MainTests.setUp
+    run_main = MainTests.run_main
+
+    def run_net(self, *argv: str, busy: list[str] | None = None) -> tuple[int, list[str]]:
+        with mock.patch.object(run_demo.qemu_net, "busy_ports", return_value=busy or []), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LAZYOS_NETD_ARGS", None)
+            return self.run_main(*argv)
+
+    def netdev(self, command: list[str]) -> str:
+        return command[command.index("-netdev") + 1]
+
+    def test_net_builds_the_stack_without_the_harness_clients(self) -> None:
+        code, command = self.run_net("--net")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD_ARGS"), "demo=0")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+        # The Net Tools web server, reachable from this machine only.
+        self.assertIn("hostfwd=tcp:127.0.0.1:8080-:8080", self.netdev(command))
+
+    def test_forwards_restrict_and_capture_reach_qemu(self) -> None:
+        code, command = self.run_net("--net", "--no-build", "--net-forward", "2323:23",
+                                     "--net-forward", "udp:0.0.0.0:5353:53",
+                                     "--net-restrict", "--net-pcap", "net.pcap")
+        self.assertEqual(code, 0)
+        netdev = self.netdev(command)
+        self.assertIn("restrict=on", netdev)
+        self.assertIn("hostfwd=tcp:127.0.0.1:2323-:23", netdev)
+        self.assertIn("hostfwd=udp:0.0.0.0:5353-:53", netdev)
+        self.assertNotIn(":8080", netdev, "explicit forwards replace the default")
+        self.assertIn("filter-dump,id=netdump,netdev=n0,file=net.pcap", command)
+
+    def test_no_net_attaches_no_card(self) -> None:
+        _, command = self.run_net("--no-build")
+        self.assertNotIn("-netdev", command)
+        self.assertNotIn("LAZYOS_NETD", self.builds[-1] if self.builds else {})
+
+    def test_a_busy_host_port_stops_before_qemu(self) -> None:
+        code, command = self.run_net("--net", "--no-build", busy=["tcp/127.0.0.1:8080"])
+        self.assertEqual(code, 1)
+        self.assertEqual(command, [])
+
+    def test_bad_or_orphan_net_options_are_refused(self) -> None:
+        for argv in (["--net", "--net-forward", "80"], ["--net-forward", "8080:8080"],
+                     ["--net", "--net-forward", "none", "--net-forward", "1:2"]):
+            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                self.run_net("--no-build", *argv)
+
+    def test_a_net_desktop_builds_missing_network_apps(self) -> None:
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "NET_APPS", [self.dir / "missing.elf"]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            code, _ = self.run_net("--desktop", "--net")
+        self.assertEqual(code, 0)
+        built.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
