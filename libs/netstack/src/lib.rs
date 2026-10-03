@@ -22,6 +22,7 @@ extern crate std;
 
 pub mod config;
 pub mod device;
+pub mod resolvconf;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod stack;

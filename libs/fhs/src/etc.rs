@@ -27,12 +27,38 @@ pub const LINUX_RESOLV_CONF: &str = "/etc/resolv.conf";
 /// The hosts file musl reads before DNS, served from [`HOSTS`].
 pub const LINUX_HOSTS: &str = "/etc/hosts";
 
+/// The Linux personality's `/etc`: a synthetic directory listing the
+/// fabricated account files and the `LINUX_*` entries below.
+pub const LINUX_ETC: &str = "/etc";
+
+/// The directory holding [`LINUX_SSL_CERTS`] (OpenSSL's `OPENSSLDIR`
+/// convention). Synthesised by the Linux personality's `/etc`.
+pub const LINUX_SSL: &str = "/etc/ssl";
+
+/// The directory holding [`LINUX_CA_BUNDLE`]. Synthesised by the Linux
+/// personality's `/etc`.
+pub const LINUX_SSL_CERTS: &str = "/etc/ssl/certs";
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn lives_in_system_etc() {
-        assert!(super::PASSWD.starts_with(crate::SYSTEM_ETC));
-        assert!(super::CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
-        assert!(super::HOSTS.starts_with(crate::SYSTEM_ETC));
+        assert!(PASSWD.starts_with(crate::SYSTEM_ETC));
+        assert!(CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
+        assert!(HOSTS.starts_with(crate::SYSTEM_ETC));
+    }
+
+    #[test]
+    fn linux_names_nest_and_match_their_files() {
+        assert!(LINUX_SSL_CERTS.starts_with(LINUX_SSL));
+        let parent = LINUX_CA_BUNDLE.rsplit_once('/').map(|(dir, _)| dir);
+        assert_eq!(parent, Some(LINUX_SSL_CERTS));
+        // Each Linux name is its system file's path below `/etc`.
+        for (system, linux) in [(CA_BUNDLE, LINUX_CA_BUNDLE), (HOSTS, LINUX_HOSTS)] {
+            let below_etc = linux.strip_prefix("/etc").unwrap();
+            assert!(system.ends_with(below_etc), "{system} vs {linux}");
+        }
     }
 }

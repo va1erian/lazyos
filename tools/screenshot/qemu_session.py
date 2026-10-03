@@ -28,7 +28,7 @@ the latest ``wait_for`` gate; see below) and exactly one action. Steps without
       {"at": 7.0, "quit": true}
     ]
 
-Actions: ``shot`` (name), ``type`` (string), ``key`` (name), ``keys`` (list),
+Actions: ``shot`` (name), ``type`` (string; optional ``delay`` per character, seconds), ``key`` (name), ``keys`` (list),
 ``key_down`` / ``key_up`` (name; separate transitions, so a caller can hold a
 modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
 ``mouse_click`` (left|middle|right),
@@ -218,7 +218,9 @@ def capture_hang_state(qmp: Qmp, out_dir: Path, serial: SerialLog,
 def perform(qmp: Qmp, action: str, step: dict) -> None:
     """Send one input action to the guest."""
     if action == "type":
-        qmp.type_text(step["type"])
+        # `"delay"`: seconds between characters (default 0.01); a busy TCG
+        # host drops keys at the default pace.
+        qmp.type_text(step["type"], delay=float(step.get("delay", 0.01)))
     elif action == "key":
         qmp.press_key(step["key"])
     elif action == "keys":
