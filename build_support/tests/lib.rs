@@ -11,6 +11,8 @@ mod ca_bundle;
 mod core_packages;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
+#[path = "../lazyweb_embed.rs"]
+mod lazyweb_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
 #[path = "../os_disk.rs"]
@@ -44,6 +46,8 @@ mod f5_layout_tests;
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
+#[cfg(test)]
+mod lazyweb_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]

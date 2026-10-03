@@ -92,6 +92,10 @@ CORE_APPS: dict[str, CoreApp] = {
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
     # C++ (litehtml), built only where zig is installed.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
+    # The web browser (NetSurf, C, compiled with zig; docs/lazyweb.md). Only a
+    # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
+    # which fails that build when it is missing).
+    "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
     # The IDE and its player, built by `tools/lazyrad/build.py`.
     "lazyrad": CoreApp(
         {"lazyrad.elf": "bin/lazyrad.elf", "lrplay.elf": "bin/lrplay.elf"},
