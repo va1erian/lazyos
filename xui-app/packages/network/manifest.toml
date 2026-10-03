@@ -1,0 +1,32 @@
+# Network: a core LazyOS app, packaged by `tools/xui/build.py` (issue #509).
+#
+# `bin/network.elf` is not checked in: the build copies the built xui app into
+# a scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`. A desktop image ships it
+# only with the network stack (`LAZYOS_NETD=1`, `python tools/run_demo.py --net`).
+
+[app]
+name = "Network"
+system_name = "os.lazy.network"
+author = "LazyOS"
+version = "0.1.0"
+description = "Network status, and automatic (DHCP) or manual address settings"
+category = "system"
+
+[entry]
+binary = "bin/network.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`):
+# the window, `netd`'s status and Renew, and `confd` for `sys/net/eth0/*`.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.confd.v1",
+    "os.lazy.net.stack.v1",
+]

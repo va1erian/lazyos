@@ -93,6 +93,8 @@ fn main() {
     // N2) and implies the driver.
     println!("cargo:rerun-if-env-changed=LAZYOS_NET");
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
+    // `LAZYOS_NETD_ARGS` replaces `netd`'s `demo=1` (an interactive boot).
+    println!("cargo:rerun-if-env-changed=LAZYOS_NETD_ARGS");
     println!("cargo:rustc-check-cfg=cfg(net_demo)");
     println!("cargo:rustc-check-cfg=cfg(netd_demo)");
     let netd = env::var_os("LAZYOS_NETD").as_deref() == Some(std::ffi::OsStr::new("1"));
