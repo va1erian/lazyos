@@ -190,6 +190,13 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     let Some(parent) = parent else {
         return false;
     };
+    after_finish(parent);
+    true
+}
+
+/// The side effects of a [`finish_locked`] that returned `parent`, run once
+/// the task table lock is dropped.
+pub(crate) fn after_finish(parent: usize) {
     // The dead task's pipe ends close now, so a reader that has not reaped it
     // yet still sees end-of-file.
     super::close_exited_fds();
@@ -201,7 +208,6 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     // after dropping the task table, in queue-before-table order.
     signal::post_sigchld(parent);
     CHILD_EXIT.notify_all();
-    true
 }
 
 /// [`finish`] on a caller-held task table, returning the dead task's parent so
