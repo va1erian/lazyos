@@ -101,7 +101,7 @@ import sys
 import time
 from pathlib import Path
 
-from qemu_qmp import (Qmp, accel_args, add_data_disk_option, add_home_disk_option,
+from qemu_qmp import (DEFAULT_MEMORY, Qmp, accel_args, add_data_disk_option, add_home_disk_option,
                       build_qemu_command, existing_data_disk, existing_home_disk,
                       find_qemu, free_port)
 
@@ -373,7 +373,8 @@ def main() -> int:
     parser.add_argument("--out", default="shots", help="output directory (default: shots)")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--timeout", type=float, default=180.0, help="QMP/overall timeout")
-    parser.add_argument("--memory", default="256M", help="guest RAM (default: 256M)")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY,
+                        help="guest RAM (default: %(default)s)")
     parser.add_argument("--tablet", action="store_true",
                         help="attach a usb-tablet for absolute pointer positioning")
     parser.add_argument("--accel", default="auto",

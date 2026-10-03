@@ -110,6 +110,31 @@ DEVICES_AUTOSTART = "term,devices"
 DOCUMENT_APPS = ("editor", "files", "paint")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
+#: Guest RAM the GUI starts with; the same as every CLI launcher's default
+#: (`tools/screenshot/qemu_qmp.py` `DEFAULT_MEMORY`).
+DEFAULT_MEMORY = "1G"
+#: The kernel limits `lazyos.cfg` can set (`kernel/src/limits.rs`,
+#: docs/architecture/limits.md); `KEY=VALUE` becomes `LAZYOS_LIMIT_<KEY>`.
+LIMIT_KEYS = ("heap_max", "fd_max", "stack_size", "quota_user_memory",
+              "quota_kernel_memory", "shared_buffer_max")
+
+
+def limit_env(entries) -> dict[str, str]:
+    """`LAZYOS_LIMIT_*` variables for ``KEY=VALUE`` entries (a list, or one
+    whitespace-separated string). Raises ``ValueError`` on an unknown key or
+    an entry without ``=``; the image build checks the values themselves."""
+    if isinstance(entries, str):
+        entries = entries.split()
+    env: dict[str, str] = {}
+    for entry in entries or ():
+        key, sep, value = entry.partition("=")
+        key = key.strip().lower()
+        if not sep or not value.strip():
+            raise ValueError(f"kernel limit {entry!r}: expected KEY=VALUE")
+        if key not in LIMIT_KEYS:
+            raise ValueError(f"unknown kernel limit {key!r}; known: {', '.join(LIMIT_KEYS)}")
+        env[f"LAZYOS_LIMIT_{key.upper()}"] = value.strip()
+    return env
 
 
 def build_env(cfg: dict) -> dict[str, str]:
@@ -173,6 +198,8 @@ def build_env(cfg: dict) -> dict[str, str]:
         # evidence clients that need `tools/net/run.py`'s host servers.
         env["LAZYOS_NETD"] = "1"
         env["LAZYOS_NETD_ARGS"] = "demo=0"
+    # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
+    env.update(limit_env(cfg.get("limits", "")))
     return env
 
 
