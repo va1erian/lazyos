@@ -373,12 +373,19 @@ impl App for SettingsApp {
                 let result = theme_ops::set_color(store, uitheme::KEY_BG, Some(rgb))
                     .and_then(|()| wallpaper_ops::set(store, None));
                 self.report(result, "Background changed.");
-                self.pages.wallpaper.select(Some(0));
+                // Show what is stored: "None" on success, and after a failed
+                // write the picture (and swatch) still in effect.
+                self.load_state();
             }
             Msg::Wallpaper(row) => {
                 let result = wallpaper_ops::choose(store, &self.pictures, row);
+                let failed = result.is_err();
                 let text = result.as_ref().map_or("", |text| *text);
                 self.report(result.map(|_| ()), text);
+                if failed {
+                    // The clicked row was not saved: select the stored one.
+                    self.load_state();
+                }
             }
             Msg::Anim(on) => self.report(
                 theme_ops::set_animations(store, on),
