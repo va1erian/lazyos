@@ -14,8 +14,7 @@ use xui_core::{Canvas, Rect, Theme};
 use super::State;
 
 /// Paint the whole panel.
-pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let theme = Theme::light();
+pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
     let bounds = canvas.bounds();
     if compact::is_compact(bounds.width(), bounds.height()) {
         crate::compact_view::paint(canvas, theme, state);

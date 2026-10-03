@@ -113,6 +113,8 @@ fn main() -> ExitCode {
     };
     // Resizable and maximizable, like the other desktop apps.
     backend.set_size_hints(640, 420, 0, 0);
+    // The IDE's "System" theme follows the desktop's mode.
+    lazyrad_os::desktop_mode::set_dark(backend.desktop_theme().is_some_and(|t| t.is_dark));
     backend.on_first_frame(|| MARK.pass("UP"));
     // `xuid` bounds a surface to the screen (1280x720 in the screenshot
     // sessions); leave room for the title bar and the taskbar.

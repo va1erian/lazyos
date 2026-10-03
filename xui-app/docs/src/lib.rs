@@ -25,7 +25,8 @@ pub fn read_bounded(reader: impl Read) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The page stylesheet: Droid Sans body, JetBrains Mono code, light theme.
+/// The page stylesheet: Droid Sans body, JetBrains Mono code, light theme
+/// ([`DARK_CSS`] overrides its colours in dark mode).
 const CSS: &str = "\
 body { font-family: 'Droid Sans'; font-size: 15px; line-height: 1.5; color: #1f2328;
        background: #ffffff; margin: 24px 32px; }
@@ -46,6 +47,25 @@ th { background: #f6f8fa; font-weight: bold; }
 ul, ol { margin: 8px 0; padding-left: 28px; }
 li { margin: 3px 0; }
 hr { border: 0; border-top: 1px solid #d0d7de; margin: 16px 0; }";
+
+/// The colours [`CSS`] sets, for the desktop's dark mode (GitHub dark).
+const DARK_CSS: &str = "body { color: #e6edf3; background: #202020; }
+h1, h2, hr, pre, th, td { border-color: #3d444d; }
+a { color: #4493f8; }
+code { background: #343434; }
+pre, pre code, th { background: #2b2b2b; }
+blockquote { border-left-color: #3d444d; color: #9198a1; }";
+
+/// `html` from [`page`], [`load_file`] or [`error_page`] in the desktop's
+/// mode: dark mode adds [`DARK_CSS`] after the page stylesheet.
+pub fn themed(html: String, dark: bool) -> String {
+    if !dark {
+        return html;
+    }
+    // The skeleton's own `<body>` comes first: raw HTML in the document is
+    // escaped, so no earlier match can come from it.
+    html.replacen("<body>", &format!("<style>{DARK_CSS}</style><body>"), 1)
+}
 
 /// Renders `markdown` (truncated to [`MAX_BYTES`] on a character boundary) as a
 /// complete HTML page.
@@ -147,6 +167,15 @@ mod tests {
     #[test]
     fn empty_input_is_a_valid_page() {
         assert!(page("").contains("<body></body>"));
+    }
+
+    #[test]
+    fn dark_mode_adds_its_stylesheet_before_the_body() {
+        let html = themed(page("<body>text"), true);
+        assert!(html.contains("<style>body { color: #e6edf3;"));
+        assert_eq!(html.matches(DARK_CSS).count(), 1);
+        assert!(html.find(DARK_CSS).unwrap() < html.find("<body>").unwrap());
+        assert_eq!(themed(page("x"), false), page("x"));
     }
 
     /// A reader that counts how much was pulled from it.

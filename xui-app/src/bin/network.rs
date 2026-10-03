@@ -22,9 +22,10 @@ use xui_app::backend::LazyOSBackend;
 use xui_app::net::model::{self, Form, NetStatus, Write};
 use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
+use xui_app::themed::run_themed;
 use xui_confd_editor::store::StoreError as ConfStoreError;
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, PlatformSpec};
+use xui_core::app::{App, Ui};
+use xui_core::backend::PlatformSpec;
 use xui_core::widget::{Button, Edit, GroupBox, Label, RadioGroup};
 use xui_core::{Dip, HasText, Rect};
 use xui_settings::store::{ConfigStore, Value};
@@ -283,7 +284,7 @@ fn main() -> std::process::ExitCode {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
     let spec = PlatformSpec::new("Network").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
+    let outcome = run_themed(&backend, spec, |ui| {
         let mut app = match Network::build(ui) {
             Ok(app) => app,
             Err(error) => {

@@ -16,8 +16,7 @@ const GAP: i32 = 14;
 const CHROME: i32 = 28 + dash::ROW;
 
 /// Paint the whole page.
-pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let theme = Theme::light();
+pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
     let subtitle = "device syscall 23 · read-only · 2 s refresh · [r] refresh  [q] quit";
     let content = dash::frame(canvas, theme, "Devices", subtitle);
     let view = &state.view;

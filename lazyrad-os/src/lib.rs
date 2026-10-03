@@ -26,6 +26,7 @@
 //!   played through the system mixer), registered the same way.
 
 pub mod args;
+pub mod desktop_mode;
 #[cfg(unix)]
 pub mod devplay;
 pub mod handoff;
