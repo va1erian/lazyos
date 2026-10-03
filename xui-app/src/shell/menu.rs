@@ -67,6 +67,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
         let menu = ctx.menu.borrow();
         (menu.height(), menu.origin(ctx.screen.1))
     };
+    let (x, y) = (x * ctx.scale(), y * ctx.scale());
     ctx.backend.set_next_role(SurfaceRole::Panel { x, y });
     let spec = PlatformSpec::new("LazyOS").size(Dip(WIDTH as f32), Dip(height as f32));
     let built = Rc::clone(ctx);
@@ -171,6 +172,19 @@ impl App for MenuApp {
     type Msg = MenuMsg;
 
     fn update(&mut self, msg: MenuMsg, ui: &mut Ui<MenuMsg>) {
+        // Pointer events arrive in screen pixels; the menu model is in
+        // design pixels.
+        let msg = match msg {
+            MenuMsg::Move(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                MenuMsg::Move(x, y)
+            }
+            MenuMsg::Press(x, y, repeat) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                MenuMsg::Press(x, y, repeat)
+            }
+            other => other,
+        };
         match msg {
             MenuMsg::Repaint => ui.invalidate(self.root.id()),
             MenuMsg::Move(x, y) => {
@@ -210,23 +224,26 @@ fn wheel_rows(delta: i16) -> i64 {
     }
 }
 
-fn rect(r: ShellRect) -> Rect {
-    Rect::new(r.x, r.y, r.x + r.w, r.y + r.h)
+/// A design-pixel shell rectangle as an xui one at scale `s`.
+fn rect(r: ShellRect, s: i32) -> Rect {
+    Rect::new(r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s)
 }
 
-/// Paint the banner and the rows.
+/// Paint the banner and the rows. The model is in design pixels; `s` turns
+/// every size into screen pixels (docs/hidpi-plan.md).
 fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let palette = ctx.theme.borrow().palette();
+    let s = ctx.scale();
     let bounds = canvas.bounds();
     canvas.clear(color(palette.overlay_bg));
-    canvas.stroke_rect(bounds, color(palette.overlay_border), 1.0);
+    canvas.stroke_rect(bounds, color(palette.overlay_border), s as f32);
 
     // The banner: "LazyOS" read top to bottom, one letter per line, at its
     // foot (the canvas has no rotation).
     let banner = Rect::new(
         bounds.left,
         bounds.top,
-        bounds.left + BANNER_W,
+        bounds.left + BANNER_W * s,
         bounds.bottom,
     );
     canvas.fill_rect(banner, color(palette.overlay_selected));
@@ -235,8 +252,8 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         .centered()
         .middle();
     let word = "LazyOS";
-    let step = 16;
-    let top = banner.bottom - 8 - step * word.len() as i32;
+    let step = 16 * s;
+    let top = banner.bottom - 8 * s - step * word.len() as i32;
     for (i, ch) in word.chars().enumerate() {
         let y = top + step * i as i32;
         let cell = Rect::new(banner.left, y, banner.right, y + step);
@@ -246,15 +263,24 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let menu = ctx.menu.borrow();
     let hover = ctx.menu_hover.get();
     for (index, row) in menu.rows().iter().enumerate() {
-        let Some(area) = menu.row_rect(index).map(rect) else {
+        let Some(area) = menu.row_rect(index).map(|r| rect(r, s)) else {
             continue;
         };
-        let label = Rect::new(area.left + LABEL_PAD, area.top, area.right - 4, area.bottom);
+        let label = Rect::new(
+            area.left + LABEL_PAD * s,
+            area.top,
+            area.right - 4 * s,
+            area.bottom,
+        );
         if row.action == Action::Header {
             // A category title: bold, in the banner's colour, never lit.
             canvas.push_clip(label);
             let ink = color(palette.overlay_selected);
-            canvas.draw_text(&row.label, label, &TextStyle::new(ink, TEXT).bold().middle());
+            canvas.draw_text(
+                &row.label,
+                label,
+                &TextStyle::new(ink, TEXT).bold().middle(),
+            );
             canvas.pop_clip();
             continue;
         }
@@ -278,17 +304,23 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         canvas.pop_clip();
     }
     if let Some(scroll) = menu.scroll() {
-        paint_scroll_bar(canvas, scroll, color(palette.overlay_selected));
+        paint_scroll_bar(canvas, scroll, s, color(palette.overlay_selected));
     }
 }
 
 /// The installed section's scroll bar: a thumb on the panel's right edge,
 /// spanning the section's visible rows, as tall as their share of it.
-fn paint_scroll_bar(canvas: &mut dyn Canvas, scroll: lazyshell::menu::Scroll, ink: xui_core::Color) {
+fn paint_scroll_bar(
+    canvas: &mut dyn Canvas,
+    scroll: lazyshell::menu::Scroll,
+    s: i32,
+    ink: xui_core::Color,
+) {
     let track = scroll.shown as i32 * ROW_H;
     let total = scroll.total.max(1) as i32;
     let top = PAD + track * scroll.first as i32 / total;
     let height = (track * scroll.shown as i32 / total).max(ROW_H / 2);
     let right = WIDTH - 2;
-    canvas.fill_rect(Rect::new(right - BAR_W, top, right, top + height), ink);
+    let bar = ShellRect::new(right - BAR_W, top, BAR_W, height);
+    canvas.fill_rect(rect(bar, s), ink);
 }

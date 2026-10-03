@@ -18,7 +18,7 @@ use user::messenger::display::{Canvas, Face, Rect};
 use user::messenger::{router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
 
-use super::theme::{overlay_bg, overlay_border, overlay_text};
+use super::theme::{overlay_bg, overlay_border, overlay_text, px};
 
 /// Ticks (100 Hz) between looks at the topic.
 const POLL_TICKS: u64 = 10;
@@ -116,10 +116,16 @@ pub(super) fn draw(screen: &mut Canvas, clip: Rect) {
         "Shutting down..."
     };
     let detail = "Saving settings and stopping services";
-    let frame = Rect::new((w - BOX_W) / 2, (h - BOX_H) / 2, BOX_W, BOX_H);
+    let (box_w, box_h) = (px(BOX_W), px(BOX_H));
+    let frame = Rect::new((w - box_w) / 2, (h - box_h) / 2, box_w, box_h);
     screen.fill(frame, clip, overlay_border());
     screen.fill(
-        Rect::new(frame.x + 1, frame.y + 1, frame.w - 2, frame.h - 2),
+        Rect::new(
+            frame.x + px(1),
+            frame.y + px(1),
+            frame.w - px(2),
+            frame.h - px(2),
+        ),
         clip,
         overlay_bg(),
     );

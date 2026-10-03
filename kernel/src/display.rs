@@ -55,7 +55,10 @@ use crate::task;
 use crate::user_ptr;
 
 mod abi;
+pub mod bochs;
 mod buffers;
+pub mod modecfg;
+pub mod modeset;
 mod present;
 
 pub use abi::*;
@@ -111,6 +114,13 @@ pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) 
         stride: stride as u64,
         bytes_per_pixel: bytes_per_pixel as u64,
     };
+}
+
+/// The screen's `(width, height)` in pixels: the firmware mode, or the one
+/// `display.mode` switched to ([`modeset`]).
+pub fn size() -> (usize, usize) {
+    let screen = *SCREEN.lock();
+    (screen.width as usize, screen.height as usize)
 }
 
 /// Bytes of one screen-sized RGBA surface (what `bind` allocates), for the

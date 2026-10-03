@@ -43,7 +43,8 @@ enum Msg {
 }
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    // Design pixels, at the desktop's UI scale (docs/hidpi-plan.md).
+    xui_app::hidpi::rect(x, y, w, h)
 }
 
 /// The status rows: caption, then the line it shows.
@@ -89,7 +90,7 @@ impl App for Network {
 
 impl Network {
     fn build(ui: &Ui<Msg>) -> xui_core::backend::Result<Network> {
-        let width = ui.client_rect().width().max(WINDOW.0);
+        let width = xui_app::hidpi::design_rect(ui).width().max(WINDOW.0);
         let inner = width - 24;
         let groups = vec![
             GroupBox::new(ui, rect(12, 8, inner, 156), "Status")?,

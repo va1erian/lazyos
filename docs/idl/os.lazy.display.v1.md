@@ -80,6 +80,7 @@ fields, which never use that id.
 | SetIconGeometry | 40 | sync | `(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` |
 | HintLaunchOrigin | 41 | sync | `(x: I32, y: I32, w: U32, h: U32) -> ()` |
 | Dismiss | 42 | oneway | `() -> ()` |
+| GetOutput | 43 | sync | `() -> (width: U32, height: U32, scale: U32)` |
 
 ## Transfers
 

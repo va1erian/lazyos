@@ -483,6 +483,11 @@
         "name": "Dismiss",
         "id": 42,
         "oneway": true
+      },
+      {
+        "name": "GetOutput",
+        "id": 43,
+        "oneway": false
       }
     ],
     "topics": []

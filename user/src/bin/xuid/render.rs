@@ -13,9 +13,9 @@ use super::region::Region;
 use super::shell::AltTab;
 use super::surface::Surface;
 use super::theme::{
-    background, border_color, border_color_focus, empty_bg, empty_text, overlay_bg, overlay_border,
-    overlay_selected, overlay_text, title_bg, title_bg_focus, title_text, title_text_focus,
-    window_bg, BUTTON, BUTTON_GAP, BUTTON_MARGIN, TITLE_H,
+    background, border_color, border_color_focus, button, button_gap, button_margin, empty_bg,
+    empty_text, overlay_bg, overlay_border, overlay_selected, overlay_text, px, title_bg,
+    title_bg_focus, title_h, title_text, title_text_focus, window_bg,
 };
 use super::window::surface_by_id;
 
@@ -140,7 +140,7 @@ impl Compositor {
             super::powerfeed::draw(screen, damage);
             return;
         }
-        screen.cursor(cursor.0, cursor.1, damage);
+        screen.cursor_scaled(cursor.0, cursor.1, super::theme::scale(), damage);
     }
 }
 
@@ -184,8 +184,8 @@ fn alt_tab_panel(dims: (i32, i32), surfaces: &[Surface], tab: &AltTab) -> Option
         .map(|surface| Face::Sans.width(&surface.title))
         .max()
         .unwrap_or(0);
-    let panel_w = (title_w + 48).clamp(180, (screen_w - 40).max(180));
-    let panel_h = 26 + rows as i32 * ALT_TAB_ROW_H;
+    let panel_w = (title_w + px(48)).clamp(px(180), (screen_w - px(40)).max(px(180)));
+    let panel_h = px(26) + rows as i32 * px(ALT_TAB_ROW_H);
     Some(Rect::new(
         (screen_w - panel_w) / 2,
         (screen_h - panel_h) / 2,
@@ -194,7 +194,7 @@ fn alt_tab_panel(dims: (i32, i32), surfaces: &[Surface], tab: &AltTab) -> Option
     ))
 }
 
-/// Height of one Alt+Tab row.
+/// Height of one Alt+Tab row, in design pixels.
 const ALT_TAB_ROW_H: i32 = 18;
 
 /// Draw the Alt+Tab overlay centered on the screen: one row per window in the
@@ -205,34 +205,35 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
         return;
     };
     let rows = tab.order.len().min(12);
-    let row_h = ALT_TAB_ROW_H;
+    let row_h = px(ALT_TAB_ROW_H);
+    let edge = px(2);
     if panel.intersect(clip).is_empty() {
         return;
     }
     screen.fill(panel, clip, overlay_bg());
     screen.fill(
-        Rect::new(panel.x, panel.y, panel.w, 2),
+        Rect::new(panel.x, panel.y, panel.w, edge),
         clip,
         overlay_border(),
     );
     screen.fill(
-        Rect::new(panel.x, panel.y + panel.h - 2, panel.w, 2),
+        Rect::new(panel.x, panel.y + panel.h - edge, panel.w, edge),
         clip,
         overlay_border(),
     );
     screen.fill(
-        Rect::new(panel.x, panel.y, 2, panel.h),
+        Rect::new(panel.x, panel.y, edge, panel.h),
         clip,
         overlay_border(),
     );
     screen.fill(
-        Rect::new(panel.x + panel.w - 2, panel.y, 2, panel.h),
+        Rect::new(panel.x + panel.w - edge, panel.y, edge, panel.h),
         clip,
         overlay_border(),
     );
     screen.text_face(
-        panel.x + 10,
-        panel.y + 4,
+        panel.x + px(10),
+        panel.y + px(4),
         "Alt+Tab",
         Face::Serif,
         overlay_text(),
@@ -241,17 +242,17 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
     // Highlight the selected row before its text, then paint the titles.
     for (index, id) in tab.order.iter().take(rows).enumerate() {
         let row = Rect::new(
-            panel.x + 6,
-            panel.y + 22 + index as i32 * row_h,
-            panel.w - 12,
-            row_h - 2,
+            panel.x + px(6),
+            panel.y + px(22) + index as i32 * row_h,
+            panel.w - px(12),
+            row_h - px(2),
         );
         if index == tab.selected {
             screen.fill(row, clip, overlay_selected());
         }
         if let Some(surface) = surface_by_id(surfaces, *id) {
             screen.text_face(
-                row.x + 8,
+                row.x + px(8),
                 row.y + (row.h - Face::Sans.height()) / 2,
                 &surface.title,
                 Face::Sans,
@@ -273,17 +274,18 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     } else {
         border_color()
     };
-    // Body, then a 1px frame and the title separator.
+    // Body, then a one-design-pixel frame and the title separator.
+    let line = px(1);
     screen.fill(window, clip, window_bg());
-    screen.fill(Rect::new(window.x, window.y, window.w, 1), clip, border);
+    screen.fill(Rect::new(window.x, window.y, window.w, line), clip, border);
     screen.fill(
-        Rect::new(window.x, window.y + window.h - 1, window.w, 1),
+        Rect::new(window.x, window.y + window.h - line, window.w, line),
         clip,
         border,
     );
-    screen.fill(Rect::new(window.x, window.y, 1, window.h), clip, border);
+    screen.fill(Rect::new(window.x, window.y, line, window.h), clip, border);
     screen.fill(
-        Rect::new(window.x + window.w - 1, window.y, 1, window.h),
+        Rect::new(window.x + window.w - line, window.y, line, window.h),
         clip,
         border,
     );
@@ -295,24 +297,24 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     };
     screen.fill(surface.title_bar(), clip, title_fill);
     screen.fill(
-        Rect::new(window.x, surface.y + TITLE_H, window.w, 1),
+        Rect::new(window.x, surface.y + title_h(), window.w, line),
         clip,
         border,
     );
     // The title stops before the button group on the right; a resizable
     // window has three buttons where a fixed-size one has two.
     let buttons = if surface.resizable() { 3 } else { 2 };
-    let reserved = BUTTON * buttons + BUTTON_GAP * (buttons - 1) + BUTTON_MARGIN + 6;
+    let reserved = button() * buttons + button_gap() * (buttons - 1) + button_margin() + px(6);
     let title_clip = Rect::new(
-        window.x + 2,
+        window.x + px(2),
         surface.y,
-        (window.w - 2 - reserved).max(0),
-        TITLE_H,
+        (window.w - px(2) - reserved).max(0),
+        title_h(),
     )
     .intersect(clip);
     screen.text_face(
-        surface.x + 8,
-        surface.y + (TITLE_H - Face::Sans.height()) / 2,
+        surface.x + px(8),
+        surface.y + (title_h() - Face::Sans.height()) / 2,
         &surface.title,
         Face::Sans,
         ink,
@@ -363,8 +365,8 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     } else {
         screen.fill(content, clip, empty_bg());
         screen.text_face(
-            content.x + 10,
-            content.y + 10,
+            content.x + px(10),
+            content.y + px(10),
             "Waiting for buffer...",
             Face::Serif,
             empty_text(),

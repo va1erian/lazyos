@@ -6,11 +6,14 @@
 
 use user::messenger::display::{Canvas, Color, Rect};
 
+use super::theme::scale;
+
 /// Sub-pixel samples per axis.
 const SUB: i32 = 8;
 /// Fixed-point units per pixel.
 const UNIT: i32 = 16;
-/// Twice the stroke width in pixels: 1.5px reads crisp yet smooth here.
+/// Twice the stroke width in design pixels: 1.5px reads crisp yet smooth
+/// here (times the UI scale on screen).
 const STROKE_X2: i32 = 3;
 
 /// A point in fixed-point units.
@@ -40,7 +43,7 @@ fn dist2(p: (i64, i64), a: (i64, i64), b: (i64, i64)) -> i64 {
 
 /// Stroke `lines` (fixed-point endpoints) over the pixels of `bounds`.
 fn stroke(screen: &mut Canvas, bounds: Rect, lines: &[Segment], color: Color, clip: Rect) {
-    let radius = (STROKE_X2 * UNIT / 4) as i64;
+    let radius = (STROKE_X2 * UNIT * scale() / 4) as i64;
     // Skip supersampling pixels that `blend_pixel` would reject anyway.
     let bounds = bounds
         .intersect(clip)
@@ -78,7 +81,7 @@ fn centre(rect: Rect) -> (i32, i32) {
 /// A close "X" centred in `button`.
 pub(super) fn draw_close(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
     let (cx, cy) = centre(button);
-    let h = 4 * UNIT + UNIT / 2; // half-extent 4.5px
+    let h = (4 * UNIT + UNIT / 2) * scale(); // half-extent 4.5 design px
     let lines = [
         ((cx - h, cy - h), (cx + h, cy + h)),
         ((cx - h, cy + h), (cx + h, cy - h)),
@@ -89,14 +92,14 @@ pub(super) fn draw_close(screen: &mut Canvas, button: Rect, color: Color, clip: 
 /// A minimize "-" centred in `button`.
 pub(super) fn draw_minimize(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
     let (cx, cy) = centre(button);
-    let h = 5 * UNIT;
+    let h = 5 * UNIT * scale();
     stroke(screen, button, &[((cx - h, cy), (cx + h, cy))], color, clip);
 }
 
 /// A maximize glyph (a hollow square) centred in `button`.
 pub(super) fn draw_maximize(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
     let (cx, cy) = centre(button);
-    let h = 4 * UNIT + UNIT / 2;
+    let h = (4 * UNIT + UNIT / 2) * scale();
     stroke(screen, button, &square(cx, cy, h), color, clip);
 }
 
@@ -104,8 +107,8 @@ pub(super) fn draw_maximize(screen: &mut Canvas, button: Rect, color: Color, cli
 /// the front one, centred in `button`.
 pub(super) fn draw_restore(screen: &mut Canvas, button: Rect, color: Color, clip: Rect) {
     let (cx, cy) = centre(button);
-    let h = 3 * UNIT + UNIT / 2;
-    let o = 3 * UNIT;
+    let h = (3 * UNIT + UNIT / 2) * scale();
+    let o = 3 * UNIT * scale();
     let back = square(cx - o / 2, cy - o / 2, h);
     let front = square(cx + o / 2, cy + o / 2, h);
     let mut lines = [((0, 0), (0, 0)); 8];

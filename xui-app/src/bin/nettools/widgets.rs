@@ -13,7 +13,8 @@ use super::Msg;
 pub const WINDOW: (i32, i32) = (720, 590);
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    // Design pixels, at the desktop's UI scale (docs/hidpi-plan.md).
+    xui_app::hidpi::rect(x, y, w, h)
 }
 
 /// What the app changes after building.
@@ -34,7 +35,7 @@ pub struct Widgets {
 
 impl Widgets {
     pub fn build(ui: &Ui<Msg>) -> Result<Widgets> {
-        let width = ui.client_rect().width().max(WINDOW.0);
+        let width = xui_app::hidpi::design_rect(ui).width().max(WINDOW.0);
         let inner = width - 24;
         let groups = vec![
             GroupBox::new(ui, rect(12, 38, inner, 92), "Ping")?,

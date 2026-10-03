@@ -23,6 +23,7 @@
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
+use xui_app::hidpi::scaled;
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::{Button, Dip, Edit, HasText, Label, Rect};
@@ -100,17 +101,18 @@ fn main() {
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, |ui| {
         let hint = Label::new(
             ui,
-            Rect::new(16, 8, 544, 32),
+            scaled(Rect::new(16, 8, 544, 32)),
             "click the field, then type - click the button, then space",
         )
         .expect("hint");
-        let edit = Edit::new(ui, Rect::new(16, 40, 420, 76), "")
+        let edit = Edit::new(ui, scaled(Rect::new(16, 40, 420, 76)), "")
             .expect("edit")
             .on_change(|value| Some(Msg::Edit(value.to_string())));
-        let button = Button::new(ui, Rect::new(16, 96, 200, 132), "Click me")
+        let button = Button::new(ui, scaled(Rect::new(16, 96, 200, 132)), "Click me")
             .expect("button")
             .on_click(|| Some(Msg::Bump));
-        let status = Label::new(ui, Rect::new(16, 152, 544, 200), "0 clicks").expect("status");
+        let status =
+            Label::new(ui, scaled(Rect::new(16, 152, 544, 200)), "0 clicks").expect("status");
         ui.on_close(|| Some(Msg::Close));
         ClientApp {
             _edit: edit,

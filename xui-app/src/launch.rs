@@ -25,14 +25,17 @@ impl LazyOSBackend {
         Self::new().or_else(|_| Self::new_client())
     }
 
-    /// The window size an app should ask for: the whole screen when it owns
-    /// the display, `windowed` (its preferred size) when a compositor lays it
-    /// out. A client surface's size is only known once its window opens.
+    /// The window size an app should ask for, in design pixels (the app
+    /// wraps it in `Dip`): the whole screen when it owns the display,
+    /// `windowed` (its preferred size) when a compositor lays it out. A client
+    /// surface's size is only known once its window opens.
     pub fn window_size(&self, windowed: (i32, i32)) -> (i32, i32) {
         if self.is_client() {
             windowed
         } else {
-            self.screen()
+            let (width, height) = self.screen();
+            let scale = self.scale() as i32;
+            (width / scale, height / scale)
         }
     }
 }

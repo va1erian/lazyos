@@ -14,6 +14,7 @@
 
 pub mod about_page;
 pub mod app;
+pub mod layout;
 pub mod hidden_ops;
 pub mod hidden_page;
 pub mod keyboard;

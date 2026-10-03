@@ -108,7 +108,7 @@ impl App for Widget {
 /// Paint the title and the two labelled bars.
 fn paint(canvas: &mut dyn Canvas, state: &State) {
     let theme = Theme::light();
-    let bounds = canvas.bounds();
+    let bounds = xui_app::hidpi::design_bounds(canvas);
     canvas.clear(theme.background);
     canvas.draw_text(
         "CPU & Memory",

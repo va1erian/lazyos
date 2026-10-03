@@ -20,6 +20,8 @@ use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
 pub use crate::os_manifest::{clean_path, Kind, Manifest};
 use crate::os_recover;
 
+#[path = "display_cfg.rs"]
+pub mod display_cfg;
 #[path = "limits_cfg.rs"]
 pub mod limits_cfg;
 

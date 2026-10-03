@@ -6,8 +6,8 @@
 use user::messenger::display::Rect;
 
 use super::theme::{
-    BORDER, BUTTON, BUTTON_GAP, BUTTON_MARGIN, CORNER_GRIP, MIN_CONTENT_H, MIN_CONTENT_W,
-    RESIZE_GRIP, RESIZE_OUT, TITLE_H, TITLE_REACHABLE_W,
+    border, button, button_gap, button_margin, corner_grip, min_content_h, min_content_w,
+    resize_grip, resize_out, title_h, title_reachable_w,
 };
 
 /// Which edges of a window frame a resize drag has grabbed.
@@ -62,10 +62,14 @@ impl SizeHints {
         max_h: u32,
         screen: (i32, i32),
     ) -> Option<SizeHints> {
-        let screen_max_w = (screen.0 - BORDER * 2).max(MIN_CONTENT_W);
-        let screen_max_h = (screen.1 - TITLE_H - BORDER).max(MIN_CONTENT_H);
-        let min_w = i32::try_from(min_w).unwrap_or(i32::MAX).max(MIN_CONTENT_W);
-        let min_h = i32::try_from(min_h).unwrap_or(i32::MAX).max(MIN_CONTENT_H);
+        let screen_max_w = (screen.0 - border() * 2).max(min_content_w());
+        let screen_max_h = (screen.1 - title_h() - border()).max(min_content_h());
+        let min_w = i32::try_from(min_w)
+            .unwrap_or(i32::MAX)
+            .max(min_content_w());
+        let min_h = i32::try_from(min_h)
+            .unwrap_or(i32::MAX)
+            .max(min_content_h());
         let max_w = if max_w == 0 {
             screen_max_w
         } else {
@@ -101,39 +105,39 @@ pub(super) fn inflate(rect: Rect, by: i32) -> Rect {
 /// The title-bar button group (all three buttons and their margins), excluded
 /// from edge hits so a button click never starts a resize.
 fn buttons(window: Rect) -> Rect {
-    let group_w = BUTTON * 3 + BUTTON_GAP * 2;
+    let group_w = button() * 3 + button_gap() * 2;
     Rect::new(
-        window.x + window.w - BUTTON_MARGIN - group_w,
+        window.x + window.w - button_margin() - group_w,
         window.y,
-        group_w + BUTTON_MARGIN,
-        TITLE_H,
+        group_w + button_margin(),
+        title_h(),
     )
 }
 
 /// Which frame edges `point` grabs on `window`, or [`Edges::EMPTY`] when it is
-/// not on the frame. The grip is [`RESIZE_GRIP`] wide (2 px outside, 4 px
-/// inside); a corner widens it to [`CORNER_GRIP`] so diagonal resize is easy.
+/// not on the frame. The grip is [`resize_grip()`] wide (2 px outside, 4 px
+/// inside); a corner widens it to [`corner_grip()`] so diagonal resize is easy.
 /// The title bar's body and the buttons stay move/click handles.
 pub(super) fn hit_edges(window: Rect, point: (i32, i32)) -> Edges {
     let (x, y) = (window.x, window.y);
     let (right, bottom) = (x + window.w, y + window.h);
     let outer = Rect::new(
-        x - RESIZE_OUT,
-        y - RESIZE_OUT,
-        window.w + RESIZE_OUT * 2,
-        window.h + RESIZE_OUT * 2,
+        x - resize_out(),
+        y - resize_out(),
+        window.w + resize_out() * 2,
+        window.h + resize_out() * 2,
     );
     if !contains(outer, point) || contains(buttons(window), point) {
         return Edges::EMPTY;
     }
-    let near_left = point.0 >= x - RESIZE_OUT && point.0 < x + RESIZE_GRIP;
-    let near_right = point.0 > right - RESIZE_GRIP - 1 && point.0 <= right + RESIZE_OUT;
-    let near_top = point.1 >= y - RESIZE_OUT && point.1 < y + RESIZE_GRIP;
-    let near_bottom = point.1 > bottom - RESIZE_GRIP - 1 && point.1 <= bottom + RESIZE_OUT;
-    let in_left_corner = point.0 >= x - RESIZE_OUT && point.0 < x + CORNER_GRIP;
-    let in_right_corner = point.0 > right - CORNER_GRIP && point.0 <= right + RESIZE_OUT;
-    let in_top_corner = point.1 >= y - RESIZE_OUT && point.1 < y + CORNER_GRIP;
-    let in_bottom_corner = point.1 > bottom - CORNER_GRIP && point.1 <= bottom + RESIZE_OUT;
+    let near_left = point.0 >= x - resize_out() && point.0 < x + resize_grip();
+    let near_right = point.0 > right - resize_grip() - 1 && point.0 <= right + resize_out();
+    let near_top = point.1 >= y - resize_out() && point.1 < y + resize_grip();
+    let near_bottom = point.1 > bottom - resize_grip() - 1 && point.1 <= bottom + resize_out();
+    let in_left_corner = point.0 >= x - resize_out() && point.0 < x + corner_grip();
+    let in_right_corner = point.0 > right - corner_grip() && point.0 <= right + resize_out();
+    let in_top_corner = point.1 >= y - resize_out() && point.1 < y + corner_grip();
+    let in_bottom_corner = point.1 > bottom - corner_grip() && point.1 <= bottom + resize_out();
 
     let mut edges = Edges::EMPTY;
     if near_left || (in_left_corner && (in_top_corner || in_bottom_corner)) {
@@ -175,25 +179,25 @@ pub(super) fn resize_rect(
     if edges.has(Edges::BOTTOM) {
         bottom = bottom.saturating_add(dy);
     }
-    let min_w = min.0.max(0) + BORDER * 2;
-    let min_h = min.1.max(0) + TITLE_H + BORDER;
-    let max_w = max.0.max(min.0) + BORDER * 2;
-    let max_h = max.1.max(min.1) + TITLE_H + BORDER;
+    let min_w = min.0.max(0) + border() * 2;
+    let min_h = min.1.max(0) + title_h() + border();
+    let max_w = max.0.max(min.0) + border() * 2;
+    let max_h = max.1.max(min.1) + title_h() + border();
     // Each moving edge is bounded by the size limits against its anchored
     // opposite edge and by the rule `keep_reachable` enforces for moves: part
     // of the title bar stays on the work area. The anchor never moves.
     let (work_right, work_bottom) = (work.x + work.w, work.y + work.h);
     if edges.has(Edges::LEFT) {
         let lo = right - max_w;
-        let hi = (right - min_w).min(work_right - TITLE_REACHABLE_W);
+        let hi = (right - min_w).min(work_right - title_reachable_w());
         left = clamp_edge(left, lo, hi, start.x);
     } else if edges.has(Edges::RIGHT) {
-        let lo = (left + min_w).max(work.x + TITLE_REACHABLE_W);
+        let lo = (left + min_w).max(work.x + title_reachable_w());
         right = clamp_edge(right, lo, left + max_w, start.x + start.w);
     }
     if edges.has(Edges::TOP) {
         let lo = (bottom - max_h).max(work.y);
-        let hi = (bottom - min_h).min(work_bottom - TITLE_H);
+        let hi = (bottom - min_h).min(work_bottom - title_h());
         top = clamp_edge(top, lo, hi, start.y);
     } else if edges.has(Edges::BOTTOM) {
         // The bottom edge may leave the screen: the title bar is at the top.
@@ -226,19 +230,24 @@ pub(super) fn requested_rect(
     let to_i32 = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
     let w = to_i32(want.0).clamp(hints.min_w, hints.max_w.max(hints.min_w));
     let h = to_i32(want.1).clamp(hints.min_h, hints.max_h.max(hints.min_h));
-    let grown = Rect::new(window.x, window.y, w + BORDER * 2, h + TITLE_H + BORDER);
+    let grown = Rect::new(
+        window.x,
+        window.y,
+        w + border() * 2,
+        h + title_h() + border(),
+    );
     clamp_into(grown, work)
 }
 
-/// Clamp a dragged window origin so at least [`TITLE_REACHABLE_W`] pixels of
+/// Clamp a dragged window origin so at least [`title_reachable_w()`] pixels of
 /// its title bar stay inside `work` horizontally, and the title bar never goes
 /// above the work-area top or below its bottom. The body may hang off the
 /// left, right and bottom edges.
 pub(super) fn keep_reachable(window: Rect, work: Rect) -> (i32, i32) {
-    let lo_x = work.x - window.w + TITLE_REACHABLE_W;
-    let hi_x = work.x + work.w - TITLE_REACHABLE_W;
+    let lo_x = work.x - window.w + title_reachable_w();
+    let hi_x = work.x + work.w - title_reachable_w();
     let lo_y = work.y;
-    let hi_y = work.y + work.h - TITLE_H;
+    let hi_y = work.y + work.h - title_h();
     (window.x.max(lo_x).min(hi_x), window.y.max(lo_y).min(hi_y))
 }
 
@@ -279,7 +288,7 @@ pub(super) fn selftest_geometry() -> &'static str {
     let outside = hit_edges(window, (10, 10)).is_empty();
 
     // Resizing keeps the opposite edge fixed when a bound clamps.
-    let min = (MIN_CONTENT_W, MIN_CONTENT_H);
+    let min = (min_content_w(), min_content_h());
     let max = (300, 300);
     let area = Rect::new(0, 0, 800, 572);
     let right_grow = resize_rect(
@@ -295,7 +304,7 @@ pub(super) fn selftest_geometry() -> &'static str {
         (1000, 0),
         (min, max),
         area,
-    ) == Rect::new(100, 50, 300 + BORDER * 2, 150);
+    ) == Rect::new(100, 50, 300 + border() * 2, 150);
     let left_min = resize_rect(
         window,
         hit_edges(window, (101, 120)),
@@ -303,9 +312,9 @@ pub(super) fn selftest_geometry() -> &'static str {
         (min, max),
         area,
     ) == Rect::new(
-        300 - (MIN_CONTENT_W + BORDER * 2),
+        300 - (min_content_w() + border() * 2),
         50,
-        MIN_CONTENT_W + BORDER * 2,
+        min_content_w() + border() * 2,
         150,
     );
     let bottom_max = resize_rect(
@@ -314,7 +323,7 @@ pub(super) fn selftest_geometry() -> &'static str {
         (0, 1000),
         (min, max),
         area,
-    ) == Rect::new(100, 50, 200, 300 + TITLE_H + BORDER);
+    ) == Rect::new(100, 50, 200, 300 + title_h() + border());
     let top_min = resize_rect(
         window,
         hit_edges(window, (180, 51)),
@@ -323,23 +332,23 @@ pub(super) fn selftest_geometry() -> &'static str {
         area,
     ) == Rect::new(
         100,
-        200 - (MIN_CONTENT_H + TITLE_H + BORDER),
+        200 - (min_content_h() + title_h() + border()),
         200,
-        MIN_CONTENT_H + TITLE_H + BORDER,
+        min_content_h() + title_h() + border(),
     );
 
     // A resize keeps the title bar reachable without moving the anchor: a
     // window already at the right reach limit cannot have its left edge
     // dragged off the screen, and a top edge stops at the work area's top.
-    let far = Rect::new(800 - TITLE_REACHABLE_W, 50, 400, 150);
+    let far = Rect::new(800 - title_reachable_w(), 50, 400, 150);
     let far_left = resize_rect(far, Edges(Edges::LEFT), (60, 0), (min, (1000, 1000)), area)
-        == Rect::new(800 - TITLE_REACHABLE_W, 50, 400, 150);
+        == Rect::new(800 - title_reachable_w(), 50, 400, 150);
     let top_stop = resize_rect(window, Edges(Edges::TOP), (0, -500), (min, max), area)
         == Rect::new(100, 0, 200, 200);
     // When the size bounds and reachability conflict (a window already past
     // the reach limit, e.g. after the work area shrank, at its maximum width)
     // the edge stays put rather than moving the anchor.
-    let wide = Rect::new(760, 50, 390 + BORDER * 2, 150);
+    let wide = Rect::new(760, 50, 390 + border() * 2, 150);
     let stuck = resize_rect(
         wide,
         Edges(Edges::LEFT),
@@ -352,10 +361,10 @@ pub(super) fn selftest_geometry() -> &'static str {
     let work = Rect::new(0, 0, 800, 572);
     let keep = |x, y| keep_reachable(Rect::new(x, y, 200, 150), work);
     let in_place = keep(100, 100) == (100, 100);
-    let off_left = keep(-500, 100) == (-(200 - TITLE_REACHABLE_W), 100);
-    let off_right = keep(900, 100) == (800 - TITLE_REACHABLE_W, 100);
+    let off_left = keep(-500, 100) == (-(200 - title_reachable_w()), 100);
+    let off_right = keep(900, 100) == (800 - title_reachable_w(), 100);
     let off_top = keep(100, -100) == (100, 0);
-    let off_bottom = keep(100, 1000) == (100, 572 - TITLE_H);
+    let off_bottom = keep(100, 1000) == (100, 572 - title_h());
 
     // Maximized fills the work area, the whole screen or less a shell taskbar.
     let with_bar = maximized_rect(Rect::new(0, 0, 800, 600 - 28)) == Rect::new(0, 0, 800, 572);
@@ -366,18 +375,18 @@ pub(super) fn selftest_geometry() -> &'static str {
     // Size hints clamp to the minimum and the screen, and refuse min > max.
     let hints = SizeHints::new(10, 10, 0, 0, (800, 600))
         == Some(SizeHints {
-            min_w: MIN_CONTENT_W,
-            min_h: MIN_CONTENT_H,
-            max_w: 800 - BORDER * 2,
-            max_h: 600 - TITLE_H - BORDER,
+            min_w: min_content_w(),
+            min_h: min_content_h(),
+            max_w: 800 - border() * 2,
+            max_h: 600 - title_h() - border(),
         });
     // A valid custom bound is kept, with an over-large max clamped to screen.
     let custom = SizeHints::new(200, 100, 5000, 5000, (800, 600))
         == Some(SizeHints {
             min_w: 200,
             min_h: 100,
-            max_w: 800 - BORDER * 2,
-            max_h: 600 - TITLE_H - BORDER,
+            max_w: 800 - border() * 2,
+            max_h: 600 - title_h() - border(),
         });
     let bad = SizeHints::new(400, 10, 100, 100, (800, 600)).is_none()
         && SizeHints::new(10, 10, 100, 100, (800, 600)).is_none();
@@ -386,15 +395,15 @@ pub(super) fn selftest_geometry() -> &'static str {
     // slides back onto the work area only when the new size would overflow it.
     let hint = SizeHints::new(160, 70, 600, 400, (800, 600)).unwrap();
     let small = requested_rect(window, (1, 1), &hint, work)
-        == Rect::new(100, 50, 164, 70 + TITLE_H + BORDER);
+        == Rect::new(100, 50, 164, 70 + title_h() + border());
     let huge = requested_rect(window, (9999, 9999), &hint, work)
-        == Rect::new(100, 50, 600 + BORDER * 2, 400 + TITLE_H + BORDER);
+        == Rect::new(100, 50, 600 + border() * 2, 400 + title_h() + border());
     let slide = requested_rect(Rect::new(700, 500, 204, 120), (300, 200), &hint, work)
         == Rect::new(
-            800 - (300 + BORDER * 2),
-            572 - (200 + TITLE_H + BORDER),
+            800 - (300 + border() * 2),
+            572 - (200 + title_h() + border()),
             304,
-            200 + TITLE_H + BORDER,
+            200 + title_h() + border(),
         );
     let request = small && huge && slide;
 

@@ -119,7 +119,7 @@ impl App for Consent {
 
 impl Consent {
     fn build(ui: &mut Ui<DevMsg>, path: &Path, package: &Package) -> Result<Consent, String> {
-        let bounds = ui.client_rect();
+        let bounds = xui_app::hidpi::design_rect(ui);
         let (width, height) = (bounds.width().max(360), bounds.height().max(260));
         let inner = width - 2 * MARGIN;
         let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;

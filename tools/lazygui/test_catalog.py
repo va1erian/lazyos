@@ -21,6 +21,7 @@ from lazygui.testplan import demo_argv, demo_config  # noqa: E402
 from lazygui.test_catalog_apps import (  # noqa: E402,F401
     DoomTests, LinuxAppsTests, ModPlayerTests,
 )
+from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 
 
 class HomeDiskPlanTests(unittest.TestCase):

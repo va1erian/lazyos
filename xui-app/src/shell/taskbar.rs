@@ -50,7 +50,9 @@ fn clock_style(ctx: &Ctx) -> TextStyle {
 pub fn measure_clock<M: 'static>(ctx: &Ctx, ui: &Ui<M>) -> bool {
     let format = ctx.theme.borrow().clock_format();
     let widest = lazyshell::clock::widest(format);
+    // Measured in screen pixels, kept in design pixels like the bar layout.
     let width = ui.measure_text(widest, &clock_style(ctx), ui.dpi()).width;
+    let width = (width + ctx.scale() - 1) / ctx.scale();
     ctx.clock_w.replace(width) != width
 }
 
@@ -133,25 +135,35 @@ impl App for BarApp {
     fn update(&mut self, msg: BarMsg, ui: &mut Ui<BarMsg>) {
         match msg {
             BarMsg::Repaint => ui.invalidate(self.root.id()),
-            BarMsg::Move(x, y) => self.set_hover(ui, self.hover_at(x, y)),
+            // Pointer events are in screen pixels, the bar layout in
+            // design pixels.
+            BarMsg::Move(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.set_hover(ui, self.hover_at(x, y))
+            }
             BarMsg::Leave => self.set_hover(ui, None),
-            BarMsg::Press(x, y) => self.press(ui, x, y),
+            BarMsg::Press(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.press(ui, x, y)
+            }
         }
     }
 }
 
-/// A shell rectangle as an xui one.
-fn rect(r: ShellRect) -> Rect {
-    Rect::new(r.x, r.y, r.x + r.w, r.y + r.h)
+/// A design-pixel shell rectangle as an xui one at scale `s`.
+fn rect(r: ShellRect, s: i32) -> Rect {
+    Rect::new(r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s)
 }
 
-/// Paint the whole bar from the shared state.
+/// Paint the whole bar from the shared state. The layout is in design
+/// pixels; `s` turns every size into screen pixels (docs/hidpi-plan.md).
 fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let palette = ctx.theme.borrow().palette();
+    let s = ctx.scale();
     let bounds = canvas.bounds();
     canvas.clear(color(palette.taskbar_bg));
     canvas.fill_rect(
-        Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + 1),
+        Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + s),
         color(palette.overlay_border),
     );
     let hover = ctx.bar_hover.get();
@@ -162,11 +174,11 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     } else {
         palette.taskbar_entry
     };
-    canvas.fill_rounded_rect(rect(START_BUTTON), 4.0, color(start_fill));
+    canvas.fill_rounded_rect(rect(START_BUTTON, s), 4.0 * s as f32, color(start_fill));
     let start_ink = color(uitheme::text_on(start_fill));
     canvas.draw_text(
         "LazyOS",
-        rect(START_BUTTON),
+        rect(START_BUTTON, s),
         &TextStyle::new(start_ink, TEXT).middle().bold().centered(),
     );
 
@@ -188,10 +200,11 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         } else {
             palette.taskbar_entry
         };
-        let area = rect(*slot);
-        canvas.fill_rounded_rect(area, 3.0, color(fill));
+        let area = rect(*slot, s);
+        let radius = 3.0 * s as f32;
+        canvas.fill_rounded_rect(area, radius, color(fill));
         if hover == Some(BarHover::Entry(index)) {
-            canvas.stroke_rounded_rect(area, 3.0, color(palette.overlay_border), 1.0);
+            canvas.stroke_rounded_rect(area, radius, color(palette.overlay_border), s as f32);
         }
         // Readable on the entry whatever colour the user picked (#502).
         let ink = if window.minimized {
@@ -200,9 +213,9 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
             uitheme::text_on(fill)
         };
         let label = Rect::new(
-            area.left + ENTRY_PAD,
+            area.left + ENTRY_PAD * s,
             area.top,
-            area.right - ENTRY_PAD,
+            area.right - ENTRY_PAD * s,
             area.bottom,
         );
         canvas.push_clip(label);
@@ -214,6 +227,6 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         canvas.pop_clip();
     }
 
-    let clock = rect(ctx.clock_rect());
+    let clock = rect(ctx.clock_rect(), s);
     canvas.draw_text(&ctx.clock.borrow(), clock, &clock_style(ctx).centered());
 }

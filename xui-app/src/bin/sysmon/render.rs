@@ -15,7 +15,7 @@ use crate::{State, CARD_GAP, CARD_H, CARD_MIN_H, FOOTER_H, TABLE_GAP};
 /// Paint the whole dashboard.
 pub(super) fn paint(canvas: &mut dyn Canvas, state: &State) {
     let theme = Theme::light();
-    let bounds = canvas.bounds();
+    let bounds = xui_app::hidpi::design_bounds(canvas);
     if compact::is_compact(bounds.width(), bounds.height()) {
         crate::compact_view::paint(canvas, theme, state);
         compact::paint_chip(canvas, theme, bounds);

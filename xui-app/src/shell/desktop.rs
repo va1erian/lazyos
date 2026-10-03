@@ -124,7 +124,8 @@ fn icon_for(app: &str) -> Icon {
     }
 }
 
-/// The desktop window's spec: the whole screen.
+/// The desktop window's spec: the whole screen (in design pixels, like
+/// every shell size; the backend draws it at the UI scale).
 pub fn spec(ctx: &Ctx) -> PlatformSpec {
     let (w, h) = ctx.screen;
     PlatformSpec::new("LazyShell desktop").size(Dip(w as f32), Dip(h as f32))
@@ -138,7 +139,13 @@ impl DesktopApp {
         ui.set_theme(desktop_theme(&ctx.theme.borrow().palette(), dark));
         let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
         let right = ctx.screen.0 - ICONS_INSET;
-        let area = Rect::new(right - ICONS_W, ICONS_INSET, right, bottom);
+        let s = ctx.scale();
+        let area = Rect::new(
+            (right - ICONS_W) * s,
+            ICONS_INSET * s,
+            right * s,
+            bottom * s,
+        );
         let model = Launchers {
             entries: ctx.launchers.borrow().clone(),
             images: Vec::new(),
@@ -152,7 +159,8 @@ impl DesktopApp {
 
         open_bar(&ctx, ui);
         let (w, h) = ctx.screen;
-        if let Err(code) = ctx.client.set_work_area(0, 0, w, h - BAR_H) {
+        let work = ctx.to_screen(ShellRect::new(0, 0, w, h - BAR_H));
+        if let Err(code) = ctx.client.set_work_area(work.x, work.y, work.w, work.h) {
             ctx.note("workarea", || format!("SHELL:WORKAREA:FAIL err={}", -code));
         }
         ctx.bar_changed();
@@ -173,7 +181,7 @@ impl DesktopApp {
 
     /// Launch launcher `index`, zooming its window open from the tile the
     /// pointer double-clicked (the desktop is at the screen origin, so window
-    /// pixels are screen pixels).
+    /// pixels are screen pixels, in design pixels here).
     fn launch(&self, index: usize) {
         let Some(app) = self
             .ctx
@@ -185,6 +193,7 @@ impl DesktopApp {
             return;
         };
         let (x, y) = self.ctx.backend.pointer();
+        let (x, y) = self.ctx.to_design(x, y);
         let (w, h) = self.ctx.screen;
         let origin = (x >= 0 && y >= 0 && x < w && y < h).then(|| {
             ShellRect::new(
@@ -235,7 +244,7 @@ impl DesktopApp {
             .launcher_icons
             .borrow()
             .iter()
-            .map(|path| self.images.get(path))
+            .map(|path| self.images.get_scaled(path, self.ctx.scale()))
             .collect();
         self.icons.set_model(Launchers {
             entries: self.ctx.launchers.borrow().clone(),
@@ -266,7 +275,7 @@ fn open_bar<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     let (w, _) = ctx.screen;
     ctx.backend.set_next_role(SurfaceRole::Panel {
         x: 0,
-        y: ctx.bar_y(),
+        y: ctx.bar_y() * ctx.scale(),
     });
     let spec = PlatformSpec::new("LazyShell taskbar").size(Dip(w as f32), Dip(BAR_H as f32));
     let built = Rc::clone(ctx);

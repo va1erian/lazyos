@@ -147,6 +147,26 @@ The boot log prints the table (`limits: ...`). `task::MAX_TASKS` (256) stays a
 compile-time constant. The kernel image runs at `0xffff_8000_0000_0000`
 (`mem::layout`): symbolize with `addr2line -e <kernel> <rip - 0xffff800000000000>`.
 
+## HiDPI (a 720p desktop at 2x)
+
+`python tools/run_demo.py --desktop --hidpi` (GUI: *HiDPI* on the Simple tab,
+*Display mode* on the Advanced tab) builds with `LAZYOS_DISPLAY_MODE=2560x1440`:
+the kernel switches QEMU's std VGA to that mode after boot (`display.mode` in
+`lazyos.cfg`, `kernel/src/display/bochs.rs`; the BIOS bootloader stops at
+1280x720), and the desktop draws a 1280x720 layout natively at 2x. `xuid`
+picks the scale (`sys/ui/scale`: `auto`, `1`, `2`; auto is 2 from 2560x1440)
+and hands it to clients with `GetOutput`; xui apps run at `96 * scale` DPI.
+The wire stays in physical pixels. Code laid out in pixel constants uses
+`xui_app::hidpi` (`design_bounds`, `rect`, `design_rect`). Plan and status:
+[`docs/hidpi-plan.md`](docs/hidpi-plan.md).
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json
+python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expect-height 1440
+LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
+```
+
 ## Docs app and the C++ toolchain
 
 `xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig

@@ -144,7 +144,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("arch_ready");
     // Interrupt vectors and the device syscall are live: print their evidence.
     dev::selfcheck();
-    input::mouse::set_bounds(info.width as i32, info.height as i32);
+    // The screen may have left the firmware mode (`display.mode`).
+    let (screen_w, screen_h) = display::size();
+    input::mouse::set_bounds(screen_w as i32, screen_h as i32);
 
     // Register the kernel (multiplexer) task and spawn the demo programs, the
     // injected Linux fixture, or a BusyBox shell.

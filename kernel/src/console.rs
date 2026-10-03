@@ -19,29 +19,49 @@ struct Console {
     baseline: usize,
     fg: Color,
     bg: Color,
+    /// Every glyph pixel is drawn as a `scale x scale` block (HiDPI,
+    /// docs/hidpi-plan.md): crisp at 2x, and the atlas stays one size.
+    scale: usize,
 }
 
 impl Console {
-    fn new(fb: Framebuffer) -> Self {
+    fn new(fb: Framebuffer, scale: usize) -> Self {
         let mut console = Console {
             fb,
-            pen_x: MARGIN,
-            baseline: font::ASCENDER.max(0) as usize,
+            pen_x: 0,
+            baseline: 0,
             fg: FOREGROUND,
             bg: BACKGROUND,
+            scale: scale.max(1),
         };
+        console.home();
         console.fb.clear(console.bg);
         console
     }
 
+    /// Put the pen at the top-left text position for the current scale.
+    fn home(&mut self) {
+        self.pen_x = self.margin();
+        self.baseline = font::ASCENDER.max(0) as usize * self.scale;
+    }
+
+    fn margin(&self) -> usize {
+        MARGIN * self.scale
+    }
+    fn advance(&self) -> usize {
+        font::ADVANCE as usize * self.scale
+    }
+    fn line_height(&self) -> usize {
+        font::LINE_HEIGHT as usize * self.scale
+    }
     fn bottom_margin(&self) -> usize {
-        font::DESCENDER.unsigned_abs() as usize
+        font::DESCENDER.unsigned_abs() as usize * self.scale
     }
     fn newline(&mut self) {
-        self.pen_x = MARGIN;
-        let next = self.baseline + font::LINE_HEIGHT as usize;
+        self.pen_x = self.margin();
+        let next = self.baseline + self.line_height();
         if next + self.bottom_margin() > self.fb.height() {
-            self.fb.scroll_up(font::LINE_HEIGHT as usize, self.bg);
+            self.fb.scroll_up(self.line_height(), self.bg);
         } else {
             self.baseline = next;
         }
@@ -49,13 +69,15 @@ impl Console {
 
     /// Move back one cell and erase it with the background colour.
     fn backspace(&mut self) {
-        if self.pen_x < MARGIN + font::ADVANCE as usize {
+        if self.pen_x < self.margin() + self.advance() {
             return;
         }
-        self.pen_x -= font::ADVANCE as usize;
-        let top = self.baseline.saturating_sub(font::ASCENDER.max(0) as usize);
-        for y in top..top + font::LINE_HEIGHT as usize {
-            for x in self.pen_x..self.pen_x + font::ADVANCE as usize {
+        self.pen_x -= self.advance();
+        let top = self
+            .baseline
+            .saturating_sub(font::ASCENDER.max(0) as usize * self.scale);
+        for y in top..top + self.line_height() {
+            for x in self.pen_x..self.pen_x + self.advance() {
                 self.fb.write_pixel(x, y, self.bg);
             }
         }
@@ -73,24 +95,31 @@ impl Console {
         }
         let start = glyph.offset as usize;
         let coverage = &COVERAGE[start..start + gw * gh];
-        let origin_x = self.pen_x as i32 + glyph.left;
-        let origin_y = self.baseline as i32 + glyph.top;
+        let scale = self.scale as i32;
+        let origin_x = self.pen_x as i32 + glyph.left * scale;
+        let origin_y = self.baseline as i32 + glyph.top * scale;
 
         for row in 0..gh {
-            let y = origin_y + row as i32;
-            if y < 0 || y as usize >= self.fb.height() {
-                continue;
-            }
             for col in 0..gw {
                 let alpha = coverage[row * gw + col];
                 if alpha == 0 {
                     continue;
                 }
-                let x = origin_x + col as i32;
-                if x < 0 || x as usize >= self.fb.width() {
-                    continue;
-                }
-                self.fb.blend_pixel(x as usize, y as usize, self.fg, alpha);
+                let x = origin_x + col as i32 * scale;
+                let y = origin_y + row as i32 * scale;
+                self.blend_block(x, y, alpha);
+            }
+        }
+    }
+
+    /// Blend one `scale x scale` block of glyph coverage, clipped.
+    fn blend_block(&mut self, x: i32, y: i32, alpha: u8) {
+        let scale = self.scale as i32;
+        let (width, height) = (self.fb.width() as i32, self.fb.height() as i32);
+        for py in y.max(0)..(y + scale).min(height) {
+            for px in x.max(0)..(x + scale).min(width) {
+                self.fb
+                    .blend_pixel(px as usize, py as usize, self.fg, alpha);
             }
         }
     }
@@ -105,8 +134,8 @@ impl fmt::Write for Console {
                 '\u{8}' => self.backspace(),
                 _ => {
                     self.draw_glyph(ch);
-                    self.pen_x += font::ADVANCE as usize;
-                    if self.pen_x + font::ADVANCE as usize + MARGIN > self.fb.width() {
+                    self.pen_x += self.advance();
+                    if self.pen_x + self.advance() + self.margin() > self.fb.width() {
                         self.newline();
                     }
                 }
@@ -118,8 +147,46 @@ impl fmt::Write for Console {
 
 /// Initialise the global console over the bootloader-provided framebuffer.
 pub fn init(base: usize, info: FrameBufferInfo) {
-    let console = Console::new(Framebuffer::new(base, info));
+    let console = Console::new(Framebuffer::new(base, info), 1);
     *CONSOLE.lock() = Some(console);
+}
+
+/// Swap the framebuffer for a new mode (docs/hidpi-plan.md, D1). `switch`
+/// reprograms the adapter while the console lock is held with interrupts
+/// off, so nothing draws on the old geometry meanwhile; on success the
+/// console restarts, cleared, on the returned framebuffer at the same scale.
+pub fn switch_mode<E>(
+    switch: impl FnOnce() -> Result<(usize, FrameBufferInfo), E>,
+) -> Result<FrameBufferInfo, E> {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut guard = CONSOLE.lock();
+        let scale = guard.as_ref().map_or(1, |console| console.scale);
+        let (base, info) = switch()?;
+        *guard = Some(Console::new(Framebuffer::new(base, info), scale));
+        Ok(info)
+    })
+}
+
+/// Draw text at `scale` from now on; the screen is cleared so no line mixes
+/// two sizes.
+pub fn set_scale(scale: usize) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if let Some(console) = CONSOLE.lock().as_mut() {
+            if console.scale != scale.max(1) {
+                console.scale = scale.max(1);
+                console.home();
+                console.fb.clear(console.bg);
+            }
+        }
+    })
+}
+
+/// The console's current scale (a test reads it to restore it).
+#[cfg(lazyos_tests)]
+pub fn scale() -> usize {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        CONSOLE.lock().as_ref().map_or(1, |console| console.scale)
+    })
 }
 
 /// Whether the console lock is held right now (the NMI hang report, issue #382).
@@ -139,5 +206,16 @@ pub fn locked() -> bool {
 pub fn with_framebuffer<R>(f: impl FnOnce(&mut Framebuffer) -> R) -> Option<R> {
     x86_64::instructions::interrupts::without_interrupts(|| {
         CONSOLE.lock().as_mut().map(|console| f(&mut console.fb))
+    })
+}
+
+/// Test hook: write text through the console, at its current scale.
+#[cfg(lazyos_tests)]
+pub fn write_for_test(text: &str) {
+    use fmt::Write as _;
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if let Some(console) = CONSOLE.lock().as_mut() {
+            let _ = console.write_str(text);
+        }
     })
 }

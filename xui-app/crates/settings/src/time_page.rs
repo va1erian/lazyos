@@ -29,7 +29,7 @@ pub enum TimeMsg {
 }
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    crate::layout::rect(x, y, w, h)
 }
 
 fn send(msg: TimeMsg) -> Option<Msg> {

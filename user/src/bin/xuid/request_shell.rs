@@ -157,6 +157,21 @@ impl Compositor {
     }
 }
 
+impl Compositor {
+    /// `GetOutput`: the screen in physical pixels and the UI scale
+    /// (docs/hidpi-plan.md). Open to every client: nothing here is private.
+    pub(super) fn get_output(&self, message: &Message) -> Parcel {
+        typed_reply(
+            message.method(),
+            wire::encode_get_output_reply(&wire::GetOutputReply {
+                width: self.screen.width() as u32,
+                height: self.screen.height() as u32,
+                scale: super::theme::scale() as u32,
+            }),
+        )
+    }
+}
+
 /// `GetTheme`: the chrome palette.
 pub(super) fn get_theme(message: &Message) -> Parcel {
     typed_reply(

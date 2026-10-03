@@ -261,6 +261,16 @@ impl Client {
         wire::decode_get_theme_reply(&reply.body).map_err(|_| -errno::EINVAL)
     }
 
+    /// `GetOutput`: the screen size and the desktop's UI scale
+    /// (docs/hidpi-plan.md), bounded like [`Client::get_theme`]. An older
+    /// compositor answers `EINVAL` and the caller assumes scale 1.
+    pub fn get_output(&self) -> Result<wire::GetOutputReply, i64> {
+        let parcel = request(wire::METHOD_GETOUTPUT, Vec::new(), Vec::new(), Vec::new());
+        let deadline = sys::clock_ticks().saturating_add(HINT_TICKS);
+        let reply = self.call_until(&parcel, deadline)?;
+        wire::decode_get_output_reply(&reply.body).map_err(|_| -errno::EINVAL)
+    }
+
     /// Drop `surface`; the compositor forgets it and repaints.
     pub fn destroy_surface(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })

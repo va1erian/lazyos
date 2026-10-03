@@ -9,7 +9,7 @@ use user::messenger::display::{wire, Canvas, Face, Rect};
 use super::compositor::Compositor;
 use super::layout::cursor_rect;
 use super::surface::Surface;
-use super::theme::{DRAG_ACCENT, DRAG_GHOST_BG};
+use super::theme::{px, DRAG_ACCENT, DRAG_GHOST_BG};
 use super::window::{contains, forward, relative, surface_by_id};
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ fn ghost_rect(mime: &str, point: (i32, i32)) -> Rect {
         .char_indices()
         .nth(24)
         .map_or(mime, |(end, _)| &mime[..end]);
-    let label = Face::Sans.width(shown) + 8;
-    Rect::new(point.0 + 6, point.1 + 6, 14 + label, 16)
+    let label = Face::Sans.width(shown) + px(8);
+    Rect::new(point.0 + px(6), point.1 + px(6), px(14) + label, px(16))
 }
 
 /// Tell surface `id` a drag carrying `mime` entered at `point`.
@@ -240,42 +240,47 @@ pub(super) fn draw_drag(
 ) {
     if let Some(surface) = session.target.and_then(|id| surface_by_id(surfaces, id)) {
         let content = surface.content();
+        let edge = px(3);
         screen.fill(
-            Rect::new(content.x, content.y, content.w, 3),
+            Rect::new(content.x, content.y, content.w, edge),
             clip,
             DRAG_ACCENT,
         );
         screen.fill(
-            Rect::new(content.x, content.y + content.h - 3, content.w, 3),
+            Rect::new(content.x, content.y + content.h - edge, content.w, edge),
             clip,
             DRAG_ACCENT,
         );
         screen.fill(
-            Rect::new(content.x, content.y, 3, content.h),
+            Rect::new(content.x, content.y, edge, content.h),
             clip,
             DRAG_ACCENT,
         );
         screen.fill(
-            Rect::new(content.x + content.w - 3, content.y, 3, content.h),
+            Rect::new(content.x + content.w - edge, content.y, edge, content.h),
             clip,
             DRAG_ACCENT,
         );
     }
     let ghost = ghost_rect(&session.mime, pointer);
-    screen.fill(Rect::new(ghost.x, ghost.y, 14, 14), clip, DRAG_ACCENT);
     screen.fill(
-        Rect::new(ghost.x + 3, ghost.y + 3, 8, 8),
+        Rect::new(ghost.x, ghost.y, px(14), px(14)),
+        clip,
+        DRAG_ACCENT,
+    );
+    screen.fill(
+        Rect::new(ghost.x + px(3), ghost.y + px(3), px(8), px(8)),
         clip,
         DRAG_GHOST_BG,
     );
-    let label = Rect::new(ghost.x + 14, ghost.y + 2, ghost.w - 14, 12);
+    let label = Rect::new(ghost.x + px(14), ghost.y + px(2), ghost.w - px(14), px(12));
     screen.fill(label, clip, DRAG_GHOST_BG);
     // `ghost_rect` reserves room for 24 characters but a MIME string may be
     // up to `display::MAX_MIME`; clip the text to the label so glyphs past it
     // (outside the drag's damage) cannot leave trails as the pointer moves.
     screen.text_face(
-        ghost.x + 18,
-        ghost.y + (16 - Face::Sans.height()) / 2,
+        ghost.x + px(18),
+        ghost.y + (px(16) - Face::Sans.height()) / 2,
         &session.mime,
         Face::Sans,
         DRAG_ACCENT,
