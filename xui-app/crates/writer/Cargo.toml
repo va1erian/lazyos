@@ -12,9 +12,9 @@ description = "LazyWriter, a word processor on xui-rich-text"
 publish = false
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50" }
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50", features = ["serde"] }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4" }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4", features = ["serde"] }
 
 [dev-dependencies]
 # Offscreen rendering for the headless window tests.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "2ad12feb3eb3a961855323e9520e29131a1eff50", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4", default-features = false }
