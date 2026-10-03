@@ -523,7 +523,8 @@ in-kernel suite, which has no scheduler.
 | `kernel/src/ipc/inet/sock.rs` | `InetSock`: states, `begin_*`/`finish` for the control calls, accept queue, `poll_gen`, close on drop |
 | `kernel/src/ipc/inet/pump.rs` | What `netd` calls: `next_request`, `complete`, `accepted`, `net_read`, `net_write`, `net_eof`, `net_error`, `close_ack`, and the wire form of a request |
 | `kernel/src/process/inetsys.rs` | Native syscall 27, the userspace face of the pump |
-| `kernel/src/process/linux/inet.rs` | `socket`, `bind`, `connect`, `listen`, `accept`/`accept4`, `shutdown`, `getsockname`/`getpeername`, `sendto`/`recvfrom`, `read`/`write`, `setsockopt`/`getsockopt` for `AF_INET` |
+| `kernel/src/process/linux/inet.rs` | `socket`, `bind`, `connect`, `listen`, `accept`/`accept4`, `shutdown`, `getsockname`/`getpeername`, `sendto`/`recvfrom`, `read`/`write` for `AF_INET` |
+| `kernel/src/process/linux/sockopt.rs`, `kernel/src/ipc/inet/timeout.rs` | `setsockopt`/`getsockopt`; `SO_RCVTIMEO`/`SO_SNDTIMEO` stored in ticks |
 | `kernel/src/ipc/pipe/small.rs` | 32 KiB rings (the kernel heap is 16 MiB; a socket's pair is 64 KiB, the cap is 128 rings) |
 | `user/src/bin/netd/inet.rs`, `inet/flow.rs`, `user/src/sys/inetpump.rs` | The pump in `netd` and its syscall wrapper |
 | `tools/abi/fixtures/src/netfix.rs` | The Linux `std::net` program the shim is judged by |
@@ -550,10 +551,19 @@ the kernel frees the slot only then.
 and every other op needs the attached task. Attaching again (a restarted `netd`) discards every
 socket of the old one: their applications read end of stream and get `EPIPE`.
 
+**Timeouts.** `SO_RCVTIMEO` and `SO_SNDTIMEO` behave as on Linux (docs/tls-plan.md §5.4): a
+`struct timeval` whose `tv_usec` is outside `0..1_000_000` is `EDOM`, a short `optlen` `EINVAL`,
+`{0, 0}` means none, a negative `tv_sec` gives up at once, and the value is kept rounded up to
+whole 10 ms ticks, which `getsockopt` reports. A blocking `read`/`recv`/`recvfrom` (UDP too) or
+`accept` that waits longer returns `EAGAIN`, a blocking `write`/`send`/`sendto` on a full ring
+returns `EAGAIN` (or the bytes it did write), and a blocking `connect` returns `EINPROGRESS`
+while the connection goes on. The deadline is fixed when the call starts; a signal still ends
+the wait with `EINTR`; non-blocking sockets are unaffected.
+
 **Limits and gaps.** Per-call `MSG_DONTWAIT` and `MSG_PEEK` are ignored (the descriptor's
 `O_NONBLOCK` is honoured); `sendmsg`/`recvmsg`, `select` and `ppoll` are not implemented (musl's
 resolver and `std` do not need them here); `setsockopt` accepts the usual options and ignores
-them; `AF_INET6`, raw sockets and netlink are still `EAFNOSUPPORT`; port numbers below 1024 are
+them, except `SO_RCVTIMEO` and `SO_SNDTIMEO`; `AF_INET6`, raw sockets and netlink are still `EAFNOSUPPORT`; port numbers below 1024 are
 refused by `netd` as for Messenger clients; a `netd` that dies leaves open sockets to see end
 of stream only when the new one attaches; latency is a tick per control step (about 10 ms per
 `connect`) and throughput is bounded by the 16 KiB chunk per tick per direction.

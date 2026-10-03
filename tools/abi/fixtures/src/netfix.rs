@@ -10,10 +10,13 @@
 //! half-close), `connect_timeout` (a non-blocking connect completed through
 //! `poll`), `refused` (a connect that must fail), `addrs` (local and peer
 //! addresses), `udp` (datagrams, a connected socket, the size limit),
-//! `listen` (accept a connection the harness opens and echo it). The final
-//! line is `ABI:netfix:PASS`/`FAIL` as for every fixture.
+//! `listen` (accept a connection the harness opens and echo it), and the
+//! stage T1 name checks of [`netfix_names`] (`resolv_conf`, `hosts`, `trust`,
+//! `dns`): musl's own `getaddrinfo` over `/etc/resolv.conf` and `/etc/hosts`.
+//! The final line is `ABI:netfix:PASS`/`FAIL` as for every fixture.
 
 mod common;
+mod netfix_names;
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -208,6 +211,14 @@ fn main() {
     check("refused", refused(), &mut failures);
     check("addrs", addrs(), &mut failures);
     check("udp", udp(), &mut failures);
+    check("resolv_conf", netfix_names::resolv_conf(), &mut failures);
+    check("hosts", netfix_names::hosts(), &mut failures);
+    check("trust", netfix_names::trust(), &mut failures);
+    match netfix_names::dns() {
+        Ok(Some(detail)) => check("dns", Ok(detail), &mut failures),
+        Ok(None) => {} // `NETFIX:dns:OFFLINE` already printed
+        Err(why) => check("dns", Err(why), &mut failures),
+    }
     check("listen", listen(), &mut failures);
     common::report("netfix", failures.is_empty(), &failures.join("; "));
 }

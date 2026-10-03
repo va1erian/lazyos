@@ -14,6 +14,7 @@ use crate::task::wait::WaitQueue;
 use crate::task::{self, WaitKind, WakeReason};
 
 use super::errno::*;
+use super::timeout::{Dir, Timeouts};
 use super::{Addr, Kind, Op, Request, State, ACCEPT_QUEUE, TABLE};
 
 /// Ticks (100 Hz) a control call waits for `netd` before `ETIMEDOUT`. `netd`
@@ -47,6 +48,8 @@ pub struct InetSock {
     pub(super) inner: Mutex<Inner>,
     pub(super) wq: WaitQueue,
     nonblock: AtomicBool,
+    /// `SO_RCVTIMEO` and `SO_SNDTIMEO`.
+    timeouts: Timeouts,
     /// Bumped on every state change, for `epoll` edge triggering.
     pub(super) events: AtomicU64,
 }
@@ -73,6 +76,7 @@ impl InetSock {
             }),
             wq: WaitQueue::new(WaitKind::Pipe),
             nonblock: AtomicBool::new(false),
+            timeouts: Timeouts::new(),
             events: AtomicU64::new(0),
         })
     }
@@ -109,6 +113,20 @@ impl InetSock {
         if let Some(pair) = &self.inner.lock().pair {
             pair.set_nonblock(Side::B, on);
         }
+    }
+
+    /// `SO_RCVTIMEO` or `SO_SNDTIMEO` in ticks; `None` is no timeout.
+    pub fn timeout(&self, dir: Dir) -> Option<u64> {
+        self.timeouts.get(dir)
+    }
+
+    pub fn set_timeout(&self, dir: Dir, ticks: Option<u64>) {
+        self.timeouts.set(dir, ticks);
+    }
+
+    /// The absolute tick a blocking call in `dir` starting now gives up at.
+    pub fn deadline(&self, dir: Dir) -> Option<u64> {
+        self.timeouts.deadline(dir)
     }
 
     /// The application's data path, if the socket has one.
@@ -154,9 +172,16 @@ impl InetSock {
     }
 
     /// Wait for `netd`'s answer to `ticket`. A non-blocking socket does not
-    /// wait: `connect` reports `EINPROGRESS`, the others `EAGAIN`.
+    /// wait: `connect` reports `EINPROGRESS`, the others `EAGAIN`. A blocking
+    /// `connect` waits no longer than `SO_SNDTIMEO` either, and then reports
+    /// `EINPROGRESS` too while the connection goes on, as Linux does.
     pub fn finish(&self, ticket: Ticket) -> Result<(), i32> {
-        let deadline = task::ticks() + CONTROL_WAIT_TICKS;
+        let control = task::ticks() + CONTROL_WAIT_TICKS;
+        let send = match ticket.0 {
+            Op::Connect(_) => self.deadline(Dir::Send).filter(|&at| at < control),
+            _ => None,
+        };
+        let deadline = send.unwrap_or(control);
         loop {
             if let Some(answer) = self.inner.lock().done.take() {
                 return answer;
@@ -178,8 +203,13 @@ impl InetSock {
                 // scheduler that is not running.
                 return Err(ETIMEDOUT);
             }
+            if send.is_some() && task::ticks() >= deadline {
+                return Err(self.detach(ticket, EINPROGRESS));
+            }
             match self.wq.wait(task::current(), Some(deadline)) {
                 WakeReason::Woken => {}
+                // Look once more: the answer may have come with the deadline.
+                WakeReason::TimedOut if send.is_some() => {}
                 WakeReason::TimedOut => return Err(self.detach(ticket, ETIMEDOUT)),
                 WakeReason::Interrupted => return Err(self.detach(ticket, EINTR)),
             }
@@ -243,8 +273,10 @@ impl InetSock {
         self.begin(Op::Listen(backlog.clamp(1, 8)))
     }
 
-    /// Take the next accepted connection, waiting for one unless non-blocking.
+    /// Take the next accepted connection, waiting for one unless non-blocking
+    /// (and, with `SO_RCVTIMEO`, no longer than that: then `EAGAIN`).
     pub fn accept(&self) -> Result<Arc<InetSock>, i32> {
+        let deadline = self.deadline(Dir::Recv);
         loop {
             {
                 let mut inner = self.inner.lock();
@@ -255,10 +287,10 @@ impl InetSock {
                     return Ok(conn);
                 }
             }
-            if self.nonblock() {
+            if self.nonblock() || deadline.is_some_and(|at| task::ticks() >= at) {
                 return Err(EAGAIN);
             }
-            match self.wq.wait(task::current(), None) {
+            match self.wq.wait(task::current(), deadline) {
                 WakeReason::Interrupted => return Err(EINTR),
                 WakeReason::Woken | WakeReason::TimedOut => {}
             }

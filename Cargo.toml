@@ -104,7 +104,7 @@ members = [
 # host-testable bindings crate and must not pull Rhai into the OS workspace.
 # `fuzz` holds the cargo-fuzz targets (libFuzzer, Linux CI only).
 # `lazyrad-os` is the same shape, built by `tools/lazyrad/build.py`.
-exclude = ["xui-app", "rhai-host", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
+exclude = ["xui-app", "rhai-host", "nettls", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
 resolver = "2"
 
 [build-dependencies]
@@ -127,6 +127,10 @@ fhs = { path = "libs/fhs", features = ["alloc"] }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }
+# The TLS trust anchors written to `/system/etc/ssl/certs/ca-certificates.crt`
+# (docs/tls-plan.md §5.2): Mozilla's root program (CCADB), pinned exactly so
+# the root set changes only with a deliberate bump.
+webpki-root-certs = "=1.0.9"
 
 [profile.dev]
 panic = "abort"

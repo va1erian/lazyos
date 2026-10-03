@@ -25,6 +25,7 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
+    python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -59,7 +60,8 @@ from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
 from demo_builds import (  # noqa: E402
-    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_xui_apps,
+    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_tls,
+    build_xui_apps,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
@@ -289,6 +291,11 @@ def main(argv: list[str]) -> int:
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--tls", action="store_true",
+                        help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
+                             "`wget` and `fetch` in /system/bin, one rustls program that "
+                             "verifies certificates against /etc/ssl/certs, built by "
+                             "tools/nettls/build.py (docs/tls-plan.md)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -314,6 +321,8 @@ def main(argv: list[str]) -> int:
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
     args.desktop = args.desktop or args.devices or args.doom or args.lazyrad
+    # HTTPS needs a network.
+    args.net = args.net or args.tls
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
@@ -370,6 +379,10 @@ def main(argv: list[str]) -> int:
             if not build_linuxapps():
                 return 1
             env["LAZYOS_LINUXAPPS"] = "1"
+        if args.tls:
+            if not build_tls():
+                return 1
+            env["LAZYOS_TLS"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
