@@ -573,11 +573,13 @@ jobs:
           sys.path.insert(0, "tools/screenshot")
           from pngstats import decode_png
 
-          # The document area only: below the toolbar and format row, above
-          # the taskbar. The pointer is parked off the window for both shots.
+          # The document area only: the 960x600 window's client area starts
+          # at (49, 70); this is below its toolbar and format row and above
+          # its status bar (which names the file, so it would differ even for
+          # an empty reopen). The pointer is parked off the window for both.
           def document(name):
               width, height, channels, pixels = decode_png(Path(f"shots/writer/shot_{name}.png"))
-              x0, x1, y0, y1 = 52, 1000, 144, 680
+              x0, x1, y0, y1 = 52, 1000, 144, 640
               return b"".join(
                   pixels[(y * width + x0) * channels : (y * width + x1) * channels]
                   for y in range(y0, y1)
