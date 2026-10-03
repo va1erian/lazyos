@@ -1,0 +1,208 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 300
+ },
+ {
+  "wait_for": "PKGD:UP:PASS",
+  "timeout": 120
+ },
+ {
+  "wait": 2
+ },
+ {
+  "type": "cp /sy"
+ },
+ {
+  "type": "stem/s"
+ },
+ {
+  "type": "hare/s"
+ },
+ {
+  "type": "amples"
+ },
+ {
+  "type": "/modpl"
+ },
+ {
+  "type": "ayer.l"
+ },
+ {
+  "type": "zp ~/ "
+ },
+ {
+  "type": "&& ech"
+ },
+ {
+  "type": "o stag"
+ },
+ {
+  "type": "ed"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:cp /system/share/samples/modplayer.lzp ~/ && echo staged",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:staged",
+  "timeout": 120
+ },
+ {
+  "type": "pkgctl"
+ },
+ {
+  "type": " insta"
+ },
+ {
+  "type": "ll ~/m"
+ },
+ {
+  "type": "odplay"
+ },
+ {
+  "type": "er.lzp"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:pkgctl install ~/modplayer.lzp",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "PKGD:INSTALL:PASS org.lazy.modplayer",
+  "timeout": 300
+ },
+ {
+  "wait_for": "TERM:OUT:PKGCTL:INSTALL:PASS",
+  "timeout": 60
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "01_installed"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_move": [
+   44,
+   702
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "SHELL:MENU:OPEN",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "02_menu"
+ },
+ {
+  "mouse_move": [
+   23,
+   -440
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "LRPLAY:UP:PASS",
+  "timeout": 120,
+  "retries": 1
+ },
+ {
+  "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.modplayer",
+  "timeout": 30
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "03_launched"
+ },
+ {
+  "mouse_move": [
+   141,
+   26
+  ]
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "mouse_click": "left",
+  "until": "LRPLAY:MODPLAY:PASS",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 10
+ },
+ {
+  "shot": "04_playing"
+ },
+ {
+  "wait_for": "LRPLAY:MODEND:PASS",
+  "timeout": 180
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "05_finished"
+ },
+ {
+  "quit": true
+ }
+]

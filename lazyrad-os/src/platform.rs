@@ -223,12 +223,20 @@ impl Platform for LazyOsPlatform {
     }
 
     /// The interfaces and topics the scripts' `sys::*` and literal `msg::*`
-    /// calls need, so an installed app is granted exactly those
-    /// (`rhai_lazy::msg::permissions`).
+    /// calls need (`rhai_lazy::msg::permissions`), plus the mixer's for a
+    /// script that plays a song (`crate::tracker`), so an installed app is
+    /// granted exactly those.
     fn script_permissions(&self, scripts: &[&str]) -> ScriptPermissions {
         let found = rhai_lazy::msg::permissions::derive(scripts.iter().copied());
+        let mut interfaces = found.interfaces;
+        for interface in crate::tracker::script_interfaces(scripts.iter().copied()) {
+            if !interfaces.contains(&interface) {
+                interfaces.push(interface);
+            }
+        }
+        interfaces.sort();
         ScriptPermissions {
-            interfaces: found.interfaces,
+            interfaces,
             topics: found.topics,
         }
     }
@@ -394,6 +402,15 @@ mod tests {
         ]);
         assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
         assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
+    }
+
+    #[test]
+    fn packaged_apps_that_play_songs_declare_the_mixer() {
+        let found = LazyOsPlatform::ide(home("/home/user")).script_permissions(&[
+            "fn go() { let d = modplay::play(modplay::decode(SONG)); }",
+            "fn theme() { sys::confd::get(\"sys/ui/theme\") }",
+        ]);
+        assert_eq!(found.interfaces, ["os.lazy.audio.v1", "os.lazy.confd.v1"]);
     }
 
     #[test]

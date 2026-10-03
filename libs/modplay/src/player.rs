@@ -1,7 +1,9 @@
 //! Row/tick sequencing and the render loop.
 
+use core::borrow::Borrow;
+
 use crate::channel::{Channel, Flow};
-use crate::mixer::{mix, Pan};
+use crate::mixer::{mix, Pan, Voice};
 use crate::module::{Module, CHANNELS, ROWS_PER_PATTERN};
 
 /// Player settings.
@@ -39,8 +41,12 @@ const VISITED_WORDS: usize = 128 * ROWS_PER_PATTERN / 64;
 
 /// Renders one module. Create it with [`Player::new`], then call
 /// [`Player::render`] until it returns `0`.
-pub struct Player<'a> {
-    module: &'a Module,
+///
+/// `M` is how the player holds the module: `&Module` for a caller that keeps
+/// it on its stack, or an owning pointer (`Rc<Module>`) for one that keeps
+/// the player in a long-lived object, such as a UI's playback deck.
+pub struct Player<M: Borrow<Module>> {
+    module: M,
     rate: u32,
     options: Options,
     pan: Pan,
@@ -60,12 +66,14 @@ pub struct Player<'a> {
     plays: u32,
     finished: bool,
     unsupported: u32,
+    /// Bit `n` set: channel `n` is left out of the mix.
+    muted: u8,
 }
 
-impl<'a> Player<'a> {
+impl<M: Borrow<Module>> Player<M> {
     /// A player at the start of `module`, mixing at `rate` Hz (clamped to
     /// 8000..=192000, the range the audio driver accepts).
-    pub fn new(module: &'a Module, rate: u32, options: Options) -> Player<'a> {
+    pub fn new(module: M, rate: u32, options: Options) -> Player<M> {
         let mut player = Player {
             module,
             rate: rate.clamp(8_000, 192_000),
@@ -85,6 +93,7 @@ impl<'a> Player<'a> {
             plays: 0,
             finished: false,
             unsupported: 0,
+            muted: 0,
         };
         player.mark_visited();
         player
@@ -108,9 +117,90 @@ impl<'a> Player<'a> {
         self.unsupported
     }
 
-    /// Current volume of each channel, `0..=64` (for level meters).
+    /// The module being played.
+    pub fn module(&self) -> &Module {
+        self.module.borrow()
+    }
+
+    /// The mixing rate in Hz, after clamping.
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
+    /// The current settings (separation and interpolation change live).
+    pub fn options(&self) -> Options {
+        self.options
+    }
+
+    /// Ticks per row (`Fxx` below 32).
+    pub fn speed(&self) -> u8 {
+        self.speed
+    }
+
+    /// Beats per minute (`Fxx` from 32).
+    pub fn tempo(&self) -> u8 {
+        self.tempo
+    }
+
+    /// Current volume of each channel while its voice sounds, `0..=64` (for
+    /// level meters): a muted channel or a one-shot sample that ran out
+    /// reads `0`.
     pub fn levels(&self) -> [u8; CHANNELS] {
-        core::array::from_fn(|i| self.channels[i].volume())
+        core::array::from_fn(|i| {
+            let channel = &self.channels[i];
+            if self.is_muted(i) || channel.voice.sample.is_none() {
+                0
+            } else {
+                channel.volume()
+            }
+        })
+    }
+
+    /// Leave `channel` out of the mix (or put it back). The channel keeps
+    /// playing silently, so unmuting rejoins the song in time.
+    pub fn set_muted(&mut self, channel: usize, muted: bool) {
+        if channel < CHANNELS {
+            let bit = 1 << channel;
+            if muted {
+                self.muted |= bit;
+            } else {
+                self.muted &= !bit;
+            }
+        }
+    }
+
+    /// Whether `channel` is muted (`false` for a channel that does not exist).
+    pub fn is_muted(&self, channel: usize) -> bool {
+        channel < CHANNELS && self.muted & (1 << channel) != 0
+    }
+
+    /// Change the stereo separation (`0..=100`) from the next frame on.
+    pub fn set_separation(&mut self, separation: u8) {
+        self.options.separation = separation.min(100);
+        self.pan = Pan::new(self.options.separation);
+    }
+
+    /// Turn linear interpolation on or off from the next frame on.
+    pub fn set_interpolate(&mut self, interpolate: bool) {
+        self.options.interpolate = interpolate;
+    }
+
+    /// Continue from the first row of `order` (clamped to the song), as a
+    /// tracker's "next/previous pattern" does: the voices keep sounding
+    /// until the new row retriggers them, and a song that had finished plays
+    /// again. The loop count starts over.
+    pub fn seek(&mut self, order: usize) {
+        let last = self.module.borrow().orders.len().saturating_sub(1);
+        self.order = order.min(last);
+        self.row = 0;
+        self.tick = 0;
+        self.delay = 0;
+        self.flow = Flow::default();
+        self.left_in_tick = 0;
+        self.visited = [0; VISITED_WORDS];
+        self.plays = 0;
+        self.finished = false;
+        self.mark_visited();
     }
 
     /// Fill `out` with interleaved stereo frames. Returns the frames written,
@@ -123,16 +213,26 @@ impl<'a> Player<'a> {
                 self.begin_tick();
             }
             let n = (frames - done).min(self.left_in_tick as usize);
-            let mut voices = core::array::from_fn(|i| self.channels[i].voice);
+            let mut voices: [Voice; CHANNELS] = core::array::from_fn(|i| {
+                let mut voice = self.channels[i].voice;
+                if self.is_muted(i) {
+                    voice.volume = 0;
+                }
+                voice
+            });
             mix(
                 &mut voices,
-                &self.module.samples,
+                &self.module.borrow().samples,
                 &self.pan,
                 self.options.interpolate,
                 &mut out[done * 2..(done + n) * 2],
             );
             for (channel, voice) in self.channels.iter_mut().zip(voices) {
+                // Only the cursor advances here; the gain is the channel's
+                // own (a mute applies to the mix, not to the song).
+                let volume = channel.voice.volume;
                 channel.voice = voice;
+                channel.voice.volume = volume;
             }
             done += n;
             self.left_in_tick -= n as u32;
@@ -164,8 +264,9 @@ impl<'a> Player<'a> {
     fn start_row(&mut self) {
         let mut flow = Flow::default();
         for (index, channel) in self.channels.iter_mut().enumerate() {
-            let note = self.module.note(self.order, self.row, index);
-            if channel.row(note, self.module, self.row, &mut flow) {
+            let module = self.module.borrow();
+            let note = module.note(self.order, self.row, index);
+            if channel.row(note, module, self.row, &mut flow) {
                 self.unsupported += 1;
             }
         }
@@ -239,8 +340,9 @@ impl<'a> Player<'a> {
             order += 1;
         }
         let mut wrapped = false;
-        if order >= self.module.orders.len() {
-            order = usize::from(self.module.restart);
+        let module = self.module.borrow();
+        if order >= module.orders.len() {
+            order = usize::from(module.restart);
             wrapped = true;
         }
         self.order = order;

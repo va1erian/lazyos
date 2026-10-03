@@ -22,6 +22,12 @@ pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
 /// Written by the image build.
 pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
 
+/// The LazyRAD MOD player package (`org.lazy.modplayer`,
+/// `LAZYOS_MODPLAYER=1` images): a user package, copied to the user's home
+/// and installed from there with `pkgctl install`, like [`DOOM_LZP`].
+/// Written by the image build.
+pub const MODPLAYER_LZP: &str = "/system/share/samples/modplayer.lzp";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";
@@ -35,7 +41,7 @@ mod tests {
         for path in [MIME_TYPES, SAMPLES, LAZYRAD_SAMPLES] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
-        for path in [TESTDOC, PKGDEMO, DOOM_LZP] {
+        for path in [TESTDOC, PKGDEMO, DOOM_LZP, MODPLAYER_LZP] {
             assert!(path.starts_with(SAMPLES), "{path}");
         }
     }

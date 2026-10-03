@@ -22,7 +22,7 @@ import qemu_net  # noqa: E402  (the QEMU network arguments run_demo and the tool
 #: LazyOS-only LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
 #: `/system/share/lazyrad/` with every LazyRAD image next to any the user lists. Relative
 #: entries resolve against the repo root (`build_support/lazyrad_embed.rs`).
-LAZYOS_LAZYRAD_SAMPLES = ("lazyrad-os/samples/messenger",)
+LAZYOS_LAZYRAD_SAMPLES = ("lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer")
 CARGO = shutil.which("cargo") or "cargo"
 IMAGE = os.path.join(ROOT, "target", "lazyos.img")
 # The persistent ext2 home volume (mounted at /home); `run_demo.py` creates it
@@ -161,6 +161,12 @@ def build_env(cfg: dict) -> dict[str, str]:
         # Places the Doom package (built by `tools/doom/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
         env["LAZYOS_DOOM"] = "1"
+    if cfg.get("modplayer"):
+        # Places modplayer.lzp (built by `tools/lazyrad/package.py`) in /system/share/samples on the OS
+        # volume; the player it carries is LazyRAD's, so LazyRAD comes too.
+        env["LAZYOS_MODPLAYER"] = "1"
+        env["LAZYOS_LAZYRAD"] = "1"
+        env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
     if cfg.get("net"):
         # The network stack (driver, `netd`, the shell tools and, on the
         # desktop, the Network and Net Tools apps). `demo=0` leaves out the
@@ -200,17 +206,18 @@ def lazyrad_samples(user: str) -> str:
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
-                  net: bool = False) -> dict:
+                  modplayer: bool = False, net: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
     image (it is an xui app, so it means nothing on the CLI), ``shell``
     keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
-    opens the Devices app at boot and ``doom`` adds the Doom package (likewise
-    Desktop only); ``net`` adds networking to either interface (the stack,
-    QEMU's user network with host port 8080 forwarded, and on the desktop the
-    Network and Net Tools apps). Machine settings (accelerator, memory, QEMU path)
+    opens the Devices app at boot, ``doom`` adds the Doom package and
+    ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
+    adds networking to either interface (the stack, QEMU's user network with
+    host port 8080 forwarded, and on the desktop the Network and Net Tools
+    apps). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -249,6 +256,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "shell": desktop and shell,
         "devices": desktop and devices,
         "doom": desktop and doom,
+        "modplayer": desktop and modplayer,
         "net": net,
         "net_forwards": "",
         "net_restrict": False,
@@ -281,7 +289,7 @@ def core_packages_step() -> dict:
 
 def lazyrad_step(cfg: dict) -> list[dict]:
     """The step that builds LazyRAD's static-musl ELFs, when the image embeds them."""
-    if not cfg.get("lazyrad"):
+    if not cfg.get("lazyrad") and not cfg.get("modplayer"):
         return []
     return [{"label": "Build LazyRAD (static musl)",
              "argv": [PY, "tools/lazyrad/build.py"]}]
@@ -295,9 +303,18 @@ def doom_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/doom/build.py", "--require"]}]
 
 
+def modplayer_step(cfg: dict) -> list[dict]:
+    """The step that packages the LazyRAD MOD player, when the image embeds it
+    (after `lazyrad_step`: the package carries the player it built)."""
+    if not cfg.get("modplayer"):
+        return []
+    return [{"label": "Package the MOD player (LazyRAD)",
+             "argv": [PY, "tools/lazyrad/package.py", "--no-build", "--require"]}]
+
+
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
-    return lazyrad_step(cfg) + doom_step(cfg)
+    return lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg)
 
 
 def _script(cfg: dict) -> tuple:
@@ -321,6 +338,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("doom") and not cfg["skip_build"]:
             # run_demo builds the package and sets LAZYOS_DOOM itself.
             argv.append("--doom")
+        if cfg.get("modplayer") and not cfg["skip_build"]:
+            # run_demo builds LazyRAD and the package and sets the switches.
+            argv.append("--modplayer")
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")

@@ -1,0 +1,19 @@
+name = "ModPlayer"
+version = "1.0.0"
+startup = "main_form"
+
+[[items]]
+kind = "form"
+name = "main_form"
+layout = "main_form.lfm"
+code = "main_form.rhai"
+
+[[items]]
+kind = "module"
+name = "cells"
+code = "cells.rhai"
+
+[[items]]
+kind = "module"
+name = "demo_song"
+code = "demo_song.rhai"

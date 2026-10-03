@@ -21,7 +21,8 @@ import run_demo  # noqa: E402
 LABEL_OFFSET = 1024 + 120  # ext2 s_volume_name
 # No drive letter: on Linux `os.pathsep` is `:`, which would split `C:\...`.
 SAMPLES = [os.path.join(os.sep, "lr", "hello"), os.path.join(os.sep, "lr", "calc")]
-MESSENGER_SAMPLE = "lazyrad-os/samples/messenger"
+#: The LazyOS-only samples every LazyRAD image embeds (`catalog.LAZYOS_LAZYRAD_SAMPLES`).
+LAZYOS_SAMPLES = ["lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer"]
 
 
 class PrepareHomeDiskTests(unittest.TestCase):
@@ -198,9 +199,9 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, 0)
         built.assert_called_once()
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        # The caller's samples first, then the LazyOS-only Messenger demo.
+        # The caller's samples first, then the LazyOS-only ones.
         self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
-                         SAMPLES + [MESSENGER_SAMPLE])
+                         SAMPLES + LAZYOS_SAMPLES)
 
     def test_lazyrad_alone_embeds_only_the_lazyos_samples(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False), \
@@ -208,7 +209,19 @@ class MainTests(unittest.TestCase):
             os.environ.pop("LAZYRAD_SAMPLES", None)
             self.run_main("--lazyrad")
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
-        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES"), MESSENGER_SAMPLE)
+        self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
+                         LAZYOS_SAMPLES)
+
+    def test_modplayer_brings_lazyrad_the_desktop_and_a_sound_card(self) -> None:
+        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as lazyrad,                 mock.patch.object(run_demo, "build_modplayer", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--modplayer")
+        self.assertEqual(code, 0)
+        lazyrad.assert_called_once()
+        package.assert_called_once()
+        env = self.builds[-1]
+        for switch in ("LAZYOS_MODPLAYER", "LAZYOS_LAZYRAD", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
+            self.assertEqual(env.get(switch), "1", switch)
+        self.assertIn("virtio-sound-pci,audiodev=snd0", command)
 
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
