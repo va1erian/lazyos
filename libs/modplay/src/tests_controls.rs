@@ -179,5 +179,8 @@ fn a_loop_range_sustains_after_the_attack() {
     assert_eq!(module.samples[0].loop_range, Some((64, 80)));
     let mut player = Player::new(&module, RATE, options());
     let out = render(&mut player, 4 * ROW);
-    assert!(out[out.len() - 200..].iter().any(|&s| s != 0), "still sounding");
+    assert!(
+        out[out.len() - 200..].iter().any(|&s| s != 0),
+        "still sounding"
+    );
 }

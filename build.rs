@@ -13,14 +13,14 @@ mod core_packages;
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]
 mod doom_embed;
-#[path = "build_support/modplayer_embed.rs"]
-mod modplayer_embed;
 #[path = "build_support/drivers.rs"]
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/modplayer_embed.rs"]
+mod modplayer_embed;
 #[path = "build_support/os_disk.rs"]
 mod os_disk;
 #[path = "build_support/os_image.rs"]
