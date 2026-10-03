@@ -67,17 +67,34 @@ fn empty_and_tiny_scripts_are_fine() {
     }
 }
 
+/// The checked-in seeds (`fuzz/seeds/ext2fs`) and saved crashes
+/// (`fuzz/regressions/ext2fs`), so a fixed bug stays fixed under plain
+/// `cargo test`.
 #[test]
 fn the_checked_in_seeds_replay() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/ext2fs");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    let fuzz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz");
+    let seeds = fuzz.join("seeds/ext2fs");
+    let Ok(entries) = std::fs::read_dir(&seeds) else {
         return; // a source drop without the fuzz/ tree
     };
+    let regressions = std::fs::read_dir(fuzz.join("regressions/ext2fs"))
+        .into_iter()
+        .flatten();
     let mut seen = 0;
-    for entry in entries {
+    for entry in entries.chain(regressions) {
         let path = entry.unwrap().path();
         run(&std::fs::read(&path).unwrap());
         seen += 1;
     }
-    assert!(seen > 0, "{} holds no seeds", dir.display());
+    assert!(seen > 0, "{} holds no seeds", seeds.display());
+}
+
+/// A superblock whose inodes span fewer groups than its blocks (which `open`
+/// allows) made the repair scan underflow `inodes_count - base`
+/// (`fuzz/regressions/ext2fs/repair-inode-groups-underflow`).
+#[test]
+fn repair_with_fewer_inode_groups_than_block_groups() {
+    run(&[
+        1, 3, 0x64, 0x30, 0, 4, 0x21, 0xff, 4, 0x2d, 0x22, 3, 0, 4, 0x21, 1,
+    ]);
 }

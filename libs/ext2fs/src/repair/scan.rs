@@ -129,8 +129,7 @@ impl Ext2 {
                 }
             }
             self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
-            let base = group * self.inodes_per_group;
-            let count = self.inodes_per_group.min(self.inodes_count - base);
+            let (base, count) = self.group_inodes(group);
             for bit in 0..count {
                 if Self::bitmap_test(&bitmap[..size], bit)? {
                     scan.inode_used.set(base + bit + 1);

@@ -221,8 +221,7 @@ impl Ext2 {
             let span = self.blocks_per_group.min(self.blocks_count - start);
             self.read_block(u64::from(desc.block_bitmap), &mut bitmap[..size])?;
             let blocks = count_clear(&bitmap[..size], span)?;
-            let base = group * self.inodes_per_group;
-            let count = self.inodes_per_group.min(self.inodes_count - base);
+            let (base, count) = self.group_inodes(group);
             self.read_block(u64::from(desc.inode_bitmap), &mut bitmap[..size])?;
             let inodes = count_clear(&bitmap[..size], count)?;
             let mut dirs = 0u32;
