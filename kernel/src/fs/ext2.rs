@@ -45,9 +45,9 @@ impl Ext2 {
     /// Probe `device` for an ext2 superblock and mount it, reading and
     /// writing the device directly. Any malformed or unsupported image is
     /// refused with a friendly [`FsError`]; nothing here trusts the disk. The
-    /// tests that judge the device's bytes after every write use this; real
-    /// mounts go through [`Ext2::open_cached`].
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
+    /// tests that judge the device's bytes after every write use this, and so
+    /// does a volume on a user-space provider disk (`mounts::open_ext2`);
+    /// other mounts go through [`Ext2::open_cached`].
     pub fn open(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
         Ext2::mount(device, None)
     }
