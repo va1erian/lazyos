@@ -85,10 +85,9 @@ pub mod op {
     pub const AUTHORIZE_TOPIC: u64 = 17;
     /// Replace every rule of one label (`CAP_IPC_CONTROL`; see [`super::policy`]).
     pub const ACL_LOAD: u64 = 18;
-    /// Park until one of several endpoints (or the raw input bus) is ready.
+    /// Park until one of several endpoints (or a doorbell) is ready; see
+    /// [`super::wait`].
     pub const WAIT: u64 = 19;
-    /// `flags` of [`WAIT`]: also wake on the caller's raw input ring.
-    pub const WAIT_RAW_INPUT: u64 = 1;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A

@@ -348,7 +348,9 @@ pub fn push_event(event: Event) {
 }
 
 /// Queue a key press/release, translating the terminal key into a [`key`]
-/// code. Called from the keyboard IRQ when a compositor is bound.
+/// code. Called from the keyboard IRQ when a compositor is bound. Rings the
+/// compositor's key doorbell (P1.4); pointer events do not, because with
+/// `inputd` running the compositor takes the pointer from it instead.
 pub fn push_key(key: Key, down: bool) {
     let kind = if down { event::KEY_DOWN } else { event::KEY_UP };
     push_event(Event {
@@ -357,6 +359,34 @@ pub fn push_key(key: Key, down: bool) {
         b: 0,
         reserved: 0,
     });
+    let waiter = KEY_WAITER.swap(NO_OWNER, Ordering::AcqRel);
+    if waiter != NO_OWNER {
+        crate::ipc::channels::wake_parked(waiter);
+    }
+}
+
+/// The compositor while it waits for a key (`channels::wait_any`).
+static KEY_WAITER: AtomicUsize = AtomicUsize::new(NO_OWNER);
+
+/// Ring `me`'s doorbell on the next key, unless input is already queued.
+/// Returns whether input is waiting (nothing armed then); `Err` unless `me`
+/// owns the display.
+pub fn arm_key_doorbell(me: usize) -> Result<bool, ()> {
+    if OWNER.load(Ordering::Relaxed) != me || me == NO_OWNER {
+        return Err(());
+    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if !EVENTS.lock().is_empty() {
+            return Ok(true);
+        }
+        KEY_WAITER.store(me, Ordering::Release);
+        Ok(false)
+    })
+}
+
+/// Withdraw `me`'s key doorbell, if armed.
+pub fn disarm_key_doorbell(me: usize) {
+    let _ = KEY_WAITER.compare_exchange(me, NO_OWNER, Ordering::AcqRel, Ordering::Acquire);
 }
 
 /// Queue a pointer move.
@@ -438,5 +468,12 @@ fn key_code(key: Key) -> u32 {
 pub fn reset() {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);
+    KEY_WAITER.store(NO_OWNER, Ordering::Relaxed);
     EVENTS.lock().clear();
+}
+
+/// Test-harness hook: make `slot` the display owner without a bind.
+#[cfg(lazyos_tests)]
+pub fn set_owner_for_test(slot: usize) {
+    OWNER.store(slot, Ordering::Relaxed);
 }

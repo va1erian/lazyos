@@ -64,8 +64,8 @@ extern "C" fn waiter() -> ! {
             0 => None,
             ticks => Some(ticks),
         };
-        let raw = RAW.load(Ordering::Relaxed) != 0;
-        let outcome = match channels::wait_any(&handles, raw, deadline) {
+        let doorbells = RAW.load(Ordering::Relaxed);
+        let outcome = match channels::wait_any(&handles, doorbells, deadline) {
             Ok(mask) => mask,
             Err(ChannelError::TimedOut) => TIMED_OUT,
             Err(_) => FAILED,
@@ -170,27 +170,35 @@ pub fn ready_masks() -> Result<(), String> {
     let receivers: Vec<u64> = pairs.iter().map(|p| p.1).collect();
     channels::send(pairs[1].0, &message).map_err(|e| format!("{e:?}"))?;
     channels::send(pairs[3].0, &message).map_err(|e| format!("{e:?}"))?;
-    let mask = channels::wait_any(&receivers, false, None).map_err(|e| format!("{e:?}"))?;
+    let mask = channels::wait_any(&receivers, 0, None).map_err(|e| format!("{e:?}"))?;
     check!(mask == 0b1010, "queued messages gave mask {mask:#b}");
     channels::close_endpoint(pairs[0].0).map_err(|e| format!("{e:?}"))?;
-    let mask = channels::wait_any(&receivers, false, None).map_err(|e| format!("{e:?}"))?;
+    let mask = channels::wait_any(&receivers, 0, None).map_err(|e| format!("{e:?}"))?;
     check!(mask == 0b1011, "a closed peer is not ready: mask {mask:#b}");
     check!(chan::total_waiters() == 0, "a ready wait left registrations");
     check!(
-        channels::wait_any(&[], false, None) == Err(ChannelError::BadParcel),
+        channels::wait_any(&[], 0, None) == Err(ChannelError::BadParcel),
         "an empty set was accepted"
+    );
+    check!(
+        channels::wait_any(&receivers[1..2], 4, None) == Err(ChannelError::BadParcel),
+        "an unknown doorbell was accepted"
+    );
+    check!(
+        channels::wait_any(&[], channels::WAIT_DISPLAY_KEYS, None) == Err(ChannelError::WrongKind),
+        "the display doorbell was accepted from a task that does not own the display"
     );
     let nine = [receivers[1]; ENDPOINTS + 1];
     check!(
-        channels::wait_any(&nine, false, None) == Err(ChannelError::BadParcel),
+        channels::wait_any(&nine, 0, None) == Err(ChannelError::BadParcel),
         "an oversized set was accepted"
     );
     check!(
-        channels::wait_any(&[0xdead], false, None).is_err(),
+        channels::wait_any(&[0xdead], 0, None).is_err(),
         "a bad handle was accepted"
     );
     check!(
-        channels::wait_any(&[], true, None) == Err(ChannelError::WrongKind),
+        channels::wait_any(&[], channels::WAIT_RAW_INPUT, None) == Err(ChannelError::WrongKind),
         "the raw bus was accepted without a consumer ring"
     );
     channels::reset();
@@ -268,6 +276,43 @@ pub fn raw_input_doorbell() -> Result<(), String> {
     rig.teardown()
 }
 
+/// The display key doorbell: a key pushed into the display input queue
+/// wakes the owner parked with `WAIT_DISPLAY_KEYS`; a pointer event does not
+/// (the compositor takes the pointer from `inputd`), and only the owner may
+/// arm it.
+pub fn display_key_doorbell() -> Result<(), String> {
+    use crate::input::keyboard::Key;
+    let rig = rig(1)?;
+    crate::display::reset();
+    crate::display::set_owner_for_test(rig.thread);
+    RAW.store(channels::WAIT_DISPLAY_KEYS, Ordering::Relaxed);
+    let before = WAITS.load(Ordering::Relaxed);
+    rig.start_wait()?;
+    crate::display::push_key(Key::Char('a'), true);
+    let mask = rig.finish_wait(before)?;
+    check!(mask == channels::DISPLAY_INPUT_READY, "a key gave mask {mask:#x}");
+
+    crate::display::reset();
+    crate::display::set_owner_for_test(rig.thread);
+    let before = WAITS.load(Ordering::Relaxed);
+    rig.start_wait()?;
+    crate::display::push_pointer_move(3, 4);
+    task::preempt_point();
+    check!(
+        WAITS.load(Ordering::Relaxed) == before,
+        "a pointer move rang the key doorbell"
+    );
+    channels::send(rig.senders[0], &parcel_bytes()?).map_err(|e| format!("{e:?}"))?;
+    let mask = rig.finish_wait(before)?;
+    check!(mask & 1 != 0, "the endpoint did not wake the parked owner: {mask:#x}");
+    check!(
+        crate::display::arm_key_doorbell(task::KERNEL_TASK).is_err(),
+        "a task that does not own the display armed its doorbell"
+    );
+    crate::display::reset();
+    rig.teardown()
+}
+
 /// Soak: 100 000 rounds of a send to a pseudo-random one of eight
 /// endpoints, interleaved with bus publications, each waking the parked
 /// thread with exactly the right bit; no registration or queue entry leaks.
@@ -315,5 +360,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_waitset_ready_masks", ready_masks),
     ("ipc_waitset_wakes_on_any", wakes_on_any),
     ("ipc_waitset_raw_input_doorbell", raw_input_doorbell),
+    ("ipc_waitset_display_key_doorbell", display_key_doorbell),
     ("ipc_waitset_soak", wait_any_soak),
 ];

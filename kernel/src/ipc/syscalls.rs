@@ -82,7 +82,7 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
     };
     // Flags are reserved, except the ones `close_endpoint` and `wait` know.
     let allowed = (op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE)
-        || (op == OP_WAIT && args.flags & !WAIT_RAW_INPUT == 0);
+        || (op == OP_WAIT && args.flags & !channels::WAIT_DOORBELLS == 0);
     if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
     }
@@ -273,8 +273,7 @@ fn op_wait(args: &MsgArgs) -> Result<MsgResult, i64> {
     for (handle, word) in handles.iter_mut().zip(bytes.chunks_exact(8)) {
         *handle = u64::from_le_bytes(word.try_into().map_err(|_| errno::EFAULT)?);
     }
-    let raw_input = args.flags & WAIT_RAW_INPUT != 0;
-    let ready = channels::wait_any(&handles[..count], raw_input, args.deadline_ticks())
+    let ready = channels::wait_any(&handles[..count], args.flags, args.deadline_ticks())
         .map_err(channel_errno)?;
     Ok(MsgResult {
         value: ready,

@@ -21,19 +21,30 @@ use super::*;
 
 /// Most endpoints one wait may name.
 pub const MAX_WAIT_ENDPOINTS: usize = 8;
+/// Doorbell: the caller's raw input ring (syscall 25; `inputd`).
+pub const WAIT_RAW_INPUT: u64 = 1;
+/// Doorbell: a key event in the display input queue (the compositor).
+pub const WAIT_DISPLAY_KEYS: u64 = 2;
+/// Every doorbell [`wait_any`] knows.
+pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS;
 /// Bit of the ready mask that means "the raw input bus has records".
 pub const RAW_INPUT_READY: u64 = 1 << 63;
+/// Bit of the ready mask that means "the display input queue has events".
+pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
 
-/// Park until one of `handles` has a message (or its peer closed), or, with
-/// `raw_input`, until the caller's raw input ring holds records, or until
-/// `deadline` (absolute ticks) passes. Returns the ready mask: bit `i` for
-/// `handles[i]`, [`RAW_INPUT_READY`] for the bus.
+/// Park until one of `handles` has a message (or its peer closed), or until
+/// one of the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`]) rings,
+/// or until `deadline` (absolute ticks) passes. Returns the ready mask: bit
+/// `i` for `handles[i]`, [`RAW_INPUT_READY`] and [`DISPLAY_INPUT_READY`] for
+/// the doorbells.
 ///
-/// Errors: `BadParcel` for an empty or oversized set, the handle errors of
-/// `recv` for a bad handle, `WrongKind` for `raw_input` without a consumer
-/// ring, `TimedOut`, and `Canceled` when a fatal signal must end the task.
-pub fn wait_any(handles: &[u64], raw_input: bool, deadline: Option<u64>) -> Result<u64, Error> {
-    if handles.len() > MAX_WAIT_ENDPOINTS || (handles.is_empty() && !raw_input) {
+/// Errors: `BadParcel` for an empty or oversized set or an unknown doorbell,
+/// the handle errors of `recv` for a bad handle, `WrongKind` for a doorbell
+/// the caller may not ring (no raw ring; not the display owner), `TimedOut`,
+/// and `Canceled` when a fatal signal must end the task.
+pub fn wait_any(handles: &[u64], doorbells: u64, deadline: Option<u64>) -> Result<u64, Error> {
+    let empty = handles.is_empty() && doorbells == 0;
+    if handles.len() > MAX_WAIT_ENDPOINTS || empty || doorbells & !WAIT_DOORBELLS != 0 {
         return Err(Error::BadParcel);
     }
     let mut ends = [(0u64, 0usize); MAX_WAIT_ENDPOINTS];
@@ -44,22 +55,19 @@ pub fn wait_any(handles: &[u64], raw_input: bool, deadline: Option<u64>) -> Resu
     let me = task::current();
     loop {
         let mut ready = ready_or_register(ends, me);
-        if raw_input {
-            match crate::input::bus::arm_doorbell(me) {
-                Ok(true) => ready |= RAW_INPUT_READY,
-                Ok(false) => {}
-                Err(_) => {
-                    unregister(ends, me, false);
-                    return Err(Error::WrongKind);
-                }
+        match arm_doorbells(doorbells, me) {
+            Ok(rung) => ready |= rung,
+            Err(error) => {
+                unregister(ends, me, doorbells);
+                return Err(error);
             }
         }
         if ready != 0 {
-            unregister(ends, me, raw_input);
+            unregister(ends, me, doorbells);
             return Ok(ready);
         }
         let reason = MESSENGER.wait(me, deadline);
-        unregister(ends, me, raw_input);
+        unregister(ends, me, doorbells);
         if reason == WakeReason::TimedOut {
             return Err(Error::TimedOut);
         }
@@ -92,13 +100,37 @@ fn ready_or_register(ends: &[(u64, usize)], me: usize) -> u64 {
     ready
 }
 
-/// Drop every registration [`ready_or_register`] and the doorbell made.
-fn unregister(ends: &[(u64, usize)], me: usize, raw_input: bool) {
+/// Arm each requested doorbell; the ready bits of those already ringing
+/// (nothing is armed for them).
+fn arm_doorbells(doorbells: u64, me: usize) -> Result<u64, Error> {
+    let mut ready = 0;
+    if doorbells & WAIT_RAW_INPUT != 0 {
+        match crate::input::bus::arm_doorbell(me) {
+            Ok(true) => ready |= RAW_INPUT_READY,
+            Ok(false) => {}
+            Err(_) => return Err(Error::WrongKind),
+        }
+    }
+    if doorbells & WAIT_DISPLAY_KEYS != 0 {
+        match crate::display::arm_key_doorbell(me) {
+            Ok(true) => ready |= DISPLAY_INPUT_READY,
+            Ok(false) => {}
+            Err(()) => return Err(Error::WrongKind),
+        }
+    }
+    Ok(ready)
+}
+
+/// Drop every registration [`ready_or_register`] and the doorbells made.
+fn unregister(ends: &[(u64, usize)], me: usize, doorbells: u64) {
     for &(id, side) in ends {
         remove_waiter(id, side, me);
     }
-    if raw_input {
+    if doorbells & WAIT_RAW_INPUT != 0 {
         crate::input::bus::disarm_doorbell(me);
+    }
+    if doorbells & WAIT_DISPLAY_KEYS != 0 {
+        crate::display::disarm_key_doorbell(me);
     }
 }
 

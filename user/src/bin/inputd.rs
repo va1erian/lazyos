@@ -120,7 +120,7 @@ fn run() -> Result<(), &'static str> {
             .next_due()
             .map_or(now + idle, |due| due.min(now + idle))
             .max(now + 1);
-        let ready = match wait::wait_any(&[server], true, Some(wake)) {
+        let ready = match wait::wait_any(&[server], wait::WAIT_RAW_INPUT, Some(wake)) {
             Ok(mask) => mask,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
             // Never spin on a refused wait: fall back to a timed receive.
