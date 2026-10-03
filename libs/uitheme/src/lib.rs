@@ -14,6 +14,9 @@
 
 use confd::Value;
 
+mod scale;
+pub use scale::*;
+
 /// Prefix of every key; `system/confd/changed/sys/ui/#` follows changes.
 pub const PREFIX: &str = "sys/ui";
 pub const KEY_MODE: &str = "sys/ui/mode";

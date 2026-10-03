@@ -249,7 +249,7 @@ impl App for Sysmon {
                 ui.quit();
             }
             Msg::ToggleCompact => {
-                let rect = ui.client_rect();
+                let rect = xui_app::hidpi::design_rect(ui);
                 let current = (rect.width(), rect.height());
                 let (w, h) = compact::toggle_target(
                     current,
@@ -259,10 +259,12 @@ impl App for Sysmon {
                 self.backend.request_size(w, h);
             }
             Msg::Resized => {
-                // Follow the new client area; remember the last full size.
+                // Follow the new client area; remember the last full size
+                // (in design pixels, like every size the dashboard reasons in).
                 let rect = ui.client_rect();
-                if !compact::is_compact(rect.width(), rect.height()) {
-                    self.full_size = (rect.width(), rect.height());
+                let design = xui_app::hidpi::design_rect(ui);
+                if !compact::is_compact(design.width(), design.height()) {
+                    self.full_size = (design.width(), design.height());
                 }
                 ui.apply_moves(&[(self.root.id(), rect)]);
                 ui.invalidate(self.root.id());
@@ -362,18 +364,25 @@ fn main() {
                 y,
                 button: MouseButton::Left,
                 ..
-            } if compact::hit_chip(ui_probe.client_rect(), *x, *y) => Some(Msg::ToggleCompact),
+            } if {
+                let (x, y) = xui_app::hidpi::design_point(&ui_probe, *x, *y);
+                compact::hit_chip(xui_app::hidpi::design_rect(&ui_probe), x, y)
+            } =>
+            {
+                Some(Msg::ToggleCompact)
+            }
             Event::MouseDown {
                 x,
                 y,
                 button: MouseButton::Left,
                 ..
             } => {
-                let rect = ui_probe.client_rect();
+                let rect = xui_app::hidpi::design_rect(&ui_probe);
+                let (x, y) = xui_app::hidpi::design_point(&ui_probe, *x, *y);
                 if compact::is_compact(rect.width(), rect.height()) {
                     None
                 } else {
-                    services_view::hit_tab(rect, *x, *y).map(Msg::Show)
+                    services_view::hit_tab(rect, x, y).map(Msg::Show)
                 }
             }
             _ => None,

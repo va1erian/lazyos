@@ -8,7 +8,7 @@ use user::messenger::display::{wire, Rect};
 
 use super::compositor::Compositor;
 use super::geometry;
-use super::theme::{BORDER, TITLE_H};
+use super::theme::{border, title_h};
 
 impl Compositor {
     /// Maximize surface `id` if it is normal, restore it if it is maximized.
@@ -103,8 +103,8 @@ impl Compositor {
         if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
             surface.x = rect.x;
             surface.y = rect.y;
-            surface.w = rect.w - BORDER * 2;
-            surface.h = rect.h - TITLE_H - BORDER;
+            surface.w = rect.w - border() * 2;
+            surface.h = rect.h - title_h() - border();
         }
     }
 

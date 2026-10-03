@@ -106,6 +106,24 @@ impl Ctx {
         }
     }
 
+    /// The desktop's UI scale: every shell geometry is in design pixels,
+    /// and the protocol and the canvas take screen pixels.
+    pub fn scale(&self) -> i32 {
+        self.backend.scale() as i32
+    }
+
+    /// A design-pixel rectangle in screen pixels.
+    pub fn to_screen(&self, rect: Rect) -> Rect {
+        let s = self.scale();
+        Rect::new(rect.x * s, rect.y * s, rect.w * s, rect.h * s)
+    }
+
+    /// A screen-pixel point in design pixels.
+    pub fn to_design(&self, x: i32, y: i32) -> (i32, i32) {
+        let s = self.scale();
+        (x.div_euclid(s), y.div_euclid(s))
+    }
+
     /// The taskbar panel's screen `y`.
     pub fn bar_y(&self) -> i32 {
         self.screen.1 - BAR_H
@@ -155,6 +173,7 @@ impl Ctx {
             .copied()
             .collect();
         for (surface, rect) in changed {
+            let rect = self.to_screen(rect);
             if let Err(code) = self
                 .client
                 .set_icon_geometry(surface, (rect.x, rect.y, rect.w, rect.h))
@@ -173,6 +192,7 @@ impl Ctx {
     /// `SHELL:LAUNCH` marker and returns the pid or the negative errno.
     pub fn launch(&self, app: &str, origin: Option<Rect>) -> Result<u64, i64> {
         if let Some(rect) = origin.filter(|rect| !rect.is_empty()) {
+            let rect = self.to_screen(rect);
             let hint = (rect.x, rect.y, rect.w as u32, rect.h as u32);
             if let Err(code) = self.client.hint_launch_origin(hint) {
                 self.note("hint", || format!("SHELL:HINT:FAIL err={}", -code));

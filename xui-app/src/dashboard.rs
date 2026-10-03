@@ -50,7 +50,7 @@ pub const CONTENT_TOP: i32 = 76;
 /// Clears the page, paints the title/subtitle header and rule, and returns the
 /// content rectangle (inside the margins).
 pub fn frame(canvas: &mut dyn Canvas, theme: Theme, title: &str, subtitle: &str) -> Rect {
-    let bounds = canvas.bounds();
+    let bounds = crate::hidpi::design_bounds(canvas);
     canvas.clear(theme.background);
 
     let header = Rect::new(MARGIN, 16, bounds.right - MARGIN, 52);

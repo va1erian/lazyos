@@ -13,6 +13,7 @@ use user::sys;
 use super::compositor::Compositor;
 use super::layout::{cursor_rect, icon_rect};
 use super::region::Region;
+use super::theme::px;
 
 /// Frames per phase (one PIT tick, 10 ms, each).
 const STEPS: i32 = 10;
@@ -23,6 +24,11 @@ const TRAIL_LAG: i32 = 1;
 /// Outline thickness in pixels. Outlines are drawn inverted (XOR), so they
 /// show on any background.
 const LINE: i32 = 2;
+
+/// The outline thickness at the UI scale.
+fn line() -> i32 {
+    px(LINE)
+}
 
 impl Compositor {
     /// Fly a wireframe from `from` to `to` over the screen as composed from
@@ -44,48 +50,54 @@ impl Compositor {
             return;
         }
         let full = self.full();
-        // The starting rectangle counts as previously drawn, so the first
-        // frame also erases the window that was just hidden.
-        let mut previous = from;
+        // What the last frame drew and must be restored: at first the whole
+        // starting rectangle, which erases the window that was just hidden;
+        // afterwards only the outline strips. Recomposing just the strips
+        // keeps a frame's cost proportional to the outlines' length, not to
+        // the window's area, which a 2x screen quadruples (docs/hidpi-plan.md).
+        let mut previous = [Rect::new(0, 0, 0, 0); STRIPS];
+        previous[0] = from.intersect(full);
         let mut cursor = self.held.pointer(self.pointer);
         for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
             let deadline = sys::clock() + 1;
             self.hold_pending_input();
             let moved_to = self.held.pointer(self.pointer);
-            let pointer_damage = cursor_rect(cursor).union(cursor_rect(moved_to));
+            let pointer_damage = cursor_rect(cursor)
+                .union(cursor_rect(moved_to))
+                .intersect(full);
             cursor = moved_to;
             let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
-            let mut damage = previous;
             for (index, slot) in rects.iter_mut().enumerate() {
                 let at = (step - index as i32 * TRAIL_LAG).clamp(0, STEPS);
-                if at == 0 {
-                    continue;
+                if at > 0 {
+                    *slot = lerp(from, to, at);
                 }
-                *slot = lerp(from, to, at);
-                damage = damage.union(*slot);
             }
-            // One pixel of slack so the outlines' edges are always inside.
-            let damage =
-                Rect::new(damage.x - 1, damage.y - 1, damage.w + 2, damage.h + 2).intersect(full);
-            let pointer_damage = pointer_damage.intersect(full);
-            self.compose(damage);
-            self.compose(pointer_damage);
+            let strips = trail_strips(&rects, full);
+            // Clean pixels first everywhere this frame touches: XOR needs them.
+            for damage in previous.iter().chain(&strips).chain([&pointer_damage]) {
+                if !damage.is_empty() {
+                    self.compose(*damage);
+                }
+            }
             // Overlapping outlines (equal ones as the eased motion settles, but
             // also distinct ones that share an edge) would cancel under XOR,
             // so the trail is drawn as disjoint pieces, each pixel inverted once.
+            // Every piece lies inside this frame's strips, recomposed above.
             let mut pieces = [Rect::new(0, 0, 0, 0); MAX_PIECES];
             let count = trail_pieces(&rects, &mut pieces);
             for piece in &pieces[..count] {
-                self.screen.invert(*piece, damage);
+                self.screen.invert(*piece, full);
             }
             // The cursor stays above the outlines.
-            for clip in [damage, pointer_damage] {
-                self.screen.cursor(cursor.0, cursor.1, clip);
+            self.screen
+                .cursor_scaled(cursor.0, cursor.1, super::theme::scale(), pointer_damage);
+            for shown in previous.iter().chain(&strips).chain([&pointer_damage]) {
+                if !shown.is_empty() {
+                    let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
+                }
             }
-            for shown in [damage, pointer_damage].iter().filter(|r| !r.is_empty()) {
-                let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
-            }
-            previous = damage;
+            previous = strips;
             // Pace the frames: `wait` with no children just sleeps to the
             // deadline.
             let _ = sys::wait(deadline);
@@ -195,11 +207,28 @@ fn lerp(from: Rect, to: Rect, at: i32) -> Rect {
     )
 }
 
+/// Strips one frame's trail occupies: four per outline.
+const STRIPS: usize = TRAIL as usize * 4;
+
+/// The screen strips the outlines of `rects` cover, each with one pixel of
+/// slack so the outlines' edges are always inside; empty for an
+/// unused trail slot.
+fn trail_strips(rects: &[Rect; TRAIL as usize], full: Rect) -> [Rect; STRIPS] {
+    let mut out = [Rect::new(0, 0, 0, 0); STRIPS];
+    for (index, rect) in rects.iter().enumerate().filter(|(_, r)| !r.is_empty()) {
+        for (side, strip) in outline_strips(*rect).into_iter().enumerate() {
+            let grown = Rect::new(strip.x - 1, strip.y - 1, strip.w + 2, strip.h + 2);
+            out[index * 4 + side] = grown.intersect(full);
+        }
+    }
+    out
+}
+
 /// The four disjoint strips of a hollow rectangle (top, bottom, then left and
 /// right between them). They must not overlap: XOR drawing would cancel the
 /// overlap, leaving gaps in the corners.
 fn outline_strips(rect: Rect) -> [Rect; 4] {
-    let t = LINE.min(rect.w / 2).min(rect.h / 2).max(1);
+    let t = line().min(rect.w / 2).min(rect.h / 2).max(1);
     let inner = (rect.h - 2 * t).max(0);
     [
         Rect::new(rect.x, rect.y, rect.w, t),
@@ -270,7 +299,7 @@ pub(super) fn selftest_anim() -> &'static str {
         .iter()
         .enumerate()
         .all(|(i, a)| strips[i + 1..].iter().all(|b| a.intersect(*b).is_empty()));
-    let tiled = area == 30 * 20 - (30 - 2 * LINE) * (20 - 2 * LINE);
+    let tiled = area == 30 * 20 - (30 - 2 * line()) * (20 - 2 * line());
 
     // Inverting touches exactly the strips and is its own inverse.
     let (w, h) = (40, 32);

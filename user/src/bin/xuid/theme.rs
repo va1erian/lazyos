@@ -5,55 +5,113 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 use uitheme::{Mode, Palette};
-use user::messenger::display::Color;
+use user::messenger::display::{self, Color};
+
+/// The desktop's integer UI scale (docs/hidpi-plan.md): every metric below is
+/// a design size times this, so the chrome is drawn natively at 2x on a
+/// 2560x1440 screen. Set once, before anything is laid out.
+static SCALE: AtomicU32 = AtomicU32::new(1);
+
+/// The UI scale in effect (1 or 2).
+pub(super) fn scale() -> i32 {
+    SCALE.load(Ordering::Relaxed) as i32
+}
+
+/// Fix the UI scale for this compositor; the chrome faces follow it.
+pub(super) fn set_scale(scale: u32) {
+    let scale = scale.clamp(1, uitheme::MAX_SCALE);
+    SCALE.store(scale, Ordering::Relaxed);
+    display::set_face_scale(scale);
+}
+
+/// A design size in pixels at the current scale.
+pub(super) fn px(design: i32) -> i32 {
+    design * scale()
+}
 
 /// Title-bar height in pixels.
-pub(super) const TITLE_H: i32 = 22;
+pub(super) fn title_h() -> i32 {
+    22 * scale()
+}
 /// Window border thickness in pixels.
-pub(super) const BORDER: i32 = 2;
+pub(super) fn border() -> i32 {
+    2 * scale()
+}
 /// Where the first window's top-left sits.
-pub(super) const PAD: i32 = 48;
+pub(super) fn pad() -> i32 {
+    48 * scale()
+}
 /// Gap between tiled windows (issue #250).
-pub(super) const WINDOW_GAP: i32 = 16;
+pub(super) fn window_gap() -> i32 {
+    16 * scale()
+}
 /// Offset added per full grid of windows when placement must cascade (issue
 /// #250).
-pub(super) const CASCADE_STEP: i32 = 32;
+pub(super) fn cascade_step() -> i32 {
+    32 * scale()
+}
 /// The width of a cascaded window kept on screen: enough to show its title
 /// bar and grab it, even when the window itself is past the right edge.
-pub(super) const CASCADE_VISIBLE_W: i32 = 240;
+pub(super) fn cascade_visible_w() -> i32 {
+    240 * scale()
+}
 /// The size of the rectangle a window without shell icon geometry
 /// (`SetIconGeometry`) zooms to and from, at the screen's bottom-left.
-pub(super) const ICON_W: i32 = 48;
-pub(super) const ICON_H: i32 = 20;
+pub(super) fn icon_w() -> i32 {
+    48 * scale()
+}
+pub(super) fn icon_h() -> i32 {
+    20 * scale()
+}
 /// Title-bar button size in pixels.
-pub(super) const BUTTON: i32 = 16;
+pub(super) fn button() -> i32 {
+    16 * scale()
+}
 /// Gap between the two title-bar buttons.
-pub(super) const BUTTON_GAP: i32 = 2;
+pub(super) fn button_gap() -> i32 {
+    2 * scale()
+}
 /// Distance from the button group to the window's right edge.
-pub(super) const BUTTON_MARGIN: i32 = 3;
+pub(super) fn button_margin() -> i32 {
+    3 * scale()
+}
 /// Interactive-resize frame grip: how far inside (and outside) a window side a
 /// pointer grabs that edge.
-pub(super) const RESIZE_GRIP: i32 = 4;
+pub(super) fn resize_grip() -> i32 {
+    4 * scale()
+}
 /// How far outside the window rectangle a pointer still counts as on its
 /// frame; the outer half of the grip.
-pub(super) const RESIZE_OUT: i32 = 2;
+pub(super) fn resize_out() -> i32 {
+    2 * scale()
+}
 /// Corner grip span: how far along a side a point still grabs the corner, so
 /// diagonal resizing is easy to hit.
-pub(super) const CORNER_GRIP: i32 = 14;
+pub(super) fn corner_grip() -> i32 {
+    14 * scale()
+}
 /// Smallest content width a resizable window may have, in pixels: enough for
 /// the three title-bar buttons plus a little title.
-pub(super) const MIN_CONTENT_W: i32 = 120;
+pub(super) fn min_content_w() -> i32 {
+    120 * scale()
+}
 /// Smallest content height a resizable window may have, in pixels.
-pub(super) const MIN_CONTENT_H: i32 = 40;
+pub(super) fn min_content_h() -> i32 {
+    40 * scale()
+}
 /// How much of a window's title bar must stay on screen when it is moved off
 /// an edge, so it can be grabbed again.
-pub(super) const TITLE_REACHABLE_W: i32 = 64;
+pub(super) fn title_reachable_w() -> i32 {
+    64 * scale()
+}
 /// Two title-bar presses within this many PIT ticks (10 ms each) are a
 /// double-click (500 ms).
 pub(super) const DOUBLE_CLICK_TICKS: u64 = 50;
 /// Pointer slop, in pixels, allowed between the two presses of a
 /// double-click.
-pub(super) const DOUBLE_CLICK_SLOP: i32 = 4;
+pub(super) fn double_click_slop() -> i32 {
+    4 * scale()
+}
 
 /// Drop-target frame and drag-label accent (issue #145).
 pub(super) const DRAG_ACCENT: Color = Color::rgb(245, 196, 84);

@@ -16,7 +16,7 @@ use super::protocol::{
     carries_declared, drop_rejected_transfers, empty_reply, error_reply, typed_reply,
 };
 use super::surface::Surface;
-use super::theme::{BORDER, TITLE_H};
+use super::theme::{border, title_h};
 use super::window::{focus_on_create, surface_by_id};
 
 /// The most panels that may exist at once: a taskbar and a few popups need
@@ -67,6 +67,7 @@ impl Compositor {
             wire::METHOD_LISTSURFACES => self.list_surfaces(message),
             wire::METHOD_GETWORKAREA => self.get_work_area(message),
             wire::METHOD_GETTHEME => super::request_shell::get_theme(message),
+            wire::METHOD_GETOUTPUT => self.get_output(message),
             wire::METHOD_PLACESURFACE => self.place_surface(message, body),
             wire::METHOD_ACTIVATESURFACE => self.activate_surface(message, body),
             wire::METHOD_MINIMIZESURFACE => self.minimize_request(message, body),
@@ -301,8 +302,8 @@ impl Compositor {
             self.send_configure(
                 args.surface,
                 events,
-                window.w - BORDER * 2,
-                window.h - TITLE_H - BORDER,
+                window.w - border() * 2,
+                window.h - title_h() - border(),
                 wire::WINDOW_STATE_NORMAL,
             );
             return empty_reply(message.method());
@@ -310,14 +311,14 @@ impl Compositor {
         if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
             surface.x = rect.x;
             surface.y = rect.y;
-            surface.w = rect.w - BORDER * 2;
-            surface.h = rect.h - TITLE_H - BORDER;
+            surface.w = rect.w - border() * 2;
+            surface.h = rect.h - title_h() - border();
         }
         self.send_configure(
             args.surface,
             events,
-            rect.w - BORDER * 2,
-            rect.h - TITLE_H - BORDER,
+            rect.w - border() * 2,
+            rect.h - title_h() - border(),
             wire::WINDOW_STATE_NORMAL,
         );
         self.notify_surface(args.surface, wire::CHANGE_RESIZED);

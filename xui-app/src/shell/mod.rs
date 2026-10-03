@@ -63,7 +63,11 @@ pub fn run() -> i32 {
         println!("SHELL:WORKAREA:FAIL err={}", -code);
         (0, 0, 0, 0)
     });
-    let screen = link::screen_size(area, &rows);
+    // The shell lays itself out in design pixels (docs/hidpi-plan.md): the
+    // screen at the desktop's UI scale; `Ctx` converts at the protocol edge.
+    let scale = backend.scale() as i32;
+    let physical = link::screen_size(area, &rows);
+    let screen = (physical.0 / scale, physical.1 / scale);
     if screen.0 <= 0 || screen.1 <= lazyshell::taskbar::BAR_H {
         println!("SHELL:UP:FAIL screen={}x{}", screen.0, screen.1);
         return 1;

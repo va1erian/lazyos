@@ -339,11 +339,15 @@ fn key_sequence(key: Key) -> Option<&'static [u8]> {
 }
 
 /// Paint the bottom of the grid that fits the window, with a block cursor.
+/// The metrics are design pixels, times the UI scale (`canvas.dpi() / 96`)
+/// on screen, so the cells grow with the text (docs/hidpi-plan.md).
 fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid) {
     let bounds = canvas.bounds();
     canvas.clear(palette.bg);
-    let visible_cols = ((bounds.width() - 2 * PAD) as f32 / CELL_W) as usize;
-    let visible = (((bounds.height() - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
+    let scale = (canvas.dpi() / 96).max(1) as i32;
+    let (pad, line_h, cell_w) = (PAD * scale, LINE_H * scale, CELL_W * scale as f32);
+    let visible_cols = ((bounds.width() - 2 * pad) as f32 / cell_w) as usize;
+    let visible = (((bounds.height() - 2 * pad) / line_h).max(1) as usize).min(ROWS);
     // Show the top of the grid while it is not full, then scroll with the
     // cursor so the newest line stays visible.
     let first = if grid.row < visible {
@@ -354,14 +358,19 @@ fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid) {
     let last = (first + visible).min(ROWS);
     for (slot, line) in grid.cells[first..last].iter().enumerate() {
         let text: String = line[..visible_cols.min(COLS)].iter().collect();
-        let top = bounds.top + PAD + slot as i32 * LINE_H;
-        let rect = Rect::new(bounds.left + PAD, top, bounds.right - PAD, top + LINE_H);
+        let top = bounds.top + pad + slot as i32 * line_h;
+        let rect = Rect::new(bounds.left + pad, top, bounds.right - pad, top + line_h);
         canvas.draw_text(&text, rect, &TextStyle::new(palette.fg, Dip(FONT)));
     }
     if grid.row >= first && grid.row < last && grid.col < visible_cols {
-        let top = bounds.top + PAD + (grid.row - first) as i32 * LINE_H;
-        let left = bounds.left + PAD + (grid.col as f32 * CELL_W) as i32;
-        let rect = Rect::new(left, top + LINE_H - 3, left + CELL_W as i32, top + LINE_H);
+        let top = bounds.top + pad + (grid.row - first) as i32 * line_h;
+        let left = bounds.left + pad + (grid.col as f32 * cell_w) as i32;
+        let rect = Rect::new(
+            left,
+            top + line_h - 3 * scale,
+            left + cell_w as i32,
+            top + line_h,
+        );
         canvas.fill_rect(rect, palette.cursor);
     }
 }

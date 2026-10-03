@@ -89,6 +89,15 @@ impl ClickTracker {
         )
     }
 
+    /// [`ClickTracker::new`] with the distance in design pixels at `scale`.
+    pub(super) const fn scaled(scale: i32) -> ClickTracker {
+        ClickTracker::with_extent(
+            DOUBLE_CLICK_TICKS,
+            DOUBLE_CLICK_DISTANCE * scale,
+            DOUBLE_CLICK_DISTANCE * scale,
+        )
+    }
+
     /// A tracker that pairs presses no further apart than `interval` ticks and
     /// no more than `dx`/`dy` pixels from each other on either axis. A negative
     /// extent is treated as zero.

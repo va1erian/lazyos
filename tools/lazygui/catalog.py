@@ -13,6 +13,7 @@ import shlex
 import shutil
 import sys
 
+from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step  # noqa: F401
 
@@ -123,11 +124,14 @@ SKIP_BUILD_MODES = ("Interactive demo", "Headless screenshots", "Scripted sessio
 
 
 def check_limits(cfg: dict) -> None:
-    """Refuse kernel limits that cannot take effect: malformed entries, or any
-    entry with "Skip build", since the build writes them into `lazyos.cfg`."""
-    if (limit_env(cfg.get("limits", "")) and cfg.get("skip_build")
-            and cfg["mode"] in SKIP_BUILD_MODES):
+    """Refuse kernel limits and a display mode that cannot take effect:
+    malformed entries, or any entry with "Skip build", since the build writes
+    them into `lazyos.cfg`."""
+    skipped = cfg.get("skip_build") and cfg["mode"] in SKIP_BUILD_MODES
+    if limit_env(cfg.get("limits", "")) and skipped:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
+    if check_mode(cfg.get("display_mode", "")) and skipped:
+        raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
 
 
 def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
@@ -208,6 +212,8 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_NETD_ARGS"] = "demo=0"
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(limit_env(cfg.get("limits", "")))
+    # The screen mode the kernel sets (Simple: HiDPI; Advanced: any mode).
+    env.update(display_env(cfg.get("display_mode", "")))
     if cfg.get("linuxapps"):
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
@@ -246,7 +252,7 @@ def lazyrad_samples(user: str) -> str:
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   modplayer: bool = False, net: bool = False,
-                  linuxapps: bool = False) -> dict:
+                  linuxapps: bool = False, hidpi: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -258,8 +264,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
     adds networking to either interface (the stack, QEMU's user network with
     host port 8080 forwarded, and on the desktop the Network and Net Tools
-    apps), and ``linuxapps`` the Linux command-line programs (dash, lua,
-    sqlite3, jq, rg). Machine settings (accelerator, memory, QEMU path)
+    apps), ``linuxapps`` the Linux command-line programs (dash, lua,
+    sqlite3, jq, rg), and ``hidpi`` a 2560x1440 screen showing a 1280x720
+    desktop at 2x (docs/hidpi-plan.md). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -305,6 +312,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "net_forwards": "",
         "net_restrict": False,
         "linuxapps": linuxapps,
+        "display_mode": HIDPI_MODE if hidpi else "",
     })
     return cfg
 
@@ -360,6 +368,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("linuxapps") and not cfg["skip_build"]:
             # run_demo builds the programs and sets LAZYOS_LINUXAPPS itself.
             argv.append("--linuxapps")
+        if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
+            argv += ["--display-mode", check_mode(cfg["display_mode"])]
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")

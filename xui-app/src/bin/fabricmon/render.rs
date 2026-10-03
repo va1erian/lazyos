@@ -15,7 +15,7 @@ use super::State;
 
 /// Paint the whole panel.
 pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
-    let bounds = canvas.bounds();
+    let bounds = xui_app::hidpi::design_bounds(canvas);
     if compact::is_compact(bounds.width(), bounds.height()) {
         crate::compact_view::paint(canvas, theme, state);
         compact::paint_chip(canvas, theme, bounds);

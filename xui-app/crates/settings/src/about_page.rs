@@ -9,7 +9,7 @@ use crate::app::Msg;
 use crate::system::{StoreStatus, System};
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    crate::layout::rect(x, y, w, h)
 }
 
 /// `1 d 02:03:04`-style uptime text.

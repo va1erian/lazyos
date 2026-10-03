@@ -16,6 +16,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/input/{keyboard,mouse}.rs` | PS/2 drivers (IRQ1/IRQ12) |
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |
 | `kernel/src/display.rs`, `display/buffers.rs` | Display device grant, syscall 12, input event queue; shared-buffer ops 4-6 |
+| `kernel/src/display/{bochs,modecfg,modeset}.rs` | Mode setting on QEMU's std VGA from `display.mode` (HiDPI) |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
 | `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
 | `user/src/messenger/` (`display` module) | `os.lazy.display.v1` client/server helpers |
@@ -59,6 +60,21 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   1920x1080 or 3840x2160 mode binds like a 1280x720 one, given the RAM.
   QEMU's BIOS path still boots at 1280x720 at most: the `bootloader` crate's
   BIOS stage 2 caps the VESA mode at 1280x720 (docs/real-pc-boot-plan.md).
+- **Mode setting** (HiDPI, [hidpi-plan.md](../hidpi-plan.md)): `display.mode=<W>x<H>`
+  in `lazyos.cfg` (`LAZYOS_DISPLAY_MODE`) makes the kernel reprogram QEMU's
+  std VGA (Bochs DISPI, PCI `1234:1111`, `display/bochs.rs`) while
+  `fs::init` reads the boot volume, before anything binds: the mode is
+  checked against the adapter's maximum and VRAM and read back, the linear
+  framebuffer is BAR0 through the physical map, and the console, the grant
+  geometry, the derived limits and the mouse bounds move to it
+  (`display/modeset.rs`). A requested mode is the logical screen whole: the
+  1920x1080 cap of `display/logical.rs` applies only to a mode firmware chose.
+  A refused mode keeps the firmware's
+  (`display: mode ... refused`). `display.scale=auto|1|2` pixel-doubles the
+  console text (auto: 2 from 2560x1440). The compositor's UI scale is its
+  own (`sys/ui/scale`, `GetOutput`; `xuid` draws its chrome, its 26 px
+  Droid atlases and the cursor at it, and xui apps run at `96 * scale` DPI);
+  every size and coordinate on `os.lazy.display.v1` stays physical.
 - Input events (`Event`, 16 bytes) are pushed by keyboard/mouse IRQs into a
   256-entry queue and drained only by the owner; kinds are pointer move/down/up,
   key down/up with `key::*` codes for non-printables, and the wheel
