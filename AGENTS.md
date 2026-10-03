@@ -194,6 +194,35 @@ dash,lua,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
 drive them interactively (the desktop Terminal runs its shell on a pty, so
 `vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
 
+## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
+
+`nettls/` (a standalone workspace, like `rhai-host/`) builds one static-musl
+program that runs as `fetch`, `curl` or `wget` by its name: rustls with
+certificates verified against `/etc/ssl/certs/ca-certificates.crt` (the
+Mozilla roots, written by the image build), `ureq` for HTTP/1.1, and an
+in-tree pure-Rust crypto provider (`nettls/crypto`, MIT). Every linked crate
+must have a GPLv2-compatible licence (a NetSurf port will link this stack):
+`python tools/nettls/licenses.py` enforces it, so never add `ring`, `aws-lc`
+or an Apache-2.0-only crate. `-k`/`--no-check-certificate` do not exist. The
+plan and its decisions are [`docs/tls-plan.md`](docs/tls-plan.md).
+
+```bash
+python tools/run_demo.py --tls            # networking + curl/wget/fetch (then: curl https://...)
+python tools/nettls/build.py --require    # target/nettls/fetch.elf
+cargo test --manifest-path nettls/Cargo.toml
+python tools/nettls/test_host.py          # the host binary against Python ssl servers
+python tools/nettls/licenses.py           # GPLv2-compatible dependency tree
+python tools/net/tls_run.py               # build, boot, run every check against the harness servers, judge
+python tools/net/test_tls_pcap.py         # the wire judge fails when it should
+python tools/net/tls_run.py --live        # real sites with the Mozilla roots only (manual, needs internet)
+```
+
+`tls_run.py` (also `tools/net/run.py --tls`) builds a test image with a
+throwaway CA appended to the bundle (`LAZYOS_TLS_TEST_CA`) and `tls.test`
+mapped to the host (`LAZYOS_TLS_TEST_HOSTS`); never set those in a normal
+image. Behind an egress proxy that re-signs TLS, `--live --extra-ca PEM`
+trusts that proxy's CA too.
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
