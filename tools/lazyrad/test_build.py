@@ -204,6 +204,34 @@ class MainTests(unittest.TestCase):
         self.assertFalse(other)
         self.assertEqual(mapping, {"lrplay": str(out / "lrplay.elf")})
 
+    def test_a_full_build_repackages_the_core_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, manifest = self.make_app(root)
+            out = root / "target" / "lazyrad"
+            for name in ("lrplay", "lazyrad"):
+                source = app / "target" / TARGET / "release" / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(b"\x7fELF-" + name.encode())
+            with contextlib.redirect_stderr(io.StringIO()):
+                code, calls, _ = self.run_main(app, manifest, out, [])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2)
+        packaging = calls[1]
+        self.assertTrue(packaging[1].endswith("core_packages.py"), packaging)
+        self.assertEqual(packaging[2:], ["--lazyrad-dir", str(out)])
+
+    def test_a_single_bin_build_does_not_repackage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, manifest = self.make_app(root)
+            out = root / "target" / "lazyrad"
+            source = app / "target" / TARGET / "release" / "lazyrad"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"\x7fELF")
+            _, calls, _ = self.run_main(app, manifest, out, ["--bin", "lazyrad"])
+        self.assertEqual(len(calls), 1)
+
     def test_a_missing_artifact_fails_instead_of_a_silent_empty_image(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

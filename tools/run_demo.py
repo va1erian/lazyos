@@ -319,9 +319,9 @@ def main(argv: list[str]) -> int:
         "server); see docs/networking-host-access.md. The packet-capture-judged run is "
         "`python tools/net/run.py`")
     parser.add_argument("--lazyrad", action="store_true",
-                        help="build the LazyRAD IDE and player and embed them "
-                             "(LAZYOS_LAZYRAD=1); with --desktop it is offered by "
-                             "Settings -> Menu")
+                        help="build the LazyRAD IDE and player and ship them as the core "
+                             "package os.lazy.lazyrad (LAZYOS_LAZYRAD=1); with --desktop "
+                             "pkgd installs it at boot and Settings -> Menu offers it")
     parser.add_argument("--lazyrad-samples", metavar="DIRS",
                         help="sample project directories to copy under "
                              "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
@@ -362,13 +362,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     args = parser.parse_args(argv)
-    # The Devices app is a desktop app: `--devices` implies `--desktop`.
-    args.desktop = args.desktop or args.devices or args.doom or args.modplayer
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
     if args.modplayer and not args.sound:
         args.sound = "auto"
+    # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
+    # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
+    # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
+    args.desktop = args.desktop or args.devices or args.doom or args.lazyrad
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:

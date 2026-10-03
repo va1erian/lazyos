@@ -47,7 +47,8 @@ trait, a fixed registry with a selected boot device, and three drivers.
 
 - ATA is read-only because the write path was not needed for the FAT boot image;
   ext2 write traffic requires virtio-blk (`-drive if=virtio`). An ext2 volume on
-  ATA still mounts, read-only, and logs that `/data` is read-only.
+  ATA still mounts, read-only, and logs that its mount (`/` or the legacy `/data`)
+  is read-only.
 - Several virtio-blk functions are independent devices: each `Slot` owns its
   queue, request header and bounce page, so a boot disk and a data disk never
   share ring state. The registry names them in PCI enumeration order.
@@ -118,8 +119,14 @@ BPB. Tests: `block_memdisk_*`, `block_ramdisk_*` in `tests/ramdisk_suite.rs`,
 
 **Boot device and mount interaction**
 
-- `fs::init` iterates `block::devices()`, tries FAT then ext2 on each device
-  it is handed, and mounts the first success at `/`. The volume keeps that
+- `fs::init` (`fs/mounts.rs`) first looks for a FAT volume carrying
+  `lazyos.cfg`: when it names a root, that ext2 volume (found by UUID, on any
+  device or partition) is `/`, the FAT volume is `/boot` (read-only), and an
+  optional home volume is `/home`; nothing is probed for `/data`. The rest of
+  this list is the **legacy layout**, used without a `lazyos.cfg` or when its
+  root is missing.
+- The legacy layout iterates `block::devices()`, tries FAT then ext2 on each
+  device it is handed, and mounts the first success at `/`. The volume keeps that
   device handle, so a second volume never reads the wrong disk (#244).
 - It then probes the other devices for ext2 and mounts the first at `/data`.
   Which bus each disk is on does not matter (the boot disk may be IDE with the

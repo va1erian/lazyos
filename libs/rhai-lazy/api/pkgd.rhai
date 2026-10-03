@@ -84,6 +84,35 @@ fn provisioned() {
     msg::connect("os.lazy.pkgd.v1").invoke("Provisioned", [])
 }
 
+/// `Develop(path: String, confirm: Bool) -> (label: String, approved: Bool)`
+///
+/// Approve a development run of the package at `path` (the same source
+/// rule as `Inspect`; issue #529): validate it, compile its permissions and
+/// load them for the label `dev:<system_name>`, which an IDE whose
+/// manifest says `develop = true` may then give the program it runs. Only
+/// the session owner or root, unlabelled (the Installer), may call it.
+/// With `confirm` false nothing is asked: the rules are loaded and
+/// `approved` is true only if this session already approved the same or a
+/// wider rule set for that label; otherwise `approved` is false and nothing
+/// changes, so the Installer shows the consent screen and calls again with
+/// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+/// only, are dropped (and the label's rules revoked) when the session that
+/// gave them logs out, and every one is audited as
+/// `system/events/pkg/develop`.
+fn develop(path, confirm) {
+    msg::connect("os.lazy.pkgd.v1").invoke("Develop", [path, confirm])
+}
+
+/// `DevelopDeclined(path: String) -> ()`
+///
+/// The user declined the development consent for the package at `path`
+/// (same caller and source rules as `Develop`). Nothing is loaded; the
+/// refusal is audited and published as `system/events/pkg/denied` under
+/// the package's `system_name`, so the IDE waiting for the approval stops.
+fn develop_declined(path) {
+    msg::connect("os.lazy.pkgd.v1").invoke("DevelopDeclined", [path])
+}
+
 /// A `ProvisionState` with every field at its zero value.
 ///
 /// Core package provisioning progress.
@@ -118,7 +147,7 @@ fn new_mime_handler() {
 ///
 /// Whether the package ships icons for this type.
 /// One requested permission with the friendly explanation the installer
-/// shows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is
+/// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
 /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
 /// keyed by MIDL interface name, so every client shows the same words.
 fn new_permission() {
@@ -146,8 +175,10 @@ fn new_installed() {
 /// Whether the app starts when a session opens (`entry.autostart`).
 /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
 /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-/// is `install`, `remove`, `denied` or `provision` (a core package
-/// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
+/// is `install`, `remove`, `denied`, `provision` (a core package
+/// installed, upgraded or re-marked at startup, or the end of a pass),
+/// `develop` (a development run approved: `ok` true, `detail` the label)
+/// or `undevelop` (a session's development approvals dropped at logout). The same record, hex-encoded with
 /// a chained SHA-256, is appended to `/logs/pkg.log`.
 fn new_pkg_event() {
     #{ op: "", system_name: "", version: "", install_dir: "", digest: "", actor_uid: 0, ok: false, detail: "" }

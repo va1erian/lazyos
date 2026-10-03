@@ -103,7 +103,8 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   the manifest's `argv` (`[PATH, --client, ...]`) under the Linux personality
   (`spawnv`, `kernel/src/process/spawnv.rs`) and their `app:<system_name>`
   label. The Terminal, Devices, the Installer and LazyShell stay unlabelled
-  programs in `/system/bin`. `LAZYOS_XUI_APPS` narrows which apps are built in.
+  programs in `/system/bin`; the LazyRAD IDE is a core package too
+  (`os.lazy.lazyrad`, `LAZYOS_LAZYRAD=1` images). `LAZYOS_XUI_APPS` narrows which apps are built in.
   The whole recipe is the single
   `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence
   programs. The **Terminal** (`xui-term`) is a client

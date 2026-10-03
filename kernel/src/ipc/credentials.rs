@@ -35,9 +35,13 @@
 //! on a *child being created* by a [`CAP_SETUID`] holder (the labelled spawn,
 //! [`LabelStamp::Assign`]); every other stamp must keep the label it lands on
 //! ([`LabelStamp::Keep`]), so a task cannot relabel itself, strip its label
-//! or hand a different one to a peer. Children inherit their creator's label
-//! like the rest of the credential, which keeps an app's helpers inside its
-//! sandbox.
+//! or hand a different one to a peer. The one other assignment is a labelled
+//! IDE's spawn into a `dev:` label ([`LabelStamp::Develop`],
+//! [`super::devspawn`], issue #529): no `CAP_SETUID`, but the caller's own
+//! label rules must allow that exact label, and the child keeps the caller's
+//! uid, gid, session and (at most) capabilities. Children inherit their
+//! creator's label like the rest of the credential, which keeps an app's
+//! helpers inside its sandbox.
 //!
 //! A task created by another task (`fork`, `clone`, the native `spawn`) starts
 //! with a copy of its creator's credentials ([`inherit`]); only a program the
@@ -125,6 +129,9 @@ pub mod reason {
     /// The request would change a label a task already carries, or set one
     /// anywhere but on a child being created.
     pub const TRANSITION_LABEL_LOCKED: u32 = 5;
+    /// A labelled task's spawn into a `dev:` label its rules do not allow, or
+    /// one that holds no approved rule set ([`super::super::devspawn`]).
+    pub const TRANSITION_DEV_NOT_ALLOWED: u32 = 6;
 }
 
 /// The kernel-stamped identity attached to a task and copied into every call
@@ -216,6 +223,9 @@ pub enum TransitionError {
     /// The request would change a label (labels go from `0` to a value once,
     /// on a child being created, and never change afterwards).
     LabelLocked,
+    /// A spawn into a `dev:` label the caller's rules do not allow, or that
+    /// holds no approved rule set.
+    DevNotAllowed,
 }
 
 impl TransitionError {
@@ -226,6 +236,7 @@ impl TransitionError {
             TransitionError::Widening => reason::TRANSITION_WIDENING,
             TransitionError::BadTarget => reason::TRANSITION_BAD_TARGET,
             TransitionError::LabelLocked => reason::TRANSITION_LABEL_LOCKED,
+            TransitionError::DevNotAllowed => reason::TRANSITION_DEV_NOT_ALLOWED,
         }
     }
 }
@@ -291,6 +302,10 @@ pub enum LabelStamp {
     /// that is unlabelled (or already in that very label) may assign it, so a
     /// labelled task can never hop to another label.
     Assign,
+    /// A labelled task's spawn into a `dev:` label ([`super::devspawn`]): no
+    /// `CAP_SETUID`, but the caller's rules must allow the label and the child
+    /// keeps the caller's identity, capabilities at most narrowed.
+    Develop,
 }
 
 /// Validate a transition without applying or auditing it.
@@ -311,6 +326,9 @@ pub fn check_stamp(
     requested: Cred,
 ) -> Result<(), TransitionError> {
     let actor = of(actor_slot);
+    if label == LabelStamp::Develop {
+        return super::devspawn::recheck(&actor, &requested).map_err(TransitionError::from);
+    }
     if !actor.has_cap(CAP_SETUID) {
         return Err(TransitionError::NotPrivileged);
     }
@@ -327,6 +345,8 @@ pub fn check_stamp(
         LabelStamp::Assign => {
             requested.label_id != 0 && (actor.label_id == 0 || actor.label_id == requested.label_id)
         }
+        // Decided above.
+        LabelStamp::Develop => false,
     };
     if !label_ok {
         return Err(TransitionError::LabelLocked);

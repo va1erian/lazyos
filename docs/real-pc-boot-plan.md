@@ -7,9 +7,9 @@
 > [`usb-hid-plan.md`](usb-hid-plan.md) (USB keyboards and mice, QEMU only) and
 > the S9 "release images" line of [`platform-plan.md`](platform-plan.md).
 > No earlier plan or tracking issue covers booting outside QEMU; the USB HID
-> plan names "real-hardware BIOS handoff" as an explicit non-goal, and the
-> README's "boots under UEFI" is aspirational: `build.rs` only emits a BIOS
-> image today. This plan is the missing piece.
+> plan names "real-hardware BIOS handoff" as an explicit non-goal, and
+> `build.rs` only emits a BIOS image today (the README's old "boots under
+> UEFI" was aspirational and now says so). This plan is the missing piece.
 
 > **H0 status:** landed as one hybrid MBR image instead of two images and a
 > FAT16 payload: `target/lazyos-usb.img` (`LAZYOS_USB_IMAGE=1`) boots under

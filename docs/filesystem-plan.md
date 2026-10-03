@@ -7,6 +7,13 @@ long case-sensitive names and persistent storage. Companion to
 [`architecture/block-devices.md`](architecture/block-devices.md) and
 [`packages.md`](packages.md).
 
+**Status (2026-10-03):** F0-F5 done (#478, #506, #525). F6 holds in the
+configured layout: the Linux ABI mounts the same volumes as native tasks, with
+no overlay, and `/tmp` is the `/transient` ramfs (`configured` in
+`kernel/src/fs/mounts.rs`); the copy-up overlay and `/data` remain only in the
+`legacy` layout, the fallback when there is no `lazyos.cfg` or its root
+volume is not found. F7 is not started.
+
 ## 1. Where it started
 
 History: the layout before F0. F2 replaced the FAT root with the ext2 OS
@@ -31,7 +38,8 @@ state.
   `/data/...`); `logd` is memory-only; `accountsd` reads `PASSWD` from FAT.
 - No app is lzp-installed: xui apps are FAT `X*.ELF` files listed in `XAPPS.LST`.
 - The Linux ABI root is a copy-up overlay (FAT lower, ramfs upper): nothing
-  persists.
+  persists. (Today only the `legacy` layout in `kernel/src/fs/mounts.rs` still
+  builds this overlay.)
 
 ## 2. Target tree
 
@@ -66,7 +74,7 @@ directories are a **separate volume**.
 | Accounts | Two hardcoded accounts, no account management: `admin` (uid 0, home `/home/admin`) and `user` (uid 1000, home `/home/user`). They replace `root` and `alice`. Defaults in `/system/etc/passwd`; `CreateUser` stays out of scope. |
 | Core apps | Shipped as lzp in `/system/packages`, installed by `pkgd` into `/apps` with `origin = core`. They **cannot be removed** (`pkgd` refuses and audits; the installer shows no Remove button) but can be **hidden from the menu**: per-user confd key `user/menu/hidden/<system_name>`, machine default under `sys/menu/hidden/`. Hiding affects only the menu: MIME "open with" and launch-by-name still work. A user may install a newer version of a core app over it. |
 | Rebuilds | The image is created on first build or `--reset-os`; later builds **update it offline** (rewrite `/boot`, `/system`, `/docs/os`), keeping `/apps`, `/conf`, `/logs` and `/docs/apps`. `pkgd` upgrades core packages at the next boot. `home.img` is created once and erased only by `--reset-home`. CI always uses a fresh image and no home disk. |
-| Deferred to the next iteration | Real account management, crash safety (journal or boot-time fsck), symlinks, quotas, AHCI/NVMe. |
+| Deferred to the next iteration | Real account management, crash safety in the kernel (journal or boot-time fsck; the image build already repairs what a crash leaves, offline, see section 5), symlinks, quotas, AHCI/NVMe. |
 
 ## 4. Phases
 
@@ -182,8 +190,10 @@ the host image build: frames as pages, writeback in a crash-safe phase order
 64 KiB virtio requests, frees deferred to the commit, barriers where an
 operation needs an order the phases cannot give (renames, orphan deletes,
 unaligned truncates), and a periodic flusher bounding the loss window to about
-5 s. First-boot provisioning went from 139.6 s to about 4 s under WHPX. It makes
-the missing fsck more pressing, not less: a crash between syncs now leaves a
-wider (documented) set of repairable inconsistencies, and is still flagged by
-`s_state`. Next for the block layer: DMA into the cache's frames (no bounce
+5 s. First-boot provisioning went from 139.6 s to about 4 s under WHPX. A crash
+between syncs now leaves a wider (documented) set of repairable
+inconsistencies, still flagged by `s_state`. The kernel has no fsck or journal
+(deferred); the image build repairs that damage offline when it next updates
+the volume (`Ext2::recover` and `Ext2::repair`, #512 and #525; see
+[`architecture/filesystem.md`](architecture/filesystem.md)). Next for the block layer: DMA into the cache's frames (no bounce
 copy) and several requests in flight.

@@ -7,7 +7,7 @@ description = "LazyRAD on LazyOS: the `lrplay` player and the `lazyrad` IDE as x
 
 # A standalone workspace, like `xui-app` and `rhai-host`: both bins build for
 # x86_64-unknown-linux-musl (static) via `tools/lazyrad/build.py` and are
-# embedded in the disk image as /system/bin/lrplay and /system/bin/lazyrad, so the OS workspace
+# packaged as the core package os.lazy.lazyrad (tools/xui/core_packages.py), so the OS workspace
 # never resolves Rhai, xui or LazyRAD.
 [workspace]
 resolver = "2"
@@ -32,6 +32,11 @@ fhs = { path = "../libs/fhs", features = ["alloc"] }
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
 messenger-generated = { path = "../libs/generated" }
+# The pre-check of File -> Make LazyOS App runs in the IDE's own process
+# (`pkgstore::inspect`, the function `pkgd`'s `Inspect` runs, over the `.lzp`
+# reader `pkgd` uses): `pkgd` refuses labelled callers, and the IDE is one.
+lazypkg = { path = "../libs/lazypkg" }
+pkgstore = { path = "../libs/pkgstore" }
 # The `msg` module and the generated `sys::*` modules (Messenger from scripts,
 # docs/rhai/msg.md) with the real `int 0x80` transport, registered as a LazyRAD
 # script extension. Same exact Rhai pin as LazyRAD, so one Rhai links.
@@ -60,10 +65,6 @@ lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
 
 [dev-dependencies]
-# The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by
-# LazyRAD's packager are re-opened with LazyOS's own reader. `libs/lazypkg` is
-# PR #431; the packager is pinned like the other LazyRAD crates.
-lazypkg = { path = "../libs/lazypkg" }
 # The form values the sample tests read back (`tests/modplayer.rs`); pinned
 # with the other LazyRAD crates.
 xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea" }

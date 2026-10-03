@@ -1,0 +1,200 @@
+//! One request/reply exchange with a Messenger service, and the real
+//! transport over the kernel's Messenger calls.
+//!
+//! [`Transport`] is the seam [`crate::handoff`] is written against:
+//! [`MessengerTransport`] talks to the real services, tests script a mock.
+
+use std::cell::RefCell;
+
+use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
+use xui_app::sys::{self, errno};
+
+/// The structured-error field services reply with.
+const ERROR_FIELD: u16 = 15;
+/// The reply buffer offered to a call.
+const REPLY_BUF: usize = 64 * 1024;
+/// How long to wait for a service to appear: 10 s at 100 Hz.
+const CONNECT_TICKS: u64 = 1000;
+/// The kernel's poll deadline: a call is answered if the callee can do so in
+/// its current turn (a topic pull with no event), else `ETIMEDOUT` at once
+/// (`kernel/src/ipc/channels.rs`).
+const POLL_DEADLINE: u64 = 1;
+
+/// A refused or failed call: the service's own sentence, or the transport's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    /// Positive errno-style code from a service, or the kernel's error negated
+    /// for a transport failure.
+    pub code: i64,
+    /// Friendly text, ready to show.
+    pub text: String,
+}
+
+impl Failure {
+    /// Whether this is a poll that found nothing (`ETIMEDOUT`).
+    pub fn is_timeout(&self) -> bool {
+        self.code == -errno::ETIMEDOUT
+    }
+}
+
+/// How long a call may wait for its reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait {
+    /// Until the reply comes.
+    Forever,
+    /// Not at all: a pull with nothing queued fails with a timeout.
+    Poll,
+}
+
+/// One request/reply exchange with a Messenger service, and the clock the
+/// handoff's waits run on.
+pub trait Transport {
+    /// Calls `method` of `interface` on the service registered as `service` and
+    /// returns the reply body.
+    fn call(
+        &self,
+        service: &'static str,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        wait: Wait,
+    ) -> Result<Vec<u8>, Failure>;
+
+    /// The kernel tick counter (100 Hz).
+    fn ticks(&self) -> u64;
+
+    /// Sleeps about `millis`.
+    fn pause(&self, millis: u64);
+}
+
+/// The real transport: resolve once, keep the endpoint open for the life of the
+/// task (closing a resolved handle is peer death for the service), and read the
+/// structured error field, text included, from a refusal.
+#[derive(Default)]
+pub struct MessengerTransport {
+    endpoints: RefCell<Vec<(&'static str, u64)>>,
+}
+
+impl MessengerTransport {
+    fn endpoint(&self, name: &'static str) -> Result<u64, Failure> {
+        if let Some((_, endpoint)) = self.endpoints.borrow().iter().find(|(n, _)| *n == name) {
+            return Ok(*endpoint);
+        }
+        let deadline = sys::clock_ticks().saturating_add(CONNECT_TICKS);
+        loop {
+            match sys::msg_resolve(name) {
+                Ok(endpoint) => {
+                    self.endpoints.borrow_mut().push((name, endpoint));
+                    return Ok(endpoint);
+                }
+                Err(code) if sys::clock_ticks() >= deadline => {
+                    return Err(Failure {
+                        code: -code.abs(),
+                        text: format!("{name} is not running"),
+                    });
+                }
+                Err(_) => sys::sleep_millis(10),
+            }
+        }
+    }
+}
+
+impl Transport for MessengerTransport {
+    fn call(
+        &self,
+        service: &'static str,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        wait: Wait,
+    ) -> Result<Vec<u8>, Failure> {
+        let endpoint = self.endpoint(service)?;
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                // The IDE's own event receive must not trip the kernel's
+                // per-channel cycle check while a call is in flight.
+                flags: libmessenger::flags::ALLOW_NESTED,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            handles: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let deadline = match wait {
+            Wait::Forever => 0,
+            Wait::Poll => POLL_DEADLINE,
+        };
+        let mut buf = vec![0u8; REPLY_BUF];
+        let reply = sys::msg_call(endpoint, &parcel, &mut buf, deadline).map_err(|code| {
+            if code == -errno::EPIPE || code == -errno::ENOENT {
+                self.endpoints.borrow_mut().retain(|(n, _)| *n != service);
+            }
+            Failure {
+                code,
+                text: format!("{service} did not answer (error {code})"),
+            }
+        })?;
+        match failure_of(&reply.body) {
+            Some(failure) => Err(failure),
+            None => Ok(reply.body),
+        }
+    }
+
+    fn ticks(&self) -> u64 {
+        sys::clock_ticks()
+    }
+
+    fn pause(&self, millis: u64) {
+        sys::sleep_millis(millis);
+    }
+}
+
+/// The structured error a reply body carries, if it is one.
+pub fn failure_of(body: &[u8]) -> Option<Failure> {
+    let mut decoder = Decoder::new(body);
+    while let Ok(Some(field)) = decoder.next() {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
+            let (code, text) = field.error_parts().ok()?;
+            return Some(Failure {
+                code: i64::from(code),
+                text: text.to_owned(),
+            });
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_error_field_text_is_extracted_from_a_reply_body() {
+        let mut body = libmessenger::Encoder::new();
+        body.error(ERROR_FIELD, 17, "that application is already installed")
+            .unwrap();
+        let failure = failure_of(&body.finish()).expect("an error field");
+        assert_eq!(failure.code, 17);
+        assert_eq!(failure.text, "that application is already installed");
+        assert!(failure_of(&[]).is_none());
+    }
+
+    #[test]
+    fn only_a_negative_timeout_code_is_a_poll_that_found_nothing() {
+        let timeout = Failure {
+            code: -errno::ETIMEDOUT,
+            text: String::new(),
+        };
+        assert!(timeout.is_timeout());
+        assert!(!Failure {
+            code: 110,
+            ..timeout
+        }
+        .is_timeout());
+    }
+}

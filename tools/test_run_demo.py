@@ -194,7 +194,9 @@ class MainTests(unittest.TestCase):
         self.assertFalse(any("core_packages.py" in " ".join(c) for c in self.commands))
 
     def test_lazyrad_samples_are_passed_to_the_build_and_imply_lazyrad(self) -> None:
-        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as built:
+        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as built, \
+                mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "build_core_packages", return_value=True):
             code, _ = self.run_main("--lazyrad-samples", os.pathsep.join(SAMPLES))
         self.assertEqual(code, 0)
         built.assert_called_once()
@@ -205,6 +207,8 @@ class MainTests(unittest.TestCase):
 
     def test_lazyrad_alone_embeds_only_the_lazyos_samples(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "build_core_packages", return_value=True), \
                 mock.patch.object(run_demo, "build_lazyrad", return_value=True):
             os.environ.pop("LAZYRAD_SAMPLES", None)
             self.run_main("--lazyrad")
@@ -222,6 +226,21 @@ class MainTests(unittest.TestCase):
         for switch in ("LAZYOS_MODPLAYER", "LAZYOS_LAZYRAD", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
             self.assertEqual(env.get(switch), "1", switch)
         self.assertIn("virtio-sound-pci,audiodev=snd0", command)
+
+    def test_lazyrad_is_a_desktop_core_package_built_before_packaging(self) -> None:
+        # os.lazy.lazyrad is a core package: `--lazyrad` implies the desktop,
+        # and the packages are built (after the IDE) before the image.
+        order: list[str] = []
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "build_lazyrad",
+                                  side_effect=lambda: order.append("lazyrad") or True), \
+                mock.patch.object(run_demo, "build_core_packages",
+                                  side_effect=lambda: order.append("packages") or True):
+            code, _ = self.run_main("--lazyrad")
+        self.assertEqual(code, 0)
+        self.assertEqual(order, ["lazyrad", "packages"])
+        self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
 
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):

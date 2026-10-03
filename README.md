@@ -5,11 +5,13 @@ LazyOS is a hobby operating system written in Rust (`no_std`, target
 no ambient authority, every privileged action is a capability or a
 policy-checked message, and denials are explained rather than silent.
 
-It boots under UEFI, renders to a framebuffer, and runs a preemptive
-multitasking kernel with a VFS (read-only FAT boot volume, in-memory `/tmp`,
-and an ext2 read/write driver), and a growing set of userspace services. It
-also has a Linux ABI bridge so static `x86_64-unknown-linux-musl` binaries can
-run.
+It boots from a legacy-BIOS disk image (UEFI and real PCs are planned in
+[`docs/real-pc-boot-plan.md`](docs/real-pc-boot-plan.md)), renders to a
+framebuffer, and runs a preemptive multitasking kernel with a VFS (a
+read/write ext2 OS volume at `/`, a read-only FAT `/boot`, in-memory `/tmp`
+and `/transient`, and an optional ext2 home volume at `/home`), and a growing
+set of userspace services. It also has a Linux ABI bridge so static
+`x86_64-unknown-linux-musl` binaries can run.
 
 ## Architecture
 
@@ -67,9 +69,12 @@ cargo run -- --headless    # no window, serial only (QEMU=/path/to/qemu-system-x
 `rustup` installs the pinned nightly toolchain, target and components from
 `rust-toolchain.toml` on first use, so nothing else needs configuring. The
 runner maps the guest's `isa-debug-exit` value to the process exit code. In the
-guest, the `sh` window is a DOS-style shell: `help` lists `dir`, `cd`, `type`,
-`copy`, `del`, `ren`, `mkdir`, `exec`, `mem`, `reboot` and `shutdown`. The boot
-volume is read-only; write under `/tmp`.
+guest, the console shell is BusyBox `sh` on the Linux ABI. BusyBox is a build
+artifact (`tools/abi/busybox.py`; `python tools/run_demo.py` and
+`python tools/abi/build.py` fetch or build it, Docker on Windows); `build.rs`
+embeds it when present and the image boots without a console shell otherwise.
+`/` is the writable ext2 OS volume and survives rebuilds; `/boot` is read-only
+and `/tmp` lives in memory.
 
 Before opening a pull request run `cargo fmt --all` and the checks in
 [`CONTRIBUTING.md`](CONTRIBUTING.md); CI (`.github/workflows/ci.yml`) enforces

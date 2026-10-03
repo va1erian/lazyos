@@ -6,8 +6,8 @@ platform work (P1 items 2, 3, 4, 6), the `Platform`/`Launcher` impls (P1 item 5,
 app side), the three binaries and their support crates (P2 items 1-3) and the
 app-side tests and serial markers (P3). The system side (kernel, `init`, `mimed`,
 `keyd`, `build.rs`, CI) is Track B and was not touched here. The full shipped /
-deferred / blocked record is in
-[`docs/xui-apps-migration-status.md`](xui-apps-migration-status.md); this file is
+deferred / blocked record was planned as `docs/xui-apps-migration-status.md`,
+which was never written; this file is
 the Track A checklist and the evidence gathered while finishing the branch.
 
 ## What Track A shipped

@@ -230,7 +230,7 @@ fn mime_items(package: &Package) -> Vec<String> {
 
 /// The permission rows: a heading per risk group (high first) then one indented
 /// row per permission, or a friendly sentence when the package asks for none.
-fn permission_items(package: &Package) -> Vec<String> {
+pub(crate) fn permission_items(package: &Package) -> Vec<String> {
     let groups = group_by_risk(&package.permissions);
     if groups.is_empty() {
         return vec!["This package requests no special permissions.".to_owned()];

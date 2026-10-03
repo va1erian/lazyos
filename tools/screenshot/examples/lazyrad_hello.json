@@ -36,13 +36,28 @@
   "mouse_click": "left"
  },
  {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "at": 1.0,
+  "type": "P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
   "at": 4.0,
-  "type": "/system/bin/lrplay --client /system/share/lazyrad/hello &"
+  "type": "$P --client /system/share/lazyrad/hello &"
  },
  {
   "at": 4.5,
   "key": "enter",
-  "until": "TERM:CMD:/system/bin/lrplay --client /system/share/lazyrad/hello &",
+  "until": "TERM:CMD:$P --client /system/share/lazyrad/hello &",
   "timeout": 30,
   "retries": 2
  },
