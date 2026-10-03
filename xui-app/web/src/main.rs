@@ -34,8 +34,14 @@ fn url_arg() -> Option<String> {
 }
 
 fn main() -> std::process::ExitCode {
-    // Bold for headings and <b>, monospace for <pre> and <code>.
-    xui_app::font::register_docs();
+    // Droid Sans (regular and bold), Droid Serif and JetBrains Mono: a page's
+    // CSS families are drawn with these three (`xui_netsurf::FontFamilies`).
+    xui_app::font::register_writer();
+    xui_netsurf::set_font_families(xui_netsurf::FontFamilies {
+        sans_serif: xui_app::font::UI_FAMILY.to_string(),
+        serif: xui_app::font::SERIF_FAMILY.to_string(),
+        monospace: xui_app::font::MONO_FAMILY.to_string(),
+    });
     fetch::netsurf::install(Options::default());
     let url = url_arg();
     let backend = match LazyOSBackend::connect() {
