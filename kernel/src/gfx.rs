@@ -225,6 +225,8 @@ impl Framebuffer {
         let packing = self.packing();
 
         for row in 0..h {
+            // A full-screen present converts every pixel (`arch::irq_window`).
+            crate::arch::irq_window::poll_point();
             let syy = sy + row;
             let dyy = dy + row;
             if syy >= src_h || dyy >= fbh {

@@ -68,8 +68,8 @@ pub fn syscall_gate() -> HandlerFunc {
 pub const NATIVE_SYSCALL: u64 = 1 << 63;
 
 /// The syscall most recently entered (native ones tagged [`NATIVE_SYSCALL`]),
-/// for latency reports such as `PS2:GAP`: syscalls run with interrupts off,
-/// so a long interrupts-off stretch usually ends in the one recorded here.
+/// for latency reports such as `PS2:GAP` (`arch::irqoff` charges each
+/// interrupts-off stretch to its syscall precisely).
 pub static LAST_SYSCALL: AtomicU64 = AtomicU64::new(0);
 
 #[no_mangle]
@@ -78,6 +78,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     let regs = unsafe { &mut *regs };
     #[cfg(lazyos_tests)]
     task::harness::note_entry_flags();
+    // From here interrupts-off time is charged to this syscall, and long
+    // work (the reclaim below included) may open interrupt windows.
+    crate::arch::irqoff::enter_native(regs.rax);
     // Reclaim slots the scheduler flagged (issue #133): on a syscall entry the
     // current task holds no heap lock, so dropping dead tasks is safe.
     task::reclaim_pending();
@@ -85,6 +88,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // deadlines (issue #240): the ISR only records the interrupt, so this is
     // the task-context half. Free when nothing is pending.
     crate::dev::intx::service();
+    crate::arch::irq_window::poll_point();
     LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
@@ -160,6 +164,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // task was blocked in this call ends it here, on its way back to user
     // mode, instead of waiting for a tick to catch it there.
     task::signal::deliver_native();
+    crate::arch::irqoff::exit();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

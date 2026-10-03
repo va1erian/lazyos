@@ -78,6 +78,9 @@ struct Stamped<'a>(&'a mut SerialPort);
 
 impl Stamped<'_> {
     fn put(&mut self, byte: u8) {
+        // Under a hypervisor every port access is a VM exit, so a line costs
+        // tens of microseconds per byte with interrupts off (`arch::irq_window`).
+        crate::arch::irq_window::poll_point();
         if TIMESTAMPS && AT_LINE_START.swap(false, Ordering::Relaxed) {
             let ms = crate::task::ticks() * 10;
             let mut digits = [0u8; 20];

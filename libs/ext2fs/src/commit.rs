@@ -118,6 +118,7 @@ impl Ext2 {
     fn apply(&self, pending: &Pending) -> Result<(), Ext2Error> {
         let mut first = Ok(());
         for &block in &pending.blocks {
+            self.pace();
             first = first.and(self.release_block(block));
         }
         for &(ino, is_dir) in &pending.inodes {

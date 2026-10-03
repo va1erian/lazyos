@@ -28,6 +28,7 @@ impl Ext2 {
         let size_usize = self.block_size as usize;
         let mut done = 0usize;
         while done < count {
+            self.pace();
             let position = offset + done as u64;
             let index = self.block_index(position)?;
             let inner = (position % block_size) as usize;
@@ -65,6 +66,7 @@ impl Ext2 {
         let mut done = 0usize;
         let mut failure = None;
         while done < data.len() {
+            self.pace();
             let position = offset + done as u64;
             let index = self.block_index(position)?;
             let inner = (position % block_size) as usize;

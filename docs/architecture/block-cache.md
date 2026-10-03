@@ -11,7 +11,7 @@ with read-ahead on sequential misses.
 | Path | Role |
 |---|---|
 | `libs/ext2fs/src/cache/mod.rs` | `BlockCache`: slots, CLOCK eviction of clean blocks, read-ahead, dirty limit |
-| `libs/ext2fs/src/cache/flush.rs` | writeback: dirty blocks sorted by (phase, block), runs coalesced into vectored requests |
+| `libs/ext2fs/src/cache/flush.rs` | writeback: dirty blocks ordered by (phase, block) in one pass over the block-ordered map (a bucket per phase, paced every 256 blocks), runs coalesced into vectored requests |
 | `libs/ext2fs/src/cache/roles.rs` | the five writeback phases and the metadata map read at mount |
 | `libs/ext2fs/src/cache/memory.rs` | `CacheMemory`/`CachePage` (where pages come from), `CacheConfig`, `HeapMemory` |
 | `libs/ext2fs/src/commit.rs` | commits, deferred frees, write-back error reporting, `writeback()` |

@@ -7,6 +7,9 @@
 //! to a different task/address space, so the `mov rsp, rax` below is what
 //! actually performs the switch.
 //!
+//! A tick that lands in an interrupt window (`arch::irq_window`) goes to
+//! `window_tick` instead and resumes the interrupted stack unchanged.
+//!
 //! The second argument to `schedule` tells a real timer tick (advance the
 //! clock, acknowledge the PIC, charge CPU time) apart from a voluntary
 //! reschedule, which must do none of those (issue #338): a park is not 10 ms
@@ -71,9 +74,19 @@ global_asm!(
         cld
         mov rdi, rsp
         mov esi, eax
+        /* A tick inside an interrupt window (`arch::irq_window`) only counts
+           and acknowledges: the window may hold any lock, so `schedule`
+           (which takes the task table) must not run, and nothing switches. */
+        test eax, eax
+        jz 3f
+        cmp byte ptr [rip + IRQ_WINDOW_OPEN], 0
+        je 3f
+        call window_tick
+        jmp 4f
+    3:
         call schedule
         mov rsp, rax
-
+    4:
         pop r15
         pop r14
         pop r13

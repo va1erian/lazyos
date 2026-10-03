@@ -116,8 +116,10 @@ pub fn wait_sleep(deadline: u64) -> WakeReason {
 /// this way). `enable_and_hlt` also closes the race between the check and
 /// the sleep.
 pub fn nap() {
+    crate::arch::irqoff::close();
     x86_64::instructions::interrupts::enable_and_hlt();
     x86_64::instructions::interrupts::disable();
+    crate::arch::irqoff::resume();
 }
 
 /// Call `ready` until it yields a value, [`nap`]ping between attempts, so

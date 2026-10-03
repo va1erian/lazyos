@@ -12,6 +12,7 @@ impl Ext2 {
         let size = self.block_size as usize;
         let mut entries = Vec::new();
         for block in blocks {
+            self.pace();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;

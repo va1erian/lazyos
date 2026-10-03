@@ -166,14 +166,18 @@ pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: 
 /// lands on a blocked task is idle time (`IDLE_TICKS`) instead. Voluntary
 /// entries consume no timer period and are not charged at all.
 pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
+    // Ticks taken inside interrupt windows could not lock the table: charge
+    // them to the task this tick finds running, normally the one whose
+    // syscall took them (a window never switches).
+    let ticks = 1 + crate::arch::irq_window::take_uncharged();
     match tasks[cur].as_mut() {
         Some(task) if !matches!(task.state, TaskState::Blocked { .. }) => {
             // Charge across ticks without a switch too, so `cpu_usage`
             // reports real per-task CPU time.
-            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
+            task.cpu_ticks = task.cpu_ticks.saturating_add(ticks);
         }
         _ => {
-            super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+            super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
         }
     }
 }

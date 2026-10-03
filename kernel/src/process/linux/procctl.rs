@@ -308,6 +308,7 @@ pub(super) fn sys_exit_group(code: u64) -> u64 {
             futex_wake(tid, 1);
         }
     }
+    crate::arch::irqoff::close();
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();
@@ -324,6 +325,7 @@ pub(super) fn sys_exit(code: u64) -> u64 {
         futex_wake(tid, 1);
     }
     task::finish_current(code & 0xff);
+    crate::arch::irqoff::close();
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();

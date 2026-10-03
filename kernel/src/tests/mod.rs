@@ -181,6 +181,7 @@ mod input_bus_suite;
 mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
+mod irq_window_suite;
 mod keyboard_suite;
 mod label_suite;
 mod limits_suite;
@@ -225,6 +226,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     limits_suite::CASES,
     arch_suite::CASES,
     preempt_lock_suite::CASES,
+    irq_window_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,

@@ -12,6 +12,7 @@ use crate::block::BlockDevice;
 use crate::mem;
 
 mod confd_cut;
+mod latency;
 mod soak;
 mod virtio;
 
@@ -37,6 +38,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ("bcache_virtio_cached_volume", virtio::cached_volume),
     ("bcache_soak_block_ops", soak::block_ops),
     ("bcache_soak_remount_cycles", soak::remount_cycles),
+    (
+        "bcache_soak_irq_latency_large_writes",
+        latency::irq_latency_large_writes,
+    ),
 ];
 
 /// Volume size in 1 KiB blocks (one group): 1 MiB of kernel heap per disk,

@@ -287,6 +287,8 @@ fn copy_segment<I: Image + ?Sized>(
 /// Copy `bytes` to user address `va` through the frames in `pages`.
 fn copy_to_pages(pages: &BTreeMap<u64, u64>, mut va: u64, mut bytes: &[u8]) {
     while !bytes.is_empty() {
+        // A big program is thousands of pages (`arch::irq_window`).
+        crate::arch::irq_window::poll_point();
         let in_page = (va & (PAGE - 1)) as usize;
         let count = (PAGE as usize - in_page).min(bytes.len());
         // INVARIANT: every page holding file bytes is eager (`lazy_start` is

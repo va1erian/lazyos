@@ -9,13 +9,6 @@ use ext2fs::{AttrChange, FsStats, InodeMeta, Owner};
 use super::{hidden, Ext2};
 use crate::fs::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs, Times};
 
-/// Bytes one library read or write moves before the next piece. A syscall
-/// runs with interrupts off, and a 1 MiB write into the block cache takes
-/// about 40 ms of CPU, long enough for the keyboard controller's queue to
-/// overflow (`input::ps2`); between pieces the controller is drained, so the
-/// stretch without input servicing stays near 2 ms whatever the size.
-const PIECE: usize = 64 * 1024;
-
 impl Filesystem for Ext2 {
     fn name(&self) -> &'static str {
         // A volume on a device that cannot be written is mounted read-only;
@@ -32,32 +25,17 @@ impl Filesystem for Ext2 {
         Ok(meta(self.volume.lookup(path)?))
     }
 
+    // A large read or write keeps interrupts off only between two of the
+    // library's pace points (`BlockIo::pace`, `arch::irq_window`), so it is
+    // one call whatever its size.
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         let _gate = self.gate.lock();
-        let mut done = 0;
-        for piece in buf.chunks_mut(PIECE) {
-            crate::input::ps2::service();
-            let read = self.volume.read(path, offset + done as u64, piece)?;
-            done += read;
-            if read < piece.len() {
-                break;
-            }
-        }
-        Ok(done)
+        Ok(self.volume.read(path, offset, buf)?)
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let _gate = self.gate.lock();
-        let mut done = 0;
-        for piece in data.chunks(PIECE) {
-            crate::input::ps2::service();
-            let written = self.volume.write(path, offset + done as u64, piece)?;
-            done += written;
-            if written < piece.len() {
-                break;
-            }
-        }
-        Ok(done)
+        Ok(self.volume.write(path, offset, data)?)
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {

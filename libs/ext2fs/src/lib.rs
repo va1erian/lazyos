@@ -16,7 +16,10 @@
 //! (`docs/platform-plan.md` section 4.4); the host build drives it directly
 //! through [`Ext2::mkdir_p`], [`Ext2::write_file`] and [`Ext2::remove_tree`].
 //! It touches the outside world through three seams only: a [`BlockIo`] device,
-//! a [`Clock`], and its own error and metadata types. It implements:
+//! a [`Clock`], and its own error and metadata types. Long operations call
+//! [`BlockIo::pace`] once per unit of work (block, pending free, writeback
+//! request), where a host running the library with interrupts off (the
+//! kernel) takes them. It implements:
 //!
 //! * superblock and group descriptors, with the free counters kept in sync;
 //! * inode and directory operations: `lookup`, `create`, `mkdir`, `unlink`,

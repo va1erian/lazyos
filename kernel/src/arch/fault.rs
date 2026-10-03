@@ -136,6 +136,7 @@ fn end_process(fault: Fault, detail: core::fmt::Arguments, regs: Option<&signal:
     );
     crate::arch::fault_report::print(slot, regs);
     kill_current(fault);
+    crate::arch::irqoff::close();
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();

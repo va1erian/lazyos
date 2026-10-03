@@ -305,7 +305,11 @@ pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
 }
 
 /// Allocate a zeroed 4 KiB frame and return its physical address.
+///
+/// Each one is a poll point (`arch::irq_window`): loading a program, mapping
+/// a stack or a shared buffer zeroes hundreds of frames in one syscall.
 pub fn alloc_zeroed_frame() -> Option<PhysAddr> {
+    crate::arch::irq_window::poll_point();
     let phys = alloc_frame()?;
     let virt = phys_to_virt(phys);
     // Safety: the frame is exclusively ours and mapped as writable.

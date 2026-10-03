@@ -24,7 +24,11 @@ pub fn new_user_table() -> Option<PhysAddr> {
 }
 
 /// Map a page into a specific page table.
+///
+/// Each page is a poll point (`arch::irq_window`): a screen-sized shared
+/// buffer is hundreds of them in one syscall.
 pub fn map_page_in(table: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> bool {
+    crate::arch::irq_window::poll_point();
     let offset = physical_offset();
     let table_virt = phys_to_virt(table);
     // Safety: `table` is a PML4 frame we own.
@@ -99,6 +103,7 @@ pub fn user_table_frame_count(table: PhysAddr) -> usize {
 /// # Safety
 /// `phys` must be a page table of `level`.
 pub(super) unsafe fn count_leaves(phys: u64, level: u8) -> usize {
+    crate::arch::irq_window::poll_point();
     let mut count = 0;
     let entries = entry_table(PhysAddr::new(phys));
     for i in 0..512 {
@@ -154,6 +159,8 @@ pub fn free_user_table(table: PhysAddr) -> usize {
 /// # Safety
 /// `phys` must be a page table of `level` that no other address space uses.
 pub(super) unsafe fn free_table(phys: u64, level: u8) -> usize {
+    // A large address space is thousands of frames (`arch::irq_window`).
+    crate::arch::irq_window::poll_point();
     let mut released = 0;
     let entries = entry_table(PhysAddr::new(phys));
     for i in 0..512 {
@@ -269,6 +276,7 @@ pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
     let mut cleared = 0;
     let mut va = start & !(FRAME_SIZE - 1);
     while va < end {
+        crate::arch::irq_window::poll_point();
         // Safety: `table` is a live address space and we own its entries.
         if let Some(entry) = unsafe { leaf_entry(table, va) } {
             // Safety: `entry` was just returned as a present leaf in this table.

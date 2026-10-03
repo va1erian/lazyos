@@ -199,21 +199,21 @@ impl From<ext2fs::Ext2Error> for FsError {
 /// calls matter: method syntax on `&&dyn BlockDevice` would find this very
 /// impl first and recurse.
 ///
-/// Every transfer first collects the i8042's bytes (`input::ps2`): a file
-/// syscall runs with interrupts off and may do hundreds of these, long enough
-/// for the keyboard controller's own queue to overflow.
+/// A file syscall runs with interrupts off and may do thousands of block
+/// operations; every transfer, and every unit of work the library paces
+/// itself by, is a poll point for an interrupt window (`arch::irq_window`).
 impl ext2fs::BlockIo for &'static dyn BlockDevice {
     fn sector_count(&self) -> u64 {
         BlockDevice::sector_count(*self)
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), ext2fs::IoError> {
-        crate::input::ps2::service();
+        crate::arch::irq_window::poll_point();
         BlockDevice::read_sectors(*self, lba, buf).map_err(io_error)
     }
 
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), ext2fs::IoError> {
-        crate::input::ps2::service();
+        crate::arch::irq_window::poll_point();
         BlockDevice::write_sectors(*self, lba, buf).map_err(io_error)
     }
 
@@ -222,12 +222,12 @@ impl ext2fs::BlockIo for &'static dyn BlockDevice {
         lba: u64,
         bufs: &mut [&mut [u8]],
     ) -> Result<(), ext2fs::IoError> {
-        crate::input::ps2::service();
+        crate::arch::irq_window::poll_point();
         BlockDevice::read_sectors_vectored(*self, lba, bufs).map_err(io_error)
     }
 
     fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), ext2fs::IoError> {
-        crate::input::ps2::service();
+        crate::arch::irq_window::poll_point();
         BlockDevice::write_sectors_vectored(*self, lba, bufs).map_err(io_error)
     }
 
@@ -237,6 +237,10 @@ impl ext2fs::BlockIo for &'static dyn BlockDevice {
 
     fn is_writable(&self) -> bool {
         BlockDevice::is_writable(*self)
+    }
+
+    fn pace(&self) {
+        crate::arch::irq_window::poll_point();
     }
 }
 

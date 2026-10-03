@@ -1,0 +1,330 @@
+//! Interrupt windows (`arch::irq_window`) and the per-syscall interrupts-off
+//! accounting (`arch::irqoff`).
+//!
+//! Syscalls run with interrupts off; long ones now take pending interrupts at
+//! poll points, with handlers that take no lock while a window is open. These
+//! tests drive the mechanism as a syscall would (a span open, `IF=0`, the PIT
+//! line unmasked) with the real timer: windows stay shut outside a syscall,
+//! ticks arrive through them on time and are counted exactly once, the
+//! handlers run while the task table, console and serial locks are held, and
+//! the accounting charges each stretch to its syscall and stops at a `nap`.
+//! The ext2 soak under sustained large writes is `bcache_soak_irq_latency`.
+//!
+//! Timing assertions take the best of several attempts: under a loaded host
+//! the vCPU is sometimes descheduled for milliseconds, which looks exactly
+//! like a long stretch. A stretch the code really lacks a poll point for
+//! shows up in every attempt.
+
+use super::*;
+use crate::arch::{clock, irq_window, irqoff, pic};
+
+/// The latency bound the windows keep (`irqoff::REPORT_US`).
+pub(in crate::tests) const BOUND_US: u64 = irqoff::REPORT_US;
+/// Native syscall numbers the suite charges its fake syscalls to (unused by
+/// the gate).
+const NR_A: u64 = 60;
+const NR_B: u64 = 61;
+/// Attempts a timing assertion gets (module docs).
+pub(in crate::tests) const ATTEMPTS: usize = 6;
+
+pub(super) const CASES: &[(&str, Test)] = &[
+    ("irqwin_closed_outside_syscall", closed_outside_syscall),
+    ("irqwin_ticks_arrive_in_syscall", ticks_arrive_in_syscall),
+    ("irqwin_handlers_take_no_lock", handlers_take_no_lock),
+    (
+        "irqoff_charges_spans_per_syscall",
+        charges_spans_per_syscall,
+    ),
+    ("irqoff_nap_ends_span", nap_ends_span),
+    (
+        "irqwin_soak_ticks_through_windows",
+        soak_ticks_through_windows,
+    ),
+];
+
+/// What one fake syscall saw.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::tests) struct Latency {
+    /// Worst interrupts-off stretch charged to the syscall (µs).
+    pub worst_us: u64,
+    /// Timer periods caught up rather than taken.
+    pub missed: u64,
+    /// Ticks taken inside windows, and ticks counted in all.
+    pub window_ticks: u64,
+    pub ticks: u64,
+    /// Windows opened.
+    pub opened: u64,
+}
+
+/// A lone runnable kernel task, so a real tick's `schedule` (after a `nap`)
+/// has nowhere to switch to and simply resumes the test.
+pub(in crate::tests) fn kernel_task_only() {
+    task::register_kernel();
+    task::harness::reset();
+    task::harness::switch_current(task::KERNEL_TASK);
+    task::set_blocked(false);
+}
+
+/// Run `f` as the body of native syscall `nr`: interrupts off, a span open,
+/// windows armed and the PIT line unmasked, so poll points take real ticks.
+/// The maxima are reset first; windows are disarmed again afterwards.
+pub(in crate::tests) fn in_syscall<R>(nr: u64, f: impl FnOnce() -> R) -> (R, Latency) {
+    let saved_mask = pic::is_masked(0);
+    irqoff::reset();
+    irq_window::arm();
+    pic::set_masked(0, false);
+    // A tick left pending by earlier tests belongs to them, not to `f`.
+    clock::resync();
+    let missed = clock::missed_ticks();
+    let (window_ticks, ticks, opened) = (
+        irq_window::window_ticks(),
+        task::ticks(),
+        irq_window::opened(),
+    );
+    irqoff::enter_native(nr);
+    let result = f();
+    irqoff::exit();
+    pic::set_masked(0, saved_mask);
+    irq_window::disarm();
+    let latency = Latency {
+        worst_us: irqoff::max_native_us(nr),
+        missed: clock::missed_ticks() - missed,
+        window_ticks: irq_window::window_ticks() - window_ticks,
+        ticks: task::ticks() - ticks,
+        opened: irq_window::opened() - opened,
+    };
+    (result, latency)
+}
+
+/// Busy-wait `us` microseconds by the TSC, calling `poll` every iteration.
+pub(in crate::tests) fn spin_us(us: u64, mut poll: impl FnMut()) {
+    let cycles = clock::cycles_per_tick().saturating_mul(us) / 10_000;
+    let start = tsc();
+    while tsc().wrapping_sub(start) < cycles {
+        poll();
+        core::hint::spin_loop();
+    }
+}
+
+fn tsc() -> u64 {
+    // SAFETY: `rdtsc` reads a CPU counter; no memory or privilege effects.
+    unsafe { core::arch::x86_64::_rdtsc() }
+}
+
+/// The best of [`ATTEMPTS`] runs of `attempt` by `worst_us`, failing only
+/// when none meets `accept` (module docs).
+pub(in crate::tests) fn best_of(
+    what: &str,
+    mut attempt: impl FnMut() -> Result<Latency, String>,
+    accept: impl Fn(&Latency) -> bool,
+) -> Result<Latency, String> {
+    let mut seen = Vec::new();
+    for _ in 0..ATTEMPTS {
+        let latency = attempt()?;
+        if accept(&latency) {
+            return Ok(latency);
+        }
+        seen.push(latency);
+    }
+    Err(format!("{what}: no attempt within bounds: {seen:?}"))
+}
+
+fn calibrated() -> Result<(), String> {
+    check!(
+        clock::cycles_per_tick() != 0,
+        "the TSC is not calibrated: no time base for windows"
+    );
+    Ok(())
+}
+
+/// Outside a syscall (no span open) a poll point never opens a window, even
+/// with a tick pending for a long time, and `IF` stays off; inside one, the
+/// same pending tick is taken at the first poll point.
+pub fn closed_outside_syscall() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    irqoff::close();
+    let saved_mask = pic::is_masked(0);
+    irq_window::arm();
+    pic::set_masked(0, false);
+    let (opened, ticks) = (irq_window::opened(), task::ticks());
+    spin_us(25_000, irq_window::poll_point);
+    irq_window::open();
+    let outside = (irq_window::opened() - opened, task::ticks() - ticks);
+    let if_on = x86_64::instructions::interrupts::are_enabled();
+    irq_window::disarm();
+    pic::set_masked(0, saved_mask);
+    check!(!if_on, "a poll point left interrupts on");
+    check!(
+        outside == (0, 0),
+        "outside a syscall: {} windows opened, {} ticks taken",
+        outside.0,
+        outside.1
+    );
+    let ((), latency) = in_syscall(NR_A, || {
+        spin_us(1_500, || {});
+        irq_window::poll_point();
+    });
+    check!(
+        latency.opened >= 1 && latency.window_ticks >= 1,
+        "inside a syscall the pending tick was not taken: {latency:?}"
+    );
+    Ok(())
+}
+
+/// Polling through 20 ticks inside a syscall: every tick arrives through a
+/// window, none is missed, and the syscall's worst stretch stays bounded.
+pub fn ticks_arrive_in_syscall() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let latency = best_of(
+        "20 ticks of polling",
+        || {
+            let (if_on, latency) = in_syscall(NR_A, || {
+                let mut if_on = 0u32;
+                spin_us(200_000, || {
+                    irq_window::poll_point();
+                    if x86_64::instructions::interrupts::are_enabled() {
+                        if_on += 1;
+                    }
+                });
+                if_on
+            });
+            check!(if_on == 0, "{if_on} poll points returned with IF=1");
+            check!(
+                task::current() == task::KERNEL_TASK,
+                "a window switched tasks"
+            );
+            Ok(latency)
+        },
+        |l| l.worst_us < BOUND_US && l.missed == 0,
+    )?;
+    check!(
+        (18..=22).contains(&latency.ticks),
+        "{} ticks counted in 200 ms",
+        latency.ticks
+    );
+    check!(
+        latency.window_ticks == latency.ticks,
+        "{} of {} ticks came through windows",
+        latency.window_ticks,
+        latency.ticks
+    );
+    check!(
+        latency.opened >= 100,
+        "only {} windows in 200 ms",
+        latency.opened
+    );
+    Ok(())
+}
+
+/// The handlers a window admits take no lock: windows opened while the task
+/// table, the console and the serial port are locked still take the timer
+/// (the `schedule` path, or a key decoded into a task's queue, would
+/// deadlock right here).
+pub fn handlers_take_no_lock() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let (taken, latency) = in_syscall(NR_A, || {
+        task::harness::with_table_locked(|| {
+            crate::console::with_framebuffer(|_| {
+                let before = task::ticks();
+                // Long enough for at least one period to come due.
+                spin_us(25_000, irq_window::poll_point);
+                crate::serial::try_print(format_args!(""));
+                task::ticks() - before
+            })
+        })
+    });
+    check!(taken.is_some(), "no console framebuffer in the test boot");
+    check!(
+        taken.unwrap_or(0) >= 2,
+        "only {:?} ticks taken with the locks held ({latency:?})",
+        taken
+    );
+    check!(
+        !crate::task::diag::table_locked() && !crate::console::locked(),
+        "a lock stayed held"
+    );
+    Ok(())
+}
+
+/// A stretch without poll points is charged, whole, to its own syscall and
+/// logged past the bound; a polled one of ten times the length stays under
+/// it.
+pub fn charges_spans_per_syscall() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let ((), unpolled) = in_syscall(NR_A, || spin_us(3_000, || {}));
+    check!(
+        unpolled.worst_us >= 2_900,
+        "a 3 ms stretch was charged {} µs",
+        unpolled.worst_us
+    );
+    check!(irqoff::over_bound() >= 1, "the stretch was not counted");
+    check!(
+        irqoff::max_native_us(NR_B) == 0,
+        "another syscall was charged"
+    );
+    best_of(
+        "30 ms of polling",
+        || Ok(in_syscall(NR_B, || spin_us(30_000, irq_window::poll_point)).1),
+        |l| l.worst_us < BOUND_US,
+    )?;
+    Ok(())
+}
+
+/// A `nap` (interrupts on, `hlt`) ends the stretch and the next one starts
+/// when it returns: two 1.2 ms stretches around a nap of up to a tick are
+/// charged as such, not as one.
+pub fn nap_ends_span() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    best_of(
+        "stretches around a nap",
+        || {
+            let (ticks, latency) = in_syscall(NR_A, || {
+                spin_us(1_200, || {});
+                let before = task::ticks();
+                task::nap();
+                spin_us(1_200, || {});
+                task::ticks() - before
+            });
+            check!(ticks >= 1, "the nap did not wait for a tick");
+            Ok(latency)
+        },
+        |l| l.worst_us < 1_900,
+    )?;
+    Ok(())
+}
+
+/// Soak: a second of syscall-time polling, about a thousand windows. Every
+/// tick is counted exactly once (the count matches the TSC's elapsed
+/// periods), and every one arrived through a window.
+pub fn soak_ticks_through_windows() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let per_tick = clock::cycles_per_tick();
+    let (elapsed, latency) = in_syscall(NR_A, || {
+        let start = tsc();
+        spin_us(1_000_000, irq_window::poll_point);
+        tsc().wrapping_sub(start) / per_tick
+    });
+    check!(
+        latency.ticks.abs_diff(elapsed) <= 2,
+        "{} ticks counted over {elapsed} elapsed periods",
+        latency.ticks
+    );
+    check!(
+        latency.window_ticks == latency.ticks,
+        "{} of {} ticks came through windows",
+        latency.window_ticks,
+        latency.ticks
+    );
+    check!(
+        latency.opened >= 500,
+        "only {} windows in a second",
+        latency.opened
+    );
+    Ok(())
+}
