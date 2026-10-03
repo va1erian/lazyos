@@ -62,7 +62,7 @@ GOOD_PATHS = {"/", "/chunked", "/gzip", "/big", "/files/page.txt", "/redirect/3"
 def build(env_extra: dict[str, str]) -> str | None:
     """Build the tools and the image; an error message, or None."""
     if subprocess.call([PY, str(ROOT / "tools" / "nettls" / "build.py"), "--require"], cwd=ROOT) != 0:
-        return "tools/nettls/build.py --require failed (zig: pip install ziglang==0.16.0)"
+        return "tools/nettls/build.py --require failed (it needs the x86_64-unknown-linux-musl target)"
     shell = busybox.ensure_busybox()
     if shell is None:
         return "no BusyBox for the console shell (see tools/abi/busybox.py)"

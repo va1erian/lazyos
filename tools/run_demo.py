@@ -289,7 +289,7 @@ def main(argv: list[str]) -> int:
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
                              "verifies certificates against /etc/ssl/certs, built by "
-                             "tools/nettls/build.py (needs zig; docs/tls-plan.md)")
+                             "tools/nettls/build.py (docs/tls-plan.md)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "

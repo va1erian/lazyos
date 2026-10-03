@@ -74,7 +74,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
               wraplength=420, foreground="#555").pack(anchor="w", padx=28, pady=(0, 4))
     if tls_var is not None:
         ttk.Checkbutton(net, text="HTTPS: curl, wget and fetch with verified certificates "
-                                  "(builds them with zig; turns networking on)",
+                                  "(builds them; turns networking on)",
                         variable=tls_var).pack(anchor="w", padx=8, pady=4)
 
     if linuxapps_var is not None:

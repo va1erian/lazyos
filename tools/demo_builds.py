@@ -64,8 +64,8 @@ def build_linuxapps() -> bool:
 
 
 def build_tls() -> bool:
-    """`fetch`, also run as `curl` and `wget` (rustls + ring, built with zig by
-    `tools/nettls/build.py`); a missing toolchain stops the run."""
+    """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
+    built by `tools/nettls/build.py`); a failed build stops the run."""
     return required("the HTTPS tools", "nettls/build.py", ("--require",))
 
 
