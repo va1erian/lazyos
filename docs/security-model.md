@@ -10,14 +10,48 @@ identity, and explained if denied.**
 
 ## 0. Implementation status
 
-This document is the target model. As of 2026-09-28 the kernel and services
-implement the following; everything else below is specification
+This document is the target model. As of 2026-10-03 the kernel and services
+have the mechanisms in the left column; everything in the right column, and
+everything below not listed here, is specification
 ([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail;
 [`security-hardening-plan.md`](security-hardening-plan.md) is the plan to close
-the gap):
+the gap). A mechanism that exists is not necessarily switched on; the list
+after the table says what is actually enforced today.
 
-| Implemented | Specified only |
+| Mechanism implemented | Specified only |
 |---|---|
+| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; children inherit, only kernel-started programs are root; audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts for the core services (section 4.1 "system services do not run as root" is the goal, not the state) |
+| Console login through `logind` + `accountsd`, Argon2id verification inside `keyd`, hashes in `SHARE_ONLY` buffers; failed logins audited (section 3) | Password hashes at rest (the account file holds plaintext), rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`; `keyd` key ids are not yet scoped to their owner (issue #187) |
+| VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
+| Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals), `CAP_DEV_CLAIM` (device claims through syscall 23, 4.2); `CAP_SYS_ADMIN` gates the display grant (4.2); per-driver device-class rules installed at boot (#481) | Dropping capabilities on `execve` |
+| Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy; app labels with label-keyed rules compiled from a package manifest and loaded by `pkgd`, reserved `os.lazy.*`/`app.<id>.*` namespaces (4.3, 6) | A uid policy loader, the policy language/compiler, hot reload, revocation of live handles (5.2, 6) |
+| Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth, device claims and DMA memory (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy beyond the label rules (5.4), fd/CPU quota enforcement |
+| Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
+| 128-entry hash-chained kernel audit ring, denials always recorded (9) | `auditd`, on-disk audit log, `CAP_AUDIT_READ` query interface, "why was this denied" UI |
+| Install consent in the Installer: requested permissions grouped by risk with `pkgd`'s explanations (6, 12) | Elevation service (10), signed bundles and updates (11), first-use prompts, the red-team CI suite (13) |
+
+What is enforced today, honestly:
+
+- **The uid ACL never closes.** No uid policy is ever loaded, so every
+  Messenger call from an unlabelled task is `BOOTSTRAP_ALLOW`
+  (`kernel/src/ipc/acl.rs`), apart from the reserved name namespaces. Unlabelled covers every system service, `xuid`,
+  LazyShell and the Terminal.
+- **Installed apps are confined.** A packaged app runs labelled
+  `app:<system_name>` and is default-deny on Messenger except for what its
+  manifest grants (`pkgstore::rules`, [`packages.md`](packages.md)). Its
+  `files` permissions are consent-only (there is no file sandbox), and its
+  `network` permission gates only the Messenger socket interface: the Linux
+  `AF_INET` path in the kernel does not check labels, and the per-uid call
+  rules in `libs/netpolicy` wait for the uid policy loader.
+- **Almost everything is root.** `xuid` and the apps `init` starts at boot run
+  as uid 0 (labelled or not), and so do the services except the drivers and
+  their stacks (`sndd`, `audiod`, `usbd`, `netdrv`, `netd`); several services
+  authorize admin calls with `uid == 0` (hardening plan section 1).
+- **Passwords are plaintext** in the world-readable `/system/etc/passwd`;
+  `keyd` verifies with Argon2id, but against a verifier `accountsd` provisions
+  from that plaintext at each login.
+
+---|---|
 | Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; children inherit, only kernel-started programs are root; audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts: every system service still runs as uid 0 (section 4.1 "system services do not run as root" is the goal, not the state) |
 | Console login through `logind` + `accountsd`, Argon2id verification inside `keyd`, hashes in `SHARE_ONLY` buffers; failed logins audited (section 3) | Rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`; `keyd` key ids are not yet scoped to their owner (issue #187) |
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
