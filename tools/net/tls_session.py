@@ -15,13 +15,23 @@ import tlscerts
 import tlspeers as tp
 
 PROMPT = "/ #"
+#: Shell helpers. `ok WANT NAME` checks stdin, `chk NAME GOT WANT` a value,
+#: `no NAME CMD...` a command that must fail, `h` a body's digest prefix.
 HELPERS = (
-    "m=TLS; ok() { if grep -qxF -- \"$1\"; then echo $m:$2:PASS; else echo $m:$2:FAIL; fi; }; "
-    "chk() { if [ \"$2\" = \"$3\" ]; then echo $m:$1:PASS; else echo $m:$1:FAIL:$2; fi; }; "
-    "no() { n=$1; shift; if \"$@\" >/dev/null 2>/tmp/no.err; then echo $m:$n:FAIL; "
-    "else echo $m:$n:PASS; head -c 200 /tmp/no.err; echo; fi; }; "
-    "h() { sha256sum | cut -c1-16; }"
+    "m=TLS",
+    "ok() { if grep -qxF -- \"$1\"; then echo $m:$2:PASS; else echo $m:$2:FAIL; fi; }",
+    "chk() { if [ \"$2\" = \"$3\" ]; then echo $m:$1:PASS; else echo $m:$1:FAIL:$2; fi; }",
+    "no() { n=$1; shift; if \"$@\" >/dev/null 2>/tmp/e; then echo $m:$n:FAIL; "
+    "else echo $m:$n:PASS; head -c 300 /tmp/e; echo; fi; }",
+    "h() { sha256sum | cut -c1-16; }",
 )
+#: The one line typed into the guest: our own `wget` fetches the checks from
+#: the host's plain server (by address, so `--live` images need no hosts
+#: entry) and the shell runs them. Typing every check instead loses
+#: keystrokes on a busy TCG guest.
+BOOTSTRAP = "wget -q -O /tmp/c.sh http://10.0.2.2:{port}{path}; sh /tmp/c.sh"
+#: Seconds between typed characters.
+TYPE_DELAY = 0.05
 
 
 def digest(body: bytes) -> str:
@@ -57,9 +67,9 @@ def checks() -> list[tuple[str, str]]:
         ("fail22", f"curl -sf {good}/nope >/dev/null; chk fail22 $? 22"),
         ("verbose", f"fetch -v {good}/ 2>&1 >/dev/null | grep -c '^TLS:HANDSHAKE' | ok 1 verbose"),
     ]
-    negative = [(role, f"no {role} curl -sS {url(port)}") for role, port in tp.NEGATIVE_PORTS.items()]
+    negative = [(role, f"no {role} curl -sS -m 60 {url(port)}") for role, port in tp.NEGATIVE_PORTS.items()]
     negative += [
-        ("downgrade", f"no downgrade curl -sSL {good}/downgrade"),
+        ("downgrade", f"no downgrade curl -sSL -m 60 {good}/downgrade"),
         ("insecure", f"no insecure curl -k {good}/"),
         ("nocheck", f"no nocheck wget --no-check-certificate -O - {good}/"),
         ("nobundle", f"no nobundle env SSL_CERT_FILE=/nope curl -sS {good}/"),
@@ -77,17 +87,23 @@ def live_checks(urls: list[str]) -> list[tuple[str, str]]:
     return out
 
 
+def body(items: list[tuple[str, str]]) -> bytes:
+    """The check script the guest downloads and runs."""
+    lines = ["echo TLS:started", *HELPERS, *(command for _, command in items), "echo $m:done"]
+    return ("\n".join(lines) + "\n").encode()
+
+
 def script(items: list[tuple[str, str]], step_timeout: float) -> list[dict]:
-    """The `qemu_session.py` steps: wait for the shell and an address, the
-    helpers, then one typed line per check gated on its marker."""
+    """The `qemu_session.py` steps: wait for the shell and an address, type
+    the bootstrap line, then wait for each check's marker in turn."""
+    bootstrap = BOOTSTRAP.format(port=tp.PLAIN_PORT, path=tp.SCRIPT_PATH)
     steps: list[dict] = [
         {"wait_for": PROMPT, "timeout": 300},
-        {"wait_for": "NETD:ADDR", "timeout": 300},
-        {"type": HELPERS},
-        {"key": "enter", "until": PROMPT, "timeout": 60, "retries": 1},
+        {"wait_for": "NETD:RESOLV wrote", "timeout": 300},
+        {"type": bootstrap, "delay": TYPE_DELAY},
+        {"key": "enter", "until": "TLS:started", "timeout": step_timeout},
     ]
-    for name, command in items:
-        steps.append({"type": command})
-        steps.append({"key": "enter", "until": f"TLS:{name}:", "timeout": step_timeout})
-    steps += [{"wait": 1.0}, {"shot": "tls"}, {"quit": True}]
+    for name, _ in items:
+        steps.append({"wait_for": f"TLS:{name}:", "timeout": step_timeout})
+    steps += [{"wait_for": "TLS:done", "timeout": step_timeout}, {"shot": "tls"}, {"quit": True}]
     return steps

@@ -120,6 +120,18 @@ def generate(out_dir: Path) -> dict[str, Path | Leaf]:
     return files
 
 
+ROLES = ("good", "rsa", "expired", "notyet", "wrongname", "selfsigned", "unknownca")
+
+
+def load(out_dir: Path) -> dict[str, Path | Leaf] | None:
+    """The files a previous `generate` wrote, or None if any is missing (an
+    image built with that CA must be run against the same leaves)."""
+    files: dict[str, Path | Leaf] = {"ca": out_dir / "ca.pem"}
+    files.update({role: Leaf(out_dir / f"{role}.pem", out_dir / f"{role}.key") for role in ROLES})
+    paths = [files["ca"]] + [p for role in ROLES for p in (files[role].cert, files[role].key)]
+    return files if all(p.is_file() for p in paths) else None
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit(__doc__)

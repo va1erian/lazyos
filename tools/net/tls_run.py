@@ -124,7 +124,7 @@ def judge_servers(record: tp.Record) -> list[str]:
     gzip_asks = [r for r in record.requests if r.path == "/gzip"]
     if not gzip_asks or any("gzip" not in r.headers.get("accept-encoding", "") for r in gzip_asks):
         problems.append("the client did not offer gzip")
-    plain = [r.path for r in record.requests if r.port == tp.PLAIN_PORT]
+    plain = [r.path for r in record.requests if r.port == tp.PLAIN_PORT and r.path != tp.SCRIPT_PATH]
     if "/downgraded" in plain:
         problems.append("the client followed an https -> http redirect")
     if plain.count("/") != 1:
@@ -179,7 +179,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.live:
         return live(args, out)
 
-    certs = tlscerts.generate(out / "certs")
+    certs = tlscerts.load(out / "certs") if args.no_build else None
+    if certs is None:
+        if args.no_build:
+            print("TLS:HARNESS:FAIL --no-build needs the certificates of the run that built the image")
+            return 1
+        certs = tlscerts.generate(out / "certs")
     hosts = out / "certs" / "hosts"
     hosts.write_text(f"{pcap.ip_text(GATEWAY_IP)} {tlscerts.NAME} {tlscerts.RSA_NAME}\n")
     if not args.no_build:
@@ -190,12 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     elif not IMAGE.is_file():
         print(f"TLS:HARNESS:FAIL {IMAGE} not found")
         return 1
+    items = tls_session.checks()
     try:
-        peers = tp.Peers(certs)
+        peers = tp.Peers(certs, tls_session.body(items))
     except OSError as exc:
         print(f"TLS:HARNESS:FAIL cannot start the host servers on ports 47790-47801: {exc}")
         return 1
-    items = tls_session.checks()
     try:
         session_ok, text = run_session(items, out, args)
     finally:
@@ -220,7 +225,11 @@ def live(args, out: Path) -> int:
             print(f"TLS:HARNESS:FAIL {error}")
             return 1
     items = tls_session.live_checks(args.live_url or LIVE_URLS)
-    session_ok, text = run_session(items, out, args)
+    server = tp.Server(tp.PLAIN_PORT, "plain", tp.Record(), None, {tp.SCRIPT_PATH: tls_session.body(items)})
+    try:
+        session_ok, text = run_session(items, out, args)
+    finally:
+        server.close()
     for line in text.splitlines():
         if line.startswith("TLS:HANDSHAKE") or line.startswith("TLS:FAIL"):
             print(f"  {line}")

@@ -44,6 +44,9 @@ NEGATIVE_PORTS = {
     "truncated": 47801,
 }
 
+#: Where the plain server hands the guest its check script.
+SCRIPT_PATH = "/check.sh"
+
 INDEX = b"LazyOS TLS harness: hello over HTTPS\n" + pattern(3000, seed=0x7151)
 CHUNKED = pattern(40_000, seed=0xC4C4)
 GZIPPED = (b"compressible line from the TLS harness\n" * 2000)
@@ -146,8 +149,11 @@ def route(path: str, headers: dict[str, str]) -> bytes:
 class Server:
     """One listening port: a good server, a plain one, or a negative one."""
 
-    def __init__(self, port: int, role: str, record: Record, context: ssl.SSLContext | None) -> None:
+    def __init__(self, port: int, role: str, record: Record, context: ssl.SSLContext | None,
+                 extra: dict[str, bytes] | None = None) -> None:
         self.port, self.role, self.record, self.context = port, role, record, context
+        #: Pages only this server serves (the plain one hands out the check script).
+        self.extra = extra or {}
         self._sni: dict[int, str | None] = {}
         if context is not None:
             context.sni_callback = self._on_sni
@@ -218,7 +224,10 @@ class Server:
                 headers[name.strip().lower()] = value.strip()
         with self.record.lock:
             self.record.requests.append(Request(self.port, parts[0], parts[1], headers))
-        response = route(parts[1], headers)
+        if parts[1] in self.extra:
+            response = _response("200 OK", self.extra[parts[1]])
+        else:
+            response = route(parts[1], headers)
         if parts[0] == "HEAD":
             response = response.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
         conn.sendall(response)
@@ -232,7 +241,7 @@ class Server:
 class Peers:
     """Every server the harness runs, sharing one record."""
 
-    def __init__(self, certs: dict) -> None:
+    def __init__(self, certs: dict, script: bytes = b"") -> None:
         self.record = Record()
         good = certs["good"]
         plan = [(GOOD_PORT, "good", _context(good, "good")),
@@ -242,7 +251,9 @@ class Peers:
         for role, port in NEGATIVE_PORTS.items():
             leaf = certs.get(role, good)
             plan.append((port, role, None if role == "truncated" else _context(leaf, role)))
-        self.servers = [Server(port, role, self.record, context) for port, role, context in plan]
+        self.servers = [Server(port, role, self.record, context,
+                               {SCRIPT_PATH: script} if role == "plain" else None)
+                        for port, role, context in plan]
 
     def snapshot(self) -> Record:
         with self.record.lock:
