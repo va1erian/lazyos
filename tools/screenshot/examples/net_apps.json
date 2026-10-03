@@ -66,5 +66,11 @@
   {"wait_for": "NETTOOLS:FETCH:PASS code=200", "timeout": 10},
   {"wait_for": "NETTOOLS:SERVER:HIT n=1", "timeout": 10},
   {"at": 2.0, "shot": "03_actions"},
+  {"mouse_move": [189, 169]},
+  {"wait": 0.5},
+  {"mouse_click": "left"},
+  {"wait": 0.6},
+  {"mouse_click": "left", "until": "NETTOOLS:SERVER:LISTENING port=8080", "timeout": 15, "retries": 1},
+  {"at": 2.0, "shot": "04_restarted"},
   {"at": 3.0, "quit": true}
 ]

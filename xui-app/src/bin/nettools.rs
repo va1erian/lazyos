@@ -79,8 +79,9 @@ struct NetTools {
     ping: Option<PingRun>,
     fetch: Option<Fetch>,
     server: Option<Server>,
-    /// The server's hit count last shown, so the log redraws only on change.
-    shown_hits: Option<(u64, usize)>,
+    /// The server's hit and log-line counts last shown, so the log redraws
+    /// only on change.
+    shown_hits: Option<(u64, u64)>,
 }
 
 impl App for NetTools {
@@ -352,7 +353,7 @@ impl NetTools {
         if self.w.server_status.text() != text {
             self.w.server_status.set_text(&text);
         }
-        let shown = (state.hits, state.log.len());
+        let shown = (state.hits, state.logged);
         if self.shown_hits != Some(shown) {
             let rows: Vec<&str> = state.log.iter().map(String::as_str).collect();
             self.w.server_log.set_items(&rows);

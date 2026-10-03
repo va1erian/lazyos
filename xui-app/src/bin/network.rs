@@ -22,6 +22,7 @@ use xui_app::backend::LazyOSBackend;
 use xui_app::net::model::{self, Form, NetStatus, Write};
 use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
+use xui_confd_editor::store::StoreError as ConfStoreError;
 use xui_core::app::{run_app, App, Ui};
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::widget::{Button, Edit, GroupBox, Label, RadioGroup};
@@ -228,7 +229,14 @@ impl Network {
         for write in &writes {
             let outcome = match write {
                 Write::Set(key, value) => self.store.set(key, Value::Str(value.clone())),
-                Write::Delete(key) => self.store.delete(key).or(Ok(())),
+                // Clearing a value that was never set is fine; any other
+                // failure would leave a stale gateway or DNS server behind.
+                Write::Delete(key) => {
+                    match xui_confd_editor::store::ConfStore::delete(&self.store, key) {
+                        Ok(()) | Err(ConfStoreError::NotFound) => Ok(()),
+                        Err(error) => Err(error.message()),
+                    }
+                }
             };
             if let Err(error) = outcome {
                 println!("NETAPP:APPLY:FAIL");

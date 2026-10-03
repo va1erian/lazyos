@@ -27,6 +27,10 @@ const MAX_REQUEST: usize = 8 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often the idle server looks for a connection or a stop request.
 const ACCEPT_POLL_MILLIS: u64 = 50;
+/// How many times a bind is tried, [`ACCEPT_POLL_MILLIS`] apart: a server
+/// just stopped holds the port until its next poll, so Stop then Start must
+/// wait for it rather than fail.
+const BIND_ATTEMPTS: u32 = 40;
 /// Log lines the server keeps.
 const LOG_LINES: usize = 8;
 
@@ -108,6 +112,8 @@ pub struct ServerState {
     pub hits: u64,
     /// Recent requests, newest last: `10.0.2.2:51234  GET / HTTP/1.1`.
     pub log: Vec<String>,
+    /// Lines ever logged, so a change shows even once the log is full.
+    pub logged: u64,
     /// Set when the thread has ended.
     pub stopped: bool,
 }
@@ -169,7 +175,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 fn serve(port: u16, stop: &AtomicBool, state: &Mutex<ServerState>, page: &Mutex<PageInfo>) {
-    let listener = match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)) {
+    let listener = match bind(port, stop) {
         Ok(listener) => listener,
         Err(e) => {
             lock(state).listening = Some(Err(format!("listen on port {port}: {e}")));
@@ -190,6 +196,26 @@ fn serve(port: u16, stop: &AtomicBool, state: &Mutex<ServerState>, page: &Mutex<
                 push_log(state, format!("accept failed: {e}"));
                 sys::sleep_millis(ACCEPT_POLL_MILLIS * 4);
             }
+        }
+    }
+}
+
+/// Bind the listener, retrying while the port is still held (by a server that
+/// is stopping) unless this one is stopped meanwhile.
+fn bind(port: u16, stop: &AtomicBool) -> std::io::Result<TcpListener> {
+    let addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port);
+    let mut attempt = 1;
+    loop {
+        match TcpListener::bind(addr) {
+            Err(e)
+                if e.kind() == ErrorKind::AddrInUse
+                    && attempt < BIND_ATTEMPTS
+                    && !stop.load(Ordering::Relaxed) =>
+            {
+                attempt += 1;
+                sys::sleep_millis(ACCEPT_POLL_MILLIS);
+            }
+            outcome => return outcome,
         }
     }
 }
@@ -232,6 +258,7 @@ fn answer(
 fn push_log(state: &Mutex<ServerState>, line: String) {
     let mut state = lock(state);
     state.log.push(line);
+    state.logged += 1;
     let excess = state.log.len().saturating_sub(LOG_LINES);
     state.log.drain(..excess);
 }

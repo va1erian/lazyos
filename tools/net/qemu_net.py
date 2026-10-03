@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import socket
+import sys
 from dataclasses import dataclass
 
 #: The Net Tools web server (xui-app/src/bin/nettools.rs SERVER_PORT).
@@ -117,6 +118,11 @@ def busy_ports(forwards: list[Forward]) -> list[str]:
     for forward in forwards:
         kind = socket.SOCK_STREAM if forward.proto == "tcp" else socket.SOCK_DGRAM
         with socket.socket(socket.AF_INET, kind) as probe:
+            # QEMU's listener sets SO_REUSEADDR, so on Linux a port whose last
+            # connections sit in TIME_WAIT is free for it; probe the same way.
+            # On Windows the option lets a bind steal a port in use: leave it.
+            if forward.proto == "tcp" and sys.platform != "win32":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind((forward.host_addr, forward.host_port))
             except OSError:
