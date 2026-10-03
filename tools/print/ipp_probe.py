@@ -102,7 +102,10 @@ def main():
     parser.add_argument("printer", help="address, host name, or full ipp:// URI")
     parser.add_argument("--raw", metavar="FILE", help="also save the raw IPP reply to FILE")
     args = parser.parse_args()
-    uri = args.printer if "://" in args.printer else f"ipp://{args.printer}/ipp/print"
+    printer = args.printer
+    if "://" not in printer and printer.count(":") > 1 and not printer.startswith("["):
+        printer = f"[{printer}]"  # a bare IPv6 address
+    uri = printer if "://" in printer else f"ipp://{printer}/ipp/print"
     parts = urlsplit(uri)
     netloc = parts.netloc if parts.port else f"{parts.netloc}:631"  # IPP's default port
     scheme = "https" if parts.scheme == "ipps" else "http"
