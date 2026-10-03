@@ -377,6 +377,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("loader_streams_from_a_file", stream::streams_from_a_file),
     ("loader_stream_soak", stream::stream_soak),
     (
+        "loader_read_failure_is_eio",
+        stream::read_failure_is_eio_not_enomem,
+    ),
+    (
         "loader_phdr_address_ignores_unmapped_headers",
         stream::phdr_address_ignores_unmapped_headers,
     ),

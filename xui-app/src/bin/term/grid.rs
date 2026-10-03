@@ -70,6 +70,9 @@ pub struct Grid {
     utf8: Utf8,
     parse: Parse,
     csi: String,
+    /// The main screen and cursor while a full-screen program draws on the
+    /// alternate screen (`ESC [ ? 1049 h` ... `l`).
+    saved: Option<(Vec<Vec<char>>, usize, usize)>,
 }
 
 impl Grid {
@@ -81,6 +84,22 @@ impl Grid {
             utf8: Utf8::default(),
             parse: Parse::Normal,
             csi: String::new(),
+            saved: None,
+        }
+    }
+
+    /// Switch to (`on`) or back from the alternate screen: what `vi` and
+    /// `less` draw on, so the shell's screen comes back as it was.
+    fn alternate_screen(&mut self, on: bool) {
+        if on && self.saved.is_none() {
+            let main = std::mem::replace(&mut self.cells, vec![vec![' '; COLS]; ROWS]);
+            self.saved = Some((main, self.row, self.col));
+        } else if !on {
+            if let Some((main, row, col)) = self.saved.take() {
+                self.cells = main;
+                self.row = row;
+                self.col = col;
+            }
         }
     }
 
@@ -202,13 +221,29 @@ impl Grid {
                     self.row = 0;
                     self.col = 0;
                 } else if self.csi_param(0) == 0 {
+                    // To the end of the screen: this line, then every one
+                    // below (what full-screen programs clear with).
                     self.cells[self.row][self.col..COLS].fill(' ');
+                    for row in &mut self.cells[self.row + 1..] {
+                        row.fill(' ');
+                    }
+                } else if self.csi_param(0) == 1 {
+                    for row in &mut self.cells[..self.row] {
+                        row.fill(' ');
+                    }
+                    self.cells[self.row][..(self.col + 1).min(COLS)].fill(' ');
                 }
             }
-            'K' => {
-                let start = if self.csi_param(0) == 2 { 0 } else { self.col };
-                self.cells[self.row][start..COLS].fill(' ');
+            'h' | 'l' if self.csi.starts_with('?') => {
+                if matches!(self.csi_param(0), 47 | 1047 | 1049) {
+                    self.alternate_screen(final_byte == 'h');
+                }
             }
+            'K' => match self.csi_param(0) {
+                1 => self.cells[self.row][..(self.col + 1).min(COLS)].fill(' '),
+                2 => self.cells[self.row].fill(' '),
+                _ => self.cells[self.row][self.col..COLS].fill(' '),
+            },
             _ => {}
         }
     }
@@ -245,6 +280,30 @@ mod tests {
         grid.feed("x".repeat(COLS).as_bytes());
         grid.feed(b"\t\x1b[K\x1b[J");
         assert!(grid.col <= COLS);
+    }
+
+    /// `ESC [ J` clears from the cursor to the end of the *screen*, the
+    /// rows below included (full-screen programs redraw with `ESC [H ESC [J`).
+    #[test]
+    fn erase_below_clears_the_rows_under_the_cursor() {
+        let mut grid = Grid::new();
+        grid.feed(b"top\r\nmiddle\r\nbottom");
+        grid.feed(b"\x1b[2;3H\x1b[J");
+        assert_eq!(grid.row_text(0), "top");
+        assert_eq!(grid.row_text(1), "mi");
+        assert_eq!(grid.row_text(2), "");
+    }
+
+    /// The alternate screen keeps the shell's screen and cursor intact.
+    #[test]
+    fn alternate_screen_restores_the_main_screen() {
+        let mut grid = Grid::new();
+        grid.feed(b"$ less file");
+        grid.feed(b"\x1b[?1049h\x1b[Hpager text\x1b[5;1H:");
+        assert_eq!(grid.row_text(0), "pager text");
+        grid.feed(b"\x1b[?1049l");
+        assert_eq!(grid.row_text(0), "$ less file");
+        assert_eq!((grid.row, grid.col), (0, 11));
     }
 
     #[test]

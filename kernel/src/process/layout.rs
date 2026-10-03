@@ -12,7 +12,7 @@
 //!        ...       │ (unused)
 //!   STACK_TOP - s  │ main-thread stack, `s` = `limit.stack_size` (8 MiB by
 //! 0x7f00_0000_0000 ┤ default), demand-zero below the start frame
-//!        ...       │ 2 GiB unmapped guard
+//!        ...       │ 512 GiB unmapped guard
 //! 0x7f80_0000_0000 ┘ USER_TOP: the shared-buffer window starts here
 //! ```
 //!

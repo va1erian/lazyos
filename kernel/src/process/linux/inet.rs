@@ -16,7 +16,7 @@ use crate::user_ptr;
 
 use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOPROTOOPT, ENOTSOCK};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
-use super::io::{read_stream, write_stream};
+use super::io::{read_stream_opts, write_stream_opts};
 
 /// `AF_INET` and the sockaddr layout.
 pub(super) const AF_INET: u64 = 2;
@@ -56,6 +56,11 @@ fn inet_of(fd: u64) -> Result<Arc<InetSock>, u64> {
 /// Whether `fd` is an `AF_INET` socket (the other socket calls defer to this).
 pub(super) fn is_inet(fd: u64) -> bool {
     task::fd_kind(fd as usize) == FdKind::Inet
+}
+
+/// Whether `fd` is an `AF_INET` datagram (UDP) socket.
+pub(super) fn is_datagram(fd: u64) -> bool {
+    inet_of(fd).is_ok_and(|sock| sock.kind() == Kind::Dgram)
 }
 
 /// Parse a user `struct sockaddr_in`.
@@ -232,7 +237,8 @@ fn ensure_bound(sock: &InetSock) -> Result<(), u64> {
 }
 
 /// `sendto(fd, buf, len, flags, addr, addrlen)`.
-pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, to: (u64, u64), dont_wait: bool) -> u64 {
+    let (addr, addrlen) = to;
     let sock = match inet_of(fd) {
         Ok(sock) => sock,
         Err(e) => return e,
@@ -241,7 +247,7 @@ pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -
         if sock.pair().is_none() {
             return err(ENOTCONN);
         }
-        return write_stream(fd, buf, len);
+        return write_stream_opts(fd, buf, len, dont_wait);
     }
     let to = if addr != 0 {
         match parse_addr(addr, addrlen) {
@@ -254,10 +260,11 @@ pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -
             None => return err(EDESTADDRREQ),
         }
     };
-    send_datagram(&sock, fd, buf, len, to)
+    send_datagram(&sock, fd, (buf, len), to, dont_wait)
 }
 
-fn send_datagram(sock: &InetSock, fd: u64, buf: u64, len: u64, to: Addr) -> u64 {
+fn send_datagram(sock: &InetSock, fd: u64, data: (u64, u64), to: Addr, dont_wait: bool) -> u64 {
+    let (buf, len) = data;
     if len as usize > MAX_DGRAM {
         return err(EMSGSIZE);
     }
@@ -275,14 +282,21 @@ fn send_datagram(sock: &InetSock, fd: u64, buf: u64, len: u64, to: Addr) -> u64 
     message.extend_from_slice(&to.ip);
     message.extend_from_slice(&to.port.to_be_bytes());
     message.extend_from_slice(payload);
-    match task::fd_stream_write(fd as usize, &message) {
+    match task::fd_stream_send(fd as usize, &message, dont_wait) {
         Ok(_) => len,
         Err(e) => super::io::pipe_error(e),
     }
 }
 
 /// `recvfrom(fd, buf, len, flags, addr, addrlen)`.
-pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+pub(super) fn sys_recvfrom(
+    fd: u64,
+    buf: u64,
+    len: u64,
+    from: (u64, u64),
+    opts: task::RecvOpts,
+) -> u64 {
+    let (addr, addrlen) = from;
     let sock = match inet_of(fd) {
         Ok(sock) => sock,
         Err(e) => return e,
@@ -291,22 +305,28 @@ pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64)
         if sock.pair().is_none() {
             return err(ENOTCONN);
         }
-        let n = read_stream(fd, buf, len);
+        let n = read_stream_opts(fd, buf, len, opts);
         if addr != 0 && (n as i64) >= 0 {
             write_addr(addr, addrlen, sock.peer().unwrap_or(Addr::ANY));
         }
         return n;
     }
-    recv_datagram(&sock, fd, buf, len, addr, addrlen)
+    recv_datagram(&sock, fd, (buf, len), (addr, addrlen), opts)
 }
 
-fn recv_datagram(sock: &InetSock, fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+fn recv_datagram(
+    sock: &InetSock,
+    fd: u64,
+    (buf, len): (u64, u64),
+    (addr, addrlen): (u64, u64),
+    opts: task::RecvOpts,
+) -> u64 {
     if let Err(e) = ensure_bound(sock) {
         return e;
     }
     let want = (len as usize).min(MAX_DGRAM);
     let mut message = alloc::vec![0u8; DGRAM_HEADER + want];
-    let n = match task::fd_stream_read(fd as usize, &mut message) {
+    let n = match task::fd_stream_recv(fd as usize, &mut message, opts) {
         Ok(n) => n,
         Err(e) => return super::io::pipe_error(e),
     };
@@ -327,12 +347,12 @@ fn recv_datagram(sock: &InetSock, fd: u64, buf: u64, len: u64, addr: u64, addrle
 
 /// `read(2)` on an inet socket.
 pub(super) fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
-    sys_recvfrom(fd, buf, len, 0, 0)
+    sys_recvfrom(fd, buf, len, (0, 0), task::RecvOpts::default())
 }
 
 /// `write(2)` on an inet socket.
 pub(super) fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
-    sys_sendto(fd, buf, len, 0, 0)
+    sys_sendto(fd, buf, len, (0, 0), false)
 }
 
 /// `setsockopt(fd, level, name, value, len)`: the options programs set on a

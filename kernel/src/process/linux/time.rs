@@ -11,7 +11,7 @@ use crate::ipc::credentials::{self, CAP_SYS_TIME};
 use super::errno::{err, EFAULT, EINTR, EINVAL, EPERM};
 use super::uaccess::fill_random;
 
-const CLOCK_REALTIME: u64 = 0;
+pub(super) const CLOCK_REALTIME: u64 = 0;
 pub(super) const CLOCK_MONOTONIC: u64 = 1;
 
 /// `TIMER_ABSTIME`: `req` is an absolute deadline on `clock` rather than a
@@ -167,7 +167,7 @@ fn sleep_until_realtime(sec: u64, nsec: u64) -> u64 {
 /// compares against. Rounds up so a sleeper never wakes before the requested
 /// instant; a deadline already in the past saturates to tick 0, which
 /// `wait_sleep` resolves immediately since ticks only advance.
-fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
+pub(super) fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
     let centis = nsec.div_ceil(10_000_000);
     if clock == CLOCK_MONOTONIC {
         sec.saturating_mul(100).saturating_add(centis)

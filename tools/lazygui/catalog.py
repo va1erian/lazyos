@@ -14,6 +14,7 @@ import shutil
 import sys
 
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+from .appsteps import app_steps, doom_step, lazyrad_step, linuxapps_step, modplayer_step  # noqa: F401
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -198,6 +199,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_NETD_ARGS"] = "demo=0"
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(limit_env(cfg.get("limits", "")))
+    if cfg.get("linuxapps"):
+        # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
+        # in /system/bin, on the CLI and the desktop alike.
+        env["LAZYOS_LINUXAPPS"] = "1"
     return env
 
 
@@ -231,7 +236,8 @@ def lazyrad_samples(user: str) -> str:
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
-                  modplayer: bool = False, net: bool = False) -> dict:
+                  modplayer: bool = False, net: bool = False,
+                  linuxapps: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -243,7 +249,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
     adds networking to either interface (the stack, QEMU's user network with
     host port 8080 forwarded, and on the desktop the Network and Net Tools
-    apps). Machine settings (accelerator, memory, QEMU path)
+    apps), and ``linuxapps`` the Linux command-line programs (dash, lua,
+    sqlite3, jq, rg). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -288,6 +295,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "net": net,
         "net_forwards": "",
         "net_restrict": False,
+        "linuxapps": linuxapps,
     })
     return cfg
 
@@ -315,36 +323,6 @@ def core_packages_step() -> dict:
     return {"label": "Build core packages", "argv": [PY, "tools/xui/core_packages.py"]}
 
 
-def lazyrad_step(cfg: dict) -> list[dict]:
-    """The step that builds LazyRAD's static-musl ELFs, when the image embeds them."""
-    if not cfg.get("lazyrad") and not cfg.get("modplayer"):
-        return []
-    return [{"label": "Build LazyRAD (static musl)",
-             "argv": [PY, "tools/lazyrad/build.py"]}]
-
-
-def doom_step(cfg: dict) -> list[dict]:
-    """The step that builds the Doom package, when the image embeds it."""
-    if not cfg.get("doom"):
-        return []
-    return [{"label": "Build Doom package (engine + Freedoom)",
-             "argv": [PY, "tools/doom/build.py", "--require"]}]
-
-
-def modplayer_step(cfg: dict) -> list[dict]:
-    """The step that packages the LazyRAD MOD player, when the image embeds it
-    (after `lazyrad_step`: the package carries the player it built)."""
-    if not cfg.get("modplayer"):
-        return []
-    return [{"label": "Package the MOD player (LazyRAD)",
-             "argv": [PY, "tools/lazyrad/package.py", "--no-build", "--require"]}]
-
-
-def app_steps(cfg: dict) -> list[dict]:
-    """Every optional app the image embeds, built before `cargo build`."""
-    return lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg)
-
-
 def _script(cfg: dict) -> tuple:
     """The SCRIPTS entry selected by ``cfg["script"]``."""
     return SCRIPTS[cfg["script"]]
@@ -370,6 +348,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("modplayer") and not cfg["skip_build"]:
             # run_demo builds LazyRAD and the package and sets the switches.
             argv.append("--modplayer")
+        if cfg.get("linuxapps") and not cfg["skip_build"]:
+            # run_demo builds the programs and sets LAZYOS_LINUXAPPS itself.
+            argv.append("--linuxapps")
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")

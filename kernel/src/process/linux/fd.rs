@@ -63,9 +63,11 @@ pub(super) fn file_meta(meta: Meta, path: String, writable: bool, append: bool) 
     }
 }
 
-/// Open a synthetic device node (`/dev/null`, `/dev/zero`, `/dev/full`):
-/// reads return an empty snapshot, writes are discarded.
-pub(super) fn open_device_fd() -> u64 {
+/// Open a data device node: `/dev/null` (reads end at once, writes vanish),
+/// `/dev/zero` (reads zeros), `/dev/full` (reads zeros, writes `ENOSPC`),
+/// `/dev/random` and `/dev/urandom` (the kernel CSPRNG). The node's path is
+/// kept in the description so [`super::filerw`] knows which one it is.
+pub(super) fn open_device_fd(path: &str) -> u64 {
     open_snapshot(
         Vec::new(),
         FdMeta {
@@ -73,7 +75,7 @@ pub(super) fn open_device_fd() -> u64 {
             ino: 0,
             uid: 0,
             gid: 0,
-            path: None,
+            path: Some(String::from(path)),
             writable: true,
             append: false,
             device: true,
@@ -99,6 +101,7 @@ pub(super) fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
             super::vfsfd::with_file(fd, |file| super::vfsfd::seek(file, offset as i64, whence))
         }
         FdKind::Terminal
+        | FdKind::Pty
         | FdKind::Pipe
         | FdKind::Socket
         | FdKind::EventFd
@@ -122,11 +125,36 @@ pub(super) fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
     }
 }
 
+/// `dup3(old, new, flags)`: `dup2` that refuses `old == new` and takes
+/// `O_CLOEXEC` for the new descriptor.
+pub(super) fn sys_dup3(old: u64, new: u64, flags: u64) -> u64 {
+    const O_CLOEXEC: u64 = 0o2000000;
+    if old == new || flags & !O_CLOEXEC != 0 {
+        return err(EINVAL);
+    }
+    match task::fd_dup2(old as usize, new as usize) {
+        Some(fd) => {
+            task::fd_set_cloexec(fd, flags & O_CLOEXEC != 0);
+            fd as u64
+        }
+        None => err(EBADF),
+    }
+}
+
 /// `fcntl(fd, cmd, arg)`: the descriptor/status flag commands std needs, plus
 /// `F_DUPFD`/`F_DUPFD_CLOEXEC` (`O_NONBLOCK` state lives on the shared pipe or
 /// socket object, so `dup`/`fork` see the same setting).
 pub(super) fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
+    if let Some(result) = super::locks::fcntl_lock(fd, cmd, arg) {
+        return result;
+    }
     match cmd {
+        // F_GETPIPE_SZ: every pipe is the fixed 64 KiB ring.
+        1032 => match task::fd_kind(fd as usize) {
+            FdKind::Pipe => crate::ipc::pipe::CAPACITY as u64,
+            FdKind::Closed => err(EBADF),
+            _ => err(EINVAL),
+        },
         F_DUPFD | F_DUPFD_CLOEXEC => match task::fd_dup_min(fd as usize, arg as usize) {
             Some(new) => {
                 if cmd == F_DUPFD_CLOEXEC {

@@ -84,7 +84,7 @@ impl SocketPair {
     }
 
     /// The (read-from-peer, write-to-peer) pipe pair for `side`.
-    fn directions(&self, side: Side) -> (&Pipe, &Pipe) {
+    pub(super) fn directions(&self, side: Side) -> (&Pipe, &Pipe) {
         match side {
             Side::A => (&self.ba, &self.ab),
             Side::B => (&self.ab, &self.ba),

@@ -3,18 +3,17 @@
 //!
 //! A desktop session has no console: `xuid` owns the display grant, so the
 //! kernel mux (where `logind`'s prompt lives) stops painting. The Terminal is a
-//! windowed front end instead. It spawns `/busybox sh` with a pipe pair for
-//! stdin/stdout/stderr (the kernel reports fds 0/1/2 as a terminal, so BusyBox
-//! runs its interactive line editor), sends keystrokes to the child's stdin,
-//! and parses the child's output into a character grid. A poll timer drains the
-//! non-blocking reads on the UI thread — the kernel does not share a descriptor
-//! table between threads, so a reader thread would lose the pipe fds.
+//! windowed front end instead. It opens a pseudo-terminal (`term/pty.rs`),
+//! starts `busybox sh -i` on its slave as the session's controlling terminal,
+//! writes keystrokes to the master and parses what the master reads into a
+//! character grid (a small VT100 subset, `term/grid.rs`). A poll timer drains
+//! the non-blocking master on the UI thread.
 //!
-//! This replaces the in-process interpreter the Terminal used to link: the
-//! shell is a real, out-of-process BusyBox, so pipes and redirection
-//! work exactly as at the console. There is no controlling tty yet, so job
-//! control (a tty's `SIGINT` on `^C`) is limited to forwarding the control byte
-//! and signalling the child; line editing and echo come from BusyBox itself.
+//! The shell is a real, out-of-process BusyBox on a real tty: pipes,
+//! redirection and job control work as at a Linux terminal, `^C` is the line
+//! discipline's `SIGINT` for the foreground job, programs that read cooked
+//! input (`cat`, `dash`, `lua`) get echo and line editing from the kernel,
+//! and full-screen programs (`vi`, `less`) get raw mode and the window size.
 //!
 //! Serial evidence: `TERM:UP:PASS` after the first frame, `TERM:CMD:<line>` for
 //! each submitted command, `TERM:OUT:<line>` for each completed output line,
@@ -22,9 +21,9 @@
 //! `TERM:SPAWN:FAIL:<reason>` when the child cannot start.
 
 use std::io::{Read, Write};
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::RawFd;
 use std::os::unix::process::CommandExt;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, Command};
 
 use xui_app::backend::LazyOSBackend;
 use xui_core::app::{run_app, App, Ui};
@@ -33,6 +32,8 @@ use xui_core::{Canvas, Color, Control, Dip, Key, Rect, TextStyle};
 
 #[path = "term/grid.rs"]
 mod grid;
+#[path = "term/pty.rs"]
+mod pty;
 use grid::{is_prompt, Grid, COLS, ROWS};
 
 use std::cell::RefCell;
@@ -64,8 +65,10 @@ enum Msg {
     Tick,
     /// A translated character from the keyboard.
     Char(char),
-    /// A non-text key (Enter/Backspace via the key path).
-    Key(Key),
+    /// A key press, and whether Ctrl was held: arrows, Escape and the like,
+    /// and Ctrl+letter chords (which arrive without a `Char`). Enter and
+    /// Backspace also arrive as `Char`s, which is the path that handles them.
+    Key(Key, bool),
     Close,
 }
 
@@ -77,14 +80,12 @@ fn set_nonblocking(fd: RawFd) {
     unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) };
 }
 
-/// The app: the child shell, its pipes, and the grid it paints on.
+/// The app: the child shell, the pty master, and the grid it paints on.
 struct Terminal {
     child: Child,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
-    stderr: ChildStderr,
-    out_eof: bool,
-    err_eof: bool,
+    master: pty::Master,
+    /// The shell side is gone (the master read `EIO` or end-of-file).
+    hung_up: bool,
     grid: Rc<RefCell<Grid>>,
     typed: String,
     /// The last submitted command and whether its first output line is still
@@ -97,27 +98,20 @@ struct Terminal {
 
 impl Terminal {
     fn send(&mut self, bytes: &[u8]) {
-        let _ = self.stdin.write_all(bytes);
+        let _ = self.master.file().write_all(bytes);
     }
 
-    /// Drain both child pipes without blocking; return the bytes read.
+    /// Drain the master without blocking; return the bytes read.
     fn drain(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         let mut chunk = [0u8; 4096];
-        if !self.out_eof {
-            match self.stdout.read(&mut chunk) {
-                Ok(0) => self.out_eof = true,
+        while !self.hung_up {
+            match self.master.file().read(&mut chunk) {
+                Ok(0) => self.hung_up = true,
                 Ok(n) => out.extend_from_slice(&chunk[..n]),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => self.out_eof = true,
-            }
-        }
-        if !self.err_eof {
-            match self.stderr.read(&mut chunk) {
-                Ok(0) => self.err_eof = true,
-                Ok(n) => out.extend_from_slice(&chunk[..n]),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(_) => self.err_eof = true,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                // `EIO`: every slave descriptor closed, the shell is gone.
+                Err(_) => self.hung_up = true,
             }
         }
         out
@@ -141,14 +135,12 @@ impl Terminal {
                 self.typed.pop();
                 self.send(b"\x7f");
             }
-            '\u{3}' => {
-                self.send(b"\x03"); // ^C
-                                    // Safety: `kill` with a pid we own; a non-negative pid names the child.
-                unsafe { libc::kill(self.child.id() as i32, libc::SIGINT) };
-            }
-            '\u{4}' => self.send(b"\x04"), // ^D
+            // Control characters (^C, ^D, ^Z, ^U, ...) go to the line
+            // discipline, which turns them into signals or edits.
             '\t' => self.send(b"\t"),
-            c if c.is_control() => {}
+            // Escape arrives through the key path (`key_sequence`).
+            '\u{1b}' => {}
+            c if c.is_control() => self.send(&[c as u8]),
             c => {
                 self.typed.push(c);
                 self.send(c.to_string().as_bytes());
@@ -197,15 +189,26 @@ impl App for Terminal {
                     }
                     ui.invalidate(self.root.id());
                 }
-                if self.out_eof && self.err_eof {
+                if self.hung_up {
                     self.finish(ui);
                 }
             }
             Msg::Char(ch) => self.key(ch),
-            Msg::Key(Key::RETURN) => self.key('\n'),
-            Msg::Key(Key::BACK) => self.key('\u{8}'),
-            Msg::Key(Key::ESCAPE) => self.send(b"\x1b"),
-            Msg::Key(_) => {}
+            // Both input paths also deliver Enter and Backspace as `Char`s:
+            // handling the key too would send each one twice.
+            Msg::Key(Key::RETURN | Key::BACK, _) => {}
+            Msg::Key(key, true) => {
+                // Ctrl+A..Z: the control byte (^C, ^D, ^Z ...), which the
+                // line discipline turns into a signal or an edit.
+                if let Some(byte) = control_byte(key) {
+                    self.send(&[byte]);
+                }
+            }
+            Msg::Key(key, false) => {
+                if let Some(sequence) = key_sequence(key) {
+                    self.send(sequence);
+                }
+            }
             Msg::Close => self.finish(ui),
         }
     }
@@ -227,26 +230,28 @@ fn main() {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("TERM:UP:PASS"));
 
-    let mut child = match Command::new(SHELL)
-        .arg0(fhs::boot::BUSYBOX_ARGV0)
-        .args(["sh", "-i"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
+    let mut shell = Command::new(SHELL);
+    shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
+    shell.env("TERM", "vt100");
+    // The rows programs see are the ones the window shows (the paint
+    // formula), so a full-screen program's status line stays visible. The
+    // width stays the grid's full 80 columns: a narrower tty makes the
+    // shell wrap a long command line onto two rows, and `TERM:OUT` (one per
+    // command, the line after the command's own echo) then reports the
+    // wrapped tail of the echo instead of the output (the Doom session's
+    // 75-column timedemo command). Columns past the window are clipped, as
+    // they always were.
+    let rows = (((height as i32 - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
+    let cols = COLS;
+    let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
+        Ok(spawned) => spawned,
         Err(error) => {
             println!("TERM:SPAWN:FAIL:{error}");
             backend.unbind();
             std::process::exit(1);
         }
     };
-    let stdin = child.stdin.take().expect("piped stdin");
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stderr = child.stderr.take().expect("piped stderr");
-    set_nonblocking(stdout.as_raw_fd());
-    set_nonblocking(stderr.as_raw_fd());
+    set_nonblocking(master.fd());
 
     let grid = Rc::new(RefCell::new(Grid::new()));
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
@@ -259,7 +264,7 @@ fn main() {
         }
         root.on_events(|event| match event {
             Event::Char(ch) => Some(Msg::Char(*ch)),
-            Event::KeyDown { key, .. } => Some(Msg::Key(*key)),
+            Event::KeyDown { key, modifiers, .. } => Some(Msg::Key(*key, modifiers.ctrl)),
             _ => None,
         });
         root.focus();
@@ -268,11 +273,8 @@ fn main() {
         ui.set_timer(POLL_MILLIS);
         Terminal {
             child,
-            stdin,
-            stdout,
-            stderr,
-            out_eof: false,
-            err_eof: false,
+            master,
+            hung_up: false,
             grid: Rc::clone(&grid),
             typed: String::new(),
             last_cmd: None,
@@ -289,6 +291,32 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// The control byte of a Ctrl+letter chord (`Ctrl+C` is 3), or `None`.
+fn control_byte(key: Key) -> Option<u8> {
+    let code = key.code();
+    (u16::from(b'A')..=u16::from(b'Z'))
+        .contains(&code)
+        .then(|| code as u8 - b'A' + 1)
+}
+
+/// The bytes a VT100 sends for a non-text key (`None`: nothing to send).
+fn key_sequence(key: Key) -> Option<&'static [u8]> {
+    Some(match key {
+        Key::ESCAPE => b"\x1b",
+        Key::UP => b"\x1b[A",
+        Key::DOWN => b"\x1b[B",
+        Key::RIGHT => b"\x1b[C",
+        Key::LEFT => b"\x1b[D",
+        Key::HOME => b"\x1b[H",
+        Key::END => b"\x1b[F",
+        Key::INSERT => b"\x1b[2~",
+        Key::DELETE => b"\x1b[3~",
+        Key::PAGE_UP => b"\x1b[5~",
+        Key::PAGE_DOWN => b"\x1b[6~",
+        _ => return None,
+    })
 }
 
 /// Paint the bottom of the grid that fits the window, with a block cursor.

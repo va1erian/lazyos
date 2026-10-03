@@ -14,21 +14,17 @@
 //!   (`Ok(0)`);
 //! * a write with no readers returns [`Error::BrokenPipe`] (`-EPIPE`).
 //!
-//! **SIGPIPE is not delivered.** Rust's std ignores SIGPIPE by default (and
-//! only resets it to `SIG_DFL` in a spawned child), and the signal layer has no
-//! `SIGPIPE`-from-kernel path yet; returning `-EPIPE` is the documented
-//! behaviour, matching a process that ignores SIGPIPE. Delivering it would
-//! require the writer's process group and a signal-on-syscall path, which is
-//! deferred with the rest of the terminal job-control work.
+//! A write with no reader is [`Error::BrokenPipe`]; the syscall layer turns
+//! that `-EPIPE` into `SIGPIPE` for the writer, as Linux does
+//! (`process/linux/extra.rs`), so this module stays signal-free.
 //!
 //! Capacity is [`CAPACITY`] (64 KiB, Linux's default pipe size) and the number
 //! of live one-way pipes is capped at [`MAX_PIPES`], so the kernel heap cannot
 //! be exhausted by pipe creation (a socket pair consumes two).
 //!
-//! Blocking calls park the current task on a [`WaitQueue`]. As everywhere in
-//! the shim, the caller runs with interrupts disabled inside the syscall gate,
-//! so the "check condition, register, block" sequence cannot race a notifier on
-//! the single CPU.
+//! Blocking calls park the current task on a [`WaitQueue`]. The caller runs
+//! with interrupts disabled inside the syscall gate, so "check, register,
+//! block" cannot race a notifier on the single CPU. `MSG_PEEK` is `peek.rs`.
 
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -39,6 +35,7 @@ use spin::Mutex;
 use crate::task::wait::WaitQueue;
 use crate::task::{WaitKind, WakeReason};
 
+mod peek;
 mod small;
 mod socketpair;
 

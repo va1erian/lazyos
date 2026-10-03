@@ -133,6 +133,7 @@ fn spawn_linux_in<I: Image + ?Sized>(
         fs_base: 0,
         fds: FdTable::standard(),
         cwd: None,
+        linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
     });

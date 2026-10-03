@@ -406,9 +406,9 @@ pub fn map_range_kind(
     let mut pages = Vec::new();
     let mut va = start & !0xFFF;
     while va < end {
-        let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
+        let phys = mem::alloc_zeroed_frame().ok_or(loader::OUT_OF_MEMORY)?;
         if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
-            return Err("failed to map user page");
+            return Err(loader::MAP_PAGE_FAILED);
         }
         pages.push((va, phys.as_u64()));
         va += 4096;

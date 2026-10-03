@@ -13,6 +13,10 @@ use alloc::vec::Vec;
 
 use crate::fs::vfs::{FileKind, FsError, Id};
 
+/// The reason a load fails when the filesystem could not read the image: an
+/// I/O error (`EIO`), neither a bad image nor frame exhaustion.
+pub const READ_FAILED: &str = "failed to read the executable";
+
 /// A random-access, read-only executable.
 pub trait Image {
     /// Size of the file in bytes.
@@ -129,7 +133,7 @@ impl Image for VfsFile {
             match self.read_at(at, &mut buf[filled..]) {
                 Ok(0) => return Err("executable shrank while loading"),
                 Ok(read) => filled += read.min(buf.len() - filled),
-                Err(_) => return Err("failed to read the executable"),
+                Err(_) => return Err(READ_FAILED),
             }
         }
         Ok(())
