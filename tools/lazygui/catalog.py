@@ -16,6 +16,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
 
+sys.path.insert(0, os.path.join(ROOT, "tools", "net"))
+import qemu_net  # noqa: E402  (the QEMU network arguments run_demo and the tools share)
+
 #: LazyOS-only LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
 #: `/system/share/lazyrad/` with every LazyRAD image next to any the user lists. Relative
 #: entries resolve against the repo root (`build_support/lazyrad_embed.rs`).
@@ -164,7 +167,34 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
+    if cfg.get("net"):
+        # The network stack (driver, `netd`, the shell tools and, on the
+        # desktop, the Network and Net Tools apps). `demo=0` leaves out the
+        # evidence clients that need `tools/net/run.py`'s host servers.
+        env["LAZYOS_NETD"] = "1"
+        env["LAZYOS_NETD_ARGS"] = "demo=0"
     return env
+
+
+def net_specs(cfg: dict) -> list[str]:
+    """The port forwards typed in the launcher (space- or comma-separated);
+    empty means run_demo's default (host 8080 to the Net Tools server)."""
+    return [spec for spec in cfg.get("net_forwards", "").replace(",", " ").split() if spec]
+
+
+def net_flags(cfg: dict) -> list[str]:
+    """The `--net` flags run_demo and the screenshot tools share, or none.
+    A malformed forward raises ValueError (shown as a plan error)."""
+    if not cfg.get("net"):
+        return []
+    specs = net_specs(cfg)
+    qemu_net.forwards_from(specs)  # validate now, not after a long build
+    flags = ["--net"]
+    for spec in specs:
+        flags += ["--net-forward", spec]
+    if cfg.get("net_restrict"):
+        flags.append("--net-restrict")
+    return flags
 
 
 def lazyrad_samples(user: str) -> str:
@@ -176,7 +206,7 @@ def lazyrad_samples(user: str) -> str:
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
-                  modplayer: bool = False) -> dict:
+                  modplayer: bool = False, net: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -184,7 +214,10 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     image (it is an xui app, so it means nothing on the CLI), ``shell``
     keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
     opens the Devices app at boot, ``doom`` adds the Doom package and
-    ``modplayer`` the LazyRAD MOD player package (likewise Desktop only). Machine settings (accelerator, memory, QEMU path)
+    ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
+    adds networking to either interface (the stack, QEMU's user network with
+    host port 8080 forwarded, and on the desktop the Network and Net Tools
+    apps). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -224,6 +257,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devices": desktop and devices,
         "doom": desktop and doom,
         "modplayer": desktop and modplayer,
+        "net": net,
+        "net_forwards": "",
+        "net_restrict": False,
     })
     return cfg
 
@@ -338,6 +374,9 @@ def build_plan(cfg: dict) -> list[dict]:
         # and on other images the driver plays its boot tones.
         if cfg.get("sound"):
             argv.append("--sound")
+        # A virtio-net card on QEMU's user network with the forwards; run_demo
+        # also builds the network stack (and the network apps on a desktop).
+        argv += net_flags(cfg)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:
@@ -351,6 +390,7 @@ def build_plan(cfg: dict) -> list[dict]:
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
                 "--memory", cfg["memory"], "--image", IMAGE]
+        argv += net_flags(cfg)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         steps.append({"label": "Capture screenshots", "argv": argv})
@@ -374,6 +414,7 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["tablet"]:
             argv.append("--tablet")
+        argv += net_flags(cfg)
         steps.append({"label": f"Session: {label}", "argv": argv})
 
     elif mode == "Kernel test suite":

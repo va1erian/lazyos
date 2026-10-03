@@ -33,6 +33,8 @@ pub const PACKAGES: &[(&str, Art)] = &[
     ("xui-app/packages/editor", Art::Village(Icon::Document)),
     ("xui-app/packages/fabricmon", Art::Village(Icon::PubSub)),
     ("xui-app/packages/files", Art::Village(Icon::Folder)),
+    ("xui-app/packages/network", Art::Village(Icon::Network)),
+    ("xui-app/packages/nettools", Art::Village(Icon::Modem)),
     ("xui-app/packages/paint", Art::Village(Icon::Image)),
     ("xui-app/packages/settings", Art::Village(Icon::Settings)),
     ("xui-app/packages/sysmon", Art::Village(Icon::Monitor)),

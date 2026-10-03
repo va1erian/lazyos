@@ -114,6 +114,16 @@ const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
     None => "demo=1",
 };
 
+/// The argument string of the `netd` row: `demo=1` runs the evidence clients
+/// the network harness judges (they talk to its host servers);
+/// `LAZYOS_NETD_ARGS` overrides it at build time (`run_demo.py --net` passes
+/// `demo=0`, so an interactive desktop runs the stack alone).
+#[cfg(lazyos_netd)]
+const NETD_ARGS: &str = match option_env!("LAZYOS_NETD_ARGS") {
+    Some(args) => args,
+    None => "demo=1",
+};
+
 /// The `netd` stack service's identity (docs/networking-plan.md N2): its own
 /// system uid and **no capabilities at all**: it holds no device authority, no
 /// DMA, nothing it could misuse if a parser bug handed an attacker the process.
@@ -399,7 +409,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "netd",
         path: fhs::bin::NETD,
-        args: "demo=1",
+        args: NETD_ARGS,
         restart: Restart::Always,
         deps: &[],
     },

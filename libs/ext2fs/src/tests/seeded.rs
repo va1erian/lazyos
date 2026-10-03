@@ -81,3 +81,14 @@ fn the_checked_in_seeds_replay() {
     }
     assert!(seen > 0, "{} holds no seeds", dir.display());
 }
+
+/// Inputs libFuzzer found (CI, `fuzz (ext2fs)`): a superblock whose last group
+/// claims more blocks or inodes than the volume holds underflowed the repair
+/// scan's per-group span (`repair/scan.rs`, `load_bitmaps`).
+#[test]
+fn group_spans_past_the_volume_end_are_repaired_or_refused() {
+    run(&[1, 4, 33, 1]);
+    run(&[
+        1, 4, 33, 34, 4, 241, 241, 4, 33, 3, 0, 0, 0, 0, 0, 0, 0, 34, 4, 241, 241, 241, 241, 241,
+    ]);
+}

@@ -30,6 +30,9 @@ from qemu_qmp import (Qmp, accel_args, add_data_disk_option, add_home_disk_optio
                       build_qemu_command, existing_data_disk, existing_home_disk,
                       find_qemu, free_port)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "net"))
+import qemu_net  # noqa: E402
+
 
 def parse_times(raw: str) -> list[float]:
     times = []
@@ -63,7 +66,13 @@ def main() -> int:
                         help="extra QEMU argument; repeat for multiple")
     add_data_disk_option(parser)
     add_home_disk_option(parser)
+    qemu_net.add_net_options(parser, "attach a virtio-net card on QEMU's user network "
+                             "(boot an image built with LAZYOS_NETD=1)")
     args = parser.parse_args()
+    try:
+        net_extra, _forwards = qemu_net.args_from_options(args)
+    except ValueError as error:
+        parser.error(str(error))
     data_disk = existing_data_disk(args.data_disk)
     home_disk = existing_home_disk(args.home_disk)
 
@@ -81,7 +90,7 @@ def main() -> int:
         image = str(image_path)
 
     port = free_port()
-    extra = list(args.extra_arg) + accel_args(args.accel, qemu)
+    extra = list(args.extra_arg) + net_extra + accel_args(args.accel, qemu)
     command = build_qemu_command(qemu, image, port, serial_log, args.memory, extra,
                                  data_disk, home_disk=home_disk)
     print(f"launching: {' '.join(command)}", flush=True)
