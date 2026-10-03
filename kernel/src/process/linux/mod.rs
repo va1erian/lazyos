@@ -100,6 +100,7 @@ pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
 mod sendfile;
 mod sig;
 mod socket;
+mod sockopt;
 mod stat;
 mod statx;
 mod time;

@@ -514,16 +514,7 @@ pub fn inet_socket_options() -> Result<(), String> {
     let tcp = socket(1);
     let udp = socket(SOCK_DGRAM);
     let one = 1i32;
-    for (level, name) in [
-        (1u64, 2u64),
-        (1, 9),
-        (1, 6),
-        (1, 7),
-        (1, 8),
-        (6, 1),
-        (1, 20),
-        (1, 21),
-    ] {
+    for (level, name) in [(1u64, 2u64), (1, 9), (1, 6), (1, 7), (1, 8), (6, 1)] {
         check!(
             sys6(54, [tcp, level, name, &one as *const i32 as u64, 4, 0]) == 0,
             "setsockopt({level}, {name})"
