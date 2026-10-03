@@ -204,7 +204,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         "linux_fd_forked_child_reopens_stdio_null",
         stdio_reuse::forked_child_reopens_stdio_as_null,
     ),
-    ("linux_fd_soak_forked_null_stdio", stdio_reuse::soak_forked_null_stdio),
+    (
+        "linux_fd_soak_forked_null_stdio",
+        stdio_reuse::soak_forked_null_stdio,
+    ),
 ];
 
 // Linux numbers and flags the tests spell out.

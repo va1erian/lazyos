@@ -29,7 +29,10 @@ fn fstat_mode(fd: u64) -> Result<u32, String> {
 fn reopen_as_null(fd: u64, flags: u64) -> Result<(), String> {
     check!(close(fd) == 0, "close({fd})");
     let got = open("/dev/null", flags);
-    check!(got == fd, "open(/dev/null) after close({fd}) returned {got:#x}");
+    check!(
+        got == fd,
+        "open(/dev/null) after close({fd}) returned {got:#x}"
+    );
     let mode = fstat_mode(fd)?;
     check!(mode & S_IFMT == S_IFCHR, "fd {fd} has mode {mode:#o}");
     Ok(())
@@ -81,7 +84,10 @@ pub fn forked_child_reopens_stdio_as_null() -> Result<(), String> {
     let slots = task::free_slots();
 
     let held = open("/dev/null", REDIRECT_OUT);
-    check!(held == 3, "open(/dev/null) in the parent returned {held:#x}");
+    check!(
+        held == 3,
+        "open(/dev/null) in the parent returned {held:#x}"
+    );
     let child = task::spawn_fork().map_err(|e| format!("fork: {e}"))?;
     as_child(parent, child, || {
         background_job_stdio(held + 1)?;
