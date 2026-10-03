@@ -25,19 +25,26 @@ pub fn fd_stream_recv(fd: usize, dst: &mut [u8], opts: RecvOpts) -> Result<usize
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
     }
-    let (source, nonblock) = {
+    // `deadline` is an `AF_INET` socket's `SO_RCVTIMEO`, from this call's start.
+    let (source, nonblock, deadline) = {
         let tasks = TASKS.lock();
         let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
         match task.fds.get(fd).ok_or(pipe::Error::BadEnd)? {
-            Fd::Pipe { pipe, end } => (Source::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
+            Fd::Pipe { pipe, end } => (
+                Source::Pipe(Arc::clone(pipe), *end),
+                pipe.nonblock(*end),
+                None,
+            ),
             Fd::Socket { pair, side } => (
                 Source::Socket(Arc::clone(pair), *side),
                 pair.nonblock(*side),
+                None,
             ),
             Fd::Inet { sock } => {
                 let pair = sock.pair().ok_or(pipe::Error::BadEnd)?;
                 let nonblock = pair.nonblock(Side::B);
-                (Source::Socket(pair, Side::B), nonblock)
+                let deadline = sock.deadline(crate::ipc::inet::Dir::Recv);
+                (Source::Socket(pair, Side::B), nonblock, deadline)
             }
             _ => return Err(pipe::Error::BadEnd),
         }
@@ -46,8 +53,8 @@ pub fn fd_stream_recv(fd: usize, dst: &mut [u8], opts: RecvOpts) -> Result<usize
     match (source, opts.peek) {
         (Source::Pipe(pipe, end), false) => pipe.read(end, dst, nonblock),
         (Source::Pipe(pipe, end), true) => pipe.peek(end, dst, nonblock),
-        (Source::Socket(pair, side), false) => pair.read(side, dst, nonblock),
-        (Source::Socket(pair, side), true) => pair.peek(side, dst, nonblock),
+        (Source::Socket(pair, side), false) => pair.read_until(side, dst, nonblock, deadline),
+        (Source::Socket(pair, side), true) => pair.peek_until(side, dst, nonblock, deadline),
     }
 }
 
@@ -88,18 +95,26 @@ pub fn fd_stream_send(fd: usize, src: &[u8], dont_wait: bool) -> Result<usize, p
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
     }
-    let (sink, nonblock) = {
+    // `deadline` is an `AF_INET` socket's `SO_SNDTIMEO`, from this call's start.
+    let (sink, nonblock, deadline) = {
         let tasks = TASKS.lock();
         let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
         match task.fds.get(fd).ok_or(pipe::Error::BadEnd)? {
-            Fd::Pipe { pipe, end } => (Sink::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
-            Fd::Socket { pair, side } => {
-                (Sink::Socket(Arc::clone(pair), *side), pair.nonblock(*side))
-            }
+            Fd::Pipe { pipe, end } => (
+                Sink::Pipe(Arc::clone(pipe), *end),
+                pipe.nonblock(*end),
+                None,
+            ),
+            Fd::Socket { pair, side } => (
+                Sink::Socket(Arc::clone(pair), *side),
+                pair.nonblock(*side),
+                None,
+            ),
             Fd::Inet { sock } => {
                 let pair = sock.pair().ok_or(pipe::Error::BadEnd)?;
                 let nonblock = pair.nonblock(Side::B);
-                (Sink::Socket(pair, Side::B), nonblock)
+                let deadline = sock.deadline(crate::ipc::inet::Dir::Send);
+                (Sink::Socket(pair, Side::B), nonblock, deadline)
             }
             _ => return Err(pipe::Error::BadEnd),
         }
@@ -107,7 +122,7 @@ pub fn fd_stream_send(fd: usize, src: &[u8], dont_wait: bool) -> Result<usize, p
     let nonblock = nonblock || dont_wait;
     match sink {
         Sink::Pipe(pipe, end) => pipe.write(src, end, nonblock),
-        Sink::Socket(pair, side) => pair.write(side, src, nonblock),
+        Sink::Socket(pair, side) => pair.write_until(side, src, nonblock, deadline),
     }
 }
 

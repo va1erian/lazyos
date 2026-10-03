@@ -295,3 +295,30 @@ pub fn resume_delivery(slot: usize) -> bool {
     }
     ended.is_some()
 }
+
+/// What a task parked on a wait queue runs each time it wakes from a nap with
+/// no wake reason yet. The suite has no second task to play a peer, so this is
+/// how one acts *while* a blocking call waits: bytes that arrive later, or the
+/// `Interrupted` wake a signal brings.
+static NAP_HOOK: spin::Mutex<Option<fn()>> = spin::Mutex::new(None);
+
+/// Install (or with `None` remove) the [`NAP_HOOK`].
+pub fn set_nap_hook(hook: Option<fn()>) {
+    *NAP_HOOK.lock() = hook;
+}
+
+/// Run the [`NAP_HOOK`], if any, with its lock released (the hook may wake
+/// the waiter, which takes queue and task-table locks).
+pub(super) fn run_nap_hook() {
+    let hook = *NAP_HOOK.lock();
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+/// Wake `index` from its wait with `Interrupted`, as a deliverable signal
+/// does (`signal::wake_blocked_threads` skips the kernel task, which the
+/// suite runs as).
+pub fn interrupt(index: usize) {
+    super::wake_task_with(index, WakeReason::Interrupted);
+}

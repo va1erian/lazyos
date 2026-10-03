@@ -10,7 +10,11 @@ use crate::dev::intx::{self, ACK_DEADLINE_TICKS};
 use crate::dev::report::{self, reason};
 use crate::dev::syscall::OP_IRQ_ENABLE;
 
-const T0: u64 = 1000;
+/// The hand-stepped clock these tests start at: far past any real tick
+/// count, so a path that services on the real clock (a late ack's retry)
+/// can never expire a round the test is stepping itself, however long the
+/// suite has been running.
+const T0: u64 = 1 << 40;
 
 /// Build claimants on one shared line, as separate driver tasks.
 fn claimants(line: u8, count: usize, armed: usize) -> Result<Vec<Rig>, String> {
