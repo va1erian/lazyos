@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -65,6 +65,18 @@ lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee5
 lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
 lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
+
+# LazyRAD's crates pin xui bb14ce9 themselves; this redirects every xui crate
+# in the graph to the one revision `xui-app` pins (LazyWeb's xui-netsurf), so a
+# single `xui_core` links. The `www.` URL is a distinct source to cargo, which is what
+# lets a patch point at the same repository. Drop it once LazyRAD moves to
+# that revision.
+[patch."https://github.com/va1erian/xui"]
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
+xui-code-editor = { git = "https://www.github.com/va1erian/xui", rev = "785ddada73e5fa2e6b5d1ba5587e9745a2ec238c" }
 
 [dev-dependencies]
 # The form values the sample tests read back (`tests/modplayer.rs`); pinned
