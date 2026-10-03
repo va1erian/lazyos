@@ -38,8 +38,9 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::installer::{clean, Model, Request, Screen};
 use xui_app::platform::{argv, pkg};
-use xui_core::app::{run_app, App, Ui};
-use xui_core::backend::{Backend, Event, PlatformSpec, TimerId, WidgetId};
+use xui_app::themed::run_themed;
+use xui_core::app::{App, Ui};
+use xui_core::backend::{Event, PlatformSpec, TimerId, WidgetId};
 use xui_core::units::Dip;
 use xui_core::Key;
 
@@ -353,13 +354,8 @@ fn main() -> ExitCode {
     backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
 
     let start = argv::file_arg(std::env::args_os());
-    // Match the desktop's light/dark mode and accent (Settings).
-    let theme = backend.desktop_theme();
     let spec = PlatformSpec::new("Installer").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
+    let outcome = run_themed(&backend, spec, move |ui| {
         match Installer::build(ui, start) {
             Ok(app) => app,
             Err(error) => {
