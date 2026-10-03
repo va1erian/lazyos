@@ -153,3 +153,62 @@ pub fn kill_defers_tasks_parked_in_kernel() -> Result<(), String> {
     signal::harness::reset();
     Ok(())
 }
+
+/// Soak: many park/kill/unwind/reap generations of a task parked inside the
+/// kernel. Each one is woken (never ended in the kernel), cannot park again,
+/// dies once back in user mode with `128 + SIGKILL`, and leaves no queue
+/// entry, signal-registry entry or frame behind.
+pub fn soak_kill_parked() -> Result<(), String> {
+    fresh()?;
+    let queue = WaitQueue::new(WaitKind::Block);
+    let registry = signal::harness::registry_len();
+    let before = crate::mem::frame_stats().live();
+    for round in 0..1000u32 {
+        let (victim, user_cs) = in_kernel_child().map_err(|e| format!("round {round}: {e}"))?;
+        queue.park(victim, None);
+        send(victim, signal::SIGKILL)?;
+        check!(
+            task::harness::state(victim) == Some(TaskState::Runnable)
+                && task::harness::take_wake_reason(victim) == Some(WakeReason::Interrupted),
+            "round {round}: the parked victim was not woken: {:?}",
+            task::harness::state(victim)
+        );
+        // Unwinding: a further wait returns at once instead of parking, and
+        // the woken wait leaves the queue (stood in for by the targeted
+        // removal, which must not wake it a second time).
+        check!(
+            queue.wait(victim, None) == WakeReason::Interrupted,
+            "round {round}: a killed task parked again"
+        );
+        check!(
+            !queue.notify_task(victim),
+            "round {round}: the victim was woken twice"
+        );
+        task::harness::set_frame_cs(victim, user_cs);
+        check!(
+            task::harness::resume_delivery(victim),
+            "round {round}: a killed task in user mode was resumed"
+        );
+        check!(
+            task::reap_child() == Some((victim, 128 + signal::SIGKILL as u64)),
+            "round {round}: the victim did not exit with 128 + SIGKILL"
+        );
+        check!(task::reap_child().is_none(), "round {round}: extra corpse");
+    }
+    check!(
+        queue.is_empty(),
+        "{} wait-queue entries leaked",
+        queue.len()
+    );
+    let left = signal::harness::registry_len();
+    check!(
+        left <= registry,
+        "signal-registry entries leaked: {registry} -> {left}"
+    );
+    task::harness::reset();
+    signal::harness::reset();
+    let after = crate::mem::frame_stats().live();
+    check!(after <= before + 8, "frames leaked: {before} -> {after}");
+    serial_println!("TEST:task_signal_soak_kill_parked:INFO:1000 park/kill/reap cycles");
+    Ok(())
+}

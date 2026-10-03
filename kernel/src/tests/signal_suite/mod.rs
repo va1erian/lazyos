@@ -49,6 +49,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_kill_defers_tasks_parked_in_kernel",
         kill_defers_tasks_parked_in_kernel,
     ),
+    ("task_signal_soak_kill_parked", soak_kill_parked),
     ("task_signal_sigchld_child_exit", sigchld_on_child_exit),
     (
         "task_signal_handler_frame_roundtrip",
