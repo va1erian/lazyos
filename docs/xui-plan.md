@@ -259,6 +259,10 @@ the surface origin from the last press.
 a `xuid` client like the other apps; see [`xui-docs.md`](xui-docs.md). The
 mouse wheel now reaches xui apps (see `architecture/display.md`).
 
+**LazyWriter.** `writer` (issue #533) is a word processor on xui's
+`xui-rich-text` editor, ported from its `wordpad` example; see
+[`xui-writer.md`](xui-writer.md).
+
 ## Smallest first step
 
 Land **M0**: a `gfx_present` syscall so a task can own a LazyOS window and blit
