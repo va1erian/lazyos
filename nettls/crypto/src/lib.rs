@@ -4,8 +4,8 @@
 //! will link this TLS stack, and neither of those is available under a
 //! GPLv2-compatible licence. Why not `rustls-rustcrypto`: it is an alpha,
 //! verifies RSA signatures from keys of any size, and pulls signing, PKCS#5
-//! and QUIC code a client does not need. This crate is the small, audited
-//! subset docs/tls-plan.md §2 asks for, modelled on rustls's
+//! and QUIC code a client does not need. This crate is the small
+//! (unaudited) subset docs/tls-plan.md §2 asks for, modelled on rustls's
 //! `provider-example`:
 //!
 //! | Piece | Algorithms | Crates |

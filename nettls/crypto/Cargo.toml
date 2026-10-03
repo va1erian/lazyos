@@ -3,9 +3,12 @@ name = "nettls-crypto"
 version = "0.1.0"
 edition = "2021"
 publish = false
-license = "GPL-3.0-or-later"
+license = "MIT"
 description = "A pure-Rust rustls crypto provider over RustCrypto crates, GPLv2-compatible throughout (no ring, no aws-lc)"
 
+# MIT (like xui), unlike the rest of the tree, so a GPL-2.0-only program
+# such as a NetSurf port can link it.
+#
 # Every dependency here must be available under a licence a GPL-2.0 binary
 # can include (MIT, BSD, ISC, or a choice that includes one of them):
 # `tools/nettls/licenses.py` checks the whole tree. That rules out ring
