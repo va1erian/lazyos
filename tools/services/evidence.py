@@ -105,6 +105,17 @@ CLI: list[tuple[str, str]] = [
 ]
 
 
+#: `logind`'s console prompt. It ends without a newline (it waits for a name
+#: on the same line), so whichever task writes to serial next lands right
+#: after it, and an anchored marker would not match.
+LOGIN_PROMPT = re.compile(r"^LazyOS login: ", flags=re.MULTILINE)
+
+
+def unglue(text: str) -> str:
+    """Put a marker printed straight after the login prompt on its own line."""
+    return LOGIN_PROMPT.sub("LazyOS login: \n", text)
+
+
 def find(text: str, pattern: str) -> int:
     """Number of lines matching ``pattern`` (anchored, multiline)."""
     return len(re.findall(pattern, text, flags=re.MULTILINE))
@@ -155,7 +166,7 @@ def main() -> int:
     path = Path(args.log)
     if not path.is_file():
         sys.exit(f"serial log not found: {path}")
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = unglue(path.read_text(encoding="utf-8", errors="replace"))
 
     required = list(DESKTOP if args.desktop else REQUIRED)
     for pattern in args.require:
