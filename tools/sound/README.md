@@ -37,11 +37,12 @@ QEMU is discovered like the other tools (`--qemu`, then `PATH`, then
 
 ## What a run checks
 
-The image is built with `LAZYOS_SOUND=1`, which embeds `SNDD.ELF`, `AUDIOD.ELF`,
-`BEEP.ELF` and `MIXER.ELF` and starts `sndd demo=1` and `audiod demo=1` (from the
-kernel, or from `init`'s manifest with `LAZYOS_SERVICES=1`). The driver plays its
-own tone straight through the card; the mixer then runs the evidence clients,
-which reach the card only through it. The guest prints, in order:
+The image is built with `LAZYOS_SOUND=1`, which embeds `/system/bin/sndd`,
+`/system/bin/audiod`, `/system/bin/beep` and `/system/bin/mixer` and starts
+`sndd demo=1` and `audiod demo=1` (from the kernel, or from `init`'s manifest
+with `LAZYOS_SERVICES=1`). The driver plays its own tone straight through the
+card; the mixer then runs the evidence clients, which reach the card only
+through it. The guest prints, in order:
 
 | Marker | Meaning |
 |---|---|
@@ -103,8 +104,8 @@ ProTracker module from the desktop Terminal.
 
 The desktop profile (`LAZYOS_DESKTOP=1`) always ships the sound stack: `sndd` and
 `audiod` in `init`'s manifest (as `_snd` and `_audio`, silent, no boot tones),
-and `BEEP.ELF` and `MIXER.ELF`, which the kernel exposes as shell commands
-(`kernel/src/process/linux/native.rs`). In the desktop Terminal:
+and `/system/bin/beep` and `/system/bin/mixer`, which the kernel exposes as shell
+commands (`kernel/src/process/linux/native.rs`). In the desktop Terminal:
 
 ```
 / # beep              # 880 Hz for 800 ms

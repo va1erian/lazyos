@@ -73,8 +73,40 @@ elevation service.
 ## 3. Authentication and login
 
 - **Accounts** are managed by the accounts service (users, groups, home dirs,
-  password verifiers). Password hashes are **Argon2id**, and only `keyd` can
+  password verifiers). A home is `/home/<name>`, 0700 and owned by its
+  account: a directory of the optional home volume, or of the OS volume
+  without one (the image build makes one per passwd account, filesystem F4).
+  Password hashes are **Argon2id**, and only `keyd` can
   verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
+- **The account file** (issue #508) is `/system/etc/passwd`
+  (`name:uid:gid:secret:home:shell`), written by the image build from
+  `build_support/passwd`, the only copy. It is the **only** account source:
+  `accountsd` has no built-in table and parses it strictly (`libs/passwd`). It
+  **fails closed**: a missing, unreadable, oversize (over 1 KiB) or malformed
+  file, a duplicate name or uid, or one without any row gives
+  `ACCOUNTS:LOAD:FAIL reason=<...>`, health `failed`, and an error for every
+  request; `logind` then refuses every login ("Login unavailable: the account
+  database did not load", denial reason `no-accounts`). That is a recovery
+  situation, never a machine with a default password. A good load prints
+  `ACCOUNTS:LOAD:PASS rows=<n>`. `Create` answers `ENOSYS`: accounts change only
+  with the image until account management exists.
+- **Default accounts.** The image ships two, shown on the login screen:
+
+  | Name | uid:gid | Home | Password |
+  |---|---|---|---|
+  | `admin` | `0:0` | `/home/admin` | `nimda` |
+  | `user` | `1000:1000` | `/home/user` | `lazy` |
+
+  The passwords are **plaintext bring-up secrets** in a world-readable file,
+  compared by `accountsd` when `keyd` is absent and provisioned into `keyd`
+  otherwise. Hashes in a root-only `/system/etc/shadow` are #447's next task.
+- **Session environment.** A console login starts the passwd shell in the
+  account's home with `HOME`, `USER` and `PATH=/system/bin`. Every app `init`
+  launches into a session, installed (labelled) apps included, gets the same
+  three variables; the account comes from the login event `logind` publishes
+  (`system/events/login/session/<id>` carries the home), so a launch never looks
+  it up again. The desktop's boot-time session 0 (uid 0, no login) is resolved
+  once through `accountsd`.
 - **Login** (`logind`) runs a small PAM-like pipeline: identify → authenticate
   (console password, later key/2FA) → create session → grant the session its
   default capabilities (own compositor, own clipboard, session topics, home dir).
@@ -193,7 +225,7 @@ id = "com.example.editor"
 version = "1.2.0"
 publisher = "Example Inc"
 [permissions]
-files = ["read:/home/*/docs", "write:~/.config/editor"]
+files = ["read:$HOME/docs", "write:$HOME/.config/editor"]
 interfaces = ["os.lazy.fs.reader.v1:call", "os.lazy.clipboard.v1:read"]
 topics = ["publish:session/*/editor", "subscribe:system/events/*"]
 network = []
@@ -299,7 +331,7 @@ Security must not be a maze:
 
 - **Explain every denial.** `ERR_DENIED` carries: what was attempted, which app,
   which permission was missing, how to grant it, and a docs link.
-- **Diff-based consent.** "This app wants to read /home/alice/docs (new)" rather
+- **Diff-based consent.** "This app wants to read /home/user/docs (new)" rather
   than a wall of scopes.
 - **Least-surprise defaults.** New apps get no network and no filesystem access
   beyond their own data dir until approved.

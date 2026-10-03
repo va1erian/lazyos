@@ -1,13 +1,14 @@
 [
   {"wait_for": "/ #", "timeout": 240},
+  {"at": 1.0, "key": "tab"},
   {"type": "X=$(echo hi); echo SUB:assign:$X"},
   {"key": "enter", "until": "SUB:assign:hi", "timeout": 60, "retries": 1},
   {"type": "echo SUB:inline:$(echo hi)"},
   {"key": "enter", "until": "SUB:inline:hi", "timeout": 60, "retries": 1},
   {"type": "echo SUB:backtick:`echo hi`"},
   {"key": "enter", "until": "SUB:backtick:hi", "timeout": 60, "retries": 1},
-  {"type": "D=$(echo /data/*); echo SUB:glob:$D"},
-  {"key": "enter", "until": "SUB:glob:/data", "timeout": 60, "retries": 1},
+  {"type": "D=$(echo /system/*); echo SUB:glob:$D"},
+  {"key": "enter", "until": "SUB:glob:/system/bin", "timeout": 60, "retries": 1},
   {"at": 2.0, "shot": "01_console_subst"},
   {"at": 3.0, "quit": true}
 ]

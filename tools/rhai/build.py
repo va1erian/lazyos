@@ -3,7 +3,7 @@
 
 `rhai` is an ordinary Rust program built for ``x86_64-unknown-linux-musl``
 (static, ``std``): it is *not* part of the OS workspace. The root ``build.rs``
-embeds it in the disk image as ``RHAI.ELF`` whenever ``target/rhai/rhai.elf``
+embeds it in the disk image as ``/system/bin/rhai`` whenever ``target/rhai/rhai.elf``
 exists (or ``LAZYOS_RHAI`` points at another build), and the kernel's Linux
 loader resolves ``rhai`` typed at the ``sh`` prompt to it.
 

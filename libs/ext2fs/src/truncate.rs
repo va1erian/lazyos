@@ -66,6 +66,11 @@ impl Ext2 {
             return Ok(());
         }
         self.zero_tail(&inode, size)?;
+        if !size.is_multiple_of(u64::from(self.block_size)) {
+            // Cached, the zeroed tail must still land before the new size
+            // (the phases would put the inode first): see [`Ext2::barrier`].
+            self.barrier()?;
+        }
         self.set_file_size(&mut inode, size);
         touch(&mut inode, self.now());
         self.shrink_blocks(ino, &mut inode, size.div_ceil(u64::from(self.block_size)))

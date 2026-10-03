@@ -61,7 +61,7 @@ KEYS = ["enter", "esc", "tab", "backspace", "delete", "space", "up", "down",
 CHORDS = [("alt", "tab"), ("alt", "f4"), ("ctrl", "esc"), ("ctrl", "c"),
           ("ctrl", "a"), ("ctrl", "s"), ("ctrl", "o"), ("ctrl", "z"),
           ("ctrl", "shift"), ("alt", "esc"), ("super", "d"), ("ctrl", "alt")]
-SHELL = ["ls", "ls /", "cat HELLO.TXT", "echo $((6*7))", "ps", "pwd",
+SHELL = ["ls", "ls /", "cat /system/share/samples/hello.txt", "echo $((6*7))", "ps", "pwd",
          "cd /tmp", "ls /tmp", "echo hi > /tmp/m; cat /tmp/m", "true", "false",
          "for i in 1 2 3 4 5 6 7 8; do (echo $i &); done", "cat /dev/null",
          "sleep 1", "uname -a", "env", "free", "dd if=/dev/zero of=/tmp/z bs=4k count=64",

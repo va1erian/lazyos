@@ -75,7 +75,7 @@
   "at": 1.0,
   "mouse_move": [
    90,
-   -392
+   -440
   ]
  },
  {
@@ -85,12 +85,12 @@
  {
   "at": 0.5,
   "mouse_click": "left",
-  "until": "SHELL:LAUNCH:PASS app=user.lazyos.hello",
+  "until": "SHELL:LAUNCH:PASS app=user.admin.hello",
   "timeout": 60,
   "retries": 1
  },
  {
-  "wait_for": "PKGD:LAUNCH:LABEL app:user.lazyos.hello",
+  "wait_for": "PKGD:LAUNCH:LABEL app:user.admin.hello",
   "timeout": 60
  },
  {

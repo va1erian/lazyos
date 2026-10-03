@@ -6,34 +6,36 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-/// Open-with defaults seeded at boot: `(mime, app, verbs)`. The app ids are
-/// registry ids (`editor` -> `XEDITOR.ELF`, `paint`, `files`, `docs`); an app the image
-/// does not ship falls back to the launch event alone.
+/// Open-with defaults seeded at boot: `(mime, app, verbs)`. The desktop apps
+/// are core packages named by their `system_name` (issue #509), and each
+/// registers the same verbs through `pkgd` from its manifest, so this table
+/// only breaks ties; the Installer and `runner` are built-in registry ids. An
+/// app the image does not ship falls back to the launch event alone.
 const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
-    ("text/plain", "editor", &["open", "edit"]),
-    ("text/plain", "files", &["reveal"]),
+    ("text/plain", "os.lazy.editor", &["open", "edit"]),
+    ("text/plain", "os.lazy.files", &["reveal"]),
     // Markdown opens in the Docs renderer, which is zig-built and therefore
     // optional; `edit` stays with the Editor so the file remains editable, and
     // [`DEFAULT_FALLBACKS`] names the Editor for `open` when Docs is absent.
-    ("text/markdown", "docs", &["open", "view"]),
-    ("text/markdown", "editor", &["edit"]),
-    ("text/x-rust", "editor", &["open", "edit"]),
-    ("text/x-shellscript", "editor", &["open", "edit"]),
-    ("image/png", "paint", &["open", "edit"]),
-    ("image/png", "files", &["reveal"]),
+    ("text/markdown", "os.lazy.docs", &["open", "view"]),
+    ("text/markdown", "os.lazy.editor", &["edit"]),
+    ("text/x-rust", "os.lazy.editor", &["open", "edit"]),
+    ("text/x-shellscript", "os.lazy.editor", &["open", "edit"]),
+    ("image/png", "os.lazy.paint", &["open", "edit"]),
+    ("image/png", "os.lazy.files", &["reveal"]),
     ("application/x-elf", "runner", &["open"]),
     (
         "application/x-lazyos-package",
         "installer",
         &["open", "install"],
     ),
-    ("application/octet-stream", "files", &["reveal"]),
+    ("application/octet-stream", "os.lazy.files", &["reveal"]),
 ];
 
 /// Fallback apps for a `(mime, verb)` whose primary the image does not ship:
 /// `(mime, verb, app)`. The open path swaps to the fallback when `init` reports
 /// the primary's ELF is not installed (see `handlers::open_path`).
-const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[("text/markdown", "open", "editor")];
+const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[("text/markdown", "open", "os.lazy.editor")];
 
 /// One open-with registration: the app for `(mime, verb)`, plus an optional
 /// fallback to use when the primary's ELF is not shipped.

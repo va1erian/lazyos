@@ -25,26 +25,29 @@ LazyOS already has the hard parts, which is the reason the plan is short:
 |---|---|---|
 | static `x86_64-unknown-linux-musl` `std` binaries | Linux ABI shim L0-L4 done: mmap/brk, threads + futex, `fork`/`execve`/pipes, signals, `/proc/self/mounts` | `linux-abi-plan.md`, `architecture/processes.md` |
 | xui on the tiny-skia painter, no winit | `xui-app` `LazyOSBackend` (owner mode and `xuid` client mode), upstream `xui-canvas` with `default-features = false`, bundled fonts | `xui-plan.md` |
-| Rhai | `libs/rhai-lazy` + `rhai-host` (`rhai` command, `RHAI.ELF`), Rhai pinned `=1.26.1`, `sync` off, no `std`-only assumptions beyond musl | issue #319 |
+| Rhai | `libs/rhai-lazy` + `rhai-host` (`rhai` command, `/system/bin/rhai`), Rhai pinned `=1.26.1`, `sync` off, no `std`-only assumptions beyond musl | issue #319 |
 | file dialogs (LazyRAD gap G4) | portable xui file dialog with `LazyFileSystem` mount-point wrapper (Editor/Paint/Files use it) | `xui-apps-integration.md` |
 | clipboard (G2) | `clipboardd` client in `xui-app/src/platform/clipboard.rs` | same |
 | window title, resize, maximize | `os.lazy.display.v1` `SetTitle`, resizable/maximizable windows (#412) | `window-resize-plan.md` |
 | launching apps | `init` app registry + `os.lazy.init.Launch`, `mimed` open-with | `shell-plan.md` §9 |
 | spawning child processes with pipes (debugger) | `xui-term` hosts BusyBox `sh` over a pipe pair; `fork`/`execve`/`pipe2` exist | `xui-plan.md` desktop session |
-| persistent storage | ext2 `/data` volume, VFS-backed descriptors, survives reboot (`persist` ABI fixture) | `linux-abi-plan.md` L2 |
+| persistent storage | the user's home (`$HOME`, `/home/<user>` on the ext2 OS volume or the home volume), VFS-backed descriptors, survives reboot (`persist` ABI fixture) | `linux-abi-plan.md` L2, `filesystem-plan.md` F4 |
 
 What is **missing** and is the real work:
 
-- **No dynamic app registry.** `init`'s registry is a compile-time table
-  (`user/src/bin/init/apps.rs` `APPS`); `XAPPS.LST` only decides which of those
-  rows the image ships. A user-produced app has nowhere to register (P2).
+- **App registry (done in F5).** `init`'s compile-time table
+  (`user/src/bin/init/apps.rs` `APPS`) now holds only the built-ins; every
+  desktop app, LazyRAD-made ones included, is a package `pkgd` installed and
+  `init` reads from confd's `sys/apps/*` (issue #509), so a user-produced app
+  registers by being installed (P2).
 - **No per-app sandbox profile for user apps** beyond what the security model
   describes (manifest -> profile compiled by `messengerd`/`init`, not built yet).
 - **Version skew.** LazyRAD pins xui `1487ae1`; `xui-app` pins `58c1a6e`. Rhai
   features differ (`debugging`/`metadata`/`internals` vs the exact-pinned minimal
   set in `rhai-lazy`).
-- **Only `/data` persists.** The root is a copy-up ramfs overlay over read-only
-  FAT, so anything an IDE "saves" outside `/data` is gone after reboot.
+- **Only the home is the user's.** Since filesystem F4 everything LazyRAD
+  writes lives under `$HOME` (`init` passes it to every session app);
+  `/transient` is a ramfs and `/apps` belongs to `pkgd`.
 
 ---
 
@@ -52,11 +55,11 @@ What is **missing** and is the real work:
 
 | # | Decision | Choice | Why |
 |---|---|---|---|
-| D1 | What a produced app *is* | A standard **LazyOS `.lzp` package** ([`packages.md`](packages.md), `libs/lazypkg`, PR #431): `manifest.toml`, `bin/lrplay.elf` (the player, a copy of the stub), `icons/app-{16,32,128}.png`, and the project under `resources/project/**` (`.lrp`/`.lfm`/`.rhai`/assets). `entry.args = ["--project", "resources/project"]` **(verify how the installer resolves paths relative to the install dir `/data/apps/<system_name>/<version>-<hash>`)** | LazyRAD does not invent a format; the installer, registry and Start menu treat a LazyRAD app like any other package. The player copy is deflated and bounded by the format's per-entry and total caps. |
+| D1 | What a produced app *is* | A standard **LazyOS `.lzp` package** ([`packages.md`](packages.md), `libs/lazypkg`, PR #431): `manifest.toml`, `bin/lrplay.elf` (the player, a copy of the stub), `icons/app-{16,32,128}.png`, and the project under `resources/project/**` (`.lrp`/`.lfm`/`.rhai`/assets). `entry.args = ["--project", "resources/project"]` **(verify how the installer resolves paths relative to the install dir `/apps/<system_name>/<version>-<hash>`)** | LazyRAD does not invent a format; the installer, registry and Start menu treat a LazyRAD app like any other package. The player copy is deflated and bounded by the format's per-entry and total caps. |
 | D2 | Player size / sharing | First version ships the player **inside each package** (the format requires a `bin/*.elf`). Dedup of one shared player across packages is a later optimisation and needs a package-dependency concept that does not exist yet | Keeps P2 inside the format as specified. Size is controlled by an `opt-level = "z"`, fat-LTO, stripped player without `metadata`/`internals`; budget and measure it in P1. |
 | D3 | Where LazyOS-specific code lives | In the **LazyOS repo**, in the existing standalone-workspace pattern (`xui-app`, `rhai-host`): `lazyrad-os/` with two bins that depend on LazyRAD crates by git `rev` and on `xui-app` (lib) for the backend | LazyRAD stays platform-neutral (its PLAN §12 `platform` module); LazyOS keeps ownership of init/registry/IDL. Same build style as `tools/xui/build.py`. Alternative (vendor into `xui-app/crates/`, as Editor/Paint were) is the fallback if git deps across repos are painful. |
 | D4 | IDE <-> player debug transport | Keep LazyRAD's JSON-lines protocol; run it over **pipes** with `Command::spawn` first, Messenger later | Pipes and `fork/exec` exist; no protocol change needed. Fallback: `init.Launch` has no pipes, so then move the protocol onto a Messenger channel (defined in MIDL, see §5). |
-| D5 | Script file access for produced apps | **Sandboxed by default on LazyOS**: read/write only under `/data/apps/<id>/data/` plus paths the user picks through the file dialog | Deliberate departure from LazyRAD's desktop default ("fs allowed"). LazyOS's model is default-deny with manifest permissions (`security-model.md` §4-§6); an unbounded Rhai `file` module would defeat it. |
+| D5 | Script file access for produced apps | **Sandboxed by default on LazyOS**: read/write only under `$HOME/.apps/<id>/` (never inside the install tree `/apps`, which `pkgd` owns; filesystem F4) plus paths the user picks through the file dialog | Deliberate departure from LazyRAD's desktop default ("fs allowed"). LazyOS's model is default-deny with manifest permissions (`security-model.md` §4-§6); an unbounded Rhai `file` module would defeat it. |
 | D6 | App identity | `manifest.toml` `[app].system_name` (reverse-DNS, `user.<author>.<project>`), name, version, declared `[permissions]`; `regd`/`pkgd` own registration | Matches the manifest-driven model; permissions shown at install/update. |
 
 ---
@@ -103,7 +106,7 @@ with no windowing crates in the graph.
 
 - New `lazyrad-os/` workspace (Cargo.toml, `src/bin/lrplay.rs`) and
   `tools/lazyrad/build.py` modelled on `tools/xui/build.py`/`tools/rhai/build.py`;
-  `build.rs` embeds `LRPLAY.ELF` the way `rhai_embed` does, and a
+  `build.rs` embeds `/system/bin/lrplay` the way `rhai_embed` does, and a
   `LAZYRAD_SAMPLES` set of `.lrp` projects (hello, calculator, todo) onto the
   FAT volume under `/lazyrad/`.
 - `lrplay --project <dir>`: connect as an `xuid` client
@@ -117,7 +120,7 @@ with no windowing crates in the graph.
 Verification:
 ```bash
 python tools/xui/build.py && python tools/lazyrad/build.py
-LAZYOS_DESKTOP=1 python tools/run_demo.py --headless   # image builds, LRPLAY.ELF present
+LAZYOS_DESKTOP=1 python tools/run_demo.py --headless   # image builds, /system/bin/lrplay present
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/lrplay \
     --script tools/screenshot/examples/lazyrad_hello.json   # new: click Say hello
 python tools/screenshot/pngstats.py shots/lrplay/*.png --min-nonblack 0.01 --min-colors 50
@@ -150,15 +153,16 @@ dev-install fallback.
    (dev-dependency on `libs/lazypkg`, which is `no_std` + `alloc` and usable on
    host), plus a cross-check that `tools/pkg/build.py` accepts the same tree.
 2. **Permissions.** The manifest's `[permissions]` is derived from what the
-   project uses: `files = ["read:..", "write:/data/apps/<id>/data"]` (private
-   storage, D5), `interfaces = ["os.lazy.clipboard.v1"]` only if the stdlib
+   project uses: `files = ["read:$HOME/.apps/<id>", "write:$HOME/.apps/<id>"]`
+   (private storage, D5; since F5 an absolute `/home/...` rule is refused, see
+   va1erian/lazyrad#87), `interfaces = ["os.lazy.clipboard.v1"]` only if the stdlib
    `clipboard` module is used, `network = []`. The player enforces the `files`
    list itself (fs sandbox from P0) until `messengerd` compiles profiles.
 3. **Install.** `trait Installer { fn install(&self, lzp: &[u8]) -> Result<InstalledApp, _> }`:
    the LazyOS implementation calls `pkgd` over Messenger using its **MIDL
    client** (generated; never hand-written, per `AGENTS.md`). Until `pkgd`
-   exists, a dev fallback writes the `.lzp` to `/data/packages/` for a later
-   install and reports "saved, not installed". Do not add a second registry.
+   exists, a dev fallback saves the `.lzp` for a later install and reports
+   "saved, not installed" (unused on LazyOS, see P4). Do not add a second registry.
 4. **Start menu / `mimed`:** nothing to build here; it comes from `regd` when
    `pkgd` installs the package. Register `.lrp` -> LazyRAD IDE via the IDE's own
    package manifest `[[mime]]`.
@@ -182,16 +186,17 @@ a reboot.
   single-window constraint (gap G16) is fine.
 - LazyOS `platform` implementation, reusing `xui-app/src/platform/`:
   - **dialogs:** the portable explorer file dialog over `LazyFileSystem`
-    (open project, save as, Make App). Default start dir `/data/projects`.
+    (open project, save as, Make App). Default start dir `$HOME/projects`
+    (created by the IDE), then `$HOME`, then `/transient`.
   - **clipboard:** `clipboardd` client (already used by the Editor). Replaces
     LazyRAD's in-process clipboard for the code editor and designer.
-  - **config/settings:** persisted in `/data/config/lazyrad/` or through `confd`
+  - **config/settings:** persisted in `$HOME/.apps/lazyrad/config/` or through `confd`
     (**decision to make:** `confd` is the platform standard; the IDE's TOML
     settings file is simpler. Start with the file, move to `confd` if Settings
     wants to show them).
   - **theme:** follow the desktop theme (`libs/uitheme`) instead of
     `dark-light`.
-  - **run/debug:** `spawn_player` = `Command::new("/LRPLAY.ELF")` with stdin/
+  - **run/debug:** `spawn_player` = `Command::new("/system/bin/lrplay")` with stdin/
     stdout pipes, keeping the JSON-lines debug protocol. **Spike first (verify):**
     a process spawned by a `xuid` client must itself be able to open a
     window as an `xuid` client (session/display grant inheritance). If it
@@ -258,7 +263,7 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
 | A process spawned by the IDE cannot obtain its own `xuid` window | P3 spike before committing to pipes; D4 fallback (Messenger channel + `init.Launch`) |
 | Cross-repo builds (git rev pins in two repos drift again) | One documented bump procedure (as in `xui-plan.md`); a CI check that both lockfiles resolve a single `xui-core` rev |
 | IDE too slow on the software present path | Measure in P3 before polishing; dirty-rect presents already exist; the editor only paints visible lines |
-| Rhai features inflate `LRPLAY.ELF` | Player builds without `metadata`/`internals`; `opt-level = "z"`, fat LTO, `strip` as `rhai-host` does; track image size in CI (the FAT image is already ~29 MiB) |
+| Rhai features inflate `/system/bin/lrplay` | Player builds without `metadata`/`internals`; `opt-level = "z"`, fat LTO, `strip` as `rhai-host` does; track image size in CI (the FAT image is already ~29 MiB) |
 | `init` registry grows past the small task table / file limits | New `appd` service rather than more code in `init` if needed; soak test in P2 |
 | User scripts escape the sandbox through `file`/`dir` | D5 allowlist implemented in `lazyrad-runtime`, plus tests for traversal, symlinks and absolute paths |
 | A malformed package crashes the installer | `lazypkg` already bounds and fuzzes the reader; the packager only writes, and its output is re-validated by `lazypkg` in tests |
@@ -282,7 +287,7 @@ the IDE, launch the app from the Start menu, reboot, launch it again.
 | Phase | Deliverable | Size |
 |---|---|---|
 | P0 | Shared xui/Rhai rev, platform seam, musl-clean crates | 1 wk |
-| P1 | `LRPLAY.ELF` runs Hello/Calculator | 1-2 wk |
+| P1 | `/system/bin/lrplay` runs Hello/Calculator | 1-2 wk |
 | P2 | `.lzp` writer + packager, `pkgd` install client | 2 wk |
 | P3 | IDE on LazyOS with F5 and debugger | 3-4 wk |
 | P4 | Make App in the IDE | 1 wk |
@@ -299,9 +304,10 @@ are built on a host, which is a useful interim state.
 1. **Repo layout:** `lazyrad-os/` in this repo with a git dependency on LazyRAD
    (recommended), or vendor LazyRAD crates under `xui-app/crates/` as was done
    for the Editor/Paint?
-2. **App storage root:** `/data/apps/<id>/` (assumed here) - confirm `/data` is
-   always mounted in the desktop profile, and whether apps should be per-user
-   (`/data/home/<user>/apps/`) once `accounts` has real homes.
+2. **App storage root:** resolved by filesystem F4: per user, in
+   `$HOME/.apps/<id>/`; a project run from the IDE (not installed) uses
+   `$HOME/.apps/lazyrad/data/`. Without `$HOME` LazyRAD falls back to
+   `/transient/lazyrad` and warns (`LRPLAY:HOME:WARN`, `LRIDE:HOME:WARN`).
 3. **Shared player:** is one player copy per package acceptable (D2), or should the format grow a dependency mechanism?
 4. **Permissions enforcement depth:** is player-level enforcement (P2) acceptable
    until `messengerd` compiles sandbox profiles from manifests, or should the
@@ -326,7 +332,7 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   `argv[0]`, or with the install dir as cwd, or pass an absolute `--project`.
   Verified: `LRPLAY:PROJECT:PASS:/tmp/app/resources/project` for `bin/lrplay.elf
   --project resources/project` run from `/tmp/app`.
-- **A `bin/` ELF may be a Linux-ABI xui client: true.** `LRPLAY.ELF` is a static
+- **A `bin/` ELF may be a Linux-ABI xui client: true.** `/system/bin/lrplay` is a static
   musl `xuid` client and runs from the Terminal and from the IDE.
 - **A process spawned by a `xuid` client can open its own window: true** (with
   `--client`; without it the player first tries to bind the display as owner and
@@ -371,15 +377,14 @@ runs programs with, `pkgd.Inspect` (the platform's own permission wording and ev
 LazyRAD `lazyrad-ide/src/make_app.rs` plus the `Installer::review/launch` seam.
 
 **Staging path.** `pkgd` reads packages as root and, for an unprivileged caller,
-only from the boot volume root, `/tmp` or the caller's home. The installer
-stages `/tmp/lazyrad-<system_name>-<version>.lzp` (about 2 MiB deflated, within
-`/tmp`'s limits and `Inspect`'s 8 MiB cap), calls `pkgd`, and deletes it.
-`/data/packages` is not readable by `pkgd` for a normal user and is not used.
+only from `/transient` or the caller's home. The installer stages
+`/transient/lazyrad-<system_name>-<version>.lzp` (about 2 MiB deflated, within
+the ramfs's limits and `Inspect`'s 8 MiB cap), calls `pkgd`, and deletes it.
 
 **Resolved questions**
 - `init` starts an installed app with `argv[0]` = the absolute
-  `/data/apps/<system_name>/<version>-<digest8>/bin/lrplay.elf`
-  (`LRPLAY:PROJECT:PASS:.../resources/project exe=/data/.../bin/lrplay.elf`), so
+  `/apps/<system_name>/<version>-<digest8>/bin/lrplay.elf`
+  (`LRPLAY:PROJECT:PASS:.../resources/project exe=/apps/.../bin/lrplay.elf`), so
   the player's `argv[0]`-based install-dir lookup works and the fixed
   `entry.args = ["--project","resources/project"]` resolves under it. Both a
   launch from the IDE (`init.Launch`) and from the desktop right-click menu work.

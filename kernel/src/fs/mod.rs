@@ -38,6 +38,7 @@ pub mod bootcfg;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
+pub mod flusher;
 pub mod hidden;
 pub(crate) mod mounts;
 pub mod openfile;
@@ -51,7 +52,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::block;
-pub use abi_attr::{abi_setattr, abi_setattr_open};
+pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
 pub(crate) use mounts::{mount_data_volume, select_root};
 #[cfg(lazyos_tests)]
@@ -110,7 +111,7 @@ pub fn mount_device(point: &str, device: &str) -> Result<(), FsError> {
         return with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
             .unwrap_or(Err(FsError::NotFound));
     }
-    match ext2::Ext2::open(device) {
+    match ext2::Ext2::open_cached(device) {
         Ok(volume) => {
             mounts::reclaim_orphans(&volume, point);
             with(|vfs| vfs.mount(point, Arc::new(volume), MountFlags::default()))
@@ -128,6 +129,12 @@ pub fn mount_flags(path: &str) -> MountFlags {
 /// Run `f` against the global VFS, if it is mounted.
 fn with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     FS.lock().as_mut().map(|(vfs, _)| f(vfs))
+}
+
+/// [`with`], unless another task holds the VFS right now (`None` then too):
+/// for background work that must never wait on a foreground operation.
+fn try_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
+    FS.try_lock()?.as_mut().map(|(vfs, _)| f(vfs))
 }
 
 /// Read a whole file as the current task (permission-checked).
@@ -160,6 +167,12 @@ pub fn list() -> Vec<(String, bool, u32)> {
 /// callers to map to errno).
 pub fn vfs_stat(id: Id, path: &str) -> Result<Meta, FsError> {
     with(|vfs| vfs.stat(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// Check `mask` on `path` itself through the native VFS (ancestors always
+/// need search); returns the node's metadata.
+pub fn vfs_check(id: Id, path: &str, mask: u8) -> Result<Meta, FsError> {
+    with(|vfs| vfs.check(id, path, mask)).unwrap_or(Err(FsError::NotFound))
 }
 
 /// Read a whole file through the native VFS.
@@ -434,6 +447,20 @@ pub fn install_abi_data_for_test(volume: Arc<dyn Filesystem>) -> Option<Vfs> {
 #[cfg(lazyos_tests)]
 pub fn install_abi_for_test(table: Vfs) -> Option<Vfs> {
     ABI_FS.lock().replace(table)
+}
+
+/// Swap in `table` as the native mount table (reported as mounted), returning
+/// the one it replaced so a test can put it back with
+/// [`restore_native_for_test`].
+#[cfg(lazyos_tests)]
+pub fn install_native_for_test(table: Vfs) -> Option<(Vfs, bool)> {
+    FS.lock().replace((table, true))
+}
+
+/// Put back the table [`install_native_for_test`] returned.
+#[cfg(lazyos_tests)]
+pub fn restore_native_for_test(previous: Option<(Vfs, bool)>) {
+    *FS.lock() = previous;
 }
 
 /// Put back the table [`install_abi_data_for_test`] returned.

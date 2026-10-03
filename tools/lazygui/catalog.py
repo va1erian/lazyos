@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PY = sys.executable
 
 #: LazyOS-only LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
-#: `/LAZYRAD/` with every LazyRAD image next to any the user lists. Relative
+#: `/system/share/lazyrad/` with every LazyRAD image next to any the user lists. Relative
 #: entries resolve against the repo root (`build_support/lazyrad_embed.rs`).
 LAZYOS_LAZYRAD_SAMPLES = ("lazyrad-os/samples/messenger",)
 CARGO = shutil.which("cargo") or "cargo"
@@ -75,6 +75,8 @@ SCRIPTS = [
     ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
     ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
     ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
+     ("desktop",), None),
+    ("xui_settings_hidden.json", "XUI app: Settings (hide an app from the start menu)",
      ("desktop",), None),
 ]
 
@@ -148,13 +150,13 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
-        # Embeds LRPLAY.ELF and LAZYRAD.ELF (built by `tools/lazyrad/build.py`)
-        # and lists the IDE in XAPPS.LST so Settings -> Menu offers it.
+        # Embeds /system/bin/lrplay and /system/bin/lazyrad (built by `tools/lazyrad/build.py`);
+        # `init` lists the IDE when its program is in the image, so Settings -> Menu offers it.
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
     if cfg.get("doom"):
-        # Places /DOOM.LZP (built by `tools/doom/build.py`) on the OS volume;
-        # it is installed through pkgd (`pkgctl install /DOOM.LZP`).
+        # Places the Doom package (built by `tools/doom/build.py`) in
+        # /system/share/samples; a user installs it through pkgd.
         env["LAZYOS_DOOM"] = "1"
     return env
 
@@ -226,6 +228,21 @@ def cargo_step(cfg: dict) -> dict:
     return {"label": "Build image (cargo build)", "argv": argv}
 
 
+def xui_steps() -> list[dict]:
+    """Build the xui apps, then package the desktop apps as core packages
+    (issue #509): `target/pkg/core/*.lzp`, which a desktop image embeds in
+    `/system/packages` and `pkgd` installs at boot."""
+    return [{"label": "Build xui apps (static musl)",
+             "argv": [PY, "tools/xui/build.py", "--no-core-packages"]},
+            core_packages_step()]
+
+
+def core_packages_step() -> dict:
+    """Package the built desktop apps (`tools/xui/core_packages.py`): the
+    desktop image build needs `target/pkg/core`."""
+    return {"label": "Build core packages", "argv": [PY, "tools/xui/core_packages.py"]}
+
+
 def lazyrad_step(cfg: dict) -> list[dict]:
     """The step that builds LazyRAD's static-musl ELFs, when the image embeds them."""
     if not cfg.get("lazyrad"):
@@ -259,8 +276,7 @@ def build_plan(cfg: dict) -> list[dict]:
 
     if mode == "Interactive demo":
         if cfg.get("prebuild_xui"):
-            steps.append({"label": "Build xui apps (static musl)",
-                          "argv": [PY, "tools/xui/build.py"]})
+            steps += xui_steps()
         argv = [PY, "tools/run_demo.py"]
         if cfg.get("lazyrad") and not cfg["skip_build"]:
             # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
@@ -320,10 +336,12 @@ def build_plan(cfg: dict) -> list[dict]:
         steps.append({"label": "Capture screenshots", "argv": argv})
 
     elif mode == "Scripted session":
-        file, label, _, xui = _script(cfg)
+        file, label, switches, xui = _script(cfg)
         if xui:
-            steps.append({"label": "Build xui app (static musl)",
-                          "argv": [PY, "tools/xui/build.py"]})
+            steps += xui_steps()
+        elif "desktop" in switches:
+            # The desktop apps are packages: package the apps already built.
+            steps.append(core_packages_step())
         if not cfg["skip_build"]:
             steps += app_steps(cfg)
             steps.append(cargo_step(cfg))
@@ -355,7 +373,7 @@ def build_plan(cfg: dict) -> list[dict]:
         steps.append({"label": "Linux ABI bench", "argv": argv})
 
     elif mode == "Build xui app":
-        steps.append({"label": "Build xui app (static musl)", "argv": [PY, "tools/xui/build.py"]})
+        steps += xui_steps()
         steps += app_steps(cfg)
 
     return steps

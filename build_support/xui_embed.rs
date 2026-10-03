@@ -1,16 +1,17 @@
 //! The xui desktop apps, the LazyShell desktop shell (issue #157) and the
-//! sample packages embedded in the OS volume (issues #215/#216): which
-//! binaries ship, their flat uppercase names, and the `XAPPS.LST` manifest
-//! `init` reads. Split out of `build.rs`.
+//! sample packages embedded in the OS volume (issues #215/#216): which apps
+//! ship, as core packages in `/system/packages` (issue #509,
+//! [`core_packages`](crate::core_packages)) or, for the shell and the
+//! Installer, as programs in `/system/bin`. Split out of `build.rs`.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use crate::lazyrad_embed;
+use crate::core_packages;
 use crate::os_image::Sink;
 
 /// LazyShell's binary under `target/xui/` (`tools/xui/build.py` builds it from
-/// `xui-app/src/bin/lazyshell.rs`); stored as `XSHELL.ELF`.
+/// `xui-app/src/bin/lazyshell.rs`); stored as `fhs::bin::LAZYSHELL`.
 const SHELL_XUI_APP: &str = "xui-shell.elf";
 
 /// Whether the image ships LazyShell (issue #157). `LAZYOS_SHELL` defaults to
@@ -35,12 +36,10 @@ pub fn shell_enabled(desktop: bool, services: bool, xuid: bool) -> bool {
     }
 }
 
-/// Embed `xui-shell.elf` as `XSHELL.ELF` and return its `XAPPS.LST` line. The
-/// line always carries `autostart`, whatever `LAZYOS_XUI_AUTOSTART` says
-/// (that switch lists the *apps*): `init` opens it first, as the desktop's
-/// shell, and restarts it when it dies. A missing binary fails the build: a
-/// desktop that asked for its shell must not boot without one.
-fn embed_shell(sink: &mut dyn Sink) -> String {
+/// Embed `xui-shell.elf` as `lazyshell`. `init` opens it first at boot, as
+/// the desktop's shell, and restarts it when it dies. A missing binary fails
+/// the build: a desktop that asked for its shell must not boot without one.
+fn embed_shell(sink: &mut dyn Sink) {
     let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .join("target")
         .join("xui")
@@ -53,53 +52,58 @@ fn embed_shell(sink: &mut dyn Sink) -> String {
             path.display()
         );
     }
-    let (_, disk) = xui_disk_name(&path);
     println!(
-        "cargo:warning=LazyShell embedded: {} as {disk}",
-        path.display()
+        "cargo:warning=LazyShell embedded: {} as {}",
+        path.display(),
+        fhs::bin::LAZYSHELL
     );
-    sink.add_file(&disk, path);
-    format!("{disk} autostart\n")
+    sink.add_file(fhs::bin::LAZYSHELL, path);
 }
 
-/// The on-disk name for an xui app binary (`xui-sysmon.elf` -> `XSYSMON.ELF`),
-/// which `init`'s app registry (`user/src/bin/init/apps.rs`) refers to by that
-/// exact (uppercase) spelling.
-/// Returns `(stem, disk_name)`.
-fn xui_disk_name(path: &std::path::Path) -> (String, String) {
+/// The xui programs that stay unlabelled in `/system/bin` (issue #509), by the
+/// stem of their binary (`xui-<stem>.elf`): the desktop shell, the Installer
+/// (`pkgd`'s trusted UI, which refuses every labelled caller) and the Terminal
+/// (a labelled Terminal would sandbox its shell and every command typed in it,
+/// `pkgctl` and `powerctl` included, since children inherit the label) and
+/// Devices (it reads the kernel's device inspection calls, `os.kernel.dev`,
+/// which no package permission can name). Every other desktop app is a core
+/// package.
+const XUI_DESTINATIONS: &[(&str, &str)] = &[
+    ("term", fhs::bin::TERMINAL),
+    ("devices", fhs::bin::DEVICES),
+    ("installer", fhs::bin::INSTALLER),
+    ("shell", fhs::bin::LAZYSHELL),
+];
+
+/// The stem of an xui app binary (`xui-sysmon.elf` -> `sysmon`).
+fn xui_stem(path: &std::path::Path) -> String {
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("app")
         .to_ascii_lowercase();
-    let stem = stem.strip_prefix("xui-").unwrap_or(&stem).to_string();
-    let base = match stem.as_str() {
-        "sysmon" => "XSYSMON".to_string(),
-        "fabricmon" => "XFABMON".to_string(),
-        "counter" => "XCOUNTR".to_string(),
-        "term" => "XTERM".to_string(),
-        "editor" => "XEDITOR".to_string(),
-        "paint" => "XPAINT".to_string(),
-        "files" => "XFILES".to_string(),
-        "settings" => "XSETTNG".to_string(),
-        "confd" => "XCONFD".to_string(),
-        "client" => "XCLIENT".to_string(),
-        other => {
-            let short: String = other
-                .chars()
-                .filter(char::is_ascii_alphanumeric)
-                .take(7)
-                .collect();
-            format!("X{}", short.to_ascii_uppercase())
-        }
-    };
-    (stem, format!("{base}.ELF"))
+    stem.strip_prefix("xui-").unwrap_or(&stem).to_string()
 }
 
-/// The desktop profile's default xui app set, in the order `init` opens them
-/// (the Terminal first, so it takes the focus). `LAZYOS_DESKTOP=1` embeds
-/// these from `target/xui/` unless `LAZYOS_XUI_APPS` overrides the list; the
-/// names match `tools/xui/build.py`'s outputs and `lazygui`'s `DESKTOP_APPS`.
+/// Where an xui program that is not a core package goes: its `fhs::bin`
+/// constant, or `/system/bin/<stem>` for a hand-built one (`xui-client.elf`).
+/// `None` when that fallback would be empty or would replace another program
+/// of the image (`xui-init.elf` must never become `/system/bin/init`).
+fn xui_destination(stem: &str) -> Option<String> {
+    if let Some((_, path)) = XUI_DESTINATIONS.iter().find(|(name, _)| *name == stem) {
+        return Some((*path).to_string());
+    }
+    let name: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let path = format!("{}/{name}", fhs::SYSTEM_BIN);
+    (!name.is_empty() && !fhs::bin::ALL.contains(&path.as_str())).then_some(path)
+}
+
+/// The desktop profile's default xui app set, in the order the Terminal-first
+/// desktop lists them; the names match `tools/xui/build.py`'s outputs and
+/// `lazygui`'s `DESKTOP_APPS`.
 const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-term.elf",
     "xui-sysmon.elf",
@@ -108,14 +112,9 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-counter.elf",
 ];
 
-/// The document apps (Editor, Paint, Files): always-shipped desktop apps.
-/// `python tools/xui/build.py` produces all three under `target/xui/`; a
-/// missing one fails the desktop build on purpose. They are on-demand (never
-/// autostarted at boot), opened from the Start menu or by open-with.
-const SHIP_DOCUMENT_APPS: bool = true;
-
-/// The document apps' binaries, appended to [`DESKTOP_XUI_APPS`] when
-/// [`SHIP_DOCUMENT_APPS`] is on.
+/// The document apps (Editor, Paint, Files) and the other always-shipped
+/// desktop apps: `python tools/xui/build.py` produces all of them under
+/// `target/xui/`; a missing one fails the desktop build on purpose.
 const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-editor.elf",
     "xui-files.elf",
@@ -123,149 +122,132 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-settings.elf",
     "xui-confd.elf",
     // The package installer (docs/packages.md section 8): the consent screen
-    // for `.lzp` packages, opened from the menu or by open-with.
+    // for `.lzp` packages, opened from the menu or by open-with. Not a package.
     "xui-installer.elf",
     // The Devices app (issue #481): devices, their owners and the driver
     // class rules, read-only; opened from the menu.
     "xui-devices.elf",
 ];
 
-/// Desktop apps embedded when their ELF exists, and skipped (with a build
-/// warning) when it does not. The Docs app is C++ (litehtml) and needs the zig
-/// toolchain (`tools/xui/zig.py`), which a developer machine may lack; a
-/// missing one leaves a smaller desktop, not a broken one, so it is not a
-/// required default like [`DOCUMENT_XUI_APPS`].
+/// Desktop apps shipped when they were built, and skipped (with a build
+/// warning) when they were not. The Docs app is C++ (litehtml) and needs the
+/// zig toolchain (`tools/xui/zig.py`), which a developer machine may lack; a
+/// missing one leaves a smaller desktop, not a broken one.
 const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
-/// The one app the desktop opens at boot when `LAZYOS_XUI_AUTOSTART` is unset:
-/// the Terminal. Every other embedded app (viewers, Editor, Files, Paint) is
-/// launched on demand from the Start menu, the right-click menu or open-with.
-const DEFAULT_AUTOSTART_STEM: &str = "term";
-
-/// Embed the desktop's xui apps (issues #215/#216).
+/// Embed the desktop's apps (issues #215/#216/#509).
 ///
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
-/// of binaries built by `tools/xui/build.py`. With `LAZYOS_DESKTOP=1` and no
-/// explicit list, the [`DESKTOP_XUI_APPS`] defaults under `target/xui/` are
-/// used, so one switch is enough. Each is stored under its flat uppercase name, and
-/// `XAPPS.LST` lists the shipped ones so `init` marks every other registry row
-/// unavailable instead of failing to launch it. Rows named in
-/// `LAZYOS_XUI_AUTOSTART` (comma-separated stems such as `term,sysmon`; the
-/// default is the Terminal only, `none` disables it) are tagged `autostart`,
-/// and `init` launches them at boot as `xuid` clients. With `shell`, LazyShell
-/// is embedded too and listed first (see [`embed_shell`]).
+/// of binaries built by `tools/xui/build.py`; with `LAZYOS_DESKTOP=1` and no
+/// explicit list, [`DESKTOP_XUI_APPS`], [`DOCUMENT_XUI_APPS`] and the built
+/// [`OPTIONAL_XUI_APPS`] are used, so one switch is enough. An app that is a
+/// core package (`core_packages`) ships as `/system/packages/<sn>.lzp`, the
+/// rest (the Installer, a hand-built client) as an ELF in `/system/bin`
+/// ([`xui_destination`]). `LAZYOS_XUI_AUTOSTART` picks which packages open at
+/// boot (`core_packages::autostart_shorts`). With `shell`, LazyShell is
+/// embedded too.
 pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_APPS");
-    println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
     let explicit = std::env::var_os("LAZYOS_XUI_APPS");
     // The default set is part of the `LAZYOS_DESKTOP=1` profile: a desktop with
     // one of its apps missing is a broken profile, not a smaller one, so a
     // missing default fails the build. An explicit `LAZYOS_XUI_APPS` list only
     // warns, since it may name apps the caller knows are optional.
     let default_desktop_apps = desktop && explicit.is_none();
+    let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+        .join("target")
+        .join("xui");
     let apps: Vec<PathBuf> = match explicit {
         Some(list) => std::env::split_paths(&list).collect(),
-        None if desktop => {
-            let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
-                .join("target")
-                .join("xui");
-            let document: &[&str] = if SHIP_DOCUMENT_APPS {
-                DOCUMENT_XUI_APPS
-            } else {
-                &[]
-            };
-            let optional = OPTIONAL_XUI_APPS.iter().filter_map(|name| {
-                let path = dir.join(name);
-                // Tracked even when missing, so building it later is picked up.
-                println!("cargo:rerun-if-changed={}", path.display());
-                if path.is_file() {
-                    Some(path)
-                } else {
-                    println!(
-                        "cargo:warning=optional xui app {name} not built (needs zig: \
-                         `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
-                    );
-                    None
-                }
-            });
-            DESKTOP_XUI_APPS
-                .iter()
-                .chain(document)
-                .map(|name| dir.join(name))
-                .chain(optional)
-                .collect()
-        }
-        // No xui apps requested, but the shell or the IDE still needs its line.
-        None if shell || !lazyrad_embed::manifest_lines().is_empty() => Vec::new(),
-        None => return,
+        None if desktop => DESKTOP_XUI_APPS
+            .iter()
+            .chain(DOCUMENT_XUI_APPS)
+            .chain(OPTIONAL_XUI_APPS)
+            .map(|name| dir.join(name))
+            .collect(),
+        None => Vec::new(),
     };
-    let autostart = std::env::var("LAZYOS_XUI_AUTOSTART").ok();
-    let wanted = |stem: &str| match autostart.as_deref() {
-        None => stem == DEFAULT_AUTOSTART_STEM,
-        Some("none") => false,
-        Some(list) => list.split(',').any(|item| item.trim() == stem),
-    };
-    let mut manifest = if shell {
-        embed_shell(sink)
-    } else {
-        String::new()
-    };
+    if shell {
+        embed_shell(sink);
+    }
+    let core_dir = core_packages::dir();
+    let built = core_packages::built(&core_dir);
+    let mut packages: Vec<&core_packages::CorePackage> = Vec::new();
     for app in apps {
+        let stem = xui_stem(&app);
+        let optional = OPTIONAL_XUI_APPS.iter().any(|name| dir.join(name) == app);
+        let short = core_packages::short_of(&stem);
+        if let Some(package) = built.iter().find(|p| p.short == short) {
+            if !packages.iter().any(|p| p.short == short) {
+                packages.push(package);
+            }
+            continue;
+        }
         // Tracked even when missing: Cargo reruns while a listed path does not
         // exist, so an app built later is picked up without changing the env.
         println!("cargo:rerun-if-changed={}", app.display());
-        if !app.is_file() {
-            if default_desktop_apps {
-                panic!(
-                    "LAZYOS_DESKTOP=1 is missing its default xui app {}; \
-                     run `python tools/xui/build.py`, or set LAZYOS_XUI_APPS \
-                     to the apps you built",
-                    app.display()
+        let is_core = crate::core_packages::is_core_stem(&stem);
+        if is_core || !app.is_file() {
+            let what = if is_core {
+                format!("core package {short}")
+            } else {
+                app.display().to_string()
+            };
+            if optional {
+                println!(
+                    "cargo:warning=optional xui app {what} not built (needs zig: \
+                     `pip install ziglang==0.16.0`, then `python tools/xui/build.py`)"
                 );
+            } else if default_desktop_apps {
+                panic!(
+                    "LAZYOS_DESKTOP=1 is missing {what}; run `python tools/xui/build.py`, \
+                     or set LAZYOS_XUI_APPS to the apps you built"
+                );
+            } else {
+                println!("cargo:warning=LAZYOS_XUI_APPS entry not built: {what}");
             }
+            continue;
+        }
+        let Some(destination) = xui_destination(&stem) else {
             println!(
-                "cargo:warning=LAZYOS_XUI_APPS entry not found: {}",
+                "cargo:warning=LAZYOS_XUI_APPS entry {} has no usable name; skipped",
                 app.display()
             );
             continue;
-        }
-        let (stem, disk) = xui_disk_name(&app);
+        };
         println!(
-            "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {disk}",
+            "cargo:warning=LAZYOS_XUI_APPS embedded: {} as {destination}",
             app.display()
         );
-        let suffix = if wanted(&stem) { " autostart" } else { "" };
-        manifest.push_str(&format!("{disk}{suffix}\n"));
-        sink.add_file(&disk, app);
+        sink.add_file(&destination, app);
     }
-    // The IDE is embedded by `lazyrad_embed` under its own 8.3 name, not as an
-    // `xui-*` app, so its manifest line is added here.
-    manifest.push_str(lazyrad_embed::manifest_lines());
-    sink.add_bytes("XAPPS.LST", manifest.into_bytes());
+    core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
 }
 
-/// Embed the sample `.lzp` packages in the volume root, when
+/// Embed the sample `.lzp` packages in `/system/share/samples`, when
 /// `tools/pkg/build_samples.py` produced them (`tools/xui/build.py` runs it
-/// after building the xui apps): `PKGDEMO.LZP` is the Counter demo as an
-/// installable package, installed with `pkgctl install /PKGDEMO.LZP`. A missing
-/// sample only means a smaller image, so it warns instead of failing.
+/// after building the xui apps): `pkgdemo.lzp` is the Counter demo as an
+/// installable package, installed with `pkgctl install
+/// /system/share/samples/pkgdemo.lzp`. A missing sample only means a smaller
+/// image, so it warns instead of failing.
 pub fn embed_sample_packages(sink: &mut dyn Sink) {
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .join("target")
         .join("pkg");
-    for disk_name in ["PKGDEMO.LZP"] {
-        let path = dir.join(disk_name);
+    // (what `build_samples.py` writes, where the image keeps it)
+    for (built, destination) in [("pkgdemo.lzp", fhs::share::PKGDEMO)] {
+        let path = dir.join(built);
         // Tracked even when missing, so building it later is picked up.
         println!("cargo:rerun-if-changed={}", path.display());
         if path.is_file() {
             println!(
-                "cargo:warning=sample package embedded: {} as {disk_name}",
+                "cargo:warning=sample package embedded: {} as {destination}",
                 path.display()
             );
-            sink.add_file(disk_name, path);
+            sink.add_file(destination, path);
         } else {
             println!(
-                "cargo:warning=sample package {disk_name} not built \
+                "cargo:warning=sample package {built} not built \
                  (`python tools/xui/build.py` or `python tools/pkg/build_samples.py`)"
             );
         }

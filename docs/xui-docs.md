@@ -1,6 +1,6 @@
 # The Docs app: Markdown rendered by litehtml
 
-`xui-docs` (`XDOCS.ELF`) shows a Markdown file in a `xuid` window: wrapped text,
+`xui-docs` (`/system/bin/docs`) shows a Markdown file in a `xuid` window: wrapped text,
 headings, lists, tables, code and block quotes, scrolled with the mouse wheel,
 `PageUp`/`PageDown` or the arrow keys. With no argument it shows a built-in
 welcome page that doubles as a syntax tour. It is the first user of
@@ -51,7 +51,7 @@ file (or welcome.md) --pulldown-cmark--> HTML --litehtml (worker thread)--> disp
   fresh view and drops the old one (which destroys its node and stops its worker
   thread).
 * **Test document.** `xui-app/docs/testdata/testdoc.md` ships in every image as
-  `/TESTDOC.MD` (embedded by `build.rs`). It covers every construct the viewer
+  `/system/share/samples/testdoc.md` (embedded by `build.rs`). It covers every construct the viewer
   draws and is long enough to scroll; the unit tests render it and
   `tools/screenshot/examples/xui_docs_open.json` opens it through the dialog.
 * **Start menu.** LazyShell's start menu lists Docs next to the other apps

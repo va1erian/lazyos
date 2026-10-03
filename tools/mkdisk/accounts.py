@@ -1,28 +1,20 @@
-"""The demo accounts, read from the file that defines them.
+"""The demo accounts, read from the one file that defines them.
 
-``accountsd`` keeps its built-in passwd table as a Rust string constant, and
-``build.rs`` embeds a second copy as the boot volume's ``PASSWD``. Python cannot
-import either, and a hand-copied list here would silently go stale, so the seed
-users are parsed out of ``accountsd.rs`` and ``test_mkdisk.py`` fails if
-``build.rs`` disagrees with it.
+``build_support/passwd`` is the single account file (issue #508): ``build.rs``
+installs it byte for byte as the OS volume's ``/system/etc/passwd``, the only
+account source ``accountsd`` reads (it has no built-in table and fails closed
+without the file). The home-volume seed reads the same file here, so the homes
+it creates always match the accounts the system boots with.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-ACCOUNTSD_SOURCE = ROOT / "user" / "src" / "bin" / "accountsd.rs"
+PASSWD_FILE = ROOT / "build_support" / "passwd"
 BUILD_SCRIPT = ROOT / "build.rs"
-
-# `const BUILTIN: &str = "root:0:0:...\nalice:...\n";` (a one-line literal).
-_BUILTIN = re.compile(r'const\s+BUILTIN\s*:\s*&str\s*=\s*"((?:[^"\\]|\\.)*)"\s*;')
-# The same table as build.rs writes it: `const PASSWD: &[u8] = b"root:...\n";`.
-_BUILD_PASSWD = re.compile(
-    r'const\s+PASSWD\s*:\s*&\[u8\]\s*=\s*b"((?:[^"\\]|\\.)*)"\s*;', re.S)
-_ESCAPES = {"n": "\n", "\\": "\\", '"': '"'}
 _FIELDS = 6  # name:uid:gid:secret:home:shell
 
 
@@ -37,55 +29,34 @@ class Account:
     shell: str
 
 
-def unescape_rust(literal: str) -> str:
-    """Decode the few escapes a passwd table uses; refuse anything else.
-
-    Guessing at ``\\x41`` or ``\\u{..}`` would let the seed diverge from what the
-    daemon really parses, so an unknown escape is an error, not a pass-through.
-    """
-    out, chars = [], iter(literal)
-    for char in chars:
-        if char != "\\":
-            out.append(char)
-            continue
-        escape = next(chars, "")
-        if escape not in _ESCAPES:
-            raise ValueError(f"unsupported escape \\{escape} in the passwd literal")
-        out.append(_ESCAPES[escape])
-    return "".join(out)
-
-
 def parse_passwd(text: str) -> list[Account]:
-    """Parse ``name:uid:gid:secret:home:shell`` lines (blank lines skipped)."""
+    """Parse ``name:uid:gid:secret:home:shell`` lines.
+
+    Blank lines and ``#`` comments are skipped, as ``accountsd`` skips them; any
+    other malformed line is an error rather than a silently missing home.
+    """
     accounts = []
     for line in text.splitlines():
-        if not line.strip():
+        if not line.strip() or line.startswith("#"):
             continue
         fields = line.split(":")
         if len(fields) != _FIELDS:
             raise ValueError(f"malformed passwd line {line!r}")
         name, uid, gid, _secret, home, shell = fields
+        if not (uid.isdigit() and gid.isdigit()):
+            raise ValueError(f"malformed uid/gid in passwd line {line!r}")
         accounts.append(Account(name, int(uid), int(gid), home, shell))
     return accounts
 
 
-def _extract(pattern: re.Pattern, path: Path, what: str) -> str:
-    match = pattern.search(path.read_text(encoding="utf-8"))
-    if not match:
-        raise ValueError(f"cannot find {what} in {path}; update tools/mkdisk/accounts.py")
-    return unescape_rust(match.group(1))
+def image_passwd(path: Path = PASSWD_FILE) -> str:
+    """The raw ``/system/etc/passwd`` the build installs."""
+    try:
+        return path.read_bytes().decode("utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot read the account file {path}: {exc}") from exc
 
 
-def builtin_passwd(source: Path = ACCOUNTSD_SOURCE) -> str:
-    """The raw built-in passwd table from ``accountsd.rs``."""
-    return _extract(_BUILTIN, source, "the BUILTIN passwd table")
-
-
-def image_passwd(source: Path = BUILD_SCRIPT) -> str:
-    """The raw ``PASSWD`` file ``build.rs`` puts on the boot volume."""
-    return _extract(_BUILD_PASSWD, source, "the PASSWD file contents")
-
-
-def demo_accounts(source: Path = ACCOUNTSD_SOURCE) -> list[Account]:
+def demo_accounts(path: Path = PASSWD_FILE) -> list[Account]:
     """The accounts the demo boots with."""
-    return parse_passwd(builtin_passwd(source))
+    return parse_passwd(image_passwd(path))

@@ -11,10 +11,8 @@
 //! # Where the package goes
 //!
 //! `pkgd` reads a package *as root*, so for an unprivileged caller it only
-//! accepts the boot volume root, `/tmp` and the caller's own home
-//! (`libs/pkgstore/src/access.rs`). `/data/packages` (the dev fallback's
-//! directory) is therefore **not** readable by `pkgd` for a normal user. The
-//! installer stages the file as `/tmp/lazyrad-<system_name>-<version>.lzp`,
+//! accepts `/transient` and the caller's own home
+//! (`libs/pkgstore/src/access.rs`). The installer stages the file as `/transient/lazyrad-<sn>-<version>.lzp`,
 //! calls `pkgd`, and deletes it afterwards. `Inspect` reads at most 8 MiB, so a
 //! package larger than that is refused here with a clear message instead of
 //! staging it.
@@ -51,7 +49,7 @@ const CONNECT_TICKS: u64 = 1000;
 /// `pkgd`'s `Inspect` refuses a file larger than this.
 pub const MAX_PACKAGE_BYTES: usize = 8 * 1024 * 1024;
 /// Where packages are staged for `pkgd` (readable by design).
-pub const STAGING_DIR: &str = "/tmp";
+pub const STAGING_DIR: &str = fhs::mount::TRANSIENT;
 
 /// A refused or failed call: the service's own sentence, or the transport's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,15 +169,17 @@ pub fn friendly(failure: &Failure) -> String {
     const EPERM: i64 = 1;
     const EACCES: i64 = 13;
     const EEXIST: i64 = 17;
+    const ENODEV: i64 = 19;
     let text = failure.text.as_str();
     let lower = text.to_lowercase();
     if failure.code < 0 {
         return format!("The package manager (pkgd) is not available: {text}");
     }
-    if lower.contains("no writable data disk") || lower.contains("data volume") {
-        return "There is no writable data disk, so apps cannot be installed. Attach a data \
-                disk and try again."
-            .to_owned();
+    if failure.code == ENODEV || lower.contains("cannot be installed:") {
+        return format!(
+            "Apps cannot be installed because the system volume is not writable \
+                        (a recovery boot?): {text}"
+        );
     }
     match failure.code {
         EPERM | EACCES => format!(
@@ -500,7 +500,7 @@ mod tests {
         assert_eq!(app.state, InstallState::Installed);
         assert_eq!(
             app.location.unwrap(),
-            PathBuf::from("/data/apps").join("user.ada.todo/1.0.0-abcd1234")
+            PathBuf::from(fhs::state::APPS_ROOT).join("user.ada.todo/1.0.0-abcd1234")
         );
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
     }
@@ -512,8 +512,11 @@ mod tests {
             (failure(13, "denied"), "Only the person logged in"),
             (failure(17, "already installed"), "already installed"),
             (
-                failure(19, "there is no writable data disk"),
-                "no writable data disk",
+                failure(
+                    19,
+                    "Applications cannot be installed: /apps is not writable",
+                ),
+                "system volume is not writable",
             ),
             (failure(2, "package not found"), "package not found"),
             (failure(-32, "os.lazy.pkgd is not running"), "not available"),

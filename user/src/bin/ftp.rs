@@ -1,4 +1,4 @@
-//! `ftp` (`FTP.ELF`): a passive-mode FTP client (`docs/networking-plan.md`,
+//! `ftp` (`/system/bin/ftp`): a passive-mode FTP client (`docs/networking-plan.md`,
 //! stage N4).
 //!
 //! ```text

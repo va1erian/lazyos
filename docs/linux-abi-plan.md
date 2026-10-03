@@ -56,7 +56,7 @@ Two things are structural, not incremental:
    and load a static ELF (segments + `PT_TLS`), passing `AT_PHDR`/`AT_ENTRY`.
    Static musl initialises TLS itself from `PT_TLS` + `mmap` + `arch_prctl`.
 5. **Two program kinds.** Keep the native LazyOS ABI (used by the services and
-   `HELLO.ELF`; the native shell was retired in issue #254 in favour of BusyBox
+   `/system/bin/hello`; the native shell was retired in issue #254 in favour of BusyBox
    `sh`, which runs those programs through `execve`, see
    `docs/architecture/processes.md`); add a
    "linux" kind with the `syscall` gate and Linux syscall table. The
@@ -135,7 +135,7 @@ real `rt_sigaction` + `rt_sigreturn`(15) delivery, `pipe2`(293). Enables
   (musl static, no dynamic loader needed). For the fastest signal, start with a
   tiny C program (`gcc -static`) that prints, then move to Rust `std`.
 - **Fixtures** live in a new `user-linux/` crate (or a `fixtures/` dir) and are
-  added to the disk image in `build.rs` like `HELLO.ELF`.
+  added to the disk image in `build.rs` like `/system/bin/hello`.
 - **LazyOS launcher:** reuse `process::spawn` but tag the task as Linux-ABI; run
   it in a multiplexer window.
 - **Verification:** serial lines + `tools/screenshot/qemu_session.py`, as with

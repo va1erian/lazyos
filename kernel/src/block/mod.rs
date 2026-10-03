@@ -22,6 +22,7 @@
 pub mod ata;
 pub mod mem;
 pub mod partition;
+pub mod stats;
 pub mod virtio;
 mod virtio_diag;
 
@@ -108,11 +109,42 @@ pub trait BlockDevice: Send + Sync {
         Err(BlockError::ReadOnly)
     }
 
+    /// Read consecutive sectors from `lba` into `bufs`, back to back. A driver
+    /// that can makes this one request (virtio-blk); the default reads each
+    /// buffer in turn. The ext2 block cache reads ahead this way.
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), BlockError> {
+        let mut at = lba;
+        for buf in bufs.iter_mut() {
+            self.read_sectors(at, buf)?;
+            at += (buf.len() / self.sector_size().max(1)) as u64;
+        }
+        Ok(())
+    }
+
+    /// Write `bufs` back to back as consecutive sectors from `lba`, as one
+    /// request where the driver can. The ext2 block cache coalesces
+    /// contiguous dirty blocks this way.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), BlockError> {
+        let mut at = lba;
+        for buf in bufs {
+            self.write_sectors(at, buf)?;
+            at += (buf.len() / self.sector_size().max(1)) as u64;
+        }
+        Ok(())
+    }
+
     /// Flush any write cache so earlier writes are durable. Devices without a
     /// cache complete immediately.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
     fn flush(&self) -> Result<(), BlockError> {
         Ok(())
+    }
+
+    /// Request counters, for a driver that keeps them ([`stats`]). Partitions
+    /// answer `None`: their requests are counted once, on the whole disk.
+    fn stats(&self) -> Option<&stats::IoStats> {
+        None
     }
 
     /// Whether this is a window onto another device ([`partition`]). Boot-time

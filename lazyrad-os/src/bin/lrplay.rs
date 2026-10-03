@@ -10,6 +10,8 @@
 //! ends the event loop.
 //!
 //! Command line: see `lazyrad_os::args`. Serial evidence:
+//! `LRPLAY:DATA:PASS:<dir>` naming the scripts' read/write folder (in the
+//! user's home; `LRPLAY:HOME:WARN` first when `$HOME` is unset),
 //! `LRPLAY:MSG:PASS` once form scripts have the `msg` and `sys::*` modules
 //! (Messenger), `LRPLAY:MSGEVENT:PASS` after the first Messenger handler (a
 //! topic event, a call to a service the script serves) ran without error,
@@ -23,7 +25,7 @@ use std::rc::Rc;
 
 use lazyrad_os::args;
 use lazyrad_os::marker::Markers;
-use lazyrad_os::platform::{data_root, player_policy, LazyOsPlatform};
+use lazyrad_os::platform::{data_root, player_policy, Home, LazyOsPlatform};
 use lazyrad_player::{run_with_backend, EXIT_OK};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::Backend;
@@ -39,7 +41,7 @@ fn main() -> ExitCode {
     // Not `current_exe()`: the kernel answers `/busybox` (see `lazyrad_os::args`).
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let exe = args::exe_from_argv0(std::env::args_os().next().as_deref(), &cwd);
-    let project = match args::resolve_project(parsed.project.as_deref(), &exe, |p| p.is_dir()) {
+    let project = match args::resolve_project(parsed.project.as_deref(), &exe, |p| p.exists()) {
         Ok(project) => project,
         Err(error) => return fail("ARGS", &error.to_string()),
     };
@@ -48,12 +50,17 @@ fn main() -> ExitCode {
         "PROJECT",
         &format!("{} exe={}", project.display(), exe.display()),
     );
-    let data_volume = std::path::Path::new(fhs::mount::DATA).is_dir();
-    let policy = player_policy(&exe, &project, data_volume);
-    // Best effort: a read-only `/data` only means `file_write_text` reports an
+    let home = Home::from_env();
+    if let Some(warning) = home.fallback_warning() {
+        MARK.warn("HOME", &warning);
+    }
+    let policy = player_policy(&exe, &project, &home);
+    // Best effort: an unwritable home only means `file_write_text` reports an
     // error to the script.
-    let _ = std::fs::create_dir_all(data_root(&exe, data_volume));
-    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::player(policy))).is_err() {
+    let data = data_root(&exe, &home);
+    let _ = std::fs::create_dir_all(&data);
+    MARK.pass_with("DATA", &data.to_string_lossy());
+    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::player(policy, home))).is_err() {
         return fail("ARGS", "a platform was already installed");
     }
 

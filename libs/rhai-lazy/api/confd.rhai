@@ -52,7 +52,8 @@ fn list(prefix) {
 /// `Info() -> (store_dir: String, persistent: Bool)`
 ///
 /// Where the store lives: the directory confd chose and whether it
-/// survives a reboot (`false` when it fell back to the ramfs `/tmp`).
+/// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+/// `/transient/conf`).
 /// Not restricted by path, so any caller may ask.
 fn info() {
     msg::connect("os.lazy.confd.v1").invoke("Info", [])

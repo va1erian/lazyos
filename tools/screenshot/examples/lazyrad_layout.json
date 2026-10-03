@@ -48,23 +48,23 @@
  },
  {
   "at": 1.0,
-  "type": "cp -r /LAZYRAD/hello /tmp/app/resources/project"
+  "type": "cp -r /system/share/lazyrad/hello /tmp/app/resources/project"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp -r /LAZYRAD/hello /tmp/app/resources/project",
+  "until": "TERM:CMD:cp -r /system/share/lazyrad/hello /tmp/app/resources/project",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf"
+  "type": "cp /system/bin/lrplay /tmp/app/bin/lrplay.elf"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp /LRPLAY.ELF /tmp/app/bin/lrplay.elf",
+  "until": "TERM:CMD:cp /system/bin/lrplay /tmp/app/bin/lrplay.elf",
   "timeout": 30,
   "retries": 2
  },

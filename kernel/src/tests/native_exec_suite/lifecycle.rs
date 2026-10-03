@@ -16,7 +16,7 @@ const ENOEXEC: u64 = 8;
 const EAGAIN: u64 = 11;
 
 /// The spawned program is a child of the caller, gets the caller's
-/// descriptors (but not `FD_CLOEXEC` ones), its argument string, and its exit
+/// descriptors (but not `FD_CLOEXEC` ones), its `argv`, and its exit
 /// status is what the waiting caller reads; the slot and address space are
 /// released by that reap.
 pub fn spawn_inherits_fds_args_and_reports_status() -> Result<(), String> {
@@ -36,8 +36,12 @@ pub fn spawn_inherits_fds_args_and_reports_status() -> Result<(), String> {
     );
 
     let frames_before = mem::frame_stats().live();
-    let child = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "-a x")
-        .map_err(|e| format!("spawn errno {e}"))?;
+    let child = native::spawn(
+        fhs::bin::TOP,
+        &service_suite::minimal_elf(),
+        &["top", "-a", "x y"],
+    )
+    .map_err(|e| format!("spawn errno {e}"))?;
     check!(
         task::process::ppid_of(child) == sh,
         "native child's ppid is {} (expected the caller {sh})",
@@ -61,14 +65,16 @@ pub fn spawn_inherits_fds_args_and_reports_status() -> Result<(), String> {
         "an ordinary descriptor was not inherited"
     );
 
-    // Its argument string is what syscall 9 returns to it.
+    // Its `argv` reaches it as the block syscall 9 returns, item for item:
+    // an argument with a space stays one item.
     task::harness::switch_current(child);
-    let mut buf = [0u8; 16];
+    let mut buf = [0u8; 32];
     let len = process::dispatch_for_test(9, buf.as_mut_ptr() as u64, buf.len() as u64, 0);
+    let want = b"top\0-a\0x y\0";
     check!(
-        len == 4 && &buf[..4] == b"-a x",
-        "native args were {len} bytes: {:?}",
-        &buf[..len.min(16) as usize]
+        len == want.len() as u64 && &buf[..want.len()] == want,
+        "native argv block was {len} bytes: {:?}",
+        &buf[..(len as usize).min(32)]
     );
     // Its output follows fd 1 into the pipe instead of the terminal.
     let text = b"hello\n";
@@ -129,9 +135,9 @@ pub fn spawn_inherits_fds_args_and_reports_status() -> Result<(), String> {
 pub fn reap_is_specific_to_the_child() -> Result<(), String> {
     fresh();
     let sh = shell()?;
-    let first = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "")
+    let first = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &["x"])
         .map_err(|e| format!("spawn errno {e}"))?;
-    let second = native::spawn("CONFCTL.ELF", &service_suite::minimal_elf(), "")
+    let second = native::spawn(fhs::bin::CONFCTL, &service_suite::minimal_elf(), &["x"])
         .map_err(|e| format!("spawn errno {e}"))?;
     task::harness::finish(first, 1);
     task::harness::finish(second, 2);
@@ -171,7 +177,7 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
     let frames_before = mem::frame_stats().live();
     let slots_before = task::free_slots();
     for attempt in 0..8 {
-        let result = native::spawn("TOP.ELF", b"this is not an ELF image", "");
+        let result = native::spawn(fhs::bin::TOP, b"this is not an ELF image", &["x"]);
         check!(
             result == Err(ENOEXEC),
             "attempt {attempt}: corrupt image gave {result:?}, expected ENOEXEC"
@@ -201,7 +207,7 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
         fillers.push(slot);
     }
     check!(task::free_slots() == 0, "the table did not fill");
-    let result = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "");
+    let result = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &["x"]);
     check!(
         result == Err(EAGAIN),
         "a full table gave {result:?}, expected EAGAIN"
@@ -212,7 +218,7 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
         task::reap_child_slot(last) == Some(0),
         "could not free a slot"
     );
-    let slot = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "")
+    let slot = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &["x"])
         .map_err(|e| format!("spawn after freeing a slot: errno {e}"))?;
     check!(task::is_child(slot), "the retry did not start a child");
     // Reap everything through the parent so the address spaces are released
@@ -248,7 +254,7 @@ pub fn background_program_is_reaped_through_the_shell() -> Result<(), String> {
     // The forked child (shell -> P) runs the program (P -> N).
     let forked = task::spawn_child("fork", &service_suite::minimal_elf()).map_err(to_string)?;
     task::harness::switch_current(forked);
-    let program = native::spawn("TOP.ELF", &service_suite::minimal_elf(), "")
+    let program = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &["x"])
         .map_err(|e| format!("spawn errno {e}"))?;
     task::harness::switch_current(sh);
 

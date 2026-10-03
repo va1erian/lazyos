@@ -1,4 +1,4 @@
-//! `init` (`SUPER.ELF`): the userspace service supervisor (issue #93) and the
+//! `init` (`/system/bin/init`): the userspace service supervisor (issue #93) and the
 //! app-launch path (issue #158).
 //!
 //! This is the S2 supervisor from `docs/messenger.md` section 8 and the
@@ -21,16 +21,17 @@
 //! # App launch and the registry
 //!
 //! The built-in [`APPS`] table maps an **app id** (the lowercase program stem,
-//! `top` -> `TOP.ELF`) to a display name, its ELF path, a default restart
+//! `top` -> `/system/bin/top`) to a display name, its ELF path, a default restart
 //! policy and the MIME verbs it handles. `ListApps` serves it to the S5 start
 //! menu, and `mimed`'s open-with registrations resolve to the same ids.
 //!
 //! `Launch(app_id, args, session)` spawns *the target session's child* with
-//! `spawn_as`, so the kernel stamps uid/gid/session before the app runs, and
+//! `spawnv` and a credential stamp, so the kernel stamps uid/gid/session
+//! before the app runs, and
 //! then supervises it exactly like a manifest service: the same restart policy,
 //! crash backoff, `system/health/<name>` and `system/events/service/<name>`.
 //! `args` is empty or one absolute path, appended after the row's fixed
-//! arguments as a single `argv` item (`launch::launch_path_arg`; anything else
+//! arguments as a single `argv` item (`launch::launch_argument`; anything else
 //! is `-EINVAL`). `session` 0 means the caller's own session. The policy is session-owner
 //! only: a task may launch into its own session; root (or a task holding
 //! `CAP_SETUID`) may launch anywhere; anyone else is refused with `-EPERM`
@@ -50,16 +51,16 @@
 //! supervision loop without another cap check ([`running_in_session`]).
 //!
 //! Boot evidence: `INIT:APPS:PASS`, `INIT:LAUNCH:PASS` (the self-test launches
-//! `TOP.ELF`; the app's own `SYS:TOP:PASS` and exit prove it ran),
+//! `/system/bin/top`; the app's own `SYS:TOP:PASS` and exit prove it ran),
 //! `INIT:LAUNCH:DENIED:PASS` (the policy self-test) and `INIT:LAUNCH:CAP:PASS`
 //! (the concurrency-cap self-test); supervised restarts print
 //! `INIT:RESTART:PASS`.
 //!
 //! The manifest is a static Rust table today. Each row carries the fields the
-//! issue asks for: name, FAT path, argument string, restart policy, dependency
+//! issue asks for: name, program path, argument string, restart policy, dependency
 //! names and health topic. The supervisor appends `attempt=<n>` to the
 //! argument string on every spawn, so a service can distinguish a restart; that
-//! is how `FLAKY.ELF` crashes exactly once.
+//! is how `/system/bin/flaky` crashes exactly once.
 //!
 //! # Shutdown and reboot
 //!
@@ -86,6 +87,8 @@ mod installed;
 mod launch;
 #[path = "init/protocol.rs"]
 mod protocol;
+#[path = "init/provisioning.rs"]
+mod provisioning;
 #[path = "init/selftest.rs"]
 mod selftest;
 #[path = "init/service.rs"]
@@ -152,9 +155,13 @@ fn run() -> messenger::Result<()> {
         .map(Service::from_manifest)
         .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
-    apps::load_manifest();
+    apps::load();
     if BOOT_SELFTESTS {
-        sys::write_str(&apps::selftest_apps());
+        // The packaged apps are checked once `pkgd` provisioned them
+        // (`autostart`); the built-ins can be checked now.
+        if !apps::selftest_builtins() {
+            sys::write_str("INIT:APPS:FAIL the built-in registry is malformed\n");
+        }
         selftest_launch_policy();
         selftest_launch_cap();
         selftest_launch_args();
@@ -184,7 +191,7 @@ fn run() -> messenger::Result<()> {
                     spawn_service(&mut services, index, &mut broker);
                 }
             }
-            // The boot launch self-test: spawn `TOP.ELF` through the real
+            // The boot launch self-test: spawn `/system/bin/top` through the real
             // launch path once a task slot is free (the manifest's one-shot
             // `top` exits around here), proving `Launch` end to end in a
             // headless boot.
@@ -192,7 +199,7 @@ fn run() -> messenger::Result<()> {
                 selftest.step(&mut services, &mut broker, now);
             }
             // The desktop's apps (issue #215): open the shipped `autostart` rows.
-            autostart.step(&mut services, &mut broker, now);
+            autostart.step(&mut services, &mut broker, &mut installed, now);
         }
         // Reap one exit (or time out to serve requests).
         if let Some((pid, status)) = sys::wait(wake_deadline(&services, now)) {

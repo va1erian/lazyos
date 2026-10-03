@@ -13,6 +13,7 @@
 //! | 22 | `fsync` | path | - | - | 0 |
 //! | 28 | `append_file` | path | data | data length | bytes written |
 //! | 30 | `read_at` | path | request `[buf, len, offset]` (3 x u64) | - | bytes read |
+//! | 32 | `chmod` | path | mode (`0o7777` bits only) | - | 0 |
 //!
 //! Every call goes through the native VFS as the calling task, so the
 //! permission checks, the read-only FAT boot volume (`-EROFS`) and the writable
@@ -26,7 +27,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{FileKind, FsError, Id};
+use crate::fs::vfs::{AttrRequest, FileKind, FsError, Id};
 use crate::{fs, user_ptr};
 
 const EPERM: i64 = 1;
@@ -89,7 +90,8 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
     Ok(path)
 }
 
-/// Dispatch native syscall `nr` (15-22, 28 `append_file` and 30 `read_at`).
+/// Dispatch native syscall `nr` (15-22, 28 `append_file`, 30 `read_at` and
+/// 32 `chmod`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let outcome = match nr {
         15 => stat(a1, a2),
@@ -104,6 +106,7 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         22 => path_arg(a1).and_then(|path| fsync(&path)),
         28 => append_file(a1, a2, a3),
         30 => read_at(a1, a2),
+        32 => chmod(a1, a2),
         _ => return u64::MAX,
     };
     outcome.unwrap_or_else(|code| code)
@@ -248,6 +251,27 @@ fn rename(from: &str, to: &str) -> Result<u64, u64> {
 /// renaming it over the committed store.
 fn fsync(path: &str) -> Result<u64, u64> {
     fs::vfs_flush(Id::current(), path)
+        .map(|_| 0)
+        .map_err(|e| failed(errno_of(e)))
+}
+
+/// The permission bits `chmod` may set: rwx for owner, group and other, plus
+/// setuid, setgid and sticky. The type bits are never the caller's to change.
+const MODE_BITS: u64 = 0o7777;
+
+/// Set the permission bits of `path` (syscall 31). Exactly the Linux `chmod`
+/// rules, because both go through `Vfs::setattr`: only the owner or root
+/// (`-EPERM` otherwise), a read-only mount is `-EROFS`, setgid is dropped for
+/// a caller outside the file's group. Unlike Linux, a mode with any bit above
+/// `0o7777` is `-EINVAL` rather than silently masked: the native ABI is new and
+/// a stray type bit is a caller bug worth reporting. The mode is checked
+/// before the path is read, so a bad mode never touches the file.
+fn chmod(path_ptr: u64, mode: u64) -> Result<u64, u64> {
+    if mode & !MODE_BITS != 0 {
+        return Err(failed(EINVAL));
+    }
+    let path = path_arg(path_ptr)?;
+    fs::vfs_setattr(Id::current(), &path, AttrRequest::Mode(mode as u16))
         .map(|_| 0)
         .map_err(|e| failed(errno_of(e)))
 }

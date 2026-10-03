@@ -42,6 +42,26 @@ pub struct App {
     pub id: String,
     pub name: String,
     pub installed: bool,
+    /// The package's menu category (empty for a built-in).
+    pub category: String,
+    /// Left out of this user's menu and desktop (`init` resolves the
+    /// user-over-machine keys for the caller).
+    pub hidden: bool,
+    /// The package's 32-pixel icon path (empty for a built-in).
+    pub icon: String,
+}
+
+impl App {
+    /// The row as the start-menu model reads it.
+    pub fn listed(&self) -> lazyshell::menu::Listed<'_> {
+        lazyshell::menu::Listed {
+            id: &self.id,
+            name: &self.name,
+            installed: self.installed,
+            category: &self.category,
+            hidden: self.hidden,
+        }
+    }
 }
 
 /// A bounded call on the service registered as `name`.
@@ -74,6 +94,9 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
             id: app.id,
             name: app.name,
             installed: app.installed,
+            category: app.category,
+            hidden: app.hidden,
+            icon: app.icon,
         })
         .collect())
 }

@@ -1,4 +1,4 @@
-//! `mixer` (`MIXER.ELF`): the system mixer's control panel from the shell
+//! `mixer` (`/system/bin/mixer`): the system mixer's control panel from the shell
 //! (`os.lazy.audio.mixer.v1`, docs/audio-plan.md stage A5).
 //!
 //! ```text

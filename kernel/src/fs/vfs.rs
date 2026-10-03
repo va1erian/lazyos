@@ -16,7 +16,7 @@
 //! Every mount is a `(mount point, Filesystem)` pair; resolution picks the
 //! longest mount-point prefix, so `/tmp/notes` lands in the ramfs mounted at
 //! `/tmp` while `/tmp2` stays on the root filesystem. `..` is folded *before*
-//! mount lookup, so `/tmp/../HELLO.TXT` is the root volume's file (the lexical
+//! mount lookup, so `/tmp/../hello.txt` is the root volume's file (the lexical
 //! rule Linux applies once it has resolved that far).
 //!
 //! # Permissions

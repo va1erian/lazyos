@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const NAME: &str = "cwd";
-/// The fixture's own on-disk name, so a child `execve` finds it again.
-const PROGRAM: &str = "INIT.ELF";
+/// The fixture's own name (`/system/bin/abi-init`), so a child `execve`
+/// finds it again through the `$PATH` search the kernel maps onto `/system/bin`.
+const PROGRAM: &str = "abi-init";
 const CHILD: &str = "cwd-child";
 /// `ENOTDIR`, which `set_current_dir` on a file must report.
 const ENOTDIR: i32 = 20;

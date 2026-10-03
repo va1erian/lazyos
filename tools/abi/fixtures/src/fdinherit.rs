@@ -10,8 +10,9 @@ use std::fs::OpenOptions;
 use std::os::raw::{c_char, c_int, c_void};
 use std::process::Command;
 
-/// The fixture's own on-disk name, so a child `execve` finds it again.
-const PROGRAM: &str = "INIT.ELF";
+/// The fixture's own name (`/system/bin/abi-init`), so a child `execve`
+/// finds it again through the `/system/bin` lookup.
+const PROGRAM: &str = "abi-init";
 const OUT: &str = "/tmp/fdinherit.out";
 
 const O_WRONLY: c_int = 0o1;

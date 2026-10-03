@@ -7,7 +7,7 @@ description = "LazyRAD on LazyOS: the `lrplay` player and the `lazyrad` IDE as x
 
 # A standalone workspace, like `xui-app` and `rhai-host`: both bins build for
 # x86_64-unknown-linux-musl (static) via `tools/lazyrad/build.py` and are
-# embedded in the disk image as LRPLAY.ELF and LAZYRAD.ELF, so the OS workspace
+# embedded in the disk image as /system/bin/lrplay and /system/bin/lazyrad, so the OS workspace
 # never resolves Rhai, xui or LazyRAD.
 [workspace]
 resolver = "2"
@@ -25,8 +25,9 @@ xui-app = { path = "../xui-app" }
 # `fcntl(O_NONBLOCK)` for the player launcher's pipes (already in the graph via
 # `xui-app`).
 libc = "0.2"
-# Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
-fhs = { path = "../libs/fhs" }
+# Well-known paths and boot-volume names (docs/filesystem-plan.md F0); `alloc`
+# for `home_of`/`app_data_dir`.
+fhs = { path = "../libs/fhs", features = ["alloc"] }
 # The same Messenger codec and generated stubs `xui-app` uses; the `pkgd` and
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
@@ -42,14 +43,17 @@ rhai = { version = "=1.26.1", default-features = false, features = ["std"] }
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is the head of LazyRAD's `lazyos-msg` branch (#85 plus event sources,
-# scoped extensions, host permissions and xui 4c2a4fb; docs/lazyrad-messenger-plan.md).
-# Re-pin to its merge commit once that branch merges. Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
+# PIN: `rev` is LazyRAD `main` at the merge of va1erian/lazyrad#88 (`lazyos-msg`:
+# Messenger in form scripts, event sources, scoped extensions, host
+# permissions and xui 4c2a4fb; docs/lazyrad-messenger-plan.md) on top of the
+# home-data change (#86) and the packager granting `$HOME/.apps/<id>` (#87),
+# the form LazyOS's F5 manifest grammar requires (filesystem F5, #509).
+# Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by

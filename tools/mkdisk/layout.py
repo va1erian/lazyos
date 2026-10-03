@@ -18,6 +18,8 @@ MODE_MAX = 0o7777
 ID_MAX = 0xFFFF
 NAME_MAX = 255
 STICKY_WORLD_WRITABLE = 0o1777
+# A home: only its owner may enter (docs/filesystem-plan.md F4).
+PRIVATE = 0o700
 HOMES = "/home"
 LOST_FOUND = "/lost+found"  # made by the formatter itself
 
@@ -96,11 +98,11 @@ EMPTY = Layout()
 def home_dirs(accounts: list[Account]) -> tuple[DirSpec, ...]:
     """``/home/<user>`` for every account whose home lives under ``/home``.
 
-    root's ``/root`` and any service account are skipped on purpose: the data
+    An account homed elsewhere (a service's ``/``) is skipped on purpose: the data
     volume hosts *user* homes, and a directory nobody logs in to is clutter.
     """
     return tuple(
-        DirSpec(f"{HOMES}/{account.name}", 0o755, account.uid, account.gid)
+        DirSpec(f"{HOMES}/{account.name}", PRIVATE, account.uid, account.gid)
         for account in accounts
         if account.home == f"{HOMES}/{account.name}")
 
@@ -110,7 +112,8 @@ def seeded(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     """The demo layout: user homes plus a sticky world-writable ``/tmp``.
 
     ``/data`` itself stays root's (safe by default). ``accounts`` defaults to the
-    ones ``accountsd`` boots with, so the seed follows the source of truth.
+    ones in ``build_support/passwd`` (the system's ``/system/etc/passwd``), so the
+    seed follows the source of truth.
     """
     users = demo_accounts() if accounts is None else accounts
     dirs = [DirSpec(HOMES), *home_dirs(users), DirSpec("/tmp", STICKY_WORLD_WRITABLE)]
@@ -127,7 +130,7 @@ def home_volume(root_mode: int = 0o755, root_uid: int = 0, root_gid: int = 0,
     """
     users = demo_accounts() if accounts is None else accounts
     dirs = tuple(
-        DirSpec(f"/{account.name}", 0o755, account.uid, account.gid)
+        DirSpec(f"/{account.name}", PRIVATE, account.uid, account.gid)
         for account in users
         if account.home == f"{HOMES}/{account.name}")
     return Layout(root_mode, root_uid, root_gid, dirs)

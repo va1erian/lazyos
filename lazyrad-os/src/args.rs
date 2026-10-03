@@ -10,7 +10,7 @@
 //!
 //! # Where a produced app finds its project (decision D1a)
 //!
-//! An installed `.lzp` lives at `/data/apps/<system_name>/<version>-<hash>/`
+//! An installed `.lzp` lives at `/apps/<system_name>/<version>-<hash>/`
 //! with the player at `bin/lrplay.elf` and the project at `resources/project/`.
 //! The install directory name contains a per-version hash, so a manifest cannot
 //! hard-code an absolute path. Rather than depend on the installer setting a
@@ -21,7 +21,7 @@
 //!   (`resources/project` -> `<install>/resources/project`); a relative path may
 //!   not contain `..`;
 //! * `--project <absolute>` and a bare positional path are used as given (a
-//!   developer's `lrplay /LAZYRAD/hello`, or `mimed` opening a `.lrp`);
+//!   developer's `lrplay /system/share/lazyrad/hello`, or `mimed` opening a `.lrp`);
 //! * with neither, `<install>/resources/project` is used when it exists, so the
 //!   packager writes `args = []`.
 //!
@@ -164,34 +164,34 @@ fn is_absolute(path: &Path) -> bool {
 
 /// The project directory to run: see the module documentation for the rules.
 ///
-/// `project_exists` answers whether the implied default directory exists (so the
-/// function stays pure and testable).
+/// `project_exists` answers whether a resolved project (a directory or an
+/// `.lrp` file) exists, so the function stays pure and testable. Every path is
+/// checked, not only the implied default: a missing project is reported here as
+/// `LRPLAY:ARGS:FAIL:no project at <path>` instead of reaching the player,
+/// which would only print the reason on stderr and exit with code 1.
 pub fn resolve_project(
     requested: Option<&Path>,
     exe: &Path,
     project_exists: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, ArgError> {
     let install = install_dir(exe);
-    match requested {
-        Some(path) if is_absolute(path) => Ok(path.to_path_buf()),
+    let project = match requested {
+        Some(path) if is_absolute(path) => path.to_path_buf(),
         Some(path) => {
             let clean = path
                 .components()
                 .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-            if clean {
-                Ok(install.join(path))
-            } else {
-                Err(ArgError::Escapes(path.display().to_string()))
+            if !clean {
+                return Err(ArgError::Escapes(path.display().to_string()));
             }
+            install.join(path)
         }
-        None => {
-            let default = install.join(DEFAULT_PROJECT);
-            if project_exists(&default) {
-                Ok(default)
-            } else {
-                Err(ArgError::NoProject(default))
-            }
-        }
+        None => install.join(DEFAULT_PROJECT),
+    };
+    if project_exists(&project) {
+        Ok(project)
+    } else {
+        Err(ArgError::NoProject(project))
     }
 }
 
@@ -210,9 +210,12 @@ mod tests {
 
     #[test]
     fn the_launcher_line_is_understood() {
-        let args = parse(&["--client", "/LAZYRAD/hello", "attempt=1"]).unwrap();
+        let args = parse(&["--client", "/system/share/lazyrad/hello", "attempt=1"]).unwrap();
         assert!(args.client);
-        assert_eq!(args.project, Some(PathBuf::from("/LAZYRAD/hello")));
+        assert_eq!(
+            args.project,
+            Some(PathBuf::from("/system/share/lazyrad/hello"))
+        );
     }
 
     #[test]
@@ -243,22 +246,22 @@ mod tests {
 
     #[test]
     fn the_install_directory_is_the_parent_of_bin() {
-        let exe = Path::new("/data/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf");
+        let exe = Path::new("/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf");
         assert_eq!(
             install_dir(exe),
-            Path::new("/data/apps/user.me.todo/1.0.0-abcd1234")
+            Path::new("/apps/user.me.todo/1.0.0-abcd1234")
         );
-        assert_eq!(install_dir(Path::new("/LRPLAY.ELF")), Path::new("/"));
+        assert_eq!(
+            install_dir(Path::new(fhs::bin::LRPLAY)),
+            Path::new(fhs::SYSTEM)
+        );
     }
 
     #[test]
     fn the_program_is_located_from_argv0_and_the_working_directory() {
         use std::ffi::OsStr;
-        let cwd = Path::new("/data/apps/a.b.c/1.0.0-ff");
-        let abs = exe_from_argv0(
-            Some(OsStr::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf")),
-            cwd,
-        );
+        let cwd = Path::new("/apps/a.b.c/1.0.0-ff");
+        let abs = exe_from_argv0(Some(OsStr::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf")), cwd);
         assert_eq!(install_dir(&abs), cwd);
         let rel = exe_from_argv0(Some(OsStr::new("bin/lrplay.elf")), cwd);
         assert_eq!(install_dir(&rel), cwd);
@@ -273,17 +276,14 @@ mod tests {
 
     #[test]
     fn a_relative_project_resolves_against_the_install_directory() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
-        let got = resolve_project(Some(Path::new("resources/project")), exe, |_| false).unwrap();
-        assert_eq!(
-            got,
-            Path::new("/data/apps/a.b.c/1.0.0-ff/resources/project")
-        );
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let got = resolve_project(Some(Path::new("resources/project")), exe, |_| true).unwrap();
+        assert_eq!(got, Path::new("/apps/a.b.c/1.0.0-ff/resources/project"));
     }
 
     #[test]
     fn a_relative_project_cannot_climb_out_of_the_install_directory() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
         for bad in ["../other", "resources/../../x"] {
             assert!(matches!(
                 resolve_project(Some(Path::new(bad)), exe, |_| true),
@@ -294,15 +294,44 @@ mod tests {
 
     #[test]
     fn an_absolute_project_is_used_as_given() {
-        let exe = Path::new("/LRPLAY.ELF");
-        let got = resolve_project(Some(Path::new("/LAZYRAD/hello")), exe, |_| false).unwrap();
-        assert_eq!(got, Path::new("/LAZYRAD/hello"));
+        let exe = Path::new("/system/bin/lrplay");
+        let got = resolve_project(Some(Path::new("/system/share/lazyrad/hello")), exe, |_| {
+            true
+        })
+        .unwrap();
+        assert_eq!(got, Path::new("/system/share/lazyrad/hello"));
+    }
+
+    #[test]
+    fn a_named_project_that_does_not_exist_is_refused_before_the_player_runs() {
+        // An image built without `LAZYRAD_SAMPLES` has no
+        // `/system/share/lazyrad/hello`: say so on serial (`LRPLAY:ARGS:FAIL`)
+        // rather than let the player exit with an unexplained code 1.
+        let exe = Path::new("/system/bin/lrplay");
+        let hello = Path::new("/system/share/lazyrad/hello");
+        assert_eq!(
+            resolve_project(Some(hello), exe, |_| false),
+            Err(ArgError::NoProject(hello.to_path_buf()))
+        );
+        let packaged = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        assert_eq!(
+            resolve_project(Some(Path::new("resources/project")), packaged, |_| false),
+            Err(ArgError::NoProject(PathBuf::from(
+                "/apps/a.b.c/1.0.0-ff/resources/project"
+            )))
+        );
+        // A `.lrp` file is a project too: existence, not "is a directory".
+        let lrp = Path::new("/home/me/todo/todo.lrp");
+        assert_eq!(
+            resolve_project(Some(lrp), exe, |p| p == lrp),
+            Ok(lrp.to_path_buf())
+        );
     }
 
     #[test]
     fn no_argument_uses_the_packaged_project_when_it_exists() {
-        let exe = Path::new("/data/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
-        let want = Path::new("/data/apps/a.b.c/1.0.0-ff/resources/project");
+        let exe = Path::new("/apps/a.b.c/1.0.0-ff/bin/lrplay.elf");
+        let want = Path::new("/apps/a.b.c/1.0.0-ff/resources/project");
         assert_eq!(resolve_project(None, exe, |p| p == want).unwrap(), want);
         assert_eq!(
             resolve_project(None, exe, |_| false),

@@ -10,7 +10,7 @@ use alloc::format;
 use alloc::string::String;
 use messenger_generated::{
     os_lazy_clipboard_v1 as clipboard, os_lazy_healthd_v1 as healthd, os_lazy_init_v1 as init,
-    os_lazy_logind_v1 as logind, os_lazy_mimed_v1 as mimed, topics,
+    os_lazy_logind_v1 as logind, os_lazy_mimed_v1 as mimed, os_lazy_pkgd_v1 as pkgd, topics,
 };
 
 /// Render one event payload for the log: the declared payload decoded to its
@@ -21,15 +21,22 @@ pub(super) fn describe(topic: &str, payload: &[u8]) -> String {
         return text;
     }
     match core::str::from_utf8(payload) {
-        Ok(text) => String::from(text),
+        Ok(text) if printable(text) => String::from(text),
         // A declared topic whose payload this build does not decode (a newer
         // producer), or a malformed one: say which type it is instead of
-        // dumping bytes.
-        Err(_) => match messenger_generated::declared_topic(topic) {
+        // dumping bytes. A TLV payload of small fields is often valid UTF-8,
+        // so control characters count as binary too: echoed raw they put NULs
+        // in the serial log, which turns it into a "binary file" for grep.
+        _ => match messenger_generated::declared_topic(topic) {
             Some(decl) => format!("<{} payload, {} byte(s)>", decl.payload, payload.len()),
             None => String::from("<binary>"),
         },
     }
+}
+
+/// Text a log line can carry as is: no control character but a tab.
+fn printable(text: &str) -> bool {
+    !text.chars().any(|c| c.is_control() && c != '\t')
 }
 
 /// The declared topics `logd` decodes; `None` leaves the raw fallback.
@@ -87,6 +94,13 @@ fn declared(topic: &str, payload: &[u8]) -> Option<String> {
         return Some(format!(
             "path={} mime={} verb={}",
             event.path, event.mime, event.verb
+        ));
+    }
+    if topics::matches(pkgd::TOPIC_SYSTEM_EVENTS_PKG, topic) {
+        let event = pkgd::decode_system_events_pkg(payload).ok()?;
+        return Some(format!(
+            "op={} app={} version={} ok={} uid={} detail={}",
+            event.op, event.system_name, event.version, event.ok, event.actor_uid, event.detail
         ));
     }
     None

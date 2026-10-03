@@ -7,7 +7,7 @@ missing prerequisite reported as an error instead of skipped:
 1. `tools/rhai/build.py`: the static-musl `rhai` command (`target/rhai/rhai.elf`);
 2. BusyBox, the shell that runs it (`tools/abi/busybox.py`; a git worktree
    reuses the main checkout's cached build, so it needs no Docker);
-3. `cargo build` with `LAZYOS_CLI=1` (console boot, `RHAI.ELF` embedded);
+3. `cargo build` with `LAZYOS_CLI=1` (console boot, `/system/bin/rhai` embedded);
 4. a headless QEMU session typing `tools/screenshot/examples/rhai_demo.json`,
    which prints `RHAI:<check>:PASS|FAIL` markers on serial;
 5. with `--desktop`, the xui apps and two desktop Terminal sessions: the REPL
@@ -58,7 +58,7 @@ LAZYRAD_MARKERS = (
     "TERM:OUT:RHAI:lrpoke:poked:hihi",
     "LRPLAY:MSGEVENT:PASS",
 )
-#: The LazyOS-only LazyRAD samples the image embeds under /LAZYRAD/.
+#: The LazyOS-only LazyRAD samples the image embeds under /system/share/lazyrad/.
 LAZYRAD_SAMPLES = "lazyrad-os/samples/messenger"
 #: The console session reports this many distinct checks (see rhai_demo.json).
 MIN_CONSOLE_PASSES = 34

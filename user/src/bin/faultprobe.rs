@@ -1,7 +1,7 @@
-//! `faultprobe` (`FAULTPRB.ELF`): a ring-3 program that misbehaves on purpose
+//! `faultprobe` (`/system/bin/faultprobe`): a ring-3 program that misbehaves on purpose
 //! (issue #7), to prove the kernel contains user faults.
 //!
-//! Run it from the shell as `exec FAULTPRB.ELF <mode>`. Each mode provokes one
+//! Run it from the shell as `exec /system/bin/faultprobe <mode>`. Each mode provokes one
 //! exception the kernel must turn into the death of *this* process only, with
 //! the `128 + signal` exit status; the shell then prints the verdict and its
 //! prompt comes back:

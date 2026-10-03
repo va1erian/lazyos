@@ -27,4 +27,7 @@ pub fn init() {
     idt::init_hardware();
     linux::init();
     crate::input::mouse::init();
+    // From here on the controller's bytes are collected wherever the kernel
+    // can be busy for long, not only in IRQ1/IRQ12 (`input::ps2`).
+    crate::input::ps2::enable();
 }

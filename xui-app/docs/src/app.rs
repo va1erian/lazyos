@@ -11,9 +11,9 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use xui_core::widget::StdFileSystem;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
+use xui_core::widget::StdFileSystem;
 use xui_core::widget::{Button, FileDialog, HasText, Label};
 use xui_core::{Key, Rect};
 use xui_docs::{error_page, load_file};
@@ -21,8 +21,10 @@ use xui_litehtml::{HtmlView, HtmlViewEvent};
 
 /// Height of the toolbar above the page, in pixels.
 const TOOLBAR_H: i32 = 36;
-/// Where the Open dialog starts when no document is open yet.
-const START_DIR: &str = "/";
+/// Where the Open dialog starts when no document is open yet: the
+/// documentation root, holding the OS docs (`/docs/os`) and, from F4, the
+/// installed apps' docs (`/docs/apps`).
+const START_DIR: &str = fhs::docs::DOCS_ROOT;
 
 /// Everything the window reacts to.
 pub enum Msg {

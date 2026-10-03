@@ -48,6 +48,30 @@ pub trait BlockIo: Send + Sync {
     /// Write whole sectors starting at `lba` from `buf`.
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), IoError>;
 
+    /// Read consecutive sectors starting at `lba` into `bufs`, back to back.
+    /// A device that can should make this one request (the block cache reads
+    /// ahead this way); the default reads each buffer in turn.
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), IoError> {
+        let mut at = lba;
+        for buf in bufs.iter_mut() {
+            self.read_sectors(at, buf)?;
+            at += (buf.len() / SECTOR_SIZE) as u64;
+        }
+        Ok(())
+    }
+
+    /// Write `bufs` back to back as consecutive sectors from `lba`. A device
+    /// that can should make this one request (the block cache coalesces
+    /// contiguous dirty blocks this way); the default writes each in turn.
+    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), IoError> {
+        let mut at = lba;
+        for buf in bufs {
+            self.write_sectors(at, buf)?;
+            at += (buf.len() / SECTOR_SIZE) as u64;
+        }
+        Ok(())
+    }
+
     /// Make every earlier write durable.
     fn flush(&self) -> Result<(), IoError>;
 

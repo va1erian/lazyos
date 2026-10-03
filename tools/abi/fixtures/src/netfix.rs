@@ -3,7 +3,7 @@
 //! Unlike the other fixtures this one needs a network: it talks to the echo
 //! servers `tools/net/run.py` runs on the host (reached as the gateway,
 //! 10.0.2.2) and to the harness itself through a port forward, so it runs under
-//! `netd demo=1` (`linux:NETFIX.ELF`), never as `INIT.ELF`.
+//! `netd demo=1` (`linux:/system/bin/netfix`), never as `/system/bin/abi-init`.
 //!
 //! Checks (each prints `NETFIX:<name>:PASS` or `NETFIX:<name>:FAIL:<why>`):
 //! `tcp` (200 000 bytes out and back through a duplicated socket and a

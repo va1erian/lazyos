@@ -20,14 +20,14 @@ def status_text(path: str) -> str:
 
 
 def seed_summary() -> str:
-    """One line saying what a reset creates (``/alice`` ...).
+    """One line saying what a reset creates (``/admin``, ``/user``).
 
     Shown before the click so nobody discovers the layout by surprise; the
-    accounts come from ``accountsd``'s source, the same place the formatter reads.
+    accounts come from ``build_support/passwd``, the same file the formatter reads.
     """
     try:
         plan = mkdisk.home_volume()
-    except (OSError, ValueError) as exc:  # e.g. accountsd.rs was restructured
+    except (OSError, ValueError) as exc:  # e.g. build_support/passwd is missing
         return f"Reset layout unavailable: {exc}"
     dirs = ", ".join(f"{spec.path} ({spec.mode:o})" for spec in plan.dirs)
     return (f"Reset creates an empty volume (label {mkdisk.HOME_LABEL}, mounted at /home) "

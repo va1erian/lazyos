@@ -100,3 +100,39 @@ pub(crate) fn verify_log() {
         Err(error) => report(error.message()),
     }
 }
+
+/// `log sources`: the persisted journals under `/logs` (uid 0 only).
+pub(crate) fn print_log_sources() {
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_sources(&endpoint) {
+        Ok(sources) if sources.is_empty() => sys::write_str("log: no journals\n"),
+        Ok(sources) => sys::write_str(&format!("log: journals {}\n", sources.join(" "))),
+        Err(error) => report(error.message()),
+    }
+}
+
+/// `log file <source> [n]`: the newest lines of `/logs/<source>.log`, earlier
+/// boots included (uid 0 only).
+pub(crate) fn print_log_file(args: &str) {
+    let mut words = args.split_whitespace();
+    let Some(source) = words.next() else {
+        return report("usage: log file <source> [n]");
+    };
+    let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(10);
+    let endpoint = match services::resolve_service(services::LOGD_NAME) {
+        Ok(endpoint) => endpoint,
+        Err(error) => return report(error.message()),
+    };
+    match services::fetch_log_tail_file(&endpoint, source, count) {
+        Ok(lines) => {
+            for line in &lines {
+                sys::write_str(&format!("  {}\n", line.replace('\t', " ")));
+            }
+            sys::write_str(&format!("log: {} line(s) of {source}.log\n", lines.len()));
+        }
+        Err(error) => report(error.message()),
+    }
+}

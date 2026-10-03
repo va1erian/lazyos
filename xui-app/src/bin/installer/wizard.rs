@@ -164,10 +164,15 @@ impl ChooseScreen {
         )
         .map_err(fail)?
         .on_click(|| Some(Msg::Browse));
+        // pkgd's source rule (docs/packages.md): a user installs from their
+        // home folder or /transient, so say so before a refusal does.
         let hint = Label::new(
             page,
             rect(MARGIN, CONTENT_TOP + 72, width - 2 * MARGIN, 16),
-            "Next reads the package and shows what it is before anything is installed.",
+            &format!(
+                "Packages install from your home folder or {}. Next shows what it is first.",
+                fhs::mount::TRANSIENT
+            ),
         )
         .map_err(fail)?;
 

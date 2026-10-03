@@ -2,10 +2,12 @@
 //!
 //! `lrplay` and `lazyrad` are static-musl `std` programs built by
 //! `tools/lazyrad/build.py` (build artifacts, never committed), so they are
-//! embedded only when `LAZYOS_LAZYRAD=1` is set. They are stored under the flat
-//! names `LRPLAY.ELF` and `LAZYRAD.ELF` at the OS volume root. `LAZYRAD_SAMPLES` is a platform path list (`;` on
-//! Windows, `:` elsewhere) of sample project directories, each copied under
-//! `/LAZYRAD/<directory>/` (names are kept exactly: ext2 is case-sensitive).
+//! embedded only when `LAZYOS_LAZYRAD=1` is set. They are stored as
+//! `/system/bin/lrplay` and `/system/bin/lazyrad` (`fhs::bin`).
+//! `LAZYRAD_SAMPLES` is a platform path list (`;` on Windows, `:` elsewhere) of
+//! sample project directories, each copied under
+//! `/system/share/lazyrad/<directory>/` (`fhs::share::LAZYRAD_SAMPLES`; names
+//! are kept exactly: ext2 is case-sensitive).
 //!
 //! With the switch unset nothing changes: the plain demo image is unchanged.
 
@@ -14,25 +16,14 @@ use std::path::{Path, PathBuf};
 
 use crate::os_image::Sink;
 
-/// The built ELFs, as (8.3 on-disk name, path relative to the manifest dir).
+/// The built ELFs, as (image path, path relative to the manifest dir).
 const ELFS: &[(&str, &str)] = &[
-    ("LRPLAY.ELF", "target/lazyrad/lrplay.elf"),
-    ("LAZYRAD.ELF", "target/lazyrad/lazyrad.elf"),
+    (fhs::bin::LRPLAY, "target/lazyrad/lrplay.elf"),
+    (fhs::bin::LAZYRAD, "target/lazyrad/lazyrad.elf"),
 ];
 
 /// The image directory the sample projects are copied under.
-const SAMPLES_ROOT: &str = "LAZYRAD";
-
-/// The `XAPPS.LST` lines for the apps this module embeds: the IDE, so `init`
-/// marks its registry row available and the desktop menus list it. Empty
-/// unless `LAZYOS_LAZYRAD=1`.
-pub fn manifest_lines() -> &'static str {
-    if std::env::var_os("LAZYOS_LAZYRAD").as_deref() == Some(OsStr::new("1")) {
-        "LAZYRAD.ELF\n"
-    } else {
-        ""
-    }
-}
+const SAMPLES_ROOT: &str = fhs::share::LAZYRAD_SAMPLES;
 
 /// Add the runtime and samples when `LAZYOS_LAZYRAD=1`.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
@@ -52,10 +43,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     embed_samples(sink, manifest_dir);
 }
 
-/// Embed `LRPLAY.ELF` and `LAZYRAD.ELF`. A missing one fails the build, so the
+/// Embed `lrplay` and `lazyrad`. A missing one fails the build, so the
 /// image is never silently built without the runtime it asked for.
 fn embed_elfs(sink: &mut dyn Sink, manifest_dir: &Path) {
-    for (disk_name, relative) in ELFS {
+    for (image_path, relative) in ELFS {
         let path = manifest_dir.join(relative);
         if !path.is_file() {
             panic!(
@@ -64,15 +55,15 @@ fn embed_elfs(sink: &mut dyn Sink, manifest_dir: &Path) {
             );
         }
         println!(
-            "cargo:warning=LAZYOS_LAZYRAD embedded: {} as {disk_name}",
+            "cargo:warning=LAZYOS_LAZYRAD embedded: {} as {image_path}",
             path.display()
         );
         println!("cargo:rerun-if-changed={}", path.display());
-        sink.add_file(disk_name, path);
+        sink.add_file(image_path, path);
     }
 }
 
-/// Copy every directory in `LAZYRAD_SAMPLES` under `/LAZYRAD/<directory>/`.
+/// Copy every directory in `LAZYRAD_SAMPLES` under [`SAMPLES_ROOT`]`/<directory>/`.
 ///
 /// Relative entries resolve against the manifest dir. A duplicate directory
 /// name is a warning: the first wins, so two projects can never silently
@@ -114,7 +105,7 @@ fn embed_samples(sink: &mut dyn Sink, manifest_dir: &Path) {
 }
 
 /// The destination directory name for a sample project, or `None` when the
-/// path has no normal final component (so it cannot escape `/LAZYRAD/`).
+/// path has no normal final component (so it cannot escape [`SAMPLES_ROOT`]).
 fn safe_component(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
     if name.is_empty() || name == "." || name == ".." {

@@ -1,5 +1,7 @@
 # Plan: migrate Editor, Paint and Files from XUI into LazyOS
 
+> **History.** This describes the layout before filesystem F5 (issue #509): the 8.3 `X*.ELF` names and the app list `init` read are gone, and the desktop apps are core packages (`docs/packages.md`, core packages).
+
 **Goal:** the three portable xui apps that live upstream in `va1erian/xui`
 become first-class LazyOS desktop applications that every desktop image ships:
 

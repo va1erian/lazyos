@@ -1,6 +1,6 @@
 # Docs test document
 
-This file ships in every desktop image as `/TESTDOC.MD`. The Docs screenshot
+This file ships in every desktop image as `/system/share/samples/testdoc.md`. The Docs screenshot
 session opens it through the **Open** dialog, and the unit tests render it, so
 it exercises everything the viewer draws and is long enough to scroll.
 

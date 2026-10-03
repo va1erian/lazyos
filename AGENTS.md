@@ -93,18 +93,32 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 `cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
 the bootloader's stage 2, a FAT `/boot` (only the kernel and a generated
 `lazyos.cfg`), and an ext2 OS volume at LBA 131072 (64 MiB; `LAZYOS_OS_SIZE`,
-default `512M`, minimum `128M`) that holds every other file at the flat names
-it always had (`SUPER.ELF`, `PASSWD`, `docs/...`) plus `/data`. The volume is
-written by `libs/ext2fs`, the code the kernel mounts it with (`build_support/os_*.rs`).
+default `512M`, minimum `128M`) that holds every other file: programs at their
+real names in `/system/bin` (`/system/bin/init`, `/system/bin/busybox`), data in
+`/system/etc` and `/system/share` (`/system/etc/passwd`), the docs in `/docs/os`,
+and each service's state at its place in the tree (F4): `confd`'s store in
+`/conf` (0700 root; an F3 image's `/data/confd` is merged in once), `logd`'s
+journals and `pkgd`'s `pkg.log` in `/logs` (0750 root), installed apps in
+`/apps` and their docs in `/docs/apps`, and a 0700 home per passwd account in
+`/home/<name>` (hidden by the home volume when one is mounted). Nothing new is
+written under `/data`; no regular file sits at the root (docs/filesystem-plan.md
+F3). The volume is written by `libs/ext2fs`, the code the kernel mounts it with
+(`build_support/os_*.rs`); `cargo run -q -p ext2fs --example osread -- target/lazyos.img
+cat /logs/service.log` reads it from the host (`/logs` is root-only in the guest).
 A rebuild **updates the OS volume in place**: installed apps, settings, logs
 and your own files survive, and only paths listed in `/system/.image-manifest`
 are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
 `python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
 image that fails validation, with a `cargo:warning=` giving the reason. An
 update also checks a volume that was not cleanly unmounted (a closed QEMU
-window) and marks it clean when the independent checker finds nothing wrong;
-the kernel never does (it has no fsck), so until a rebuild every boot of such
-an image prints `ext2: ... was not cleanly unmounted`. Changing
+window) and marks it clean once it has repaired what a crash can leave
+(leaked blocks and inodes, link counts, counters; data-holding orphans go to
+`/lost+found`) and the independent checker finds nothing wrong; the kernel
+never does (it has no fsck), so until a rebuild every boot of such an image
+prints `ext2: ... was not cleanly unmounted`. Damage no crash leaves fails the
+build before anything is written (copy your files off, then reset);
+`LAZYOS_UPDATE_DAMAGED_OS=1` updates such a volume anyway, at the risk of an
+updated file reusing a damaged user file's block. Changing
 `LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
@@ -117,7 +131,7 @@ everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 [`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
 warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
-(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/TESTDOC.MD`).
+(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
 ## Doom (an installable `.lzp` package)
 
@@ -127,21 +141,21 @@ package `org.lazy.doom` with the Freedoom IWAD inside; see
 [`doom/README.md`](doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
 
 ```bash
-python tools/doom/build.py          # target/doom/doom.elf + target/pkg/DOOM.LZP (fetches doomgeneric, Freedoom)
-python tools/run_demo.py --doom     # desktop with /DOOM.LZP; then `pkgctl install /DOOM.LZP`
+python tools/doom/build.py          # target/doom/doom.elf + target/pkg/doom.lzp (fetches doomgeneric, Freedoom)
+python tools/run_demo.py --doom     # desktop with /system/share/samples/doom.lzp (a user package)
 cargo test --manifest-path doom/Cargo.toml --lib
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1)
 ```
 
 The Terminal reports one `TERM:OUT` per command, and a command that wraps past
 80 columns reports its own tail instead: keep typed commands short (`doom.json`
-sets `PS1='# '` first). Shell command substitution (`$(...)`) currently hangs
-the desktop Terminal's shell; avoid it in session scripts.
+sets `PS1='# '` first). Shell command substitution (`$(...)`) works since #518
+(`cmdsubst_console.json`, `cmdsubst_desktop.json`).
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
-embedded as `RHAI.ELF`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
+embedded as `/system/bin/rhai`; the plan is [`docs/rhai-plan.md`](docs/rhai-plan.md).
 Its `msg` module calls any Messenger service from a script, driven by a table
 `midlc --schema` generates from `idl/` ([`docs/rhai/msg.md`](docs/rhai/msg.md)),
 and `midlc --rhai-api` generates one documented module per interface on top of
@@ -160,6 +174,25 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 `python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
 
+## Packages and the label-policy trace
+
+Every desktop app except the Terminal, Devices, the Installer and LazyShell is
+a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+`pkgd` installs it into `/apps` at boot and the kernel confines it to the
+permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
+debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
+`lazyos_label_trace`; off by default, and nothing else changes) prints one
+`LABEL:DENY label=<label> iface=<id> method=<id>` (or `resolve=<name>`,
+`topic=<name>`) serial line per refused call. Use it to derive a package's
+permissions from a run instead of by hand:
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_LABEL_TRACE=1 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img \
+    --out shots/core_apps --script tools/screenshot/examples/core_apps.json
+grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
+```
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a
@@ -171,7 +204,7 @@ python tools/abi/run.py --at 8       # run each fixture in headless QEMU, write 
 python tools/abi/coverage.py         # summarise ENOSYS syscalls from the logs
 ```
 
-`run.py` embeds one fixture as `INIT.ELF` (via `LAZYOS_INIT`), boots, and
+`run.py` embeds one fixture as `/system/bin/abi-init` (via `LAZYOS_INIT`), boots, and
 classifies it from the serial log (`ABI:<name>:PASS|FAIL`, or `ABI:INIT:SKIP`).
 It writes `docs/compat/matrix.md` (+ `compat.json`). CI
 (`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
@@ -222,6 +255,19 @@ python fuzz/gen_corpus.py --check                # the checked-in seeds are curr
 The kernel's `ext2_suite` still runs unchanged against the adapter, and
 `mount_library_formatted_root` mounts a library-made image at `/` through `lazyos.cfg`.
 
+Real mounts (and the host build) go through the library's write-back block cache
+([`docs/architecture/block-cache.md`](docs/architecture/block-cache.md)): writes reach
+the disk at a commit (sync, fsync, every 5 s, memory pressure), in a crash-safe phase
+order. `Ext2::open` stays uncached for tests that judge the disk after every write;
+anything that needs one step on disk before the next inside an operation calls
+`Ext2::barrier`. `cargo test -p ext2fs cache` covers it (crash prefixes, byte-identical
+images), the kernel side is `LAZYOS_TEST_FILTER=bcache`, and
+`cargo test -p ext2fs --release bench -- --ignored --nocapture` prints the I/O cost of a
+30 MB tree. `LAZYOS_BLOCK_CACHE_KB=0` builds a kernel that mounts uncached.
+A session's `quit` kills QEMU without a sync, so a session whose files a later
+boot reads (`lazyrad_home.json` before `lazyrad_home_project.json`) waits a few
+seconds past the flusher's 5 s before it quits.
+
 ## Shutdown and reboot
 
 Only `init` stops the machine ([`docs/shutdown.md`](docs/shutdown.md)): its
@@ -231,7 +277,11 @@ anything else; ask `init` (`powerctl`, or `services::shutdown`). A service
 that holds durable state serves `os.lazy.lifecycle.v1` (`idl/lifecycle.midl`)
 and is listed in `user/src/bin/init/shutdown.rs` (`GRACEFUL`). The harness
 boots the desktop twice (power-off from the shell, reboot from the menu) and
-judges the serial logs; the session scripts drive the same paths by hand:
+judges the serial logs (`logd` must report `persisted>0`, `confd` must stop
+with `dir=/conf`, `pkgd` must stop through the lifecycle before `confd`, and
+the second boot finds the first one's records in `/logs/service.log`); the
+session scripts
+drive the same paths by hand:
 
 ```bash
 python tools/shutdown/run.py             # build, boot twice, judge (tools/shutdown/README.md)
@@ -349,7 +399,7 @@ regressions, not kernel-internal correctness or resource leaks.
   authority, every `unsafe` block minimal with a `// SAFETY:` comment),
   readable and elegant (small single-purpose functions, comments explain why).
   See the "Code standards" section of `README.md`.
-- Well-known paths and boot-volume file names come from `libs/fhs`; never write
+- Well-known paths and program paths come from `libs/fhs`; never write
   one as a literal (`python tools/fhs/check_literals.py` enforces it).
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. Existing oversized files are tracked in issue #194;
@@ -369,10 +419,14 @@ regressions, not kernel-internal correctness or resource leaks.
   flag that builds its artifacts and sets that switch, (c) a control in the GUI
   (the Simple tab for what a normal user wants, the Advanced tab for the raw
   switch) wired through `tools/lazygui/catalog.py` (`build_env`, `build_plan`)
-  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, an
-  `init` registry row (`user/src/bin/init/apps.rs`) plus an `XAPPS.LST` line so
-  Settings -> Menu offers it. Verify it by starting it through the launcher or
-  `run_demo.py`, not only by hand-built env vars.
+  with tests in `tools/lazygui/test_catalog.py`, and (d) for a desktop app, a
+  core package under `xui-app/packages/<short>/` (listed in
+  `tools/xui/core_packages.py`) with complete permissions, derived from a run
+  under `LAZYOS_LABEL_TRACE=1` (every refused call is printed as `LABEL:DENY`;
+  `tools/screenshot/examples/core_apps.json` launches every core app), so `pkgd`
+  installs it at boot and Settings -> Menu offers it (`docs/packages.md`, core
+  packages). Verify it by starting it through the launcher or `run_demo.py`, not
+  only by hand-built env vars.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

@@ -11,6 +11,9 @@ use crate::check::fsck;
 use crate::memio::MemIo;
 use crate::{Ext2, Geometry};
 
+mod bench;
+mod cache_crash;
+mod cache_ops;
 mod format_tests;
 mod malformed;
 mod ops;
@@ -18,9 +21,12 @@ mod ops_state;
 mod populate_tests;
 mod recover;
 mod rename_file;
+mod repair;
+mod repair_crash;
 mod review_fixes;
 mod seeded;
 mod soak;
+mod workload;
 
 pub const UUID: [u8; 16] = [
     0x6c, 0x61, 0x7a, 0x79, 0x6f, 0x73, 0x2d, 0x65, 0x78, 0x74, 0x32, 0x2d, 0x74, 0x65, 0x73, 0x74,
@@ -49,6 +55,16 @@ pub fn formatted(bytes: u64, block_size: u32) -> MemIo {
 
 pub fn open(io: &MemIo) -> Ext2 {
     Ext2::open(Box::new(io.clone()), clock).expect("open")
+}
+
+/// `io` mounted through a heap cache of `blocks` blocks.
+pub fn open_cached(io: &MemIo, blocks: usize) -> Ext2 {
+    Ext2::open_cached(
+        Box::new(io.clone()),
+        clock,
+        crate::CacheConfig::heap(blocks),
+    )
+    .expect("open cached")
 }
 
 /// A formatted and mounted volume.

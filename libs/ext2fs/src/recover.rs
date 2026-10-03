@@ -11,9 +11,12 @@
 //! The order matters. The orphans an unlink-while-open left behind are
 //! reclaimed first, because a mount of a clean volume never looks for them.
 //! Then the whole volume is read back and judged by [`check::fsck`], which
-//! shares no code with the driver. Only a volume with no problem at all is
-//! marked checked; the clean marker itself is written by the next
-//! [`Ext2::flush`], under the usual ordering.
+//! shares no code with the driver. A volume with problems gets
+//! [`Ext2::repair`] (`repair/`), which fixes exactly what an interrupted
+//! writeback can leave (leaks, counters, link counts, dead entries, a rename
+//! cut short) and refuses anything else, and is then judged again. Only a
+//! volume the checker passes is marked checked; the clean marker itself is
+//! written by the next [`Ext2::flush`], under the usual ordering.
 
 use std::format;
 use std::string::String;
@@ -21,15 +24,22 @@ use std::vec::Vec;
 
 use super::*;
 use crate::check;
+use crate::{RepairError, RepairReport};
 
 /// What [`Ext2::recover`] did.
+// One per recovery, so the report travels by value.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Recovery {
     /// The volume was clean at mount: nothing to do.
     WasClean,
-    /// It was unclean, `reclaimed` orphans were deleted, the check passed and
-    /// the next flush marks it clean.
-    Recovered { reclaimed: usize },
+    /// It was unclean, `reclaimed` orphans were deleted, the crash damage in
+    /// `repairs` (often nothing) was repaired, the check passed and the next
+    /// flush marks it clean.
+    Recovered {
+        reclaimed: usize,
+        repairs: RepairReport,
+    },
     /// It stays flagged unclean, for the reason given.
     StillUnclean(String),
 }
@@ -62,27 +72,56 @@ impl Ext2 {
         if report.scan_truncated || !report.failed.is_empty() {
             return Ok(still("not every orphaned file could be reclaimed"));
         }
-        self.io.flush().map_err(io_error)?;
-        let Some(volume) = self.read_volume()? else {
-            return Ok(still("the volume does not fit in memory for the check"));
+        // The checker reads the raw device, so everything the reclaim did
+        // must be there first: through a block cache (`open_cached`) that is a
+        // commit (dirty blocks and the deferred frees), uncached a flush.
+        {
+            let _guard = self.lock.lock();
+            self.commit_locked()?;
+        }
+        let problems = match self.problems()? {
+            Ok(problems) => problems,
+            Err(reason) => return Ok(reason),
         };
-        let problems = check::fsck(&volume);
+        let mut repairs = RepairReport::default();
         if !problems.is_empty() {
-            let quoted: Vec<&str> = problems
-                .iter()
-                .take(QUOTED_PROBLEMS)
-                .map(String::as_str)
-                .collect();
-            return Ok(Recovery::StillUnclean(format!(
-                "fsck found {} problem(s): {}",
-                problems.len(),
-                quoted.join("; ")
-            )));
+            repairs = match self.repair() {
+                Ok(repairs) => repairs,
+                Err(RepairError::Refused(reason)) => {
+                    return Ok(unclean(&problems, &format!("; not repaired: {reason}")));
+                }
+                Err(RepairError::Fs(error)) => return Err(error),
+            };
+            {
+                let _guard = self.lock.lock();
+                self.commit_locked()?;
+            }
+            let after = match self.problems()? {
+                Ok(problems) => problems,
+                Err(reason) => return Ok(reason),
+            };
+            if !after.is_empty() {
+                return Ok(unclean(
+                    &after,
+                    &format!(" (left after repairing {repairs})"),
+                ));
+            }
         }
         self.mark_checked();
         Ok(Recovery::Recovered {
             reclaimed: report.reclaimed,
+            repairs,
         })
+    }
+
+    /// What the checker finds on the device, or the reason it cannot run.
+    fn problems(&self) -> Result<Result<Vec<String>, Recovery>, Ext2Error> {
+        let Some(volume) = self.read_volume()? else {
+            return Ok(Err(still(
+                "the volume does not fit in memory for the check",
+            )));
+        };
+        Ok(Ok(check::fsck(&volume)))
     }
 
     /// Every byte of the volume (`s_blocks_count` blocks), as the checker
@@ -109,6 +148,20 @@ impl Ext2 {
         }
         Ok(Some(bytes))
     }
+}
+
+/// "fsck found N problem(s): the first few", then `detail`.
+fn unclean(problems: &[String], detail: &str) -> Recovery {
+    let quoted: Vec<&str> = problems
+        .iter()
+        .take(QUOTED_PROBLEMS)
+        .map(String::as_str)
+        .collect();
+    Recovery::StillUnclean(format!(
+        "fsck found {} problem(s): {}{detail}",
+        problems.len(),
+        quoted.join("; ")
+    ))
 }
 
 fn still(reason: &str) -> Recovery {

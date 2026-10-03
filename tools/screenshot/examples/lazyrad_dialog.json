@@ -33,12 +33,12 @@
  },
  {
   "at": 1.0,
-  "type": "/LAZYRAD.ELF --client &"
+  "type": "/system/bin/lazyrad --client &"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:/LAZYRAD.ELF --client &",
+  "until": "TERM:CMD:/system/bin/lazyrad --client &",
   "timeout": 30,
   "retries": 2
  },
@@ -123,7 +123,7 @@
  },
  {
   "at": 3.0,
-  "type": "/tmp/confd"
+  "type": "/system/share"
  },
  {
   "at": 3.0,

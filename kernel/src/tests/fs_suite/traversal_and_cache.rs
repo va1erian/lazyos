@@ -161,22 +161,24 @@ pub fn fat_read_only_erofs() -> Result<(), String> {
         "the FAT boot volume did not mount (is the disk image attached?)"
     );
     let root = Id::ROOT;
-    let meta = crate::fs::vfs_stat(root, "/HELLO.TXT").map_err(fs_error)?;
+    let hello = format!("{}/hello.txt", fhs::share::SAMPLES);
+    let meta = crate::fs::vfs_stat(root, &hello).map_err(fs_error)?;
     check!(
         meta.kind == FileKind::File && meta.size > 0,
-        "HELLO.TXT metadata is {meta:?}"
+        "{hello} metadata is {meta:?}"
     );
-    let data = crate::fs::vfs_read(root, "/HELLO.TXT").map_err(fs_error)?;
+    let data = crate::fs::vfs_read(root, &hello).map_err(fs_error)?;
     check!(
         data.windows(17)
             .any(|window| window == b"Hello from LazyOS"),
-        "HELLO.TXT contents are wrong"
+        "{hello} contents are wrong"
     );
+    // The root holds directories only (F3): the system tree among them.
     let listing = crate::fs::list();
     check!(
         listing
             .iter()
-            .any(|(name, is_dir, size)| name == "HELLO.TXT" && !is_dir && *size > 0),
+            .any(|(name, is_dir, _)| name == fhs::SYSTEM.trim_start_matches('/') && *is_dir),
         "the root listing is {listing:?}"
     );
 

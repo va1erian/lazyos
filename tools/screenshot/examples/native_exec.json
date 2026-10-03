@@ -1,9 +1,9 @@
 [
   {"wait_for": "LazyOS login: ", "timeout": 400},
-  {"at": 1.0, "type": "alice"},
+  {"at": 1.0, "type": "user"},
   {"at": 1.6, "key": "enter"},
   {"at": 2.2, "type": "lazy"},
-  {"at": 2.8, "key": "enter", "until": "LOGIN:OK:PASS user=alice", "timeout": 60, "retries": 1},
+  {"at": 2.8, "key": "enter", "until": "LOGIN:OK:PASS user=user", "timeout": 60, "retries": 1},
   {"wait": 4.0},
   {"type": "top"},
   {"key": "enter", "until": "SYS:TOP:PASS", "timeout": 60, "retries": 2},

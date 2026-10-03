@@ -130,7 +130,67 @@ impl Ext2 {
             uuid: array16(&superblock, SB_UUID),
             label: array16(&superblock, SB_VOLUME_NAME),
             clean: AtomicBool::new(!read_only && mount_state & STATE_VALID != 0),
+            cache: None,
+            defer_frees: false,
+            pending: Mutex::new(Default::default()),
+            errored: AtomicBool::new(false),
+            error_unreported: AtomicBool::new(false),
             lock: Mutex::new(()),
         })
+    }
+
+    /// [`Ext2::open`] with a write-back block cache configured by `config`
+    /// (see the crate docs, "Caching"). A `config.blocks` of zero opens the
+    /// volume uncached.
+    pub fn open_cached(
+        io: Box<dyn BlockIo>,
+        clock: Clock,
+        config: CacheConfig,
+    ) -> Result<Ext2, Ext2Error> {
+        let mut volume = Ext2::open(io, clock)?;
+        if config.blocks == 0 {
+            return Ok(volume);
+        }
+        let roles = volume.roles();
+        volume.cache = Some(Mutex::new(cache::BlockCache::new(
+            config,
+            volume.block_size,
+            volume.blocks_count,
+            roles,
+        )));
+        volume.defer_frees = true;
+        Ok(volume)
+    }
+
+    /// Make frees wait for the next commit even without a cache: the
+    /// equivalence tests compare a cached volume with exactly this.
+    #[cfg(any(test, feature = "fuzz"))]
+    pub fn with_deferred_frees(mut self) -> Ext2 {
+        self.defer_frees = true;
+        self
+    }
+
+    /// Where this volume's metadata lives, for the writeback order. A group
+    /// whose descriptor does not validate contributes nothing: its blocks
+    /// then count as plain content, and every operation on that group fails
+    /// on the same descriptor anyway.
+    fn roles(&self) -> cache::roles::Roles {
+        let gdt_blocks =
+            (u64::from(self.groups) * GD_SIZE as u64).div_ceil(u64::from(self.block_size));
+        let table_blocks = u64::from(self.inodes_per_group / self.inodes_per_block);
+        let mut roles = cache::roles::Roles {
+            super_block: SUPER_OFFSET / u64::from(self.block_size),
+            gdt: self.gdt_block..self.gdt_block + gdt_blocks,
+            ..Default::default()
+        };
+        for desc in (0..self.groups).filter_map(|group| self.read_group(group).ok()) {
+            roles.bitmaps.push(u64::from(desc.block_bitmap));
+            roles.bitmaps.push(u64::from(desc.inode_bitmap));
+            let table = u64::from(desc.inode_table);
+            roles.inode_tables.push(table..table + table_blocks);
+        }
+        roles.bitmaps.sort_unstable();
+        roles.inode_tables.sort_unstable_by_key(|table| table.start);
+        roles
     }
 }

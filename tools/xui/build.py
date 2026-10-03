@@ -76,13 +76,13 @@ BINS = {
     # The Config app (generic confd registry editor).
     "xui-confd": "xui-confd.elf",
     # The Installer app (`.lzp` package consent and removal, `docs/packages.md`).
-    # `xui_disk_name` derives the 8.3 name XINSTALL.ELF from this path.
+    # `build_support/xui_embed.rs` places it at /system/bin/installer.
     "xui-installer": "xui-installer.elf",
     # LazyShell, the desktop shell (issue #157): `build.rs` embeds it as
-    # XSHELL.ELF on the desktop profile unless LAZYOS_SHELL=0.
+    # /system/bin/lazyshell on the desktop profile unless LAZYOS_SHELL=0.
     "xui-shell": "xui-shell.elf",
     # The Devices app (issue #481): owners, rights and the driver class rules.
-    # `xui_disk_name` derives the 8.3 name XDEVICES.ELF from this path.
+    # `build_support/xui_embed.rs` places it at /system/bin/devices.
     "xui-devices": "xui-devices.elf",
 }
 
@@ -176,7 +176,7 @@ def build_docs(debug: bool) -> str | None:
 
 
 def build_sample_packages() -> None:
-    """Build the sample `.lzp` packages the image ships (`PKGDEMO.LZP`).
+    """Build the sample `.lzp` packages the image ships (`/system/share/samples/pkgdemo.lzp`).
 
     They are made from the apps just built (`tools/pkg/build_samples.py`) and
     embedded by the root `build.rs`. Output goes to stderr: stdout is the JSON
@@ -191,11 +191,30 @@ def build_sample_packages() -> None:
         print(f"warning: sample packages not built: {error}", file=sys.stderr)
 
 
+def build_core_packages() -> bool:
+    """Package every desktop app as a core `.lzp` (issue #509,
+    `tools/xui/core_packages.py`): `target/pkg/core/<sn>-<version>.lzp`, which
+    the root `build.rs` embeds in `/system/packages`. Unlike a sample, a core
+    package that cannot be built fails the build: the desktop would lack the
+    app. Output goes to stderr (stdout is this script's JSON result)."""
+    import core_packages
+
+    try:
+        for archive in core_packages.build_core_packages(OUT_DIR, ROOT / "target" / "pkg" / "core"):
+            print(f"core package: {archive}", file=sys.stderr)
+    except core_packages.CoreError as error:
+        print(f"error: core packages not built: {error}", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--debug", action="store_true", help="build the debug profile")
+    parser.add_argument("--no-core-packages", action="store_true",
+                        help="skip packaging the desktop apps (run tools/xui/core_packages.py later)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -240,6 +259,9 @@ def main() -> int:
         built[DOCS_PACKAGE] = str(dest)
 
     build_sample_packages()
+    if not args.no_core_packages and not build_core_packages():
+        print(json.dumps(built, indent=2))
+        return 1
     print(json.dumps(built, indent=2))
     return 0
 

@@ -7,8 +7,10 @@
 // The structured, hash-chained event log service (issue #93).
 //
 // Every record chains over the previous record's hash, so `Verify` detects
-// tampering with any retained record. Failures are returned as a structured
-// error field (errno-style code, friendly text), not as a typed reply.
+// tampering with any retained record. Records are also appended to one
+// persistent journal per source, `/logs/<source>.log` (issue #508), read back
+// with `Sources` and `TailFile`. Failures are returned as a structured error
+// field (errno-style code, friendly text), not as a typed reply.
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.logd.v1";
@@ -39,6 +41,25 @@ fn count() {
 /// count when the chain is intact).
 fn verify() {
     msg::connect("os.lazy.logd.v1").invoke("Verify", [])
+}
+
+/// `Sources() -> (sources: Array<String>)`
+///
+/// The sources that have a persisted journal (`/logs/<source>.log`),
+/// sorted; empty when the store is absent. Served to uid 0 only, like
+/// `TailFile`: the journals carry every user's activity.
+fn sources() {
+    msg::connect("os.lazy.logd.v1").invoke("Sources", [])
+}
+
+/// `TailFile(source: String, count: U64) -> (lines: Array<String>)`
+///
+/// The newest `count` lines of `/logs/<source>.log` (records of earlier
+/// boots included), oldest first. Served to uid 0 only (`EACCES`
+/// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+/// and one without a journal with `ENOENT`.
+fn tail_file(source, count) {
+    msg::connect("os.lazy.logd.v1").invoke("TailFile", [source, count])
 }
 
 /// A `LogRecord` with every field at its zero value.

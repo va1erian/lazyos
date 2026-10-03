@@ -50,7 +50,7 @@ fn lookup_reply_found_and_missing() {
 #[test]
 fn authenticate_roundtrips() {
     let args = AuthenticateArgs {
-        name: "root".into(),
+        name: "admin".into(),
         secret: "hunter2".into(),
     };
     let body = encode_authenticate_args(&args).unwrap();

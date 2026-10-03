@@ -43,6 +43,12 @@ REQUIRED: list[tuple[str, str]] = [
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
+    ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
+    ("mime overrides from /system/share/mime.types (issue #508)",
+     r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
 
 #: Markers a desktop-profile boot (`LAZYOS_DESKTOP=1`, issue #217) still
@@ -59,13 +65,24 @@ DESKTOP: list[tuple[str, str]] = [
     ("open-with publish fallback", r"^MIME:OPEN:PASS"),
     ("timed serving (issue #369)", r"TIMED:READY unix=\d+ "),
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
+    ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
+    ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
+    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
+    ("mime overrides from /system/share/mime.types (issue #508)",
+     r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
 
 #: Lines that must NOT appear (issue #216): `init` refuses a registered app whose
 #: ELF the image does not ship quietly, so a boot never logs a launch failure
-#: for one (it used to print `init: launch editor failed: EDITOR.ELF`).
+#: for one (it used to print `init: launch editor failed: /system/bin/editor`).
 FORBIDDEN: list[tuple[str, str]] = [
     ("no launch failure for an unshipped app", r"^init: launch \S+ failed"),
+    # Issue #508: the services keep their state on the OS volume.
+    ("mimed found its override file", r"^MIME:GUESS:INFO no override file"),
+    ("pkgd's store (/apps, /docs/apps, /logs) is writable", r"^PKGD:STORE:ABSENT"),
+    ("confd did not fall back to the ramfs", r"^CONFD:READY dir=\S+ persistent=false"),
+    ("accountsd loaded its account file", r"^ACCOUNTS:LOAD:FAIL"),
 ]
 
 #: Markers of the demo/evidence programs the desktop profile excludes (issue
@@ -73,8 +90,8 @@ FORBIDDEN: list[tuple[str, str]] = [
 #: that re-enables one fails the desktop job instead of passing silently.
 DESKTOP_FORBIDDEN: list[tuple[str, str]] = [
     ("no flaky crash service", r"^flaky: starting"),
-    ("no clipboard demo pair", r"^clipboardd: started demo CLIP"),
-    ("no top text client", r"^(?:sysmond: started demo TOP\.ELF|SYS:TOP:PASS|top: LazyOS)"),
+    ("no clipboard demo pair", r"^clipboardd: started demo /system/bin/clip"),
+    ("no top text client", r"^(?:sysmond: started demo top|SYS:TOP:PASS|top: LazyOS)"),
     ("no xdemo client", r"^(?:xdemo: |XDEMO:UP:PASS)"),
     ("no dragdemo launcher", r"^dragdemo: "),
 ]
@@ -86,6 +103,17 @@ CLI: list[tuple[str, str]] = [
     ("launch over the wire", r"^MSGCTL:LAUNCH:PASS app=\S+ pid=\d+$"),
     ("foreign-session denial over the wire", r"^MSGCTL:LAUNCH:DENIED:PASS$"),
 ]
+
+
+#: `logind`'s console prompt. It ends without a newline (it waits for a name
+#: on the same line), so whichever task writes to serial next lands right
+#: after it, and an anchored marker would not match.
+LOGIN_PROMPT = re.compile(r"^LazyOS login: ", flags=re.MULTILINE)
+
+
+def unglue(text: str) -> str:
+    """Put a marker printed straight after the login prompt on its own line."""
+    return LOGIN_PROMPT.sub("LazyOS login: \n", text)
 
 
 def find(text: str, pattern: str) -> int:
@@ -138,7 +166,7 @@ def main() -> int:
     path = Path(args.log)
     if not path.is_file():
         sys.exit(f"serial log not found: {path}")
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = unglue(path.read_text(encoding="utf-8", errors="replace"))
 
     required = list(DESKTOP if args.desktop else REQUIRED)
     for pattern in args.require:

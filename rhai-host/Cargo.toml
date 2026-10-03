@@ -8,7 +8,7 @@ description = "The `rhai` command for LazyOS: a static-musl std host around libs
 
 # A standalone workspace, like `xui-app`: the program builds for
 # x86_64-unknown-linux-musl via `tools/rhai/build.py` and is embedded in the
-# image as RHAI.ELF, so the OS workspace never resolves Rhai.
+# image as /system/bin/rhai, so the OS workspace never resolves Rhai.
 [workspace]
 resolver = "2"
 

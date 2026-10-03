@@ -1,5 +1,5 @@
 [
-  {"wait_for": "CONFD:READY", "timeout": 360},
+  {"wait_for": "CONFD:READY dir=/conf persistent=true", "timeout": 360},
   {"wait_for": "CONFCTL:SELFTEST:PASS", "timeout": 120},
   {"wait_for": "CONFD:CTL:EXIT", "timeout": 60},
   {"shot": "confd"},

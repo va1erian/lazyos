@@ -138,7 +138,7 @@ class Launcher:
         self._check(g, "Messengerd daemon (LAZYOS_MESSENGERD)", "msgrd")
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
-        self._check(g, "Doom package at /DOOM.LZP (LAZYOS_DOOM)", "doom")
+        self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

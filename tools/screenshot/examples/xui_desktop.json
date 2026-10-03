@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "TERM:UP:PASS", "timeout": 240},
   {"wait_for": "SYSMON:UP:PASS", "timeout": 240},
   {"wait_for": "FABMON:UP:PASS", "timeout": 240},
@@ -16,8 +17,8 @@
   {"at": 5.2, "type": "echo $((6*7))"},
   {"at": 3.5, "key": "enter", "until": "TERM:CMD:echo $((6*7))", "timeout": 30, "retries": 2},
   {"wait_for": "TERM:OUT:42", "timeout": 30},
-  {"at": 2.0, "type": "cat HELLO.TXT"},
-  {"at": 2.5, "key": "enter", "until": "TERM:CMD:cat HELLO.TXT", "timeout": 30, "retries": 2},
+  {"at": 2.0, "type": "cat /system/share/samples/hello.txt"},
+  {"at": 2.5, "key": "enter", "until": "TERM:CMD:cat /system/share/samples/hello.txt", "timeout": 30, "retries": 2},
   {"wait_for": "TERM:OUT:Hello from LazyOS!", "timeout": 30},
   {"at": 2.0, "type": "confctl; echo native-status=$?"},
   {"at": 2.5, "key": "enter", "until": "TERM:CMD:confctl; echo native-status=$?", "timeout": 30, "retries": 2},

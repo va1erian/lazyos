@@ -11,18 +11,22 @@ pub enum Section {
     Windows,
     Keyboard,
     Menu,
+    Hidden,
     Time,
     About,
 }
 
 impl Section {
-    /// Sidebar order. Append new sections: session scripts
-    /// (`xui_settings.json`) click rows by position.
-    pub const ALL: [Section; 6] = [
+    /// Sidebar order. Session scripts (`xui_settings*.json`) click rows by
+    /// position: a new section moves the rows below it, so re-record their
+    /// clicks. Hidden apps sits next to Menu (issue #509 §5), which moved
+    /// Time & Date and About down one row.
+    pub const ALL: [Section; 7] = [
         Section::Appearance,
         Section::Windows,
         Section::Keyboard,
         Section::Menu,
+        Section::Hidden,
         Section::Time,
         Section::About,
     ];
@@ -34,6 +38,7 @@ impl Section {
             Section::Time => "Time & Date",
             Section::Keyboard => "Keyboard",
             Section::Menu => "Menu",
+            Section::Hidden => "Hidden apps",
             Section::About => "About",
         }
     }
@@ -45,6 +50,7 @@ impl Section {
             Section::Time => Lucide::History,
             Section::Keyboard => Lucide::TextCursorInput,
             Section::Menu => Lucide::List,
+            Section::Hidden => Lucide::EyeOff,
             Section::About => Lucide::Info,
         }
     }

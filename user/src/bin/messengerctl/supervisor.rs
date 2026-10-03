@@ -91,7 +91,7 @@ pub(crate) fn launch_app(rest: &str) {
 /// 2. launches `top` into this task's (session 0) session and prints
 ///    `MSGCTL:LAUNCH:PASS` (`init` prints its own `INIT:LAUNCH:PASS`, and the
 ///    app prints `SYS:TOP:PASS`);
-/// 3. spawns a `MSGCTL.ELF probe` child ([`probe_role`]) that restamps
+/// 3. spawns a `/system/bin/messengerctl probe` child ([`probe_role`]) that restamps
 ///    *itself* into a foreign session and asks `init` to launch into this
 ///    console's original session: the supervisor must refuse with `-EPERM`
 ///    (`INIT:LAUNCH:DENIED:PASS`, `MSGCTL:LAUNCH:DENIED:PASS`). Running the
@@ -112,12 +112,12 @@ pub(crate) fn app_selftest() {
             // required here.
             let has_top = apps.iter().any(|app| {
                 app.id == "top"
-                    && app.path == fhs::boot::TOP_ELF
+                    && app.path == fhs::bin::TOP
                     && app.verbs.iter().any(|v| v == "open")
             });
             let has_self = apps
                 .iter()
-                .any(|app| app.id == "messengerctl" && app.path == fhs::boot::MSGCTL_ELF);
+                .any(|app| app.id == "messengerctl" && app.path == fhs::bin::MESSENGERCTL);
             if has_top && has_self {
                 sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
             } else {
@@ -138,13 +138,13 @@ pub(crate) fn app_selftest() {
     // The foreign-session probe runs in a short-lived child (see
     // [`probe_role`]): a task that has dropped to uid 1000 cannot regain
     // root, so this console task must not be the one that self-transitions.
-    match sys::spawn(b"MSGCTL.ELF probe\0") {
+    match sys::spawn_native(fhs::bin::MESSENGERCTL, &["probe"]) {
         Some(pid) => reap_probe(pid),
         None => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not spawn the probe\n"),
     }
 }
 
-/// The `MSGCTL.ELF probe` child: become uid 1000 in session 4242 (a
+/// The `/system/bin/messengerctl probe` child: become uid 1000 in session 4242 (a
 /// self-transition the kernel audits; the dropped capability set means the
 /// launch call can no longer pass the supervisor's privilege check), try to
 /// launch into the console's original session (0), print the

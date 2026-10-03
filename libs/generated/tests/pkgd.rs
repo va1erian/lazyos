@@ -17,6 +17,10 @@ fn installed() -> Installed {
         installed_at: 12_345,
         abi: "linux".into(),
         args: vec!["--client".into(), "second".into()],
+        origin: ORIGIN_CORE,
+        category: "utilities".into(),
+        autostart: true,
+        verbs: vec!["open".into()],
     }
 }
 
@@ -43,6 +47,40 @@ fn a_row_stored_before_abi_and_args_existed_decodes_with_defaults() {
     let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
     assert_eq!(decoded.abi, "");
     assert!(decoded.args.is_empty());
+}
+
+#[test]
+fn a_row_stored_before_origins_existed_reads_as_a_user_app() {
+    // F5 appended origin, category, autostart and verbs (issue #509). A row
+    // without them decodes to `Origin::User`, so provisioning (not the
+    // default) decides what is core.
+    let old_style = Installed {
+        origin: 0,
+        category: String::new(),
+        autostart: false,
+        verbs: Vec::new(),
+        ..installed()
+    };
+    let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
+    assert_eq!(decoded.origin, ORIGIN_USER);
+    assert_eq!(ORIGIN_USER, 0);
+    assert!(!decoded.autostart && decoded.verbs.is_empty());
+}
+
+#[test]
+fn provision_state_round_trips() {
+    let reply = ProvisionedReply {
+        state: ProvisionState {
+            done: true,
+            ready: true,
+            installed: 12,
+            upgraded: 1,
+            kept: 2,
+            failed: 0,
+        },
+    };
+    let bytes = encode_provisioned_reply(&reply).unwrap();
+    assert_eq!(decode_provisioned_reply(&bytes).unwrap(), reply);
 }
 
 #[test]
@@ -85,6 +123,8 @@ fn package_info_round_trips() {
             explanation: "Read and change what you copy and paste".into(),
         }],
         problems: vec!["one".into(), "two".into()],
+        category: "graphics".into(),
+        autostart: false,
     };
     assert_eq!(
         decode_package_info(&encode_package_info(&info).unwrap()).unwrap(),

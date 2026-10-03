@@ -84,3 +84,28 @@ fn error_field_is_ignored_by_decoders() {
         TailReply::default()
     );
 }
+
+#[test]
+fn sources_and_tail_file_roundtrip() {
+    for count in [0usize, 1, 40] {
+        let reply = SourcesReply {
+            sources: (0..count).map(|i| format!("svc{i}")).collect(),
+        };
+        let body = encode_sources_reply(&reply).unwrap();
+        assert_eq!(decode_sources_reply(&body).unwrap(), reply);
+    }
+    for (source, count) in [("system", 0u64), ("kernel", 20), ("", u64::MAX)] {
+        let args = TailFileArgs {
+            source: source.into(),
+            count,
+        };
+        let body = encode_tail_file_args(&args).unwrap();
+        assert_eq!(decode_tail_file_args(&body).unwrap(), args);
+    }
+    let reply = TailFileReply {
+        lines: vec!["1\t5\tsystem/health/summary\tstatus=ok\t00ff".into(); 3],
+    };
+    let body = encode_tail_file_reply(&reply).unwrap();
+    assert_eq!(decode_tail_file_reply(&body).unwrap(), reply);
+    assert_ne!(METHOD_SOURCES, METHOD_TAILFILE);
+}

@@ -30,6 +30,19 @@ impl Vfs {
         first
     }
 
+    /// Write back every mount's cached dirty data without marking anything
+    /// clean (the periodic flusher). Like [`Vfs::sync_all`], one failure does
+    /// not stop the rest; the first is reported.
+    pub fn writeback_all(&self, pressure: bool) -> Result<(), FsError> {
+        let mut first = Ok(());
+        for mount in &self.mounts {
+            if let Err(error) = mount.fs.writeback(pressure) {
+                first = first.and(Err(error));
+            }
+        }
+        first
+    }
+
     /// Capacity of the filesystem holding `path` (`statfs(2)`). Like
     /// [`Vfs::flush`], the path only has to resolve.
     pub fn statfs(&mut self, id: Id, path: &str) -> Result<StatFs, FsError> {

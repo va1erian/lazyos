@@ -70,10 +70,10 @@ pub(crate) use native::{read_redirected, write_redirected};
 #[allow(unused_imports)]
 pub use fd::close_cloexec_fds;
 
-/// Resolve an executable for a native `spawn` of a Linux program: the named FAT
-/// file, the FAT-root basename, or a BusyBox applet alias. `None` when no such
-/// entry exists. `process::spawn_line` uses this so a `linux:sh` command reaches
-/// the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
+/// Resolve an executable for a `spawnv` of a Linux-personality program: the
+/// named file, `/system/bin/<base>`, or a BusyBox applet alias. `None` when no
+/// such entry exists. `process::spawnv` uses this so a Linux spawn of `sh`
+/// reaches the BusyBox multiplexer as `argv[0] = "sh"` (issue #254).
 pub fn load_executable(path: &str) -> Option<alloc::vec::Vec<u8>> {
     path::load_executable(path).ok()
 }
@@ -309,6 +309,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     // lock, so dropping their buffers cannot deadlock (issue #133). Interrupts
     // are off inside the gate.
     task::reclaim_pending();
+    super::gate::LAST_SYSCALL.store(nr, core::sync::atomic::Ordering::Relaxed);
     trace_syscall(nr);
     let result = match nr {
         0 => io::sys_read(a1, a2, a3),

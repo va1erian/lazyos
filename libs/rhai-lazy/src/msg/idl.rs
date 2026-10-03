@@ -395,7 +395,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Info",
                 id: 266462757,
                 oneway: false,
-                doc: "Where the store lives: the directory confd chose and whether it\nsurvives a reboot (`false` when it fell back to the ramfs `/tmp`).\nNot restricted by path, so any caller may ask.",
+                doc: "Where the store lives: the directory confd chose and whether it\nsurvives a reboot (`/conf`; `false` when it fell back to the ramfs\n`/transient/conf`).\nNot restricted by path, so any caller may ask.",
                 params: &[],
                 returns: &[Field { name: "store_dir", ty: Ty::String }, Field { name: "persistent", ty: Ty::Bool }],
                 transfers: &[],
@@ -948,7 +948,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "ListApps",
                 id: 1009359625,
                 oneway: false,
-                doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`), read afresh from the\nconfiguration registry on every call.",
+                doc: "Enumerate the app registry: the built-in apps first, then the apps the\npackage manager installed (`AppInfo.installed`; the core packages\nfirst, then the others by `system_name`), read afresh from the\nconfiguration registry on every call. `hidden` is the caller's own.",
                 params: &[],
                 returns: &[Field { name: "apps", ty: Ty::Array(&Ty::Struct("AppInfo")) }],
                 transfers: &[],
@@ -986,11 +986,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "AppInfo",
                 doc: "Service name.\nService phase (`pending`/`running`/`restarting`/`stopped`/`failed`).\nTask slot the supervisor started, or 0.\nRestart count.\nComma-separated dependency names.\nLast known health string for the service.\nOne row of `init`'s built-in app registry (issue #158): the S5 start\nmenu's enumeration unit and the resolution table `Launch` uses.",
-                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "installed", ty: Ty::Bool }],
+                fields: &[Field { name: "id", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "path", ty: Ty::String }, Field { name: "restart", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "installed", ty: Ty::Bool }, Field { name: "origin", ty: Ty::String }, Field { name: "category", ty: Ty::String }, Field { name: "hidden", ty: Ty::Bool }, Field { name: "autostart", ty: Ty::Bool }, Field { name: "icon", ty: Ty::String }],
             },
             Struct {
                 name: "ServiceEvent",
-                doc: "App id: the lowercase program stem (`top` -> `TOP.ELF`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
+                doc: "App id: the lowercase program stem (`top` -> `/system/bin/top`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\n`core` (a package the image ships, not removable), `user` (a\npackage someone installed) or `system` (a built-in program such as\nthe desktop shell or the installer).\nThe menu group (`lazypkg::Category`): the package's, `system` (or\n`development` for LazyRAD) for a built-in desktop program, empty for\na console one, which the start menu leaves out.\nWhether the start menu leaves the app out for the caller: their\n`user/<uid>/menu/hidden/<id>`, else the machine's\n`sys/menu/hidden/<id>`. A hidden app still launches and opens files.\nWhether the app opens when a session starts.\nAn installed app's 32-pixel icon, `icons/app-32.png` in its\ninstall directory (every package ships one); empty for a\nbuilt-in, which the shell draws from its own icon set.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
                 fields: &[Field { name: "state", ty: Ty::String }, Field { name: "pid", ty: Ty::U64 }, Field { name: "restarts", ty: Ty::U64 }, Field { name: "status", ty: Ty::U64 }, Field { name: "health", ty: Ty::String }, Field { name: "detail", ty: Ty::String }],
             },
         ],
@@ -1343,7 +1343,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.lifecycle.v1",
         id: 0x778a92e489f41682,
-        doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` drains its feeds into the ring) and exits\nwith status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
+        doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` flushes its journals, `pkgd` fsyncs\n`/logs/pkg.log`) and exits with status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
         methods: &[
             Method {
                 name: "Shutdown",
@@ -1362,7 +1362,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.logd.v1",
         id: 0x9c5197a46ce8a872,
-        doc: "The structured, hash-chained event log service (issue #93).\n\nEvery record chains over the previous record's hash, so `Verify` detects\ntampering with any retained record. Failures are returned as a structured\nerror field (errno-style code, friendly text), not as a typed reply.",
+        doc: "The structured, hash-chained event log service (issue #93).\n\nEvery record chains over the previous record's hash, so `Verify` detects\ntampering with any retained record. Records are also appended to one\npersistent journal per source, `/logs/<source>.log` (issue #508), read back\nwith `Sources` and `TailFile`. Failures are returned as a structured error\nfield (errno-style code, friendly text), not as a typed reply.",
         methods: &[
             Method {
                 name: "Tail",
@@ -1389,6 +1389,24 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Recompute the hash chain and report `ok`/first bad `index` (the record\ncount when the chain is intact).",
                 params: &[],
                 returns: &[Field { name: "ok", ty: Ty::Bool }, Field { name: "index", ty: Ty::U64 }],
+                transfers: &[],
+            },
+            Method {
+                name: "Sources",
+                id: 583496657,
+                oneway: false,
+                doc: "The sources that have a persisted journal (`/logs/<source>.log`),\nsorted; empty when the store is absent. Served to uid 0 only, like\n`TailFile`: the journals carry every user's activity.",
+                params: &[],
+                returns: &[Field { name: "sources", ty: Ty::Array(&Ty::String) }],
+                transfers: &[],
+            },
+            Method {
+                name: "TailFile",
+                id: 571114525,
+                oneway: false,
+                doc: "The newest `count` lines of `/logs/<source>.log` (records of earlier\nboots included), oldest first. Served to uid 0 only (`EACCES`\notherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`\nand one without a journal with `ENOENT`.",
+                params: &[Field { name: "source", ty: Ty::String }, Field { name: "count", ty: Ty::U64 }],
+                returns: &[Field { name: "lines", ty: Ty::Array(&Ty::String) }],
                 transfers: &[],
             },
         ],
@@ -1431,11 +1449,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "LoginSession",
                 doc: "Account name.\nUser id stamped on the session.\nSession id minted by `logind`.\nTask slot of the shell.\nSession state (`active`).\nOne session's state (issue #307): the payload of\n`system/events/login/session/<id>`.",
-                fields: &[Field { name: "user", ty: Ty::String }, Field { name: "uid", ty: Ty::U32 }, Field { name: "pid", ty: Ty::U64 }, Field { name: "state", ty: Ty::String }],
+                fields: &[Field { name: "user", ty: Ty::String }, Field { name: "uid", ty: Ty::U32 }, Field { name: "pid", ty: Ty::U64 }, Field { name: "state", ty: Ty::String }, Field { name: "home", ty: Ty::String }],
             },
             Struct {
                 name: "LoginDenied",
-                doc: "Account name.\nUser id stamped on the session.\nTask slot of the shell.\nSession state (`active`/`exited`).\nA refused attempt (issue #307): the payload of\n`system/events/login/denied`. The reason is a short, non-secret word\n(`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.",
+                doc: "Account name.\nUser id stamped on the session.\nTask slot of the shell.\nSession state (`active`/`exited`).\nThe account's home directory (issue #508): `init` gives the\nsession's apps `HOME` from it, so it never looks the account up\nagain per launch.\nA refused attempt (issue #307): the payload of\n`system/events/login/denied`. The reason is a short, non-secret word\n(`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.",
                 fields: &[Field { name: "user", ty: Ty::String }, Field { name: "reason", ty: Ty::String }],
             },
             Struct {
@@ -1949,13 +1967,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.pkgd.v1",
         id: 0x2e65545739956542,
-        doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/data/apps`, records installed apps in\n`confd`, registers their MIME verbs with `mimed` and loads their Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
+        doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/apps` and `/docs/apps`, records\ninstalled apps in `confd`, registers their MIME verbs with `mimed` and loads\ntheir Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
         methods: &[
             Method {
                 name: "Inspect",
                 id: 1027767735,
                 oneway: false,
-                doc: "Open and validate the `.lzp` at `path` (an absolute path the caller may\nread) without changing anything. `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
+                doc: "Open and validate the `.lzp` at `path` without changing anything. Root\nmay name any absolute path; anyone else a file under `/transient` or\ntheir own home folder (the path is normalised first). `problems` is empty for a package that\ncould be installed; otherwise it lists every reason it cannot be.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "info", ty: Ty::Struct("PackageInfo") }],
                 transfers: &[],
@@ -1964,7 +1982,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Install",
                 id: 890027328,
                 oneway: false,
-                doc: "Install the package at `path`: extract it to its install directory,\nrecord it, register its MIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
+                doc: "Install the package at `path` (the same source rule as `Inspect`):\nextract it to its install directory under `/apps`, copy its\n`docs/*.md` to `/docs/apps/<system_name>/`, record it, register its\nMIME verbs, load its policy, then publish\n`system/events/pkg/install`. Fails if the same `system_name` is already\ninstalled at this version and digest. Needs the caller to be the\nsession owner or root; `pkgd` audits who asked.",
                 params: &[Field { name: "path", ty: Ty::String }],
                 returns: &[Field { name: "app", ty: Ty::Struct("Installed") }],
                 transfers: &[],
@@ -1973,7 +1991,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Remove",
                 id: 564498461,
                 oneway: false,
-                doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory, then publish\n`system/events/pkg/remove`. User data under `/data/home` is kept.",
+                doc: "Remove `system_name`: stop its running instances, unregister its MIME\nverbs, revoke its policy, delete its install directory and its\ndocumentation, then publish `system/events/pkg/remove`. User data\nunder `/home` is kept.",
                 params: &[Field { name: "system_name", ty: Ty::String }],
                 returns: &[],
                 transfers: &[],
@@ -1996,16 +2014,30 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "app", ty: Ty::Option(&Ty::Struct("Installed")) }],
                 transfers: &[],
             },
+            Method {
+                name: "Provisioned",
+                id: 1076218465,
+                oneway: false,
+                doc: "Whether this start's core package provisioning is finished, and what\nit did (`docs/packages.md`, core packages). `pkgd` answers it while it\nprovisions, so a client such as `init`'s autostart can wait for it\nwithout blocking; `Install` and `Remove` are refused with `EAGAIN`\nuntil `done`.",
+                params: &[],
+                returns: &[Field { name: "state", ty: Ty::Struct("ProvisionState") }],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {
+                name: "ProvisionState",
+                doc: "Core package provisioning progress.",
+                fields: &[Field { name: "done", ty: Ty::Bool }, Field { name: "ready", ty: Ty::Bool }, Field { name: "installed", ty: Ty::U64 }, Field { name: "upgraded", ty: Ty::U64 }, Field { name: "kept", ty: Ty::U64 }, Field { name: "failed", ty: Ty::U64 }],
+            },
+            Struct {
                 name: "PackageInfo",
-                doc: "What a package declares, as the consent screen shows it.",
-                fields: &[Field { name: "name", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "author", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "description", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "mime", ty: Ty::Array(&Ty::Struct("MimeHandler")) }, Field { name: "permissions", ty: Ty::Array(&Ty::Struct("Permission")) }, Field { name: "problems", ty: Ty::Array(&Ty::String) }],
+                doc: "The pass of this start is over (successfully or not).\nThe packages that open at login (`entry.autostart`) are provisioned\n(they go first), so a session can start before `done`.\nNewer versions the user installed over a core app, left in place.\nWhat a package declares, as the consent screen shows it.",
+                fields: &[Field { name: "name", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "author", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "description", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "mime", ty: Ty::Array(&Ty::Struct("MimeHandler")) }, Field { name: "permissions", ty: Ty::Array(&Ty::Struct("Permission")) }, Field { name: "problems", ty: Ty::Array(&Ty::String) }, Field { name: "category", ty: Ty::String }, Field { name: "autostart", ty: Ty::Bool }],
             },
             Struct {
                 name: "MimeHandler",
-                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/data/apps`.\nEmpty when the package can be installed.\nOne handled file type.",
+                doc: "Lowercase hex SHA-256 of the archive.\nWhere it would be installed, relative to `/apps`.\nEmpty when the package can be installed.\nThe menu group (`lazypkg::Category`), `accessories` by default.\nWhether the app asks to start when the user logs in.\nOne handled file type.",
                 fields: &[Field { name: "mime_type", ty: Ty::String }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }, Field { name: "has_icon", ty: Ty::Bool }],
             },
             Struct {
@@ -2016,22 +2048,24 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "Installed",
                 doc: "An installed app, as `confd` records it under `sys/apps/<system_name>`.",
-                fields: &[Field { name: "system_name", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "binary", ty: Ty::String }, Field { name: "installed_at", ty: Ty::U64 }, Field { name: "abi", ty: Ty::String }, Field { name: "args", ty: Ty::Array(&Ty::String) }],
+                fields: &[Field { name: "system_name", ty: Ty::String }, Field { name: "name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "binary", ty: Ty::String }, Field { name: "installed_at", ty: Ty::U64 }, Field { name: "abi", ty: Ty::String }, Field { name: "args", ty: Ty::Array(&Ty::String) }, Field { name: "origin", ty: Ty::U32 }, Field { name: "category", ty: Ty::String }, Field { name: "autostart", ty: Ty::Bool }, Field { name: "verbs", ty: Ty::Array(&Ty::String) }],
             },
             Struct {
                 name: "PkgEvent",
-                doc: "Install directory relative to `/data/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove` or `denied`. The same record, hex-encoded with\na chained SHA-256, is appended to `/data/log/pkg.log`.",
+                doc: "Install directory relative to `/apps`.\nEntry binary, relative to the install directory (`bin/<name>.elf`).\nKernel ticks at install time.\nThe program's ABI, `native` or `linux`: `init` needs it to pick the\nspawn personality, and an ELF header cannot tell them apart.\nThe manifest's fixed `entry.args`, passed before any launch path.\nAn `Origin` value, cached from the shipped set at provisioning and\ninstall time so readers need not open `/system/packages`.\nThe menu group (`lazypkg::Category`).\nWhether the app starts when a session opens (`entry.autostart`).\nThe manifest's `[[mime]]` verbs, de-duplicated, in manifest order.\nOne audit record: the payload of `system/events/pkg/<op>`, where `op`\nis `install`, `remove`, `denied` or `provision` (a core package\ninstalled, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with\na chained SHA-256, is appended to `/logs/pkg.log`.",
                 fields: &[Field { name: "op", ty: Ty::String }, Field { name: "system_name", ty: Ty::String }, Field { name: "version", ty: Ty::String }, Field { name: "install_dir", ty: Ty::String }, Field { name: "digest", ty: Ty::String }, Field { name: "actor_uid", ty: Ty::U64 }, Field { name: "ok", ty: Ty::Bool }, Field { name: "detail", ty: Ty::String }],
             },
         ],
-        enums: &[],
+        enums: &[
+            Enum { name: "Origin", variants: &["User", "Core"] },
+        ],
         topics: &[
             Topic {
                 pattern: "system/events/pkg/+",
                 payload: "PkgEvent",
                 qos: 0,
                 retained: false,
-                doc: "uid of the task that asked.\nFriendly text: the error for a failure, empty on success.\nPublished on every install, removal and refused request. Not retained:\n`List` is the state, the events are the trail.",
+                doc: "uid of the task that asked.\nFriendly text: the error for a failure, empty on success.\nPublished on every install, removal, refused request and provisioning\nstep. Not retained:\n`List` is the state, the events are the trail.",
             },
         ],
     },

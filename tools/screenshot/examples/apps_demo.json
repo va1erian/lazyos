@@ -7,7 +7,7 @@
   {"at": 63.0, "type": "launch top"},
   {"at": 64.0, "key": "enter"},
   {"at": 68.0, "shot": "apps_launch"},
-  {"at": 70.0, "type": "open NOTES.TXT"},
+  {"at": 70.0, "type": "open /system/share/samples/notes.txt"},
   {"at": 71.0, "key": "enter"},
   {"at": 75.0, "shot": "apps_open"},
   {"at": 78.0, "quit": true}

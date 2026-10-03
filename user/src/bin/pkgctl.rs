@@ -1,4 +1,4 @@
-//! `pkgctl` (`PKGCTL.ELF`): the command line of the package manager `pkgd`
+//! `pkgctl` (`/system/bin/pkgctl`): the command line of the package manager `pkgd`
 //! (`docs/packages.md`).
 //!
 //! ```text
@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use user::messenger::mime;
-use user::messenger::pkgd::{Client, Failure, Installed, PackageInfo};
+use user::messenger::pkgd::{self, Client, Failure, Installed, PackageInfo};
 use user::sys;
 
 const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open> [args]\n\
@@ -143,8 +143,13 @@ fn arg<'a>(args: &'a [String], usage: &str) -> Result<&'a str, String> {
 }
 
 fn show_installed(app: &Installed) {
+    let origin = if app.origin == pkgd::wire::ORIGIN_CORE {
+        "core"
+    } else {
+        "user"
+    };
     say(&format!(
-        "  {} {} ({}) {}",
+        "  {} {} ({}) {} {origin}",
         app.system_name, app.version, app.name, app.install_dir
     ));
 }

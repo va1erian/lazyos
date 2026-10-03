@@ -1,4 +1,4 @@
-//! `inputd` (`INPUTD.ELF`): the input policy service (`docs/input-plan.md`).
+//! `inputd` (`/system/bin/inputd`): the input policy service (`docs/input-plan.md`).
 //!
 //! The kernel raw event bus carries physical, HID-coded key edges and nothing
 //! else. `inputd` is the only task holding `CAP_INPUT_RAW` and owns everything
@@ -28,6 +28,8 @@ use user::sys;
 
 #[path = "inputd/config.rs"]
 mod config;
+#[path = "inputd/delivery.rs"]
+mod delivery;
 #[path = "inputd/hub.rs"]
 mod hub;
 #[path = "inputd/pointer.rs"]
@@ -103,6 +105,8 @@ fn run() -> Result<(), &'static str> {
         pointer_outputs.clear();
         hub.engine.tick(now, &mut outputs);
         trace.outputs(&outputs);
+        // Backlogs first, so this pass's keys queue behind older ones.
+        hub.flush();
         hub.deliver(&outputs);
         outputs.clear();
 

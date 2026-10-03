@@ -1,4 +1,4 @@
-//! `timectl` (`TIMECTL.ELF`): the `timed` command line and boot self-test
+//! `timectl` (`/system/bin/timectl`): the `timed` command line and boot self-test
 //! (issue #369).
 //!
 //! ```text

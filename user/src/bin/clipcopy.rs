@@ -1,4 +1,4 @@
-//! `clipcopy` (`CLIPCP.ELF`): the lazy clipboard owner demo (issue #115).
+//! `clipcopy` (`/system/bin/clipcp`): the lazy clipboard owner demo (issue #115).
 //!
 //! `init` starts this program (and `clippaste`) on every services boot, so a
 //! headless run proves the clipboard path with machine-parseable serial

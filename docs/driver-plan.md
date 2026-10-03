@@ -243,7 +243,7 @@ driver never trusts client lengths.
   `DMA`, so policy can withhold a family the device has.
 - **Credentials**: drivers run as dedicated system uids (`_net`, `_snd`) with
   only `CAP_DEV_CLAIM` (+ the per-class ACL rule), launched by init via
-  `spawn_as`. They can never `CAP_SETUID` or reach uid 0.
+  `spawnv` (`SpawnCred::As`). They can never `CAP_SETUID` or reach uid 0.
 - **Audit**: every claim/release/denial is a record with device id, class and
   reason code, in the existing hash-chained ring.
 - **Quotas**: `Resource::DeviceClaims` (default 8 per uid, landed in #240) and

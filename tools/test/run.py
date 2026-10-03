@@ -213,11 +213,12 @@ def main() -> int:
         help="QEMU accelerator (default: %(default)s)",
     )
     parser.add_argument("--memory", default="256M", help="guest RAM (default: %(default)s)")
-    # The full suite already takes ~235 s under TCG (`--accel none`, and the
-    # `auto` fallback when KVM is unusable), so the old 240 s default failed a
-    # correct suite on any slower host. A real hang still fails, just later.
+    # The full suite takes ~720 s under TCG (`--accel none`, and the `auto`
+    # fallback when KVM is unusable) since the filesystem phases F3-F5 and the
+    # block cache added their soaks, so the old 600 s default failed a correct
+    # suite. A real hang still fails, just later.
     parser.add_argument(
-        "--timeout", type=float, default=600.0, help="seconds to wait for TEST:SUMMARY"
+        "--timeout", type=float, default=1200.0, help="seconds to wait for TEST:SUMMARY"
     )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build step")
     parser.add_argument(

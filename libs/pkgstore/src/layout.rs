@@ -3,19 +3,28 @@
 //! `pkgd` writes as root, so a path it composes must be right even for a
 //! package `lazypkg` already validated: every component is re-checked here
 //! before it reaches a syscall, and nothing is ever joined from a string that
-//! could climb out of `/data/apps`. (The ext2 volume has no symlinks, so a
-//! lexically safe path is a physically safe one.)
+//! could climb out of `/apps` (or, for an app's documentation, `/docs/apps`).
+//! (The ext2 volume has no symlinks, so a lexically safe path is a physically
+//! safe one.)
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-/// The data volume's mount point.
-pub const DATA_ROOT: &str = fhs::mount::DATA;
 /// Installed applications, one directory per `system_name` per version.
 pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
-/// Where `pkgd` keeps its audit log.
-pub const LOG_DIR: &str = fhs::state::PKG_LOG_DIR;
+/// Where `pkgd` keeps its audit log: `logd`'s journal directory, whose
+/// rotation and budget leave `pkg.log` alone.
+pub const LOG_DIR: &str = fhs::state::LOGS_ROOT;
+/// Installed apps' documentation, one `<system_name>/` directory each.
+pub const DOCS_ROOT: &str = fhs::docs::DOCS_APPS;
+/// The package directory whose `.md` files are the app's documentation.
+pub const DOCS_DIR: &str = "docs";
+/// Suffix of the documentation being written for an install, renamed over
+/// the live directory once complete.
+pub const DOCS_STAGING: &str = "~new";
+/// Suffix the live documentation takes while the new one replaces it.
+pub const DOCS_RETIRED: &str = "~old";
 /// The hash-chained audit log (`crate::audit`).
 pub const LOG_FILE: &str = fhs::state::PKG_LOG_FILE;
 /// The `confd` subtree holding one record per installed app.
@@ -67,6 +76,8 @@ pub fn valid_system_name(name: &str) -> bool {
 }
 
 /// `<system_name>/<version>-<8 lowercase hex>`, the shape `lazypkg` builds.
+/// The version is a [`lazypkg::Version`], whose grammar has no `/` and no
+/// empty or `..` component, so it cannot step out of the app's directory.
 pub fn valid_install_dir(install_dir: &str) -> bool {
     let Some((system_name, leaf)) = install_dir.split_once('/') else {
         return false;
@@ -74,19 +85,15 @@ pub fn valid_install_dir(install_dir: &str) -> bool {
     let Some((version, digest)) = leaf.rsplit_once('-') else {
         return false;
     };
-    let parts: Vec<&str> = version.split('.').collect();
     valid_system_name(system_name)
-        && parts.len() == 3
-        && parts.iter().all(|part| {
-            !part.is_empty() && part.len() <= 5 && part.bytes().all(|b| b.is_ascii_digit())
-        })
+        && lazypkg::Version::parse(version).is_ok()
         && digest.len() == DIGEST_CHARS
         && digest
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// `/data/apps/<system_name>`: every version of one app.
+/// `/apps/<system_name>`: every version of one app.
 pub fn app_dir(system_name: &str) -> Result<String, PathError> {
     if !valid_system_name(system_name) {
         return Err(PathError::SystemName);
@@ -94,7 +101,7 @@ pub fn app_dir(system_name: &str) -> Result<String, PathError> {
     Ok(format!("{APPS_ROOT}/{system_name}"))
 }
 
-/// `/data/apps/<install_dir>`.
+/// `/apps/<install_dir>`.
 pub fn install_path(install_dir: &str) -> Result<String, PathError> {
     if !valid_install_dir(install_dir) {
         return Err(PathError::InstallDir);
@@ -142,6 +149,25 @@ pub fn entry_path(install_path: &str, entry: &str) -> Result<String, PathError> 
         install_path.trim_end_matches('/'),
         entry.trim_end_matches('/')
     ))
+}
+
+/// The package directory whose files are programs.
+pub const BIN_DIR: &str = "bin";
+/// Permissions of an extracted program (anything under [`BIN_DIR`]).
+pub const EXEC_MODE: u16 = 0o755;
+/// Permissions of every other extracted file.
+pub const DATA_MODE: u16 = 0o644;
+
+/// The permission bits `pkgd` gives the extracted file `entry` (an archive
+/// file name, `bin/app.elf`): [`EXEC_MODE`] for a file under the package's
+/// top-level `bin/` directory, because native spawn needs an `x` bit (root
+/// included), and [`DATA_MODE`] for everything else, so an icon or resource
+/// can never be started as a program.
+pub fn file_mode(entry: &str) -> u16 {
+    match entry.split_once('/') {
+        Some((top, rest)) if top == BIN_DIR && !rest.is_empty() => EXEC_MODE,
+        _ => DATA_MODE,
+    }
 }
 
 /// Every directory the archive needs, parents before children, without
@@ -208,13 +234,21 @@ mod tests {
 
     #[test]
     fn install_dirs_have_the_lazypkg_shape() {
-        assert!(valid_install_dir("org.lazy.counter/1.0.0-0a1b2c3d"));
+        for good in [
+            "org.lazy.counter/1.0.0-0a1b2c3d",
+            "org.lazy.counter/1.0-0a1b2c3d",
+            "org.lazy.counter/1.0.0-rc-1-0a1b2c3d",
+        ] {
+            assert!(valid_install_dir(good), "{good}");
+        }
         for bad in [
             "org.lazy.counter",
             "org.lazy.counter/1.0.0",
             "org.lazy.counter/1.0.0-0A1B2C3D",
             "org.lazy.counter/1.0.0-0a1b2c3",
-            "org.lazy.counter/1.0-0a1b2c3d",
+            "org.lazy.counter/1-0a1b2c3d",
+            "org.lazy.counter/1.0.0--0a1b2c3d",
+            "org.lazy.counter/1..0-0a1b2c3d",
             "org.lazy.counter/../x-0a1b2c3d",
             "org.lazy.counter/1.0.0-0a1b2c3d/x",
             "../1.0.0-0a1b2c3d",
@@ -228,12 +262,12 @@ mod tests {
     fn paths_are_built_only_from_valid_parts() {
         assert_eq!(
             install_path("org.lazy.counter/1.0.0-0a1b2c3d").unwrap(),
-            "/data/apps/org.lazy.counter/1.0.0-0a1b2c3d"
+            "/apps/org.lazy.counter/1.0.0-0a1b2c3d"
         );
         assert_eq!(install_path("../../etc"), Err(PathError::InstallDir));
         assert_eq!(
             app_dir("org.lazy.counter").unwrap(),
-            "/data/apps/org.lazy.counter"
+            "/apps/org.lazy.counter"
         );
         assert_eq!(app_dir("bad"), Err(PathError::SystemName));
         assert_eq!(
@@ -271,10 +305,10 @@ mod tests {
             assert!(!safe_entry(bad), "{bad:?}");
         }
         assert_eq!(
-            entry_path("/data/apps/x.y.z/1.0.0-00000000", "bin/app.elf").unwrap(),
-            "/data/apps/x.y.z/1.0.0-00000000/bin/app.elf"
+            entry_path("/apps/x.y.z/1.0.0-00000000", "bin/app.elf").unwrap(),
+            "/apps/x.y.z/1.0.0-00000000/bin/app.elf"
         );
-        assert_eq!(entry_path("/data/apps/x", "../y"), Err(PathError::Entry));
+        assert_eq!(entry_path("/apps/x", "../y"), Err(PathError::Entry));
     }
 
     #[test]
@@ -300,5 +334,24 @@ mod tests {
             directories([("bin/../x", false)].into_iter()),
             Err(PathError::Entry)
         );
+    }
+
+    #[test]
+    fn only_files_under_bin_are_executable() {
+        for program in ["bin/app.elf", "bin/tools/helper.elf"] {
+            assert_eq!(file_mode(program), EXEC_MODE, "{program}");
+        }
+        for data in [
+            "manifest.toml",
+            "icons/app-16.png",
+            "resources/bin/x",
+            "docs/bin.md",
+            "bin",
+            "bin/",
+            "binx/app.elf",
+            "Bin/app.elf",
+        ] {
+            assert_eq!(file_mode(data), DATA_MODE, "{data}");
+        }
     }
 }

@@ -265,7 +265,7 @@ mod tests {
             "/ #",
             "/ # ",
             "/tmp $ ",
-            "/home/alice $",
+            "/home/user $",
             "~ $",
         ] {
             assert!(is_prompt(prompt), "{prompt:?} should be a prompt");

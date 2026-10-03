@@ -8,11 +8,13 @@
 //! single surface plus one buffer. Ctrl+Esc/Super (`StartMenu`) and the button
 //! toggle it; `Dismiss` (a press outside every panel), choosing a row or the
 //! button again close it. The power rows at the bottom first turn into a
-//! confirmation and keep the menu open ([`super::power`]).
+//! confirmation and keep the menu open ([`super::power`]). The installed
+//! apps' category section scrolls with the wheel when it does not fit
+//! (`lazyshell::menu::Menu::scroll_by`), with a thin bar on its right edge.
 
 use std::rc::Rc;
 
-use lazyshell::menu::{Choice, BANNER_W, WIDTH};
+use lazyshell::menu::{Action, Choice, BANNER_W, PAD, ROW_H, WIDTH};
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec, TextStyle};
@@ -28,6 +30,11 @@ const TEXT: Dip = Dip(12.0);
 const BANNER_TEXT: Dip = Dip(13.0);
 /// Gap between the banner and a row's label.
 const LABEL_PAD: i32 = 10;
+/// Section rows one wheel notch scrolls, and the notch size.
+const WHEEL_ROWS: i64 = 3;
+const WHEEL_NOTCH: i64 = 120;
+/// Width of the section's scroll bar.
+const BAR_W: i32 = 3;
 
 /// A start-menu message.
 pub enum MenuMsg {
@@ -36,6 +43,8 @@ pub enum MenuMsg {
     Leave,
     /// A left press; `true` for the second press of a double click.
     Press(i32, i32, bool),
+    /// A vertical wheel turn (positive: away from the user, scrolls up).
+    Wheel(i16),
 }
 
 /// Open the menu if it is closed, close it if it is open.
@@ -111,6 +120,11 @@ impl MenuApp {
                 button: MouseButton::Left,
                 ..
             } => Some(MenuMsg::Press(x, y, true)),
+            Event::MouseWheel {
+                delta,
+                horizontal: false,
+                ..
+            } => Some(MenuMsg::Wheel(delta)),
             _ => None,
         });
         MenuApp { ctx, root }
@@ -175,7 +189,24 @@ impl App for MenuApp {
                     ui.invalidate(self.root.id());
                 }
             }
+            MenuMsg::Wheel(delta) => {
+                if self.ctx.menu.borrow_mut().scroll_by(wheel_rows(delta)) {
+                    self.ctx.menu_hover.set(None);
+                    ui.invalidate(self.root.id());
+                }
+            }
         }
+    }
+}
+
+/// Section rows a wheel turn of `delta` scrolls (negative: up), at least
+/// one per non-zero turn.
+fn wheel_rows(delta: i16) -> i64 {
+    let rows = (i64::from(delta).abs() * WHEEL_ROWS / WHEEL_NOTCH).max(1);
+    match delta {
+        0 => 0,
+        d if d > 0 => -rows,
+        _ => rows,
     }
 }
 
@@ -218,6 +249,15 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         let Some(area) = menu.row_rect(index).map(rect) else {
             continue;
         };
+        let label = Rect::new(area.left + LABEL_PAD, area.top, area.right - 4, area.bottom);
+        if row.action == Action::Header {
+            // A category title: bold, in the banner's colour, never lit.
+            canvas.push_clip(label);
+            let ink = color(palette.overlay_selected);
+            canvas.draw_text(&row.label, label, &TextStyle::new(ink, TEXT).bold().middle());
+            canvas.pop_clip();
+            continue;
+        }
         let lit = row.enabled && hover == Some(index);
         if lit {
             canvas.fill_rect(area, color(palette.overlay_selected));
@@ -229,7 +269,6 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         } else {
             palette.overlay_text
         };
-        let label = Rect::new(area.left + LABEL_PAD, area.top, area.right - 4, area.bottom);
         canvas.push_clip(label);
         canvas.draw_text(
             &row.label,
@@ -238,4 +277,18 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         );
         canvas.pop_clip();
     }
+    if let Some(scroll) = menu.scroll() {
+        paint_scroll_bar(canvas, scroll, color(palette.overlay_selected));
+    }
+}
+
+/// The installed section's scroll bar: a thumb on the panel's right edge,
+/// spanning the section's visible rows, as tall as their share of it.
+fn paint_scroll_bar(canvas: &mut dyn Canvas, scroll: lazyshell::menu::Scroll, ink: xui_core::Color) {
+    let track = scroll.shown as i32 * ROW_H;
+    let total = scroll.total.max(1) as i32;
+    let top = PAD + track * scroll.first as i32 / total;
+    let height = (track * scroll.shown as i32 / total).max(ROW_H / 2);
+    let right = WIDTH - 2;
+    canvas.fill_rect(Rect::new(right - BAR_W, top, right, top + height), ink);
 }

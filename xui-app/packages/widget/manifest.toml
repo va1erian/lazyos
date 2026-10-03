@@ -1,0 +1,25 @@
+# CPU & Memory: a core LazyOS app, packaged by `tools/xui/build.py` (issue #509).
+#
+# `bin/widget.elf` is not checked in: the build copies the built xui app into
+# a scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "CPU & Memory"
+system_name = "os.lazy.widget"
+author = "LazyOS"
+version = "0.1.0"
+description = "A small CPU and memory gauge"
+category = "utilities"
+
+[entry]
+binary = "bin/widget.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]

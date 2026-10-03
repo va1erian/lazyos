@@ -13,11 +13,12 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-use ext2fs::{Ext2, Ext2Error, Geometry, Recovery};
+use ext2fs::{AttrChange, Ext2, Ext2Error, Geometry};
 
 use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
 pub use crate::os_manifest::{clean_path, Kind, Manifest};
+use crate::os_recover;
 
 /// Where a file's bytes come from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,9 +147,13 @@ pub struct Plan {
 pub struct Settings {
     pub os_size: u64,
     pub reset: bool,
+    /// `LAZYOS_UPDATE_DAMAGED_OS=1`: update a volume whose damage `recover`
+    /// refused to repair instead of failing the build. Its allocator may then
+    /// hand a block a user file still uses to an updated file.
+    pub update_damaged: bool,
 }
 
-const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
+pub(crate) const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
 
 /// Create or update? Create when `image` is missing, `settings.reset` is set,
 /// or it fails [`validate`] (with the reason as a warning); otherwise update,
@@ -229,8 +234,17 @@ pub fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-fn volume_error(what: &str, error: Ext2Error) -> String {
+pub(crate) fn volume_error(what: &str, error: Ext2Error) -> String {
     format!("{what}: {error:?}")
+}
+
+/// Mount the OS volume for writing through a 64 MiB block cache: the build
+/// then writes each block once, in large requests, instead of rewriting the
+/// bitmaps and counters for every block it allocates.
+fn open_cached(io: FileIo) -> Result<Ext2, String> {
+    let mut config = ext2fs::CacheConfig::heap(16 * 1024);
+    config.max_request = 1 << 20;
+    Ext2::open_cached(Box::new(io), now, config).map_err(|e| volume_error("open", e))
 }
 
 /// Write the file list into `volume` and return the manifest it placed.
@@ -265,6 +279,17 @@ pub fn write_volume(
         volume
             .mkdir_p(&dir.path, dir.mode, dir.uid, dir.gid)
             .map_err(|e| volume_error(&format!("mkdir {}", dir.path), e))?;
+        // An existing directory keeps the mode an older table gave it unless
+        // it is applied again (`/logs` 0755 -> 0750 in F4).
+        let change = AttrChange {
+            mode: Some(dir.mode),
+            uid: Some(dir.uid),
+            gid: Some(dir.gid),
+            ..AttrChange::default()
+        };
+        volume
+            .setattr(&dir.path, &change)
+            .map_err(|e| volume_error(&format!("chmod {}", dir.path), e))?;
     }
     for file in files {
         let parent = file.path.rsplit_once('/').map_or("/", |(parent, _)| parent);
@@ -280,6 +305,9 @@ pub fn write_volume(
             .write_file(&file.path, &bytes, file.mode, 0, 0, stamp)
             .map_err(|e| volume_error(&format!("write {}", file.path), e))?;
     }
+    // Everything else is on the disk before the manifest that lists it: the
+    // cache would otherwise write them back together.
+    volume.flush().map_err(|e| volume_error("flush", e))?;
     volume
         .write_file(
             MANIFEST_PATH,
@@ -330,7 +358,7 @@ pub fn compose(
                 )
             })
         }
-        Action::Update { manifest } => update(image, &head, total, sectors, manifest, dirs, files),
+        Action::Update { manifest } => update(image, &head, manifest, settings, dirs, files),
     }
 }
 
@@ -355,7 +383,7 @@ fn create(
     let io = FileIo::new(file, OS_START_LBA, sectors, true);
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
-    let volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
+    let volume = open_cached(io)?;
     write_volume(&volume, None, dirs, files, now())?;
     Ok(())
 }
@@ -363,12 +391,13 @@ fn create(
 fn update(
     image: &Path,
     head: &[u8],
-    total: u64,
-    sectors: u64,
     old: &Manifest,
+    settings: &Settings,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
+    let total = OS_START_LBA * SECTOR + settings.os_size;
+    let sectors = settings.os_size / SECTOR;
     let mut options = OpenOptions::new();
     options.read(true).write(true);
     #[cfg(windows)]
@@ -389,34 +418,17 @@ fn update(
         return Err(format!("{} changed size; {RESET_HINT}", image.display()));
     }
     let old_end = old_fat_end(&mut file)?;
+    // The volume goes through a duplicate of the locked handle (it shares the
+    // lock), so it is checked before the boot area is touched: a refused
+    // volume leaves the whole image as it was.
+    let volume_file = file.try_clone().map_err(|e| e.to_string())?;
+    let io = FileIo::new(volume_file, OS_START_LBA, sectors, true);
+    let mut volume = open_cached(io)?;
+    // `recover` commits its orphan reclaim through the cache before the
+    // checker reads the raw volume.
+    os_recover::recover(&mut volume, settings.update_damaged)?;
     write_head(&mut file, head, old_end)?;
-    let io = FileIo::new(file, OS_START_LBA, sectors, true);
-    let mut volume = Ext2::open(Box::new(io), now).map_err(|e| volume_error("open", e))?;
-    recover(&mut volume)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
-    Ok(())
-}
-
-/// Check a volume that stopped uncleanly (a QEMU window closed, a crash) so
-/// the update's closing flush can mark it clean again. The kernel never does:
-/// it has no fsck, and restores the state it found at every shutdown, so
-/// without this one unclean stop would flag the image for good. A volume that
-/// fails the check stays flagged, with a warning; nothing is deleted.
-fn recover(volume: &mut Ext2) -> Result<(), String> {
-    match volume
-        .recover(ext2fs::ORPHAN_PREFIX)
-        .map_err(|e| volume_error("check", e))?
-    {
-        Recovery::WasClean => {}
-        Recovery::Recovered { reclaimed } => println!(
-            "cargo:warning=the OS volume was not cleanly unmounted; checked it, \
-             reclaimed {reclaimed} orphaned file(s), and it is clean again"
-        ),
-        Recovery::StillUnclean(reason) => println!(
-            "cargo:warning=the OS volume was not cleanly unmounted and stays flagged: \
-             {reason}; {RESET_HINT}"
-        ),
-    }
     Ok(())
 }
 

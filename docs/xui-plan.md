@@ -147,7 +147,7 @@ deliberately **not** `winit`, `softbuffer`, `glutin`, `glow`, `xui-gpu`.
 ## Status (issues #114, #153, #168)
 
 Landed in `xui-app/` (a standalone static-musl workspace built by
-`tools/xui/build.py`, embedded as `XAPP.ELF` with `LAZYOS_XUID=1` +
+`tools/xui/build.py`, embedded as `/system/bin/xapp` with `LAZYOS_XUID=1` +
 `LAZYOS_XUI_APP=<path>`):
 
 - **M0** — `src/bin/m0.rs`: a `std` shim over syscall 12 (`bind`/`present`/
@@ -208,17 +208,20 @@ and no `xdemo`, so the app is the first surface at the top-left. Owner mode
 (`LAZYOS_XUI_APP` without `LAZYOS_XUI_CLIENT`) is unchanged.
 
 **Desktop session (issues #215/#216, `LAZYOS_DESKTOP=1` #217)** — one switch
-expands to the whole recipe: a services session, `xuid`, and the xui apps
-embedded side by side (`XAPPS.LST` names what the image ships; a registered app
-whose ELF is absent is unavailable and never logged as a failed launch).
-`init`'s app registry opens the `autostart` rows as `xuid` clients; by
+expands to the whole recipe: a services session, `xuid`, and the xui apps.
+Since F5 (issue #509) each desktop app is a core package
+(`xui-app/packages/<short>/`, `/system/packages/os.lazy.<short>.lzp`) that
+`pkgd` installs into `/apps` at boot; the Terminal, Devices, the Installer and
+LazyShell stay built-in `/system/bin` programs. `init` opens the apps whose
+manifest sets `autostart` as `xuid` clients once provisioning is done; by
 default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other
 stems, `none` disables it) and the other apps open on demand from
-LazyShell's start menu or desktop icons (issue #157).
+LazyShell's start menu (grouped by package category) or desktop icons (each
+package's own icon) (issue #157).
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
 the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
 image also ships the migrated document apps **Editor**, **Paint** and **Files**
-(`XEDITOR/XFILES/XPAINT.ELF`, on demand rather than autostarted): Files opens a
+(on demand rather than autostarted): Files opens a
 text file in the Editor through `mimed`'s open-with registry. The desktop profile starts no
 demo/evidence programs (no `flaky`, `top` launch self-test or clipboard demo
 pair). Captured by `tools/screenshot/examples/xui_desktop.json` in the `xui-app`

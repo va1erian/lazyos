@@ -90,56 +90,40 @@ pub fn spawn_child_rejects_bad_image() -> Result<(), String> {
     Ok(())
 }
 
-/// The native `spawn` syscall refuses a missing FAT entry with `u64::MAX`
-/// (the test harness boots before `fs::init`, so every name is missing).
-pub fn spawn_unknown_file_fails() -> Result<(), String> {
-    fresh();
-    static MISSING: &[u8] = b"NOSUCH.ELF\0";
-    let packed = process::dispatch_for_test(6, MISSING.as_ptr() as u64, 0, 0);
-    check!(
-        packed == u64::MAX,
-        "spawn of a missing file returned {packed:#x}"
-    );
-    Ok(())
+/// `spawnv` (syscall 31) of `path` with `argv` `[path]` under the given
+/// personality, inheriting the caller's credentials.
+fn spawnv(path: &str, linux: bool) -> u64 {
+    use crate::process::spawnv::{personality, REQ_WORDS};
+    let argv: Vec<u8> = path.bytes().chain([0]).collect();
+    let mut words = [0u64; REQ_WORDS];
+    words[..5].copy_from_slice(&[
+        path.as_ptr() as u64,
+        path.len() as u64,
+        argv.as_ptr() as u64,
+        argv.len() as u64,
+        1,
+    ]);
+    words[8] = if linux {
+        personality::LINUX
+    } else {
+        personality::NATIVE
+    };
+    process::dispatch_for_test(31, words.as_ptr() as u64, 0, 0)
 }
 
-/// The `linux:` prefix selects the Linux ABI; everything else is the native
-/// default. Malformed lines name no program.
-pub fn spawn_line_parses_personality() -> Result<(), String> {
-    use crate::process::spawn_line::{parse, SpawnLine};
-    let native = parse("  TOP.ELF a b  ");
+/// A native `spawnv` refuses a missing program with `-ENOENT` (the test
+/// harness boots before `fs::init`, so every name is missing), and the
+/// retired command-line `spawn` (syscall 6) is an unknown syscall.
+pub fn spawn_unknown_file_fails() -> Result<(), String> {
+    fresh();
+    let code = spawnv("/system/bin/nosuch", false);
     check!(
-        native
-            == Some(SpawnLine {
-                linux: false,
-                path: "TOP.ELF",
-                args: "a b"
-            }),
-        "native line parsed as {native:?}"
+        code == (2u64).wrapping_neg(),
+        "spawn of a missing file returned {code:#x}"
     );
-    let linux = parse("linux:XTERM.ELF --client attempt=1");
-    check!(
-        linux
-            == Some(SpawnLine {
-                linux: true,
-                path: "XTERM.ELF",
-                args: "--client attempt=1"
-            }),
-        "linux line parsed as {linux:?}"
-    );
-    let spaced = parse("linux:  XSYSMON.ELF");
-    check!(
-        spaced
-            == Some(SpawnLine {
-                linux: true,
-                path: "XSYSMON.ELF",
-                args: ""
-            }),
-        "linux line with spacing parsed as {spaced:?}"
-    );
-    for empty in ["", "   ", "linux:", "linux:   "] {
-        check!(parse(empty).is_none(), "{empty:?} parsed as a program");
-    }
+    static LINE: &[u8] = b"/system/bin/nosuch\0";
+    let retired = process::dispatch_for_test(6, LINE.as_ptr() as u64, 0, 0);
+    check!(retired == u64::MAX, "syscall 6 answered {retired:#x}");
     Ok(())
 }
 
@@ -185,40 +169,36 @@ pub fn spawn_linux_child_rejects_bad_image() -> Result<(), String> {
     Ok(())
 }
 
-/// The `linux:` spawn path refuses a missing file like the native one.
+/// The Linux personality refuses a missing file like the native one.
 pub fn spawn_linux_unknown_file_fails() -> Result<(), String> {
     fresh();
-    static MISSING: &[u8] = b"linux:NOSUCH.ELF --client\0";
-    let packed = process::dispatch_for_test(6, MISSING.as_ptr() as u64, 0, 0);
+    // Dotted, so it is not applet-shaped: the BusyBox alias cannot claim it.
+    let code = spawnv("/system/bin/no.such", true);
     check!(
-        packed == u64::MAX,
-        "linux spawn of a missing file returned {packed:#x}"
+        code == (2u64).wrapping_neg(),
+        "linux spawn of a missing file returned {code:#x}"
     );
     Ok(())
 }
 
 /// The Linux spawn loader resolves a bare applet name (`sh`, `/bin/ls`) to the
-/// `BUSYBOX` file — how `logind` starts the user's shell — while a real path
-/// still reads its own bytes and a non-applet miss stays missing (issue #254).
+/// `/system/bin/busybox` — how `logind` starts the user's shell — while a real
+/// path still reads its own bytes and a non-applet miss stays missing (issue
+/// #254).
 pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
     fresh();
-    crate::fs::install_abi_ramfs_for_test();
-    // Install as root (the image builder owns the boot volume); the lookup
-    // under test reads with the running identity.
-    let id = crate::fs::vfs::Id::ROOT;
     let elf = minimal_elf();
-    crate::fs::abi_create(id, fhs::boot::BUSYBOX_PATH, 0o755).map_err(|e| e.message())?;
-    crate::fs::abi_write(id, fhs::boot::BUSYBOX_PATH, 0, &elf).map_err(|e| e.message())?;
-    crate::fs::abi_create(id, "/ref", 0o644).map_err(|e| e.message())?;
-    crate::fs::abi_write(id, "/ref", 0, b"ref-bytes").map_err(|e| e.message())?;
+    // Installed as root (the image builder owns the system tree); the lookup
+    // under test reads with the running identity.
+    install_exec_files(&[(fhs::bin::BUSYBOX, &elf), ("/ref", b"ref-bytes")])?;
 
     check!(
         process::linux::load_executable("sh") == Some(elf.clone()),
-        "`sh` did not resolve to the BUSYBOX applet alias"
+        "`sh` did not resolve to the BusyBox applet alias"
     );
     check!(
         process::linux::load_executable("/bin/ls") == Some(elf.clone()),
-        "/bin/ls did not resolve to the BUSYBOX applet alias"
+        "/bin/ls did not resolve to the BusyBox applet alias"
     );
     check!(
         process::linux::load_executable("/ref") == Some(b"ref-bytes".to_vec()),
@@ -231,55 +211,75 @@ pub fn linux_load_executable_resolves_applets() -> Result<(), String> {
     Ok(())
 }
 
-/// Install BusyBox and the given `(path, bytes)` files on a fresh ABI ramfs.
+/// Install the given `(path, bytes)` files on a fresh ABI ramfs, creating
+/// their parent directories.
 fn install_exec_files(files: &[(&str, &[u8])]) -> Result<(), String> {
     crate::fs::install_abi_ramfs_for_test();
     let id = crate::fs::vfs::Id::ROOT;
     for (path, bytes) in files {
+        let mut at = 0;
+        while let Some(next) = path[at + 1..].find('/') {
+            at += 1 + next;
+            match crate::fs::abi_mkdir(id, &path[..at], 0o755) {
+                Ok(_) | Err(crate::fs::vfs::FsError::Exists) => {}
+                Err(error) => return Err(error.message().into()),
+            }
+        }
         crate::fs::abi_create(id, path, 0o755).map_err(|e| e.message())?;
         crate::fs::abi_write(id, path, 0, bytes).map_err(|e| e.message())?;
     }
     Ok(())
 }
 
-/// A program shipped at the image root (`/RHAI.ELF`, issue #319) is what
-/// `rhai`, `/bin/rhai` and `/usr/local/bin/rhai` load — ahead of the BusyBox
-/// alias that claims every plain `bin` name — while data files without the
-/// `.ELF` suffix never shadow an applet and a real file at the path wins.
-pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
+/// A program in `/system/bin` (`rhai`, issue #319) is what `rhai`, `/bin/rhai`
+/// and `/usr/local/bin/rhai` load — ahead of the BusyBox alias that claims
+/// every plain `bin` name. The name is used byte for byte (`RHAI` is not
+/// `rhai`) and has no 8.3 limit; data files, which never live in
+/// `/system/bin`, cannot shadow an applet; a real file at the path wins.
+pub fn linux_load_executable_prefers_system_bin() -> Result<(), String> {
     fresh();
     let busybox = minimal_elf();
     install_exec_files(&[
-        (fhs::boot::BUSYBOX_PATH, &busybox),
-        ("/RHAI.ELF", b"rhai-program"),
-        ("/PASSWD", b"root:0:0"),
+        (fhs::bin::BUSYBOX, &busybox),
+        (fhs::bin::RHAI, b"rhai-program"),
+        (fhs::etc::PASSWD, b"admin:0:0"),
         ("/rhai2", b"exact-file"),
-        ("/TOOLONGNAME.ELF", b"too-long"),
+        ("/system/bin/longer-name", b"long-name"),
     ])?;
     // `/usr/local/sbin` heads BusyBox ash's default `$PATH`; an unbacked
     // directory such as `/opt/x/bin` falls back to the basename, which must
-    // still find the image-root program before the BusyBox alias.
+    // still find the `/system/bin` program before the BusyBox alias (#515).
     for name in [
         "rhai",
         "/bin/rhai",
         "/usr/local/bin/rhai",
         "/usr/local/sbin/rhai",
-        "/usr/bin/RHAI",
         "/opt/x/bin/rhai",
+        fhs::bin::RHAI,
     ] {
         check!(
             process::linux::load_executable(name) == Some(b"rhai-program".to_vec()),
-            "`{name}` did not resolve to /RHAI.ELF"
+            "`{name}` did not resolve to {}",
+            fhs::bin::RHAI
+        );
+    }
+    // Case-sensitive: an uppercase spelling is another (missing) program, so
+    // only the applet alias answers.
+    for name in ["RHAI", "/usr/bin/RHAI"] {
+        check!(
+            process::linux::load_executable(name) == Some(busybox.clone()),
+            "`{name}` was folded onto {}",
+            fhs::bin::RHAI
         );
     }
     check!(
-        process::linux::load_executable("/RHAI.ELF") == Some(b"rhai-program".to_vec()),
-        "the exact image-root path did not load"
+        process::linux::load_executable("/RHAI.ELF").is_none(),
+        "the F2 flat name still resolved"
     );
     // The applet of the same name as a data file is untouched.
     check!(
         process::linux::load_executable("passwd") == Some(busybox.clone()),
-        "PASSWD shadowed the `passwd` applet"
+        "the passwd file shadowed the `passwd` applet"
     );
     check!(
         process::linux::load_executable("ls") == Some(busybox.clone()),
@@ -289,16 +289,16 @@ pub fn linux_load_executable_prefers_root_elf() -> Result<(), String> {
         process::linux::load_executable("/rhai2") == Some(b"exact-file".to_vec()),
         "a real file at the exact path lost to the alias"
     );
-    // Names longer than 8.3 cannot be FAT root files, so they never probe.
+    // No 8.3 limit any more.
     check!(
-        process::linux::load_executable("toolongname") == Some(busybox.clone()),
-        "a name longer than 8 characters was resolved at the image root"
+        process::linux::load_executable("longer-name") == Some(b"long-name".to_vec()),
+        "a name longer than 8 characters was not found in /system/bin"
     );
-    // Misses: no ELF and no BusyBox means nothing to run.
-    install_exec_files(&[("/PASSWD", b"root:0:0")])?;
+    // Misses: no program and no BusyBox means nothing to run.
+    install_exec_files(&[(fhs::etc::PASSWD, b"admin:0:0")])?;
     check!(
         process::linux::load_executable("rhai").is_none(),
-        "`rhai` resolved with neither /RHAI.ELF nor BusyBox present"
+        "`rhai` resolved with neither /system/bin/rhai nor BusyBox present"
     );
     check!(
         process::linux::load_executable("/bin/passwd").is_none(),
@@ -313,8 +313,8 @@ pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
     fresh();
     let busybox = minimal_elf();
     install_exec_files(&[
-        (fhs::boot::BUSYBOX_PATH, &busybox),
-        ("/RHAI.ELF", b"rhai-program"),
+        (fhs::bin::BUSYBOX, &busybox),
+        (fhs::bin::RHAI, b"rhai-program"),
     ])?;
     let path_dirs = [
         "/usr/local/sbin",
@@ -331,7 +331,7 @@ pub fn soak_linux_load_executable_repeated() -> Result<(), String> {
         let rhai = alloc::format!("{dir}/rhai");
         check!(
             process::linux::load_executable(&rhai) == Some(b"rhai-program".to_vec()),
-            "round {round}: {rhai} did not resolve to /RHAI.ELF"
+            "round {round}: {rhai} did not resolve to /system/bin/rhai"
         );
         let ls = alloc::format!("{dir}/ls");
         check!(
@@ -391,10 +391,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("service_spawn_unknown_file_fails", spawn_unknown_file_fails),
     (
-        "service_spawn_line_parses_personality",
-        spawn_line_parses_personality,
-    ),
-    (
         "service_spawn_linux_child_is_supervised",
         spawn_linux_child_is_supervised,
     ),
@@ -411,8 +407,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         linux_load_executable_resolves_applets,
     ),
     (
-        "service_linux_load_executable_prefers_root_elf",
-        linux_load_executable_prefers_root_elf,
+        "service_linux_load_executable_prefers_system_bin",
+        linux_load_executable_prefers_system_bin,
     ),
     (
         "service_soak_linux_load_executable_repeated",

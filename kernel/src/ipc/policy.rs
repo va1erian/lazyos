@@ -177,6 +177,13 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
 pub fn check_name(slot: usize, op: NameOp, name: &str) -> Result<(), NameDenied> {
     let cred = credentials::of(slot);
     let verdict = name_verdict(&cred, op, name);
+    #[cfg(lazyos_label_trace)]
+    if verdict.is_err() {
+        super::label_trace::denied(
+            cred.label_id,
+            format_args!("resolve={name} op={}", op.method()),
+        );
+    }
     if verdict.is_err() || audit::trace() {
         audit::record(AuditEvent {
             ticks: crate::task::ticks(),

@@ -4,8 +4,8 @@
 `lazyrad-os/` is a standalone Rust workspace (bins `lrplay` and `lazyrad`) built
 for ``x86_64-unknown-linux-musl`` (static, ``std``): it is *not* part of the OS
 workspace. The root ``build.rs`` embeds the two ELFs in the disk image as
-``LRPLAY.ELF`` and ``LAZYRAD.ELF`` whenever ``LAZYOS_LAZYRAD=1`` is set, and
-copies the sample projects named by ``LAZYRAD_SAMPLES`` under ``/LAZYRAD/``.
+``/system/bin/lrplay`` and ``/system/bin/lazyrad`` whenever ``LAZYOS_LAZYRAD=1`` is set, and
+copies the sample projects named by ``LAZYRAD_SAMPLES`` under ``/system/share/lazyrad/``.
 
 The recipe mirrors ``tools/rhai/build.py`` and ``tools/xui/build.py``: on
 Windows the musl target has no host linker, so cargo is pointed at the

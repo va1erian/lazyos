@@ -12,15 +12,17 @@ use alloc::vec::Vec;
 
 use user::sys;
 
-type Step = &'static [&'static [u8]];
+/// One client: the program and its arguments (`argv[1..]`).
+type Client = (&'static str, &'static [&'static str]);
+type Step = &'static [Client];
 
 /// The default run: a real tone, the hostile-input probe, a stream
 /// lifecycle soak of silence and the control-panel probe.
 const DEFAULT_STEPS: &[Step] = &[
-    &[b"BEEP.ELF freq=880 ms=800\0"],
-    &[b"BEEP.ELF probe=1\0"],
-    &[b"BEEP.ELF soak=40\0"],
-    &[b"MIXER.ELF probe\0"],
+    &[(fhs::bin::BEEP, &["freq=880", "ms=800"])],
+    &[(fhs::bin::BEEP, &["probe=1"])],
+    &[(fhs::bin::BEEP, &["soak=40"])],
+    &[(fhs::bin::MIXER, &["probe"])],
 ];
 
 /// `LAZYOS_SOUND_MIX=1` (`tools/sound/run.py --mix`): two tones played at
@@ -28,15 +30,15 @@ const DEFAULT_STEPS: &[Step] = &[
 /// volume, which must measure about 6 dB below the driver's own.
 const MIX_STEPS: &[Step] = &[
     &[
-        b"BEEP.ELF freq=660 ms=1500\0",
-        b"BEEP.ELF freq=990 ms=1500\0",
+        (fhs::bin::BEEP, &["freq=660", "ms=1500"]),
+        (fhs::bin::BEEP, &["freq=990", "ms=1500"]),
     ],
-    &[b"BEEP.ELF freq=880 ms=800 volume=50\0"],
+    &[(fhs::bin::BEEP, &["freq=880", "ms=800", "volume=50"])],
 ];
 
 /// `LAZYOS_SOUND_MODPLAY=1` (`tools/sound/run.py --modplay`): the tracker
 /// player's self-test melody.
-const MODPLAY_STEPS: &[Step] = &[&[b"MODPLAY.ELF selftest\0"]];
+const MODPLAY_STEPS: &[Step] = &[&[(fhs::bin::MODPLAY, &["selftest"])]];
 
 const STEPS: &[Step] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
     MODPLAY_STEPS
@@ -78,8 +80,8 @@ impl Demo {
         if !self.running.is_empty() || self.next >= STEPS.len() || !card_ready {
             return;
         }
-        for command in STEPS[self.next] {
-            match sys::spawn(command) {
+        for &(program, args) in STEPS[self.next] {
+            match sys::spawn_native(program, args) {
                 Some(pid) => {
                     sys::write_str(&format!("AUDIOD:DEMO:SPAWN pid={pid}\n"));
                     self.running.push(pid);

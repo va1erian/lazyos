@@ -1,4 +1,4 @@
-//! `devctl` (`DEVCTL.ELF`): what the device layer looks like right now
+//! `devctl` (`/system/bin/devctl`): what the device layer looks like right now
 //! (issue #481). Read-only on purpose: the driver class rules are compiled
 //! into the kernel and installed at boot, so there is nothing to edit here.
 //!

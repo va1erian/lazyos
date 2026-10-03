@@ -163,6 +163,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "ext2fs",
+ "fhs",
 ]
 
 [[package]]
@@ -347,6 +348,9 @@ dependencies = [
 [[package]]
 name = "fhs"
 version = "0.1.0"
+dependencies = [
+ "fhs",
+]
 
 [[package]]
 name = "foldhash"
@@ -537,8 +541,10 @@ dependencies = [
  "libm",
  "libmessenger",
  "linked_list_allocator",
+ "logstore",
  "messenger-generated",
  "netpolicy",
+ "pkgstore",
  "sndpolicy",
  "spin",
  "surfbuf",
@@ -556,7 +562,9 @@ version = "0.1.0"
 dependencies = [
  "bootloader",
  "ext2fs",
+ "fhs",
  "kernel",
+ "passwd",
  "user",
 ]
 
@@ -575,6 +583,7 @@ name = "lazypkg"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "fhs",
  "fuzzkit",
  "lazyos-crypto",
  "miniz_oxide",
@@ -633,6 +642,13 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "logstore"
+version = "0.1.0"
+dependencies = [
+ "ext2fs",
+]
 
 [[package]]
 name = "managed"
@@ -715,6 +731,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "passwd"
+version = "0.1.0"
+
+[[package]]
 name = "password-hash"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,10 +759,13 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pkgstore"
 version = "0.1.0"
 dependencies = [
+ "crc",
+ "ext2fs",
  "fhs",
  "lazyos-crypto",
  "lazypkg",
  "messenger-generated",
+ "miniz_oxide",
 ]
 
 [[package]]
@@ -1153,6 +1176,7 @@ dependencies = [
  "audioclient",
  "audiomix",
  "confd",
+ "deskmenu",
  "devinspect",
  "fhs",
  "font-atlas",
@@ -1162,14 +1186,17 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "libmessenger",
+ "logstore",
  "messenger-generated",
  "modplay",
  "netpolicy",
  "netstack",
  "nicdrv",
+ "passwd",
  "pcm",
  "pkgstore",
  "sndpolicy",
+ "spin",
  "surfbuf",
  "timezone",
  "uitheme",

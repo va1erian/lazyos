@@ -33,8 +33,10 @@ extern crate std;
 extern crate alloc;
 
 mod error;
+mod files;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+mod grammar;
 mod inflate;
 mod layout;
 mod manifest;
@@ -44,10 +46,13 @@ mod tests;
 #[cfg(test)]
 mod testzip;
 mod validate;
+mod version;
 mod zip;
 
 pub use error::{ManifestError, OpenError, Problem, ReadError};
-pub use manifest::{App, Entry, Manifest, MimeHandler, Permissions};
+pub use files::HOME_VAR;
+pub use manifest::{App, Category, Entry, Manifest, MimeHandler, Permissions};
+pub use version::{Version, VersionError, MAX_VERSION_LEN};
 pub use zip::EntryInfo;
 
 use alloc::format;
@@ -153,6 +158,21 @@ impl<'a> Package<'a> {
         extract(self.bytes, entry)
     }
 
+    /// [`Package::read`] into `out`, replacing its contents and reusing its
+    /// allocation: extracting a package entry by entry through one buffer
+    /// keeps a long-lived reader's heap bounded by the largest entry.
+    pub fn read_into(&self, name: &str, out: &mut Vec<u8>) -> Result<(), ReadError> {
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.info.name == name)
+            .ok_or(ReadError::NoSuchEntry)?;
+        if entry.info.is_dir {
+            return Err(ReadError::IsDirectory);
+        }
+        extract_into(self.bytes, entry, out)
+    }
+
     /// SHA-256 of the whole archive.
     pub fn digest(&self) -> [u8; 32] {
         self.digest
@@ -192,6 +212,13 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, ManifestError> {
 /// Read and CRC-check one entry. Bounds were validated at open; the checked
 /// arithmetic here is a belt-and-braces guard that must never fire.
 fn extract(bytes: &[u8], entry: &ZipEntry<'_>) -> Result<Vec<u8>, ReadError> {
+    let mut out = Vec::new();
+    extract_into(bytes, entry, &mut out)?;
+    Ok(out)
+}
+
+/// [`extract`] into a caller-owned buffer.
+fn extract_into(bytes: &[u8], entry: &ZipEntry<'_>, out: &mut Vec<u8>) -> Result<(), ReadError> {
     let name = entry.info.name;
     let end = entry
         .data_start
@@ -200,16 +227,17 @@ fn extract(bytes: &[u8], entry: &ZipEntry<'_>) -> Result<Vec<u8>, ReadError> {
     let data = bytes
         .get(entry.data_start..end)
         .ok_or_else(|| ReadError::Corrupt { name: name.into() })?;
-    let out =
-        inflate::decompress(entry.method, data, entry.info.size).map_err(|error| match error {
+    inflate::decompress_into(entry.method, data, entry.info.size, out).map_err(
+        |error| match error {
             inflate::InflateError::Corrupt => ReadError::Corrupt { name: name.into() },
             inflate::InflateError::SizeMismatch { expected, actual } => ReadError::SizeMismatch {
                 name: name.into(),
                 expected,
                 actual,
             },
-        })?;
-    let actual = inflate::crc32(&out);
+        },
+    )?;
+    let actual = inflate::crc32(out);
     if actual != entry.info.crc32 {
         return Err(ReadError::CrcMismatch {
             name: name.into(),
@@ -217,7 +245,7 @@ fn extract(bytes: &[u8], entry: &ZipEntry<'_>) -> Result<Vec<u8>, ReadError> {
             actual,
         });
     }
-    Ok(out)
+    Ok(())
 }
 
 fn manifest_read_error(error: ReadError) -> OpenError {

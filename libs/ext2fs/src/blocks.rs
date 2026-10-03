@@ -3,9 +3,42 @@
 use super::*;
 
 impl Ext2 {
+    /// Allocate a data block. A full volume with frees waiting for a commit
+    /// commits and tries again. Cached, the new block starts as a zeroed
+    /// *fresh* block, so whatever is written into it reaches the disk before
+    /// any pointer to it (`cache/roles.rs`).
+    pub(super) fn alloc_block(&self) -> Result<u32, Ext2Error> {
+        let block = match self.alloc_block_now() {
+            Err(Ext2Error::NoSpace) if self.has_pending() => {
+                self.commit_locked()?;
+                self.alloc_block_now()?
+            }
+            other => other?,
+        };
+        if self.cache.is_some() {
+            if let Err(error) = self.zero_block(u64::from(block)) {
+                let _ = self.free_block(block);
+                return Err(error);
+            }
+        }
+        Ok(block)
+    }
+
+    /// Allocate an inode, committing first when only pending frees would
+    /// make room (see [`Ext2::alloc_block`]).
+    pub(super) fn alloc_inode(&self, is_dir: bool) -> Result<u32, Ext2Error> {
+        match self.alloc_inode_now(is_dir) {
+            Err(Ext2Error::NoSpace) if self.has_pending() => {
+                self.commit_locked()?;
+                self.alloc_inode_now(is_dir)
+            }
+            other => other,
+        }
+    }
+
     /// Allocate a data block from the first group with a free bit, updating
     /// the group descriptor and the superblock counters together.
-    pub(super) fn alloc_block(&self) -> Result<u32, Ext2Error> {
+    fn alloc_block_now(&self) -> Result<u32, Ext2Error> {
         if self.read_only {
             return Err(Ext2Error::ReadOnly);
         }
@@ -43,7 +76,7 @@ impl Ext2 {
     }
 
     /// Return a data block to its group bitmap and counters.
-    pub(super) fn free_block(&self, block: u32) -> Result<(), Ext2Error> {
+    pub(super) fn release_block(&self, block: u32) -> Result<(), Ext2Error> {
         if self.read_only {
             return Err(Ext2Error::ReadOnly);
         }
@@ -71,7 +104,7 @@ impl Ext2 {
     }
 
     /// Allocate an inode, updating the group's free count and directory count.
-    pub(super) fn alloc_inode(&self, is_dir: bool) -> Result<u32, Ext2Error> {
+    fn alloc_inode_now(&self, is_dir: bool) -> Result<u32, Ext2Error> {
         if self.read_only {
             return Err(Ext2Error::ReadOnly);
         }
@@ -120,7 +153,7 @@ impl Ext2 {
     }
 
     /// Return an inode to its group bitmap and counters.
-    pub(super) fn free_inode(&self, ino: u32, is_dir: bool) -> Result<(), Ext2Error> {
+    pub(super) fn release_inode(&self, ino: u32, is_dir: bool) -> Result<(), Ext2Error> {
         if self.read_only {
             return Err(Ext2Error::ReadOnly);
         }

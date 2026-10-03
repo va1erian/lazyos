@@ -211,15 +211,27 @@ pub fn concurrent_clients_are_not_a_deadlock() -> Result<(), String> {
     fresh()
 }
 
-/// The service name intern table is bounded: distinct spellings of one file
-/// name (`A.ELF`, `a.elf`, `./A.ELF`) must not leak a string each.
+/// The service name intern table is case-sensitive and bounded: `a` and `A`
+/// are two programs, one basename reached through different directories is
+/// one name, and invented names stop leaking a string each at the cap.
 pub fn intern_service_names_are_bounded() -> Result<(), String> {
+    // Before the flood below fills the table.
+    let lower = process::intern_service_name_for_test("/system/bin/a");
+    let upper = process::intern_service_name_for_test("A");
+    check!(
+        lower == "a" && upper == "A",
+        "`a` and `A` interned as {lower:?} and {upper:?}"
+    );
+    check!(
+        core::ptr::eq(lower, process::intern_service_name_for_test("./a")),
+        "one basename interned twice"
+    );
     let mut leaked = 0usize;
     let mut fallback = 0usize;
     for i in 0..400 {
         let name = format!("./spelling{i}.elf");
         let interned = process::intern_service_name_for_test(&name);
-        if interned == name {
+        if interned == &name[2..] {
             leaked += 1;
         } else {
             fallback += 1;

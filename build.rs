@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/core_packages.rs"]
+mod core_packages;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]
@@ -25,6 +27,8 @@ mod os_image;
 mod os_layout;
 #[path = "build_support/os_manifest.rs"]
 mod os_manifest;
+#[path = "build_support/os_recover.rs"]
+mod os_recover;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 #[path = "build_support/xui_embed.rs"]
@@ -32,17 +36,35 @@ mod xui_embed;
 
 use os_image::Sink;
 
-/// The passwd-style account database (issue #101), `name:uid:gid:secret:home:
-/// shell`. This branch has no writable store, so accountsd reads this
-/// read-only fallback; the secret is plaintext *on purpose* for bring-up and is
-/// replaced by keyd + Argon2id (`docs/security-model.md` section 3). The shell
-/// is BusyBox `sh` (the `sh` applet alias the kernel's Linux loader resolves to
-/// `BUSYBOX`, issue #254); `logind` prefixes it with `linux:` when it spawns
-/// the login shell. `root` keeps the system identity for admin operations,
-/// `alice` is the unprivileged demo login a headless session uses. The image
-/// layout also takes the `/data/home/<user>` directories from it
-/// (`tools/mkdisk/accounts.py` reads this literal).
-const PASSWD: &[u8] = b"root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
+/// The account file (issues #101, #508), `name:uid:gid:secret:home:shell`,
+/// installed as `/system/etc/passwd`: the **only** account source. `accountsd`
+/// has no built-in table and fails closed without it. `build_support/passwd` is
+/// the single copy: the image layout takes the `/home/<name>` directories from
+/// it, and `tools/mkdisk/accounts.py` reads the same file for the home volume.
+/// `admin` (uid 0) is the administrator, `user` (uid 1000) the unprivileged
+/// demo login. The secret is plaintext *on purpose* for bring-up; hashes and
+/// `/system/etc/shadow` are #447's (`docs/security-model.md` section 3). The
+/// shell is BusyBox `sh` (the `sh` applet alias the kernel's Linux loader
+/// resolves to `/system/bin/busybox`, issue #254).
+const PASSWD: &[u8] = include_bytes!("build_support/passwd");
+
+/// The account file to install: [`PASSWD`], checked with the parser
+/// `accountsd` loads it with, so a file the daemon would refuse never ships.
+/// `LAZYOS_OMIT_PASSWD=1` leaves it out, for the fail-closed check (an image
+/// on which `accountsd` reports `failed` and no login succeeds).
+fn account_file() -> Option<&'static [u8]> {
+    println!("cargo:rerun-if-changed=build_support/passwd");
+    println!("cargo:rerun-if-env-changed=LAZYOS_OMIT_PASSWD");
+    if let Err(error) = passwd::parse(PASSWD) {
+        panic!("build_support/passwd: accountsd would refuse it: {error}");
+    }
+    let omit = std::env::var_os("LAZYOS_OMIT_PASSWD").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if omit {
+        println!("cargo:warning=LAZYOS_OMIT_PASSWD=1: no account file; no login will succeed");
+        return None;
+    }
+    Some(PASSWD)
+}
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -62,7 +84,10 @@ fn main() {
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
     println!("cargo:rerun-if-env-changed=LAZYOS_OS_SIZE");
     println!("cargo:rerun-if-env-changed=LAZYOS_RESET_OS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_UPDATE_DAMAGED_OS");
     let settings = os_image::Settings {
+        update_damaged: std::env::var_os("LAZYOS_UPDATE_DAMAGED_OS").as_deref()
+            == Some(std::ffi::OsStr::new("1")),
         os_size: match std::env::var("LAZYOS_OS_SIZE") {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
             Err(_) => os_disk::DEFAULT_OS_SIZE,
@@ -85,7 +110,7 @@ fn main() {
     // other file goes to the OS file list.
     let mut builder = bootloader::DiskImageBuilder::new(kernel);
     builder.set_file_contents(
-        String::from("lazyos.cfg"),
+        String::from(fhs::boot::LAZYOS_CFG),
         os_image::boot_cfg(plan.uuid).into_bytes(),
     );
     let mut files = os_image::OsFiles::default();
@@ -96,39 +121,38 @@ fn main() {
     if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
         builder.set_ramdisk(PathBuf::from(ramdisk));
     }
-    files.add_bytes("HELLO.TXT", b"Hello from LazyOS!\n\nThis file lives on the ext2 OS volume.\nYou are reading it through the block driver and the ext2 reader.\n".to_vec(),
+    let sample = |name: &str| format!("{}/{name}", fhs::share::SAMPLES);
+    files.add_bytes(&sample("hello.txt"), b"Hello from LazyOS!\n\nThis file lives on the ext2 OS volume.\nYou are reading it through the block driver and the ext2 reader.\n".to_vec(),
     );
-    files.add_bytes("NOTES.TXT", b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- ext2 OS volume plus a FAT /boot\n".to_vec(),
+    files.add_bytes(&sample("notes.txt"), b"LazyOS notes\n-----------\n- single-tasking x86_64 kernel\n- tiny-skia graphics\n- PS/2 keyboard + mouse\n- ext2 OS volume plus a FAT /boot\n".to_vec(),
     );
     // The Docs app's test document (`xui-app/docs/testdata/`): opened by the
-    // Docs screenshot session through the Open dialog, and by hand as
-    // `/TESTDOC.MD` in the Docs app or the Editor.
+    // Docs screenshot session through the Open dialog, and by hand in the Docs
+    // app or the Editor.
     println!("cargo:rerun-if-changed=xui-app/docs/testdata/testdoc.md");
     files.add_bytes(
-        "TESTDOC.MD",
+        fhs::share::TESTDOC,
         include_bytes!("xui-app/docs/testdata/testdoc.md").to_vec(),
     );
-    // The ring-3 demo program, loaded and run by `run HELLO.ELF`. The system
-    // shell is BusyBox `sh` (issue #254), embedded separately below.
+    // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
+    // embedded separately below.
     let hello =
         std::env::var_os("CARGO_BIN_FILE_USER_hello").expect("user hello artifact not found");
-    files.add_file("HELLO.ELF", PathBuf::from(hello));
-    // Deliberate ring-3 faults (issue #7): `exec FAULTPRB.ELF null|kernel|priv|div|ud`.
+    files.add_file(fhs::bin::HELLO, PathBuf::from(hello));
+    // Deliberate ring-3 faults (issue #7): `faultprobe null|kernel|priv|div|ud`.
     let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
         .expect("user faultprobe artifact not found");
-    files.add_file("FAULTPRB.ELF", PathBuf::from(faultprobe));
+    files.add_file(fhs::bin::FAULTPROBE, PathBuf::from(faultprobe));
     // The fabric observability tool (issue #70); boot it with
-    // `LAZYOS_MESSENGERCTL=1`. The on-disk name is the short `MSGCTL.ELF`, which
-    // the kernel spawns by that exact spelling (ext2 is case-sensitive).
+    // `LAZYOS_MESSENGERCTL=1`. Every program goes to its `fhs::bin` path, which
+    // its spawners use byte for byte (ext2 is case-sensitive).
     let messengerctl = std::env::var_os("CARGO_BIN_FILE_USER_messengerctl")
         .expect("user messengerctl artifact not found");
-    files.add_file("MSGCTL.ELF", PathBuf::from(messengerctl));
-    // The registry daemon (issue #89), started by `LAZYOS_MESSENGERD=1`. The
-    // on-disk name is the short `MSGRD.ELF`, which the kernel spawns by that
-    // exact spelling.
+    files.add_file(fhs::bin::MESSENGERCTL, PathBuf::from(messengerctl));
+    // The registry daemon (issue #89), started by `LAZYOS_MESSENGERD=1`.
     let messengerd = std::env::var_os("CARGO_BIN_FILE_USER_messengerd")
         .expect("user messengerd artifact not found");
-    files.add_file("MSGRD.ELF", PathBuf::from(messengerd));
+    files.add_file(fhs::bin::MESSENGERD, PathBuf::from(messengerd));
 
     // Desktop profile (issue #217): one `LAZYOS_DESKTOP=1` switch that expands
     // to the desktop recipe — a services session (`LAZYOS_SERVICES`), the
@@ -147,142 +171,135 @@ fn main() {
         desktop || std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"));
 
     // System services (issue #93). `init` is the supervisor the kernel boots
-    // with `LAZYOS_SERVICES=1`; it starts the rest from its manifest. The
-    // on-disk name is `SUPER.ELF`, not `INIT.ELF`: the ABI bench hook below
-    // reserves `INIT.ELF` for a Linux fixture.
+    // with `LAZYOS_SERVICES=1`; it starts the rest from its manifest. The ABI
+    // bench hook below places its Linux fixture at `abi-init`, not `init`.
     let init = std::env::var_os("CARGO_BIN_FILE_USER_init").expect("user init artifact not found");
-    files.add_file("SUPER.ELF", PathBuf::from(init));
+    files.add_file(fhs::bin::INIT, PathBuf::from(init));
     let logd = std::env::var_os("CARGO_BIN_FILE_USER_logd").expect("user logd artifact not found");
-    files.add_file("LOGD.ELF", PathBuf::from(logd));
+    files.add_file(fhs::bin::LOGD, PathBuf::from(logd));
     let healthd =
         std::env::var_os("CARGO_BIN_FILE_USER_healthd").expect("user healthd artifact not found");
-    files.add_file("HEALTHD.ELF", PathBuf::from(healthd));
+    files.add_file(fhs::bin::HEALTHD, PathBuf::from(healthd));
     // The secrets and crypto service (issue #102). `init` starts it from its
-    // manifest when the image boots with `LAZYOS_SERVICES=1`; the name
-    // `KEYD.ELF` is what `init`'s manifest spawns.
+    // manifest when the image boots with `LAZYOS_SERVICES=1`.
     let keyd = std::env::var_os("CARGO_BIN_FILE_USER_keyd").expect("user keyd artifact not found");
-    files.add_file("KEYD.ELF", PathBuf::from(keyd));
+    files.add_file(fhs::bin::KEYD, PathBuf::from(keyd));
 
     // The per-session clipboard service (issue #115). Like `keyd`, `init`
     // starts it from its manifest when the image boots with
-    // `LAZYOS_SERVICES=1`; the name is what `init`'s manifest spawns.
+    // `LAZYOS_SERVICES=1`.
     let clipboardd = std::env::var_os("CARGO_BIN_FILE_USER_clipboardd")
         .expect("user clipboardd artifact not found");
-    files.add_file("CLIPD.ELF", PathBuf::from(clipboardd));
+    files.add_file(fhs::bin::CLIPBOARDD, PathBuf::from(clipboardd));
 
     // The evidence-only programs. `init` never starts them in the desktop
     // profile, so the image leaves their ELFs out entirely: the deliberate
     // crash service (issue #93), whose restart-with-backoff demo is the
-    // `FLAKY.ELF` row, and the clipboard demo pair (issue #115), which
+    // `flaky` row, and the clipboard demo pair (issue #115), which
     // `clipboardd` spawns under `demo=1`.
     if !desktop {
         let flaky =
             std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
-        files.add_file("FLAKY.ELF", PathBuf::from(flaky));
+        files.add_file(fhs::bin::FLAKY, PathBuf::from(flaky));
         let clipcopy = std::env::var_os("CARGO_BIN_FILE_USER_clipcopy")
             .expect("user clipcopy artifact not found");
-        files.add_file("CLIPCP.ELF", PathBuf::from(clipcopy));
+        files.add_file(fhs::bin::CLIPCP, PathBuf::from(clipcopy));
         let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
             .expect("user clippaste artifact not found");
-        files.add_file("CLIPPS.ELF", PathBuf::from(clippaste));
+        files.add_file(fhs::bin::CLIPPASTE, PathBuf::from(clippaste));
     }
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
-    // `logind` from its manifest; `accountsd` reads `PASSWD` when present. All
+    // `logind` from its manifest; `accountsd` reads `passwd` when present. All
     // three are added only to the services image (`LAZYOS_SERVICES=1`): the
     // plain demo never starts them, and keeping them out of the ABI bench
     // image preserves its baseline size and boot time.
     if services {
         let accountsd = std::env::var_os("CARGO_BIN_FILE_USER_accountsd")
             .expect("user accountsd artifact not found");
-        files.add_file("ACCTD.ELF", PathBuf::from(accountsd));
+        files.add_file(fhs::bin::ACCOUNTSD, PathBuf::from(accountsd));
         let logind =
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
-        files.add_file("LOGIND.ELF", PathBuf::from(logind));
+        files.add_file(fhs::bin::LOGIND, PathBuf::from(logind));
 
-        // The configuration registry (issue #260). `init` starts `confd`
-        // (`CONFD.ELF`) from its manifest; `confctl` is its native command line.
+        // The configuration registry (issue #260). `init` starts `confd` from
+        // its manifest; `confctl` is its native command line.
         // Both are gated behind `LAZYOS_SERVICES=1`, like the other services,
         // so the plain demo image is unchanged.
         let confd =
             std::env::var_os("CARGO_BIN_FILE_USER_confd").expect("user confd artifact not found");
-        files.add_file("CONFD.ELF", PathBuf::from(confd));
+        files.add_file(fhs::bin::CONFD, PathBuf::from(confd));
         let confctl = std::env::var_os("CARGO_BIN_FILE_USER_confctl")
             .expect("user confctl artifact not found");
-        files.add_file("CONFCTL.ELF", PathBuf::from(confctl));
+        files.add_file(fhs::bin::CONFCTL, PathBuf::from(confctl));
 
         // The input policy service (docs/input-plan.md). `init` starts
-        // `inputd` (`INPUTD.ELF`) after `confd`; it is the only task that
-        // holds the kernel's `input.raw` capability.
+        // `inputd` after `confd`; it is the only task that holds the kernel's
+        // `input.raw` capability.
         let inputd =
             std::env::var_os("CARGO_BIN_FILE_USER_inputd").expect("user inputd artifact not found");
-        files.add_file("INPUTD.ELF", PathBuf::from(inputd));
+        files.add_file(fhs::bin::INPUTD, PathBuf::from(inputd));
 
-        // The time-of-day service (issue #369). `init` starts `timed`
-        // (`TIMED.ELF`) after `messengerd` and `confd`.
+        // The time-of-day service (issue #369). `init` starts `timed` after
+        // `messengerd` and `confd`.
         let timed =
             std::env::var_os("CARGO_BIN_FILE_USER_timed").expect("user timed artifact not found");
-        files.add_file("TIMED.ELF", PathBuf::from(timed));
+        files.add_file(fhs::bin::TIMED, PathBuf::from(timed));
         let timectl = std::env::var_os("CARGO_BIN_FILE_USER_timectl")
             .expect("user timectl artifact not found");
-        files.add_file("TIMECTL.ELF", PathBuf::from(timectl));
+        files.add_file(fhs::bin::TIMECTL, PathBuf::from(timectl));
 
         // The orderly shutdown/reboot command (docs/shutdown.md): `init`'s
         // `Shutdown` from the shell (`shutdown`, `poweroff`, `halt`, `reboot`).
         let powerctl = std::env::var_os("CARGO_BIN_FILE_USER_powerctl")
             .expect("user powerctl artifact not found");
-        files.add_file("POWERCTL.ELF", PathBuf::from(powerctl));
+        files.add_file(fhs::bin::POWERCTL, PathBuf::from(powerctl));
 
         // The MIME database and open-with registry (issue #116). `init`
-        // starts it from its manifest; `MIMED.ELF` is the on-disk
-        // name. `MIME.TYP` is the `/etc/mime.types`-style override the
-        // service reads at boot; it keeps this flat name because the service
-        // opens it by that exact spelling (an ext2 boot volume can carry
-        // `/etc/mime.types` instead, which `mimed` tries first).
+        // starts it from its manifest. `mime.types` is the override file the
+        // service reads at boot.
         let mimed =
             std::env::var_os("CARGO_BIN_FILE_USER_mimed").expect("user mimed artifact not found");
-        files.add_file("MIMED.ELF", PathBuf::from(mimed));
+        files.add_file(fhs::bin::MIMED, PathBuf::from(mimed));
 
         // The application package manager (docs/packages.md phase 3). `init`
-        // starts `PKGD.ELF` from its manifest (after `confd` and `mimed`);
-        // `PKGCTL.ELF` is its command line, run from the Terminal. Both names
-        // are the names `init`'s manifest spawns.
+        // starts `pkgd` from its manifest (after `confd` and `mimed`); `pkgctl`
+        // is its command line, run from the Terminal.
         let pkgd =
             std::env::var_os("CARGO_BIN_FILE_USER_pkgd").expect("user pkgd artifact not found");
-        files.add_file("PKGD.ELF", PathBuf::from(pkgd));
+        files.add_file(fhs::bin::PKGD, PathBuf::from(pkgd));
         let pkgctl =
             std::env::var_os("CARGO_BIN_FILE_USER_pkgctl").expect("user pkgctl artifact not found");
-        files.add_file("PKGCTL.ELF", PathBuf::from(pkgctl));
+        files.add_file(fhs::bin::PKGCTL, PathBuf::from(pkgctl));
         xui_embed::embed_sample_packages(&mut files);
         files.add_bytes(
-            "MIME.TYP",
+            fhs::share::MIME_TYPES,
             b"# LazyOS MIME overrides, /etc/mime.types style: <mime> <ext>...\n\
-              # The image keeps this flat name at the volume root; an ext2 boot\n\
-              # volume can carry /etc/mime.types instead.\n\
               text/x-lazy-test lzt\n\
               application/x-lazyos lazy\n"
                 .to_vec(),
         );
 
         // The account database `accountsd` reads (see [`PASSWD`]).
-        files.add_bytes("PASSWD", PASSWD.to_vec());
+        if let Some(passwd) = account_file() {
+            files.add_bytes(fhs::etc::PASSWD, passwd.to_vec());
+        }
 
-        // The system monitor (issue #144). `init` starts `sysmond`
-        // (`SYSD.ELF`) from its manifest; the service wraps the native
-        // system-stats syscall (14) and republishes retained `system/stats/*`
-        // topics. `TOP.ELF` is its one-shot native text client, spawned by
-        // `sysmond` (`demo=1`) so a headless services boot records `SYS:TOP:PASS`.
-        // Both names are the names `init`'s manifest spawns.
+        // The system monitor (issue #144). `init` starts `sysmond` from its
+        // manifest; the service wraps the native system-stats syscall (14) and
+        // republishes retained `system/stats/*` topics. `top` is its one-shot
+        // native text client, spawned by `sysmond` (`demo=1`) so a headless
+        // services boot records `SYS:TOP:PASS`.
         let sysmond = std::env::var_os("CARGO_BIN_FILE_USER_sysmond")
             .expect("user sysmond artifact not found");
-        files.add_file("SYSD.ELF", PathBuf::from(sysmond));
+        files.add_file(fhs::bin::SYSMOND, PathBuf::from(sysmond));
         // The `top` text client is the launch self-test's target, an
         // evidence-only program the desktop profile never starts, so its ELF
         // stays out of the desktop image.
         if !desktop {
             let top =
                 std::env::var_os("CARGO_BIN_FILE_USER_top").expect("user top artifact not found");
-            files.add_file("TOP.ELF", PathBuf::from(top));
+            files.add_file(fhs::bin::TOP, PathBuf::from(top));
         }
     }
 
@@ -292,18 +309,18 @@ fn main() {
     if xuid {
         let xuid =
             std::env::var_os("CARGO_BIN_FILE_USER_xuid").expect("user xuid artifact not found");
-        files.add_file("XUID.ELF", PathBuf::from(xuid));
+        files.add_file(fhs::bin::XUID, PathBuf::from(xuid));
         // `xdemo` and the drag & drop pair are demo clients; the desktop
         // profile runs its own xui apps as clients instead.
         if !desktop {
             let xdemo = std::env::var_os("CARGO_BIN_FILE_USER_xdemo")
                 .expect("user xdemo artifact not found");
-            files.add_file("XDEMO.ELF", PathBuf::from(xdemo));
+            files.add_file(fhs::bin::XDEMO, PathBuf::from(xdemo));
             // The drag & drop demo pair (issue #145); the kernel starts its
-            // launcher, and `DRAGDMO.ELF` is its on-disk name.
+            // launcher.
             let dragdemo = std::env::var_os("CARGO_BIN_FILE_USER_dragdemo")
                 .expect("user dragdemo artifact not found");
-            files.add_file("DRAGDMO.ELF", PathBuf::from(dragdemo));
+            files.add_file(fhs::bin::DRAGDEMO, PathBuf::from(dragdemo));
         }
     }
 
@@ -320,11 +337,11 @@ fn main() {
     {
         let probe = std::env::var_os("CARGO_BIN_FILE_USER_shellprobe")
             .expect("user shellprobe artifact not found");
-        files.add_file("SHELLPRB.ELF", PathBuf::from(probe));
+        files.add_file(fhs::bin::SHELLPROBE, PathBuf::from(probe));
     }
 
     // The xui app (issue #114): `LAZYOS_XUI_APP=<path>` embeds a static-musl
-    // binary built by `tools/xui/build.py` as `XAPP.ELF`. With `LAZYOS_XUID=1`
+    // binary built by `tools/xui/build.py` as `xapp`. With `LAZYOS_XUID=1`
     // the kernel boots it instead of the `xuid` + `xdemo` session, because the
     // app binds the display grant itself (it is the session's compositor).
     // Without `LAZYOS_XUID=1` the file is only embedded, never spawned.
@@ -337,7 +354,7 @@ fn main() {
         if app.is_file() {
             println!("cargo:warning=LAZYOS_XUI_APP embedded: {}", app.display());
             println!("cargo:rerun-if-changed={}", app.display());
-            files.add_file("XAPP.ELF", app);
+            files.add_file(fhs::bin::XAPP, app);
         } else {
             println!("cargo:warning=LAZYOS_XUI_APP not found: {}", app.display());
         }
@@ -345,6 +362,7 @@ fn main() {
 
     // The desktop shell (issue #157), on by default with the desktop profile.
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
 
@@ -352,21 +370,21 @@ fn main() {
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
     println!("cargo:rerun-if-env-changed=LAZYOS_TESTS");
     // Fabric observability demo switch (issue #70): the kernel boots the
-    // `messengerctl` tool (`MSGCTL.ELF`) in the hello window when this is set.
+    // `messengerctl` tool in the hello window when this is set.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERCTL");
     // CLI mode switch: the kernel boots only `sh` (no `hello` window).
     println!("cargo:rerun-if-env-changed=LAZYOS_CLI");
-    // Registry daemon switch (issue #89): the kernel starts `messengerd`
-    // (`MESSENGERD.ELF`) when this is set.
+    // Registry daemon switch (issue #89): the kernel starts `messengerd` when
+    // this is set.
     println!("cargo:rerun-if-env-changed=LAZYOS_MESSENGERD");
 
-    // ABI conformance bench hook: embed a Linux fixture as `INIT.ELF`.
+    // ABI conformance bench hook: embed a Linux fixture as `abi-init`.
     println!("cargo:rerun-if-env-changed=LAZYOS_INIT");
     if let Some(init) = std::env::var_os("LAZYOS_INIT") {
         let init = PathBuf::from(init);
         if init.is_file() {
             println!("cargo:warning=LAZYOS_INIT embedded: {}", init.display());
-            files.add_file("INIT.ELF", init);
+            files.add_file(fhs::bin::ABI_INIT, init);
         } else {
             println!("cargo:warning=LAZYOS_INIT not found: {}", init.display());
         }
@@ -375,7 +393,7 @@ fn main() {
     // BusyBox is the system shell (issue #254). It is a fetched/built artifact
     // (see `tools/abi/busybox.py`), so embed it automatically whenever it is
     // available — `LAZYOS_BUSYBOX` overrides the search. The ABI bench embeds a
-    // fixture as `INIT.ELF` instead (`LAZYOS_INIT`); skipping BusyBox then
+    // fixture as `abi-init` instead (`LAZYOS_INIT`); skipping BusyBox then
     // keeps those images small and lets the fixture own the boot. Without a
     // BusyBox the image still boots, just without a console shell,
     // and this warns so the reason is visible in the build log.
@@ -401,25 +419,26 @@ fn main() {
         Some(path) => {
             println!("cargo:warning=LAZYOS_BUSYBOX embedded: {}", path.display());
             println!("cargo:rerun-if-changed={}", path.display());
-            files.add_file("BUSYBOX", path);
+            files.add_file(fhs::bin::BUSYBOX, path);
         }
         None => println!(
             "cargo:warning=LAZYOS_BUSYBOX unavailable; the image will have no console shell \
              (run tools/abi/busybox.py for build/supply instructions)"
         ),
     }
-    // The `rhai` scripting command (issue #319), resolved from `sh` as RHAI.ELF.
+    // The `rhai` scripting command (issue #319), found from `sh` in /system/bin.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut files, &manifest_dir);
-    // The documentation tree (`docs/**/*.md` plus `README.md`) at `/docs/...`,
+    // The documentation tree (`docs/**/*.md` plus `README.md`) at `/docs/os/...`,
     // read by the Docs app and the Editor.
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     docs_embed::embed(&mut files, &manifest_dir);
-    // The `lazyrad` runtime (`LAZYOS_LAZYRAD=1`), embedded as LRPLAY.ELF and
-    // LAZYRAD.ELF, plus the sample projects in `LAZYRAD_SAMPLES`.
+    // The `lazyrad` runtime (`LAZYOS_LAZYRAD=1`), embedded as `lrplay` and
+    // `lazyrad`, plus the sample projects in `LAZYRAD_SAMPLES`.
     println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
     lazyrad_embed::embed(&mut files, &manifest_dir);
-    // The Doom package (`LAZYOS_DOOM=1`) as /DOOM.LZP, installed through pkgd.
+    // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
+    // through pkgd.
     doom_embed::embed(&mut files, &manifest_dir);
     builder
         .create_bios_image(&bios_image)

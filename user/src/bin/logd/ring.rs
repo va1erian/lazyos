@@ -6,6 +6,9 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+// The journals (`libs/logstore`) chain their lines with the same function.
+use logstore::line::record_hash;
+
 /// Newest records kept in the ring.
 pub(super) const RING_CAPACITY: usize = 64;
 
@@ -89,23 +92,4 @@ impl Ring {
         }
         (true, self.records.len() as u64)
     }
-}
-
-/// FNV-1a over the previous hash and the record fields.
-fn record_hash(previous: u64, seq: u64, tick: u64, topic: &str, detail: &str) -> u64 {
-    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    let mut hash = if previous == 0 { OFFSET } else { previous };
-    for byte in seq
-        .to_le_bytes()
-        .iter()
-        .chain(tick.to_le_bytes().iter())
-        .chain(topic.as_bytes())
-        .chain(b"|")
-        .chain(detail.as_bytes())
-    {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(PRIME);
-    }
-    hash
 }

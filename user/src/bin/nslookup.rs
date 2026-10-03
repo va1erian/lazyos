@@ -1,4 +1,4 @@
-//! `nslookup` (`NSLOOKUP.ELF`): look a host name up through the stack service
+//! `nslookup` (`/system/bin/nslookup`): look a host name up through the stack service
 //! (`docs/networking-plan.md`, stage N3).
 //!
 //! Usage: `nslookup <name>`. One `Resolve` call on `os.lazy.net.stack.v1`: `netd`

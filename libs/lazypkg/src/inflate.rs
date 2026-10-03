@@ -23,8 +23,29 @@ pub(crate) fn crc32(data: &[u8]) -> u32 {
 }
 
 /// Inflate (or copy, for stored) one entry into a new `Vec`, bounded by `size`.
+#[cfg(test)]
 pub(crate) fn decompress(method: u16, data: &[u8], size: u32) -> Result<Vec<u8>, InflateError> {
+    let mut out = Vec::new();
+    decompress_into(method, data, size, &mut out)?;
+    Ok(out)
+}
+
+/// Inflate (or copy, for stored) one entry into `out`, replacing its contents,
+/// bounded by `size`.
+///
+/// `out` is sized once to the declared size and filled in place, so a caller
+/// that passes the same `Vec` for every entry reuses one allocation. That is
+/// what keeps `pkgd` bounded: the user heap never returns a block over 64 KiB,
+/// and growing a fresh `Vec` while inflating would leave every intermediate
+/// size behind.
+pub(crate) fn decompress_into(
+    method: u16,
+    data: &[u8],
+    size: u32,
+    out: &mut Vec<u8>,
+) -> Result<(), InflateError> {
     let expected = size as usize;
+    out.clear();
     match method {
         0 => {
             if data.len() != expected {
@@ -33,18 +54,34 @@ pub(crate) fn decompress(method: u16, data: &[u8], size: u32) -> Result<Vec<u8>,
                     actual: data.len().min(u32::MAX as usize) as u32,
                 });
             }
-            Ok(data.to_vec())
+            out.extend_from_slice(data);
+            Ok(())
         }
         8 => {
-            let out = miniz_oxide::inflate::decompress_to_vec_with_limit(data, expected)
-                .map_err(|_| InflateError::Corrupt)?;
-            if out.len() != expected {
-                return Err(InflateError::SizeMismatch {
+            use miniz_oxide::inflate::core::{decompress, inflate_flags, DecompressorOxide};
+            use miniz_oxide::inflate::TINFLStatus;
+            out.resize(expected, 0);
+            // About 11 KiB: boxed so it never lands on a small stack, and small
+            // enough for the user heap to recycle.
+            let mut state = alloc::boxed::Box::<DecompressorOxide>::default();
+            let flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+            let (status, _read, written) = decompress(&mut state, data, out, 0, flags);
+            match status {
+                TINFLStatus::Done if written == expected => Ok(()),
+                TINFLStatus::Done => {
+                    out.truncate(written);
+                    Err(InflateError::SizeMismatch {
+                        expected: size,
+                        actual: written.min(u32::MAX as usize) as u32,
+                    })
+                }
+                // The stream wants to write past the declared size.
+                TINFLStatus::HasMoreOutput => Err(InflateError::SizeMismatch {
                     expected: size,
-                    actual: out.len().min(u32::MAX as usize) as u32,
-                });
+                    actual: u32::MAX,
+                }),
+                _ => Err(InflateError::Corrupt),
             }
-            Ok(out)
         }
         _ => Err(InflateError::Corrupt),
     }
@@ -90,5 +127,22 @@ mod tests {
     #[test]
     fn unknown_methods_are_corrupt() {
         assert_eq!(decompress(99, b"x", 1), Err(InflateError::Corrupt));
+    }
+
+    #[test]
+    fn decompress_into_reuses_the_buffer() {
+        let plain = b"reuse me ".repeat(4096);
+        let compressed = miniz_oxide::deflate::compress_to_vec(&plain, 6);
+        let mut out = Vec::with_capacity(plain.len());
+        let before = out.as_ptr();
+        decompress_into(8, &compressed, plain.len() as u32, &mut out).unwrap();
+        assert_eq!(out, plain);
+        assert_eq!(out.as_ptr(), before, "inflating moved the buffer");
+        decompress_into(0, b"short", 5, &mut out).unwrap();
+        assert_eq!(out, b"short");
+        assert_eq!(out.as_ptr(), before, "a stored copy moved the buffer");
+        // A declared size the stream does not fill is a mismatch.
+        assert!(decompress_into(8, &compressed, plain.len() as u32 + 1, &mut out).is_err());
+        assert!(out.len() <= plain.len());
     }
 }

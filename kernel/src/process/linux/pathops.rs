@@ -139,7 +139,7 @@ pub(super) fn sys_umask(mask: u64) -> u64 {
 /// `/proc/self/cwd`, the working directory.
 pub(super) fn sys_readlink(path: u64, buf: u64, size: u64) -> u64 {
     let target = match user_path(AT_FDCWD, path).as_deref() {
-        Ok("/proc/self/exe") => String::from(fhs::boot::BUSYBOX_PATH),
+        Ok("/proc/self/exe") => String::from(fhs::bin::BUSYBOX),
         Ok("/proc/self/cwd") => task::cwd(),
         Ok(_) => return err(ENOENT),
         Err(code) => return *code,

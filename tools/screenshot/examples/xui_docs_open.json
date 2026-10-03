@@ -1,4 +1,5 @@
 [
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
   {"wait_for": "DOCS:UP:PASS", "timeout": 240},
   {"wait_for": "DOCS:RENDER:PASS", "timeout": 240},
 
@@ -17,10 +18,10 @@
   {"at": 4.6, "key": "o"},
   {"at": 4.8, "key_up": "ctrl"},
   {"at": 5.6, "shot": "04_open_dialog_from_hotkey"},
-  {"at": 6.0, "type": "/TESTDOC.MD"},
+  {"at": 6.0, "type": "/system/share/samples/testdoc.md"},
   {"at": 6.6, "shot": "05_path_typed"},
-  {"at": 7.0, "key": "enter", "until": "DOCS:OPEN:PASS:/TESTDOC.MD", "timeout": 60, "retries": 2},
-  {"wait_for": "DOCS:RENDER:PASS:/TESTDOC.MD", "timeout": 60},
+  {"at": 7.0, "key": "enter", "until": "DOCS:OPEN:PASS:/system/share/samples/testdoc.md", "timeout": 60, "retries": 2},
+  {"wait_for": "DOCS:RENDER:PASS:/system/share/samples/testdoc.md", "timeout": 60},
   {"at": 1.0, "shot": "06_document_opened"},
 
   {"at": 9.0, "mouse_move": [400, 300]},

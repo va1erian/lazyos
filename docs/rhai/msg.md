@@ -8,7 +8,7 @@ scriptable as soon as the table is regenerated.
 
 ```bash
 rhai -e 'msg::connect("os.lazy.confd.v1").info()'
-#{"persistent": true, "store_dir": "/data/confd"}
+#{"persistent": true, "store_dir": "/conf"}
 ```
 
 The module exists only when `rhai` runs on LazyOS (it checks the kernel name),
@@ -192,7 +192,7 @@ fn form_load() {
 
 The player prints `LRPLAY:MSG:PASS` on serial once `msg` and `sys` are
 installed, and `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran in
-a form. The sample is `lazyrad-os/samples/messenger` (`/LAZYRAD/messenger` in
+a form. The sample is `lazyrad-os/samples/messenger` (`/system/share/lazyrad/messenger` in
 a `--lazyrad` image) and the guest check is `python tools/rhai/run.py
 --lazyrad` (`tools/screenshot/examples/lazyrad_msg.json`): the form starts,
 `poke.rhai` changes the confd key it watches and calls the service it serves.

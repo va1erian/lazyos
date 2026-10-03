@@ -76,7 +76,7 @@ ISR that performs context switches.
 | Function | Use |
 |---|---|
 | `spawn(name, elf)` | kernel-started program; own group/session |
-| `spawn_child(name, elf)` | child of the caller (supervision, syscall 6) |
+| `spawn_child(name, elf)` | child of the caller (supervision, `spawnv`) |
 | `spawn_linux(name, elf, argv0)` | Linux ABI loader; own group/session |
 | `spawn_thread(...)` | `clone(CLONE_VM)` thread: shares PML4, own stack/TLS |
 | `spawn_fork()` | COW copy of the current address space, `rax = 0` in child |

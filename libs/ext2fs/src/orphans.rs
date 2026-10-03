@@ -154,10 +154,17 @@ impl Ext2 {
         if ino < self.first_ino {
             return Err(Ext2Error::Invalid);
         }
+        // These frees are this order's whole point, so they skip the deferral
+        // a cached volume applies to every other free (`commit.rs`): the
+        // writeback puts the bitmaps ahead of the cleared inode, which is the
+        // resumable "stop during step 1" state. The barrier then lands steps
+        // 1-3 before the name goes, and before any block freed here can be
+        // reused.
         if self.inode_allocated(ino)? {
             self.release_orphan_blocks(child)?;
             self.clear_orphan_inode(ino, child)?;
-            self.free_inode(ino, false)?;
+            self.release_inode(ino, false)?;
+            self.barrier()?;
         }
         self.remove_entry(parent_ino, parent, name).map(|_| ())
     }
@@ -197,7 +204,7 @@ impl Ext2 {
             }
         }
         if self.block_allocated(block)? {
-            self.free_block(block)?;
+            self.release_block(block)?;
         }
         Ok(())
     }

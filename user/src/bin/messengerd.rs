@@ -1,4 +1,4 @@
-//! `messengerd` (`MSGRD.ELF`): the bootstrap registry daemon (issue #89) and
+//! `messengerd` (`/system/bin/messengerd`): the bootstrap registry daemon (issue #89) and
 //! the topics broker (issue #92).
 //!
 //! This is the userspace half of `docs/messenger.md` section 8. The kernel
@@ -23,9 +23,6 @@
 //! queued, or parked (the kernel keeps the caller asleep with a real
 //! deadline) until a matching publish arrives. That keeps the single-threaded
 //! daemon non-blocking and the publishers free of subscriber stalls.
-//!
-//! The on-disk name is `MSGRD.ELF`: 8.3-safe, because the kernel's FAT
-//! reader only resolves short names.
 //!
 //! Boot it with `LAZYOS_MESSENGERD=1` (see the kernel build script); the demo
 //! then starts this program alongside `hello` and `sh`.
