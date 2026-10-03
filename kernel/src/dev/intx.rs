@@ -373,6 +373,7 @@ fn run(now: u64, raised: u16) {
     for entry in batch.expired.iter().take(batch.expired_count).flatten() {
         record_timeout(entry.0, entry.1);
     }
+    crate::perf::lines_posting(raised);
     for post in batch.posts.iter().take(batch.post_count).flatten() {
         match post_irq(post) {
             Ok(()) => {
@@ -381,6 +382,7 @@ fn run(now: u64, raised: u16) {
             Err(error) => CLAIMS.lock().post_failed(post, error),
         }
     }
+    crate::perf::lines_posted();
 }
 
 fn record_timeout(id: DeviceId, owner: usize) {

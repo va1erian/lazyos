@@ -34,6 +34,7 @@ mod ipc;
 mod limits;
 mod mem;
 mod mux;
+mod perf;
 mod process;
 mod quota;
 mod serial;

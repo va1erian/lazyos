@@ -123,6 +123,7 @@ fn install(slot: usize) -> u64 {
         (task.pml4, task.kstack_top, task.rsp, task.fs_base)
     };
     CURRENT.store(slot, Ordering::Relaxed);
+    crate::perf::on_run(slot);
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
     if kstack_top != 0 {

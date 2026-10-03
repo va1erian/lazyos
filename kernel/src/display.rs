@@ -168,7 +168,11 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::BIND => bind(a1),
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
-        op::PRESENT => present::present(a1),
+        op::PRESENT => {
+            let result = present::present(a1);
+            crate::perf::presented();
+            result
+        }
         op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
         op::MAP_BUFFER => buffers::map_buffer(a1, a2),
         op::CLOSE_BUFFER => buffers::close_buffer(a1),

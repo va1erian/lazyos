@@ -50,6 +50,8 @@ pub fn run() -> ! {
         crate::block::stats::service();
         // Write cached filesystem data back every few seconds.
         crate::fs::flusher::service();
+        // `PERF:` latency lines (LAZYOS_PERF=1 images only).
+        crate::perf::service();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.

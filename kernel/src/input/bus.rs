@@ -331,6 +331,7 @@ fn now_ns() -> u64 {
 /// tests); never blocks and never allocates.
 pub fn publish(device: u8, kind: u8, code: u16, value: i32) {
     let ts_ns = now_ns();
+    crate::perf::input_published(pointer::mergeable(kind));
     let mut bus = BUS.lock();
     if pointer::mergeable(kind) && merge_tail(&mut bus, device, kind, code, value, ts_ns) {
         return;

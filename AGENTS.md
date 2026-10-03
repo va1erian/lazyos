@@ -267,6 +267,16 @@ cd lazyrad-os && cargo test                   # tracker unit tests; tests/modpla
 python tools/lazyrad/gen_demo_song.py --check # the built-in song (an original, CC0) is current
 ```
 
+## Latency harness
+
+`python tools/perf/run.py` builds the desktop with `LAZYOS_PERF=1` (kernel cfg
+`lazyos_perf`, hooks in `kernel/src/perf/`), boots it headless, knocks on its
+virtio-net card and moves the PS/2 mouse over QMP, and writes
+`docs/perf/report.md` from the kernel's `PERF:` lines (IRQ-to-task wake,
+input to `inputd`, input to present, interrupts-off syscall stretches,
+in-kernel IPC round trip). `--label X` appends a row to `docs/perf/history.md`;
+re-run it after a scheduling or wake-path change. See `tools/perf/README.md`.
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a

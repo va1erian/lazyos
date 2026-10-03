@@ -86,6 +86,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // the task-context half. Free when nothing is pending.
     crate::dev::intx::service();
     LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
+    crate::perf::syscall_entry(NATIVE_SYSCALL | regs.rax);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }
@@ -154,6 +155,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // task was blocked in this call ends it here, on its way back to user
     // mode, instead of waiting for a tick to catch it there.
     task::signal::deliver_native();
+    crate::perf::syscall_exit();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

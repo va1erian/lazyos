@@ -99,6 +99,7 @@ pub fn dispatch(line: u8) {
         // device nobody drives cannot storm.
         pic::set_masked(line, true);
         RAISED.fetch_or(1 << line, Ordering::AcqRel);
+        crate::perf::line_raised(line);
         RAISES.fetch_add(1, Ordering::Relaxed);
     }
     // SAFETY: called from the handler of `line`, once per interrupt.

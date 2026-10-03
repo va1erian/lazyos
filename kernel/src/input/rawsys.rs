@@ -160,6 +160,7 @@ fn poll(me: usize, ptr: u64, capacity: u64) -> u64 {
     if bus::drain(id, me, slots, &mut events).is_err() {
         return negative(EBADF);
     }
+    crate::perf::input_read(events.len());
     let mut encoded = Vec::with_capacity(events.len() * RAW_EVENT_BYTES);
     for event in &events {
         encoded.extend_from_slice(&event.to_bytes());
