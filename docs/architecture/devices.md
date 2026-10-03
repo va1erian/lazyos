@@ -191,10 +191,12 @@ boot-time DMA pool, wraps it in the ordinary shared-buffer object
 (`ipc::shared::create_from_frames`), and writes the run's physical address —
 the bus address until an IOMMU exists — to `*out`. The run is page aligned
 (larger alignments are honoured by the allocator), zeroed, below 4 GiB, and
-charged to `Resource::DmaMemory` (default 8 MiB per uid); `len` is 1..=4 MiB
-and the flags are `SHARE_ONLY` and "64-bit address OK". The returned `Buffer`
+charged to `Resource::DmaMemory` (default half the pool, at least 8 MiB per
+uid); `len` is 1 byte up to the whole pool and the flags are `SHARE_ONLY` and "64-bit address OK". The returned `Buffer`
 handle is transferable and can be handed to a client zero-copy. The pool is
-reserved once at `mem::init` (`min(16 MiB, usable/8)`, above the low megabyte,
+reserved once at `mem::init` (`limits::dma_pool_bytes`: 1/32 of RAM, 16..64
+MiB, never more than 1/8 of RAM; docs/architecture/limits.md), above the low
+megabyte,
 clear of the refcount table); its frames stay in the frame refcount table but
 are marked `RESERVED` while free, so the general allocator never hands them
 out, and a pool frame returns to the pool — not the general free list — when

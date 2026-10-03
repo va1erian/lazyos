@@ -29,6 +29,7 @@ pub struct Logical {
 
 impl Logical {
     /// Bytes of one RGBA buffer the size of this screen.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn rgba_bytes(&self) -> u64 {
         self.width as u64 * self.height as u64 * 4
     }

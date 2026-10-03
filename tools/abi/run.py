@@ -28,6 +28,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -59,8 +60,22 @@ ORDER = [
     "fsops",
     "fdinherit",
     "statmiss",
+    "compat",
     "busybox",
+    # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
+    # fixture, one row per program (see `LINUXAPPS`).
+    "dash",
+    "lua",
+    "sqlite3",
+    "jq",
+    "rg",
 ]
+
+# Rows judged from one boot of the `linuxapps` fixture on an image built with
+# `LAZYOS_LINUXAPPS=1` (the programs in /system/bin) and BusyBox (dash's
+# pipeline runs an applet). The fixture prints `ABI:<program>:PASS|FAIL`.
+LINUXAPPS = ("dash", "lua", "sqlite3", "jq", "rg")
+LINUXAPPS_BIN = ROOT / "target" / "linuxapps" / "bin"
 
 # Fixtures that need the persistent data disk and two boots of it. The first
 # boot writes and prints `ABI:<name>:<marker>`; the second, on the same disk,
@@ -78,7 +93,10 @@ WITH_BUSYBOX = {"statmiss"}
 
 
 def build_image(
-    fixture_path: Path, busybox: bool = False, extra_busybox: Path | None = None
+    fixture_path: Path,
+    busybox: bool = False,
+    extra_busybox: Path | None = None,
+    linuxapps: bool = False,
 ) -> Path | None:
     """Build the image with the fixture embedded; its per-row copy, or `None`.
 
@@ -92,8 +110,12 @@ def build_image(
     env.setdefault("LAZYOS_RESET_OS", "1")
     # Never let a caller's exports leak between rows: a `/system/bin/busybox` embedded for
     # another fixture would shadow its `/system/bin/abi-init`, and vice versa.
-    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST"):
+    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS"):
         env.pop(key, None)
+    if linuxapps:
+        env["LAZYOS_LINUXAPPS"] = "1"
+        # Seven programs plus BusyBox outgrow the bench's small volume.
+        env["LAZYOS_OS_SIZE"] = "256M"
     if busybox:
         # The BusyBox row embeds it as the system shell and makes the kernel run
         # `sh -c "echo ABI:busybox:PASS"` (the `busybox_test` cfg), then exit.
@@ -114,6 +136,10 @@ def build_image(
     return image
 
 
+# Guest RAM for every boot (`--memory`); `None` keeps qemu_shot's default.
+GUEST_MEMORY: str | None = None
+
+
 def capture(
     name: str, image: Path, at: str, accel: str = "auto", data_disk: Path | None = None
 ) -> str:
@@ -132,6 +158,8 @@ def capture(
     ]
     if data_disk:
         command += ["--data-disk", str(data_disk)]
+    if GUEST_MEMORY:
+        command += ["--memory", GUEST_MEMORY]
     # A boot must be judged only by its own log: a stale one left by an earlier
     # run could carry the marker and pass a boot that never happened, and a
     # failed capture must not fall back to whatever is on disk.
@@ -276,6 +304,20 @@ def check_busybox_cwd(serial: str) -> tuple[str, str]:
     return "pass", ""
 
 
+# One serial log per image: the `linuxapps` rows share one boot.
+_SHARED_LOGS: dict[Path, str] = {}
+_SHARED_LOCK = threading.Lock()
+
+
+def run_linuxapps_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
+    """Judge one program's row from the shared `linuxapps` boot."""
+    with _SHARED_LOCK:
+        if image not in _SHARED_LOGS:
+            _SHARED_LOGS[image] = capture("linuxapps", image, at, accel)
+        serial = _SHARED_LOGS[image]
+    return classify(name, serial)
+
+
 def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
     """Boot one row's image and judge it; safe to run alongside other rows
     (its own image copy, data disk, output directory and QMP port)."""
@@ -285,6 +327,8 @@ def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
         return run_with_data_disk(name, image, at, accel)
     if name == "busybox":
         return run_busybox(image, at, accel)
+    if name in LINUXAPPS:
+        return run_linuxapps_row(name, image, at, accel)
     return classify(name, capture(name, image, at, accel))
 
 
@@ -294,10 +338,13 @@ def main() -> int:
     parser.add_argument("--only", help="comma-separated fixture names to run")
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
+    parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
     args = parser.parse_args()
+    global GUEST_MEMORY
+    GUEST_MEMORY = args.memory
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 
@@ -315,7 +362,26 @@ def main() -> int:
     # Build every image first (the builds share `target/`, so they are
     # sequential), then boot `--jobs` of them at a time.
     images: dict[str, Path] = {}
+    linuxapps_image: Path | None = None
+    linuxapps_tried = False  # a failed build is reported, not retried per row
     for name in rows:
+        if name in LINUXAPPS:
+            if not (LINUXAPPS_BIN / name).is_file():
+                record(name, "unavailable", "not built (tools/linuxapps/build.py)")
+                continue
+            fixture = FIXTURE_DIR / "linuxapps.elf"
+            shell = FIXTURE_DIR / "busybox.elf"
+            if not fixture.is_file() or not shell.is_file():
+                record(name, "unavailable", "needs the linuxapps fixture and BusyBox")
+                continue
+            if not linuxapps_tried:
+                linuxapps_tried = True
+                linuxapps_image = build_image(fixture, extra_busybox=shell, linuxapps=True)
+            if linuxapps_image is None:
+                record(name, "fail", "image build failed")
+                continue
+            images[name] = linuxapps_image
+            continue
         fixture = FIXTURE_DIR / f"{name}.elf"
         if not fixture.is_file():
             record(name, "unavailable", "fixture not built")

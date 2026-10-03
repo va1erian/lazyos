@@ -1,6 +1,11 @@
 //! Task creation: kernel task, spawn, threads, fork and initial frames.
+//!
+//! A program's address space is built (and its image streamed in from disk)
+//! before the task table is locked: loading can take a while and touches the
+//! filesystem, which must never run under `TASKS`. The slot is claimed after.
 
 use super::*;
+use crate::process::image::Image;
 
 /// Register the kernel task (the multiplexer running in ring 0).
 pub fn register_kernel() {
@@ -26,9 +31,9 @@ pub fn register_kernel() {
         exit_status: 0,
         heap_break: 0,
         fs_base: 0,
-        fds: new_fds(),
-        fd_flags: [0; FD_COUNT],
+        fds: FdTable::standard(),
         cwd: None,
+        linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -37,7 +42,7 @@ pub fn register_kernel() {
 ///
 /// The program is started by the kernel: it has no parent and leads its own
 /// process group and session.
-pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+pub fn spawn<I: Image + ?Sized>(name: &'static str, elf: &I) -> Result<usize, &'static str> {
     spawn_in_space(name, elf, None)
 }
 
@@ -48,7 +53,7 @@ pub fn spawn(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
 /// [`reap_child`] and wakes a [`wait_child_exit`] sleeper. The child inherits
 /// the supervisor's process group and session (it is not a session leader),
 /// exactly as a service started by `init` should be.
-pub fn spawn_child(name: &'static str, elf: &[u8]) -> Result<usize, &'static str> {
+pub fn spawn_child<I: Image + ?Sized>(name: &'static str, elf: &I) -> Result<usize, &'static str> {
     spawn_in_space(name, elf, Some(current()))
 }
 
@@ -94,7 +99,10 @@ pub(super) enum Stdio {
 /// (see [`Stdio::InheritFrom`]). This is the Linux `execve` path for native
 /// programs (issue #315): the shell's fork child spawns the program, waits for
 /// it and exits with its status.
-pub fn spawn_child_inheriting_fds(name: &'static str, elf: &[u8]) -> Result<usize, SpawnError> {
+pub fn spawn_child_inheriting_fds<I: Image + ?Sized>(
+    name: &'static str,
+    elf: &I,
+) -> Result<usize, SpawnError> {
     let parent = current();
     spawn_native(name, elf, Some(parent), Stdio::InheritFrom(parent))
 }
@@ -103,18 +111,19 @@ pub fn spawn_child_inheriting_fds(name: &'static str, elf: &[u8]) -> Result<usiz
 /// into a fresh address space and register it as a runnable task. `parent` is
 /// `None` for a kernel-started program (its own group/session leader) or the
 /// slot of the supervisor starting a child.
-pub(super) fn spawn_in_space(
+pub(super) fn spawn_in_space<I: Image + ?Sized>(
     name: &'static str,
-    elf: &[u8],
+    elf: &I,
     parent: Option<usize>,
 ) -> Result<usize, &'static str> {
     spawn_native(name, elf, parent, Stdio::Terminal).map_err(SpawnError::message)
 }
 
-/// Classify a loader failure: frame exhaustion is `NoMemory`, anything else
-/// means the image itself is unloadable.
+/// Classify a loader failure: frame exhaustion (an exact loader reason) is
+/// `NoMemory`; anything else, a failed read included, means the image could
+/// not be loaded.
 fn load_error(reason: &'static str) -> SpawnError {
-    if reason.contains("out of memory") || reason.starts_with("failed to") {
+    if crate::process::loader::is_out_of_memory(reason) {
         SpawnError::NoMemory
     } else {
         SpawnError::BadImage(reason)
@@ -122,22 +131,22 @@ fn load_error(reason: &'static str) -> SpawnError {
 }
 
 /// The body behind every native spawn; see [`spawn_in_space`].
-pub(super) fn spawn_native(
+pub(super) fn spawn_native<I: Image + ?Sized>(
     name: &'static str,
-    elf: &[u8],
+    elf: &I,
     parent: Option<usize>,
     stdio: Stdio,
 ) -> Result<usize, SpawnError> {
-    let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or(SpawnError::NoSlot)?;
-
     let pml4 = mem::new_user_table().ok_or(SpawnError::NoMemory)?;
     // A load failure returns while the guard is live, releasing the whole
     // partially built address space instead of leaking its frames.
     let guard = mem::UserTableGuard::new(pml4);
-    let entry = user_process::load_image(guard.table(), elf).map_err(load_error)?;
+    let start = user_process::load_image(guard.table(), elf).map_err(load_error)?;
+
+    let mut tasks = TASKS.lock();
+    let index = (1..MAX_TASKS)
+        .find(|&i| tasks[i].is_none())
+        .ok_or(SpawnError::NoSlot)?;
     let (parent_slot, pgid, sid) = match parent {
         Some(parent) => {
             let parent_task = tasks[parent].as_ref().ok_or(SpawnError::NoParent)?;
@@ -152,7 +161,7 @@ pub(super) fn spawn_native(
     trace::clear(index);
 
     let top = kstack_top(index);
-    let rsp = build_user_frame(top, entry, user_process::USER_STACK_TOP - 16);
+    let rsp = build_user_frame(top, start.entry, user_process::USER_STACK_TOP - 16);
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
 
@@ -166,11 +175,11 @@ pub(super) fn spawn_native(
     // Cloned only now, after the last error return: dropping a cloned pipe end
     // on a failure path would take a wait-queue lock under `TASKS`.
     let fds = match stdio {
-        Stdio::Terminal => new_fds(),
+        Stdio::Terminal => FdTable::standard(),
         Stdio::InheritFrom(from) => tasks[from]
             .as_ref()
-            .map(|source| clone_fds_exec(&source.fds, &source.fd_flags))
-            .unwrap_or_else(new_fds),
+            .and_then(|source| source.fds.exec_copy())
+            .unwrap_or_else(FdTable::standard),
     };
     // A new program starts with clean x87/SSE registers, not the slot's
     // previous owner's.
@@ -192,11 +201,11 @@ pub(super) fn spawn_native(
         pgid,
         sid,
         exit_status: 0,
-        heap_break: user_process::USER_HEAP_BASE,
+        heap_break: start.heap,
         fs_base: 0,
         fds,
-        fd_flags: [0; FD_COUNT],
         cwd: None,
+        linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -208,11 +217,32 @@ pub(super) fn spawn_native(
 /// The child resumes at the caller's `syscall` return address with `rax = 0`,
 /// on its own user stack (`user_rsp`) and its own `%fs` TLS (`fs_base`), as
 /// `clone(CLONE_VM | ...)` requires.
+#[allow(dead_code)] // the kernel tests' thread factory; `clone` uses the sharing form
 pub fn spawn_thread(
     name: &'static str,
     user_rsp: u64,
     fs_base: u64,
     clear_child_tid: u64,
+) -> Result<usize, &'static str> {
+    spawn_thread_sharing(
+        name,
+        user_rsp,
+        fs_base,
+        clear_child_tid,
+        ThreadShare::default(),
+    )
+}
+
+/// [`spawn_thread`] with the `clone` sharing flags: `share.files` makes the
+/// thread's descriptor table the creator's (`CLONE_FILES`), `share.fs` its
+/// working directory (`CLONE_FS`); without them the thread starts with a copy
+/// of each, as Linux gives a `clone` without those flags.
+pub fn spawn_thread_sharing(
+    name: &'static str,
+    user_rsp: u64,
+    fs_base: u64,
+    clear_child_tid: u64,
+    share: ThreadShare,
 ) -> Result<usize, &'static str> {
     // A non-canonical `%fs` base would fault on `wrmsr` in the context-switch
     // path (task/mod.rs context switch), which cannot return an error; refuse
@@ -224,7 +254,12 @@ pub fn spawn_thread(
     let index = (1..MAX_TASKS)
         .find(|&i| tasks[i].is_none())
         .ok_or("no free task slot")?;
-    let parent = tasks[current()].as_ref().ok_or("no parent task")?;
+    let creator = current();
+    let parent = tasks[creator].as_mut().ok_or("no parent task")?;
+    // The thread's table starts as a copy of its creator's (and stays equal to
+    // it under `CLONE_FILES`, see `fdshare`).
+    let fds = parent.fds.fork_copy().ok_or("out of memory (thread)")?;
+    let linux = linuxstate::for_thread(parent, creator, share);
     let pml4 = parent.pml4;
     // A thread stays in its process's group and session (#59: threads do not
     // get a new one), so only a process can create a group or session.
@@ -265,9 +300,9 @@ pub fn spawn_thread(
         exit_status: 0,
         heap_break: 0,
         fs_base,
-        fds: new_fds(),
-        fd_flags: [0; FD_COUNT],
+        fds,
         cwd,
+        linux,
         output: Vec::new(),
         input: VecDeque::new(),
     });
@@ -317,15 +352,20 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     };
     // `fork` inherits the parent's scheduling class and weight, like Linux.
     let (class, weight) = (parent.class, parent.weight);
-    let (brk, mmap_next) = bump_for_pml4(pml4);
+    let bump = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
-    let fds = clone_fds(&parent.fds);
     // `fork` inherits the parent's `FD_CLOEXEC` flags (they are per-descriptor,
     // and `execve` in the child closes whatever they mark).
-    let fd_flags = parent.fd_flags;
+    let fds = parent
+        .fds
+        .fork_copy()
+        .ok_or("out of memory (fork descriptors)")?;
     // ...and the working directory: the child gets its own reference, so a
     // `chdir` in either process never moves the other.
     let cwd = parent.cwd.clone();
+    // A fork shares no table or directory with its parent, and runs the same
+    // program.
+    let linux = linuxstate::for_fork(parent);
     let pass = virtual_now(&tasks);
 
     // `fork` is only valid inside a user address space: the kernel task's table
@@ -372,14 +412,20 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         heap_break: 0,
         fs_base,
         fds,
-        fd_flags,
         cwd,
+        linux,
         output: Vec::new(),
         input: VecDeque::new(),
     });
     drop(tasks);
 
-    register_bumps(child_table.as_u64(), brk, mmap_next);
+    // The child's break and mmap cursor continue where the parent's are.
+    if let Some(bump) = bump {
+        set_bumps(Bump {
+            pml4: child_table.as_u64(),
+            ..bump
+        });
+    }
     // POSIX `fork` inherits dispositions, the blocked mask and the alternate
     // stack; pending signals do not cross the fork.
     signal::fork_inherit(pml4, child_table.as_u64());

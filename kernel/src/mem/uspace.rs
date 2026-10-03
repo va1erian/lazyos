@@ -2,8 +2,10 @@
 
 use super::*;
 
-/// Create a fresh address space: a new PML4 sharing the kernel's higher-half
-/// entries (indices 1..512) but with an empty user half (index 0).
+/// Create a fresh address space: a new PML4 sharing the kernel's entries
+/// (the shared-buffer window and the kernel half, [`USER_PML4_ENTRIES`]..512)
+/// with an empty private user window (`0..USER_PML4_ENTRIES`, see
+/// [`super::layout`]).
 pub fn new_user_table() -> Option<PhysAddr> {
     let phys = alloc_zeroed_frame()?;
     let offset = physical_offset();
@@ -11,7 +13,7 @@ pub fn new_user_table() -> Option<PhysAddr> {
     unsafe {
         let kernel = active_level_4_table(offset) as *const PageTable as *const u64;
         let table = phys_to_virt(phys).as_mut_ptr::<u64>();
-        for i in 1..512 {
+        for i in USER_PML4_ENTRIES..512 {
             core::ptr::write_volatile(table.add(i), core::ptr::read_volatile(kernel.add(i)));
         }
     }
@@ -76,7 +78,7 @@ pub(super) unsafe fn entry_table(phys: PhysAddr) -> *mut u64 {
 }
 
 /// Count the user data pages mapped in an address space: a diagnostic walk of
-/// PML4 entry 0 (shared COW pages count once per address space). This is the
+/// the private user window (shared COW pages count once per address space). This is the
 /// per-address-space accounting hook, reported when a task is reaped and
 /// available to tools alongside [`frame_stats`]; keeping a running per-table
 /// count is not worth the bookkeeping yet.
@@ -84,11 +86,11 @@ pub fn user_table_frame_count(table: PhysAddr) -> usize {
     // Safety: `table` is a PML4 we own.
     unsafe {
         let p4 = entry_table(table);
-        let entry = *p4.add(0);
-        if entry & PTE_PRESENT == 0 {
-            return 0;
-        }
-        count_leaves(entry & PTE_ADDR, 3)
+        (0..USER_PML4_ENTRIES)
+            .map(|index| *p4.add(index))
+            .filter(|entry| entry & PTE_PRESENT != 0)
+            .map(|entry| count_leaves(entry & PTE_ADDR, 3))
+            .sum()
     }
 }
 
@@ -119,8 +121,9 @@ pub(super) unsafe fn count_leaves(phys: u64, level: u8) -> usize {
 /// (and return to the pool at zero) and page tables are released. Returns how
 /// many frames reached reference count zero.
 ///
-/// Only PML4 entry 0 is walked; the higher-half entries are shared kernel
-/// mappings that must never be freed. The PML4 frame itself is released too,
+/// Only the private user window (PML4 entries `0..USER_PML4_ENTRIES`) is
+/// walked; the entries above are shared with the kernel's table and must
+/// never be freed. The PML4 frame itself is released too,
 /// so the caller must ensure no other task still uses `table` (e.g. threads
 /// created with `clone(CLONE_VM)`).
 pub fn free_user_table(table: PhysAddr) -> usize {
@@ -128,9 +131,11 @@ pub fn free_user_table(table: PhysAddr) -> usize {
     // Safety: `table` is a PML4 we own and are tearing down.
     unsafe {
         let p4 = entry_table(table);
-        let entry = *p4.add(0);
-        if entry & PTE_PRESENT != 0 {
-            released += free_table(entry & PTE_ADDR, 3);
+        for index in 0..USER_PML4_ENTRIES {
+            let entry = *p4.add(index);
+            if entry & PTE_PRESENT != 0 {
+                released += free_table(entry & PTE_ADDR, 3);
+            }
         }
     }
     if release_frame(table) == Release::Pooled {
@@ -393,12 +398,14 @@ pub fn prot_flags(prot: vma::Prot) -> PageTableFlags {
 }
 
 /// Resolve a not-present page fault by materializing a zeroed page for an
-/// `Anon`/`Heap` VMA. Returns true if the fault was handled.
+/// `Anon`/`Heap`/`Stack` VMA. Returns true if the fault was handled.
 ///
 /// Only access the VMA permits is granted: a write fault in a read-only range
 /// (or any access to `PROT_NONE`) stays unresolved and falls through to the
-/// fatal path, where a future signal would be delivered. `File`/`Stack` VMAs
-/// are mapped eagerly and never demand-fault.
+/// fatal path, where a future signal would be delivered. `File` VMAs are
+/// mapped eagerly and never demand-fault; a stack is mapped eagerly only where
+/// the loader wrote its start frame, the rest of its reservation fills on
+/// first touch.
 pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool {
     if error.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
         return false; // present but forbidden: not a missing page
@@ -406,7 +413,10 @@ pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool
     let Some(vma) = vma::find(table, va) else {
         return false;
     };
-    if !matches!(vma.kind, vma::Kind::Anon | vma::Kind::Heap) {
+    if !matches!(
+        vma.kind,
+        vma::Kind::Anon | vma::Kind::Heap | vma::Kind::Stack
+    ) {
         return false;
     }
     if !(vma.prot.has_read() || vma.prot.has_exec()) {

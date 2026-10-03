@@ -12,6 +12,12 @@
 //! Only the *delta between two timer entries* is used, never an absolute
 //! TSC-derived time, so a small calibration error cannot accumulate into drift
 //! against the PIT: it can only mis-round a gap of several periods.
+//!
+//! The same pair (tick count, TSC at the last timer entry) gives the
+//! monotonic clock its sub-tick resolution ([`monotonic_ns`]): the PIT ticks
+//! plus the TSC's progress since the last entry, converted with the
+//! calibration. Anchored to the ticks, it agrees with every tick-based sleep
+//! deadline; the fraction only refines the reading between two ticks.
 
 use super::io::{inb, outb};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -114,6 +120,57 @@ pub fn periods_since_last() -> u64 {
 #[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn cycles_per_tick() -> u64 {
     CYCLES_PER_TICK.load(Ordering::Relaxed)
+}
+
+/// Nanoseconds per timer period at the 100 Hz tick.
+const PERIOD_NS: u64 = 10_000_000;
+/// The largest reading [`monotonic_ns`] has returned: readings never go
+/// backwards, even when a timer entry snaps its TSC stamp (see [`advance`]).
+static LAST_NS: AtomicU64 = AtomicU64::new(0);
+
+/// Monotonic nanoseconds since boot: `ticks * 10 ms` plus the TSC cycles
+/// elapsed since the last timer entry, converted with the calibration and
+/// capped just below one period. The cap keeps the reading inside the current
+/// tick, so a deadline computed from it is never more than one tick ahead of
+/// the tick count sleeps wait on, even after a long stretch with the timer
+/// masked (the next timer entry catches the ticks up) or a [`resync`].
+/// Without a calibrated TSC it is tick-granular (10 ms).
+pub fn monotonic_ns() -> u64 {
+    // One consistent (ticks, stamp) pair: the timer entry updates both with
+    // interrupts off, and this single CPU cannot run it in between.
+    let (ticks, last) = x86_64::instructions::interrupts::without_interrupts(|| {
+        (
+            super::idt::TICKS.load(Ordering::Relaxed),
+            LAST_TSC.load(Ordering::Relaxed),
+        )
+    });
+    let ns = interpolate(
+        ticks,
+        rdtsc().wrapping_sub(last),
+        CYCLES_PER_TICK.load(Ordering::Relaxed),
+    );
+    LAST_NS.fetch_max(ns, Ordering::Relaxed).max(ns)
+}
+
+/// `ticks` periods plus `elapsed` TSC cycles (at `per_tick` cycles a period,
+/// 0 when uncalibrated) in nanoseconds, the fraction capped below one period.
+pub fn interpolate(ticks: u64, elapsed: u64, per_tick: u64) -> u64 {
+    let whole = ticks.saturating_mul(PERIOD_NS);
+    if per_tick == 0 {
+        return whole;
+    }
+    let elapsed = elapsed.min(per_tick - 1);
+    whole + (u128::from(elapsed) * u128::from(PERIOD_NS) / u128::from(per_tick)) as u64
+}
+
+/// The resolution [`monotonic_ns`] offers: 1 ns with a calibrated TSC (the
+/// reading is interpolated), else the 10 ms tick.
+pub fn resolution_ns() -> u64 {
+    if CYCLES_PER_TICK.load(Ordering::Relaxed) == 0 {
+        PERIOD_NS
+    } else {
+        1
+    }
 }
 
 /// Forget the gap since the last timer entry: called when the tick is unmasked,

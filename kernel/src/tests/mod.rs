@@ -118,6 +118,45 @@ fn to_string(error: &'static str) -> String {
     error.into()
 }
 
+/// An 8 KiB scratch stack mapped at a user address in the current table, for
+/// tests that build signal or exception frames: the frame builders only
+/// accept user addresses, and kernel heap and stack memory lives in the
+/// kernel half. Each stack gets its own address; dropping it unmaps the range
+/// and frees its frames.
+struct UserStack {
+    table: PhysAddr,
+    base: u64,
+}
+
+impl UserStack {
+    const AREA: u64 = 0x7e00_0000_0000;
+    const SIZE: u64 = 8192;
+
+    fn new() -> Result<UserStack, String> {
+        static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        let slot = NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) % 4096;
+        let base = Self::AREA + slot * 0x1_0000;
+        let table = mem::kernel_table();
+        process::map_range(table, base, base + Self::SIZE).map_err(to_string)?;
+        Ok(UserStack { table, base })
+    }
+
+    fn base(&self) -> u64 {
+        self.base
+    }
+
+    fn top(&self) -> u64 {
+        self.base + Self::SIZE
+    }
+}
+
+impl Drop for UserStack {
+    fn drop(&mut self) {
+        mem::vma::remove(self.table, self.base, self.top());
+        mem::unmap_range(self.table, self.base, self.top());
+    }
+}
+
 mod acl_suite;
 mod arch_suite;
 mod block_suite;
@@ -144,6 +183,8 @@ mod ipc_shared_suite;
 mod ipc_suite;
 mod keyboard_suite;
 mod label_suite;
+mod limits_suite;
+mod linux_compat_suite;
 mod linux_suite;
 mod loader_suite;
 mod mem_suite;
@@ -181,6 +222,7 @@ mod wallclock_suite;
 const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
+    limits_suite::CASES,
     arch_suite::CASES,
     preempt_lock_suite::CASES,
     slab_suite::CASES,
@@ -188,6 +230,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     task_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
+    linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
     signal_suite::CASES,

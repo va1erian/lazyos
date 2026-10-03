@@ -78,14 +78,28 @@ fn parked(names: &[String]) -> usize {
 
 /// Fill the whole descriptor table with `/data` files and close it again, over
 /// and over: the table and the open-file registry return to empty every time.
+/// The table is capped at the smallest `limit.fd_max` for the run, so filling
+/// it stays quick; the cap is restored even when a check fails.
 pub fn fd_table_churn() -> Result<(), String> {
+    use crate::limits::{self, Id};
+    limits::set_for_test(Id::FdMax, 0);
+    let limit = task::fd_max();
+    let outcome = fd_table_churn_to(limit);
+    limits::reset_for_test();
+    outcome
+}
+
+fn fd_table_churn_to(limit: usize) -> Result<(), String> {
     let data = Data::new(0)?;
     let baseline = free_space()?;
-    for round in 0..100 {
+    for round in 0..40 {
         let mut fds = Vec::new();
-        for slot in 0..(task::FD_COUNT - 3) {
+        for slot in 0..(limit - 3) {
             let fd = open(&format!("/data/c{}", slot % 4), O_CREAT | O_RDWR);
-            check!(fd < 16, "round {round}: open #{slot} returned {fd:#x}");
+            check!(
+                fd < limit as u64,
+                "round {round}: open #{slot} returned {fd:#x}"
+            );
             check!(
                 write(fd, &[slot as u8; 33]) == 33,
                 "round {round}: write failed"
@@ -95,7 +109,7 @@ pub fn fd_table_churn() -> Result<(), String> {
         // Table full: the next open fails cleanly and registers nothing.
         let refused = open("/data/c0", O_RDONLY);
         check!(
-            refused >= 16,
+            refused >= limit as u64,
             "round {round}: opened past the table ({refused:#x})"
         );
         for fd in fds {

@@ -41,24 +41,37 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 
 - Page tables are the source of truth for what is present; the VMA list for what
   may become present. `demand_fault` consults it and only materializes
-  `Anon`/`Heap` ranges the fault's access permits. `File`/`Stack` are mapped
-  eagerly.
+  `Anon`/`Heap`/`Stack` ranges the fault's access permits. `File` ranges (the
+  pages of a `PT_LOAD` segment that hold file bytes) are mapped eagerly; a
+  segment's `.bss` tail past its last file page is an `Anon` range; a stack
+  is mapped eagerly only where the loader wrote the start frame.
 - A write fault on a present `COW_BIT` page takes `cow_fault` first; a protection
   violation is never a missing page, so it falls through to `SIGSEGV`.
 
 **User memory layout**
 
-| Region | Native (`process/mod.rs`) | Linux (`process/linux/mod.rs`, `process/linux/mem.rs`) |
+Both ABIs share one layout (`process/layout.rs`) inside the private window
+(`mem/layout.rs`):
+
+| Region | Native (`process/mod.rs`) | Linux (`process/linux/elf.rs`, `process/linux/mem.rs`) |
 |---|---|---|
-| Heap (`brk`) | `USER_HEAP_BASE = 0x60_0000`, `sbrk` only | `BRK_BASE = 0x0100_0000` .. `BRK_LIMIT = 0x1f00_0000` |
-| mmap bump | - | `MMAP_BASE = 0x4000_0000` .. `MMAP_LIMIT = 0x7000_0000` |
-| Stack | `USER_STACK_TOP = 0x0800_0000`, 128 KiB (the heap ceiling: about 126 MiB of `sbrk`) | `STACK_TOP = 0x0200_0000`, 1 MiB |
+| Image | link address, below `MMAP_BASE` | link address (static-PIE: 0), below `MMAP_BASE` |
+| Heap (`brk`) | `sbrk` from `USER_HEAP_BASE = 0x60_0000` or the page after the image, up to `NATIVE_HEAP_LIMIT = MMAP_BASE` | `brk` from the page after the image, up to `BRK_LIMIT = MMAP_BASE` (16 TiB); never over another mapping |
+| mmap | - | `MMAP_BASE = 0x1000_0000_0000` .. `MMAP_LIMIT = 0x7000_0000_0000`, first fit |
+| MMIO (drivers) | `MMIO_BASE = 0x7000_0000_0000` .. `MMIO_END` (32 GiB) | same |
+| Stack | top `STACK_TOP = 0x7f00_0000_0000`, 128 KiB, eager | top `STACK_TOP`, `limit.stack_size` (8 MiB default), demand-zero below the start frame |
+
+- The image may not reach `MMAP_BASE` (`layout::IMAGE_RESERVED`); everything
+  above is placed by the kernel. Below the stack's reservation and above
+  `STACK_TOP` (512 GiB up to `USER_TOP`) nothing is mapped, so an overflow is a
+  `SIGSEGV`.
 
 - `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED` (`linux.rs:237`); it records an
   `Anon` VMA and charges per-uid `UserMemory` quota. `mprotect` privatizes COW
   pages before applying new protection. `munmap` drops VMAs and unmaps leaves.
 - Native `sbrk` grows a `Heap` VMA, populated on first touch; shrinking removes
-  and unmaps. It refuses growth into the stack and returns `u64::MAX` on failure.
+  and unmaps. It refuses growth past `NATIVE_HEAP_LIMIT` or over another
+  mapping and returns `u64::MAX` on failure.
 
 **Invariants / decisions**
 

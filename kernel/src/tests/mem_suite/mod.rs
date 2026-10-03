@@ -10,12 +10,12 @@ use super::*;
 
 mod fault_storm;
 mod frames_and_cow;
-mod regions;
+mod layout;
 mod vma;
 
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
-pub(super) use regions::*;
+pub(super) use layout::*;
 pub(super) use vma::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -38,25 +38,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "mem_pte_chain_walks_to_the_leaf",
         pte_chain_walks_to_the_leaf,
     ),
+    ("mem_regions_merge_hostile_maps", regions_merge_hostile_maps),
     (
-        "mem_regions_uefi_32g_keeps_all_ram",
-        regions_uefi_32g_keeps_all_ram,
+        "mem_regions_absurd_range_is_clamped_and_droppable",
+        regions_absurd_range_is_clamped_and_droppable,
     ),
     (
-        "mem_regions_unsorted_overlapping_coalesce",
-        regions_unsorted_overlapping_coalesce,
+        "mem_regions_keep_the_largest_when_full",
+        regions_keep_the_largest_when_full,
     ),
+    ("mem_regions_soak_random_maps", regions_soak_random_maps),
     (
-        "mem_regions_overflow_keeps_largest_and_counts",
-        regions_overflow_keeps_largest_and_counts,
+        "mem_user_window_spans_many_entries",
+        user_window_spans_many_entries,
     ),
-    (
-        "mem_regions_absurd_range_dropped_for_table",
-        regions_absurd_range_dropped_for_table,
-    ),
-    (
-        "mem_regions_live_allocator_matches_boot_map",
-        regions_live_allocator_matches_boot_map,
-    ),
-    ("mem_soak_regions_random_maps", soak_regions_random_maps),
+    ("mem_high_frames_reachable", high_frames_reachable),
+    ("mem_linux_stack_is_lazy", linux_stack_is_lazy),
 ];

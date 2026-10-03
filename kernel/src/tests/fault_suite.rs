@@ -180,9 +180,9 @@ const RESTORER: u64 = 0x0040_3000;
 /// A synthetic saved-register frame for `exception` on a fresh user stack:
 /// 15 registers, an error code when the class has one, then RIP, CS, RFLAGS,
 /// RSP and SS. Returns the frame and the stack that must outlive it.
-fn exception_frame(exception: signal::Exception) -> (Vec<u64>, Vec<u8>) {
-    let mut stack = alloc::vec![0u8; 8192];
-    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+fn exception_frame(exception: signal::Exception) -> Result<(Vec<u64>, UserStack), String> {
+    let stack = UserStack::new()?;
+    let top = stack.top();
     let rip = exception.rip_index();
     let mut frame = alloc::vec![0u64; rip + 5];
     frame[9] = 0xd1d1; // rdi
@@ -191,7 +191,7 @@ fn exception_frame(exception: signal::Exception) -> (Vec<u64>, Vec<u8>) {
     frame[rip + 2] = 0x202;
     frame[rip + 3] = top - 0x100;
     frame[rip + 4] = 0x1b;
-    (frame, stack)
+    Ok((frame, stack))
 }
 
 fn install_handler(sig: u8) -> Result<(), String> {
@@ -221,7 +221,7 @@ pub fn exception_enters_handler() -> Result<(), String> {
         fresh()?;
         let sig = exception.signal();
         install_handler(sig)?;
-        let (mut frame, stack) = exception_frame(exception);
+        let (mut frame, stack) = exception_frame(exception)?;
         let rip = exception.rip_index();
         let old_rsp = frame[rip + 3];
         check!(
@@ -231,7 +231,7 @@ pub fn exception_enters_handler() -> Result<(), String> {
         check!(frame[rip] == HANDLER, "rip is {:#x}", frame[rip]);
         check!(frame[9] == sig as u64, "rdi is {:#x}, not {sig}", frame[9]);
         check!(
-            frame[rip + 3] < old_rsp && frame[rip + 3] > stack.as_ptr() as u64,
+            frame[rip + 3] < old_rsp && frame[rip + 3] > stack.base(),
             "handler rsp {:#x} is outside the user stack",
             frame[rip + 3]
         );
@@ -255,7 +255,7 @@ pub fn exception_without_handler_falls_through() -> Result<(), String> {
     for exception in EXCEPTIONS {
         fresh()?;
         let sig = exception.signal();
-        let (mut frame, _stack) = exception_frame(exception);
+        let (mut frame, _stack) = exception_frame(exception)?;
         let before = frame.clone();
         let at = frame.as_mut_ptr() as u64;
         check!(
@@ -285,8 +285,8 @@ pub fn exception_without_handler_falls_through() -> Result<(), String> {
 /// `si_addr` is filled in for `SIGILL`/`SIGFPE` faults, not just `SIGSEGV`.
 pub fn fault_siginfo_carries_address() -> Result<(), String> {
     fresh()?;
-    let mut stack = alloc::vec![0u8; 8192];
-    let top = stack.as_mut_ptr() as u64 + stack.len() as u64;
+    let stack = UserStack::new()?;
+    let top = stack.top();
     let regs = signal::UserRegs {
         rsp: top - 0x100,
         rip: 0x0040_1000,
@@ -325,7 +325,7 @@ pub fn soak_exception_delivery() -> Result<(), String> {
         let exception = EXCEPTIONS[round % EXCEPTIONS.len()];
         let sig = exception.signal();
         install_handler(sig)?;
-        let (mut frame, _stack) = exception_frame(exception);
+        let (mut frame, _stack) = exception_frame(exception)?;
         check!(
             signal::deliver_exception(frame.as_mut_ptr() as u64, exception),
             "round {round}: {exception:?} was not delivered"

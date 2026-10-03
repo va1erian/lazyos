@@ -35,8 +35,13 @@ pub fn set_cwd(path: &str) {
     // after it is released: freeing it enters the heap, which the interrupted
     // task may hold (see `PENDING_RECLAIM`).
     let new: Arc<str> = Arc::from(path);
-    let old = TASKS.lock()[current()]
-        .as_mut()
-        .and_then(|task| task.cwd.replace(new));
+    let (old, peers) = {
+        let mut tasks = TASKS.lock();
+        let me = current();
+        let old = tasks[me].as_mut().and_then(|task| task.cwd.replace(new));
+        // `CLONE_FS` threads move with the caller.
+        (old, fdshare::mirror_cwd(&mut tasks, me))
+    };
     drop(old);
+    drop(peers);
 }

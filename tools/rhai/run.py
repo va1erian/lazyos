@@ -117,6 +117,8 @@ def run_session(script: str, out: str, args: argparse.Namespace, fail_on: list[s
         command += ["--fail-on", pattern]
     if args.qemu:
         command += ["--qemu", args.qemu]
+    if args.memory:
+        command += ["--memory", args.memory]
     print(f"rhai: session {script}", flush=True)
     code = subprocess.call(command, cwd=ROOT)
     log = ROOT / out / "serial.log"
@@ -182,6 +184,7 @@ def main() -> int:
                         help="build LazyRAD and run only the LazyRAD Messenger session")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
+    parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
     parser.add_argument("--timeout", type=float, default=300.0, help="seconds per session")
     args = parser.parse_args()
 

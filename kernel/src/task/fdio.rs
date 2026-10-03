@@ -7,6 +7,20 @@ use super::*;
 /// resolves the shared object, drops the task-table lock, and then runs the
 /// blocking read (which may park this task).
 pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
+    fd_stream_recv(fd, dst, RecvOpts::default())
+}
+
+/// Per-call modifiers of a stream read (`recv` flags).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct RecvOpts {
+    /// `MSG_DONTWAIT`: never block, whatever the descriptor's `O_NONBLOCK`.
+    pub dont_wait: bool,
+    /// `MSG_PEEK`: leave the bytes queued.
+    pub peek: bool,
+}
+
+/// [`fd_stream_read`] with `recv` modifiers.
+pub fn fd_stream_recv(fd: usize, dst: &mut [u8], opts: RecvOpts) -> Result<usize, pipe::Error> {
     enum Source {
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
@@ -14,10 +28,7 @@ pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
     let (source, nonblock) = {
         let tasks = TASKS.lock();
         let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
-        if fd >= FD_COUNT {
-            return Err(pipe::Error::BadEnd);
-        }
-        match &task.fds[fd] {
+        match task.fds.get(fd).ok_or(pipe::Error::BadEnd)? {
             Fd::Pipe { pipe, end } => (Source::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
             Fd::Socket { pair, side } => (
                 Source::Socket(Arc::clone(pair), *side),
@@ -31,9 +42,25 @@ pub fn fd_stream_read(fd: usize, dst: &mut [u8]) -> Result<usize, pipe::Error> {
             _ => return Err(pipe::Error::BadEnd),
         }
     };
-    match source {
-        Source::Pipe(pipe, end) => pipe.read(end, dst, nonblock),
-        Source::Socket(pair, side) => pair.read(side, dst, nonblock),
+    let nonblock = nonblock || opts.dont_wait;
+    match (source, opts.peek) {
+        (Source::Pipe(pipe, end), false) => pipe.read(end, dst, nonblock),
+        (Source::Pipe(pipe, end), true) => pipe.peek(end, dst, nonblock),
+        (Source::Socket(pair, side), false) => pair.read(side, dst, nonblock),
+        (Source::Socket(pair, side), true) => pair.peek(side, dst, nonblock),
+    }
+}
+
+/// Bytes queued for reading on a pipe or socket descriptor (`FIONREAD`).
+pub fn fd_stream_queued(fd: usize) -> Option<usize> {
+    match fd_clone(fd)? {
+        Fd::Pipe {
+            ref pipe,
+            end: End::Read,
+        } => Some(pipe.queued()),
+        Fd::Socket { ref pair, side } => Some(pair.queued(side)),
+        Fd::Inet { ref sock } => sock.pair().map(|pair| pair.queued(Side::B)),
+        _ => None,
     }
 }
 
@@ -52,6 +79,11 @@ pub fn fd_stream_nonblock(fd: usize) -> Option<bool> {
 
 /// Write to a pipe end or socket side from kernel memory.
 pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
+    fd_stream_send(fd, src, false)
+}
+
+/// [`fd_stream_write`] that never blocks when `dont_wait` (`MSG_DONTWAIT`).
+pub fn fd_stream_send(fd: usize, src: &[u8], dont_wait: bool) -> Result<usize, pipe::Error> {
     enum Sink {
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
@@ -59,10 +91,7 @@ pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
     let (sink, nonblock) = {
         let tasks = TASKS.lock();
         let task = tasks[current()].as_ref().ok_or(pipe::Error::BadEnd)?;
-        if fd >= FD_COUNT {
-            return Err(pipe::Error::BadEnd);
-        }
-        match &task.fds[fd] {
+        match task.fds.get(fd).ok_or(pipe::Error::BadEnd)? {
             Fd::Pipe { pipe, end } => (Sink::Pipe(Arc::clone(pipe), *end), pipe.nonblock(*end)),
             Fd::Socket { pair, side } => {
                 (Sink::Socket(Arc::clone(pair), *side), pair.nonblock(*side))
@@ -75,6 +104,7 @@ pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
             _ => return Err(pipe::Error::BadEnd),
         }
     };
+    let nonblock = nonblock || dont_wait;
     match sink {
         Sink::Pipe(pipe, end) => pipe.write(src, end, nonblock),
         Sink::Socket(pair, side) => pair.write(side, src, nonblock),
@@ -87,8 +117,12 @@ pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
 pub fn fd_poll(fd: usize, events: u16) -> Option<u16> {
     // stdin's readiness comes from the input queue; `input_available` is the
     // one predicate for it (no table lock held here, so it can take its own).
-    if fd == 0 && fd_kind(0) == FdKind::Terminal {
-        return Some(Fd::Terminal.poll(events));
+    if fd_kind(fd) == FdKind::Terminal {
+        let mut revents = events & pipe::POLLOUT;
+        if events & pipe::POLLIN != 0 && consoletty::console_readable() {
+            revents |= pipe::POLLIN;
+        }
+        return Some(revents);
     }
     let target = fd_clone(fd)?;
     Some(target.poll(events))
@@ -118,32 +152,32 @@ pub fn fd_seqpacket(fd: usize) -> bool {
     let Some(task) = tasks[current()].as_ref() else {
         return false;
     };
-    if fd >= FD_COUNT {
-        return false;
-    }
-    matches!(&task.fds[fd], Fd::Socket { pair, .. } if pair.seqpacket())
+    matches!(task.fds.get(fd), Some(Fd::Socket { pair, .. }) if pair.seqpacket())
 }
 
 /// Duplicate a descriptor into the lowest free slot at or above `min`.
 /// `dup` uses `min = 3`; `F_DUPFD` passes the caller's argument.
+/// `None` when `fd` is not open or no slot is free below `limit.fd_max`.
 pub fn fd_dup_min(fd: usize, min: usize) -> Option<usize> {
-    let mut tasks = TASKS.lock();
-    let task = tasks[current()].as_mut()?;
-    if fd >= FD_COUNT {
-        return None;
-    }
-    let entry = match &task.fds[fd] {
-        Fd::Closed => return None,
-        other => other.clone(),
-    };
-    for index in min.max(3)..FD_COUNT {
-        if matches!(task.fds[index], Fd::Closed) {
-            task.fds[index] = entry;
-            // `dup`/`F_DUPFD` produce a descriptor without `FD_CLOEXEC`.
-            task.fd_flags[index] = 0;
-            return Some(index);
+    let mut junk = Vec::new();
+    let refused = {
+        let mut tasks = TASKS.lock();
+        let me = current();
+        let task = tasks[me].as_mut()?;
+        let entry = task.fds.get(fd)?.clone();
+        // `dup`/`F_DUPFD` produce a descriptor without `FD_CLOEXEC`.
+        match task.fds.install_lowest(min.max(3), entry) {
+            Ok(index) => {
+                fdshare::mirror_fd(&mut tasks, me, index, &mut junk);
+                drop(tasks);
+                drop(junk);
+                return Some(index);
+            }
+            Err(entry) => entry,
         }
-    }
+    };
+    // The refused copy holds a pipe reference: drop it unlocked.
+    drop(refused);
     None
 }
 
@@ -155,8 +189,9 @@ pub fn fd_dup(fd: usize) -> Option<usize> {
 /// Duplicate `old` into the specific descriptor `new` (closing it first).
 /// `FD_CLOEXEC` is cleared on the new descriptor, as POSIX requires; an
 /// `old == new` call is a no-op.
+/// `None` when `old` is not open or `new` is at or past `limit.fd_max`.
 pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
-    if old >= FD_COUNT || new >= FD_COUNT {
+    if new >= fd_max() {
         return None;
     }
     if old == new {
@@ -166,19 +201,24 @@ pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
             _ => Some(new),
         };
     }
-    let replaced = {
+    let mut junk = Vec::new();
+    let (replaced, result) = {
         let mut tasks = TASKS.lock();
-        let task = tasks[current()].as_mut()?;
-        let entry = match &task.fds[old] {
-            Fd::Closed => return None,
-            other => other.clone(),
-        };
-        task.fd_flags[new] = 0;
-        core::mem::replace(&mut task.fds[new], entry)
+        let me = current();
+        let task = tasks[me].as_mut()?;
+        let entry = task.fds.get(old)?.clone();
+        match task.fds.put(new, entry) {
+            Ok(old_entry) => {
+                fdshare::mirror_fd(&mut tasks, me, new, &mut junk);
+                (old_entry, Some(new))
+            }
+            Err(refused) => (refused, None),
+        }
     };
-    // The replaced descriptor may have been a pipe end; drop it unlocked.
+    // The replaced (or refused) descriptor may be a pipe end; drop it unlocked.
     drop(replaced);
-    Some(new)
+    drop(junk);
+    result
 }
 
 /// Give a child the caller's descriptors as its standard streams (`spawnv`'s
@@ -198,23 +238,26 @@ pub fn give_stdio(child: usize, map: &[Option<usize>; 3]) -> bool {
     };
     // Validate every source first, so a refusal clones (and so retains)
     // nothing while the table is locked.
-    let open = |fd: &Option<usize>| {
-        fd.is_none_or(|fd| fd < FD_COUNT && !matches!(source.fds[fd], Fd::Closed))
-    };
+    let open = |fd: &Option<usize>| fd.is_none_or(|fd| source.fds.is_open(fd));
     if !map.iter().all(open) || tasks[child].is_none() {
         return false;
     }
-    let entries: [Fd; 3] = core::array::from_fn(|slot| match map[slot] {
-        Some(fd) => source.fds[fd].clone(),
-        None => Fd::Terminal,
+    let entries: [Fd; 3] = core::array::from_fn(|slot| {
+        map[slot]
+            .and_then(|fd| source.fds.get(fd).cloned())
+            .unwrap_or(Fd::Terminal)
     });
     let replaced: [Fd; 3] = match tasks[child].as_mut() {
         Some(target) => {
             let mut entries = entries.into_iter();
             core::array::from_fn(|slot| {
-                target.fd_flags[slot] = 0;
                 let entry = entries.next().unwrap_or(Fd::Terminal);
-                core::mem::replace(&mut target.fds[slot], entry)
+                // `put` clears the slot's flags. Slots 0-2 always fit (fd_max is
+                // at least 64); a refusal hands the entry back to drop unlocked.
+                target
+                    .fds
+                    .put(slot, entry)
+                    .unwrap_or_else(|refused| refused)
             })
         }
         None => entries,

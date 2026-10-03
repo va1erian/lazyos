@@ -4,19 +4,17 @@
 
 use alloc::vec::Vec;
 
-use crate::mem::vma::{Kind, Prot};
-use crate::process::{load_segments, map_range_kind};
 use crate::task::process::GroupError;
-use crate::task::{self, WakeReason};
+use crate::task::{self, ThreadShare};
 use crate::user_ptr;
 
 use super::cwd::{read_path, resolve_at, AT_FDCWD};
-use super::elf::{build_start_stack, phdr_size, program_header_addr, LOAD_RESERVED};
-use super::errno::{err, ECHILD, EINTR, EINVAL, ENOEXEC, ENOMEM, ENOSYS, EPERM, ESRCH};
+use super::elf::load_image;
+use super::errno::{err, EINVAL, ENOMEM, ENOSYS, EPERM, ESRCH};
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
-use super::uaccess::{write_u32, write_u64};
-use super::{BRK_BASE, MMAP_BASE, STACK_SIZE, STACK_TOP};
+use super::uaccess::write_u32;
+use super::MMAP_BASE;
 
 /// Free task slots at which a successful `clone` gives the scheduler a tick
 /// before returning, so a burst of thread creation cannot fill the table with
@@ -30,6 +28,35 @@ const CLONE_SETTLS: u64 = 0x0008_0000;
 const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
 const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
 const CLONE_THREAD: u64 = 0x0001_0000;
+const CLONE_FS: u64 = 0x0000_0200;
+const CLONE_FILES: u64 = 0x0000_0400;
+const CLONE_SIGHAND: u64 = 0x0000_0800;
+const CLONE_VFORK: u64 = 0x0000_4000;
+const CLONE_SYSVSEM: u64 = 0x0004_0000;
+const CLONE_DETACHED: u64 = 0x0040_0000;
+const CLONE_CHILD_SETTID: u64 = 0x0100_0000;
+/// The exit signal a process-style clone sends its parent (low byte).
+const CSIGNAL: u64 = 0xff;
+
+/// Flags whose effect is modelled (or is a no-op here for a documented
+/// reason): anything else is refused with `EINVAL` rather than ignored.
+/// `CLONE_SIGHAND` is implied (handlers are per address space), `CLONE_SYSVSEM`
+/// has nothing to share (no System V semaphores), `CLONE_DETACHED` is ignored
+/// by Linux itself, and `CLONE_VFORK`'s "parent waits" is what musl's
+/// `posix_spawn` already does through its status pipe.
+const CLONE_KNOWN: u64 = CSIGNAL
+    | CLONE_VM
+    | CLONE_FS
+    | CLONE_FILES
+    | CLONE_SIGHAND
+    | CLONE_VFORK
+    | CLONE_THREAD
+    | CLONE_SYSVSEM
+    | CLONE_SETTLS
+    | CLONE_PARENT_SETTID
+    | CLONE_CHILD_CLEARTID
+    | CLONE_DETACHED
+    | CLONE_CHILD_SETTID;
 
 /// `clone(flags, stack, parent_tid, child_tid, tls)`.
 ///
@@ -48,8 +75,26 @@ const CLONE_THREAD: u64 = 0x0001_0000;
 /// reclaimed (issue #133); a genuinely exhausted table still fails with
 /// `ENOMEM` like Linux.
 pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) -> u64 {
+    if flags & !CLONE_KNOWN != 0 {
+        // Logged as the errno the caller gets (`EINVAL`), so the ABI coverage
+        // summary does not count a rejected flag as an unimplemented syscall.
+        crate::serial_println!("EINVAL 56 clone unknown flags {:#x}", flags & !CLONE_KNOWN);
+        return err(EINVAL);
+    }
     if flags & CLONE_VM == 0 {
-        return err(ENOSYS); // fork/process creation is a later phase
+        // A process-style clone (`fork` spelled as `clone(SIGCHLD)`): the
+        // child is a copy-on-write copy, so a `CLONE_CHILD_*` word would have
+        // to be written into the child's copy, which is not modelled.
+        if flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_THREAD | CLONE_SETTLS) != 0
+            || stack != 0
+        {
+            return err(ENOSYS);
+        }
+        let pid = sys_fork();
+        if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 && (pid as i64) > 0 {
+            write_u32(parent_tid, pid as u32);
+        }
+        return pid;
     }
     let spawned = if flags & CLONE_THREAD != 0 {
         let fs_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
@@ -64,7 +109,11 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
         } else {
             0
         };
-        task::spawn_thread("thread", stack, fs_base, clear)
+        let share = ThreadShare {
+            files: flags & CLONE_FILES != 0,
+            fs: flags & CLONE_FS != 0,
+        };
+        task::spawn_thread_sharing("thread", stack, fs_base, clear, share)
     } else {
         task::spawn_vfork(stack)
     };
@@ -73,8 +122,14 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
     task::reclaim_pending();
     match spawned {
         Ok(index) => {
+            // `pid_t` is 32 bits: a wider store would clobber the field
+            // after musl's `tid`.
             if flags & CLONE_PARENT_SETTID != 0 && parent_tid != 0 {
-                write_u64(parent_tid, index as u64);
+                write_u32(parent_tid, index as u32);
+            }
+            // The address space is shared, so the child's word is ours.
+            if flags & CLONE_CHILD_SETTID != 0 && child_tid != 0 {
+                write_u32(child_tid, index as u32);
             }
             if task::free_slots() <= CLONE_SLOT_RESERVE {
                 task::wait_slot(task::ticks() + 1);
@@ -128,31 +183,6 @@ pub(super) fn sys_fork() -> u64 {
     }
 }
 
-pub(super) fn sys_wait4(_pid: u64, status: u64, options: u64) -> u64 {
-    const WNOHANG: u64 = 1;
-    if !task::has_children() {
-        return err(ECHILD);
-    }
-    loop {
-        if let Some((slot, code)) = task::reap_child() {
-            if status != 0 {
-                write_u32(status, (code as u32) << 8);
-            }
-            return slot as u64;
-        }
-        if options & WNOHANG != 0 {
-            return 0; // no child has exited, don't wait
-        }
-        // No child is reapable yet: park until one exits. `sys_exit` (via
-        // `finish_current`) notifies the queue, and the recheck above happens
-        // with interrupts disabled, so an exit cannot slip in between.
-        match task::wait_child_exit() {
-            WakeReason::Woken | WakeReason::TimedOut => {}
-            WakeReason::Interrupted => return err(EINTR),
-        }
-    }
-}
-
 /// `execve(path, argv, envp)`: replace the current image with `path`'s ELF (or,
 /// for a `#!` script, its interpreter's) and resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
@@ -184,40 +214,24 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Ok(image) => image,
         Err(code) => return code,
     };
-    let (elf, argv) = (image.elf, image.argv);
     let Some(table) = crate::mem::new_user_table() else {
         return err(ENOMEM);
     };
     // Every error below returns while this guard is live, so a partially
     // loaded image cannot leak its address space and frames (issue #229).
     let guard = crate::mem::UserTableGuard::new(table);
-    let entry = match load_segments(guard.table(), &elf, &LOAD_RESERVED) {
-        Ok(entry) => entry,
-        Err(_) => return err(ENOEXEC),
+    // The file is streamed into the new address space, never held whole.
+    let ids = super::creds::ids();
+    let started = match load_image(guard.table(), &image.file, &image.argv, &envp, ids) {
+        Ok(started) => started,
+        Err(error) => return err(error.errno()),
     };
-    let stack = match map_range_kind(
-        guard.table(),
-        STACK_TOP - STACK_SIZE,
-        STACK_TOP,
-        Prot::READ | Prot::WRITE,
-        Kind::Stack,
-    ) {
-        Ok(stack) => stack,
-        Err(_) => return err(ENOMEM),
-    };
-    let phdr = program_header_addr(&elf);
-    let (phent, phnum) = phdr_size(&elf);
-    let rsp = build_start_stack(
-        &stack,
-        &argv,
-        &envp,
-        entry,
-        (phdr, phent, phnum),
-        super::creds::ids(),
-    );
 
-    // The image is committed: close the descriptors std marked `O_CLOEXEC`
-    // (the child's copies of the inherit-only pipe ends) before resuming.
+    // The image is committed. Record the program (`/proc/self/exe`), which
+    // also stops sharing the descriptor table with the old threads, then close
+    // the descriptors std marked `O_CLOEXEC` (the child's copies of the
+    // inherit-only pipe ends) before resuming.
+    task::linuxstate::set_exe(&image.path);
     close_cloexec_fds();
 
     // Replace the process image: switch to the new table and make `sysretq`
@@ -228,8 +242,8 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     task::set_fs_base(0);
     // The new image starts with default x87/SSE registers, not the old one's.
     task::fpu::reset_live(task::current());
-    task::register_bumps(table.as_u64(), BRK_BASE, MMAP_BASE);
-    crate::arch::linux::set_user_return(entry, rsp, 0x202);
+    task::register_bumps(table.as_u64(), started.brk, MMAP_BASE);
+    crate::arch::linux::set_user_return(started.entry, started.rsp, 0x202);
     guard.commit();
     0
 }
@@ -261,7 +275,12 @@ pub(super) fn sys_setpgid(pid: u64, pgid: u64) -> u64 {
 
 /// `setsid()`: start a new session and group with the caller as leader.
 pub(super) fn sys_setsid() -> u64 {
-    group_result(task::process::setsid(task::current()))
+    let result = task::process::setsid(task::current());
+    if result.is_ok() {
+        // A new session starts without a controlling terminal, as on Linux.
+        task::linuxstate::set_ctty(None);
+    }
+    group_result(result)
 }
 
 /// `getpgid(pid)`: the process group of `pid` (0 = the caller).
@@ -296,6 +315,8 @@ pub(super) fn sys_exit_group(code: u64) -> u64 {
 }
 
 pub(super) fn sys_exit(code: u64) -> u64 {
+    // Robust mutexes the thread still holds become owner-dead.
+    super::procattr::exit_robust_list(task::current());
     // Thread exit: clear the TID word and wake anyone joining on it.
     let tid = task::clear_child_tid();
     if tid != 0 {

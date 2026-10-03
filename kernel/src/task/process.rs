@@ -110,6 +110,33 @@ pub fn sid_of(slot: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// The session of process group `group` while the group has a live member
+/// (every member of a group shares its session).
+pub fn group_session(group: usize) -> Option<usize> {
+    let tasks = TASKS.lock();
+    tasks
+        .iter()
+        .flatten()
+        .find(|task| task.pgid == group && task.state != TaskState::Done)
+        .map(|task| task.sid)
+}
+
+/// Whether `group` is a live process group of session `sid`.
+pub fn group_in_session(group: usize, sid: usize) -> bool {
+    group_session(group) == Some(sid)
+}
+
+/// Whether session `sid` still has a live member: a terminal stays a
+/// session's controlling terminal only while the session exists.
+pub fn session_alive(sid: usize) -> bool {
+    sid != 0
+        && TASKS
+            .lock()
+            .iter()
+            .flatten()
+            .any(|task| task.sid == sid && task.state != TaskState::Done)
+}
+
 /// The slot holding pid `pid`, if occupied. Introspection API for tools/tests.
 #[allow(dead_code)]
 pub fn find_by_pid(pid: usize) -> Option<usize> {

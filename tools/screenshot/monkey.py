@@ -41,7 +41,7 @@ import sys
 import time
 from pathlib import Path
 
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port
+from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
 DEFAULT_FATAL = [
     r"EXCEPTION:", r"LazyOS PANIC", r"HANG:", r"double fault",
@@ -272,7 +272,7 @@ def build_desktop_image() -> None:
     spec = importlib.util.spec_from_file_location("catalog", root / "tools/lazygui/catalog.py")
     catalog = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(catalog)
-    cfg = catalog.simple_config({"accel": "auto", "memory": "256M", "qemu": "", "extra": ""},
+    cfg = catalog.simple_config({"accel": "auto", "memory": DEFAULT_MEMORY, "qemu": "", "extra": ""},
                                 "dev", "Desktop")
     env = {**os.environ, **catalog.build_env(cfg)}
     for argv, e in (([sys.executable, "tools/xui/build.py"], None), (["cargo", "build"], env)):
@@ -414,7 +414,7 @@ def main() -> int:
     p.add_argument("--replay-tail", type=int, help="with --replay, only the last N actions")
     p.add_argument("--shot-every", type=float, default=15.0, help="seconds between shot_latest.png")
     p.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
-    p.add_argument("--memory", default="256M")
+    p.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     p.add_argument("--qemu", help="path to qemu-system-x86_64")
     p.add_argument("--extra-arg", action="append", default=[], metavar="ARG")
     p.add_argument("--out", default="shots/monkey")

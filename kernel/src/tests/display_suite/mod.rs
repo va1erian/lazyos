@@ -39,6 +39,7 @@ fn event_at(events: &[u8], index: usize) -> (u32, i32) {
 mod bind_and_input;
 mod buffers;
 mod keys;
+mod large_screens;
 mod logical;
 mod modifiers;
 mod present;
@@ -48,6 +49,7 @@ mod wheel;
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
 pub(super) use keys::*;
+pub(super) use large_screens::*;
 pub(super) use logical::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
@@ -105,5 +107,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "display_logical_present_offsets_and_clips",
         logical_present_offsets_and_clips,
+    ),
+    (
+        "display_large_screens_fit_the_budgets",
+        large_screens_fit_the_budgets,
     ),
 ];

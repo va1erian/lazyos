@@ -1,59 +1,129 @@
 //! Loading a static Linux ELF64 image and building its initial process start
-//! stack (`argc`/`argv`/`envp`/`auxv`), shared by the initial [`load`] and by
-//! `execve` (`procctl::sys_execve`), which replaces a running image with a
-//! fresh one the same way.
+//! stack (`argc`/`argv`/`envp`/`auxv`) with [`load_image`], shared by the
+//! kernel's own spawns (`task::spawn_linux*`) and by `execve`
+//! (`procctl::sys_execve`), which replaces a running image the same way.
+//!
+//! The main-thread stack is `limit.stack_size` bytes below
+//! [`STACK_TOP`](super::STACK_TOP) (8 MiB by default, like Linux's
+//! `ulimit -s`). Only the pages the start frame occupies are mapped up front;
+//! the rest of the `Stack` VMA is demand-zero, so a deep stack costs nothing
+//! until it is used and a fault below it is a `SIGSEGV`, never another
+//! mapping.
 
 use alloc::vec::Vec;
 
 use x86_64::PhysAddr;
-use xmas_elf::program::Type as ProgramType;
-use xmas_elf::ElfFile;
 
 use crate::mem::vma::{Kind, Prot};
-use crate::process::{load_segments, map_range_kind, page_phys};
+use crate::process::image::{self, Image};
+use crate::process::layout::{IMAGE_RESERVED, STACK_MAX, STACK_TOP};
+use crate::process::{load_segments, loader, map_range_kind, page_phys, Loaded};
 
+use super::errno::{EIO, ENOEXEC, ENOMEM};
 use super::uaccess::fill_random;
-use super::{BRK_BASE, MMAP_LIMIT, PAGE, STACK_SIZE, STACK_TOP};
+use super::PAGE;
 
-/// Windows an image may not occupy: the stack, `brk` and `mmap` regions.
-pub(super) const LOAD_RESERVED: [(u64, u64); 1] = [(BRK_BASE, MMAP_LIMIT)];
+/// Where a freshly loaded image starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Started {
+    pub entry: u64,
+    /// The initial stack pointer (at `argc`).
+    pub rsp: u64,
+    /// The first heap address: `brk` starts here.
+    pub brk: u64,
+}
 
-/// Load a Linux image into `table`, build its start stack with `argv` and
-/// `envp` (each item as given, without a NUL; one is added), and return
-/// `(entry, stack_pointer)`.
-pub fn load(
+/// Why a load failed, for the errno a caller reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadError {
+    /// The image itself is unloadable (`ENOEXEC`).
+    BadImage(&'static str),
+    /// Frames ran out (`ENOMEM`).
+    NoMemory,
+    /// The filesystem failed to read the image (`EIO`).
+    Io,
+}
+
+impl LoadError {
+    /// The errno `execve` reports for this failure.
+    pub fn errno(self) -> u64 {
+        match self {
+            LoadError::BadImage(_) => ENOEXEC,
+            LoadError::NoMemory => ENOMEM,
+            LoadError::Io => EIO,
+        }
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            LoadError::BadImage(reason) => reason,
+            LoadError::NoMemory => loader::OUT_OF_MEMORY,
+            LoadError::Io => image::READ_FAILED,
+        }
+    }
+}
+
+/// Map a loader reason to the errno class it stands for: exact matches only,
+/// so a validation message that happens to start like one stays `ENOEXEC`.
+pub fn classify(reason: &'static str) -> LoadError {
+    if loader::is_out_of_memory(reason) {
+        LoadError::NoMemory
+    } else if reason == image::READ_FAILED {
+        LoadError::Io
+    } else {
+        LoadError::BadImage(reason)
+    }
+}
+
+/// The main-thread stack size this load uses: the configured limit, page
+/// aligned and inside the layout's room for it.
+pub fn stack_size() -> u64 {
+    crate::limits::stack_size().min(STACK_MAX) & !(PAGE - 1)
+}
+
+/// Load `image` into `table`: map its segments and its stack and build the
+/// start stack. `argv`/`envp` are NUL-terminated; `ids` is the `(uid, gid)`
+/// the auxiliary vector reports. On error `table` may hold a partial image,
+/// which the caller frees with the table.
+pub fn load_image<I: Image + ?Sized>(
     table: PhysAddr,
-    elf_bytes: &[u8],
-    argv: &[&[u8]],
-    envp: &[&[u8]],
-) -> Result<(u64, u64), &'static str> {
-    let entry = load_segments(table, elf_bytes, &LOAD_RESERVED)?;
+    image: &I,
+    argv: &[Vec<u8>],
+    envp: &[Vec<u8>],
+    ids: (u32, u32),
+) -> Result<Started, LoadError> {
+    let loaded = load_segments(table, image, &IMAGE_RESERVED).map_err(classify)?;
+    let frame = start_frame_bytes(argv, envp);
+    let size = stack_size().max(frame);
+    let bottom = STACK_TOP - size;
+    // Map the pages the start frame needs; the rest of the stack is a
+    // demand-zero extension of the same VMA.
+    let eager = STACK_TOP - frame;
     let stack = map_range_kind(
         table,
-        STACK_TOP - STACK_SIZE,
+        eager,
         STACK_TOP,
         Prot::READ | Prot::WRITE,
         Kind::Stack,
-    )?;
-
-    let phdr = program_header_addr(elf_bytes);
-    let (phent, phnum) = phdr_size(elf_bytes);
-    let argv = nul_terminated(argv);
-    let envp = nul_terminated(envp);
-    let rsp = build_start_stack(
-        &stack,
-        &argv,
-        &envp,
-        entry,
-        (phdr, phent, phnum),
-        // A kernel-started program is root (see `task::spawn_linux`).
-        (0, 0),
+    )
+    .map_err(|_| LoadError::NoMemory)?;
+    crate::mem::vma::insert(
+        table,
+        bottom,
+        STACK_TOP,
+        Prot::READ | Prot::WRITE,
+        Kind::Stack,
     );
-    Ok((entry, rsp))
+    let rsp = build_start_stack(&stack, argv, envp, &loaded, ids);
+    Ok(Started {
+        entry: loaded.entry,
+        rsp,
+        brk: crate::process::layout::heap_start(loaded.end, 0),
+    })
 }
 
 /// Each item followed by a NUL, as the start stack stores strings.
-fn nul_terminated(items: &[&[u8]]) -> Vec<Vec<u8>> {
+pub fn nul_terminated(items: &[&[u8]]) -> Vec<Vec<u8>> {
     items
         .iter()
         .map(|item| {
@@ -65,30 +135,19 @@ fn nul_terminated(items: &[&[u8]]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Runtime address of the program headers (within a `PT_LOAD` segment).
-pub(super) fn program_header_addr(elf_bytes: &[u8]) -> u64 {
-    let Ok(elf) = ElfFile::new(elf_bytes) else {
-        return 0;
-    };
-    let phoff = elf.header.pt2.ph_offset();
-    for ph in elf.program_iter() {
-        if ph.get_type() != Ok(ProgramType::Load) {
-            continue;
-        }
-        let start = ph.offset();
-        let end = start + ph.file_size();
-        if phoff >= start && phoff < end {
-            return ph.virtual_addr() + (phoff - start);
-        }
-    }
-    0
-}
+/// Number of `(type, value)` pairs [`build_start_stack`] writes, `AT_NULL`
+/// included.
+const AUXV_PAIRS: u64 = 14;
 
-pub(super) fn phdr_size(elf_bytes: &[u8]) -> (u16, u16) {
-    match ElfFile::new(elf_bytes) {
-        Ok(elf) => (elf.header.pt2.ph_entry_size(), elf.header.pt2.ph_count()),
-        Err(_) => (0, 0),
-    }
+/// Page-rounded bytes the start frame occupies below [`STACK_TOP`]: the 16
+/// random bytes, every string, the word arrays and alignment slack, plus a
+/// page so the program's first frames do not fault immediately.
+fn start_frame_bytes(argv: &[Vec<u8>], envp: &[Vec<u8>]) -> u64 {
+    let strings: u64 = argv.iter().chain(envp).map(|s| s.len() as u64).sum::<u64>()
+        + argv.first().map_or(0, |a| a.len() as u64);
+    let words = 1 + argv.len() as u64 + 1 + envp.len() as u64 + 1 + 2 * AUXV_PAIRS;
+    let bytes = 16 + strings + words * 8 + 16 + PAGE;
+    (bytes + PAGE - 1) & !(PAGE - 1)
 }
 
 /// Build the Linux process start stack: `argc/argv/envp/auxv` plus strings.
@@ -98,8 +157,7 @@ pub(super) fn build_start_stack(
     stack: &[(u64, u64)],
     argv: &[Vec<u8>],
     envp: &[Vec<u8>],
-    entry: u64,
-    (phdr, phent, phnum): (u64, u16, u16),
+    loaded: &Loaded,
     (uid, gid): (u32, u32),
 ) -> u64 {
     let mut cursor = STACK_TOP;
@@ -129,13 +187,13 @@ pub(super) fn build_start_stack(
     words.push(0); // argv NULL
     words.extend_from_slice(&envp_ptrs);
     words.push(0); // envp NULL
-    let auxv: [(u64, u64); 13] = [
-        (AT_PHDR, phdr),
-        (AT_PHENT, phent as u64),
-        (AT_PHNUM, phnum as u64),
+    let auxv: [(u64, u64); AUXV_PAIRS as usize - 1] = [
+        (AT_PHDR, loaded.phdr),
+        (AT_PHENT, u64::from(loaded.phent)),
+        (AT_PHNUM, u64::from(loaded.phnum)),
         (AT_PAGESZ, PAGE),
         (AT_BASE, 0),
-        (AT_ENTRY, entry),
+        (AT_ENTRY, loaded.entry),
         (AT_UID, uid as u64),
         (AT_EUID, uid as u64),
         (AT_GID, gid as u64),

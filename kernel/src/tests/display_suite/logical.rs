@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::display::logical;
-use crate::ipc::shared::MAX_BUFFER_BYTES_PER_PROCESS;
+use crate::limits::Limits;
 
 /// Bind under the current geometry; returns the info words.
 fn bind() -> Result<[u64; crate::display::INFO_WORDS], String> {
@@ -45,15 +45,14 @@ pub fn logical_bind_sizes() -> Result<(), String> {
             "{mode:?}: bound {width}x{height}, want {want:?}"
         );
         check!(size == width * height * 4, "{mode:?}: buffer {size}");
-        check!(
-            size <= MAX_BUFFER_BYTES_PER_PROCESS,
-            "{mode:?}: buffer {size} over the cap"
-        );
+        // The per-process cap a machine with this screen derives.
+        let cap = Limits::for_machine(crate::mem::usable_ram(), size).shared_buffer_max;
+        check!(size <= cap, "{mode:?}: buffer {size} over the cap");
         // The shell holds a double-buffered full-screen desktop window and
         // its double-buffered taskbar (32 px tall) in one process.
         let shell = 2 * size + 2 * width * 32 * 4;
         check!(
-            shell <= MAX_BUFFER_BYTES_PER_PROCESS,
+            shell <= cap,
             "{mode:?}: desktop plus taskbar {shell} over the per-process cap"
         );
     }

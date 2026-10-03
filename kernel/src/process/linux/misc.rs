@@ -30,18 +30,10 @@ pub(super) fn sys_arch_prctl(code: u64, addr: u64) -> u64 {
     }
 }
 
+/// `ioctl(fd, request, arg)`: the descriptor-generic requests here, the
+/// terminal ones in [`super::tty`] (`ENOTTY` on anything that is not one).
 pub(super) fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
     match request {
-        0x5401 => 0, // TCGETS: report a default (zeroed) termios
-        0x540F => {
-            // TIOCGPGRP: report the foreground process group. There is no
-            // separate controlling-terminal group yet, so it is the caller's
-            // own group (which `getpgrp` reports too).
-            // Safety: user `pid_t *` (the syscall ABI's contract).
-            unsafe { user_ptr::write::<u32>(arg, task::pgid() as u32) };
-            0
-        }
-        0x5410 => 0, // TIOCSPGRP
         0x5421 => {
             // FIONBIO: the nonblocking switch std::net uses on sockets and pipes
             // (`set_nonblocking`), the ioctl twin of `fcntl(F_SETFL, O_NONBLOCK)`.
@@ -62,19 +54,29 @@ pub(super) fn sys_ioctl(fd: u64, request: u64, arg: u64) -> u64 {
                 err(EBADF)
             }
         }
-        0x5413 => {
-            // TIOCGWINSZ: 24 rows x 80 columns.
-            // Safety: user `struct winsize` (the syscall ABI's contract).
-            unsafe {
-                user_ptr::write::<u16>(arg, 24);
-                user_ptr::write::<u16>(arg + 2, 80);
-                user_ptr::write::<u16>(arg + 4, 0);
-                user_ptr::write::<u16>(arg + 6, 0);
+        0x541B
+            if !matches!(
+                task::fd_kind(fd as usize),
+                task::FdKind::Terminal | task::FdKind::Pty
+            ) =>
+        {
+            // FIONREAD on a file, pipe or socket: bytes a read would return.
+            let queued = match task::fd_kind(fd as usize) {
+                task::FdKind::Closed => return err(EBADF),
+                task::FdKind::File => task::fd_size(fd as usize)
+                    .zip(task::fd_offset(fd as usize))
+                    .map_or(0, |(size, offset)| (size as usize).saturating_sub(offset)),
+                _ => match task::fd_stream_queued(fd as usize) {
+                    Some(queued) => queued,
+                    None => return err(ENOTTY),
+                },
+            };
+            match user_ptr::try_write::<i32>(arg, queued.min(i32::MAX as usize) as i32) {
+                Ok(()) => 0,
+                Err(_) => err(EFAULT),
             }
-            0
         }
-        _ if fd <= 2 => 0,
-        _ => err(ENOTTY),
+        _ => super::tty::ioctl(fd, request, arg),
     }
 }
 

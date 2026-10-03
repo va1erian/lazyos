@@ -67,7 +67,8 @@ pub fn write(
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<Written, String> {
-    let fat = fat_volume(os_image::boot_cfg(settings.uuid).as_bytes())?;
+    let limits = os_image::limits_cfg::from_env();
+    let fat = fat_volume(os_image::boot_cfg(settings.uuid, &limits).as_bytes())?;
     let mut os_bytes = estimate_os_bytes(dirs, files)? + settings.root_free;
     for _ in 0..SIZE_ATTEMPTS {
         match write_once(path, settings, &fat, os_bytes, dirs, files) {

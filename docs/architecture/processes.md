@@ -30,6 +30,28 @@ syscall shim.
   API; `kill_group` is the blunt group-termination primitive kept for tests,
   while signals drive per-process termination.
 
+**ELF loading** (`process/loader.rs`, `elfhdr.rs`, `image.rs`)
+
+- Every spawn path (`spawnv`, `execve`, the native exec, the kernel's boot
+  spawns) hands the loader an `Image`: a `VfsFile` streamed through the ABI or
+  native VFS, or a byte slice (embedded images, tests). Nothing reads a whole
+  program into the kernel heap; the loader reads the ELF header and program
+  headers, then copies each segment's file bytes in 128 KiB chunks straight
+  into the new frames.
+- Headers are validated before anything is mapped (little-endian ELF64,
+  x86-64, `ET_EXEC` or static-PIE `ET_DYN`, 56-byte program headers inside the
+  file; every `PT_LOAD` inside the file, below the layout's `MMAP_BASE`, clear
+  of the reserved windows, no two segments sharing a byte, the entry inside a
+  segment). There is no cap on image size or segment count: the overlap check
+  sorts the segments and compares neighbours.
+- Pages holding file bytes are mapped eagerly; a segment's `.bss` tail past
+  its last file page is an `Anon` VMA, zero-filled on first touch, so the
+  eager cost is bounded by the file, not by what its headers claim.
+- The Linux loader (`linux/elf.rs`) then maps the main-thread stack
+  (`limit.stack_size`, 8 MiB by default, only the start frame's pages present)
+  and starts `brk` on the page after the image. The layout is in
+  [virtual-memory.md](virtual-memory.md).
+
 **Native syscalls** (`process/mod.rs`)
 
 | Nr | Signature | Purpose |
@@ -60,7 +82,8 @@ syscall shim.
 | 31 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
 | 32 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
 
-- `spawnv` reads the ELF from the OS volume (`/system/bin/<name>`), names the task after the file's basename and leaks one interned `&'static str`
+- `spawnv` opens the ELF on the OS volume (`/system/bin/<name>`) and the
+  loader streams it into the child (below), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name
   `service`), and gives the child a copy of the *caller's* credentials before it
   can run; the child's `argv`/`envp` blocks are keyed by slot, written before
@@ -146,7 +169,10 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `pipe2`, `socketpair`, `socket`/`bind`/`listen`/`accept`/`connect`/`shutdown`/
   `getsockname` for `AF_UNIX` stream and seqpacket, `sendto`/`recvfrom`,
   `poll`, `epoll_create1`/`epoll_ctl`/`epoll_wait`, `eventfd2`), and time/misc
-  (`nanosleep`, `clock_nanosleep`, `clock_gettime`/`clock_getres`,
+  (`nanosleep`, `clock_nanosleep`, `clock_gettime`/`clock_getres` (the
+  monotonic clocks read `arch::clock::monotonic_ns`: PIT ticks plus the
+  calibrated TSC's progress within the tick, so 1 ns resolution; realtime adds
+  the wall-clock offset to it),
   `gettimeofday`, `getrandom`, `uname`, `access`, `umask`, `arch_prctl`,
   `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`; the bench's
   `coverage.py` summarises what real programs still hit.
@@ -157,9 +183,11 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   boot volume. Either way `O_CREAT`, `O_TRUNC`, `O_APPEND`, `O_EXCL`, and
   `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/`rmdir`, and descriptor writes
   succeed. Relative `*at` calls join a real directory descriptor's recorded
-  path (which is how `std`'s `remove_dir_all` walk works); descriptors on the
-  overlay root and `/tmp` snapshot file bytes at open and `write` patches the
-  snapshot after updating the backing file. Files on ext2 volumes are
+  path (which is how `std`'s `remove_dir_all` walk works); descriptors on a
+  ramfs (`/tmp`, `/transient`), the FAT `/boot` or a copy-up root snapshot
+  file bytes into the kernel heap at open (fallibly: a file larger than the
+  heap may grow fails the open) and `write` patches the snapshot after
+  updating the backing file. Files on ext2 volumes are
   different, see below.
 - **Descriptors on ext2 volumes** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
   filesys}.rs`, issue #334). A regular file opened on any ext2 mount (`/` and
@@ -219,9 +247,39 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   backend's `StatFs` (ext2 from the superblock, ramfs and the overlay from their
   caps). `pread64`/`pwrite64`/`ftruncate` also work on snapshot descriptors.
 - Honored `clone` flags: `CLONE_VM`, `CLONE_SETTLS`, `CLONE_PARENT_SETTID`,
-  `CLONE_CHILD_CLEARTID`. `CLONE_VM` with `CLONE_THREAD` is a pthread; without
-  it, musl's `posix_spawn` vfork child (a copy-on-write process with the
-  parent's descriptor table). Futex words get one `WaitQueue` per address.
+  `CLONE_CHILD_SETTID`, `CLONE_CHILD_CLEARTID`, `CLONE_FILES`, `CLONE_FS`
+  (`CLONE_SIGHAND`, `CLONE_SYSVSEM`, `CLONE_VFORK`, `CLONE_DETACHED` are
+  accepted as implied or moot; any other flag is `EINVAL`). `CLONE_VM` with
+  `CLONE_THREAD` is a pthread; without it, musl's `posix_spawn` vfork child
+  (a copy-on-write process with the parent's descriptor table); without
+  `CLONE_VM`, a fork. A thread starts with a *copy* of its creator's
+  descriptor table; with `CLONE_FILES` the two stay identical: every change
+  (open, close, `dup2`, `FD_CLOEXEC`) is mirrored into each live member of the
+  share group under the task-table lock (`task/fdshare.rs`, groups in
+  `task/linuxstate.rs`), each copy holding its own reference, so a close in
+  one thread closes everywhere and a thread's exit drops only its own copies.
+  `CLONE_FS` mirrors `chdir` the same way. `execve` leaves both groups.
+- `getpid` reports the thread group (the leader's slot), `gettid` the slot.
+  `wait4`/`waitid` honour the pid argument (one child, any, own group,
+  `-pgid`; `ECHILD` when none qualifies) and report a signal death as
+  `WIFSIGNALED` with the core bit (the signal is recorded with the task when
+  the signal layer ends it, `LinuxExtras::term_signal`). `vfork` is a fork.
+- Futexes (`futex.rs`, `futex_queue.rs`): one waiter table keyed by (address
+  space, address) with a bitset per waiter; `WAIT` (relative timeout),
+  `WAIT_BITSET` (absolute, `FUTEX_CLOCK_REALTIME` honoured), `WAKE`,
+  `WAKE_BITSET`, `REQUEUE`, `CMP_REQUEUE`, `WAKE_OP`; anything else `ENOSYS`.
+  A thread's exit walks its `set_robust_list` list (owner-died + one wake).
+- Terminals (`kernel/src/tty/`, `process/linux/tty.rs`): one line discipline
+  type serves the console window (kept with its root task, keys fed in when
+  someone reads or polls) and pseudo-terminals (`/dev/ptmx` + `/dev/pts/N`).
+  `TCGETS`/`TCSETS*`, canonical editing and echo, `VMIN`/`VTIME`, `ISIG` to
+  the foreground group `TIOCSPGRP` set (the console's `^C` is turned into
+  `SIGINT` by the keyboard path unless `ISIG` is off), window size with
+  `SIGWINCH`, `TIOCSCTTY`; `/dev/tty` is the controlling pty when there is
+  one. Only terminals answer the terminal `ioctl`s (`ENOTTY` otherwise).
+- Advisory locks (`locks.rs`): `flock` per open file description, `fcntl`
+  record locks per process (and the OFD forms), released at unlock or when the
+  owner is gone (checked lazily); `F_SETLKW` waits with a 100 ms re-check.
 - Pipes are bounded 64 KiB byte rings with reader/writer refcounts, blocking
   waits on the task wait queues, EOF when the last writer closes and `-EPIPE`
   when the last reader closes (no SIGPIPE; see the module docs). `F_GETFL`/
@@ -313,8 +371,12 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 **Status.** Working: BusyBox `sh`, the 14 static musl fixtures in
 `tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
-supervision loop (`init`, app `Launch`). Gaps: `poll` edge cases, full
-`SA_RESTART`, shared file tables (and `CLONE_FS`: a thread's `chdir` does not move its
-siblings), dynamic linking. Still `ENOSYS` on the filesystem side: `link`/`symlink`. The
-`persist` fixture also sets and re-checks mode, owner and times across its two
-boots.
+supervision loop (`init`, app `Launch`), and real programs built from pinned
+sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, lua, sqlite3,
+jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
+linking; per-thread signal masks and targeting; `timerfd`/`signalfd`/`inotify`/
+`memfd_create`; `alarm`/`setitimer`; `SCM_RIGHTS`; `SIGTTIN`/`SIGTTOU`; the
+umask is global, not per process. `link`/`symlink` answer `EPERM` (no
+filesystem stores links). The `persist` fixture also sets and re-checks mode,
+owner and times across its two boots. Kernel tests for the round-3 calls:
+`kernel/src/tests/linux_compat_suite/`.

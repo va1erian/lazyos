@@ -159,6 +159,7 @@ impl WaitQueue {
     }
 
     /// Wake a single waiter (the oldest one), if any.
+    #[allow(dead_code)]
     pub fn notify_one(&self) -> usize {
         self.notify(1)
     }
@@ -169,6 +170,7 @@ impl WaitQueue {
     }
 
     /// Whether any task is parked here.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.state.lock().waiters.is_empty()
     }

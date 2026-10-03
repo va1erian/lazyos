@@ -98,12 +98,16 @@ fn elf_with_segments(segments: &[(u64, u64)]) -> Vec<u8> {
 }
 
 /// Segments the loader must refuse after mapping an acceptable first one: one
-/// at/above the 512 GiB that `free_user_table` reclaims, and one whose end
-/// wraps around the address space.
+/// at/above the top of the private user window that `free_user_table`
+/// reclaims, and one whose end wraps around the address space.
 pub fn out_of_range_segment_is_refused_without_leaking() -> Result<(), String> {
     fresh()?;
     for (what, bad, reason) in [
-        ("above 512 GiB", (1u64 << 39, 0x1000u64), "loadable range"),
+        (
+            "above the user window",
+            (crate::mem::USER_TOP, 0x1000u64),
+            "loadable range",
+        ),
         ("wrapping end", (0x80_0000, u64::MAX), "wraps"),
     ] {
         let elf = elf_with_segments(&[(0x40_0000, 0x3000), bad]);
@@ -152,7 +156,7 @@ pub fn execve_failure_releases_address_space() -> Result<(), String> {
 
     // A partial load (first segment mapped, second refused) is the case that
     // actually strands frames beyond the PML4 itself.
-    let partial = elf_with_segments(&[(0x40_0000, 0x3000), (1u64 << 39, 0x1000)]);
+    let partial = elf_with_segments(&[(0x40_0000, 0x3000), (crate::mem::USER_TOP, 0x1000)]);
     let partial_name = "/tmp/lazyos-execve-partial";
     crate::fs::abi_create(Id::current(), partial_name, 0o755).map_err(|e| e.message())?;
     crate::fs::abi_write(Id::current(), partial_name, 0, &partial).map_err(|e| e.message())?;

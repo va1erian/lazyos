@@ -1,17 +1,13 @@
 //! The naming syscalls that don't open a descriptor: `mkdir`/`mkdirat`,
 //! `rmdir`, `unlink`/`unlinkat`, `rename`/`renameat`, `access`, `umask`,
-//! and `readlink`. Split out of [`super::path`] (which keeps path
+//! `faccessat`. Split out of [`super::path`] (which keeps path
 //! resolution and `open`/`openat`) purely to stay under the file size limit;
 //! the two are one responsibility and share its helpers freely.
 
-use alloc::string::String;
-
 use crate::fs::vfs::{self, FsError, Id};
-use crate::task;
-use crate::user_ptr;
 
 use super::cwd::{names_dot, read_path, resolve_at, user_path, AT_FDCWD};
-use super::errno::{err, fs_err, EINVAL, ENOENT};
+use super::errno::{err, fs_err, EINVAL};
 use super::path::synthetic_meta;
 
 /// `unlinkat(2)` flag: remove a directory instead of a file.
@@ -95,6 +91,27 @@ pub(super) fn sys_renameat(from_dirfd: u64, from: u64, to_dirfd: u64, to: u64) -
     }
 }
 
+/// `renameat2(olddirfd, old, newdirfd, new, flags)`: no flags is `renameat`,
+/// `RENAME_NOREPLACE` refuses an existing target with `EEXIST`. `RENAME_EXCHANGE`
+/// and `RENAME_WHITEOUT` need filesystem support no backend has (`EINVAL`).
+pub(super) fn sys_renameat2(from_dirfd: u64, from: u64, to_dirfd: u64, to: u64, flags: u64) -> u64 {
+    const RENAME_NOREPLACE: u64 = 1;
+    if flags & !RENAME_NOREPLACE != 0 {
+        return err(EINVAL);
+    }
+    match (user_path(from_dirfd, from), user_path(to_dirfd, to)) {
+        (Ok(from), Ok(to)) => {
+            // Checked just before the rename: another process could create
+            // the target only if the rename itself blocked on the disk first.
+            if flags & RENAME_NOREPLACE != 0 && super::path::resolve(&to).is_ok() {
+                return err(super::errno::EEXIST);
+            }
+            rename_paths(&from, &to)
+        }
+        (Err(code), _) | (_, Err(code)) => code,
+    }
+}
+
 fn rename_paths(from: &str, to: &str) -> u64 {
     match crate::fs::abi_rename(Id::current(), from, to) {
         Ok(()) => 0,
@@ -120,7 +137,14 @@ pub(super) fn check_path(path: &str, mask: u8) -> Result<(), FsError> {
 /// `access(path, mode)`: POSIX mode bits (`F_OK`=0, `X_OK`=1, `W_OK`=2,
 /// `R_OK`=4) line up with the VFS masks, so they pass straight through.
 pub(super) fn sys_access(path: u64, mode: u64) -> u64 {
-    match user_path(AT_FDCWD, path) {
+    sys_faccessat(AT_FDCWD, path, mode)
+}
+
+/// `faccessat(dirfd, path, mode)` (and `faccessat2`, whose flags only choose
+/// effective ids or no symlink-following: the checks already use the one id a
+/// task has, and there are no symlinks).
+pub(super) fn sys_faccessat(dirfd: u64, path: u64, mode: u64) -> u64 {
+    match user_path(dirfd, path) {
         Ok(path) => match check_path(&path, (mode & 0o7) as u8) {
             Ok(()) => 0,
             Err(error) => fs_err(error),
@@ -132,23 +156,4 @@ pub(super) fn sys_access(path: u64, mode: u64) -> u64 {
 /// `umask(mask)`: set the ABI creation mask, return the previous one.
 pub(super) fn sys_umask(mask: u64) -> u64 {
     crate::fs::abi_set_umask((mask & 0o777) as u16) as u64
-}
-
-/// `readlink(path, buf, size)`: the links we have are `/proc/self/exe`, which
-/// resolves to the BusyBox binary (so the shell can re-exec its applets), and
-/// `/proc/self/cwd`, the working directory.
-pub(super) fn sys_readlink(path: u64, buf: u64, size: u64) -> u64 {
-    let target = match user_path(AT_FDCWD, path).as_deref() {
-        Ok("/proc/self/exe") => String::from(fhs::bin::BUSYBOX),
-        Ok("/proc/self/cwd") => task::cwd(),
-        Ok(_) => return err(ENOENT),
-        Err(code) => return *code,
-    };
-    if size == 0 {
-        return err(EINVAL);
-    }
-    let n = (size as usize).min(target.len());
-    // Safety: user buffer of at least `n` bytes (the syscall ABI's contract).
-    unsafe { user_ptr::copy_to(buf, &target.as_bytes()[..n]) };
-    n as u64
 }

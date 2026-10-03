@@ -24,6 +24,7 @@ Examples
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
+    python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -49,11 +50,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
+from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui.limits import add_limit_option, build_limits  # noqa: E402
+from demo_qemu import sound_args  # noqa: E402
+from demo_builds import (  # noqa: E402
+    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_xui_apps,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -133,19 +139,6 @@ def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
     return True
 
 
-def sound_args(backend: str) -> list[str]:
-    """QEMU arguments for a virtio-sound card on `backend` (see `--sound`)."""
-    if backend == "auto":
-        backend = {"win32": "dsound", "darwin": "coreaudio"}.get(sys.platform, "pa")
-    if backend.startswith("wav:"):
-        # A comma in a path is doubled for QEMU's option parser.
-        path = Path(backend[4:]).resolve().as_posix().replace(",", ",,")
-        audiodev = f"wav,id=snd0,path={path}"
-    else:
-        audiodev = f"{backend},id=snd0"
-    return ["-audiodev", audiodev, "-device", "virtio-sound-pci,audiodev=snd0"]
-
-
 def build_xui_shell() -> bool:
     """Build the xui apps when LazyShell's binary is missing.
 
@@ -179,72 +172,6 @@ def build_core_packages() -> bool:
     return result.returncode == 0
 
 
-def build_rhai() -> None:
-    """Rebuild `target/rhai/rhai.elf` so the image never embeds a stale or
-    missing `rhai` (issue #319). Optional: a host without the musl target
-    still boots, just without the command, which `build.py` explains."""
-    print("building rhai (tools/rhai/build.py)…", flush=True)
-    script = ROOT / "tools" / "rhai" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("warning: rhai did not build; the image will have no `rhai` command",
-              file=sys.stderr)
-
-
-def build_lazyrad() -> bool:
-    """Build the LazyRAD IDE and player (`tools/lazyrad/build.py`) for the image.
-    Explicitly requested with `--lazyrad`, so a failure stops the run."""
-    print("building LazyRAD (tools/lazyrad/build.py)…", flush=True)
-    script = ROOT / "tools" / "lazyrad" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: LazyRAD did not build (run `python tools/lazyrad/build.py`)",
-              file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_doom() -> bool:
-    """Build the Doom package (`tools/doom/build.py`: engine, Freedoom, then
-    `target/pkg/doom.lzp`). Explicitly requested with `--doom`, so a missing
-    toolchain or download stops the run (`--require`)."""
-    print("building Doom (tools/doom/build.py)…", flush=True)
-    script = ROOT / "tools" / "doom" / "build.py"
-    result = subprocess.run([sys.executable, str(script), "--require"], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: Doom did not build (run `python tools/doom/build.py`)", file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_modplayer() -> bool:
-    """Package the LazyRAD MOD player (`tools/lazyrad/package.py`:
-    `target/pkg/MODPLAY.LZP` from `lazyrad-os/samples/modplayer`). Explicitly
-    requested with `--modplayer`, so a missing toolchain stops the run."""
-    print("packaging the MOD player (tools/lazyrad/package.py)…", flush=True)
-    script = ROOT / "tools" / "lazyrad" / "package.py"
-    result = subprocess.run([sys.executable, str(script), "--no-build", "--require"],
-                            cwd=ROOT, stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: the MOD player package did not build "
-              "(run `python tools/lazyrad/package.py`)", file=sys.stderr)
-    return result.returncode == 0
-
-
-def build_xui_apps() -> bool:
-    """Build the desktop's xui apps (`tools/xui/build.py`), which include the
-    Devices app. Explicitly requested with `--devices`, so a failure stops."""
-    print("building the xui apps (tools/xui/build.py)…", flush=True)
-    script = ROOT / "tools" / "xui" / "build.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=ROOT,
-                            stdout=subprocess.DEVNULL)
-    if result.returncode != 0:
-        print("error: the xui apps did not build (run `python tools/xui/build.py`)",
-              file=sys.stderr)
-    return result.returncode == 0
-
-
 def with_devices(autostart: str | None) -> str:
     """`LAZYOS_XUI_AUTOSTART` with the Devices app added: an existing list
     (`editor`) keeps its apps and gains `devices` once; no list means
@@ -266,7 +193,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--headless", action="store_true", help="no display window")
     parser.add_argument("--image", default=str(DEFAULT_IMAGE), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
-    parser.add_argument("--memory", default="256M", help="guest RAM (default: 256M)")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
+    add_limit_option(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -346,6 +274,10 @@ def main(argv: list[str]) -> int:
                         help="also write target/lazyos-usb.img, the image for a real PC's "
                              "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
+    parser.add_argument("--linuxapps", action="store_true",
+                        help="embed real Linux programs in /system/bin "
+                             "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
+                             "built from pinned sources by tools/linuxapps/build.py")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -379,6 +311,7 @@ def main(argv: list[str]) -> int:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
         net_qemu, forwards = qemu_net.args_from_options(args)
+        limits = build_limits(args.limit, args.no_build)
     except ValueError as error:
         parser.error(str(error))
 
@@ -389,6 +322,7 @@ def main(argv: list[str]) -> int:
             cargo.append("--release")
             profile = "release (optimized for real hardware)"
         env = dict(os.environ)
+        env.update(limits)
         if args.reset_os:
             if Path(args.image).exists() and not args.yes and not confirm(
                     f"Recreate the OS volume in {args.image}? Installed apps, settings, "
@@ -420,6 +354,10 @@ def main(argv: list[str]) -> int:
             if not build_modplayer():
                 return 1
             env["LAZYOS_MODPLAYER"] = "1"
+        if args.linuxapps:
+            if not build_linuxapps():
+                return 1
+            env["LAZYOS_LINUXAPPS"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

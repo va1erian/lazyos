@@ -21,11 +21,15 @@ const F_DUPFD_CLOEXEC: u64 = 1030;
 
 const EAGAIN: u64 = (-11i64) as u64;
 
+const EBADF: u64 = (-9i64) as u64;
+
+const EINVAL: u64 = (-22i64) as u64;
+
 /// Register the kernel task and close any descriptor an earlier test left
 /// behind, so pipe-object accounting starts from a clean slate.
 fn fresh() -> Result<(), String> {
     task::register_kernel();
-    for fd in 3..task::FD_COUNT {
+    for fd in 3..task::harness::fd_table_len() {
         let _ = task::fd_close(fd);
     }
     check!(
@@ -38,7 +42,7 @@ fn fresh() -> Result<(), String> {
 
 /// Whether every descriptor of the current task from 3 up is closed.
 fn fds_clean() -> bool {
-    (3..task::FD_COUNT).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
+    (3..task::harness::fd_table_len()).all(|fd| task::fd_kind(fd) == task::FdKind::Closed)
 }
 
 fn io_err(error: pipe::Error) -> String {

@@ -41,7 +41,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 REPORT_DIR = ROOT / "docs" / "test"
 
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
-from qemu_qmp import Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
+from qemu_qmp import (  # noqa: E402
+    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port,
+)
 
 RE_SUMMARY = re.compile(r"^TEST:SUMMARY:PASS=(\d+) FAIL=(\d+)\s*$")
 RE_RESULT = re.compile(r"^TEST:([^:]+):(PASS|FAIL)(?::(.*))?$")
@@ -212,7 +214,7 @@ def main() -> int:
         choices=["auto", "none", "tcg", "whpx", "kvm"],
         help="QEMU accelerator (default: %(default)s)",
     )
-    parser.add_argument("--memory", default="256M", help="guest RAM (default: %(default)s)")
+    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     # The full suite takes ~720 s under TCG (`--accel none`, and the `auto`
     # fallback when KVM is unusable) since the filesystem phases F3-F5 and the
     # block cache added their soaks, so the old 600 s default failed a correct

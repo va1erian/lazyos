@@ -26,10 +26,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FsError, Id};
+use crate::process::image::{Image as _, VfsFile};
 
 use super::cwd::{resolve_at, AT_FDCWD};
 use super::errno::{err, fs_err, ELOOP, ENOENT, ENOEXEC};
-use super::path::load_executable;
+use super::path::open_executable;
 
 /// Longest `#!` line, `#!` included (Linux's `BINPRM_BUF_SIZE`).
 pub const MAX_LINE: usize = 256;
@@ -45,11 +46,13 @@ pub struct Interp<'a> {
     pub arg: Option<&'a [u8]>,
 }
 
-/// An executable ready to load: the ELF's bytes and the argv it runs with
-/// (each entry NUL-terminated).
+/// An executable ready to load: the ELF file (streamed by the loader) and the
+/// argv it runs with (each entry NUL-terminated).
 pub struct Image {
-    pub elf: Vec<u8>,
+    pub file: VfsFile,
     pub argv: Vec<Vec<u8>>,
+    /// The file the ELF came from (`/proc/self/exe` of the new image).
+    pub path: String,
 }
 
 fn is_blank(byte: u8) -> bool {
@@ -108,21 +111,21 @@ fn c_arg(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Map special process paths to a real file (`/proc/self/exe` ->
-/// `/system/bin/busybox`) and drop the leading `/` the ABI VFS lookups take
-/// without.
-fn exe_target(path: &str) -> &str {
-    match path {
-        "/proc/self/exe" => fhs::bin::BUSYBOX.trim_start_matches('/'),
-        other => other.trim_start_matches('/'),
-    }
+/// Map special process paths to a real file (`/proc/self/exe` -> the program
+/// the caller runs) and drop the leading `/` the ABI VFS lookups take without.
+fn exe_target(path: &str) -> String {
+    let path = match path {
+        "/proc/self/exe" => super::path::self_exe(),
+        other => String::from(other),
+    };
+    String::from(path.trim_start_matches('/'))
 }
 
-/// Load one hop: refuse a `noexec` mount or a missing execute bit, then read
+/// Open one hop: refuse a `noexec` mount or a missing execute bit, then open
 /// the file. Applet aliases and paths with no VFS node fall through to
-/// [`load_executable`]. Root needs an `x` bit like everyone else, and a
+/// [`open_executable`]. Root needs an `x` bit like everyone else, and a
 /// directory is `EACCES`, as on Linux.
-fn load_checked(target: &str) -> Result<Vec<u8>, u64> {
+fn open_checked(target: &str) -> Result<VfsFile, u64> {
     if crate::fs::abi_mount_flags(target).noexec {
         return Err(fs_err(FsError::Access));
     }
@@ -130,17 +133,27 @@ fn load_checked(target: &str) -> Result<Vec<u8>, u64> {
         Ok(meta) if meta.kind != vfs::FileKind::File => return Err(fs_err(FsError::Access)),
         Ok(_) => {}
         // No node: `target` is a synthetic applet name (`sh`, `bin/ls`,
-        // `rhai`), which `load_executable` maps to a build-placed 0755 file
+        // `rhai`), which `open_executable` maps to a build-placed 0755 file
         // (BusyBox or a program at the image root), or a missing file it
         // reports as `ENOENT`. Every name that is a node was checked above.
         Err(FsError::NotFound) => {}
         Err(error) => return Err(fs_err(error)),
     }
-    match load_executable(target) {
-        Ok(bytes) => Ok(bytes),
+    match open_executable(target) {
+        Ok(file) => Ok(file),
         Err(FsError::NotFound) => Err(err(ENOENT)),
         Err(error) => Err(fs_err(error)),
     }
+}
+
+/// The first bytes of `file`, as many as a `#!` line may use (fewer for a
+/// shorter file); `ENOEXEC` when they cannot be read.
+fn head(file: &VfsFile) -> Result<Vec<u8>, u64> {
+    let len = file.len().min(MAX_LINE as u64 + 1) as usize;
+    let mut bytes = alloc::vec![0u8; len];
+    file.read_exact_at(0, &mut bytes)
+        .map_err(|_| err(ENOEXEC))?;
+    Ok(bytes)
 }
 
 /// Follow `path` through any `#!` lines to the ELF that will run, rewriting
@@ -149,10 +162,15 @@ fn load_checked(target: &str) -> Result<Vec<u8>, u64> {
 /// `./s.sh`, like Linux). Errors are `-errno`, ready to return.
 pub fn resolve(mut path: String, mut name: Vec<u8>, mut argv: Vec<Vec<u8>>) -> Result<Image, u64> {
     for depth in 0..=MAX_DEPTH {
-        let bytes = load_checked(exe_target(&path))?;
+        let target = exe_target(&path);
+        let file = open_checked(&target)?;
+        let bytes = head(&file)?;
         let interp = match parse(&bytes) {
             Ok(Some(interp)) => interp,
-            Ok(None) => return Ok(Image { elf: bytes, argv }),
+            Ok(None) => {
+                let path = super::path::real_exe_path(&target);
+                return Ok(Image { file, argv, path });
+            }
             Err(code) => return Err(err(code)),
         };
         if depth == MAX_DEPTH {

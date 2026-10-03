@@ -7,7 +7,7 @@ ISR that performs context switches.
 
 | Path | Role |
 |---|---|
-| `kernel/src/task/mod.rs` (+ `sched`, `spawn`, `lifecycle`, `waiting`, `console`, `fdtypes`, `fdops`, `fdio`, `memstate`, `stats`) | `Task`, task table, scheduler, spawn APIs, terminals, fds (split by responsibility into the submodules) |
+| `kernel/src/task/mod.rs` (+ `sched`, `spawn`, `lifecycle`, `waiting`, `console`, `fdtable`, `fdtypes`, `fdops`, `fdio`, `memstate`, `stats`) | `Task`, task table, scheduler, spawn APIs, terminals, fds (split by responsibility into the submodules) |
 | `kernel/src/task/switch.rs` | `timer_isr` naked stub (IDT vector 32) |
 | `kernel/src/arch/idt.rs` | installs the timer gate; `TICKS` counter |
 | `kernel/src/tests/task_suite/`, `kernel/src/tests/sched_suite.rs` | scheduler/task test hooks (`task::harness`) |
@@ -37,7 +37,7 @@ ISR that performs context switches.
   substitution reaps the writer only after the pipe's end-of-file, so a
   zombie that kept its write end hung it.
 - Per task: `pml4`, `kstack_top`/`rsp`, `class`/`weight`/`pass`, `cpu_ticks`,
-  `parent`/`pgid`/`sid`, `heap_break`, `fs_base`, `fds[16]`, `output`, `input`.
+  `parent`/`pgid`/`sid`, `heap_break`, `fs_base`, `fds` (an `FdTable`), `output`, `input`.
 
 **Scheduling** (issue #58)
 
@@ -91,8 +91,19 @@ ISR that performs context switches.
   the root ancestor's window (`root_index`). `Tab` cycles focus in `on_key`,
   Ctrl-C becomes `SIGINT` to the focused process group, and blocked readers park
   on `wait::TERMINAL`.
-- fd table: `fd_open/close/read/size/seek/dup/dup2`, 16 slots; 0/1/2 are the
-  task terminal; files are whole-file buffers with an offset.
+- fd table (`task/fdtable.rs`): a growable `FdTable` per task, starting with
+  0/1/2 (the task terminal) and doubling on demand up to `limit.fd_max`
+  descriptors (Linux's `RLIMIT_NOFILE`, 1024 by default;
+  [limits.md](limits.md)). Growth is fallible: a full table (or an exhausted
+  heap) fails the `open`/`dup` with `EMFILE`, and `dup2` to a descriptor at or
+  past the limit is `EBADF`. The table's API (look up, install lowest, put,
+  replace, take, fork and exec copies) is small on purpose, so `CLONE_FILES`
+  sharing can wrap it. Entries removed from a table are dropped after the task
+  table unlocks (a pipe's last end wakes a queue). `fd_open/close/read/size/
+  seek/dup/dup2` are built on it; files on ext2 are read in place, ramfs and
+  FAT files are whole-file snapshots with an offset.
+- Program images are loaded before the task table is locked (they are
+  streamed from disk); the slot is claimed after.
 
 **Locks and preemption** (issue #382)
 

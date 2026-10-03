@@ -125,7 +125,7 @@ pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) 
         bytes_per_pixel: bytes_per_pixel as u64,
     };
     serial_println!(
-        "HW:FB:{}x{}->{}x{} at {},{} stride {} bpp {}{}",
+        "HW:FB:{}x{}->{}x{} at {},{} stride {} bpp {}",
         width,
         height,
         fitted.width,
@@ -133,18 +133,33 @@ pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) 
         fitted.x,
         fitted.y,
         stride,
-        bytes_per_pixel,
-        if fitted.rgba_bytes() > shared::MAX_BUFFER_BYTES_PER_PROCESS {
-            " OVER-BUDGET"
-        } else {
-            ""
-        }
+        bytes_per_pixel
     );
 }
 
 /// The logical screen: where the desktop lives inside the framebuffer.
 pub fn logical() -> logical::Logical {
     *LOGICAL.lock()
+}
+
+/// Bytes of one screen-sized RGBA surface (what `bind` allocates), for the
+/// display-buffer limits (`crate::limits`). Zero before [`init`].
+pub fn screen_bytes() -> u64 {
+    let screen = *SCREEN.lock();
+    screen.width * screen.height * 4
+}
+
+/// The recorded `(width, height, stride, bytes_per_pixel)`, so a test that
+/// pretends to another screen can put the boot geometry back.
+#[cfg(lazyos_tests)]
+pub fn geometry_for_test() -> (usize, usize, usize, usize) {
+    let screen = *SCREEN.lock();
+    (
+        screen.width as usize,
+        screen.height as usize,
+        screen.stride as usize,
+        screen.bytes_per_pixel as usize,
+    )
 }
 
 /// Whether a live compositor currently owns the display.

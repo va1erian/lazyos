@@ -8,6 +8,8 @@ use crate::fs::vfs::FsError;
 // errno values (returned as negative values).
 pub(super) const EPERM: u64 = 1;
 pub(super) const ESRCH: u64 = 3;
+pub(super) const EIO: u64 = 5;
+pub(super) const ENXIO: u64 = 6;
 pub(super) const E2BIG: u64 = 7;
 pub(super) const ENOSYS: u64 = 38;
 pub(super) const ENOMEM: u64 = 12;
@@ -36,6 +38,7 @@ pub(super) const ENOTCONN: u64 = 107;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 pub(super) const EACCES: u64 = 13;
 pub(super) const EEXIST: u64 = 17;
+pub(super) const EOVERFLOW: u64 = 75;
 pub(super) const ELOOP: u64 = 40;
 pub(super) const ENOTDIR: u64 = 20;
 pub(super) const EISDIR: u64 = 21;

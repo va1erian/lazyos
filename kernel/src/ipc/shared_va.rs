@@ -12,11 +12,11 @@ use spin::Mutex;
 /// Mapping granule.
 const FRAME_SIZE: u64 = 4096;
 
-/// Base of the virtual range buffer mappings are handed out from. It sits in
-/// the lower (user) canonical half, above the kernel heap and far above every
-/// program segment, stack and `mmap` bump, so a fresh mapping never collides
-/// with an existing one.
-pub const BUFFER_VA_BASE: u64 = 0x0000_5000_0000_0000;
+/// Base of the virtual range buffer mappings are handed out from: the
+/// shared-buffer window, the last PML4 entry of the lower (user) canonical
+/// half (`mem::layout`), above every program segment, stack and `mmap` area
+/// a process lays out, so a fresh mapping never collides with an existing one.
+pub const BUFFER_VA_BASE: u64 = crate::mem::SHARED_WINDOW_BASE;
 
 /// A free `[start, start + len)` range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

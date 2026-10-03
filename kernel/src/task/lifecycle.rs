@@ -58,7 +58,9 @@ pub fn kill_group(pgid: usize) -> usize {
     process::kill_group(pgid)
 }
 
-/// Whether the current task has any children.
+/// Whether the current task has any children (the harness; `wait4` uses
+/// [`has_child_filtered`]).
+#[allow(dead_code)]
 pub fn has_children() -> bool {
     let tasks = TASKS.lock();
     let me = current();
@@ -196,17 +198,16 @@ pub fn close_exited_fds() {
         let (fds, orphaned) = {
             let mut tasks = TASKS.lock();
             let fds = match tasks[slot].as_mut() {
-                Some(task) if task.state == TaskState::Done => {
-                    task.fd_flags = [0; FD_COUNT];
-                    core::mem::replace(&mut task.fds, core::array::from_fn(|_| Fd::Closed))
-                }
+                Some(task) if task.state == TaskState::Done => task.fds.take_all(),
                 _ => continue,
             };
             let orphaned = orphaned_interests(&tasks, &fds);
             (fds, orphaned)
         };
         for (epoll, fd) in &orphaned {
-            Epoll::drop_fd_if(epoll, *fd, &fds[*fd]);
+            if let Some(entry) = fds.get(*fd) {
+                Epoll::drop_fd_if(epoll, *fd, entry);
+            }
         }
         drop(orphaned);
         drop(fds);
@@ -219,22 +220,22 @@ pub fn close_exited_fds() {
 /// that number.
 fn orphaned_interests(
     tasks: &[Option<Task>; MAX_TASKS],
-    dead: &[Fd; FD_COUNT],
+    dead: &FdTable,
 ) -> Vec<(Arc<Epoll>, usize)> {
     let mut orphaned = Vec::new();
-    for entry in dead {
+    for (_, entry) in dead.iter() {
         let Fd::Epoll { epoll } = entry else {
             continue;
         };
-        for fd in (0..FD_COUNT).filter(|&fd| !matches!(dead[fd], Fd::Closed)) {
+        for (fd, held_dead) in dead.iter() {
             let still_owned = tasks
                 .iter()
                 .flatten()
                 .filter(|task| task.state != TaskState::Done)
                 .any(|task| {
-                    task.fds[fd].same_file(&dead[fd])
+                    task.fds.get(fd).is_some_and(|live| live.same_file(held_dead))
                         && task.fds.iter().any(
-                            |held| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
+                            |(_, held)| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
                         )
                 });
             if !still_owned {
@@ -254,14 +255,50 @@ fn orphaned_interests(
 /// other state), while an interrupt here would otherwise self-deadlock on
 /// `TASKS`.
 pub fn reap_child() -> Option<(usize, u64)> {
-    reap_matching(|_| true)
+    reap_matching(|_, _| true).map(|(slot, status, _)| (slot, status))
+}
+
+/// Which children a Linux `wait4`/`waitid` accepts: one pid, any child, or the
+/// members of one process group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChildFilter {
+    Any,
+    Pid(usize),
+    Group(usize),
+}
+
+impl ChildFilter {
+    fn accepts(self, slot: usize, task: &Task) -> bool {
+        match self {
+            ChildFilter::Any => true,
+            ChildFilter::Pid(pid) => slot == pid,
+            ChildFilter::Group(pgid) => task.pgid == pgid,
+        }
+    }
+}
+
+/// Reap a finished child that `filter` accepts: `(pid, exit status, the
+/// signal that ended it or 0)`.
+pub fn reap_child_filtered(filter: ChildFilter) -> Option<(usize, u64, u8)> {
+    reap_matching(|slot, task| filter.accepts(slot, task))
+}
+
+/// Whether the caller has any child (finished or not) that `filter` accepts:
+/// `wait4` answers `ECHILD` otherwise.
+pub fn has_child_filtered(filter: ChildFilter) -> bool {
+    let me = current();
+    let tasks = TASKS.lock();
+    tasks.iter().enumerate().any(|(slot, task)| {
+        task.as_ref()
+            .is_some_and(|task| task.parent == me && slot != me && filter.accepts(slot, task))
+    })
 }
 
 /// [`reap_child`] restricted to the child in `slot`: `None` while it still
 /// runs (or is not a child of the caller). `execve` of a native program waits
 /// on exactly the program it started, whatever else the caller has forked.
 pub fn reap_child_slot(slot: usize) -> Option<u64> {
-    reap_matching(|index| index == slot).map(|(_, status)| status)
+    reap_matching(|index, _| index == slot).map(|(_, status, _)| status)
 }
 
 /// Whether `slot` holds a not-yet-reaped child of the current task.
@@ -275,7 +312,7 @@ pub fn is_child(slot: usize) -> bool {
 }
 
 /// The reaping body: take the first finished child whose slot `wanted` accepts.
-fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
+fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u8)> {
     let me = current();
     let (index, status, pml4, shared, dead) = {
         let mut tasks = TASKS.lock();
@@ -283,7 +320,9 @@ fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
         for index in 1..MAX_TASKS {
             let finished = tasks[index]
                 .as_ref()
-                .map(|task| task.parent == me && task.state == TaskState::Done && wanted(index))
+                .map(|task| {
+                    task.parent == me && task.state == TaskState::Done && wanted(index, task)
+                })
                 .unwrap_or(false);
             if finished {
                 // INVARIANT: `finished` was just computed from this same
@@ -306,6 +345,7 @@ fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
         }
         found?
     };
+    let signal = dead.as_ref().map_or(0, |task| task.linux.term_signal);
     // Dropping the dead task closes its descriptors, which may wake a peer
     // blocked on a pipe it held. Must happen with `TASKS` unlocked: pipe
     // release takes the wait-queue lock and then the task table.
@@ -327,5 +367,5 @@ fn reap_matching(wanted: impl Fn(usize) -> bool) -> Option<(usize, u64)> {
     }
     // A freed slot releases a `clone` sleeping on table pressure early.
     wait::SLOT.notify_all();
-    Some((index, status))
+    Some((index, status, signal))
 }

@@ -294,9 +294,24 @@ pub(super) fn apply_action(
 /// value `sysretq` would return; it is recorded as `rax` in the frame so
 /// `rt_sigreturn` resumes the caller with the syscall's outcome (typically
 /// `-EINTR`).
+#[allow(dead_code)] // the restartable form is what the gate uses
 pub fn deliver_linux(result: u64) {
+    deliver_linux_restartable(result, None);
+}
+
+/// [`deliver_linux`] for a syscall that may be restarted: when `restart` is
+/// the syscall's number and the call was interrupted (`-EINTR`), the first
+/// handler about to run decides, as on Linux: with `SA_RESTART` the frame
+/// records the `syscall` instruction itself (`rip - 2`) and the number in
+/// `rax`, so returning from the handler issues the call again with its
+/// original arguments (they are all callee-saved in the frame); without it
+/// the caller sees `EINTR`. Returns the value `rax` should hold now.
+pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
+    const EINTR: u64 = (-4i64) as u64;
+    /// `syscall` is two bytes (`0f 05`).
+    const SYSCALL_LEN: u64 = 2;
     let Some((slot, pml4)) = current_info() else {
-        return;
+        return result;
     };
     let is_linux = {
         let tasks = TASKS.lock();
@@ -305,23 +320,36 @@ pub fn deliver_linux(result: u64) {
             .is_some_and(|task| task.kind == Kind::Linux && task.kstack_top != 0)
     };
     if !is_linux {
-        return;
+        return result;
     }
-    let mut regs = saved_regs_from_stack(result);
-    let mut frame_written = false;
+    // The saved registers are read only once a handler needs a frame: a
+    // pending signal whose action is to ignore it needs none.
+    let mut regs: Option<UserRegs> = None;
+    let mut restart = restart.filter(|_| result == EINTR);
     while let Some((sig, disposition)) = next_deliverable(pml4) {
         if default_action(sig) == DefaultAction::Stop && disposition == Disposition::Default {
             stop_process(pml4);
             wait_continued();
             continue;
         }
-        apply_action(pml4, slot, sig, disposition, &mut regs);
-        frame_written = true;
+        let Disposition::Handler { flags, .. } = disposition else {
+            apply_action(pml4, slot, sig, disposition, &mut UserRegs::default());
+            continue;
+        };
+        let frame = regs.get_or_insert_with(|| saved_regs_from_stack(result));
+        if let Some(nr) = restart.take() {
+            if flags & SA_RESTART != 0 {
+                frame.rip -= SYSCALL_LEN;
+                frame.rax = nr;
+            }
+        }
+        apply_action(pml4, slot, sig, disposition, frame);
     }
-    if frame_written {
+    if let Some(regs) = regs {
         apply_linux_frame_syscall(&regs);
     }
     // `rt_sigsuspend` woke without a handler frame consuming its saved mask (the
     // signal's action ignored it): the original mask comes back now.
     suspend_end_for(pml4, slot);
+    result
 }

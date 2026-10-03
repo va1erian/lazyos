@@ -117,11 +117,14 @@ use creds::{sys_creds, sys_quota, sys_tasks};
 mod argstore;
 mod credio;
 mod creds;
+pub(crate) mod elfhdr;
 mod exec_perm;
 pub mod fsops;
 pub(crate) mod gate;
+pub mod image;
 pub mod inetsys;
 pub mod killsys;
+pub mod layout;
 pub mod linux;
 pub mod loader;
 pub mod power;
@@ -134,18 +137,21 @@ use credio::{read_cred, write_cred};
 #[cfg(lazyos_tests)]
 pub use gate::dispatch_for_test;
 pub use gate::syscall_gate;
-pub use loader::load_segments;
+pub use loader::{load_segments, Loaded};
 
-/// Base of the user heap (grows up toward the stack).
+/// Lowest address of a native heap: `sbrk` starts here, or at the page after
+/// the image when the image reaches past it ([`layout::heap_start`]).
 pub const USER_HEAP_BASE: u64 = 0x60_0000;
-/// Top of the user stack (grows down). The heap lives between
-/// [`USER_HEAP_BASE`] and the stack, so this is also the heap's ceiling: 128 MiB
-/// leaves a native service about 126 MiB of `sbrk` room (pages are demand-zero,
-/// so an unused ceiling costs nothing). It was 8 MiB (a 2 MiB heap) until the
-/// package manager had to hold a package and its largest file at once.
-pub const USER_STACK_TOP: u64 = 0x0800_0000;
-/// User stack size.
+/// Top of the native user stack (grows down): the shared stack top of
+/// [`layout`]. The heap grows up to [`NATIVE_HEAP_LIMIT`], far below it.
+pub const USER_STACK_TOP: u64 = layout::STACK_TOP;
+/// Native user stack size, mapped eagerly (native programs are LazyOS's own
+/// and keep their frames small).
 pub const USER_STACK_SIZE: u64 = 0x2_0000;
+/// Ceiling of a native `sbrk` heap: the start of the region the kernel lays
+/// out itself (pages are demand-zero, so an unused ceiling costs nothing; the
+/// per-uid quota bounds what is reserved).
+pub const NATIVE_HEAP_LIMIT: u64 = layout::MMAP_BASE;
 
 /// Record the `argv` of the native task in `slot`, `argv[0]` included, with an
 /// empty environment: the per-task block `spawnv` fills, for the spawns that
@@ -272,10 +278,14 @@ fn sys_sbrk(increment: u64) -> u64 {
         Some(value) => value & !(page - 1),
         None => return u64::MAX,
     };
-    if new_break > USER_STACK_TOP - USER_STACK_SIZE {
+    if new_break > NATIVE_HEAP_LIMIT {
         return u64::MAX;
     }
     let table = mem::kernel_table();
+    // Never grow over another mapping (`vma::insert` would turn it into heap).
+    if new_break > current && !mem::vma::find_range(table, current, new_break).is_empty() {
+        return u64::MAX;
+    }
     if new_break > current {
         // Per-uid user-memory quota (issue #103): charge the growth before the
         // VMA exists; a refusal returns the unchanged break like any other
@@ -348,9 +358,21 @@ fn sys_clock() -> u64 {
     task::ticks()
 }
 
-/// Load a static ELF64 image and map the native user stack.
-pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str> {
-    let entry = load_segments(table, elf_bytes, &[(USER_HEAP_BASE, USER_STACK_TOP)])?;
+/// Where a loaded native program starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeStart {
+    pub entry: u64,
+    /// The initial `sbrk` break.
+    pub heap: u64,
+}
+
+/// Load a static ELF64 image (streamed from `image`) and map the native user
+/// stack.
+pub fn load_image<I: image::Image + ?Sized>(
+    table: PhysAddr,
+    image: &I,
+) -> Result<NativeStart, &'static str> {
+    let loaded = load_segments(table, image, &layout::IMAGE_RESERVED)?;
     map_range_kind(
         table,
         USER_STACK_TOP - USER_STACK_SIZE,
@@ -358,7 +380,10 @@ pub fn load_image(table: PhysAddr, elf_bytes: &[u8]) -> Result<u64, &'static str
         Prot::READ | Prot::WRITE,
         Kind::Stack,
     )?;
-    Ok(entry)
+    Ok(NativeStart {
+        entry: loaded.entry,
+        heap: layout::heap_start(loaded.end, USER_HEAP_BASE),
+    })
 }
 
 /// Map `[start, end)` as zeroed anonymous user pages into `table` (eager), for
@@ -381,9 +406,9 @@ pub fn map_range_kind(
     let mut pages = Vec::new();
     let mut va = start & !0xFFF;
     while va < end {
-        let phys = mem::alloc_zeroed_frame().ok_or("out of memory")?;
+        let phys = mem::alloc_zeroed_frame().ok_or(loader::OUT_OF_MEMORY)?;
         if !mem::map_page_in(table, VirtAddr::new(va), phys, mem::prot_flags(prot)) {
-            return Err("failed to map user page");
+            return Err(loader::MAP_PAGE_FAILED);
         }
         pages.push((va, phys.as_u64()));
         va += 4096;

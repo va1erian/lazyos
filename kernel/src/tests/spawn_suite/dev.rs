@@ -296,7 +296,7 @@ pub fn stdio_hands_descriptors() -> Result<(), String> {
     }
     no_leak(before, usage(), 4096, "refused stdio")?;
     let slot = spawned(request.call_stdio([STDIO_TERMINAL, write as u64, write as u64]))?;
-    let kinds: Vec<task::FdKind> = (0..task::FD_COUNT)
+    let kinds: Vec<task::FdKind> = (0..crate::limits::fd_max())
         .map(|fd| task::harness::fd_kind_at(slot, fd))
         .collect();
     check!(

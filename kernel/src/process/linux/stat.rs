@@ -88,9 +88,6 @@ fn live_meta(opened: &FdMeta) -> Option<Meta> {
 /// The attributes of an open descriptor (`fstat`, and `statx` with
 /// `AT_EMPTY_PATH`); `-EBADF` for one that is not open.
 pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
-    if fd <= 2 {
-        return Ok(Attrs::anonymous(S_IFCHR | 0o620, 0, 0));
-    }
     match task::fd_kind(fd as usize) {
         FdKind::File => Ok(match fd_meta_get(fd as usize) {
             Some(opened) => match live_meta(&opened) {
@@ -112,7 +109,11 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
             }
         }),
         FdKind::Vfs => super::vfsfd::meta_of(fd).map(|meta| Attrs::of(&meta)),
-        FdKind::Terminal => Ok(Attrs::anonymous(S_IFCHR | 0o620, 0, 0)),
+        FdKind::Terminal | FdKind::Pty => {
+            let (uid, gid) = super::tty::fd_owner(fd);
+            let attrs = Attrs::anonymous(S_IFCHR | 0o620, 0, super::tty::fd_ino(fd));
+            Ok(Attrs { uid, gid, ..attrs })
+        }
         FdKind::Pipe => Ok(Attrs::anonymous(S_IFIFO | 0o600, 0, fd)),
         FdKind::Socket | FdKind::Listener | FdKind::Unbound | FdKind::Inet => {
             Ok(Attrs::anonymous(S_IFSOCK | 0o600, 0, fd))

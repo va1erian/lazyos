@@ -88,9 +88,12 @@ pub fn logical_fit_cases() -> Result<(), String> {
             "{width}x{height} overflows"
         );
     }
+    let capped = logical::fit(3840, 2160).rgba_bytes();
     check!(
-        logical::fit(3840, 2160).rgba_bytes() <= crate::ipc::shared::MAX_BUFFER_BYTES_PER_PROCESS,
-        "the cap does not fit the shared-buffer budget"
+        2 * capped
+            <= crate::limits::Limits::for_machine(crate::mem::usable_ram(), capped)
+                .shared_buffer_max,
+        "a double-buffered capped screen does not fit the shared-buffer budget"
     );
     check!((MAX_WIDTH, MAX_HEIGHT) == (1920, 1080), "cap changed");
     Ok(())

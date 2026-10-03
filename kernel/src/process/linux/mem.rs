@@ -12,7 +12,7 @@ use crate::quota::{self, Resource};
 use crate::task;
 
 use super::errno::{err, EFAULT, EINVAL, ENODEV, ENOMEM};
-use super::{BRK_BASE, BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
+use super::{BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
 
 const MAP_FIXED: u64 = 0x10;
 const MAP_ANONYMOUS: u64 = 0x20;
@@ -109,6 +109,39 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
     0
 }
 
+/// `madvise(MADV_DONTNEED)`: anonymous and heap pages in the range are
+/// released (their VMAs stay, so the next touch demand-zeroes a fresh page,
+/// which is exactly the contract), stack pages are zeroed in place (they are
+/// mapped eagerly), and a file segment, whose contract is "reload from the
+/// file", is refused with `EINVAL`.
+pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
+    let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
+        return err(EINVAL);
+    };
+    let table = crate::mem::kernel_table();
+    let vmas = crate::mem::vma::find_range(table, addr, end);
+    if vmas.iter().any(|vma| vma.kind == Kind::File) {
+        return err(EINVAL);
+    }
+    for vma in vmas {
+        let (start, stop) = (vma.start.max(addr), vma.end.min(end));
+        match vma.kind {
+            Kind::Stack => {
+                if vma.prot.has_write() {
+                    let zeros = [0u8; PAGE as usize];
+                    for page in (start..stop).step_by(PAGE as usize) {
+                        let _ = crate::user_ptr::try_copy_to(page, &zeros);
+                    }
+                }
+            }
+            _ => {
+                crate::mem::unmap_range(table, start, stop);
+            }
+        }
+    }
+    0
+}
+
 /// `mprotect(addr, len, prot)`: update the PTE flags for resident pages and
 /// the VMA for the whole range, so pages faulted in later honor the new access
 /// too. Resident COW pages are privatized first (their protection is per
@@ -138,7 +171,7 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
 /// the frames to first touch; shrinking unmaps what lies above the new break.
 pub(super) fn sys_brk(addr: u64) -> u64 {
     let current = task::brk();
-    if addr == 0 || addr < BRK_BASE {
+    if addr == 0 || addr < task::brk_start() {
         return current;
     }
     let Some(new) = align_up(addr, PAGE) else {
@@ -149,9 +182,9 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
     }
     let table = crate::mem::kernel_table();
     // The break never grows over another mapping: `vma::insert` would silently
-    // turn it into heap (the user stack sits inside the brk range), handing
-    // out live stack memory and letting a later shrink unmap it. Linux fails
-    // the same collision by leaving the break unchanged.
+    // turn it into heap (a `MAP_FIXED` mapping may sit inside the brk range),
+    // handing out live memory and letting a later shrink unmap it. Linux
+    // fails the same collision by leaving the break unchanged.
     if new > current && !crate::mem::vma::find_range(table, current, new).is_empty() {
         return current;
     }

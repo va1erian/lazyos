@@ -145,8 +145,9 @@ pub fn state(index: usize) -> Option<TaskState> {
 /// `fork` inheritance without switching `current()`.
 pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
     let tasks = TASKS.lock();
-    match tasks[slot].as_ref() {
-        Some(task) if fd < super::FD_COUNT => match task.fds[fd] {
+    match tasks[slot].as_ref().and_then(|task| task.fds.get(fd)) {
+        Some(entry) => match entry {
+            super::Fd::Pty { .. } => super::FdKind::Pty,
             super::Fd::Closed => super::FdKind::Closed,
             super::Fd::Terminal => super::FdKind::Terminal,
             super::Fd::File { .. } => super::FdKind::File,
@@ -163,15 +164,21 @@ pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
     }
 }
 
+/// Slots in the current task's descriptor table (open or not): the bound a
+/// test iterates to when it checks that every descriptor is closed.
+pub fn fd_table_len() -> usize {
+    TASKS.lock()[super::current()]
+        .as_ref()
+        .map_or(0, |task| task.fds.len())
+}
+
 /// Whether `fd` in another task's table has `FD_CLOEXEC`.
 pub fn fd_cloexec_at(slot: usize, fd: usize) -> bool {
     let tasks = TASKS.lock();
-    match tasks[slot].as_ref() {
-        Some(task) if fd < super::FD_COUNT => {
-            !matches!(task.fds[fd], super::Fd::Closed) && task.fd_flags[fd] & super::FD_CLOEXEC != 0
-        }
-        _ => false,
-    }
+    tasks[slot]
+        .as_ref()
+        .and_then(|task| task.fds.flags(fd))
+        .is_some_and(|flags| flags & super::FD_CLOEXEC != 0)
 }
 
 /// The slot the scheduler would pick next, without switching to it or

@@ -10,7 +10,8 @@ import os
 import shutil
 import tkinter as tk
 
-from .catalog import DATA_IMAGE, HOME_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS, SIMPLE_INTERFACES
+from .catalog import (DATA_IMAGE, DEFAULT_MEMORY, HOME_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS,
+                      SIMPLE_INTERFACES)
 
 
 def make_vars() -> dict:
@@ -24,7 +25,8 @@ def make_vars() -> dict:
         "disk": s(value="virtio"),
         "home_path": s(value=HOME_IMAGE),
         "data_path": s(value=DATA_IMAGE),
-        "memory": s(value="256M"),
+        "memory": s(value=DEFAULT_MEMORY),
+        "limits": s(value=""),
         "times": s(value="10,14,18"),
         "timeout": s(value="180"),
         "abi_time": s(value="8"),
@@ -68,6 +70,8 @@ def make_vars() -> dict:
         "net_forwards": s(value=""),
         "net_restrict": b(value=False),
         "simple_net": b(value=False),
+        "linuxapps": b(value=False),
+        "simple_linuxapps": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),

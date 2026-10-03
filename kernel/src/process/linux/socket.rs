@@ -18,7 +18,7 @@ use super::errno::{
     ENOPROTOOPT, ENOTCONN, ENOTSOCK,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
-use super::io::{read_stream, write_stream};
+use super::io::{read_stream_opts, write_stream_opts};
 
 /// `shutdown(2)` directions.
 const SHUT_RD: u64 = 0;
@@ -281,29 +281,35 @@ pub(super) fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64, peer: bool) -> 
     }
 }
 
-/// `sendto(fd, buf, len, flags, addr, addrlen)`: musl's `send`. The only
-/// sockets are connected `AF_UNIX` pairs, so the destination is ignored (std
-/// passes a null address) and this is a stream write; a non-socket fd is
-/// `-ENOTSOCK`, as Linux reports.
-pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+/// `sendto(fd, buf, len, flags, addr, addrlen)` once [`super::msgio`] has
+/// decoded the flags. The `AF_UNIX` sockets are connected pairs, so the
+/// destination is ignored (std passes a null address) and this is a stream
+/// write; a non-socket fd is `-ENOTSOCK`, as Linux reports.
+pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, to: (u64, u64), dont_wait: bool) -> u64 {
     if super::inet::is_inet(fd) {
-        return super::inet::sys_sendto(fd, buf, len, addr, addrlen);
+        return super::inet::sys_sendto(fd, buf, len, to, dont_wait);
     }
     match task::fd_kind(fd as usize) {
-        FdKind::Socket => write_stream(fd, buf, len),
+        FdKind::Socket => write_stream_opts(fd, buf, len, dont_wait),
         _ => err(ENOTSOCK),
     }
 }
 
-/// `recvfrom(fd, buf, len, flags, addr, addrlen)`: musl's `recv`. Source
-/// addresses do not exist for connected pairs (std passes null), so this is a
-/// stream read; a non-socket fd is `-ENOTSOCK`.
-pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, addr: u64, addrlen: u64) -> u64 {
+/// `recvfrom(fd, buf, len, flags, addr, addrlen)` once the flags are decoded.
+/// Source addresses do not exist for connected pairs (std passes null), so
+/// this is a stream read; a non-socket fd is `-ENOTSOCK`.
+pub(super) fn sys_recvfrom(
+    fd: u64,
+    buf: u64,
+    len: u64,
+    from: (u64, u64),
+    opts: task::RecvOpts,
+) -> u64 {
     if super::inet::is_inet(fd) {
-        return super::inet::sys_recvfrom(fd, buf, len, addr, addrlen);
+        return super::inet::sys_recvfrom(fd, buf, len, from, opts);
     }
     match task::fd_kind(fd as usize) {
-        FdKind::Socket => read_stream(fd, buf, len),
+        FdKind::Socket => read_stream_opts(fd, buf, len, opts),
         _ => err(ENOTSOCK),
     }
 }

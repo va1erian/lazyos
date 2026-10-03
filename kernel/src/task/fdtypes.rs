@@ -2,11 +2,9 @@
 
 use super::*;
 use crate::fs::openfile::OpenFile;
+use crate::tty::pty::Pty;
 
-/// Number of file descriptors per task.
-pub const FD_COUNT: usize = 16;
-
-/// Per-descriptor `FD_CLOEXEC` bit in [`Task::fd_flags`].
+/// Per-descriptor `FD_CLOEXEC` bit in a [`super::FdTable`] slot's flags.
 pub const FD_CLOEXEC: u16 = 1;
 
 /// The socket type an unbound `socket(2)` descriptor carries to `connect`.
@@ -46,6 +44,9 @@ pub enum Fd {
     /// An `AF_INET` socket, served by `netd` (`crate::ipc::inet`). Once it has
     /// a connection its data path is a socket pair, driven like `Socket`.
     Inet { sock: Arc<InetSock> },
+    /// One side of a pseudo-terminal (`/dev/ptmx` is the master, `/dev/pts/N`
+    /// the slave; see `crate::tty::pty`).
+    Pty { pty: Arc<Pty>, master: bool },
 }
 
 impl Fd {
@@ -60,6 +61,12 @@ impl Fd {
     pub fn socket_side(pair: Arc<SocketPair>, side: Side) -> Fd {
         pair.acquire(side);
         Fd::Socket { pair, side }
+    }
+
+    /// A pseudo-terminal side, taking that side's reference.
+    pub fn pty_side(pty: Arc<Pty>, master: bool) -> Fd {
+        pty.acquire(master);
+        Fd::Pty { pty, master }
     }
 
     /// A socket side whose reference the caller already holds (a pending
@@ -124,6 +131,7 @@ impl Fd {
             Fd::UnixListener { listener } => listener.poll_gen(events),
             Fd::Unbound { .. } => (0, 0),
             Fd::Inet { sock } => sock.poll_gen(events),
+            Fd::Pty { pty, master } => pty.poll_gen(*master, events),
         }
     }
 }
@@ -159,6 +167,7 @@ impl Clone for Fd {
             Fd::Inet { sock } => Fd::Inet {
                 sock: Arc::clone(sock),
             },
+            Fd::Pty { pty, master } => Fd::pty_side(Arc::clone(pty), *master),
         }
     }
 }
@@ -184,6 +193,9 @@ impl Fd {
                 Arc::ptr_eq(a, b)
             }
             (Fd::Inet { sock: a }, Fd::Inet { sock: b }) => Arc::ptr_eq(a, b),
+            (Fd::Pty { pty: a, master: x }, Fd::Pty { pty: b, master: y }) => {
+                Arc::ptr_eq(a, b) && x == y
+            }
             _ => false,
         }
     }
@@ -199,6 +211,13 @@ impl Drop for Fd {
         match self {
             Fd::Pipe { pipe, end } => pipe.release(*end),
             Fd::Socket { pair, side } => pair.close(*side),
+            Fd::Pty { pty, master } => {
+                // The last master gone hangs the terminal up: its
+                // foreground group gets `SIGHUP`, as on Linux.
+                if let Some(foreground) = pty.release(*master) {
+                    crate::tty::signal_foreground(foreground, signal::SIGHUP);
+                }
+            }
             _ => {}
         }
     }
@@ -226,27 +245,6 @@ pub enum FdKind {
     Unbound,
     /// An `AF_INET` socket in any state.
     Inet,
-}
-
-pub(super) fn new_fds() -> [Fd; FD_COUNT] {
-    // 0/1/2 are the standard streams.
-    core::array::from_fn(|i| if i < 3 { Fd::Terminal } else { Fd::Closed })
-}
-
-/// Copy a descriptor table (for `fork`): every entry shares its open file
-/// description with the parent's, and pipe references are retained.
-pub(super) fn clone_fds(fds: &[Fd; FD_COUNT]) -> [Fd; FD_COUNT] {
-    core::array::from_fn(|i| fds[i].clone())
-}
-
-/// The descriptor table an `execve`d program starts with: a copy of the
-/// caller's, except that entries marked `FD_CLOEXEC` are left closed.
-pub(super) fn clone_fds_exec(fds: &[Fd; FD_COUNT], flags: &[u16; FD_COUNT]) -> [Fd; FD_COUNT] {
-    core::array::from_fn(|i| {
-        if flags[i] & FD_CLOEXEC != 0 {
-            Fd::Closed
-        } else {
-            fds[i].clone()
-        }
-    })
+    /// A pseudo-terminal master or slave.
+    Pty,
 }

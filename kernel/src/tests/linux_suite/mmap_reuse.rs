@@ -27,18 +27,25 @@ pub fn mmap_reuses_freed_range() -> Result<(), String> {
     Ok(())
 }
 
-/// Soak: map/unmap cycles totalling several times the whole mmap region must
-/// keep succeeding (each cycle is one 345 KiB clip mask in the real failure).
+/// Soak: map/unmap cycles totalling several times the old 768 MiB region must
+/// keep succeeding (each cycle is one 345 KiB clip mask in the real failure),
+/// and every cycle must reuse the same range: a cursor that marched forward
+/// would exhaust any region eventually, however large the layout makes it.
 pub fn mmap_munmap_soak_does_not_exhaust_region() -> Result<(), String> {
     fresh()?;
     let len = 345_620u64;
-    let region = process::linux::MMAP_LIMIT - process::linux::MMAP_BASE;
-    let cycles = 4 * region / len;
+    let cycles = 4 * (768u64 << 20) / len;
+    let first = mmap_any(len);
+    check!(
+        first != 0 && (first as i64) > 0,
+        "mmap failed with {first:#x}"
+    );
+    check!(munmap(first, len) == 0, "munmap failed");
     for round in 0..cycles {
         let addr = mmap_any(len);
         check!(
-            addr != 0 && (addr as i64) > 0,
-            "round {round}/{cycles}: mmap failed with {addr:#x}"
+            addr == first,
+            "round {round}/{cycles}: mmap gave {addr:#x}, not the freed {first:#x}"
         );
         check!(munmap(addr, len) == 0, "round {round}: munmap failed");
     }
