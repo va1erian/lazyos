@@ -27,7 +27,11 @@ The script sees os::args() (the ARGs), env(), exit(n), clock(), sleep(ms),
 read(path), write(path, text), ls(path) and stdin_text(). On LazyOS it also
 sees msg::: msg::interfaces(), msg::services(), msg::describe(name) and
 msg::connect(interface[, service]), whose methods call the service
-(msg::connect(\"os.lazy.confd.v1\").info()).
+(msg::connect(\"os.lazy.confd.v1\").info()), msg::subscribe(filter),
+msg::publish(topic, value), msg::on(filter, |e| ...), msg::serve(name,
+interface, #{Method: |args| ...}) and msg::run([ms]) / msg::stop(), and
+one generated module per interface: sys::confd::get(path),
+sys::confd::on_changed(|e| ...), ... (msg::describe names each one).
 exit status: the script's exit(n), else 0 on success, 1 on error, 2 on misuse.";
 
 /// The deepest call nesting a flag may request. The guest's main thread has a

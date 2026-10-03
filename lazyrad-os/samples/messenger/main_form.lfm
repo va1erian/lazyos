@@ -1,0 +1,56 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Messenger"
+width = 440
+height = 250
+
+[[node]]
+kind = "Label"
+name = "store_label"
+left = 16
+top = 16
+width = 400
+text = "confd: ?"
+
+[[node]]
+kind = "Label"
+name = "theme_label"
+left = 16
+top = 44
+width = 400
+text = "theme: ?"
+
+[[node]]
+kind = "Label"
+name = "event_label"
+left = 16
+top = 72
+width = 400
+text = "waiting for sys/lazyrad/# changes"
+
+[[node]]
+kind = "Label"
+name = "served_label"
+left = 16
+top = 100
+width = 400
+text = "serving demo.lazyrad: no calls yet"
+
+[[node]]
+kind = "Button"
+name = "set_button"
+left = 16
+top = 140
+width = 200
+height = 32
+text = "Set sys/lazyrad/demo"
+
+[[node]]
+kind = "Label"
+name = "status_label"
+left = 16
+top = 184
+width = 400
+text = ""

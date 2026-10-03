@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use lazyrad_runtime::platform::Platform;
+use lazyrad_runtime::platform::{Platform, ScriptPermissions};
 use lazyrad_runtime::{Access, FsPolicy, Sandbox};
 use xui_core::widget::StdFileSystem;
 
@@ -123,6 +123,17 @@ impl Platform for LazyOsPlatform {
     fn projects_dir(&self) -> PathBuf {
         start_dir(|path| path.is_dir())
     }
+
+    /// The interfaces and topics the scripts' `sys::*` and literal `msg::*`
+    /// calls need, so an installed app is granted exactly those
+    /// (`rhai_lazy::msg::permissions`).
+    fn script_permissions(&self, scripts: &[&str]) -> ScriptPermissions {
+        let found = rhai_lazy::msg::permissions::derive(scripts.iter().copied());
+        ScriptPermissions {
+            interfaces: found.interfaces,
+            topics: found.topics,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +218,16 @@ mod tests {
         let fs = platform.file_system().expect("LazyOS has painted dialogs");
         // The root lists the mount points the VFS omits, through the wrapper.
         let _ = fs.list(Path::new("/"));
+    }
+
+    #[test]
+    fn packaged_apps_declare_the_services_their_scripts_call() {
+        let found = LazyOsPlatform::ide().script_permissions(&[
+            "fn form_load() { label.text = sys::confd::get(\"sys/ui/theme\").str_value; }",
+            "fn watch() { sys::confd::on_changed(|e| ()); }",
+        ]);
+        assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
+        assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
     }
 
     #[test]

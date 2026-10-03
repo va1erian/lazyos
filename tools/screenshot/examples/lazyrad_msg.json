@@ -1,0 +1,18 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait": 2},
+  {"type": "PS1='# '"},
+  {"key": "enter", "until": "TERM:CMD:PS1='# '", "timeout": 30, "retries": 1},
+  {"wait": 0.5},
+  {"type": "/LRPLAY.ELF --client /LAZYRAD/messenger & rhai /LAZYRAD/messenger/poke.rhai"},
+  {"key": "enter", "until": "TERM:CMD:/LRPLAY.ELF --client /LAZYRAD/messenger & rhai /LAZYRAD/messenger/poke.rhai", "timeout": 30, "retries": 1},
+  {"wait_for": "LRPLAY:MSG:PASS", "timeout": 120},
+  {"wait_for": "LRPLAY:UP:PASS", "timeout": 120},
+  {"wait": 1},
+  {"shot": "01_form"},
+  {"wait_for": "TERM:OUT:RHAI:lrpoke:", "timeout": 120},
+  {"wait_for": "LRPLAY:MSGEVENT:PASS", "timeout": 60},
+  {"wait": 2},
+  {"shot": "02_after_poke"},
+  {"quit": true}
+]

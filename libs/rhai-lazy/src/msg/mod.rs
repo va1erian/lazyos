@@ -9,6 +9,7 @@
 //! print(confd.info().store_dir);              // method sugar
 //! confd.invoke("Get", ["sys/ui/theme"]);        // generic, positional
 //! print(msg::describe("os.lazy.echo.v1"));     // signatures and docs
+//! sys::confd::get("sys/ui/theme");               // the generated API ([`api`])
 //! ```
 //!
 //! The module talks to the fabric only through [`Bus`], so it runs against an
@@ -17,14 +18,36 @@
 //! Scripts run with the process's own credentials: the kernel and the services
 //! enforce access, and a refusal comes back as a catchable error carrying the
 //! service's friendly text.
+//!
+//! Event handlers (`msg::on`, `msg::serve`) run under `msg::run()` in the
+//! `rhai` command, or from a host's own event loop ([`events`]): a LazyRAD
+//! form's window pumps the sources its script registered
+//! ([`install_hosted`]).
 
+/// Register one function in a `msg::` namespace module. Impure and volatile,
+/// so the optimizer never folds a fabric call away.
+macro_rules! register {
+    ($module:expr, $name:literal, $func:expr) => {
+        FuncRegistration::new($name)
+            .with_purity(false)
+            .with_volatility(true)
+            .set_into_module($module, $func);
+    };
+}
+
+pub mod api;
+mod bindings;
 pub mod bus;
 pub mod codec;
+pub mod events;
+pub mod permissions;
 #[cfg(all(feature = "lazyos", target_arch = "x86_64"))]
 pub mod gate;
 mod idl;
+pub mod runloop;
 pub mod schema;
 pub mod service;
+pub mod topics;
 
 use alloc::format;
 use alloc::rc::Rc;
@@ -34,8 +57,12 @@ use core::any::TypeId;
 
 use rhai::{Array, Dynamic, Engine, FuncRegistration, ImmutableString, Map, Module, INT};
 
-pub use bus::{Bus, BusError};
+use bindings::Binding;
+pub use bus::{Bus, BusError, Incoming, Wait};
+pub use events::Pumped;
+pub use runloop::Call;
 pub use service::{Fabric, Service};
+pub use topics::Subscription;
 
 use service::{script_error, signature, Fallible};
 
@@ -51,21 +78,13 @@ const RESERVED: &[&str] = &[
     "type_of",
 ];
 
-/// Register one function in the `msg::` namespace. Impure and volatile, so
-/// the optimizer never folds a fabric call away.
-macro_rules! register {
-    ($module:expr, $name:literal, $func:expr) => {
-        FuncRegistration::new($name)
-            .with_purity(false)
-            .with_volatility(true)
-            .set_into_module($module, $func);
-    };
-}
-
 /// A readable reference for one interface: its doc, methods and topics.
 pub fn describe(name: &str) -> Option<String> {
     let iface = schema::interface(name)?;
     let mut text = format!("{} (service {})\n", iface.name, iface.default_service());
+    if let Some(module) = api::modules().iter().find(|m| m.interface == name) {
+        text += &format!("Rhai module: {}::{}\n", api::NAMESPACE, module.alias);
+    }
     if !iface.doc.is_empty() {
         text += &format!("{}\n", iface.doc);
     }
@@ -82,7 +101,8 @@ pub fn describe(name: &str) -> Option<String> {
 }
 
 /// The `msg::` namespace module.
-fn namespace(fabric: &Rc<Fabric>) -> Module {
+fn namespace(binding: &Binding) -> Module {
+    let fabric = &binding.fabric;
     let mut m = Module::new();
     register!(&mut m, "interfaces", || -> Array {
         schema::interfaces()
@@ -129,6 +149,8 @@ fn namespace(fabric: &Rc<Fabric>) -> Module {
         f.set_timeout_ms(ms);
         Ok(())
     });
+    bindings::register_topics(&mut m, binding);
+    bindings::register_loop(&mut m, binding);
     m
 }
 
@@ -200,13 +222,55 @@ fn register_sugar(engine: &mut Engine) {
     }
 }
 
-/// Install `msg::*` and the `Service` type on `engine`, bound to `bus`.
+/// Install `msg::*`, `sys::*` and the script types on a fresh engine over
+/// `bus` (the `rhai` command, tests). Panics only if the generated `sys::*`
+/// modules fail to compile, which their host tests rule out.
 pub fn install(engine: &mut Engine, bus: Rc<dyn Bus>) -> Rc<Fabric> {
     let fabric = Rc::new(Fabric::new(bus));
-    engine.register_static_module("msg", namespace(&fabric).into());
-    register_service_type(engine);
-    register_sugar(engine);
+    if let Err(error) = install_fabric(engine, &fabric) {
+        panic!("rhai-lazy: {error}");
+    }
     fabric
+}
+
+/// Install `msg` and `sys` on `engine` over an existing `fabric`. A host with
+/// several engines shares one fabric, so a service is resolved once per
+/// process (resolved handles are never closed) and the generated modules are
+/// compiled once. `msg::run()` waits for events; nothing else delivers them.
+///
+/// `msg` is always installed; an error means the `sys::*` modules are not.
+pub fn install_fabric(engine: &mut Engine, fabric: &Rc<Fabric>) -> Result<(), String> {
+    install_bound(engine, fabric, "", false)
+}
+
+/// Install `msg` and `sys` for an engine whose host delivers events itself
+/// (a LazyRAD form's window): sources the script registers are filed under
+/// `owner`, the host calls [`Fabric::pump`] and [`Fabric::release`] with the
+/// same name, and `msg::run()` refuses.
+pub fn install_hosted(
+    engine: &mut Engine,
+    fabric: &Rc<Fabric>,
+    owner: &str,
+) -> Result<(), String> {
+    install_bound(engine, fabric, owner, true)
+}
+
+fn install_bound(
+    engine: &mut Engine,
+    fabric: &Rc<Fabric>,
+    owner: &str,
+    hosted: bool,
+) -> Result<(), String> {
+    let binding = Binding {
+        fabric: fabric.clone(),
+        owner: bindings::owner(owner),
+        hosted,
+    };
+    engine.register_static_module("msg", namespace(&binding).into());
+    register_service_type(engine);
+    bindings::register_subscription_type(engine, fabric);
+    register_sugar(engine);
+    api::install(engine, fabric)
 }
 
 /// Interface names, for completion and `help`.

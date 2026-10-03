@@ -31,17 +31,25 @@ fhs = { path = "../libs/fhs" }
 # `init` clients encode with the stubs, never by hand.
 libmessenger = { path = "../libs/messenger" }
 messenger-generated = { path = "../libs/generated" }
+# The `msg` module and the generated `sys::*` modules (Messenger from scripts,
+# docs/rhai/msg.md) with the real `int 0x80` transport, registered as a LazyRAD
+# script extension. Same exact Rhai pin as LazyRAD, so one Rhai links.
+rhai-lazy = { path = "../libs/rhai-lazy", features = ["lazyos"] }
+# The event-source callback types name Rhai's own; the exact pin LazyRAD and
+# rhai-lazy use, so one Rhai links.
+rhai = { version = "=1.26.1", default-features = false, features = ["std"] }
 
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is LazyRAD `main` after the LazyOS port (#81) and Make LazyOS App (#85)
-# merged. Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
+# PIN: `rev` is the head of LazyRAD's `lazyos-msg` branch (#85 plus event sources,
+# scoped extensions, host permissions and xui 4c2a4fb; docs/lazyrad-messenger-plan.md).
+# Re-pin to its merge commit once that branch merges. Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "bb45402d5d8f6bfb7ba97f0a159cea93c7995d90", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "7d258a9183261211b5a941ff6ddb230d7af3fddf", default-features = false }
 
 [dev-dependencies]
 # The `.lzp` conformance suite (tests/lzp_conformance.rs): packages built by

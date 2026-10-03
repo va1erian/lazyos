@@ -267,6 +267,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "devinspect"
+version = "0.1.0"
+dependencies = [
+ "netpolicy",
+ "sndpolicy",
+ "usbpolicy",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -521,7 +530,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-designer"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "lazyrad-project",
  "thiserror",
@@ -533,7 +542,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-ide"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "embed-resource",
  "lazyrad-designer",
@@ -563,6 +572,8 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
+ "rhai",
+ "rhai-lazy",
  "xui-app",
  "xui-canvas",
  "xui-core",
@@ -571,7 +582,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-packager"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "editpe",
  "lazyrad-project",
@@ -585,7 +596,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-player"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "embed-resource",
  "lazyrad-packager",
@@ -598,7 +609,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-project"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "libc",
  "serde",
@@ -610,7 +621,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-runtime"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "lazyrad-project",
  "rhai",
@@ -620,6 +631,15 @@ dependencies = [
  "xui-core",
  "xui-form",
  "xui-rhai",
+]
+
+[[package]]
+name = "lazyshell"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "deskmenu",
+ "timezone",
 ]
 
 [[package]]
@@ -691,6 +711,10 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "netpolicy"
+version = "0.1.0"
 
 [[package]]
 name = "num-conv"
@@ -856,6 +880,15 @@ dependencies = [
  "smartstring",
  "thin-vec",
  "web-time",
+]
+
+[[package]]
+name = "rhai-lazy"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+ "rhai",
 ]
 
 [[package]]
@@ -1055,6 +1088,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 
 [[package]]
+name = "sndpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1077,6 +1114,10 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "surfbuf"
+version = "0.1.0"
 
 [[package]]
 name = "swash"
@@ -1164,6 +1205,10 @@ name = "time-core"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
+
+[[package]]
+name = "timezone"
+version = "0.1.0"
 
 [[package]]
 name = "tiny-keccak"
@@ -1320,6 +1365,10 @@ name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+
+[[package]]
+name = "usbpolicy"
+version = "0.1.0"
 
 [[package]]
 name = "version_check"
@@ -1507,15 +1556,22 @@ dependencies = [
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "confd",
+ "deskmenu",
+ "devinspect",
  "fhs",
+ "lazyshell",
  "libc",
  "libmessenger",
  "messenger-generated",
+ "surfbuf",
+ "uitheme",
  "xui-canvas",
  "xui-code-editor 0.1.0",
  "xui-confd-editor",
  "xui-core",
  "xui-explorer",
+ "xui-icons",
  "xui-paint",
  "xui-settings",
 ]
@@ -1577,7 +1633,7 @@ dependencies = [
 [[package]]
 name = "xui-form"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "serde",
  "thiserror",
@@ -1603,7 +1659,7 @@ dependencies = [
 [[package]]
 name = "xui-rhai"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=bb45402d5d8f6bfb7ba97f0a159cea93c7995d90#bb45402d5d8f6bfb7ba97f0a159cea93c7995d90"
+source = "git+https://github.com/va1erian/lazyrad?rev=7d258a9183261211b5a941ff6ddb230d7af3fddf#7d258a9183261211b5a941ff6ddb230d7af3fddf"
 dependencies = [
  "rhai",
  "xui-core",
@@ -1616,6 +1672,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "timezone",
  "uitheme",
  "xui-core",
 ]
