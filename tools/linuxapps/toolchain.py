@@ -5,9 +5,10 @@
 two compile steps the recipes need:
 
 * :meth:`Zig.program` compiles C sources straight into a static-PIE
-  ``x86_64-linux-musl`` executable. Not a fixed-address one: zig links those
-  at 16 MiB, inside the window LazyOS's Linux loader keeps for `brk`/`mmap`,
-  while a position-independent image is placed where the loader chooses;
+  ``x86_64-linux-musl`` executable, which the loader places where its layout
+  wants (``kernel/src/process/layout.rs``). A fixed-address build (zig links
+  those at 16 MiB) loads as well since that layout moved ``brk``/``mmap`` out
+  of the way; PIE stays the choice because it does not depend on that;
 * :meth:`Zig.host_program` compiles a generator (dash's ``mkinit`` and
   friends) for the machine running the build, so it can be run here.
 """
