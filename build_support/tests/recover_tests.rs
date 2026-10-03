@@ -9,6 +9,7 @@ use crate::image_tests::{
     assert_fsck_clean, build, first_files, open_rw, partition_bytes, settings, Scratch, STAMP,
 };
 use crate::os_disk::{OS_START_LBA, SECTOR};
+use crate::os_image::Settings;
 
 /// `s_state` of the image's OS volume.
 fn volume_state(image: &Path) -> u8 {
@@ -88,10 +89,11 @@ fn an_update_repairs_what_a_killed_session_left() {
 }
 
 /// A volume with damage no crash leaves (here one block claimed by two
-/// files) is updated but stays flagged unclean, and nothing of the user's is
-/// removed.
+/// files) fails the build and the image is left byte for byte as it was;
+/// `update_damaged` updates it anyway, it stays flagged unclean, and nothing
+/// of the user's is removed.
 #[test]
-fn an_update_leaves_an_inconsistent_volume_flagged() {
+fn an_update_refuses_an_inconsistent_volume_unless_overridden() {
     let dir = Scratch::new();
     build(&dir, &first_files(), &settings()).unwrap();
     let volume = open_rw(&dir.image());
@@ -110,7 +112,20 @@ fn an_update_leaves_an_inconsistent_volume_flagged() {
     volume_bytes[at..at + 4].copy_from_slice(&block.to_le_bytes());
     std::fs::write(dir.image(), &bytes).unwrap();
 
-    build(&dir, &first_files(), &settings()).unwrap();
+    let error = build(&dir, &first_files(), &settings()).unwrap_err();
+    assert!(error.contains("LAZYOS_UPDATE_DAMAGED_OS=1"), "{error}");
+    assert!(error.contains("LAZYOS_RESET_OS=1"), "{error}");
+    assert_eq!(
+        std::fs::read(dir.image()).unwrap(),
+        bytes,
+        "a refused update changed the image"
+    );
+
+    let anyway = Settings {
+        update_damaged: true,
+        ..settings()
+    };
+    build(&dir, &first_files(), &anyway).unwrap();
     assert_eq!(
         volume_state(&dir.image()) & 1,
         0,

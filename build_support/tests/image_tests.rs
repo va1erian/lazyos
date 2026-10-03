@@ -20,6 +20,7 @@ pub(crate) fn settings() -> Settings {
     Settings {
         os_size: SIZE,
         reset: false,
+        update_damaged: false,
     }
 }
 
@@ -303,7 +304,7 @@ fn a_size_change_of_an_existing_image_is_refused() {
     build(&dir, &first_files(), &settings()).unwrap();
     let bigger = Settings {
         os_size: SIZE * 2,
-        reset: false,
+        ..settings()
     };
     let error = plan(&dir.image(), &bigger).unwrap_err();
     assert!(error.contains("LAZYOS_RESET_OS=1"), "{error}");

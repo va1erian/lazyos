@@ -13,11 +13,12 @@ use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-use ext2fs::{AttrChange, Ext2, Ext2Error, Geometry, Recovery};
+use ext2fs::{AttrChange, Ext2, Ext2Error, Geometry};
 
 use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
 pub use crate::os_manifest::{clean_path, Kind, Manifest};
+use crate::os_recover;
 
 /// Where a file's bytes come from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,9 +147,13 @@ pub struct Plan {
 pub struct Settings {
     pub os_size: u64,
     pub reset: bool,
+    /// `LAZYOS_UPDATE_DAMAGED_OS=1`: update a volume whose damage `recover`
+    /// refused to repair instead of failing the build. Its allocator may then
+    /// hand a block a user file still uses to an updated file.
+    pub update_damaged: bool,
 }
 
-const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
+pub(crate) const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
 
 /// Create or update? Create when `image` is missing, `settings.reset` is set,
 /// or it fails [`validate`] (with the reason as a warning); otherwise update,
@@ -229,7 +234,7 @@ pub fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-fn volume_error(what: &str, error: Ext2Error) -> String {
+pub(crate) fn volume_error(what: &str, error: Ext2Error) -> String {
     format!("{what}: {error:?}")
 }
 
@@ -353,7 +358,16 @@ pub fn compose(
                 )
             })
         }
-        Action::Update { manifest } => update(image, &head, total, sectors, manifest, dirs, files),
+        Action::Update { manifest } => update(
+            image,
+            &head,
+            total,
+            sectors,
+            manifest,
+            settings.update_damaged,
+            dirs,
+            files,
+        ),
     }
 }
 
@@ -389,6 +403,7 @@ fn update(
     total: u64,
     sectors: u64,
     old: &Manifest,
+    update_damaged: bool,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
@@ -412,42 +427,17 @@ fn update(
         return Err(format!("{} changed size; {RESET_HINT}", image.display()));
     }
     let old_end = old_fat_end(&mut file)?;
-    write_head(&mut file, head, old_end)?;
-    let io = FileIo::new(file, OS_START_LBA, sectors, true);
+    // The volume goes through a duplicate of the locked handle (it shares the
+    // lock), so it is checked before the boot area is touched: a refused
+    // volume leaves the whole image as it was.
+    let volume_file = file.try_clone().map_err(|e| e.to_string())?;
+    let io = FileIo::new(volume_file, OS_START_LBA, sectors, true);
     let mut volume = open_cached(io)?;
-    // Before anything is written: `recover` commits its orphan reclaim
-    // through the cache before the checker reads the raw volume.
-    recover(&mut volume)?;
+    // `recover` commits its orphan reclaim through the cache before the
+    // checker reads the raw volume.
+    os_recover::recover(&mut volume, update_damaged)?;
+    write_head(&mut file, head, old_end)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
-    Ok(())
-}
-
-/// Check a volume that stopped uncleanly (a QEMU window closed, a crash) so
-/// the update's closing flush can mark it clean again. The kernel never does:
-/// it has no fsck, and restores the state it found at every shutdown, so
-/// without this one unclean stop would flag the image for good. What a crash
-/// can leave (leaks, stale counters, link counts, dead entries) is repaired
-/// first and summarised; a volume with any other damage stays flagged, with a
-/// warning, and nothing of it is freed.
-fn recover(volume: &mut Ext2) -> Result<(), String> {
-    match volume
-        .recover(ext2fs::ORPHAN_PREFIX)
-        .map_err(|e| volume_error("check", e))?
-    {
-        Recovery::WasClean => {}
-        Recovery::Recovered { reclaimed, repairs } if repairs.is_empty() => println!(
-            "cargo:warning=the OS volume was not cleanly unmounted; checked it, \
-             reclaimed {reclaimed} orphaned file(s), and it is clean again"
-        ),
-        Recovery::Recovered { reclaimed, repairs } => println!(
-            "cargo:warning=the OS volume was not cleanly unmounted; re-certified it \
-             after repairing {repairs} (reclaimed {reclaimed} orphaned file(s))"
-        ),
-        Recovery::StillUnclean(reason) => println!(
-            "cargo:warning=the OS volume was not cleanly unmounted and stays flagged: \
-             {reason}; {RESET_HINT}"
-        ),
-    }
     Ok(())
 }
 

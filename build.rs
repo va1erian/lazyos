@@ -27,6 +27,8 @@ mod os_image;
 mod os_layout;
 #[path = "build_support/os_manifest.rs"]
 mod os_manifest;
+#[path = "build_support/os_recover.rs"]
+mod os_recover;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 #[path = "build_support/xui_embed.rs"]
@@ -82,7 +84,10 @@ fn main() {
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
     println!("cargo:rerun-if-env-changed=LAZYOS_OS_SIZE");
     println!("cargo:rerun-if-env-changed=LAZYOS_RESET_OS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_UPDATE_DAMAGED_OS");
     let settings = os_image::Settings {
+        update_damaged: std::env::var_os("LAZYOS_UPDATE_DAMAGED_OS").as_deref()
+            == Some(std::ffi::OsStr::new("1")),
         os_size: match std::env::var("LAZYOS_OS_SIZE") {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
             Err(_) => os_disk::DEFAULT_OS_SIZE,

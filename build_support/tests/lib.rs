@@ -17,6 +17,8 @@ mod os_image;
 mod os_layout;
 #[path = "../os_manifest.rs"]
 mod os_manifest;
+#[path = "../os_recover.rs"]
+mod os_recover;
 
 #[cfg(test)]
 mod f3_layout_tests;

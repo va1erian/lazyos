@@ -111,9 +111,14 @@ are replaced or deleted. `LAZYOS_RESET_OS=1 cargo build` (or
 `python tools/run_demo.py --reset-os`) recreates it with a new UUID; so does an
 image that fails validation, with a `cargo:warning=` giving the reason. An
 update also checks a volume that was not cleanly unmounted (a closed QEMU
-window) and marks it clean when the independent checker finds nothing wrong;
-the kernel never does (it has no fsck), so until a rebuild every boot of such
-an image prints `ext2: ... was not cleanly unmounted`. Changing
+window) and marks it clean once it has repaired what a crash can leave
+(leaked blocks and inodes, link counts, counters; data-holding orphans go to
+`/lost+found`) and the independent checker finds nothing wrong; the kernel
+never does (it has no fsck), so until a rebuild every boot of such an image
+prints `ext2: ... was not cleanly unmounted`. Damage no crash leaves fails the
+build before anything is written (copy your files off, then reset);
+`LAZYOS_UPDATE_DAMAGED_OS=1` updates such a volume anyway, at the risk of an
+updated file reusing a damaged user file's block. Changing
 `LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
