@@ -19,8 +19,10 @@ use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
 use xui_writer::Host;
 
-/// Window size a compositor lays LazyWriter out at.
-const WINDOW: (i32, i32) = (960, 680);
+/// Window size a compositor lays LazyWriter out at. The issue's 960x680 does
+/// not fit the 1280x720 desktop: with xuid's title bar and border it is taller
+/// than the 688 px above the taskbar, so the status bar ended up off screen.
+const WINDOW: (i32, i32) = (960, 600);
 
 /// LazyOS's side of the app: atomic writes, `$HOME` (or `/transient`) and the
 /// families `register_writer` registered.

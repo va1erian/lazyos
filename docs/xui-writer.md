@@ -28,7 +28,7 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   (`RichTextEditor<Msg>`). LazyWriter is a port of that crate's `wordpad`
   example (`examples/wordpad/`) onto `xui_app::backend::LazyOSBackend`, with
   the Editor app's skeleton (`xui-app/src/bin/editor.rs`): `main()` binds the
-  backend, opens a 960x680 window titled `LazyWriter`, prints
+  backend, opens a 960x600 window titled `LazyWriter`, prints
   `WRITER:UP:PASS` on the first frame, and opens the path given on the
   command line (`writer --client <path>`, read with
   `xui_app::platform::argv::file_arg`).
