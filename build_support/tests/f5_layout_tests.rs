@@ -57,6 +57,14 @@ fn the_autostart_list_names_core_apps_by_stem_short_id_or_system_name() {
     assert_eq!(short_of("term"), "terminal");
     assert!(core_packages::is_core_stem("editor"));
     assert!(
+        core_packages::is_core_stem("writer"),
+        "LazyWriter is a core package"
+    );
+    assert_eq!(
+        parse_autostart(Some("writer,os.lazy.writer")),
+        ["writer", "writer"]
+    );
+    assert!(
         !core_packages::is_core_stem("term"),
         "the Terminal is a program"
     );

@@ -16,6 +16,9 @@ fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
     Rect::new(x, y, x + w, y + h)
 }
 
+/// Widgets held only so they live as long as the window.
+type Keep = (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>);
+
 /// What the app changes after building.
 pub struct Widgets {
     pub headline: Label<Msg>,
@@ -29,7 +32,7 @@ pub struct Widgets {
     pub server_status: Label<Msg>,
     pub server_button: Button<Msg>,
     pub server_log: ListView<Msg>,
-    _keep: (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>),
+    _keep: Keep,
 }
 
 impl Widgets {

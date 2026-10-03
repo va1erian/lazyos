@@ -112,13 +112,15 @@ const DESKTOP_XUI_APPS: &[&str] = &[
     "xui-counter.elf",
 ];
 
-/// The document apps (Editor, Paint, Files) and the other always-shipped
+/// The document apps (Editor, Paint, Files, LazyWriter) and the other always-shipped
 /// desktop apps: `python tools/xui/build.py` produces all of them under
 /// `target/xui/`; a missing one fails the desktop build on purpose.
 const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-editor.elf",
     "xui-files.elf",
     "xui-paint.elf",
+    // LazyWriter, the word processor (issue #533).
+    "xui-writer.elf",
     "xui-settings.elf",
     "xui-confd.elf",
     // The package installer (docs/packages.md section 8): the consent screen

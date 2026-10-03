@@ -49,6 +49,9 @@ fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
 /// The status rows: caption, then the line it shows.
 const STATUS_ROWS: [&str; 5] = ["Interface", "Mode", "Address", "Gateway", "Traffic"];
 
+/// Widgets held only so they live as long as the window.
+type Keep = (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>);
+
 struct Network {
     values: Vec<Label<Msg>>,
     mode: RadioGroup<Msg>,
@@ -63,7 +66,7 @@ struct Network {
     /// Whether the form has been filled (it waits for the first status, so
     /// Manual starts from the live address).
     filled: bool,
-    _keep: (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>),
+    _keep: Keep,
 }
 
 impl App for Network {

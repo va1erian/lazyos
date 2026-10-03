@@ -17,8 +17,8 @@ resolver = "2"
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace pins the same revision. `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "4c2a4fbb2b7420bc5f5fe77cc1ea84ad0468b7d9", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -52,22 +52,24 @@ audioclient = { path = "../libs/audioclient" }
 # LazyRAD, from its own repository, `default-features = false` so the `desktop`
 # features (winit, rfd, directories, dark-light, local time) stay off.
 #
-# PIN: `rev` is LazyRAD `main` at the merge of va1erian/lazyrad#88 (`lazyos-msg`:
-# Messenger in form scripts, event sources, scoped extensions, host
-# permissions and xui 4c2a4fb; docs/lazyrad-messenger-plan.md) on top of the
-# home-data change (#86) and the packager granting `$HOME/.apps/<id>` (#87),
-# the form LazyOS's F5 manifest grammar requires (filesystem F5, #509).
+# PIN: `rev` is LazyRAD `main` at the merge of va1erian/lazyrad#92, which moves LazyRAD to xui
+# bb14ce9 (xui-rich-text and the formatting icons, #533) on top of `main` at
+# the merge of va1erian/lazyrad#88 (`lazyos-msg`: Messenger in form scripts,
+# event sources, scoped extensions, host permissions;
+# docs/lazyrad-messenger-plan.md), the home-data change (#86) and the packager
+# granting `$HOME/.apps/<id>` (#87), the form LazyOS's F5 manifest grammar
+# requires (filesystem F5, #509).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d", default-features = false }
 
 [dev-dependencies]
 # The form values the sample tests read back (`tests/modplayer.rs`); pinned
 # with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "0043b1f5c1bd5f2b306d1932a430c2459ff829ea" }
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "06c81ee55d62b99765c8be7112023ea076ceac5d" }
 # `modplay::synth` builds the songs the `modplay` script tests play.
 modplay = { path = "../libs/modplay", features = ["fuzz"] }
 

@@ -143,7 +143,7 @@ impl NetTools {
 
     fn tick(&mut self) {
         self.ticks += 1;
-        if self.ticks % SLOW_EVERY == 0 {
+        if self.ticks.is_multiple_of(SLOW_EVERY) {
             self.refresh_status();
             self.next_ping();
         }
@@ -253,11 +253,10 @@ impl NetTools {
 
     fn finish_ping(&mut self, how: &str) {
         let Some(run) = self.ping.take() else { return };
-        let average = if run.answered > 0 {
-            format!(", average {} ms", run.total_rtt / run.answered)
-        } else {
-            String::new()
-        };
+        let average = run
+            .total_rtt
+            .checked_div(run.answered)
+            .map_or_else(String::new, |ms| format!(", average {ms} ms"));
         self.w.ping_result.set_text(&format!(
             "{}: {} sent, {} answered{average} ({how})",
             model::dotted(run.target),

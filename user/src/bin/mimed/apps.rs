@@ -23,6 +23,12 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/x-shellscript", "os.lazy.editor", &["open", "edit"]),
     ("image/png", "os.lazy.paint", &["open", "edit"]),
     ("image/png", "os.lazy.files", &["reveal"]),
+    // LazyWriter documents (issue #533).
+    (
+        "application/x-lazywriter",
+        "os.lazy.writer",
+        &["open", "edit"],
+    ),
     ("application/x-elf", "runner", &["open"]),
     (
         "application/x-lazyos-package",

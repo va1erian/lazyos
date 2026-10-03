@@ -156,6 +156,15 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
+## LazyWriter (word processor)
+
+`writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
+editor: `.lzw` documents, Markdown export, pictures; see
+[`docs/xui-writer.md`](docs/xui-writer.md). Screenshot session:
+`tools/screenshot/examples/xui_writer.json` (format, save, export, reopen; markers
+`WRITER:UP|SAVE|EXPORT|OPEN:PASS`, build with `LAZYOS_XUI_AUTOSTART=writer`)
+and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`).
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
