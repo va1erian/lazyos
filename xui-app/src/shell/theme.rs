@@ -88,8 +88,7 @@ impl ThemeFeed {
                 .to_owned(),
             Err(_) => self.wallpaper.clone(),
         };
-        let changed =
-            next != self.settings || format != self.clock || wallpaper != self.wallpaper;
+        let changed = next != self.settings || format != self.clock || wallpaper != self.wallpaper;
         self.settings = next;
         self.clock = format;
         self.wallpaper = wallpaper;

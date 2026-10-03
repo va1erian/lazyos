@@ -41,14 +41,14 @@ mod rhai_embed;
 mod samples_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
-#[path = "build_support/wallpapers_embed.rs"]
-mod wallpapers_embed;
 #[path = "build_support/usb_image.rs"]
 mod usb_image;
 #[path = "build_support/usb_ramdisk.rs"]
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
+#[path = "build_support/wallpapers_embed.rs"]
+mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
