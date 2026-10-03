@@ -183,7 +183,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_files_soak", files_soak),
     ("compat_etc_backed_files", etc_backed_files),
     ("compat_etc_backed_files_missing", etc_backed_files_missing),
-    ("compat_etc_backed_files_untrusted", etc_backed_files_untrusted),
+    (
+        "compat_etc_backed_files_untrusted",
+        etc_backed_files_untrusted,
+    ),
     ("compat_etc_backed_files_soak", etc_backed_files_soak),
     ("compat_tls_client_names", tls_client_names),
     ("compat_termios_roundtrip", termios_roundtrip),

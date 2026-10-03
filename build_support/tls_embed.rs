@@ -55,7 +55,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         );
         return;
     };
-    println!("cargo:warning=LAZYOS_TLS embedded: {} as fetch, curl, wget", path.display());
+    println!(
+        "cargo:warning=LAZYOS_TLS embedded: {} as fetch, curl, wget",
+        path.display()
+    );
     println!("cargo:rerun-if-changed={}", path.display());
     for name in NAMES {
         sink.add_file(name, path.clone());

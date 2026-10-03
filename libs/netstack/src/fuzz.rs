@@ -126,7 +126,12 @@ fn check(lan: &mut Lan, sent_seen: &mut usize) {
     let state = lan.stack.state();
     assert!(state.dns.len() <= MAX_DNS);
     if let Some(text) = crate::resolvconf::render(&state.dns) {
-        assert!(text.lines().filter(|l| l.starts_with("nameserver ")).count() <= MAX_DNS);
+        assert!(
+            text.lines()
+                .filter(|l| l.starts_with("nameserver "))
+                .count()
+                <= MAX_DNS
+        );
     }
     if let Some(addr) = state.addr {
         assert!(is_usable_unicast(addr), "holding the address {addr:?}");

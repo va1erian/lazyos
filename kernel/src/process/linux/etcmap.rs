@@ -119,9 +119,8 @@ fn read_backing(backed: &Backed) -> Option<Vec<u8>> {
 /// `None` when `path` is not one or its file is missing or untrusted.
 pub(super) fn contents(path: &str) -> Option<Vec<u8>> {
     let (_, backed) = entry(path)?;
-    read_backing(backed).or_else(|| {
-        (path == fhs::etc::LINUX_HOSTS).then(|| Vec::from(DEFAULT_HOSTS.as_bytes()))
-    })
+    read_backing(backed)
+        .or_else(|| (path == fhs::etc::LINUX_HOSTS).then(|| Vec::from(DEFAULT_HOSTS.as_bytes())))
 }
 
 /// Metadata for a backed entry (world-readable, read-only, its file's size)

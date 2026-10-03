@@ -48,7 +48,9 @@ fn base64_round_trips_every_length_and_byte() {
 
 #[test]
 fn base64_refuses_malformed_input() {
-    for bad in ["Zg=", "Zg===", "Z===", "Zm9v!A==", "Zg==Zm9v", "Zh==", "Zm9=", "Zm 9v"] {
+    for bad in [
+        "Zg=", "Zg===", "Z===", "Zm9v!A==", "Zg==Zm9v", "Zh==", "Zm9=", "Zm 9v",
+    ] {
         assert_eq!(base64_decode(bad), None, "{bad:?}");
     }
 }
@@ -59,7 +61,9 @@ fn pem_blocks_are_64_columns_and_parse_back() {
     let pem = pem_encode(&der);
     assert!(pem.starts_with("-----BEGIN CERTIFICATE-----\n"));
     assert!(pem.ends_with("-----END CERTIFICATE-----\n"));
-    assert!(pem.lines().all(|line| line.len() <= 64 || line.starts_with("-----")));
+    assert!(pem
+        .lines()
+        .all(|line| line.len() <= 64 || line.starts_with("-----")));
     assert_eq!(parse_pem_certificates(&pem), Ok(vec![der]));
 }
 
@@ -72,7 +76,10 @@ fn the_der_shape_check() {
     assert!(!looks_like_certificate(&long), "trailing bytes");
     assert!(!looks_like_certificate(&[0x31, 1, 0]), "not a SEQUENCE");
     assert!(!looks_like_certificate(&[0x30, 0]), "empty");
-    assert!(!looks_like_certificate(&[0x30, 0x85, 0, 0, 0, 0, 1]), "length too long");
+    assert!(
+        !looks_like_certificate(&[0x30, 0x85, 0, 0, 0, 0, 1]),
+        "length too long"
+    );
     assert!(!looks_like_certificate(&[]));
 }
 
@@ -94,8 +101,14 @@ fn the_test_ca_must_be_certificates_only() {
         (&format!("{one}{key}") as &str, "a key after a certificate"),
         (&format!("hello\n{one}"), "stray text"),
         (&one.replace("-----END CERTIFICATE-----\n", ""), "unclosed"),
-        ("-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n", "bad base64"),
-        ("-----BEGIN CERTIFICATE-----\nZm9vYmFy\n-----END CERTIFICATE-----\n", "not DER"),
+        (
+            "-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n",
+            "bad base64",
+        ),
+        (
+            "-----BEGIN CERTIFICATE-----\nZm9vYmFy\n-----END CERTIFICATE-----\n",
+            "not DER",
+        ),
     ];
     for (text, why) in refused {
         assert!(parse_pem_certificates(text).is_err(), "{why} accepted");
@@ -114,7 +127,11 @@ fn the_mozilla_bundle_parses_back_to_the_pinned_roots() {
     assert_eq!(parsed.len(), roots.len());
     assert!(parsed.iter().zip(&roots).all(|(a, b)| a == b));
     // Plausible size: roughly 200 KiB of PEM.
-    assert!((100_000..1_000_000).contains(&text.len()), "{} bytes", text.len());
+    assert!(
+        (100_000..1_000_000).contains(&text.len()),
+        "{} bytes",
+        text.len()
+    );
     let extra = vec![fake_der(64)];
     let with_test = bundle(roots.iter().copied(), &extra);
     let parsed = parse_pem_certificates(&with_test).unwrap();
@@ -123,11 +140,28 @@ fn the_mozilla_bundle_parses_back_to_the_pinned_roots() {
 
 #[test]
 fn host_names_are_lowercase_dns_names() {
-    for good in ["localhost", "tls.test", "a-b.example.org", "x1", "10-0-2-2.nip"] {
+    for good in [
+        "localhost",
+        "tls.test",
+        "a-b.example.org",
+        "x1",
+        "10-0-2-2.nip",
+    ] {
         assert!(valid_name(good), "{good}");
     }
     let long = "a".repeat(254);
-    for bad in ["", "Upper.test", "under_score", ".lead", "trail.", "-x", "a..b", "a b", "é", &long] {
+    for bad in [
+        "",
+        "Upper.test",
+        "under_score",
+        ".lead",
+        "trail.",
+        "-x",
+        "a..b",
+        "a b",
+        "é",
+        &long,
+    ] {
         assert!(!valid_name(bad), "{bad:?}");
     }
 }
@@ -166,7 +200,12 @@ fn bytes_of(files: &OsFiles, path: &str) -> Option<Vec<u8>> {
 fn the_embeds_follow_their_switches() {
     let dir = std::env::temp_dir().join(format!("lazyos-tls-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    for var in ["LAZYOS_TLS", "LAZYOS_FETCH", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS"] {
+    for var in [
+        "LAZYOS_TLS",
+        "LAZYOS_FETCH",
+        "LAZYOS_TLS_TEST_CA",
+        "LAZYOS_TLS_TEST_HOSTS",
+    ] {
         std::env::remove_var(var);
     }
     let roots = [fake_der(20)];
@@ -179,7 +218,10 @@ fn the_embeds_follow_their_switches() {
     };
     // A normal image: the base host table, the roots alone, no client.
     let files = plain();
-    assert_eq!(bytes_of(&files, fhs::etc::HOSTS), Some(BASE.as_bytes().to_vec()));
+    assert_eq!(
+        bytes_of(&files, fhs::etc::HOSTS),
+        Some(BASE.as_bytes().to_vec())
+    );
     assert_eq!(
         bytes_of(&files, fhs::etc::CA_BUNDLE),
         Some(pem_encode(&roots[0]).into_bytes())
@@ -200,15 +242,28 @@ fn the_embeds_follow_their_switches() {
     std::env::set_var("LAZYOS_TLS_TEST_HOSTS", &hosts);
     let files = plain();
     let bundle_text = String::from_utf8(bytes_of(&files, fhs::etc::CA_BUNDLE).unwrap()).unwrap();
-    assert_eq!(parse_pem_certificates(&bundle_text), Ok(vec![roots[0].clone(), test_der]));
+    assert_eq!(
+        parse_pem_certificates(&bundle_text),
+        Ok(vec![roots[0].clone(), test_der])
+    );
     let table = String::from_utf8(bytes_of(&files, fhs::etc::HOSTS).unwrap()).unwrap();
     assert_eq!(table, format!("{BASE}10.0.2.2\ttls.test\n"));
     // A bad test file fails the build.
     std::fs::write(&hosts, "10.0.2.2 Bad_Name\n").unwrap();
-    assert!(std::panic::catch_unwind(plain).is_err(), "a bad hosts file built");
+    assert!(
+        std::panic::catch_unwind(plain).is_err(),
+        "a bad hosts file built"
+    );
     std::env::remove_var("LAZYOS_TLS_TEST_HOSTS");
-    std::fs::write(&ca, "-----BEGIN PRIVATE KEY-----\nMC4=\n-----END PRIVATE KEY-----\n").unwrap();
-    assert!(std::panic::catch_unwind(plain).is_err(), "a key was embedded");
+    std::fs::write(
+        &ca,
+        "-----BEGIN PRIVATE KEY-----\nMC4=\n-----END PRIVATE KEY-----\n",
+    )
+    .unwrap();
+    assert!(
+        std::panic::catch_unwind(plain).is_err(),
+        "a key was embedded"
+    );
     std::env::remove_var("LAZYOS_TLS_TEST_CA");
 
     // LAZYOS_TLS=1 without a client warns and builds; with one, three names.
@@ -219,12 +274,18 @@ fn the_embeds_follow_their_switches() {
     std::env::set_var("LAZYOS_FETCH", &client);
     let files = plain();
     for name in crate::tls_embed::NAMES {
-        assert_eq!(bytes_of(&files, name).as_deref(), Some(&b"\x7fELF fake client"[..]));
+        assert_eq!(
+            bytes_of(&files, name).as_deref(),
+            Some(&b"\x7fELF fake client"[..])
+        );
         let file = files.files().into_iter().find(|f| f.path == name).unwrap();
         assert_eq!(file.mode, 0o755, "{name} is executable");
     }
     std::env::set_var("LAZYOS_TLS", "0");
-    assert!(bytes_of(&plain(), fhs::bin::CURL).is_none(), "LAZYOS_TLS=0 embedded");
+    assert!(
+        bytes_of(&plain(), fhs::bin::CURL).is_none(),
+        "LAZYOS_TLS=0 embedded"
+    );
     for var in ["LAZYOS_TLS", "LAZYOS_FETCH"] {
         std::env::remove_var(var);
     }

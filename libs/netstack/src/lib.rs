@@ -22,9 +22,9 @@ extern crate std;
 
 pub mod config;
 pub mod device;
-pub mod resolvconf;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod resolvconf;
 pub mod stack;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod testdns;

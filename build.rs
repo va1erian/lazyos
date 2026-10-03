@@ -11,10 +11,6 @@ use std::path::PathBuf;
 mod busybox_embed;
 #[path = "build_support/ca_bundle.rs"]
 mod ca_bundle;
-#[path = "build_support/hosts_embed.rs"]
-mod hosts_embed;
-#[path = "build_support/tls_embed.rs"]
-mod tls_embed;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
 #[path = "build_support/docs_embed.rs"]
@@ -25,6 +21,8 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/hosts_embed.rs"]
+mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -45,6 +43,8 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/tls_embed.rs"]
+mod tls_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]

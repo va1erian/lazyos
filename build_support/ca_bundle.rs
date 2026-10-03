@@ -127,7 +127,11 @@ pub fn parse_pem_certificates(text: &str) -> Result<Vec<Vec<u8>>, String> {
         match body.as_mut() {
             None if line.is_empty() => {}
             None if line == BEGIN => body = Some((number, String::new())),
-            None => return Err(format!("line {number}: not a PEM CERTIFICATE block: {line:.40}")),
+            None => {
+                return Err(format!(
+                    "line {number}: not a PEM CERTIFICATE block: {line:.40}"
+                ))
+            }
             Some((start, base64)) if line == END => {
                 let der = base64_decode(base64)
                     .ok_or(format!("line {start}: the certificate is not valid base64"))?;

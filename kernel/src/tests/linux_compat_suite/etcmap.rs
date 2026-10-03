@@ -155,7 +155,11 @@ pub fn etc_backed_files() -> Result<(), String> {
             (fhs::etc::LINUX_CA_BUNDLE, bundle),
             (fhs::etc::LINUX_RESOLV_CONF, "nameserver 10.0.2.3\n"),
         ] {
-            check!(fabricated(linux)? == want, "{linux}: {:?}", fabricated(linux));
+            check!(
+                fabricated(linux)? == want,
+                "{linux}: {:?}",
+                fabricated(linux)
+            );
             let read = read_via_syscalls(linux).map_err(|e| format!("open {linux}: {e:#x}"))?;
             check!(read == want.as_bytes(), "{linux} read {read:?}");
             check!(stat_size(linux) == (0, want.len() as u64), "stat {linux}");
@@ -232,14 +236,20 @@ pub fn etc_backed_files_untrusted() -> Result<(), String> {
         check!(fabricated(resolv).is_err(), "a stranger's file was served");
         // `netd`'s file in a stranger's directory still is not.
         put(NETD, fhs::state::RESOLV_CONF, b"nameserver 6.6.6.6\n")?;
-        check!(fabricated(resolv).is_err(), "a stranger's directory was trusted");
+        check!(
+            fabricated(resolv).is_err(),
+            "a stranger's directory was trusted"
+        );
         crate::fs::vfs_unlink(Id::ROOT, fhs::state::RESOLV_CONF).map_err(fs_error("rm"))?;
         crate::fs::vfs_rmdir(Id::ROOT, resolv_dir()).map_err(fs_error("rmdir"))?;
         write_resolv("nameserver 10.0.2.3\n")?;
         check!(fabricated(resolv).is_ok(), "netd's own file was refused");
         for (path, mode) in [(fhs::state::RESOLV_CONF, 0o666), (resolv_dir(), 0o777)] {
             chmod(path, mode)?;
-            check!(fabricated(resolv).is_err(), "served with {path} at {mode:o}");
+            check!(
+                fabricated(resolv).is_err(),
+                "served with {path} at {mode:o}"
+            );
             chmod(path, if mode == 0o666 { 0o644 } else { 0o755 })?;
         }
         check!(fabricated(resolv).is_ok(), "restored modes refused");

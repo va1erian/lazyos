@@ -52,7 +52,10 @@ mod tests {
     #[test]
     fn nothing_usable_means_no_file() {
         assert_eq!(render(&[]), None);
-        assert_eq!(render(&[[0, 0, 0, 0], [127, 0, 0, 1], [224, 0, 0, 1]]), None);
+        assert_eq!(
+            render(&[[0, 0, 0, 0], [127, 0, 0, 1], [224, 0, 0, 1]]),
+            None
+        );
     }
 
     #[test]

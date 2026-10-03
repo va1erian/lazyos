@@ -50,10 +50,10 @@ mod nic;
 mod owners;
 #[path = "netd/parked.rs"]
 mod parked;
-#[path = "netd/resolvfile.rs"]
-mod resolvfile;
 #[path = "netd/resolve.rs"]
 mod resolve;
+#[path = "netd/resolvfile.rs"]
+mod resolvfile;
 #[path = "netd/service.rs"]
 mod service;
 #[path = "netd/sock.rs"]
