@@ -289,11 +289,11 @@
   ]
  },
  {
-  "at": 1.0,
+  "at": 2.5,
   "shot": "04_menu_with_installed_app"
  },
  {
-  "at": 0.5,
+  "at": 3.0,
   "mouse_click": "left",
   "until": "SHELL:LAUNCH:PASS app=org.lazy.counter",
   "timeout": 60,
@@ -315,7 +315,7 @@
   "at": 0.5,
   "mouse_move": [
    266,
-   -254
+   -206
   ]
  },
  {
