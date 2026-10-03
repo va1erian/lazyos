@@ -23,7 +23,9 @@ and ring-3 programs, packs them into an MBR disk (a FAT `/boot` plus an ext2 OS 
 2. `console::init`, `display::init` (records geometry for the #113 grant).
 3. `mem::init` - frame allocator, VMA-NX enable, kernel heap mapping.
 4. `tests::run()` when built with `LAZYOS_TESTS=1` (replaces normal boot).
-5. `fs::init` - mount boot volume (`/`) and ramfs (`/tmp`).
+5. `fs::init` - mount the layout `/boot/lazyos.cfg` names (ext2 OS volume at
+   `/`, FAT read-only at `/boot`, one ramfs at `/transient` and `/tmp`, an
+   optional ext2 `/home`), or the legacy layout (`fs/mounts.rs`).
 6. `arch::init` - CPU/GDT/IDT/PIC/PIT, Linux syscall MSRs, PS/2 mouse.
 7. `task::register_kernel`; bootstrap channel `create()` + registry name publish.
 8. Spawn branch: `/system/bin/busybox` file, or `/system/bin/abi-init` (ABI bench), or the demo/services

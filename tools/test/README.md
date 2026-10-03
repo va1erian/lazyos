@@ -58,22 +58,13 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 
 ## What the suite covers
 
-189 tests as of 2026-09-28 (21 of them soak/stress tests), grouped by name
-prefix; the authoritative list is `SUITE` in `kernel/src/tests/mod.rs`, which
-assembles each suite's own `CASES` table from `kernel/src/tests/<suite>.rs` (or
+The suite has several hundred cases (soak/stress tests included); the
+authoritative list is `SUITE` in `kernel/src/tests/mod.rs`, which assembles
+each suite's own `CASES` table from `kernel/src/tests/<suite>.rs` (or
 `<suite>/` when a suite outgrew one file), and the runner's report
-(`docs/test/report.md`) lists every result:
-
-| Prefix | Count | Area |
-|------|------|-----------------|
-| `ipc_*` | 51 | handles and rights, channels, transactions, shared buffers and fences, ACL, audit ring, registry, topics, the `messenger` syscall surface |
-| `task_*` | 35 | task table, fork/reap and thread reclaim, futex, fd table, process tree and sessions, signals, scheduler classes, table fill and slot recycling (#204) |
-| `hardening_*` | 19 | user-pointer validation on every native and Linux syscall (#182) |
-| `linux_*`, `pipe_*` | 25 | Linux shim: `mremap`, epoll/eventfd, `AF_UNIX` sockets, pipes, `dup`/`FD_CLOEXEC`, vfork-style `clone` |
-| `fs_*`, `block_*` | 21 | VFS caches and permissions, FAT `EROFS`, overlay copy-up/whiteouts/limits, ext2 block sizes and corruption, ATA reads |
-| `mem_*`, `slab_*`, `heap_*` | 15 | frames, COW/VMA, `mprotect`, slab classes and owner accounting, kernel heap |
-| `quota_*` | 7 | per-uid charges at the handle, buffer, queue and memory choke points |
-| `display_*`, `sysinfo_*`, `service_*`, `keyd_*` | 16 | display grant and modifier tracking, syscall 14 snapshots, credential transitions, `SHARE_ONLY` buffers |
+(`docs/test/report.md`) lists every result. Test names start with their
+subsystem (`mem_`, `task_`, `ipc_`, `linux_`, `fs_`, `dev_`,
+`hardening_`, `bcache_`, ...); `LAZYOS_TEST_FILTER` matches any part of a name.
 
 Test-only hooks are behind `cfg(lazyos_tests)` (`task::harness`,
 `process::linux::dispatch_for_test`), so the production kernel carries none of

@@ -17,7 +17,7 @@ buffers with fences. Spec: [messenger.md](../messenger.md) sections 4-10.
 
 | Item | Value |
 |---|---|
-| `HandleKind` | `Endpoint`, `Channel`, `Object`, `Buffer` |
+| `HandleKind` | `Endpoint`, `Channel`, `Object`, `Buffer`, `Device` (a device claim, issue #240; never transferable or duplicable) |
 | Rights | `CALL`, `DUPLICATE`, `TRANSFER`, `MONITOR`, `CONTROL`, `ALL` |
 | Cap | `MAX_HANDLES = 256` per process, plus a per-uid aggregate (#103) |
 

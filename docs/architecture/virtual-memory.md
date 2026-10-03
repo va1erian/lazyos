@@ -10,7 +10,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
 | `kernel/src/mem/uspace.rs` | `demand_fault`, `cow_fault`, `unmap_range`, `protect_range` |
 | `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV` |
-| `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk` |
+| `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk`, `sys_mremap` |
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
 | `kernel/src/task/mod.rs` | `Bump` state (`task/mod.rs`): per-PML4 `brk` and `mmap_next` |
 
@@ -80,5 +80,7 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
   a pure refactor noted in `vma.rs`.
 - `munmap`/`mprotect`/fault resolution all agree because they share this list.
 
-**Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`.
-Missing: file-backed demand paging, `mremap`, shared mappings.
+**Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`,
+`mremap` (grow, shrink, and move with `MREMAP_MAYMOVE`/`MREMAP_FIXED`; one whole
+VMA only, overlapping source and destination refused with `EINVAL`).
+Missing: file-backed demand paging, shared mappings.
