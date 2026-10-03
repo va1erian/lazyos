@@ -227,11 +227,17 @@ impl Platform for LazyOsPlatform {
     }
 
     /// The interfaces and topics the scripts' `sys::*` and literal `msg::*`
-    /// calls need, so an installed app is granted exactly those
-    /// (`rhai_lazy::msg::permissions`).
+    /// calls need (`rhai_lazy::msg::permissions`), plus the mixer's for a
+    /// script that plays a song (`crate::tracker`), so an installed app is
+    /// granted exactly those.
     fn script_permissions(&self, scripts: &[&str]) -> ScriptPermissions {
         let found = rhai_lazy::msg::permissions::derive(scripts.iter().copied());
         let mut interfaces = found.interfaces;
+        for interface in crate::tracker::script_interfaces(scripts.iter().copied()) {
+            if !interfaces.contains(&interface) {
+                interfaces.push(interface);
+            }
+        }
         // The player itself, whatever the scripts do: the packager adds the
         // display for its window, but its keyboard comes from `inputd`, which
         // a labelled player may not resolve without this (a `LABEL:DENY
@@ -239,6 +245,7 @@ impl Platform for LazyOsPlatform {
         if !interfaces.iter().any(|name| name == PLAYER_INPUT) {
             interfaces.push(PLAYER_INPUT.to_owned());
         }
+        interfaces.sort();
         ScriptPermissions {
             interfaces,
             topics: found.topics,
@@ -409,6 +416,18 @@ mod tests {
         // A project that calls nothing still gets the player's keyboard.
         let none = LazyOsPlatform::ide(home("/home/user")).script_permissions(&[]);
         assert_eq!(none.interfaces, [PLAYER_INPUT]);
+    }
+
+    #[test]
+    fn packaged_apps_that_play_songs_declare_the_mixer() {
+        let found = LazyOsPlatform::ide(home("/home/user")).script_permissions(&[
+            "fn go() { let d = modplay::play(modplay::decode(SONG)); }",
+            "fn theme() { sys::confd::get(\"sys/ui/theme\") }",
+        ]);
+        assert_eq!(
+            found.interfaces,
+            ["os.lazy.audio.v1", "os.lazy.confd.v1", PLAYER_INPUT]
+        );
     }
 
     #[test]

@@ -55,6 +55,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "audioclient"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -564,6 +572,7 @@ dependencies = [
 name = "lazyrad-os"
 version = "0.1.0"
 dependencies = [
+ "audioclient",
  "fhs",
  "lazypkg",
  "lazyrad-ide",
@@ -573,11 +582,13 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
+ "modplay",
  "rhai",
  "rhai-lazy",
  "xui-app",
  "xui-canvas",
  "xui-core",
+ "xui-form",
 ]
 
 [[package]]
@@ -712,6 +723,10 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "modplay"
+version = "0.1.0"
 
 [[package]]
 name = "netpolicy"
@@ -1557,6 +1572,7 @@ dependencies = [
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "audioclient",
  "confd",
  "deskmenu",
  "devinspect",

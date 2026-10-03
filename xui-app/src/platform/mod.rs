@@ -1,11 +1,12 @@
 //! The LazyOS platform layer shared by the migrated apps: argument validation,
-//! the Paint storage, the Files launcher, the clipboard client and the
-//! Settings app's config store and system services.
+//! the Paint storage, the Files launcher, the clipboard client, the audio
+//! transport and the Settings app's config store and system services.
 //!
 //! Everything here is behind a small, testable seam so the apps stay portable
 //! and the OS specifics live in one place.
 
 pub mod argv;
+pub mod audio;
 pub mod clipboard;
 pub mod confd_store;
 pub mod launcher;

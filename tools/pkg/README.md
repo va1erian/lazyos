@@ -13,7 +13,7 @@ path.
 | Coverage-guided fuzz | libFuzzer via `cargo-fuzz`, Linux (CI runs it for a bounded time) | `mkdir -p fuzz/corpus/lazypkg`, then `cargo fuzz run lazypkg --fuzz-dir fuzz fuzz/corpus/lazypkg fuzz/seeds/lazypkg -- -max_total_time=60` |
 | Seed corpus | Checked in under `fuzz/seeds/lazypkg/`, generated deterministically (a valid stored archive, a valid deflated one, one with a bad path, one truncated) | `python fuzz/gen_corpus.py` (`--check` in CI) |
 | Builder | Turns a source tree into `<system_name>-<version>.lzp`, running the same checks before the OS sees it | `python tools/pkg/build.py path/to/tree` |
-| Sample packages | Builds the sample `.lzp` (`PKGDEMO.LZP`) from the built xui apps into `target/pkg/` for the image; `make_icons.py` generates the PNG icons | `python tools/pkg/build_samples.py` (also run by `python tools/xui/build.py`) |
+| Sample packages | Builds the sample `.lzp` (`PKGDEMO.LZP`) from the built xui apps into `target/pkg/` for the image; every package's PNG icons come from `cargo run --manifest-path xui-app/Cargo.toml -p app-icons` | `python tools/pkg/build_samples.py` (also run by `python tools/xui/build.py`) |
 | Package manager (host) | `pkgstore`: policy compilation, the explanation table (covers every `idl/` interface), the audit chain, install paths, access rules | `cargo test -p pkgstore` |
 | Package manager (guest) | install, run labelled, remove, in a headless desktop session | `python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pkg --script tools/screenshot/examples/pkg_install.json` |
 | Builder tests | A valid tree builds and reopens; a missing icon, a bad `system_name`, and an unknown directory each fail | `python tools/pkg/test_build.py` |

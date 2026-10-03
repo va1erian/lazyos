@@ -203,6 +203,22 @@ image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
 LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
 LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
+## LazyRAD MOD player (`modplay` module, `.lzp` package)
+
+A ProTracker player written as a LazyRAD project (`lazyrad-os/samples/modplayer`)
+over the player's `modplay` script module (`lazyrad-os/src/tracker`, mixing in
+`libs/modplay`, sound through `audiod`); it is embedded as `/system/share/lazyrad/modplayer`
+with LazyRAD and packaged as `/system/share/samples/modplayer.lzp` (`LAZYOS_MODPLAYER=1`); see
+[`docs/lazyrad-modplay.md`](docs/lazyrad-modplay.md). The verdict on its sound is
+the recording, judged against a host render:
+
+```bash
+python tools/run_demo.py --modplayer          # desktop, LazyRAD, the package, sound card
+python tools/lazyrad/modplayer_run.py         # build, Terminal + installed sessions, record, judge
+cd lazyrad-os && cargo test                   # tracker unit tests; tests/modplayer.rs runs the real form offscreen
+python tools/lazyrad/gen_demo_song.py --check # the built-in song (an original, CC0) is current
+```
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a

@@ -18,6 +18,8 @@ members = [
     "crates/confd-editor",
     "crates/testkit",
     "crates/shell",
+    # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
+    "crates/app-icons",
 ]
 
 [dependencies]
@@ -36,6 +38,9 @@ libmessenger = { path = "../libs/messenger" }
 # `idl/*.midl`): the fabric panel encodes and decodes those interfaces with the
 # same code the kernel and native clients use, never hand-copied field ids.
 messenger-generated = { path = "../libs/generated" }
+# The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
+# platform layer supplies its musl transport (`platform::audio`).
+audioclient = { path = "../libs/audioclient" }
 # The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
 # already in the dependency graph; a direct edge lets `term.rs` name `kill`.
 libc = "0.2"
