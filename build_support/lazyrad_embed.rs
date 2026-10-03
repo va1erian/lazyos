@@ -9,6 +9,11 @@
 //! `/system/share/lazyrad/<directory>/` (`fhs::share::LAZYRAD_SAMPLES`; names
 //! are kept exactly: ext2 is case-sensitive).
 //!
+//! When `tools/lazyrad/devtest.py` built `target/pkg/lrdev-test.lzp` (the
+//! development-run test package, issue #529), it is added as
+//! `/system/share/samples/lrdev-test.lzp` (`fhs::share::LRDEV_TEST_LZP`) for
+//! the `lazyrad_devplay.json` session; an image without it is unchanged.
+//!
 //! With the switch unset nothing changes: the plain demo image is unchanged.
 
 use std::ffi::OsStr;
@@ -21,6 +26,10 @@ const ELFS: &[(&str, &str)] = &[
     (fhs::bin::LRPLAY, "target/lazyrad/lrplay.elf"),
     (fhs::bin::LAZYRAD, "target/lazyrad/lazyrad.elf"),
 ];
+
+/// The development-run test package, when built (path relative to the
+/// manifest dir).
+const DEVTEST_LZP: &str = "target/pkg/lrdev-test.lzp";
 
 /// The image directory the sample projects are copied under.
 const SAMPLES_ROOT: &str = fhs::share::LAZYRAD_SAMPLES;
@@ -41,6 +50,21 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     }
     embed_elfs(sink, manifest_dir);
     embed_samples(sink, manifest_dir);
+    embed_devtest(sink, manifest_dir);
+}
+
+/// Add the development-run test package when it was built.
+fn embed_devtest(sink: &mut dyn Sink, manifest_dir: &Path) {
+    let path = manifest_dir.join(DEVTEST_LZP);
+    println!("cargo:rerun-if-changed={}", path.display());
+    if path.is_file() {
+        println!(
+            "cargo:warning=LAZYOS_LAZYRAD embedded: {} as {}",
+            path.display(),
+            fhs::share::LRDEV_TEST_LZP
+        );
+        sink.add_file(fhs::share::LRDEV_TEST_LZP, path);
+    }
 }
 
 /// Embed `lrplay` and `lazyrad`. A missing one fails the build, so the

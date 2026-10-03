@@ -129,8 +129,13 @@ declare what its scripts use:
 
 - Methods that transfer channels, buffers or rings.
 - Serving from an *installed* app: the manifest grammar has no permission to
-  register a name, so `msg::serve` works for a development run (the IDE's F5,
-  the Terminal) and is refused under an installed app's rules.
+  register a name, so `msg::serve` works for a run from an unlabelled IDE or the
+  Terminal and is refused under an installed app's rules. Once the IDE is a
+  package, Play runs the project under `dev:<system_name>` with exactly the
+  derived permissions the installed app would get (issue #529,
+  `docs/lazyrad-package-plan.md` section 3), so Play then refuses what the
+  installed app would refuse, `msg::serve` of a name outside
+  `app.<system_name>.*` included.
 - Completion in the IDE's code editor (LazyRAD has none yet). The generated
   `.rhai` modules and `docs/rhai/api.md` are the reference.
 

@@ -1,18 +1,24 @@
 //! The interned label table (application package system, phase 1).
 //!
 //! A [`super::credentials::Cred`] carries a small `label_id`; this table maps
-//! the id back to the bounded string that names it. Labels have exactly two
+//! the id back to the bounded string that names it. Labels have exactly three
 //! forms, and nothing else is accepted:
 //!
 //! * `app:<reverse.dns.name>` -- a sandboxed application (`app:com.example.notes`),
-//! * `system:<name>` -- a platform service (`system:netdrv`).
+//! * `system:<name>` -- a platform service (`system:netdrv`),
+//! * `dev:<reverse.dns.name>` -- an app being developed, run from an IDE with the
+//!   permissions its manifest declares (`dev:com.example.notes`, issue #529). It
+//!   owns the same `app.<name>.*` services and `app/<name>/` topics as the
+//!   installed app; a labelled IDE may spawn into it only when its own rules
+//!   allow that exact label ([`super::devspawn`]).
 //!
 //! Id `0` is "unlabelled" and never names a string. The table is bounded
 //! ([`CAPACITY`]) and append-only: interning an equal string returns the
 //! existing id, so a label id is stable for the life of the boot and a
 //! credential that recorded it never dangles. Only the credential gate
 //! (`process::creds`, which requires `CAP_SETUID`) and the policy loader
-//! (`CAP_IPC_CONTROL`) reach [`intern`]; a full table refuses new labels
+//! (`CAP_IPC_CONTROL`) reach [`intern`] (a labelled IDE's spawn into a `dev:`
+//! label only [`lookup`]s: it can never add one); a full table refuses new labels
 //! instead of evicting one, because eviction would let a stale id alias a
 //! different application's identity.
 
@@ -30,6 +36,8 @@ pub const UNLABELLED: u32 = 0;
 pub const APP_PREFIX: &str = "app:";
 /// Prefix of a platform-service label.
 pub const SYSTEM_PREFIX: &str = "system:";
+/// Prefix of a development label (an app run from an IDE).
+pub const DEV_PREFIX: &str = "dev:";
 
 /// Why a label string or an interning request was refused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,6 +55,8 @@ pub enum Kind {
     App,
     /// `system:<name>`.
     System,
+    /// `dev:<id>`: the app `<id>` run from an IDE under its manifest's rules.
+    Dev,
 }
 
 /// Split a label into its kind and the part after the prefix, validating
@@ -67,6 +77,8 @@ pub fn parse(label: &str) -> Result<(Kind, &str), Error> {
         (Kind::App, name)
     } else if let Some(name) = label.strip_prefix(SYSTEM_PREFIX) {
         (Kind::System, name)
+    } else if let Some(name) = label.strip_prefix(DEV_PREFIX) {
+        (Kind::Dev, name)
     } else {
         return Err(Error::Malformed);
     };

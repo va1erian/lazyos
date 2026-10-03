@@ -32,3 +32,16 @@ interface os.lazy.messenger.names.resolve.v1 {
     /// Check that the actor may resolve `name`.
     method Resolve(name: String) -> ();
 }
+
+/// Kernel ACL scope for spawning a child into a development label (issue #529,
+/// `docs/lazyrad-package-plan.md` section 3). A labelled task (an IDE) may give
+/// a child it spawns the label `dev:<system_name>` only when its own rules
+/// allow this interface id with `fnv1a32(<the dev label>)` as the method, and
+/// only while `pkgd` holds an approved rule set for that label. The child keeps
+/// the caller's uid, gid and session, and never gains a capability. A manifest
+/// asks for it with `develop = true`, which compiles to the wildcard method.
+/// Only the interface id is contractual; nothing ever serves this interface.
+interface os.lazy.process.label.spawn.v1 {
+    /// Check that the actor may spawn a child labelled `label`.
+    method Assign(label: String) -> ();
+}

@@ -1197,6 +1197,11 @@
         "name": "Provisioned",
         "id": 1076218465,
         "oneway": false
+      },
+      {
+        "name": "Develop",
+        "id": 803454394,
+        "oneway": false
       }
     ],
     "topics": [
@@ -1230,6 +1235,18 @@
       {
         "name": "Resolve",
         "id": 1645633795,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.process.label.spawn.v1",
+    "interface_id": "0x2b9f30ad1cbea35e",
+    "methods": [
+      {
+        "name": "Assign",
+        "id": 938075628,
         "oneway": false
       }
     ],

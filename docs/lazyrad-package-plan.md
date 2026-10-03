@@ -93,7 +93,25 @@ trace" and "Rhai scripting"), `docs/architecture/display.md`,
 `build_support/lazyrad_embed.rs`'s module doc, `tools/lazyrad/build.py`'s
 docstring and `docs/lazyrad-plan.md`: LazyRAD is no longer an exception.
 
-## 3. Phase B: development labels for Play (issue: LazyRAD B)
+## 3. Phase B: development labels for Play (issue #529)
+
+**Status: implemented** (branch `claude/lazyrad-package-phase-b`). Done: the
+`dev:` label kind and its namespace; the spawn rule
+(`kernel/src/ipc/devspawn.rs`, `LabelStamp::Develop`) with correctness and soak
+tests in `kernel/src/tests/spawn_suite/dev*.rs`; `spawnv`'s
+`personality::STDIO` (the child's 0/1/2 from three of the caller's
+descriptors, which the table below did not foresee: a `spawnv` child starts on
+the terminal, so "keeping the pipes" needed it); `os.lazy.process.label.spawn.v1`
+in `idl/policy.midl`; `develop = true`; `pkgd`'s `Develop` (with a `confirm`
+argument: `false` loads only an already approved set, `true` after the
+Installer's consent) and its in-memory approvals revoked at logout; the
+Installer's `develop` verb (`installer-develop` row, `--develop`);
+`pkgctl develop`; `lazyrad_os::devplay` (Play under the label when the IDE runs
+labelled, the plain fork otherwise) and `lazyrad --play-dev`. Waiting on phase
+A: the IDE's own manifest (`develop = true`, `os.lazy.mimed.v1`,
+`subscribe:system/events/pkg/+`). Until then `tools/lazyrad/devtest.py` packages
+the IDE as a test app and `tools/screenshot/examples/lazyrad_devplay.json`
+exercises the whole path.
 
 Play must run the project under the permissions the installed app would get,
 while the IDE keeps the child's pipes (fork + exec, not `init.Launch`).

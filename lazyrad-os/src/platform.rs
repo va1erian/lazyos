@@ -31,6 +31,10 @@ pub const APPS_ROOT: &str = fhs::state::APPS_ROOT;
 /// The player the image ships in `/system/bin`.
 pub const PLAYER_PATH: &str = fhs::bin::LRPLAY;
 
+/// The keyboard service every packaged player needs (see
+/// [`LazyOsPlatform::script_permissions`]).
+pub const PLAYER_INPUT: &str = "os.lazy.input.v1";
+
 /// The home used when `$HOME` is unset or unusable: the ramfs, so nothing is
 /// kept across a reboot.
 pub const SCRATCH_DIR: &str = fhs::state::LAZYRAD_TMP;
@@ -227,8 +231,16 @@ impl Platform for LazyOsPlatform {
     /// (`rhai_lazy::msg::permissions`).
     fn script_permissions(&self, scripts: &[&str]) -> ScriptPermissions {
         let found = rhai_lazy::msg::permissions::derive(scripts.iter().copied());
+        let mut interfaces = found.interfaces;
+        // The player itself, whatever the scripts do: the packager adds the
+        // display for its window, but its keyboard comes from `inputd`, which
+        // a labelled player may not resolve without this (a `LABEL:DENY
+        // resolve=os.lazy.input.v1` in a development run, issue #529).
+        if !interfaces.iter().any(|name| name == PLAYER_INPUT) {
+            interfaces.push(PLAYER_INPUT.to_owned());
+        }
         ScriptPermissions {
-            interfaces: found.interfaces,
+            interfaces,
             topics: found.topics,
         }
     }
@@ -392,8 +404,11 @@ mod tests {
             "fn form_load() { label.text = sys::confd::get(\"sys/ui/theme\").str_value; }",
             "fn watch() { sys::confd::on_changed(|e| ()); }",
         ]);
-        assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
+        assert_eq!(found.interfaces, ["os.lazy.confd.v1", PLAYER_INPUT]);
         assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
+        // A project that calls nothing still gets the player's keyboard.
+        let none = LazyOsPlatform::ide(home("/home/user")).script_permissions(&[]);
+        assert_eq!(none.interfaces, [PLAYER_INPUT]);
     }
 
     #[test]

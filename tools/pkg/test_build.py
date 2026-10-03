@@ -239,6 +239,9 @@ class SharedCaseTests(unittest.TestCase):
                         self.assertEqual(app.get("category", pkgmanifest.DEFAULT_CATEGORY), case["category"])
                     if "autostart" in case:
                         self.assertEqual(entry.get("autostart", False), case["autostart"])
+                    if "develop" in case:
+                        permissions = manifest.get("permissions", {})
+                        self.assertEqual(permissions.get("develop", False), case["develop"])
                 else:
                     self.assertTrue(any(case["error"] in p for p in problems), problems)
 

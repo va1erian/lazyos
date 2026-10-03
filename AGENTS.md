@@ -194,6 +194,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
 ```
 
+An IDE package with `develop = true` runs the project it edits under
+`dev:<system_name>` (issue #529; `docs/packages.md`, "Development runs";
+`kernel/src/ipc/devspawn.rs`). The session `lazyrad_devplay.json` plays a sample
+that way from a test package of the IDE (build it with
+`python tools/lazyrad/build.py && python tools/lazyrad/devtest.py`, then an
+image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
+LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
+LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
+
 ## Linux ABI conformance bench
 
 Compatibility with Linux (`x86_64-unknown-linux-musl`) binaries is tracked by a

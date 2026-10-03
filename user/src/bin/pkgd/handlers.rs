@@ -19,6 +19,7 @@ use user::messenger::{accounts, Message, Parcel};
 use user::sys;
 
 use super::audit::Audit;
+use super::develop::Logouts;
 use super::inspect::assess;
 use super::peers::Peer;
 use super::provision::Pass;
@@ -64,6 +65,10 @@ pub(crate) struct Pkgd {
     pub(crate) provisioned: ProvisionState,
     /// The provisioning steps still to run.
     pub(crate) pass: Option<Pass>,
+    /// Development labels approved per session (`Develop`, in memory only).
+    pub(crate) approvals: pkgstore::develop::Approvals,
+    /// The logout feed that drops a session's approvals.
+    pub(crate) logouts: Logouts,
 }
 
 impl Pkgd {
@@ -84,6 +89,8 @@ impl Pkgd {
                 failed: 0,
             },
             pass: None,
+            approvals: pkgstore::develop::Approvals::new(),
+            logouts: Logouts::new(),
         }
     }
 
@@ -158,6 +165,12 @@ impl Pkgd {
                     .get(&args.system_name)
                     .map_err(registry_down)?;
                 wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
+            }
+            wire::METHOD_DEVELOP => {
+                let args = wire::decode_develop_args(body).map_err(malformed)?;
+                let (label, approved) = self.develop(caller, &args.path, args.confirm)?;
+                wire::encode_develop_reply(&wire::DevelopReply { label, approved })
+                    .map_err(malformed)
             }
             wire::METHOD_PROVISIONED => {
                 let state = self.provisioned.clone();

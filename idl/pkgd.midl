@@ -39,6 +39,20 @@ interface os.lazy.pkgd.v1 {
     /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
     /// until `done`.
     method Provisioned() -> (state: ProvisionState);
+    /// Approve a development run of the package at `path` (the same source
+    /// rule as `Inspect`; issue #529): validate it, compile its permissions and
+    /// load them for the label `dev:<system_name>`, which an IDE whose
+    /// manifest says `develop = true` may then give the program it runs. Only
+    /// the session owner or root, unlabelled (the Installer), may call it.
+    /// With `confirm` false nothing is asked: the rules are loaded and
+    /// `approved` is true only if this session already approved the same or a
+    /// wider rule set for that label; otherwise `approved` is false and nothing
+    /// changes, so the Installer shows the consent screen and calls again with
+    /// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+    /// only, are dropped (and the label's rules revoked) when the session that
+    /// gave them logs out, and every one is audited as
+    /// `system/events/pkg/develop`.
+    method Develop(path: String, confirm: Bool) -> (label: String, approved: Bool);
 
     /// Where an installed app came from. `Core`: its `system_name` is shipped
     /// in `/system/packages`, so it cannot be removed (a newer version the
@@ -91,7 +105,7 @@ interface os.lazy.pkgd.v1 {
     }
 
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     struct Permission {
@@ -130,8 +144,10 @@ interface os.lazy.pkgd.v1 {
     }
 
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-    /// is `install`, `remove`, `denied` or `provision` (a core package
-    /// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
+    /// is `install`, `remove`, `denied`, `provision` (a core package
+    /// installed, upgraded or re-marked at startup, or the end of a pass),
+    /// `develop` (a development run approved: `ok` true, `detail` the label)
+    /// or `undevelop` (a session's development approvals dropped at logout). The same record, hex-encoded with
     /// a chained SHA-256, is appended to `/logs/pkg.log`.
     struct PkgEvent {
         op: String,

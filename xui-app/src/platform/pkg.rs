@@ -68,6 +68,21 @@ pub fn install(path: &str) -> Result<Installed, String> {
     Ok(installed_from_wire(decoded.app))
 }
 
+/// `Develop(path, confirm)` (issue #529): approve a development run of the
+/// package at `path`. Returns its `dev:` label and whether it is approved
+/// (`false` only without `confirm`: the user must be asked first).
+pub fn develop(path: &str, confirm: bool) -> Result<(String, bool), String> {
+    let body = wire::encode_develop_args(&wire::DevelopArgs {
+        path: path.to_owned(),
+        confirm,
+    })
+    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
+    let reply = call(wire::METHOD_DEVELOP, body)?;
+    let decoded = wire::decode_develop_reply(&reply.body)
+        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
+    Ok((decoded.label, decoded.approved))
+}
+
 /// Remove `system_name`. `pkgd` keeps the user's documents under `/home`.
 pub fn remove(system_name: &str) -> Result<(), String> {
     let body = wire::encode_remove_args(&wire::RemoveArgs {

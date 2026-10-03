@@ -38,6 +38,6 @@ fn the_messenger_sample_declares_what_it_uses() {
     let script = fs::read_to_string(dir.join("main_form.rhai")).unwrap();
     let found = LazyOsPlatform::ide(Home::from_var(Some(OsStr::new("/home/user"))))
         .script_permissions(&[&script]);
-    assert_eq!(found.interfaces, ["os.lazy.confd.v1"]);
+    assert_eq!(found.interfaces, ["os.lazy.confd.v1", "os.lazy.input.v1"]);
     assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
 }

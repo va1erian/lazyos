@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::ipc::credentials::LabelStamp;
-use crate::ipc::labels;
+use crate::ipc::{devspawn, labels};
 
 /// Error values the credential gate returns; the same x86_64 Linux numbering
 /// the Messenger syscall uses, so userspace handling is uniform.
@@ -44,6 +44,7 @@ pub(super) fn transition_error(error: TransitionError) -> u64 {
         TransitionError::Widening => EACCES,
         TransitionError::BadTarget => ESRCH,
         TransitionError::LabelLocked => EPERM,
+        TransitionError::DevNotAllowed => EACCES,
     })
 }
 
@@ -90,11 +91,24 @@ pub(super) fn sys_creds(op: u64, a1: u64, a2: u64) -> u64 {
 
 /// Approve a labelled spawn for the calling task: check the privilege, intern
 /// `label` and check the assigned stamp. Returns the credential the child is
-/// stamped with (its `label_id` the interned id), or the syscall error value.
-/// Interning is the only side effect of a refusal, and it is bounded by the
-/// table capacity. Used by `spawnv`'s `AsLabelled` mode.
-pub(super) fn approve_labelled(mut cred: Cred, label: &str) -> Result<Cred, u64> {
+/// stamped with (its `label_id` the interned id) and the stamp rule that
+/// applies it, or the syscall error value. Interning is the only side effect
+/// of a refusal, and it is bounded by the table capacity. Used by `spawnv`'s
+/// `AsLabelled` mode.
+///
+/// A labelled caller naming a `dev:` label takes the development path instead
+/// ([`devspawn`], issue #529): no `CAP_SETUID`, but its own rules must allow
+/// that label, the label must already hold an approved rule set (this path
+/// never interns), and the child keeps the caller's uid, gid and session.
+/// Refusals are `-EACCES` (audited). Unlabelled callers and `app:`/`system:`
+/// targets keep the rules below unchanged.
+pub(super) fn approve_labelled(mut cred: Cred, label: &str) -> Result<(Cred, LabelStamp), u64> {
     let actor = task::current();
+    if devspawn::applies(&credentials::of(actor), label) {
+        let stamped = devspawn::approve(actor, cred, label)
+            .map_err(|refusal| transition_error(refusal.into()))?;
+        return Ok((stamped, LabelStamp::Develop));
+    }
     // Privilege first: an unprivileged caller must not learn anything about
     // the label table (full, duplicate) through the error it gets back.
     credentials::check_stamp(
@@ -109,7 +123,7 @@ pub(super) fn approve_labelled(mut cred: Cred, label: &str) -> Result<Cred, u64>
     let id = labels::intern(label).map_err(|_| syscall_error(EINVAL))?;
     cred.label_id = id;
     credentials::check_stamp(actor, LabelStamp::Assign, cred).map_err(transition_error)?;
-    Ok(cred)
+    Ok((cred, LabelStamp::Assign))
 }
 
 /// [`cred_op::LABEL_NAME`]: copy a label string out to the caller.

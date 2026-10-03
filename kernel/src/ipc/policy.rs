@@ -15,6 +15,9 @@
 //!   which is `app:com.foo.bar`'s.
 //! * Topics. A task labelled `app:<id>` may publish and subscribe anything at
 //!   or under `app/<id>/`.
+//! * A `dev:<id>` label (an app run from an IDE, issue #529) owns exactly the
+//!   names and topics of `app:<id>`; its other rules are the ones `pkgd`
+//!   loaded for it after the user approved them.
 //! * Everything else a labelled task does (resolve a name, call an interface,
 //!   touch another topic) is default-deny unless an allow rule for its label
 //!   was loaded ([`super::acl::load_label`]). Resolving a name is checked as a
@@ -94,10 +97,12 @@ pub fn app_name_id(name: &str) -> Option<&str> {
     (!id.is_empty() && !tail.is_empty()).then_some(id)
 }
 
-/// The app id of a label, for `app:<id>` labels.
+/// The app id of a label, for `app:<id>` and `dev:<id>` labels: a development
+/// run of an app (issue #529) owns the installed app's names and topics, so a
+/// project behaves under Play exactly as it will once installed.
 fn app_id_of(label_id: u32) -> Option<alloc::string::String> {
     labels::with(label_id, |label| match labels::parse(label) {
-        Ok((Kind::App, id)) => Some(String::from(id)),
+        Ok((Kind::App | Kind::Dev, id)) => Some(String::from(id)),
         _ => None,
     })
     .flatten()

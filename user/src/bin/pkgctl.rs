@@ -6,6 +6,8 @@
 //! pkgctl install <path>     install it (the same call a GUI installer makes)
 //! pkgctl remove <name>      remove an installed app by its system name
 //! pkgctl list               every installed app
+//! pkgctl open <path>         the GUI installer's consent, through mimed
+//! pkgctl develop <path>      the development consent (issue #529), through mimed
 //! ```
 //!
 //! A thin client: all checks (who may install, which files may be read, whether
@@ -26,12 +28,13 @@ use user::messenger::mime;
 use user::messenger::pkgd::{self, Client, Failure, Installed, PackageInfo};
 use user::sys;
 
-const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open> [args]\n\
+const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open|develop> [args]\n\
     inspect <path>\n\
     install <path>\n\
     remove <system-name>\n\
     list\n\
-    open <path>      hand the package to the GUI installer through mimed\n";
+    open <path>      hand the package to the GUI installer through mimed\n\
+    develop <path>   ask the installer to approve a development run of it\n";
 
 /// Attempts to reach `pkgd`: it is a supervised service that may be starting,
 /// or restarting to recycle its memory.
@@ -71,12 +74,15 @@ fn run(args: &[String]) -> Result<(), String> {
     let command = args.first().map(String::as_str);
     if !matches!(
         command,
-        Some("inspect" | "install" | "remove" | "list" | "open")
+        Some("inspect" | "install" | "remove" | "list" | "open" | "develop")
     ) {
         return Err(String::from(USAGE.trim_end()));
     }
     if command == Some("open") {
-        return open_with_installer(arg(args, "open <path>")?);
+        return open_with_installer(arg(args, "open <path>")?, "install");
+    }
+    if command == Some("develop") {
+        return open_with_installer(arg(args, "develop <path>")?, "develop");
     }
     let client = Client::connect_retry(CONNECT_ATTEMPTS).map_err(|error| {
         format!(
@@ -120,11 +126,14 @@ fn run(args: &[String]) -> Result<(), String> {
 /// the `install` verb, so the GUI installer starts with the package path as its
 /// argument and shows the consent screen. A Terminal session script types a
 /// shell line reliably where typing into a GUI field under TCG drops keys.
-fn open_with_installer(path: &str) -> Result<(), String> {
+///
+/// `pkgctl develop <path>` is the same with the `develop` verb: the route an
+/// IDE takes to have a project's development run approved (issue #529).
+fn open_with_installer(path: &str, verb: &str) -> Result<(), String> {
     let mimed = mime::Client::connect()
         .map_err(|error| format!("pkgctl: mimed is not running: {}", error.message()))?;
     let opened = mimed
-        .open(path, "install")
+        .open(path, verb)
         .map_err(|error| format!("pkgctl: open failed: {}", error.message()))?;
     if !opened.launched {
         return Err(format!(

@@ -22,6 +22,11 @@ pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
 /// Written by the image build.
 pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
 
+/// The development-run test package (`org.lazy.test.lrdev`, issue #529): the
+/// LazyRAD IDE with `develop = true`, built by `tools/lazyrad/devtest.py` and
+/// embedded in `LAZYOS_LAZYRAD=1` images when it was built.
+pub const LRDEV_TEST_LZP: &str = "/system/share/samples/lrdev-test.lzp";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";
@@ -35,7 +40,7 @@ mod tests {
         for path in [MIME_TYPES, SAMPLES, LAZYRAD_SAMPLES] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
-        for path in [TESTDOC, PKGDEMO, DOOM_LZP] {
+        for path in [TESTDOC, PKGDEMO, DOOM_LZP, LRDEV_TEST_LZP] {
             assert!(path.starts_with(SAMPLES), "{path}");
         }
     }

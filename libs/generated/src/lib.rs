@@ -10695,7 +10695,7 @@ pub mod os_lazy_pkgd_v1 {
 
     /// Whether the package ships icons for this type.
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file` or `network`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -10850,8 +10850,10 @@ pub mod os_lazy_pkgd_v1 {
     /// Whether the app starts when a session opens (`entry.autostart`).
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
-    /// is `install`, `remove`, `denied` or `provision` (a core package
-    /// installed, upgraded or re-marked at startup, or the end of a pass). The same record, hex-encoded with
+    /// is `install`, `remove`, `denied`, `provision` (a core package
+    /// installed, upgraded or re-marked at startup, or the end of a pass),
+    /// `develop` (a development run approved: `ok` true, `detail` the label)
+    /// or `undevelop` (a session's development approvals dropped at logout). The same record, hex-encoded with
     /// a chained SHA-256, is appended to `/logs/pkg.log`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PkgEvent {
@@ -10925,6 +10927,8 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_INSTALLED: u32 = 1755800129;
     /// `Provisioned` method id.
     pub const METHOD_PROVISIONED: u32 = 1076218465;
+    /// `Develop` method id.
+    pub const METHOD_DEVELOP: u32 = 803454394;
 
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
@@ -11168,6 +11172,79 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
+    /// Approve a development run of the package at `path` (the same source
+    /// rule as `Inspect`; issue #529): validate it, compile its permissions and
+    /// load them for the label `dev:<system_name>`, which an IDE whose
+    /// manifest says `develop = true` may then give the program it runs. Only
+    /// the session owner or root, unlabelled (the Installer), may call it.
+    /// With `confirm` false nothing is asked: the rules are loaded and
+    /// `approved` is true only if this session already approved the same or a
+    /// wider rule set for that label; otherwise `approved` is false and nothing
+    /// changes, so the Installer shows the consent screen and calls again with
+    /// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+    /// only, are dropped (and the label's rules revoked) when the session that
+    /// gave them logs out, and every one is audited as
+    /// `system/events/pkg/develop`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DevelopArgs {
+        pub path: alloc::string::String,
+        pub confirm: bool,
+    }
+
+    pub fn encode_develop_args(value: &DevelopArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.bool(2, value.confirm)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_develop_args(body: &[u8]) -> Result<DevelopArgs, Error> {
+        let mut out = DevelopArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.confirm = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DevelopReply {
+        pub label: alloc::string::String,
+        pub approved: bool,
+    }
+
+    pub fn encode_develop_reply(value: &DevelopReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.label)?;
+        target.bool(2, value.approved)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_develop_reply(body: &[u8]) -> Result<DevelopReply, Error> {
+        let mut out = DevelopReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.label = field.as_str()?.into();
+                }
+                2 => {
+                    out.approved = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
@@ -11377,6 +11454,60 @@ pub mod os_lazy_messenger_names_resolve_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+}
+
+/// `os.lazy.process.label.spawn.v1` (interface id `0x2b9f30ad1cbea35e`).
+#[rustfmt::skip]
+pub mod os_lazy_process_label_spawn_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x2b9f30ad1cbea35e;
+
+    /// `Assign` method id.
+    pub const METHOD_ASSIGN: u32 = 938075628;
+
+    /// Check that the actor may spawn a child labelled `label`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AssignArgs {
+        pub label: alloc::string::String,
+    }
+
+    pub fn encode_assign_args(value: &AssignArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.label)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_assign_args(body: &[u8]) -> Result<AssignArgs, Error> {
+        let mut out = AssignArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.label = field.as_str()?.into();
             }
         }
         Ok(out)

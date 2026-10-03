@@ -36,10 +36,12 @@ pub enum SpawnCred<'a> {
     /// (`CAP_SETUID`, never wider than the caller): the login path, a shell
     /// that owns its user's identity from the start.
     As(Cred),
-    /// Stamped with the credential and the label string (`app:<name>` or
-    /// `system:<name>`, interned by the kernel; the credential's `label_id`
-    /// is ignored). Only an unlabelled `CAP_SETUID` holder (or one already in
-    /// that label) may, and a label never changes afterwards.
+    /// Stamped with the credential and the label string (`app:<name>`,
+    /// `system:<name>` or `dev:<name>`, interned by the kernel; the
+    /// credential's `label_id` is ignored). Only an unlabelled `CAP_SETUID`
+    /// holder (or one already in that label) may, and a label never changes
+    /// afterwards; the exception is a labelled IDE spawning into an approved
+    /// `dev:` label (`kernel/src/ipc/devspawn.rs`).
     AsLabelled(Cred, &'a str),
 }
 
