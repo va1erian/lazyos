@@ -16,7 +16,8 @@ use xui_core::{Canvas, Control, Dip, MouseButton, Rect};
 
 use super::ctx::{BarHover, Ctx};
 use super::menu;
-use super::theme::color;
+use super::theme::{chrome_look, color, fill_bar};
+use xui_core::theme::look;
 
 /// Text size on the bar.
 const TEXT: Dip = Dip(12.0);
@@ -160,8 +161,9 @@ fn rect(r: ShellRect, s: i32) -> Rect {
 fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let palette = ctx.theme.borrow().palette();
     let s = ctx.scale();
+    let deco = chrome_look(ctx.theme.borrow().is_dark());
     let bounds = canvas.bounds();
-    canvas.clear(color(palette.taskbar_bg));
+    fill_bar(canvas, bounds, palette.taskbar_bg, &deco);
     canvas.fill_rect(
         Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + s),
         color(palette.overlay_border),
@@ -174,7 +176,7 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     } else {
         palette.taskbar_entry
     };
-    canvas.fill_rounded_rect(rect(START_BUTTON, s), 4.0 * s as f32, color(start_fill));
+    look::face(canvas, rect(START_BUTTON, s), 4.0 * s as f32, color(start_fill), &deco);
     let start_ink = color(uitheme::text_on(start_fill));
     canvas.draw_text(
         "LazyOS",
@@ -202,7 +204,7 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         };
         let area = rect(*slot, s);
         let radius = 3.0 * s as f32;
-        canvas.fill_rounded_rect(area, radius, color(fill));
+        look::face(canvas, area, radius, color(fill), &deco);
         if hover == Some(BarHover::Entry(index)) {
             canvas.stroke_rounded_rect(area, radius, color(palette.overlay_border), s as f32);
         }

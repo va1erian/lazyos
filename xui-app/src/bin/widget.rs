@@ -8,6 +8,7 @@
 //! `WIDGET:UP:FAIL:<errno>`), `WIDGET:TICK:cpu=<pct> mem=<pct>` on every
 //! refresh, `WIDGET:QUIT:PASS` on `q` or the close button.
 
+use xui_core::theme::look;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -109,7 +110,7 @@ impl App for Widget {
 /// Paint the title and the two labelled bars.
 fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
     let bounds = xui_app::hidpi::design_bounds(canvas);
-    canvas.clear(theme.background);
+    look::paint_background(canvas, bounds, bounds, &theme);
     canvas.draw_text(
         "CPU & Memory",
         Rect::new(

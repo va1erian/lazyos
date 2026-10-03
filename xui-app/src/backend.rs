@@ -48,7 +48,7 @@ use std::sync::Arc;
 use xui_canvas::{OffscreenBackend, Surface};
 use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
-use xui_core::{Color, Key, Modifiers, Rect};
+use xui_core::{Key, Modifiers, Rect};
 
 use crate::client_window::{ClientState, ClientWindow, SurfaceRole};
 use crate::display;
@@ -161,7 +161,8 @@ struct Window {
     /// rectangles of `surface`, accumulated. Presents copy from it.
     frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
-    background: Color,
+    /// The window's theme, for the background under every repaint.
+    theme: xui_core::Theme,
     dpi: u32,
     width: i32,
     height: i32,
@@ -417,7 +418,7 @@ mod test_support {
                 surface: Surface::new(64, 64),
                 frame: Vec::new(),
                 sink: Some(sink),
-                background: xui_core::Theme::light().background,
+                theme: xui_core::Theme::light(),
                 dpi: DEFAULT_DPI,
                 width: 64,
                 height: 64,

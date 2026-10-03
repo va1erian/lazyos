@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xui dark theme proposals</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&amp;display=swap">
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:32px;background:#0b0d14;color:#e4e8f5;font-family:'Open Sans',sans-serif}
+h1{font-weight:600;margin:0 0 8px}
+p{color:#9aa3c2;max-width:760px}
+main{display:flex;flex-wrap:wrap;gap:40px}
+figure{margin:0}
+figcaption{margin:0 0 10px;font-weight:600}
+
+#Current .desk{width:760px;height:540px;position:relative;overflow:hidden;font-family:'Open Sans',sans-serif;font-size:13px;padding:22px 26px 0 26px}
+#Current .win{height:474px;display:flex;flex-direction:column;overflow:hidden}
+#Current .title{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;flex:none}
+#Current .tname{font-size:13px}
+#Current .tbtns{display:flex;gap:12px;font-size:15px}
+#Current .body{flex:1;display:flex;min-height:0}
+#Current .side{width:178px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px}
+#Current .nav{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;text-decoration:none;color:inherit;position:relative}
+#Current .page{flex:1;padding:18px 26px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#Current .ph{margin:0;font-size:20px;font-weight:600}
+#Current .sec{display:flex;flex-direction:column;gap:6px}
+#Current .lbl{font-size:12px;font-weight:600;letter-spacing:.02em}
+#Current .grp{display:flex;flex-direction:column}
+#Current .row{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px}
+#Current .swrow{flex-direction:row;gap:10px;padding:10px 12px}
+#Current .sw{width:34px;height:34px;border:0;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#Current .radio{width:16px;height:16px;border-radius:50%;display:inline-block;position:relative}
+#Current .check{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+#Current .actions{display:flex;gap:10px;margin-top:auto}
+#Current .btn{height:32px;padding:0 16px;font:inherit;cursor:pointer}
+#Current .bar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px}
+#Current .start,#Current .task{height:30px;display:flex;align-items:center;padding:0 14px;min-width:96px}
+#Current .clock{margin-left:auto;padding-right:10px;font-size:12px}
+
+#Current .desk{background:#141c38;color:#fff}
+#Current .win{background:#202020;border:1px solid #5c6a98}
+#Current .title{background:#2c704a;color:#fff}
+#Current .side{background:#202020}
+#Current .nav{color:#fff}
+#Current .nav.sel{background:#2d2d2d}
+#Current .page{background:#2b2b2b;border:1px solid #303030;margin:0 6px 6px 0}
+#Current .ph{display:none}
+#Current .lbl{background:#202020;color:#fff;font-weight:400;padding:4px 6px}
+#Current .grp{background:#202020;align-self:flex-start;min-width:200px}
+#Current .radio{border:1px solid #888}
+#Current .radio.on{border:4px solid #2c704a}
+#Current .check{background:#202020;border:1px solid #888;color:#2c704a}
+#Current .sw.on{outline:2px solid #fff}
+#Current .btn{background:#2b2b2b;color:#fff;border:1px solid #303030;border-radius:4px}
+#Current .btn.primary{display:none}
+#Current .bar{background:#181c2c}
+#Current .start{background:#2c704a;color:#fff}
+#Current .task{background:#343c5c;color:#fff}
+#Current .task.on{background:#2c704a}
+#Current .clock{color:#fff}
+
+#A_Flat .desk{width:760px;height:540px;position:relative;overflow:hidden;font-family:'Open Sans',sans-serif;font-size:13px;padding:22px 26px 0 26px}
+#A_Flat .win{height:474px;display:flex;flex-direction:column;overflow:hidden}
+#A_Flat .title{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;flex:none}
+#A_Flat .tname{font-size:13px}
+#A_Flat .tbtns{display:flex;gap:12px;font-size:15px}
+#A_Flat .body{flex:1;display:flex;min-height:0}
+#A_Flat .side{width:178px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px}
+#A_Flat .nav{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;text-decoration:none;color:inherit;position:relative}
+#A_Flat .page{flex:1;padding:18px 26px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#A_Flat .ph{margin:0;font-size:20px;font-weight:600}
+#A_Flat .sec{display:flex;flex-direction:column;gap:6px}
+#A_Flat .lbl{font-size:12px;font-weight:600;letter-spacing:.02em}
+#A_Flat .grp{display:flex;flex-direction:column}
+#A_Flat .row{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px}
+#A_Flat .swrow{flex-direction:row;gap:10px;padding:10px 12px}
+#A_Flat .sw{width:34px;height:34px;border:0;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#A_Flat .radio{width:16px;height:16px;border-radius:50%;display:inline-block;position:relative}
+#A_Flat .check{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+#A_Flat .actions{display:flex;gap:10px;margin-top:auto}
+#A_Flat .btn{height:32px;padding:0 16px;font:inherit;cursor:pointer}
+#A_Flat .bar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px}
+#A_Flat .start,#A_Flat .task{height:30px;display:flex;align-items:center;padding:0 14px;min-width:96px}
+#A_Flat .clock{margin-left:auto;padding-right:10px;font-size:12px}
+
+#A_Flat .desk{background:#141c38;color:#f2f2f2}
+#A_Flat .win{background:#202020;border:1px solid #3a3a3a;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+#A_Flat .title{background:#202020;color:#f2f2f2}
+#A_Flat .tbtns{color:#bdbdbd}
+#A_Flat .side{background:transparent}
+#A_Flat .nav{color:#e8e8e8;border-radius:6px}
+#A_Flat .nav.sel{background:#2d2d2d}
+#A_Flat .nav.sel::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:3px;border-radius:2px;background:#4caf7a}
+#A_Flat .page{background:#272727;border-top-left-radius:8px;border-top:1px solid #2f2f2f;border-left:1px solid #2f2f2f}
+#A_Flat .lbl{color:#c7c7c7}
+#A_Flat .grp{background:#2d2d2d;border:1px solid #353535;border-radius:6px}
+#A_Flat .row+.row{border-top:1px solid #353535}
+#A_Flat .radio{border:1.5px solid #9a9a9a}
+#A_Flat .radio.on{border:5px solid #4caf7a}
+#A_Flat .check{background:#4caf7a;border-radius:4px;color:#0d1f15;font-weight:700}
+#A_Flat .sw{border-radius:6px}
+#A_Flat .sw.on,#A_Flat .sw.on2{box-shadow:0 0 0 2px #272727,0 0 0 4px #e8e8e8}
+#A_Flat .btn{background:#353535;color:#f2f2f2;border:1px solid #404040;border-radius:5px}
+#A_Flat .btn.primary{background:#4caf7a;border-color:#4caf7a;color:#0d1f15;font-weight:600}
+#A_Flat .bar{background:#1c1c1c;border-top:1px solid #2c2c2c}
+#A_Flat .start{color:#f2f2f2;font-weight:600}
+#A_Flat .task{color:#dcdcdc;border-radius:5px}
+#A_Flat .task.on{background:#2d2d2d;box-shadow:inset 0 -2px 0 #4caf7a}
+#A_Flat .clock{color:#c7c7c7}
+
+#B_Midnight .desk{width:760px;height:540px;position:relative;overflow:hidden;font-family:'Open Sans',sans-serif;font-size:13px;padding:22px 26px 0 26px}
+#B_Midnight .win{height:474px;display:flex;flex-direction:column;overflow:hidden}
+#B_Midnight .title{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;flex:none}
+#B_Midnight .tname{font-size:13px}
+#B_Midnight .tbtns{display:flex;gap:12px;font-size:15px}
+#B_Midnight .body{flex:1;display:flex;min-height:0}
+#B_Midnight .side{width:178px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px}
+#B_Midnight .nav{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;text-decoration:none;color:inherit;position:relative}
+#B_Midnight .page{flex:1;padding:18px 26px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#B_Midnight .ph{margin:0;font-size:20px;font-weight:600}
+#B_Midnight .sec{display:flex;flex-direction:column;gap:6px}
+#B_Midnight .lbl{font-size:12px;font-weight:600;letter-spacing:.02em}
+#B_Midnight .grp{display:flex;flex-direction:column}
+#B_Midnight .row{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px}
+#B_Midnight .swrow{flex-direction:row;gap:10px;padding:10px 12px}
+#B_Midnight .sw{width:34px;height:34px;border:0;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#B_Midnight .radio{width:16px;height:16px;border-radius:50%;display:inline-block;position:relative}
+#B_Midnight .check{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+#B_Midnight .actions{display:flex;gap:10px;margin-top:auto}
+#B_Midnight .btn{height:32px;padding:0 16px;font:inherit;cursor:pointer}
+#B_Midnight .bar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px}
+#B_Midnight .start,#B_Midnight .task{height:30px;display:flex;align-items:center;padding:0 14px;min-width:96px}
+#B_Midnight .clock{margin-left:auto;padding-right:10px;font-size:12px}
+
+#B_Midnight .desk{background:radial-gradient(120% 90% at 20% 0%,#1d2a55 0%,#121831 55%,#0c1022 100%);color:#e4e8f5}
+#B_Midnight .win{background:linear-gradient(180deg,#232a40 0%,#1a1f30 100%);border:1px solid #3b4566;border-radius:10px;box-shadow:0 18px 40px rgba(4,8,20,.6),inset 0 1px 0 rgba(255,255,255,.06)}
+#B_Midnight .title{background:linear-gradient(180deg,#3a7d58 0%,#2c704a 60%,#25603f 100%);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+#B_Midnight .tbtns{color:#e6f3ec}
+#B_Midnight .side{background:linear-gradient(180deg,rgba(10,13,24,.35),rgba(10,13,24,.15));border-right:1px solid rgba(120,135,190,.12)}
+#B_Midnight .nav{color:#cfd5ea;border-radius:8px}
+#B_Midnight .nav.sel{background:linear-gradient(90deg,rgba(76,175,122,.28),rgba(76,175,122,.06));color:#fff}
+#B_Midnight .nav.sel::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:#5fd08f;box-shadow:0 0 8px #5fd08f}
+#B_Midnight .page{background:transparent}
+#B_Midnight .lbl{color:#9aa3c2;text-transform:uppercase;font-size:11px;letter-spacing:.08em}
+#B_Midnight .grp{background:linear-gradient(180deg,#2a3250 0%,#242b44 100%);border:1px solid rgba(140,155,210,.16);border-radius:10px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 2px 6px rgba(0,0,0,.25)}
+#B_Midnight .row+.row{border-top:1px solid rgba(140,155,210,.10)}
+#B_Midnight .radio{border:1.5px solid #7d87aa;background:#1a1f30}
+#B_Midnight .radio.on{border:5px solid #5fd08f;box-shadow:0 0 6px rgba(95,208,143,.5)}
+#B_Midnight .check{background:linear-gradient(180deg,#5fd08f,#3a9e68);border-radius:4px;color:#08170f;font-weight:700}
+#B_Midnight .sw{border-radius:50%;box-shadow:inset 0 2px 3px rgba(255,255,255,.25),inset 0 -3px 4px rgba(0,0,0,.25)}
+#B_Midnight .sw.on,#B_Midnight .sw.on2{box-shadow:0 0 0 2px #242b44,0 0 0 4px #5fd08f,inset 0 2px 3px rgba(255,255,255,.25)}
+#B_Midnight .btn{background:linear-gradient(180deg,#323b5b,#2a3150);color:#e4e8f5;border:1px solid #434e75;border-radius:7px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+#B_Midnight .btn.primary{background:linear-gradient(180deg,#4fbf82,#2f8a5a);border-color:#3fa36d;color:#fff;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 8px rgba(47,138,90,.4)}
+#B_Midnight .bar{background:linear-gradient(180deg,rgba(30,36,58,.92),rgba(18,22,38,.96));border-top:1px solid rgba(140,155,210,.18)}
+#B_Midnight .start{background:linear-gradient(180deg,#4fbf82,#2c704a);color:#fff;border-radius:7px;font-weight:600}
+#B_Midnight .task{color:#cfd5ea;border-radius:7px}
+#B_Midnight .task.on{background:linear-gradient(180deg,rgba(76,175,122,.30),rgba(76,175,122,.12));box-shadow:inset 0 -2px 0 #5fd08f}
+#B_Midnight .clock{color:#aab2cf}
+
+#C_Glass .desk{width:760px;height:540px;position:relative;overflow:hidden;font-family:'Open Sans',sans-serif;font-size:13px;padding:22px 26px 0 26px}
+#C_Glass .win{height:474px;display:flex;flex-direction:column;overflow:hidden}
+#C_Glass .title{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;flex:none}
+#C_Glass .tname{font-size:13px}
+#C_Glass .tbtns{display:flex;gap:12px;font-size:15px}
+#C_Glass .body{flex:1;display:flex;min-height:0}
+#C_Glass .side{width:178px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px}
+#C_Glass .nav{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;text-decoration:none;color:inherit;position:relative}
+#C_Glass .page{flex:1;padding:18px 26px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#C_Glass .ph{margin:0;font-size:20px;font-weight:600}
+#C_Glass .sec{display:flex;flex-direction:column;gap:6px}
+#C_Glass .lbl{font-size:12px;font-weight:600;letter-spacing:.02em}
+#C_Glass .grp{display:flex;flex-direction:column}
+#C_Glass .row{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px}
+#C_Glass .swrow{flex-direction:row;gap:10px;padding:10px 12px}
+#C_Glass .sw{width:34px;height:34px;border:0;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#C_Glass .radio{width:16px;height:16px;border-radius:50%;display:inline-block;position:relative}
+#C_Glass .check{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+#C_Glass .actions{display:flex;gap:10px;margin-top:auto}
+#C_Glass .btn{height:32px;padding:0 16px;font:inherit;cursor:pointer}
+#C_Glass .bar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px}
+#C_Glass .start,#C_Glass .task{height:30px;display:flex;align-items:center;padding:0 14px;min-width:96px}
+#C_Glass .clock{margin-left:auto;padding-right:10px;font-size:12px}
+
+#C_Glass .desk{background:radial-gradient(60% 70% at 85% 10%,#2c704a 0%,rgba(44,112,74,0) 60%),radial-gradient(70% 80% at 0% 100%,#2f3a7a 0%,rgba(47,58,122,0) 60%),#0e1018;color:#eef0f6}
+#C_Glass .win{background:rgba(22,24,32,.72);border:1px solid rgba(255,255,255,.10);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);backdrop-filter:blur(24px)}
+#C_Glass .title{background:transparent;color:#eef0f6;height:34px;padding:0 14px}
+#C_Glass .tname{font-weight:600}
+#C_Glass .tbtns{color:#a7acbd}
+#C_Glass .side{background:transparent}
+#C_Glass .nav{color:#c9cdda;border-radius:10px}
+#C_Glass .nav.sel{background:linear-gradient(135deg,rgba(76,175,122,.55),rgba(47,107,176,.35));color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 4px 14px rgba(44,112,74,.35)}
+#C_Glass .page{background:transparent}
+#C_Glass .ph{font-size:24px;background:linear-gradient(90deg,#ffffff,#9fe3bd);-webkit-background-clip:text;background-clip:text;color:transparent}
+#C_Glass .lbl{color:#a7acbd}
+#C_Glass .grp{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+#C_Glass .row+.row{border-top:1px solid rgba(255,255,255,.06)}
+#C_Glass .radio{border:1.5px solid rgba(255,255,255,.4)}
+#C_Glass .radio.on{border:5px solid #6fe0a0}
+#C_Glass .check{background:linear-gradient(135deg,#6fe0a0,#2f8a5a);border-radius:5px;color:#062012;font-weight:700}
+#C_Glass .sw{border-radius:10px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
+#C_Glass .sw.on,#C_Glass .sw.on2{box-shadow:0 0 0 2px rgba(22,24,32,1),0 0 0 4px #6fe0a0,0 0 14px rgba(111,224,160,.55)}
+#C_Glass .btn{background:rgba(255,255,255,.07);color:#eef0f6;border:1px solid rgba(255,255,255,.12);border-radius:9px}
+#C_Glass .btn.primary{background:linear-gradient(135deg,#4fbf82,#2f6bb0);border:0;color:#fff;font-weight:600;box-shadow:0 4px 16px rgba(47,107,176,.35)}
+#C_Glass .bar{background:rgba(14,16,24,.65);border-top:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px)}
+#C_Glass .start{background:linear-gradient(135deg,#4fbf82,#2f6bb0);color:#fff;border-radius:9px;font-weight:600}
+#C_Glass .task{color:#c9cdda;border-radius:9px}
+#C_Glass .task.on{background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)}
+#C_Glass .clock{color:#a7acbd}
+
+#D_Graphite .desk{width:760px;height:540px;position:relative;overflow:hidden;font-family:'Open Sans',sans-serif;font-size:13px;padding:22px 26px 0 26px}
+#D_Graphite .win{height:474px;display:flex;flex-direction:column;overflow:hidden}
+#D_Graphite .title{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;flex:none}
+#D_Graphite .tname{font-size:13px}
+#D_Graphite .tbtns{display:flex;gap:12px;font-size:15px}
+#D_Graphite .body{flex:1;display:flex;min-height:0}
+#D_Graphite .side{width:178px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px}
+#D_Graphite .nav{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;text-decoration:none;color:inherit;position:relative}
+#D_Graphite .page{flex:1;padding:18px 26px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#D_Graphite .ph{margin:0;font-size:20px;font-weight:600}
+#D_Graphite .sec{display:flex;flex-direction:column;gap:6px}
+#D_Graphite .lbl{font-size:12px;font-weight:600;letter-spacing:.02em}
+#D_Graphite .grp{display:flex;flex-direction:column}
+#D_Graphite .row{display:flex;align-items:center;gap:10px;height:34px;padding:0 12px}
+#D_Graphite .swrow{flex-direction:row;gap:10px;padding:10px 12px}
+#D_Graphite .sw{width:34px;height:34px;border:0;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
+#D_Graphite .radio{width:16px;height:16px;border-radius:50%;display:inline-block;position:relative}
+#D_Graphite .check{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+#D_Graphite .actions{display:flex;gap:10px;margin-top:auto}
+#D_Graphite .btn{height:32px;padding:0 16px;font:inherit;cursor:pointer}
+#D_Graphite .bar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px}
+#D_Graphite .start,#D_Graphite .task{height:30px;display:flex;align-items:center;padding:0 14px;min-width:96px}
+#D_Graphite .clock{margin-left:auto;padding-right:10px;font-size:12px}
+
+#D_Graphite .desk{background:linear-gradient(160deg,#20232b 0%,#14161b 100%);color:#ececef}
+#D_Graphite .win{background:#1b1c20;border-radius:10px;box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 20px 44px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.6)}
+#D_Graphite .title{background:linear-gradient(180deg,#2c2e35,#24262c);color:#ececef;border-bottom:1px solid #121316;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+#D_Graphite .title::before{content:"";width:8px;height:8px;border-radius:50%;background:#4caf7a;margin-right:-4px;box-shadow:0 0 8px #4caf7a}
+#D_Graphite .tbtns{color:#9da0a8}
+#D_Graphite .side{background:#17181b}
+#D_Graphite .nav{color:#c4c6cc;border-radius:7px}
+#D_Graphite .nav.sel{background:linear-gradient(180deg,#2b2d33,#25272c);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06)}
+#D_Graphite .nav.sel svg{color:#5fd08f}
+#D_Graphite .page{background:#1f2024}
+#D_Graphite .lbl{color:#9da0a8}
+#D_Graphite .grp{background:linear-gradient(180deg,#292b30,#25262b);border-radius:9px;box-shadow:0 1px 2px rgba(0,0,0,.45),0 4px 12px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.05)}
+#D_Graphite .row+.row{border-top:1px solid #1d1e22}
+#D_Graphite .radio{background:#17181b;box-shadow:inset 0 1px 2px rgba(0,0,0,.7);border:1px solid #3a3c43}
+#D_Graphite .radio.on{background:radial-gradient(circle,#ffffff 0 3px,#4caf7a 4px);border-color:#4caf7a}
+#D_Graphite .check{background:linear-gradient(180deg,#5fd08f,#3a9e68);border-radius:4px;color:#0b1d13;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+#D_Graphite .sw{border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.18)}
+#D_Graphite .sw.on,#D_Graphite .sw.on2{box-shadow:0 0 0 2px #25262b,0 0 0 4px #ececef}
+#D_Graphite .btn{background:linear-gradient(180deg,#34363d,#2b2d33);color:#ececef;border:0;border-radius:7px;box-shadow:0 1px 2px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+#D_Graphite .btn.primary{background:linear-gradient(180deg,#56c48a,#3a9e68);color:#06150d;font-weight:600}
+#D_Graphite .bar{background:linear-gradient(180deg,#26282e,#1c1d21);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 -1px 0 #0d0e10}
+#D_Graphite .start{color:#ececef;font-weight:600}
+#D_Graphite .task{color:#c4c6cc;border-radius:7px}
+#D_Graphite .task.on{background:linear-gradient(180deg,#34363d,#2b2d33);box-shadow:0 1px 2px rgba(0,0,0,.5),inset 0 -2px 0 #5fd08f}
+#D_Graphite .clock{color:#9da0a8}
+</style>
+</head>
+<body>
+<h1>xui dark theme proposals</h1>
+<p>The Settings window in the current look and the four directions proposed in issue #542.
+Midnight gradient (B) was chosen; the others are kept for a future theming system.
+Token values: docs/xui-theme-proposals.md.</p>
+<main>
+<figure><figcaption>Today (baseline)</figcaption><div id="Current"><div class="desk">
+<div class="win">
+<div class="title"><span class="tname">Settings</span><span class="tbtns"><span class="tb">&#8211;</span><span class="tb">&#215;</span></span></div>
+<div class="body">
+<nav class="side"><a href="#" class="nav sel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Appearance</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg><span>Windows</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Keyboard</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Menu</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.4M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1"/></svg><span>Hidden apps</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Time & Date</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></a></nav>
+<main class="page">
+<h2 class="ph">Appearance</h2>
+<section class="sec">
+<div class="lbl">Theme</div>
+<div class="grp">
+<label class="row"><span class="radio on"></span>Dark</label>
+<label class="row"><span class="radio"></span>Light</label>
+</div>
+</section>
+<section class="sec">
+<div class="lbl">Accent color</div>
+<div class="grp swrow"><button class="sw on" style="background: #2c704a" aria-label="Accent 1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button><button class="sw" style="background: #2f6bb0" aria-label="Accent 2"></button><button class="sw" style="background: #d07a1e" aria-label="Accent 3"></button><button class="sw" style="background: #7b4fb3" aria-label="Accent 4"></button><button class="sw" style="background: #b8323a" aria-label="Accent 5"></button></div>
+</section>
+<section class="sec">
+<div class="lbl">Desktop background</div>
+<div class="grp swrow"><button class="sw on2" style="background: #141c38" aria-label="Background 1"></button><button class="sw" style="background: #10261c" aria-label="Background 2"></button><button class="sw" style="background: #1d1f24" aria-label="Background 3"></button><button class="sw" style="background: #3b4357" aria-label="Background 4"></button><button class="sw" style="background: #e3d7b6" aria-label="Background 5"></button><button class="sw" style="background: #bcd6ef" aria-label="Background 6"></button></div>
+</section>
+<section class="sec">
+<div class="grp">
+<label class="row"><span class="check">&#10003;</span>Window animations</label>
+</div>
+</section>
+<div class="actions"><button class="btn">Reset to defaults</button><button class="btn primary">Apply</button></div>
+</main>
+</div>
+</div>
+<div class="bar"><span class="start">LazyOS</span><span class="task">Terminal</span><span class="task on">Settings</span><span class="clock">Sat 03 Oct 2026 18:04</span></div>
+</div></div></figure>
+<figure><figcaption>A · Flat Fluent</figcaption><div id="A_Flat"><div class="desk">
+<div class="win">
+<div class="title"><span class="tname">Settings</span><span class="tbtns"><span class="tb">&#8211;</span><span class="tb">&#215;</span></span></div>
+<div class="body">
+<nav class="side"><a href="#" class="nav sel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Appearance</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg><span>Windows</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Keyboard</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Menu</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.4M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1"/></svg><span>Hidden apps</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Time & Date</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></a></nav>
+<main class="page">
+<h2 class="ph">Appearance</h2>
+<section class="sec">
+<div class="lbl">Theme</div>
+<div class="grp">
+<label class="row"><span class="radio on"></span>Dark</label>
+<label class="row"><span class="radio"></span>Light</label>
+</div>
+</section>
+<section class="sec">
+<div class="lbl">Accent color</div>
+<div class="grp swrow"><button class="sw on" style="background: #2c704a" aria-label="Accent 1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button><button class="sw" style="background: #2f6bb0" aria-label="Accent 2"></button><button class="sw" style="background: #d07a1e" aria-label="Accent 3"></button><button class="sw" style="background: #7b4fb3" aria-label="Accent 4"></button><button class="sw" style="background: #b8323a" aria-label="Accent 5"></button></div>
+</section>
+<section class="sec">
+<div class="lbl">Desktop background</div>
+<div class="grp swrow"><button class="sw on2" style="background: #141c38" aria-label="Background 1"></button><button class="sw" style="background: #10261c" aria-label="Background 2"></button><button class="sw" style="background: #1d1f24" aria-label="Background 3"></button><button class="sw" style="background: #3b4357" aria-label="Background 4"></button><button class="sw" style="background: #e3d7b6" aria-label="Background 5"></button><button class="sw" style="background: #bcd6ef" aria-label="Background 6"></button></div>
+</section>
+<section class="sec">
+<div class="grp">
+<label class="row"><span class="check">&#10003;</span>Window animations</label>
+</div>
+</section>
+<div class="actions"><button class="btn">Reset to defaults</button><button class="btn primary">Apply</button></div>
+</main>
+</div>
+</div>
+<div class="bar"><span class="start">LazyOS</span><span class="task">Terminal</span><span class="task on">Settings</span><span class="clock">Sat 03 Oct 2026 18:04</span></div>
+</div></div></figure>
+<figure><figcaption>B · Midnight gradient</figcaption><div id="B_Midnight"><div class="desk">
+<div class="win">
+<div class="title"><span class="tname">Settings</span><span class="tbtns"><span class="tb">&#8211;</span><span class="tb">&#215;</span></span></div>
+<div class="body">
+<nav class="side"><a href="#" class="nav sel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Appearance</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg><span>Windows</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Keyboard</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Menu</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.4M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1"/></svg><span>Hidden apps</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Time & Date</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></a></nav>
+<main class="page">
+<h2 class="ph">Appearance</h2>
+<section class="sec">
+<div class="lbl">Theme</div>
+<div class="grp">
+<label class="row"><span class="radio on"></span>Dark</label>
+<label class="row"><span class="radio"></span>Light</label>
+</div>
+</section>
+<section class="sec">
+<div class="lbl">Accent color</div>
+<div class="grp swrow"><button class="sw on" style="background: #2c704a" aria-label="Accent 1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button><button class="sw" style="background: #2f6bb0" aria-label="Accent 2"></button><button class="sw" style="background: #d07a1e" aria-label="Accent 3"></button><button class="sw" style="background: #7b4fb3" aria-label="Accent 4"></button><button class="sw" style="background: #b8323a" aria-label="Accent 5"></button></div>
+</section>
+<section class="sec">
+<div class="lbl">Desktop background</div>
+<div class="grp swrow"><button class="sw on2" style="background: #141c38" aria-label="Background 1"></button><button class="sw" style="background: #10261c" aria-label="Background 2"></button><button class="sw" style="background: #1d1f24" aria-label="Background 3"></button><button class="sw" style="background: #3b4357" aria-label="Background 4"></button><button class="sw" style="background: #e3d7b6" aria-label="Background 5"></button><button class="sw" style="background: #bcd6ef" aria-label="Background 6"></button></div>
+</section>
+<section class="sec">
+<div class="grp">
+<label class="row"><span class="check">&#10003;</span>Window animations</label>
+</div>
+</section>
+<div class="actions"><button class="btn">Reset to defaults</button><button class="btn primary">Apply</button></div>
+</main>
+</div>
+</div>
+<div class="bar"><span class="start">LazyOS</span><span class="task">Terminal</span><span class="task on">Settings</span><span class="clock">Sat 03 Oct 2026 18:04</span></div>
+</div></div></figure>
+<figure><figcaption>C · Glass & glow</figcaption><div id="C_Glass"><div class="desk">
+<div class="win">
+<div class="title"><span class="tname">Settings</span><span class="tbtns"><span class="tb">&#8211;</span><span class="tb">&#215;</span></span></div>
+<div class="body">
+<nav class="side"><a href="#" class="nav sel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Appearance</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg><span>Windows</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Keyboard</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Menu</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.4M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1"/></svg><span>Hidden apps</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Time & Date</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></a></nav>
+<main class="page">
+<h2 class="ph">Appearance</h2>
+<section class="sec">
+<div class="lbl">Theme</div>
+<div class="grp">
+<label class="row"><span class="radio on"></span>Dark</label>
+<label class="row"><span class="radio"></span>Light</label>
+</div>
+</section>
+<section class="sec">
+<div class="lbl">Accent color</div>
+<div class="grp swrow"><button class="sw on" style="background: #2c704a" aria-label="Accent 1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button><button class="sw" style="background: #2f6bb0" aria-label="Accent 2"></button><button class="sw" style="background: #d07a1e" aria-label="Accent 3"></button><button class="sw" style="background: #7b4fb3" aria-label="Accent 4"></button><button class="sw" style="background: #b8323a" aria-label="Accent 5"></button></div>
+</section>
+<section class="sec">
+<div class="lbl">Desktop background</div>
+<div class="grp swrow"><button class="sw on2" style="background: #141c38" aria-label="Background 1"></button><button class="sw" style="background: #10261c" aria-label="Background 2"></button><button class="sw" style="background: #1d1f24" aria-label="Background 3"></button><button class="sw" style="background: #3b4357" aria-label="Background 4"></button><button class="sw" style="background: #e3d7b6" aria-label="Background 5"></button><button class="sw" style="background: #bcd6ef" aria-label="Background 6"></button></div>
+</section>
+<section class="sec">
+<div class="grp">
+<label class="row"><span class="check">&#10003;</span>Window animations</label>
+</div>
+</section>
+<div class="actions"><button class="btn">Reset to defaults</button><button class="btn primary">Apply</button></div>
+</main>
+</div>
+</div>
+<div class="bar"><span class="start">LazyOS</span><span class="task">Terminal</span><span class="task on">Settings</span><span class="clock">Sat 03 Oct 2026 18:04</span></div>
+</div></div></figure>
+<figure><figcaption>D · Graphite elevation</figcaption><div id="D_Graphite"><div class="desk">
+<div class="win">
+<div class="title"><span class="tname">Settings</span><span class="tbtns"><span class="tb">&#8211;</span><span class="tb">&#215;</span></span></div>
+<div class="body">
+<nav class="side"><a href="#" class="nav sel"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Appearance</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg><span>Windows</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Keyboard</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Menu</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3 3.4M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.4-1.1"/></svg><span>Hidden apps</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Time & Date</span></a><a href="#" class="nav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span>About</span></a></nav>
+<main class="page">
+<h2 class="ph">Appearance</h2>
+<section class="sec">
+<div class="lbl">Theme</div>
+<div class="grp">
+<label class="row"><span class="radio on"></span>Dark</label>
+<label class="row"><span class="radio"></span>Light</label>
+</div>
+</section>
+<section class="sec">
+<div class="lbl">Accent color</div>
+<div class="grp swrow"><button class="sw on" style="background: #2c704a" aria-label="Accent 1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></button><button class="sw" style="background: #2f6bb0" aria-label="Accent 2"></button><button class="sw" style="background: #d07a1e" aria-label="Accent 3"></button><button class="sw" style="background: #7b4fb3" aria-label="Accent 4"></button><button class="sw" style="background: #b8323a" aria-label="Accent 5"></button></div>
+</section>
+<section class="sec">
+<div class="lbl">Desktop background</div>
+<div class="grp swrow"><button class="sw on2" style="background: #141c38" aria-label="Background 1"></button><button class="sw" style="background: #10261c" aria-label="Background 2"></button><button class="sw" style="background: #1d1f24" aria-label="Background 3"></button><button class="sw" style="background: #3b4357" aria-label="Background 4"></button><button class="sw" style="background: #e3d7b6" aria-label="Background 5"></button><button class="sw" style="background: #bcd6ef" aria-label="Background 6"></button></div>
+</section>
+<section class="sec">
+<div class="grp">
+<label class="row"><span class="check">&#10003;</span>Window animations</label>
+</div>
+</section>
+<div class="actions"><button class="btn">Reset to defaults</button><button class="btn primary">Apply</button></div>
+</main>
+</div>
+</div>
+<div class="bar"><span class="start">LazyOS</span><span class="task">Terminal</span><span class="task on">Settings</span><span class="clock">Sat 03 Oct 2026 18:04</span></div>
+</div></div></figure>
+</main>
+</body>
+</html>

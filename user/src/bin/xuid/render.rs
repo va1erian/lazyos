@@ -3,7 +3,7 @@
 //! panel and overlay drawing. `xuid` paints no desktop UI of its own (issue
 //! #157): the taskbar and menus are the shell's panels.
 
-use user::messenger::display::{Canvas, Face, Rect};
+use user::messenger::display::{Canvas, Color, Face, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -263,6 +263,29 @@ fn draw_alt_tab(screen: &mut Canvas, surfaces: &[Surface], tab: &AltTab, clip: R
     }
 }
 
+/// A title bar: a vertical gradient around `fill` (lighter at the top,
+/// darker at the bottom), a highlight under the frame and a dark separator
+/// above the content, framed by `border` on three sides; every line is
+/// `line` pixels thick (one design pixel at the desktop's scale).
+fn draw_title_bar(screen: &mut Canvas, bar: Rect, fill: Color, border: Color, line: i32, clip: Rect) {
+    const WHITE: Color = Color::rgb(255, 255, 255);
+    const BLACK: Color = Color::rgb(0, 0, 0);
+    screen.fill_vgradient(bar, clip, fill.lerp(WHITE, 1, 7), fill.lerp(BLACK, 1, 6));
+    screen.fill(
+        Rect::new(bar.x + line, bar.y + line, bar.w - 2 * line, line),
+        clip,
+        fill.lerp(WHITE, 1, 4),
+    );
+    screen.fill(
+        Rect::new(bar.x, bar.y + bar.h, bar.w, line),
+        clip,
+        fill.lerp(BLACK, 1, 2),
+    );
+    screen.fill(Rect::new(bar.x, bar.y, bar.w, line), clip, border);
+    screen.fill(Rect::new(bar.x, bar.y, line, bar.h), clip, border);
+    screen.fill(Rect::new(bar.x + bar.w - line, bar.y, line, bar.h), clip, border);
+}
+
 /// Draw one decorated window, clipped to `clip`.
 fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rect) {
     let window = surface.window();
@@ -295,12 +318,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     } else {
         (title_bg(), title_text())
     };
-    screen.fill(surface.title_bar(), clip, title_fill);
-    screen.fill(
-        Rect::new(window.x, surface.y + title_h(), window.w, line),
-        clip,
-        border,
-    );
+    draw_title_bar(screen, surface.title_bar(), title_fill, border, line, clip);
     // The title stops before the button group on the right; a resizable
     // window has three buttons where a fixed-size one has two.
     let buttons = if surface.resizable() { 3 } else { 2 };

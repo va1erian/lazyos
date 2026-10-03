@@ -59,6 +59,13 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
         Color { r, g, b }
     }
+
+    /// The colour `num/den` of the way from `self` to `other`.
+    pub fn lerp(self, other: Color, num: i32, den: i32) -> Color {
+        let den = den.max(1);
+        let one = |a: u8, b: u8| (a as i32 + (b as i32 - a as i32) * num / den) as u8;
+        Color::rgb(one(self.r, other.r), one(self.g, other.g), one(self.b, other.b))
+    }
 }
 
 /// A software RGBA8 blitter over a mapped shared buffer.
@@ -183,6 +190,17 @@ impl Canvas {
             for dst in self.row_mut(r.x, y, r.w).as_chunks_mut::<4>().0.iter_mut() {
                 dst.copy_from_slice(&px);
             }
+        }
+    }
+
+    /// Fill `rect` with a vertical gradient from `top` (its first row) to
+    /// `bottom` (its last), clipped to `clip`. Each row is one colour, so it
+    /// costs what [`Canvas::fill`] does.
+    pub fn fill_vgradient(&mut self, rect: Rect, clip: Rect, top: Color, bottom: Color) {
+        let r = self.visible(rect, clip);
+        for y in r.y..r.y + r.h {
+            let color = top.lerp(bottom, y - rect.y, rect.h - 1);
+            self.fill(Rect::new(r.x, y, r.w, 1), r, color);
         }
     }
 
