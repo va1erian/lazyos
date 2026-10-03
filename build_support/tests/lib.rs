@@ -5,6 +5,12 @@
 
 #![allow(dead_code)]
 
+#[path = "../ca_bundle.rs"]
+mod ca_bundle;
+#[path = "../hosts_embed.rs"]
+mod hosts_embed;
+#[path = "../tls_embed.rs"]
+mod tls_embed;
 #[path = "../core_packages.rs"]
 mod core_packages;
 #[path = "../docs_embed.rs"]
@@ -38,3 +44,5 @@ mod limits_tests;
 mod recover_tests;
 #[cfg(test)]
 mod samples_tests;
+#[cfg(test)]
+mod tls_files_tests;

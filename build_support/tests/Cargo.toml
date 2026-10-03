@@ -14,3 +14,7 @@ path = "lib.rs"
 ext2fs = { path = "../../libs/ext2fs", features = ["fuzz"] }
 # The destinations the image build modules name.
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
+
+[dev-dependencies]
+# The roots the image's CA bundle is built from (the root crate pins it).
+webpki-root-certs = "=1.0.9"
