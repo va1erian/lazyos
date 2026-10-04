@@ -26,6 +26,7 @@ Examples
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -300,6 +301,12 @@ def main(argv: list[str]) -> int:
                              "`wget` and `fetch` in /system/bin, one rustls program that "
                              "verifies certificates against /etc/ssl/certs, built by "
                              "tools/nettls/build.py (docs/tls-plan.md)")
+    parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
+                        help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
+                             "commits are logged and replayed after a crash, so an unclean "
+                             "stop needs no repair (docs/architecture/journal.md). BLOCKS "
+                             "sets the log size; default 4096 blocks (16 MiB). An existing "
+                             "image gets one on the next in-place update")
     parser.add_argument("--lazyweb", action="store_true",
                         help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
                              "a core package; NetSurf compiled with zig by tools/xui/build.py), "
@@ -394,6 +401,8 @@ def main(argv: list[str]) -> int:
             if not build_tls():
                 return 1
             env["LAZYOS_TLS"] = "1"
+        if args.journal:
+            env["LAZYOS_JOURNAL"] = args.journal
         if args.lazyweb:
             if not build_lazyweb():
                 return 1

@@ -174,7 +174,10 @@ mount does not stop the rest). The power path (`process/power.rs`) calls it for
 both `shutdown` and `reboot` before the ACPI poke/reset. Native `fsync` (syscall
 22) flushes the mount holding its path through the same `Filesystem::flush`.
 
-ext2 keeps no journal, so `s_state` says whether the last stop was clean:
+ext2 keeps no journal unless the volume was given one (`LAZYOS_JOURNAL=1`;
+[`journal.md`](journal.md): a journaled volume replays its log at mount and
+needs no repair after a crash). Without one, `s_state` says whether the last
+stop was clean:
 
 - *dirty first*: the first write of a mount clears the valid bit and flushes
   before anything else is written (if that fails, the change is refused);
@@ -365,7 +368,7 @@ block, inode, descriptor and registry entry.
 |---|---|---|
 | `ramfs` | read/write | `BTreeMap` of nodes, ordered children, owner/mode stamped by VFS |
 | `fat` | read-only | FAT12/16, MBR partition, sector reads via the block layer; VFAT long names and nested subdirectories, ASCII case-insensitive; inode = on-disk entry position (root = 1); resolved-path cache |
-| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; no journal/symlinks/device nodes |
+| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; optional internal JBD2 journal ([`journal.md`](journal.md)); no symlinks/device nodes |
 | `overlay` | read/write (copy-up) | Linux ABI root only; lower is any read-only backend, upper is ramfs |
 
 - ext2 keeps free counters in sync, stamps timestamps from the wall clock

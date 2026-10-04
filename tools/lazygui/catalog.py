@@ -221,6 +221,9 @@ def build_env(cfg: dict) -> dict[str, str]:
         # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
         # /system/bin; HTTPS needs the network stack above.
         env["LAZYOS_TLS"] = "1"
+    if cfg.get("journal"):
+        # An ext2 journal on the OS volume (added in place to an old image).
+        env["LAZYOS_JOURNAL"] = "1"
     if cfg.get("lazyweb"):
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
         # with zig); with the desktop, the stack and HTTPS set above.
@@ -304,6 +307,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "net_restrict": False,
         "linuxapps": linuxapps,
         "tls": tls,
+        "journal": False,
         "lazyweb": lazyweb,
         "display_mode": HIDPI_MODE if hidpi else "",
     })
@@ -364,6 +368,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("tls") and not cfg["skip_build"]:
             # run_demo builds the HTTPS tools and sets LAZYOS_TLS itself.
             argv.append("--tls")
+        if cfg.get("journal") and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_JOURNAL itself.
+            argv.append("--journal")
         if cfg.get("lazyweb") and not cfg["skip_build"]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.

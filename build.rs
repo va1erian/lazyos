@@ -114,6 +114,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LAZYOS_OS_SIZE");
     println!("cargo:rerun-if-env-changed=LAZYOS_RESET_OS");
     println!("cargo:rerun-if-env-changed=LAZYOS_UPDATE_DAMAGED_OS");
+    // `LAZYOS_JOURNAL=1` (or a block count) gives the OS volume an ext2
+    // journal; an update adds one to an existing image.
+    println!("cargo:rerun-if-env-changed=LAZYOS_JOURNAL");
     let settings = os_image::Settings {
         update_damaged: std::env::var_os("LAZYOS_UPDATE_DAMAGED_OS").as_deref()
             == Some(std::ffi::OsStr::new("1")),
@@ -121,6 +124,8 @@ fn main() {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
             Err(_) => os_disk::DEFAULT_OS_SIZE,
         },
+        journal: os_image::journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
+            .unwrap_or_else(|error| panic!("{error}")),
         reset: std::env::var_os("LAZYOS_RESET_OS").as_deref() == Some(std::ffi::OsStr::new("1")),
     };
     let stable_image = manifest_dir.join("target").join("lazyos.img");

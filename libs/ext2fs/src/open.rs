@@ -45,6 +45,7 @@ impl Ext2 {
             DEFAULT_FIRST_INO
         };
         let feature_incompat = le32(&superblock, SB_FEATURE_INCOMPAT);
+        let feature_compat = le32(&superblock, SB_FEATURE_COMPAT);
         let feature_ro = le32(&superblock, SB_FEATURE_RO_COMPAT);
 
         if inodes_count < ROOT_INO || blocks_count <= first_data_block {
@@ -94,7 +95,14 @@ impl Ext2 {
         {
             return Err(Ext2Error::Invalid);
         }
-        if feature_incompat & !FEATURE_INCOMPAT_FILETYPE != 0 {
+        let journaled = feature_compat & FEATURE_COMPAT_HAS_JOURNAL != 0;
+        let known = FEATURE_INCOMPAT_FILETYPE
+            | if journaled {
+                FEATURE_INCOMPAT_RECOVER
+            } else {
+                0
+            };
+        if feature_incompat & !known != 0 {
             return Err(Ext2Error::NotSupported);
         }
         if feature_ro & !(FEATURE_RO_SPARSE_SUPER | FEATURE_RO_LARGE_FILE) != 0 {
@@ -107,7 +115,7 @@ impl Ext2 {
         let mount_state = le16(&superblock, SB_STATE);
         let read_only = !io.is_writable();
 
-        Ok(Ext2 {
+        let mut volume = Ext2 {
             io,
             clock,
             block_size,
@@ -133,11 +141,17 @@ impl Ext2 {
             cache: None,
             defer_frees: false,
             pending: Mutex::new(Default::default()),
+            journaled,
+            recovered: false,
             errored: AtomicBool::new(false),
             error_unreported: AtomicBool::new(false),
             lock: Mutex::new(()),
             pause: None,
-        })
+        };
+        if journaled {
+            volume.recover_journal(&superblock)?;
+        }
+        Ok(volume)
     }
 
     /// [`Ext2::open`] with a write-back block cache configured by `config`
@@ -153,12 +167,13 @@ impl Ext2 {
             return Ok(volume);
         }
         let roles = volume.roles();
-        volume.cache = Some(Mutex::new(cache::BlockCache::new(
-            config,
-            volume.block_size,
-            volume.blocks_count,
-            roles,
-        )));
+        let use_journal = volume.journaled && config.journal && !volume.read_only;
+        let mut cache =
+            cache::BlockCache::new(config, volume.block_size, volume.blocks_count, roles);
+        if use_journal {
+            cache.set_journal(volume.load_journal()?);
+        }
+        volume.cache = Some(Mutex::new(cache));
         volume.defer_frees = true;
         Ok(volume)
     }

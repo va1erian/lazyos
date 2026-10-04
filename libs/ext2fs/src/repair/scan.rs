@@ -102,7 +102,11 @@ impl Ext2 {
         };
         self.load_bitmaps(&mut scan)?;
         self.claim_metadata(&mut scan, sparse)?;
-        self.check_reserved()?;
+        self.check_reserved(compat & FEATURE_COMPAT_HAS_JOURNAL != 0)?;
+        if compat & FEATURE_COMPAT_HAS_JOURNAL != 0 {
+            let journal = self.read_inode(JOURNAL_INO)?;
+            self.visit(&mut scan, JOURNAL_INO, &journal, false)?;
+        }
         let root = self.read_inode(ROOT_INO)?;
         if live_kind(&root) != Some(FileKind::Dir) || !scan.inode_used.get(ROOT_INO) {
             return Err(refuse("the root is not a live directory"));
@@ -188,8 +192,11 @@ impl Ext2 {
 
     /// The reserved inodes (bad blocks, journal, resize, ...) must own no
     /// blocks: the repair cannot tell what they are for, so it would free them.
-    fn check_reserved(&self) -> Result<(), RepairError> {
-        for ino in (1..self.first_ino).filter(|&ino| ino != ROOT_INO) {
+    fn check_reserved(&self, journaled: bool) -> Result<(), RepairError> {
+        // The journal inode owns the log: `scan` claims its blocks instead.
+        for ino in
+            (1..self.first_ino).filter(|&ino| ino != ROOT_INO && !(journaled && ino == JOURNAL_INO))
+        {
             let inode = self.read_inode(ino)?;
             if (0..BLOCK_SLOTS).any(|slot| Self::direct_ptr(&inode, slot) != 0) {
                 return Err(refuse(format!("reserved inode {ino} owns blocks")));

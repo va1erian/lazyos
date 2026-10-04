@@ -45,6 +45,18 @@ impl Ext2 {
         self.read_super_raw(&mut raw)?;
         put16(&mut raw, SB_STATE, state);
         put32(&mut raw, SB_WTIME, self.now());
+        if self.journal_active() {
+            // The journal replaces the clean flag as the recovery signal: the
+            // flag is set while the volume is dirty (the log may hold work)
+            // and cleared with the clean marker.
+            let incompat = le32(&raw, SB_FEATURE_INCOMPAT);
+            let incompat = if state & STATE_VALID != 0 {
+                incompat & !FEATURE_INCOMPAT_RECOVER
+            } else {
+                incompat | FEATURE_INCOMPAT_RECOVER
+            };
+            put32(&mut raw, SB_FEATURE_INCOMPAT, incompat);
+        }
         self.write_super_raw(&raw)
     }
 

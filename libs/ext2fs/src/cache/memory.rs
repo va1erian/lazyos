@@ -61,6 +61,8 @@ pub struct CacheConfig {
     /// Blocks read ahead after a miss that continues (or lands just past)
     /// the previous one.
     pub readahead: usize,
+    /// Log metadata commits in the volume's journal when it has one.
+    pub journal: bool,
     pub memory: Box<dyn CacheMemory>,
 }
 
@@ -79,6 +81,7 @@ impl CacheConfig {
             dirty_limit: (blocks / 2).max(1),
             max_request: 256 * 1024,
             readahead: 64,
+            journal: true,
             memory,
         }
     }

@@ -72,7 +72,7 @@ const INO_FILE_ACL: usize = 0x68;
 /// journal, a resize inode, extended attributes) may own blocks the repair
 /// cannot see, so it would call them leaked.
 const SB_FEATURE_COMPAT: usize = 0x5C;
-const KNOWN_COMPAT: u32 = 0x0001;
+const KNOWN_COMPAT: u32 = 0x0001 | FEATURE_COMPAT_HAS_JOURNAL;
 
 /// The directory under the root that fsck links unreachable inodes into
 /// (`format` creates it).

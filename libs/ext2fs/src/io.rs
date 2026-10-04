@@ -32,16 +32,30 @@ impl Ext2 {
     pub(super) fn zero_block(&self, block: u64) -> Result<(), Ext2Error> {
         let size = self.block_size as usize;
         let zeroed = [0u8; MAX_BLOCK_SIZE];
-        self.store_block(block, &zeroed[..size], true)
+        self.store_block(block, &zeroed[..size], true, false)
     }
 
     /// Write one filesystem block from `buf`.
     pub(super) fn write_block(&self, block: u64, buf: &[u8]) -> Result<(), Ext2Error> {
-        self.store_block(block, buf, false)
+        self.store_block(block, buf, false, false)
     }
 
-    /// [`Ext2::write_block`], saying whether the block was just allocated.
-    fn store_block(&self, block: u64, buf: &[u8], fresh: bool) -> Result<(), Ext2Error> {
+    /// [`Ext2::write_block`] for a block of file contents. A journaled volume
+    /// writes these home before the transaction that links them, instead of
+    /// logging them (`journal/`).
+    pub(super) fn write_data_block(&self, block: u64, buf: &[u8]) -> Result<(), Ext2Error> {
+        self.store_block(block, buf, false, true)
+    }
+
+    /// [`Ext2::write_block`], saying whether the block was just allocated
+    /// and whether it holds file data.
+    fn store_block(
+        &self,
+        block: u64,
+        buf: &[u8],
+        fresh: bool,
+        data: bool,
+    ) -> Result<(), Ext2Error> {
         let size = self.block_size as usize;
         if block >= u64::from(self.blocks_count) || buf.len() < size {
             return Err(Ext2Error::Invalid);
@@ -53,7 +67,7 @@ impl Ext2 {
         self.mark_dirty()?;
         if let Some(cache) = &self.cache {
             return self.with_cache(cache, |cache, io| {
-                cache.write(io, block, &buf[..size], fresh)
+                cache.write(io, block, &buf[..size], fresh, data)
             });
         }
         self.io

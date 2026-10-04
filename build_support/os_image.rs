@@ -158,6 +158,9 @@ pub struct Settings {
     /// refused to repair instead of failing the build. Its allocator may then
     /// hand a block a user file still uses to an updated file.
     pub update_damaged: bool,
+    /// `LAZYOS_JOURNAL`: give the volume a journal of this many blocks (see
+    /// [`journal_blocks`]); `None` leaves the volume as it is.
+    pub journal: Option<u32>,
 }
 
 pub(crate) const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
@@ -254,6 +257,41 @@ fn open_cached(io: FileIo) -> Result<Ext2, String> {
     Ext2::open_cached(Box::new(io), now, config).map_err(|e| volume_error("open", e))
 }
 
+/// Journal blocks of `LAZYOS_JOURNAL=1`: 16 MiB at the default 4 KiB blocks.
+pub const DEFAULT_JOURNAL_BLOCKS: u32 = 4096;
+
+/// What `LAZYOS_JOURNAL` asks for: unset, empty or `0` is no journal, `1` the
+/// default size, any larger number that many blocks (at least
+/// [`ext2fs::MIN_JOURNAL_BLOCKS`]).
+pub fn journal_blocks(text: Option<&str>) -> Result<Option<u32>, String> {
+    let text = text.unwrap_or("").trim();
+    let blocks: u32 = match text {
+        "" | "0" => return Ok(None),
+        "1" => DEFAULT_JOURNAL_BLOCKS,
+        other => other
+            .parse()
+            .map_err(|_| format!("LAZYOS_JOURNAL={other:?} is not a block count"))?,
+    };
+    if blocks < ext2fs::MIN_JOURNAL_BLOCKS {
+        return Err(format!(
+            "LAZYOS_JOURNAL={blocks}: a journal needs at least {} blocks",
+            ext2fs::MIN_JOURNAL_BLOCKS
+        ));
+    }
+    Ok(Some(blocks))
+}
+
+/// Give `volume` the journal [`journal_blocks`] asked for, when it has none.
+/// A volume that has one keeps it whatever its size: resizing is not supported.
+pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> {
+    match blocks {
+        Some(blocks) if !volume.has_journal() => volume
+            .add_journal(blocks)
+            .map_err(|e| volume_error("add the journal", e)),
+        _ => Ok(()),
+    }
+}
+
 /// Write the file list into `volume` and return the manifest it placed.
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
@@ -342,8 +380,6 @@ pub fn compose(
     os_disk::check_boot_fits(bios)?;
     let mut head = bios.to_vec();
     os_disk::add_os_entry(&mut head[..512], settings.os_size);
-    let total = OS_START_LBA * SECTOR + settings.os_size;
-    let sectors = settings.os_size / SECTOR;
     match &plan.action {
         Action::Create => {
             let temp = image.with_file_name(format!(
@@ -353,7 +389,7 @@ pub fn compose(
                     .and_then(|n| n.to_str())
                     .unwrap_or("lazyos.img")
             ));
-            let result = create(&temp, &head, plan.uuid, total, sectors, dirs, files);
+            let result = create(&temp, &head, plan.uuid, settings, dirs, files);
             if let Err(error) = result {
                 let _ = std::fs::remove_file(&temp);
                 return Err(error);
@@ -373,11 +409,13 @@ fn create(
     temp: &Path,
     head: &[u8],
     uuid: [u8; 16],
-    total: u64,
-    sectors: u64,
+    settings: &Settings,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
+    let total = OS_START_LBA * SECTOR + settings.os_size;
+    let sectors = settings.os_size / SECTOR;
+    let journal = settings.journal;
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -391,6 +429,7 @@ fn create(
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
     let volume = open_cached(io)?;
+    ensure_journal(&volume, journal)?;
     write_volume(&volume, None, dirs, files, now())?;
     Ok(())
 }
@@ -434,6 +473,7 @@ fn update(
     // `recover` commits its orphan reclaim through the cache before the
     // checker reads the raw volume.
     os_recover::recover(&mut volume, settings.update_damaged)?;
+    ensure_journal(&volume, settings.journal)?;
     write_head(&mut file, head, old_end)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
     Ok(())
