@@ -34,6 +34,9 @@ impl Ext2 {
         let mut memo = MapMemo::new();
         let mut done = 0usize;
         while done < count {
+            if done > 0 {
+                self.pause_point(); // between two runs
+            }
             let position = offset + done as u64;
             let index = self.block_index(position)?;
             let inner = position % block_size;

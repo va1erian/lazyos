@@ -154,6 +154,7 @@ pub fn irqoff_pause() {
         return;
     }
     IRQOFF.record(cycles);
+    super::bysys::record(SYSCALL_NR.load(Ordering::Relaxed), cycles);
     if cycles > WORST_IRQOFF.load(Ordering::Relaxed) {
         WORST_IRQOFF.store(cycles, Ordering::Relaxed);
         WORST_NR.store(SYSCALL_NR.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -224,6 +225,30 @@ pub fn service() {
             "PERF:irqoff_worst:us={} syscall={nr:#x}\n",
             Micros(cycles_to_ns(worst, per_tick))
         ));
+    }
+    if let Some(top) = super::bysys::take_changed() {
+        line(format_args!(
+            "PERF:irqoff_by_syscall:{}\n",
+            BySyscall(top, per_tick)
+        ));
+    }
+}
+
+/// `nr=us` pairs, longest first: `0x1=812.4 0x8000000000000005=420.0 ...`.
+struct BySyscall([(u64, u64); super::bysys::SHOWN], u64);
+
+impl core::fmt::Display for BySyscall {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (index, &(nr, cycles)) in self.0.iter().enumerate() {
+            if nr == super::bysys::EMPTY {
+                break;
+            }
+            if index > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{nr:#x}={}", Micros(cycles_to_ns(cycles, self.1)))?;
+        }
+        Ok(())
     }
 }
 

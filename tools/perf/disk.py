@@ -53,6 +53,7 @@ RE_METRIC = re.compile(
     r"max_us=([\d.]+) mean_us=([\d.]+)"
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
+RE_BYSYS = re.compile(r"PERF:irqoff_by_syscall:(.*)")
 ORDER = ("write_mbps", "read_cold_mbps", "read_again_mbps", "read_binary_mbps", "exec_ms",
          "small_files_ms")
 
@@ -124,7 +125,22 @@ def parse(text: str) -> dict:
     worst = None
     for match in RE_WORST.finditer(text):
         worst = {"us": float(match.group(1)), "syscall": match.group(2)}
-    return {"disk": disk, "irqoff": perf.get("irqoff"), "irqoff_worst": worst}
+    return {"disk": disk, "irqoff": perf.get("irqoff"), "irqoff_worst": worst,
+            "irqoff_by_syscall": parse_by_syscall(text)}
+
+
+def parse_by_syscall(text: str) -> dict[str, float]:
+    """The last `PERF:irqoff_by_syscall` line: syscall number -> worst us."""
+    found: dict[str, float] = {}
+    for match in RE_BYSYS.finditer(text):
+        found = {}
+        for pair in match.group(1).split():
+            nr, _, us = pair.partition("=")
+            try:
+                found[nr] = float(us)
+            except ValueError:
+                pass
+    return found
 
 
 def git_commit() -> str:
@@ -198,6 +214,7 @@ def main() -> int:
         print(f"  {name:18} " + (f"{row['value']} {row['unit']} {row['detail']}" if row else "missing"))
     print(f"  irqoff             {parsed['irqoff']}")
     print(f"  irqoff_worst       {parsed['irqoff_worst']}")
+    print(f"  irqoff by syscall  {parsed['irqoff_by_syscall']}")
     if args.label:
         print(f"history: {append_history(payload).relative_to(ROOT)}")
     failure = re.search(r"ABI:diskbench:FAIL:(.*)", text)

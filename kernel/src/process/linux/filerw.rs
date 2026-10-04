@@ -58,8 +58,11 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     let Some(path) = meta.path else {
         return err(EBADF);
     };
-    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
-        return err(EFAULT);
+    // Staged: the write below may sleep, and the user buffer may be
+    // unmapped meanwhile (`vfsfd::stage`).
+    let bytes = match super::vfsfd::stage(ptr, len as usize) {
+        Ok(bytes) => bytes,
+        Err(code) => return code,
     };
     let id = Id::current();
     let position = task::fd_offset(fd as usize).unwrap_or(0);
@@ -76,7 +79,7 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
         return err(ENOMEM);
     }
-    match crate::fs::abi_write(id, &path, offset, bytes) {
+    match crate::fs::abi_write(id, &path, offset, &bytes) {
         Ok(written) => {
             let written_bytes = &bytes[..written];
             // A positional write leaves the shared position alone.

@@ -19,6 +19,7 @@ mod handles;
 mod malformed;
 mod ops;
 mod ops_state;
+mod pause;
 mod populate_tests;
 mod recover;
 mod rename_file;

@@ -136,6 +136,7 @@ impl Ext2 {
             errored: AtomicBool::new(false),
             error_unreported: AtomicBool::new(false),
             lock: Mutex::new(()),
+            pause: None,
         })
     }
 

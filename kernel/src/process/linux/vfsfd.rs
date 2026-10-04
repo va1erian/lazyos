@@ -23,8 +23,7 @@ use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
 /// long enough to skip the block cache (`ext2fs` `cache/range.rs`).
 const READ_CHUNK: usize = 1 << 20;
 
-/// Most bytes one `write` hands to the filesystem. Writes need no staging (the
-/// user buffer is read in place), so this only bounds the time per call.
+/// Most bytes one `write` stages and hands to the filesystem.
 const WRITE_MAX: usize = 1 << 20;
 
 /// `lseek` whence values.
@@ -140,9 +139,20 @@ fn write_at(
     if want == 0 {
         return Ok((at, 0));
     }
-    let bytes = user_ptr::try_bytes(ptr, want).map_err(|_| err(EFAULT))?;
-    let count = file.write_at(at, bytes).map_err(fs_err)?;
+    let bytes = stage(ptr, want)?;
+    let count = file.write_at(at, &bytes).map_err(fs_err)?;
     Ok((at, count))
+}
+
+/// Copy `len` user bytes into kernel memory. A filesystem write may sleep
+/// (`block::iowait`), and while it does the task's other threads may unmap
+/// the buffer: the bytes must not be read from user memory past that point.
+pub(super) fn stage(ptr: u64, len: usize) -> Result<Vec<u8>, u64> {
+    let source = user_ptr::try_bytes(ptr, len).map_err(|_| err(EFAULT))?;
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(len).map_err(|_| err(ENOMEM))?;
+    bytes.extend_from_slice(source);
+    Ok(bytes)
 }
 
 /// `lseek(2)`. `SEEK_END` asks the filesystem for the current size, so it sees

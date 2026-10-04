@@ -159,6 +159,7 @@ impl Drop for UserStack {
 
 mod acl_suite;
 mod arch_suite;
+mod block_sleep_suite;
 mod block_suite;
 mod boot_io_suite;
 mod boot_media_suite;
@@ -256,6 +257,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,

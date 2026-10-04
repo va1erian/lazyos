@@ -59,6 +59,7 @@ RE_METRIC = re.compile(
     r"max_us=([\d.]+) mean_us=([\d.]+)"
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
+RE_BYSYS = re.compile(r"PERF:irqoff_by_syscall:(.*)")
 READY = ("XUID:UP:PASS", "INPUTD:READY")
 #: The kernel runs its IPC benchmark 15 s after boot and its sleep benchmark
 #: (about 1 to 2 s long) at 17 s; reports come every 2 s.
@@ -137,7 +138,21 @@ def parse(text: str) -> dict:
     worst = None
     for match in RE_WORST.finditer(text):
         worst = {"us": float(match.group(1)), "syscall": match.group(2)}
-    return {"metrics": metrics, "irqoff_worst": worst}
+    return {"metrics": metrics, "irqoff_worst": worst, "irqoff_by_syscall": parse_by_syscall(text)}
+
+
+def parse_by_syscall(text: str) -> dict[str, float]:
+    """The last `PERF:irqoff_by_syscall` line: syscall number -> worst us."""
+    found: dict[str, float] = {}
+    for match in RE_BYSYS.finditer(text):
+        found = {}
+        for pair in match.group(1).split():
+            nr, _, us = pair.partition("=")
+            try:
+                found[nr] = float(us)
+            except ValueError:
+                pass
+    return found
 
 
 def git_commit() -> str:
@@ -191,6 +206,10 @@ def write_report(payload: dict) -> Path:
     if worst:
         lines += ["", f"Worst interrupts-off syscall stretch: {worst['us']:.1f} µs in syscall `{worst['syscall']}` "
                   "(bit 63 set: native `int 0x80` number; otherwise Linux)."]
+    by_syscall = payload.get("irqoff_by_syscall")
+    if by_syscall:
+        pairs = ", ".join(f"`{nr}` {us:.1f}" for nr, us in by_syscall.items())
+        lines += ["", f"Longest interrupts-off stretch per syscall (µs, longest first): {pairs}."]
     lines += ["", "Metric definitions are in `kernel/src/perf/mod.rs`; the history of runs is "
               "`docs/perf/history.md`.", ""]
     path = REPORT_DIR / "report.md"

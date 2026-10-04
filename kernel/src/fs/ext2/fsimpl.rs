@@ -30,14 +30,17 @@ impl Filesystem for Ext2 {
     }
 
     fn lookup(&self, path: &str) -> Result<Meta, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(meta(self.volume.lookup(path)?))
     }
 
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
-        let _gate = self.gate.lock();
+        let gate = self.enter();
         let mut done = 0;
         for piece in buf.chunks_mut(PIECE) {
+            if done > 0 {
+                gate.breathe();
+            }
             crate::input::ps2::service();
             let read = self.volume.read(path, offset + done as u64, piece)?;
             done += read;
@@ -49,9 +52,12 @@ impl Filesystem for Ext2 {
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
-        let _gate = self.gate.lock();
+        let gate = self.enter();
         let mut done = 0;
         for piece in data.chunks(PIECE) {
+            if done > 0 {
+                gate.breathe();
+            }
             crate::input::ps2::service();
             let written = self.volume.write(path, offset + done as u64, piece)?;
             done += written;
@@ -63,7 +69,7 @@ impl Filesystem for Ext2 {
     }
 
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         let handle = self.volume.open_file(path)?;
         Ok(Some(NodeId {
             ino: u64::from(handle.ino()),
@@ -73,9 +79,12 @@ impl Filesystem for Ext2 {
 
     fn read_node(&self, node: NodeId, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         let handle = handle_of(node)?;
-        let _gate = self.gate.lock();
+        let gate = self.enter();
         let mut done = 0;
         for piece in buf.chunks_mut(PIECE) {
+            if done > 0 {
+                gate.breathe();
+            }
             crate::input::ps2::service();
             let read = self
                 .volume
@@ -90,9 +99,12 @@ impl Filesystem for Ext2 {
 
     fn write_node(&self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let handle = handle_of(node)?;
-        let _gate = self.gate.lock();
+        let gate = self.enter();
         let mut done = 0;
         for piece in data.chunks(PIECE) {
+            if done > 0 {
+                gate.breathe();
+            }
             crate::input::ps2::service();
             let written = self
                 .volume
@@ -107,17 +119,17 @@ impl Filesystem for Ext2 {
 
     fn stat_node(&self, node: NodeId) -> Result<Meta, FsError> {
         let handle = handle_of(node)?;
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(meta(self.volume.handle_meta(handle)?))
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.truncate(path, size)?)
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         let change = AttrChange {
             mode: attr.mode,
             uid: attr.uid,
@@ -130,17 +142,17 @@ impl Filesystem for Ext2 {
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(meta(self.volume.create(path, mode, owner_of(owner))?))
     }
 
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         // A parked orphan (a reserved name) is deleted inode-first so a stop
         // part-way can be resumed by the next mount's reclaim.
         let name = path.trim_matches('/').rsplit('/').next().unwrap_or("");
@@ -152,17 +164,17 @@ impl Filesystem for Ext2 {
     }
 
     fn rmdir(&self, path: &str) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.rmdir(path)?)
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.rename(from, to)?)
     }
 
     fn flush(&self) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.flush()?)
     }
 
@@ -171,7 +183,7 @@ impl Filesystem for Ext2 {
     }
 
     fn statfs(&self) -> Result<StatFs, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         let FsStats {
             magic,
             block_size,
@@ -193,7 +205,7 @@ impl Filesystem for Ext2 {
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self
             .volume
             .readdir(path)?
