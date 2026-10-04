@@ -714,6 +714,21 @@
         "oneway": false
       },
       {
+        "name": "NoteFocus",
+        "id": 10,
+        "oneway": true
+      },
+      {
+        "name": "NoteSurface",
+        "id": 11,
+        "oneway": true
+      },
+      {
+        "name": "ForgetSurface",
+        "id": 12,
+        "oneway": true
+      },
+      {
         "name": "HotkeyFired",
         "id": 20,
         "oneway": true

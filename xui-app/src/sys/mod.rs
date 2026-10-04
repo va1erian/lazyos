@@ -29,7 +29,8 @@ pub use display::{
 };
 pub use messenger::{
     messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_register, msg_reply,
-    msg_resolve, msg_send, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
+    msg_resolve, msg_send, msg_wait_any, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
+    WAIT_MAX_ENDPOINTS,
 };
 
 use core::arch::asm;

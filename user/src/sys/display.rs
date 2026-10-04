@@ -24,6 +24,19 @@ pub mod display_op {
     pub const MAP_BUFFER: u64 = 5;
     /// Close a shared buffer handle (unmaps it).
     pub const CLOSE_BUFFER: u64 = 6;
+    /// Declare the screen buffer's byte order ([`super::screen_layout`]).
+    pub const SET_LAYOUT: u64 = 7;
+    /// The byte order `present` copies without converting.
+    pub const NATIVE_LAYOUT: u64 = 8;
+}
+
+/// Screen-buffer byte orders for [`display_set_layout`]; the fourth byte of a
+/// pixel is ignored.
+pub mod screen_layout {
+    /// `R, G, B, A`: the layout after every bind.
+    pub const RGBA: u64 = 0;
+    /// `B, G, R, A`.
+    pub const BGRA: u64 = 1;
 }
 
 /// The [`display_op::BIND`] output block, mirroring the kernel's seven words.
@@ -152,6 +165,29 @@ pub fn display_map_buffer(handle: u64) -> Result<u64, i64> {
     let code = display_syscall(display_op::MAP_BUFFER, handle, &mut va as *mut u64 as u64);
     if code == 0 {
         Ok(va)
+    } else {
+        Err(code)
+    }
+}
+
+/// Declare the byte order the compositor draws its screen buffer in (one of
+/// [`screen_layout`]); `present` converts from it. Only the bound compositor
+/// may call it, and every bind starts at RGBA.
+pub fn display_set_layout(layout: u64) -> Result<(), i64> {
+    let code = display_syscall(display_op::SET_LAYOUT, layout, 0);
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(code)
+    }
+}
+
+/// The screen-buffer byte order `present` copies as is (a plain row copy),
+/// or `Err(-ENOENT)` when the framebuffer has none (every present converts).
+pub fn display_native_layout() -> Result<u64, i64> {
+    let code = display_syscall(display_op::NATIVE_LAYOUT, 0, 0);
+    if code >= 0 {
+        Ok(code as u64)
     } else {
         Err(code)
     }

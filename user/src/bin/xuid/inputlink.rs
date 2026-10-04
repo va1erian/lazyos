@@ -16,12 +16,12 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
-use user::messenger::input::{ShellEvent, ShellLink};
+use user::messenger::input::{PointerState, ShellEvent, ShellLink};
 use user::messenger::{errno, Error};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::pointer_feed::MAX_EVENTS;
+use super::pointer_feed::{forwarded, supersedes, MAX_EVENTS};
 
 /// Ticks (100 Hz) between attempts to reach `inputd`.
 const RETRY_TICKS: u64 = 100;
@@ -141,29 +141,48 @@ impl Compositor {
     }
 
     /// Apply queued `inputd` events. `false` when the link is dead.
+    ///
+    /// Pointer events are coalesced (docs/performance-plan.md P3.4): a state
+    /// that only moves the pointer is replaced by the next one when that
+    /// keeps the same buttons ([`supersedes`]), so a backlog that built up
+    /// while the compositor was busy costs one repaint, not one per event.
+    /// Button edges and wheel notches are never merged away.
     fn apply_input_events(&mut self) -> bool {
-        loop {
+        let mut pending: Option<PointerState> = None;
+        // The forwarded buttons held before `pending`.
+        let mut before = self.input.buttons;
+        let alive = loop {
             if !self.held.is_empty() && self.held.room() < MAX_EVENTS {
                 // An animation filled the held queue: leave the rest queued
                 // in `inputd` until the main loop has handled it.
-                return true;
+                break true;
             }
             let Some(link) = self.input.link.as_mut() else {
-                return false;
+                break false;
             };
             match link.poll_event() {
+                Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
+                    if let Some(old) = pending {
+                        if !supersedes(before, &old, &state) {
+                            self.apply_pointer(&old);
+                            before = forwarded(old.buttons);
+                        }
+                    }
+                    pending = Some(state);
+                }
                 Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
                 Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
-                Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
-                    self.apply_pointer(&state)
-                }
                 // Hotkeys, grants and the escape chord are not used yet: the
                 // compositor keeps its own hotkey table until they are.
                 Ok(Some(_)) => {}
-                Ok(None) => return true,
-                Err(_) => return false,
+                Ok(None) => break true,
+                Err(_) => break false,
             }
+        };
+        if let Some(state) = pending {
+            self.apply_pointer(&state);
         }
+        alive
     }
 
     /// During an animation frame: hold the pointer events `inputd` queued,
@@ -196,19 +215,24 @@ impl Compositor {
         }
     }
 
-    /// Register new surfaces, forget destroyed ones and report focus.
-    /// `false` when `inputd` is gone. A call that merely timed out (a busy
-    /// first boot can keep `inputd` from answering for a while) is not a dead
-    /// link: it stays undone and is retried on the next pass, since dropping
-    /// the link would flip every window to legacy keys and back, and the
-    /// keys typed across that switch went to whichever side had just let go.
+    /// Register new surfaces, forget destroyed ones and report focus, as
+    /// one-way notes (docs/performance-plan.md P3.6): the compositor never
+    /// waits on `inputd` here, where a two-way call could stall the cursor
+    /// for up to its 200 ms timeout. `inputd` handles one sender's requests
+    /// in order on the endpoint the clients' `Open` also arrives on, so a
+    /// surface noted when it is created is known before its client can open
+    /// a session. `false` when `inputd` is gone. A note that found the queue
+    /// full is not a dead link: it stays undone and is retried on the next
+    /// pass, since dropping the link would flip every window to legacy keys
+    /// and back, and the keys typed across that switch went to whichever
+    /// side had just let go.
     fn push_input_state(&mut self) -> bool {
         let Some(link) = self.input.link.as_ref() else {
             return false;
         };
         for surface in self.surfaces.iter().filter(|s| s.is_window()) {
             if !self.input.registered.contains(&surface.id) {
-                match settled(link.register_surface(surface.id, surface.owner)) {
+                match sent(link.note_surface(surface.id, surface.owner)) {
                     Some(true) => {
                         self.input.registered.insert(surface.id);
                     }
@@ -225,7 +249,7 @@ impl Compositor {
             .filter(|id| !self.surfaces.iter().any(|s| s.id == *id))
             .collect();
         for id in gone {
-            match settled(link.unregister_surface(id)) {
+            match sent(link.forget_surface(id)) {
                 Some(true) => {
                     self.input.registered.remove(&id);
                 }
@@ -234,7 +258,7 @@ impl Compositor {
             }
         }
         if self.input.told_focus != Some(self.focused) {
-            match settled(link.set_focus(self.focused)) {
+            match sent(link.note_focus(self.focused)) {
                 Some(true) => self.input.told_focus = Some(self.focused),
                 Some(false) => {}
                 None => return false,
@@ -261,12 +285,12 @@ impl Compositor {
     }
 }
 
-/// How a link call ended: `Some(true)` done, `Some(false)` timed out (retry
-/// later, the link is fine), `None` the link is dead.
-fn settled(result: Result<(), Error>) -> Option<bool> {
+/// How a one-way note went: `Some(true)` queued, `Some(false)` the queue
+/// was full (retry later, the link is fine), `None` the link is dead.
+fn sent(result: Result<(), Error>) -> Option<bool> {
     match result {
         Ok(()) => Some(true),
-        Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Some(false),
+        Err(Error::Errno(code)) if code == -errno::EAGAIN => Some(false),
         Err(_) => None,
     }
 }

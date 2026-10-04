@@ -7,8 +7,14 @@ profile under WHPX, are in [`perf/report.md`](perf/report.md) and
 deadlines on a timer queue, a one-shot local APIC deadline timer beside the
 100 Hz PIT tick (not the 1000 Hz PIT step, and not yet with the APIC as the
 tick itself), exact Linux timeouts and a native nanosecond sleep; a 1 ms
-sleep went from 10.0 ms to 1.04 ms (p50, WHPX, dev profile). P3 onward is
-not started.
+sleep went from 10.0 ms to 1.04 ms (p50, WHPX, dev profile). P3 has the
+cursor overlay (P3.1), the chunked row-copy present with ops 7/8 (P3.2;
+write-combining through PAT already existed, bare metal only), pointer
+coalescing and damage-only click repaints (P3.4, P3.5), one-way `inputd`
+notes (P3.6), parked `xui-app` clients (P3.8) and the 200 Hz PS/2 rate
+(P3.9); not done: zero-copy scanout (P3.3), interrupt-driven `usbd` (P3.7),
+the Terminal's pty on readiness, and the P2-dependent frame pacing. P2 and P3
+are merged on `perf/integration`. P5 onward is not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not

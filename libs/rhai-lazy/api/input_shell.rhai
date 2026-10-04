@@ -85,6 +85,37 @@ fn get_pointer() {
     msg::connect("os.lazy.input.shell.v1").invoke("GetPointer", [])
 }
 
+/// `NoteFocus(surface: Option<U64>) -> () oneway`
+///
+/// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
+/// (docs/performance-plan.md P3.6). Requests from one sender are handled
+/// in the order sent, on the same endpoint as the clients' `Open`, so a
+/// surface noted before the compositor answers `CreateSurface` is known
+/// by the time its client opens a session. Refused calls are dropped.
+///
+/// One-way: returns `()` once the message is queued.
+fn note_focus(surface) {
+    msg::connect("os.lazy.input.shell.v1").invoke("NoteFocus", [surface])
+}
+
+/// `NoteSurface(surface: U64, owner: U64) -> () oneway`
+///
+/// One-way `RegisterSurface` (see `NoteFocus`).
+///
+/// One-way: returns `()` once the message is queued.
+fn note_surface(surface, owner) {
+    msg::connect("os.lazy.input.shell.v1").invoke("NoteSurface", [surface, owner])
+}
+
+/// `ForgetSurface(surface: U64) -> () oneway`
+///
+/// One-way `UnregisterSurface` (see `NoteFocus`).
+///
+/// One-way: returns `()` once the message is queued.
+fn forget_surface(surface) {
+    msg::connect("os.lazy.input.shell.v1").invoke("ForgetSurface", [surface])
+}
+
 /// `HotkeyFired(id: U64) -> () oneway`
 ///
 /// Shell event: a registered chord was pressed.

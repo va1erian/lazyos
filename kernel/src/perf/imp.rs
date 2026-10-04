@@ -12,6 +12,7 @@ static INPUT_PRESENT: Samples = Samples::new();
 static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
 static SLEEP_1MS: Samples = Samples::new();
+static PRESENT: Samples = Samples::new();
 
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
@@ -114,7 +115,8 @@ pub fn input_read(count: usize) {
     }
 }
 
-pub fn presented() {
+pub fn presented(started: u64) {
+    record(&PRESENT, rdtsc().wrapping_sub(started));
     let pointer = POINTER_READ.swap(0, Ordering::Relaxed);
     if pointer != 0 {
         record(&INPUT_PRESENT, rdtsc().wrapping_sub(pointer));
@@ -205,6 +207,7 @@ pub fn service() {
         ("irqoff", &IRQOFF),
         ("ipc_rt", &IPC_RT),
         ("sleep_1ms", &SLEEP_1MS),
+        ("present", &PRESENT),
     ] {
         if !samples.changed() {
             continue;

@@ -11,7 +11,8 @@ use user::messenger::display::{Canvas, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::layout::{cursor_rect, icon_rect};
+use super::cursor::present_cursor;
+use super::layout::icon_rect;
 use super::region::Region;
 use super::theme::px;
 
@@ -57,15 +58,9 @@ impl Compositor {
         // the window's area, which a 2x screen quadruples (docs/hidpi-plan.md).
         let mut previous = [Rect::new(0, 0, 0, 0); STRIPS];
         previous[0] = from.intersect(full);
-        let mut cursor = self.held.pointer(self.pointer);
         for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
             let deadline = sys::clock() + 1;
             self.hold_pending_input();
-            let moved_to = self.held.pointer(self.pointer);
-            let pointer_damage = cursor_rect(cursor)
-                .union(cursor_rect(moved_to))
-                .intersect(full);
-            cursor = moved_to;
             let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
             for (index, slot) in rects.iter_mut().enumerate() {
                 let at = (step - index as i32 * TRAIL_LAG).clamp(0, STEPS);
@@ -74,8 +69,10 @@ impl Compositor {
                 }
             }
             let strips = trail_strips(&rects, full);
-            // Clean pixels first everywhere this frame touches: XOR needs them.
-            for damage in previous.iter().chain(&strips).chain([&pointer_damage]) {
+            // Clean pixels first everywhere this frame touches: XOR needs them,
+            // so the cursor overlay is lifted while the frame is drawn.
+            let lifted = self.cursor.lift(&mut self.screen);
+            for damage in previous.iter().chain(&strips) {
                 if !damage.is_empty() {
                     self.compose(*damage);
                 }
@@ -89,14 +86,14 @@ impl Compositor {
             for piece in &pieces[..count] {
                 self.screen.invert(*piece, full);
             }
-            // The cursor stays above the outlines.
-            self.screen
-                .cursor_scaled(cursor.0, cursor.1, super::theme::scale(), pointer_damage);
-            for shown in previous.iter().chain(&strips).chain([&pointer_damage]) {
+            // The cursor stays above the outlines, at the newest pointer.
+            let stamped = self.stamp_cursor();
+            for shown in previous.iter().chain(&strips) {
                 if !shown.is_empty() {
                     let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
                 }
             }
+            present_cursor(lifted, stamped);
             previous = strips;
             // Pace the frames: `wait` with no children just sleeps to the
             // deadline.
