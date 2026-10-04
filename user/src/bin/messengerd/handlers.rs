@@ -93,6 +93,8 @@ impl Broker {
                     drops: 0,
                     delivered: 0,
                     matched: 0,
+                    bell: None,
+                    rung: false,
                 });
                 self.replay_retained(self.subscriptions.len() - 1, id);
                 outcome.reply = Some(
@@ -138,6 +140,9 @@ impl Broker {
                         }
                     }
                     None => {
+                        // The owner drained the queue: the next event rings
+                        // its bell again.
+                        self.subscriptions[index].rung = false;
                         let txn = txn.ok_or(messenger::Error::Topics(errno::EINVAL))?;
                         // One parked pull per (subscription, owner): the
                         // client's retry/timeout replaces its own stale entry.
@@ -218,8 +223,22 @@ impl Broker {
 }
 
 /// Handle one topics parcel: fresh events and parked-pull wakes go out first,
-/// then the request's own reply (if it was not deferred).
+/// then the request's own reply (if it was not deferred), then the bells of
+/// subscriptions left with events nobody pulled.
 pub(super) fn serve_topic(
+    endpoint: &messenger::Endpoint,
+    broker: &mut Broker,
+    message: &messenger::Message,
+) {
+    if message.method() == topics_client::method::BELL {
+        serve_bell(endpoint, broker, message);
+    } else {
+        serve_request(endpoint, broker, message);
+    }
+    ring_bells(broker);
+}
+
+fn serve_request(
     endpoint: &messenger::Endpoint,
     broker: &mut Broker,
     message: &messenger::Message,
@@ -249,6 +268,49 @@ pub(super) fn serve_topic(
             if let Some(txn) = message.txn {
                 let reply = topics_client::error_reply(message.method(), error);
                 let _ = endpoint.reply(txn, &reply);
+            }
+        }
+    }
+}
+
+/// `Bell`: take the transferred channel end as the subscription's doorbell.
+/// A request without exactly that one handle is refused, and whatever it
+/// did carry is closed, so a malformed request cannot leak handles here.
+fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &messenger::Message) {
+    let result = if message.carries(topics_client::BELL_TRANSFERS) {
+        let bell = messenger::Endpoint::from_raw(message.first_handle);
+        let installed = topics_client::decode_bell_args(&message.parcel)
+            .map_err(|_| messenger::Error::Topics(errno::EINVAL))
+            .and_then(|id| broker.set_bell(id, message.sender, bell));
+        if installed.is_err() {
+            let _ = bell.close();
+        }
+        installed
+    } else {
+        for offset in 0..message.handles {
+            let _ = messenger::Endpoint::from_raw(message.first_handle + offset).close();
+        }
+        Err(messenger::Error::Topics(errno::EINVAL))
+    };
+    if let Some(txn) = message.txn {
+        let reply = match result {
+            Ok(()) => topics_client::reply_ok(message.method()),
+            Err(error) => topics_client::error_reply(message.method(), error),
+        };
+        let _ = endpoint.reply(txn, &reply);
+    }
+}
+
+/// Ring every bell that is due. A bell whose owner end is gone is dropped; a
+/// full one stays rung (its owner has a `Ready` to read already).
+fn ring_bells(broker: &mut Broker) {
+    for (id, bell) in broker.bells_due() {
+        let Ok(note) = topics_client::ready_note(id) else {
+            continue;
+        };
+        if let Err(error) = bell.send(&note) {
+            if error.errno() == Some(-errno::EPIPE) {
+                broker.drop_bell(id);
             }
         }
     }

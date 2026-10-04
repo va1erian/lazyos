@@ -12,10 +12,11 @@ use user::messenger::{router, services};
 use user::sys;
 
 use super::state::{
-    Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, POLL_TICKS, STABLE_TICKS,
+    Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, STABLE_TICKS,
 };
 
-/// Start every `Pending` service whose dependencies are `Running`, repeating
+/// Start every `Pending` service whose dependencies are ready (`ready.rs`:
+/// running, and serving if they announce it), repeating
 /// until no more can start (a single pass suffices for an ordered manifest,
 /// but this is order-independent). Launched app rows are spawned by `launch`,
 /// never here (they have no dependencies).
@@ -31,7 +32,7 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
             let ready = deps.iter().all(|dep| {
                 services
                     .iter()
-                    .any(|service| service.name == *dep && service.phase == Phase::Running)
+                    .any(|service| service.name == *dep && super::ready::is_ready(service))
             });
             if ready {
                 spawn_service(services, index, broker);
@@ -77,6 +78,7 @@ pub(super) fn spawn_service(
         Some(pid) => {
             services[index].pid = pid;
             services[index].phase = Phase::Running;
+            services[index].ready = false;
             services[index].started_tick = sys::clock();
             services[index].last_status = None;
             sys::write_str(&format!(
@@ -327,16 +329,14 @@ fn backoff(restarts: u64) -> u64 {
     (BACKOFF_BASE << shift).min(BACKOFF_MAX)
 }
 
-/// The next tick the supervisor must wake at: a due restart, or the regular
-/// request-serving poll.
-pub(super) fn wake_deadline(services: &[Service], now: u64) -> u64 {
-    let mut deadline = now + POLL_TICKS;
-    for service in services {
-        if service.phase == Phase::Restarting && service.next_start < deadline {
-            deadline = service.next_start;
-        }
-    }
-    deadline
+/// The next tick the supervisor must wake at with nothing else to wake it: a
+/// due restart. Requests and child exits wake it on their own.
+pub(super) fn wake_deadline(services: &[Service]) -> Option<u64> {
+    services
+        .iter()
+        .filter(|service| service.phase == Phase::Restarting)
+        .map(|service| service.next_start)
+        .min()
 }
 
 /// Publish one service state event, retained per service, on the declared

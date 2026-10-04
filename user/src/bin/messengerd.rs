@@ -117,6 +117,8 @@ fn serve() -> messenger::Result<()> {
     // calls; `recv_with` reuses this one instead.
     let mut recv_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     sys::write_str("messengerd: serving\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     loop {
         // Queue the next self-soak call. It is an ordinary call on the

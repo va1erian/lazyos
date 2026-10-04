@@ -13,9 +13,9 @@ const CONNECT_TICKS: u64 = 1000;
 /// Ticks to wait for an address after a renewal or a reattach.
 const ADDRESS_TICKS: u64 = 1500;
 
-/// Sleep one PIT tick (`wait` doubles as a timer when there is no child).
+/// Sleep one PIT tick ([`sys::nap`]).
 pub(super) fn nap() {
-    let _ = sys::wait(sys::clock() + 1);
+    sys::nap();
 }
 
 /// Prefix a Messenger failure with what was being attempted.

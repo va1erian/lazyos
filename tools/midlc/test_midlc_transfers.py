@@ -182,6 +182,9 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.input.shell.v1", "Attach"): [("channel", "os.lazy.input.shell.v1")],
                 ("os.lazy.net.nic.v1", "AttachRing"): [("rings", None), ("channel", "os.lazy.net.nic.v1")],
                 ("os.lazy.audio.v1", "AttachRing"): [("rings", None)],
+                ("os.lazy.messenger.topics.v1", "Bell"): [
+                    ("channel", "os.lazy.messenger.topics.bell.v1")
+                ],
             },
         )
 

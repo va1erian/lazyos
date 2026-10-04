@@ -181,7 +181,12 @@ command.
 
 - *Manifest.* `MANIFEST` in `user/src/bin/init/state.rs` lists every service
   with its ELF, arguments, restart policy and dependencies; a row starts only
-  once all its dependencies are `running`. Boot order today: `messengerd`
+  once all its dependencies are ready: running, and, for the services that
+  announce it (`init/ready.rs`), having sent `init.Ready` once their name is
+  registered (`services::init::notify_ready`; one that never does counts as
+  ready 5 s after its start, `INIT:READY:LATE`). The desktop's autostart opens
+  the session as soon as every boot service is ready, with no fixed delay
+  (P7.3). Boot order today: `messengerd`
   (`Once`: the kernel's bootstrap channel can be claimed once per boot), then
   `keyd`, `confd`, `logd`, `healthd` (after `messengerd`), `timed` (after
   `messengerd` and `confd`), `inputd` (after `confd`), `accountsd` then
@@ -196,6 +201,9 @@ command.
   (3 s); `MAX_RESTARTS` (5) rapid crashes make it `failed`. A child that stays
   up `STABLE_TICKS` (1 s) has its counter reset, so occasional crashes never
   exhaust the budget. `Stop` retires an app's rows without a restart.
+  The loop parks on its endpoint and its children's exits at once
+  (`wait_any` with `WAIT_CHILD`), waking otherwise only for a due restart or
+  a timed boot step: requests are answered at once.
 - *Phases and events.* A row is `pending`, `running`, `restarting`, `stopped`
   or `failed`. Every transition is published retained on
   `system/events/service/<name>` (`ServiceEvent`), which `healthd` and `logd`

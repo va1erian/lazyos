@@ -19,7 +19,9 @@ pub use messenger_generated::os_lazy_init_v1 as wire;
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
 /// The generated method ids.
-pub use wire::{METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_SERVICES, METHOD_SHUTDOWN, METHOD_STOP};
+pub use wire::{
+    METHOD_LAUNCH, METHOD_LISTAPPS, METHOD_READY, METHOD_SERVICES, METHOD_SHUTDOWN, METHOD_STOP,
+};
 
 /// The `Shutdown` modes (`PowerMode`).
 pub use wire::{POWER_MODE_POWER_OFF, POWER_MODE_REBOOT};
@@ -42,6 +44,25 @@ pub use wire::LaunchArgs as LaunchRequest;
 
 /// The outcome of `init`'s `Launch` (the generated `LaunchReply`).
 pub use wire::LaunchReply as LaunchResult;
+
+/// Tell `init` this service is serving (`Ready`, docs/performance-plan.md
+/// P7.3): one one-way message, sent once its name is registered. The rows
+/// that depend on it start then. Best effort: a service `init` did not start
+/// is ignored, and one that cannot reach `init` only delays its dependents
+/// to the supervisor's fallback deadline.
+pub fn notify_ready() {
+    let Ok(endpoint) = resolve_service(INIT_NAME) else {
+        return;
+    };
+    let parcel = Parcel {
+        header: header(INTERFACE, wire::METHOD_READY),
+        ..Parcel::default()
+    };
+    let _ = endpoint.send(&parcel);
+    // A resolved name aliases `init`'s own endpoint: release this handle,
+    // never close the side everyone else calls.
+    let _ = endpoint.release();
+}
 
 /// `init`'s `Services` request.
 pub fn services_request() -> Parcel {

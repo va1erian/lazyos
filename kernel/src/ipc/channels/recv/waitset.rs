@@ -42,11 +42,15 @@ pub const WAIT_DISPLAY_KEYS: u64 = 2;
 /// Doorbell: an application acted on an `AF_INET` socket (the attached
 /// `netd` only; `ipc::inet::bell`, docs/performance-plan.md P4.1).
 pub const WAIT_INET: u64 = 4;
+/// Doorbell: a child of the caller finished and waits to be reaped
+/// (`task::childbell`, docs/performance-plan.md P7.1; any task).
+pub const WAIT_CHILD: u64 = 8;
 /// Doorbell: the Linux descriptor in bits 32..63 of the flags is readable
 /// (or hung up).
 pub const WAIT_FD: u64 = 16;
 /// Every doorbell [`wait_any`] knows.
-pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_FD;
+pub const WAIT_DOORBELLS: u64 =
+    WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_CHILD | WAIT_FD;
 /// Flag: the deadline is absolute monotonic nanoseconds, not PIT ticks.
 pub const WAIT_DEADLINE_NS: u64 = 1 << 24;
 /// Where [`WAIT_FD`]'s descriptor sits in the flags.
@@ -57,6 +61,8 @@ pub const RAW_INPUT_READY: u64 = 1 << 63;
 pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
 /// Bit of the ready mask that means "the `AF_INET` pump has work".
 pub const INET_READY: u64 = 1 << 61;
+/// Bit of the ready mask that means "a child waits to be reaped".
+pub const CHILD_READY: u64 = 1 << 60;
 /// Bit of the ready mask that means "the [`WAIT_FD`] descriptor is readable".
 pub const FD_READY: u64 = 1 << 59;
 
@@ -213,6 +219,9 @@ fn arm_doorbells(doorbells: u64, fd: Option<usize>, me: usize) -> Result<u64, Er
             Err(()) => return Err(Error::WrongKind),
         }
     }
+    if doorbells & WAIT_CHILD != 0 && crate::task::childbell::arm(me) {
+        ready |= CHILD_READY;
+    }
     Ok(ready)
 }
 
@@ -229,6 +238,9 @@ fn unregister(ends: &[(u64, usize)], me: usize, doorbells: u64) {
     }
     if doorbells & WAIT_INET != 0 {
         crate::ipc::inet::bell::disarm(me);
+    }
+    if doorbells & WAIT_CHILD != 0 {
+        crate::task::childbell::disarm(me);
     }
     if doorbells & WAIT_FD != 0 {
         watch_fd(me, false);

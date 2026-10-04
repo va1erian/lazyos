@@ -56,6 +56,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::sysmond`](#syssysmond) | `os.lazy.sysmond.v1` |
 | [`sys::timed`](#systimed) | `os.lazy.timed.v1` |
 | [`sys::messenger_topics`](#sysmessenger_topics) | `os.lazy.messenger.topics.v1` |
+| [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
 
 ## `sys::accounts`
 
@@ -265,6 +266,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
+| `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |
@@ -615,4 +617,16 @@ The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`
 | `new_topic_info()` | struct `TopicInfo` | a `TopicInfo` at its zero value |
 | `new_stats()` | struct `Stats` | a `Stats` at its zero value |
 
+Not callable from a script (the request transfers a kernel object): `Bell`.
+
 - `QOS` = the `Qos` variants; `QOS_LATEST`, `QOS_BUFFERED`, `QOS_CONFLATE`, `QOS_RELIABLE`
+
+## `sys::messenger_topics_bell`
+
+Interface `os.lazy.messenger.topics.bell.v1`, source [`messenger_topics_bell.rhai`](messenger_topics_bell.rhai).
+
+The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what
+
+| Function | IDL | About |
+|---|---|---|
+| `ready(subscription)` | `Ready(subscription: U64) -> () oneway` | `subscription` has events waiting. |

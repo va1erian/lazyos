@@ -32,6 +32,15 @@ interface os.lazy.messenger.topics.v1 {
     method Stats(subscription: U64) -> (stats: Stats);
     /// Round-trip probe used to detect a live broker.
     method Ping() -> ();
+    /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
+    /// when the subscription has an event nobody is pulling, and no more
+    /// until a `NextEvent` from its owner finds the queue empty. The owner
+    /// parks on the other end beside its own endpoints (`wait_any`) and
+    /// drains with expired-deadline `NextEvent`s on each ring, instead of
+    /// polling. Owner only; a second bell replaces the first.
+    method Bell(subscription: U64) -> ()
+        transfers (bell: Channel<os.lazy.messenger.topics.bell.v1>);
 
     /// Delivery contract chosen at subscribe time and enforced by the broker:
     /// `Latest` keeps only the newest event, `Buffered` keeps `depth` events and
@@ -65,6 +74,15 @@ interface os.lazy.messenger.topics.v1 {
         matched: U64,
         drops: U64
     }
+}
+
+/// The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what
+/// `messengerd` sends on a subscriber's bell channel. One `Ready` per batch:
+/// the subscriber drains the subscription until `NextEvent` comes back empty,
+/// which re-arms the bell.
+interface os.lazy.messenger.topics.bell.v1 {
+    /// `subscription` has events waiting.
+    method Ready(subscription: U64) -> () oneway;
 }
 
 /// Kernel ACL scope for publishing. `messengerd` asks the kernel

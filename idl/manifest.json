@@ -578,6 +578,11 @@
         "name": "Shutdown",
         "id": 1911669355,
         "oneway": false
+      },
+      {
+        "name": "Ready",
+        "id": 197800596,
+        "oneway": true
       }
     ],
     "topics": [
@@ -1447,6 +1452,31 @@
         "name": "Ping",
         "id": 2142761129,
         "oneway": false
+      },
+      {
+        "name": "Bell",
+        "id": 1766698328,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "bell",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.messenger.topics.bell.v1"
+          }
+        ]
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.messenger.topics.bell.v1",
+    "interface_id": "0xd4c79d9b36918ea0",
+    "methods": [
+      {
+        "name": "Ready",
+        "id": 197800596,
+        "oneway": true
       }
     ],
     "topics": []

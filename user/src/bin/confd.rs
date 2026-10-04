@@ -71,13 +71,11 @@ use messenger_generated::topics;
 use user::central;
 use user::messenger::confd as api;
 use user::messenger::services::lifecycle;
-use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
+use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
 use user::sys;
 
 use storage::{pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
 
-/// How long the serve loop parks between demo-child reaps (PIT ticks).
-const POLL_TICKS: u64 = 5;
 /// How long the serve loop waits before re-probing `/conf` while the
 /// store sits on a lower-ranked location (PIT ticks).
 const UPGRADE_TICKS: u64 = 200;
@@ -183,6 +181,8 @@ fn run() -> messenger::Result<()> {
         .sink_mut()
         .report_health(if persistent { "ok" } else { "degraded" }, &detail);
     sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     // One receive buffer for the whole life of the service: the user bump
     // allocator never reclaims per-call buffers.
@@ -202,14 +202,28 @@ fn run() -> messenger::Result<()> {
         // While the store is not on the preferred `/conf`, wake up
         // periodically to see whether `/conf` has become writable.
         let upgrade_due = dir != dir::PREFERRED_DIR;
-        let deadline = if demo_children > 0 {
-            Some(sys::clock().saturating_add(POLL_TICKS))
-        } else if upgrade_due {
-            Some(next_upgrade)
+        let deadline = upgrade_due.then_some(next_upgrade);
+        // A live demo child's exit rings the child bell (P7): no poll.
+        let doorbells = if demo_children > 0 {
+            wait::WAIT_CHILD
         } else {
-            None
+            0
         };
-        match server.recv_with(&mut buffer, deadline) {
+        let ready = match wait::wait_any(&[server], doorbells, deadline) {
+            Ok(ready) => ready,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+            Err(error) => return Err(error),
+        };
+        if ready & wait::CHILD_READY != 0 && sys::wait(sys::clock().max(1)).is_some() {
+            demo_children -= 1;
+            sys::write_str("CONFD:CTL:EXIT\n");
+        }
+        let received = if ready & 1 != 0 {
+            server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE))
+        } else {
+            Err(Error::Errno(-errno::ETIMEDOUT))
+        };
+        match received {
             Ok(message) => {
                 // An orderly shutdown (docs/shutdown.md): every write is
                 // synchronous, so none is in flight between two messages.
@@ -226,12 +240,12 @@ fn run() -> messenger::Result<()> {
                     server.reply_or_drop(txn, &reply)?;
                 }
             }
-            // The demo wakeup that reaps a finished child is not a failure.
+            // A wake for the child bell or the upgrade timer only.
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
         }
         // Checked after every wakeup, not only timeouts, at most once per
-        // `UPGRADE_TICKS` (the demo poll wakes far more often than that).
+        // `UPGRADE_TICKS` (requests wake far more often than that).
         if upgrade_due && sys::clock() >= next_upgrade {
             next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
             if try_upgrade(&mut service) {
@@ -246,10 +260,6 @@ fn run() -> messenger::Result<()> {
 "
                 ));
             }
-        }
-        while demo_children > 0 && sys::wait(sys::clock()).is_some() {
-            demo_children -= 1;
-            sys::write_str("CONFD:CTL:EXIT\n");
         }
     }
 }

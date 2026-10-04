@@ -207,6 +207,7 @@ pub(crate) fn after_finish(parent: usize) {
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run
     // after dropping the task table, in queue-before-table order.
     signal::post_sigchld(parent);
+    super::childbell::ring(parent);
     CHILD_EXIT.notify_all();
 }
 
@@ -276,6 +277,7 @@ pub fn kill_group(pgid: usize) -> usize {
         // See `finish`: queue before task table, and the table is now unlocked.
         for parent in parents {
             signal::post_sigchld(parent);
+            super::childbell::ring(parent);
         }
         CHILD_EXIT.notify_all();
     }

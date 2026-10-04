@@ -93,10 +93,9 @@ pub(super) fn is_timeout(error: Error) -> bool {
     matches!(error, Error::Errno(code) if code == -errno::ETIMEDOUT)
 }
 
-/// Sleep one PIT tick: userspace has no sleep syscall, and parking on the
-/// child-exit queue returns at the deadline when there is nothing to reap.
+/// Sleep one PIT tick ([`sys::nap`]).
 pub(super) fn park_tick() {
-    let _ = sys::wait(sys::clock() + 1);
+    sys::nap();
 }
 
 /// Report a fatal setup failure on serial, then exit non-zero.

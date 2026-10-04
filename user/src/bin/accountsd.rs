@@ -93,6 +93,8 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(accounts::NAME, &published, &[accounts::INTERFACE], 0)?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let table = load_table();
     match &table {
         Ok(rows) => sys::write_str(&format!(

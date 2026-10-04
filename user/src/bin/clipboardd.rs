@@ -61,8 +61,6 @@ const MAX_HISTORY: usize = 8;
 const DEFAULT_HISTORY: usize = 1;
 /// PIT ticks the service waits for an owner's `Serialize` answer.
 const SERIALIZE_DEADLINE: u64 = 100;
-/// How long the serve loop parks between housekeeping checks (PIT ticks).
-const POLL_TICKS: u64 = 5;
 /// The evidence programs `demo=1` spawns at startup and reaps.
 const DEMO_PROGRAMS: [&str; 2] = [fhs::bin::CLIPCP, fhs::bin::CLIPPASTE];
 

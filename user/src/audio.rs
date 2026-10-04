@@ -72,9 +72,9 @@ pub fn connect_wait(name: &str, ticks: u64) -> Result<Native> {
     }
 }
 
-/// Sleep one PIT tick (`wait` doubles as a timer when there is no child).
+/// Sleep one PIT tick ([`sys::nap`]).
 fn nap() {
-    let _ = sys::wait(sys::clock() + 1);
+    sys::nap();
 }
 
 impl Transport for Native {
