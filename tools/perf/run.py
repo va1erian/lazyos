@@ -22,6 +22,7 @@ Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
     input_present  pointer record published -> the compositor's next present returns
     irqoff         one interrupts-off stretch inside a syscall
     ipc_rt         in-kernel Messenger echo round trip (no context switch)
+    present        the compositor's present syscall, start to return
 
 Exit status is non-zero when the image never reaches the desktop or a metric
 the run must produce (`irqoff`, `ipc_rt`, `input_read`) is missing.
@@ -48,7 +49,7 @@ from qemu_qmp import (  # noqa: E402
 )
 
 REPORT_DIR = ROOT / "docs" / "perf"
-METRICS = ("irq_wake", "input_read", "input_present", "irqoff", "ipc_rt")
+METRICS = ("irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "present")
 REQUIRED = ("irqoff", "ipc_rt", "input_read")
 RE_METRIC = re.compile(
     r"PERF:(\w+):n=(\d+) p50_us=([\d.]+) p90_us=([\d.]+) p99_us=([\d.]+) "
