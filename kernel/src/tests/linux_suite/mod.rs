@@ -204,6 +204,7 @@ mod console_sigchld;
 mod creds;
 mod epoll;
 mod fd_table;
+mod inet_bell;
 mod inet_calls;
 mod inet_core;
 mod inet_soak;
@@ -223,6 +224,7 @@ pub(super) use console_sigchld::*;
 pub(super) use creds::*;
 pub(super) use epoll::*;
 pub(super) use fd_table::*;
+pub(super) use inet_bell::*;
 pub(super) use inet_calls::*;
 pub(super) use inet_core::*;
 pub(super) use inet_soak::*;
@@ -294,6 +296,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("linux_inet_accept_timeout", inet_accept_timeout),
     ("linux_inet_connect_timeout", inet_connect_timeout),
     ("linux_inet_timeout_soak", inet_timeout_soak),
+    (
+        "linux_inet_bell_rings_for_the_application",
+        inet_bell_rings_for_the_application,
+    ),
+    (
+        "linux_inet_bell_slow_reader_soak",
+        inet_bell_slow_reader_soak,
+    ),
     (
         "linux_getuid_family_reports_credentials",
         getuid_family_reports_credentials,

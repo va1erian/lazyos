@@ -1,9 +1,11 @@
 //! The pump for Linux programs' sockets (`docs/networking-plan.md`, stage N5).
 //!
 //! The kernel owns the application's side of every `AF_INET` socket
-//! (`kernel/src/ipc/inet`); `netd` owns the other. Each pass over this module
-//! (the event loop calls [`Inet::pump`] on its own tick, because the kernel
-//! never wakes a service) does three things:
+//! (`kernel/src/ipc/inet`); `netd` owns the other. The event loop calls
+//! [`Inet::pump`] on every pass, and the kernel's doorbell for these sockets
+//! (`kernel/src/ipc/inet/bell.rs`) wakes it whenever an application queued a
+//! request, wrote into an empty ring, made room in a full one or closed.
+//! Each pass does three things:
 //!
 //! 1. fetches the requests the kernel queued (bind, connect, listen, close)
 //!    and carries them out against the stack;
@@ -109,6 +111,16 @@ pub(super) struct InetStats {
     pub closed: u64,
     pub to_stack: u64,
     pub from_stack: u64,
+    /// Bytes handed to applications and taken from them.
+    pub to_app: u64,
+    pub from_app: u64,
+}
+
+impl InetStats {
+    /// Every byte counter added up: unchanged across a pass means nothing moved.
+    fn moved(&self) -> u64 {
+        self.to_stack + self.from_stack + self.to_app + self.from_app
+    }
 }
 
 pub(super) struct Inet {
@@ -150,10 +162,10 @@ impl Inet {
         }
     }
 
-    /// Whether the next pass has work: sockets to move bytes for, or requests
-    /// waiting in the kernel.
-    pub(super) fn busy(&self) -> bool {
-        self.attached && (!self.entries.is_empty() || sys::inet_stats().1 > 0)
+    /// Whether this task serves the kernel's sockets (and may park on their
+    /// doorbell).
+    pub(super) fn attached(&self) -> bool {
+        self.attached
     }
 
     fn entry(&mut self, id: u32, kind: Kind) -> &mut Entry {
@@ -165,10 +177,13 @@ impl Inet {
     }
 
     /// One pass. `tick` is the kernel tick, `now_ms` the stack clock.
-    pub(super) fn pump(&mut self, stack: &mut Stack, tick: u64, now_ms: i64) {
+    /// `true` when bytes moved: the caller passes again at once, because
+    /// what is left (a stack buffer with more to read, a ring with more
+    /// to send) rings no doorbell and may bring no frame.
+    pub(super) fn pump(&mut self, stack: &mut Stack, tick: u64, now_ms: i64) -> bool {
         if !self.attached {
             if tick < self.next_attach {
-                return;
+                return false;
             }
             match sys::inet_attach() {
                 Ok(()) => {
@@ -179,7 +194,7 @@ impl Inet {
                 Err(_) => {
                     // Not root or `_netd`, or the kernel is without the pump.
                     self.next_attach = tick + ATTACH_RETRY_TICKS;
-                    return;
+                    return false;
                 }
             }
         }
@@ -190,6 +205,7 @@ impl Inet {
                 _ => break,
             }
         }
+        let before = self.stats.moved();
         let mut i = 0;
         while i < self.entries.len() {
             let finished = self.service(stack, i, now_ms);
@@ -199,6 +215,7 @@ impl Inet {
                 i += 1;
             }
         }
+        self.stats.moved() != before
     }
 
     fn request(&mut self, stack: &mut Stack, raw: &[u8; INET_REQUEST_BYTES], now_ms: i64) {

@@ -34,6 +34,7 @@ impl Inet {
         if !entry.rx.is_empty() {
             match sys::inet_write(id, &entry.rx) {
                 Ok(InetIo::Data(n)) => {
+                    self.stats.to_app += n as u64;
                     entry.rx.drain(..n);
                 }
                 Ok(InetIo::End) => entry.rx.clear(),
@@ -49,6 +50,7 @@ impl Inet {
             let mut buf = vec![0u8; CHUNK];
             match sys::inet_read(id, &mut buf) {
                 Ok(InetIo::Data(n)) => {
+                    self.stats.from_app += n as u64;
                     buf.truncate(n);
                     entry.tx = buf;
                 }
