@@ -114,7 +114,9 @@ impl Ext2 {
         self.io.flush().map_err(io_error)?;
         // Empty the log, then clear the flag: a crash between the two leaves
         // a mount that replays nothing and finishes the job.
-        put_be32(&mut buf, JS_SEQUENCE, end);
+        // Skip the id of an attempt that never committed: its blocks may still
+        // be in the log, and a new transaction must not share their id.
+        put_be32(&mut buf, JS_SEQUENCE, end.wrapping_add(1));
         put_be32(&mut buf, JS_START, 0);
         self.write_direct(blocks[0], &buf)?;
         self.io.flush().map_err(io_error)?;

@@ -129,8 +129,8 @@ pub use cache::CacheStats;
 pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;
-pub use journal::MIN_JOURNAL_BLOCKS;
 pub use handle::FileHandle;
+pub use journal::MIN_JOURNAL_BLOCKS;
 pub use layout::MAX_FILE_SIZE;
 pub use orphans::{OrphanReport, MAX_SCAN_DIRS};
 #[cfg(any(test, feature = "check"))]

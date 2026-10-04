@@ -138,6 +138,9 @@ Host (`cargo test -p ext2fs journal`, `libs/ext2fs/src/tests/journal.rs`):
   to ask for durability.
 - No commit-time clock (the commit block's timestamp is 0), no checksums, no
   asynchronous commit, no live resize, no external journal.
-- A mid-operation commit (above) and a transaction bigger than the log are the
-  two ways a crash can still show a half-done operation; both leave what
+- A mid-operation commit (above), a write that finds the volume full while
+  frees await a commit (the frees must be durable before their blocks are
+  reused, so it commits first and leaks the blocks the operation had allocated
+  if power fails before it ends), and a transaction bigger than the log are the
+  ways a crash can still show a half-done operation; all leave what
   `Ext2::repair` handles.

@@ -152,8 +152,10 @@ pub fn library_journaled_root_power_cut_sweep() -> Result<(), String> {
     let root = FakeDisk::new("lj-root", 2048);
     make_volume_with(root, uuid_bytes, true)?;
     let pristine = root.data.lock().clone();
-    let cfg = format!("root=UUID={uuid_text}
-");
+    let cfg = format!(
+        "root=UUID={uuid_text}
+"
+    );
     let image = image_with_file(b"LAZYOS  CFG", cfg.as_bytes());
     let boot = FakeDisk::new("lj-boot", image.len() / SECTOR_SIZE);
     boot.data.lock().copy_from_slice(&image);
@@ -178,7 +180,10 @@ pub fn library_journaled_root_power_cut_sweep() -> Result<(), String> {
         check!(volume.has_journal(), "cut {k}: the journal is gone");
         replayed |= volume.journal_recovered();
         match volume.read_file("/home/user/note") {
-            Ok(note) => check!(note == NOTE || note.is_empty(), "cut {k}: the note reads {note:?}"),
+            Ok(note) => check!(
+                note == NOTE || note.is_empty(),
+                "cut {k}: the note reads {note:?}"
+            ),
             Err(ext2fs::Ext2Error::NotFound) => {
                 check!(!finished, "cut {k}: a completed sync lost the file")
             }

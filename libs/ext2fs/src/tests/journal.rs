@@ -130,7 +130,7 @@ fn every_crash_point_replays_to_a_clean_volume() {
             return;
         }
         let block_size = BLOCK_SIZES[rng.below(3) as usize] as usize;
-        let disk = journaled(2 << 20, block_size as u32);
+        let disk = journaled(8 << 20, block_size as u32);
         let base = disk.snapshot();
         let recorder = Recorder {
             disk: disk.clone(),
