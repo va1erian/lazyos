@@ -185,11 +185,10 @@ impl Canvas {
         let full = Rect::new(0, 0, self.width, self.height);
         let r = self.visible(rect, full);
         let row_bytes = r.w.max(0) as usize * 4;
-        let rows = if row_bytes == 0 {
-            0
-        } else {
-            (out.len() / row_bytes).min(r.h.max(0) as usize)
-        };
+        let rows = out
+            .len()
+            .checked_div(row_bytes)
+            .map_or(0, |fit| fit.min(r.h.max(0) as usize));
         for (index, chunk) in out
             .chunks_exact_mut(row_bytes.max(1))
             .take(rows)
