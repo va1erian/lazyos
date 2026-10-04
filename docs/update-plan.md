@@ -135,22 +135,17 @@ already owns (core apps follow the image; see "After the switch").
 
 ## Disk layout (NVMe, GPT)
 
-The layout of #564 with two partitions added before home, which stays last
-so the installer can grow it to the end of the disk. Slot B stays empty until
-the first update, but every partition exists from day one so no
-repartitioning is ever needed.
+The layout is owned by [`nvme-install-plan.md`](nvme-install-plan.md)
+("Disk layout"), which reserves what this plan needs from day one: slot A
+(`lazyos-a`, carrying `boot/kernel-x86_64`), an empty slot B, the 1 MiB raw
+`lazyboot` partition, the 8 GiB `state` volume, and home last so it can grow.
+The ESP keeps a fallback kernel and `lazyos.cfg`. Until U0 and U2 land, the
+install boots the ESP kernel with slot A as its whole OS volume, and the
+partitions for slot B, `lazyboot` and `state` stay empty, so nothing is
+repartitioned later. Size changes are agreed in that plan, not here.
 
-| # | Name | Format | Size | Content |
-|---|---|---|---|---|
-| 1 | ESP | FAT16 | 256 MiB | `\EFI\BOOT\BOOTX64.EFI` (the boot shim), `kernel-x86_64` (fallback), `lazyos.cfg` (`root=` the state volume, `home=`) |
-| 2 | `lazyos-a` | ext2 | 4 GiB | slot A: `boot/kernel-x86_64`, `bin/`, `etc/`, `share/`, `packages/`, `docs/` (about 40 MiB today) |
-| 3 | `lazyos-b` | ext2 | 4 GiB | slot B, same shape, empty until the first update |
-| 4 | `lazyboot` | raw | 1 MiB | boot control block, two copies (**added**) |
-| 5 | `state` | ext2 | 8 GiB | `/` with `/apps`, `/conf`, `/logs` (**added**) |
-| 6 | `home` | ext2 | the rest | `/home` |
-
-If updates have to come before the slot split (state still on slot A), the
-interim is #564 as is plus reinstalling from the stick; see "Sources".
+If updates have to come before the slot split, the interim is reinstalling
+from the stick; see "Sources".
 
 ## Architecture
 
@@ -206,7 +201,7 @@ out as above), because a broken updater is found in CI, not on the mini PC.
 
 | Phase | Deliverable | Tests and evidence |
 |---|---|---|
-| **U0** Layout | With the NVMe install (#564): its GPT reader, the six-partition layout above written by the installer with slot B empty, the build writing the slot volume and the state volume separately, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot, `/docs/os` moved to `/system/docs`; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
+| **U0** Layout | With the NVMe install (#564): its GPT reader and layout, state moved from slot A to the `state` partition, the build writing the slot volume and the state volume separately, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot, `/docs/os` moved to `/system/docs`; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
 | **U1** Bundles | `libs/lzupdate` (manifest schema with `deny_unknown_fields`, container via `lazypkg`'s reader, Ed25519 verify), `tools/update/build.py` (images from `target/`, manifest, sign with a key file), `cargo build` writes `target/lazyos-<rel>.lzu` when `LAZYOS_UPDATE_KEY` is set; CI attaches unsigned bundles to every run and signed ones to tags | `cargo test -p lzupdate`: wrong key, flipped byte in each image, manifest with an unknown field, downgrade, wrong hardware profile, oversize entry, zip64; fuzz entry on the manifest and container; `test_build.py` cross-checks host and guest rules |
 | **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI` (control block, ext2 read of the slot's kernel, fallback to the ESP kernel), kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged; corrupt `lazyboot` entirely, the ESP kernel still boots |
 | **U3** `updated` and `updatectl` | the service, the `os.lazy.update.v1` IDL, the kernel partition grant, install from a file, mark-good from health, rollback, `/logs/update.log` | harness: install bundle N+1 from `/home`, reboot, `UPDATE:GOOD b`, `/system` is N+1, `/apps` core packages upgraded, settings kept; power off QEMU mid-write, reboot, still on N and `updatectl status` explains; `updatectl rollback` returns to N; security suite: an unlabelled app cannot reach `os.lazy.update.v1` and no process but `updated` can open a slot partition |
