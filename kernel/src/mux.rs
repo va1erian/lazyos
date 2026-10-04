@@ -18,6 +18,13 @@ const PAD: i32 = 8;
 /// repaint and cursor latency at or below 20 ms while leaving the rest of the
 /// window to user tasks (issue #58).
 const IDLE_TICKS: u64 = 2;
+/// Ticks the kernel task sleeps while a compositor owns the screen (P7):
+/// nothing is painted then, and what the loop still runs is either served
+/// elsewhere first (device interrupts on IRQ return and the tick, dead slots
+/// on every native syscall) or coarse (the 5 s filesystem flusher, the 30 s
+/// shutdown watchdog). Waking every 2 ticks for it was 50 wakeups a second
+/// on an idle desktop.
+const BOUND_IDLE_TICKS: u64 = 25;
 const BACKGROUND: Color = Color::rgb(10, 12, 20);
 const WINDOW_BG: Color = Color::rgb(16, 18, 30);
 const TITLE_BG: Color = Color::rgb(44, 50, 80);
@@ -69,7 +76,7 @@ pub fn run() -> ! {
         if crate::display::bound() {
             yielded = true;
             back = None;
-            task::idle(task::ticks() + IDLE_TICKS);
+            task::idle(task::ticks() + BOUND_IDLE_TICKS);
             continue;
         }
         if yielded {
