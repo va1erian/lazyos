@@ -141,7 +141,7 @@ impl Header {
             height: get(HEIGHT),
             dpi: get(HW_RESOLUTION),
             color,
-            media: read_string(&h[PAGE_SIZE_NAME..PAGE_SIZE_NAME + STRING_LEN]),
+            media: read_string(&h[PAGE_SIZE_NAME..PAGE_SIZE_NAME + STRING_LEN])?,
             quality: get(PRINT_QUALITY),
             total_pages: get(TOTAL_PAGE_COUNT),
         };
@@ -150,13 +150,18 @@ impl Header {
     }
 }
 
-/// Writes `value` NUL-terminated, cut to fit.
+/// Writes `value` NUL-terminated, cut to fit at a character boundary.
 fn string(h: &mut [u8], at: usize, value: &str) {
-    let bytes = &value.as_bytes()[..value.len().min(STRING_LEN - 1)];
-    h[at..at + bytes.len()].copy_from_slice(bytes);
+    let mut len = value.len().min(STRING_LEN - 1);
+    while !value.is_char_boundary(len) {
+        len -= 1;
+    }
+    h[at..at + len].copy_from_slice(&value.as_bytes()[..len]);
 }
 
-fn read_string(field: &[u8]) -> String {
-    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
-    String::from_utf8_lossy(&field[..end]).into_owned()
+/// A NUL-terminated UTF-8 field, as [`string`] writes one; `None` for
+/// anything else, so a header that decodes re-encodes to the same bytes.
+fn read_string(field: &[u8]) -> Option<String> {
+    let end = field.iter().position(|&b| b == 0)?;
+    core::str::from_utf8(&field[..end]).ok().map(String::from)
 }

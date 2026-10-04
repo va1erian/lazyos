@@ -119,4 +119,10 @@ fn the_fuzz_seeds_replay() {
         seen += 1;
     }
     assert!(seen >= 4);
+    // Saved crashes (`fuzz/regressions/pwgraster`) stay fixed.
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/regressions/pwgraster");
+    for entry in std::fs::read_dir(dir).expect("fuzz/regressions/pwgraster exists") {
+        run(&std::fs::read(entry.unwrap().path()).unwrap());
+    }
 }
