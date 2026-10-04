@@ -304,6 +304,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "linux_inet_bell_slow_reader_soak",
         inet_bell_slow_reader_soak,
     ),
+    ("linux_inet_large_stream_calls", inet_large_stream_calls),
     (
         "linux_getuid_family_reports_credentials",
         getuid_family_reports_credentials,

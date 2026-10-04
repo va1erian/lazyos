@@ -199,3 +199,45 @@ pub fn inet_bell_slow_reader_soak() -> Result<(), String> {
     );
     inet_done("inet_bell_slow_reader_soak")
 }
+
+/// One `write` or `read` of a stream socket moves up to a whole ring
+/// (P4.4; it was 4 KiB a call): a 200 KiB write is taken whole, a write past
+/// the ring's size is short at exactly its free space, a read with room for
+/// everything returns everything queued, and the bytes are in order.
+pub fn inet_large_stream_calls() -> Result<(), String> {
+    inet_fresh()?;
+    let fd = socket(1);
+    check!(connect(fd, [10, 0, 2, 2], 7) == 0, "connect");
+    let id = id_of(fd);
+    let big: Vec<u8> = (0..300 * 1024).map(|i| byte(3, i)).collect();
+    check!(
+        write_fd(fd, &big[..200 * 1024]) == 200 * 1024,
+        "a 200 KiB write was not taken whole"
+    );
+    let n = write_fd(fd, &big[200 * 1024..]);
+    check!(
+        n == (pipe::SMALL_CAPACITY - 200 * 1024) as u64,
+        "a write past the ring took {n:#x}"
+    );
+    let mut got = vec![0u8; pipe::SMALL_CAPACITY];
+    match inet::net_read(id, &mut got) {
+        Ok(Io::Data(k)) => {
+            check!(k == pipe::SMALL_CAPACITY, "netd read {k}");
+            check!(got == big[..k], "the bytes netd read differ");
+        }
+        other => return Err(format!("netd read {other:?}")),
+    }
+    check!(
+        matches!(inet::net_write(id, &big), Ok(Io::Data(k)) if k == pipe::SMALL_CAPACITY),
+        "netd fill"
+    );
+    let mut buf = vec![0u8; 512 * 1024];
+    let r = read_fd(fd, &mut buf);
+    check!(
+        r == pipe::SMALL_CAPACITY as u64
+            && buf[..pipe::SMALL_CAPACITY] == big[..pipe::SMALL_CAPACITY],
+        "a large read returned {r:#x}"
+    );
+    check!(close(fd) == 0, "close");
+    inet_done("inet_large_stream_calls")
+}
