@@ -76,6 +76,19 @@ impl Fd {
         Fd::Socket { pair, side }
     }
 
+    /// The objects whose events can change this descriptor's readiness, as
+    /// keyed-wakeup keys (`pollwait`, P6.5): a pipe end its pipe, a socket
+    /// both of its direction pipes, a pseudo-terminal side its terminal.
+    /// `None` for every other kind: their events wake all poll waiters.
+    pub fn poll_keys(&self) -> Option<[u64; 2]> {
+        match self {
+            Fd::Pipe { pipe, .. } => Some([Arc::as_ptr(pipe) as u64, 0]),
+            Fd::Socket { pair, .. } => Some(pair.pipe_keys()),
+            Fd::Pty { pty, .. } => Some([Arc::as_ptr(pty) as u64, 0]),
+            _ => None,
+        }
+    }
+
     /// `poll` revents for this descriptor. `events` are `POLL*` bits; closed
     /// slots report nothing (callers map them to `POLLNVAL`).
     pub fn poll(&self, events: u16) -> u16 {

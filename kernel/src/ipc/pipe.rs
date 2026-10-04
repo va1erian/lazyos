@@ -283,7 +283,7 @@ impl Pipe {
                     self.read_wq.notify_all();
                 }
             }
-            crate::task::notify_poll();
+            crate::task::notify_poll_key(self as *const Self as u64);
             self.bell_on_release(end);
         }
     }
@@ -442,7 +442,7 @@ impl Pipe {
                     drop(ring);
                     self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
-                    crate::task::notify_poll();
+                    crate::task::notify_poll_key(self as *const Self as u64);
                     self.bell_after_write(was_empty);
                     return Ok(n);
                 }
@@ -460,7 +460,7 @@ impl Pipe {
     fn after_read(&self, free_before: usize) {
         self.write_events.fetch_add(1, Ordering::AcqRel);
         self.write_wq.notify_all();
-        crate::task::notify_poll();
+        crate::task::notify_poll_key(self as *const Self as u64);
         self.bell_after_read(free_before);
     }
 }

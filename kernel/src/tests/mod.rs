@@ -196,6 +196,7 @@ mod native_exec_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
+mod poll_keys_suite;
 mod power_suite;
 mod preempt_lock_suite;
 mod preempt_wake_suite;
@@ -241,6 +242,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     sched_suite::CASES,
     runq_suite::CASES,
     preempt_wake_suite::CASES,
+    poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,

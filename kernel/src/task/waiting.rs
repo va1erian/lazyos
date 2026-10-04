@@ -119,8 +119,11 @@ pub fn wait_terminal() -> WakeReason {
 /// `deadline` (`arch::clock::monotonic_ns`) passes. The queue is advisory:
 /// the caller rescans its descriptors and parks again if nothing it watches
 /// changed.
+///
+/// This waiter recorded no interest, so any poll event wakes it
+/// (`pollwait`); `poll` and `select` use [`super::wait_poll_keyed_ns`].
 pub fn wait_poll_ns(deadline: Option<u64>) -> WakeReason {
-    wait::POLL.wait_ns(current(), deadline)
+    super::pollwait::wait_any_ns(deadline)
 }
 
 /// Wake every `poll` waiter (pipe data, space, EOF, or `-EPIPE`). Pipe code and
