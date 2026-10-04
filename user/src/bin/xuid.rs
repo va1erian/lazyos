@@ -176,7 +176,8 @@ const SHELL_MARKER: &str = "XUID:SHELL:PASS\n";
 /// pointer events and keys wake the loop themselves (docs/performance-plan.md
 /// P1.4), so this only paces the pull feeds (theme, power) and reaping.
 const IDLE_TICKS: u64 = 10;
-/// The park when the wait itself is refused: the old 2-tick poll.
+/// The park when the wait itself is refused, or while the pointer comes from
+/// the kernel's display queue: the old 2-tick poll.
 const FALLBACK_TICKS: u64 = 2;
 
 #[no_mangle]
@@ -299,16 +300,21 @@ fn run() -> ! {
             }
             None => 1,
         };
-        let ready = match wait::wait_any(
-            &sources[..count],
-            wait::WAIT_DISPLAY_KEYS,
-            Some(now + IDLE_TICKS),
-        ) {
-            Ok(mask) => mask,
-            Err(error) if is_timeout(error) => 0,
-            // Never spin on a refused wait: fall back to the timed receive.
-            Err(_) => 1,
+        // No doorbell rings for a pointer move on the kernel's display queue
+        // (the fallback when `inputd` does not own the pointer), so that
+        // stream keeps the short poll.
+        let idle = if comp.input.owns_pointer {
+            IDLE_TICKS
+        } else {
+            FALLBACK_TICKS
         };
+        let ready =
+            match wait::wait_any(&sources[..count], wait::WAIT_DISPLAY_KEYS, Some(now + idle)) {
+                Ok(mask) => mask,
+                Err(error) if is_timeout(error) => 0,
+                // Never spin on a refused wait: fall back to the timed receive.
+                Err(_) => 1,
+            };
         if ready & 1 == 0 {
             comp.reap_dead_shell();
             continue;
