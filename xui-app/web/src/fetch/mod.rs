@@ -33,6 +33,7 @@ mod pool;
 mod resolve;
 pub mod roots;
 mod tls;
+pub mod trace;
 mod transfer;
 
 use std::path::PathBuf;

@@ -9,6 +9,7 @@
 use std::rc::Rc;
 
 use lazyweb::address::{self, START};
+use lazyweb::fetch::trace;
 use lazyweb::history::History;
 use lazyweb::layout::{layout, Layout};
 use lazyweb::marker_text;
@@ -143,6 +144,7 @@ impl Browser {
             url.to_string()
         };
         println!("WEB:NAV:{}", marker_text(self.shown(&target)));
+        println!("WEB:TIME:{}ms:nav", trace::now_ms());
         self.failed = false;
         self.set_status(&format!("Opening {}", self.shown(&target)));
         self.view.navigate(&target);
@@ -208,6 +210,7 @@ impl Browser {
             return;
         }
         let shown = self.shown(&self.url).to_string();
+        println!("WEB:TIME:{}ms:done", trace::now_ms());
         println!("WEB:LOAD:{}", marker_text(&shown));
         println!("WEB:TITLE:{}", marker_text(&self.title));
         let done = if self.title.trim().is_empty() {
@@ -221,6 +224,7 @@ impl Browser {
     fn fail(&mut self, why: &str) {
         self.failed = true;
         self.history.on_load_end();
+        println!("WEB:TIME:{}ms:fail", trace::now_ms());
         println!("WEB:FAIL:{}", marker_text(why));
         self.set_status(&format!("Failed: {why}"));
     }

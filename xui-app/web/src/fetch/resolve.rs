@@ -15,6 +15,8 @@ use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver
 use ureq::unversioned::transport::NextTimeout;
 use ureq::Error;
 
+use super::trace::{self, Stage};
+
 /// ureq holds at most this many addresses per lookup.
 const MAX_ADDRS: usize = 16;
 
@@ -49,6 +51,7 @@ impl Resolver for InlineResolver {
         if out.is_empty() {
             return Err(Error::HostNotFound);
         }
+        trace::mark(Stage::Resolved);
         Ok(out)
     }
 }
