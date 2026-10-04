@@ -114,7 +114,11 @@ fn run() -> Result<(), &'static str> {
         hub.deliver(&outputs);
         outputs.clear();
 
-        let idle = if hub.backlogged() { BACKLOG_TICKS } else { IDLE_TICKS };
+        let idle = if hub.backlogged() {
+            BACKLOG_TICKS
+        } else {
+            IDLE_TICKS
+        };
         let wake = hub
             .engine
             .next_due()

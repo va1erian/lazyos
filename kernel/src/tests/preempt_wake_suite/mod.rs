@@ -45,7 +45,10 @@ extern "C" fn counter() -> ! {
 }
 
 /// Spawn `entry` in `class` and let it run to its first park.
-pub(super) fn start_thread(entry: extern "C" fn() -> !, class: PriorityClass) -> Result<usize, String> {
+pub(super) fn start_thread(
+    entry: extern "C" fn() -> !,
+    class: PriorityClass,
+) -> Result<usize, String> {
     let slot = task::kthread::spawn_kernel_thread("perf-thread", entry, class)
         .map_err(|error| format!("spawn: {error}"))?;
     THREAD.store(slot, Ordering::Relaxed);
@@ -64,7 +67,10 @@ pub(super) fn stop_thread(slot: usize) -> Result<(), String> {
     THREAD_QUEUE.notify_all();
     KERNEL_QUEUE.notify_all();
     let reaped = task::reap_child();
-    check!(reaped.is_some(), "the finished thread {slot} was not reapable");
+    check!(
+        reaped.is_some(),
+        "the finished thread {slot} was not reapable"
+    );
     task::harness::reset();
     check!(
         !task::resched_pending(),
@@ -135,7 +141,9 @@ pub fn wake_rules() -> Result<(), String> {
     let idle = with_state(me, blocked(), || wake(normal) && task::resched_pending());
     check!(idle, "a wake on an idle CPU did not ask to reschedule");
     select();
-    let done = with_state(me, TaskState::Done, || wake(normal) && task::resched_pending());
+    let done = with_state(me, TaskState::Done, || {
+        wake(normal) && task::resched_pending()
+    });
     check!(done, "a wake while the current task is done did not ask");
     select();
 
@@ -275,7 +283,9 @@ pub fn exit_hands_cpu_on() -> Result<(), String> {
             "round {round}: reaped {reaped:?}"
         );
     }
-    serial_println!("TEST:task_preempt_exit_hands_cpu_on:INFO:rounds={ROUNDS} crossed_tick={crossed}");
+    serial_println!(
+        "TEST:task_preempt_exit_hands_cpu_on:INFO:rounds={ROUNDS} crossed_tick={crossed}"
+    );
     check!(
         crossed <= ROUNDS / 10,
         "{crossed} of {ROUNDS} exits waited for a timer tick"

@@ -112,9 +112,9 @@ pub use fdtypes::*;
 pub use lifecycle::*;
 pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
-pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
 #[allow(unused_imports)] // test hook
 pub use preempt::pending as resched_pending;
+pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
 pub use sched::*;
 pub use spawn::*;
 pub use stats::*;

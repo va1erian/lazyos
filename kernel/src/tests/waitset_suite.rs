@@ -59,7 +59,10 @@ extern "C" fn waiter() -> ! {
     loop {
         GATE.wait(me, None);
         let count = COUNT.load(Ordering::Relaxed);
-        let handles: Vec<u64> = HANDLES[..count].iter().map(|h| h.load(Ordering::Relaxed)).collect();
+        let handles: Vec<u64> = HANDLES[..count]
+            .iter()
+            .map(|h| h.load(Ordering::Relaxed))
+            .collect();
         let deadline = match DEADLINE.load(Ordering::Relaxed) {
             0 => None,
             ticks => Some(ticks),
@@ -135,7 +138,10 @@ impl Rig {
             waits_before,
             WAITS.load(Ordering::Relaxed)
         );
-        check!(GATE.contains(self.thread), "the thread is not back at its gate");
+        check!(
+            GATE.contains(self.thread),
+            "the thread is not back at its gate"
+        );
         Ok(LAST.load(Ordering::Relaxed))
     }
 
@@ -175,7 +181,10 @@ pub fn ready_masks() -> Result<(), String> {
     channels::close_endpoint(pairs[0].0).map_err(|e| format!("{e:?}"))?;
     let mask = channels::wait_any(&receivers, 0, None).map_err(|e| format!("{e:?}"))?;
     check!(mask == 0b1011, "a closed peer is not ready: mask {mask:#b}");
-    check!(chan::total_waiters() == 0, "a ready wait left registrations");
+    check!(
+        chan::total_waiters() == 0,
+        "a ready wait left registrations"
+    );
     check!(
         channels::wait_any(&[], 0, None) == Err(ChannelError::BadParcel),
         "an empty set was accepted"
@@ -221,13 +230,22 @@ pub fn wakes_on_any() -> Result<(), String> {
         );
         channels::send(rig.senders[target], &message).map_err(|e| format!("{e:?}"))?;
         let mask = rig.finish_wait(before)?;
-        check!(mask == 1 << target, "a send to {target} gave mask {mask:#b}");
-        check!(chan::total_waiters() == 0, "registrations survived the wake");
+        check!(
+            mask == 1 << target,
+            "a send to {target} gave mask {mask:#b}"
+        );
+        check!(
+            chan::total_waiters() == 0,
+            "registrations survived the wake"
+        );
         // Drain it as the thread would.
         task::harness::switch_current(rig.thread);
         let taken = channels::try_recv(HANDLES[target].load(Ordering::Relaxed));
         task::harness::switch_current(task::KERNEL_TASK);
-        check!(matches!(taken, Ok(Some(_))), "the message was not there to take");
+        check!(
+            matches!(taken, Ok(Some(_))),
+            "the message was not there to take"
+        );
     }
     // A deadline and nothing sent.
     DEADLINE.store(task::ticks() + 3, Ordering::Relaxed);
@@ -238,7 +256,10 @@ pub fn wakes_on_any() -> Result<(), String> {
         task::wait_sleep(task::ticks() + 1);
     }
     let mask = rig.finish_wait(before)?;
-    check!(mask == TIMED_OUT, "an idle wait returned {mask:#x}, not a timeout");
+    check!(
+        mask == TIMED_OUT,
+        "an idle wait returned {mask:#x}, not a timeout"
+    );
     rig.teardown()
 }
 
@@ -266,7 +287,8 @@ pub fn raw_input_doorbell() -> Result<(), String> {
     GATE.notify_one();
     task::preempt_point();
     check!(
-        WAITS.load(Ordering::Relaxed) == before + 1 && LAST.load(Ordering::Relaxed) == RAW_INPUT_READY,
+        WAITS.load(Ordering::Relaxed) == before + 1
+            && LAST.load(Ordering::Relaxed) == RAW_INPUT_READY,
         "a waiting record did not satisfy the wait at once"
     );
     check!(
@@ -290,7 +312,10 @@ pub fn display_key_doorbell() -> Result<(), String> {
     rig.start_wait()?;
     crate::display::push_key(Key::Char('a'), true);
     let mask = rig.finish_wait(before)?;
-    check!(mask == channels::DISPLAY_INPUT_READY, "a key gave mask {mask:#x}");
+    check!(
+        mask == channels::DISPLAY_INPUT_READY,
+        "a key gave mask {mask:#x}"
+    );
 
     crate::display::reset();
     crate::display::set_owner_for_test(rig.thread);
@@ -304,7 +329,10 @@ pub fn display_key_doorbell() -> Result<(), String> {
     );
     channels::send(rig.senders[0], &parcel_bytes()?).map_err(|e| format!("{e:?}"))?;
     let mask = rig.finish_wait(before)?;
-    check!(mask & 1 != 0, "the endpoint did not wake the parked owner: {mask:#x}");
+    check!(
+        mask & 1 != 0,
+        "the endpoint did not wake the parked owner: {mask:#x}"
+    );
     check!(
         crate::display::arm_key_doorbell(task::KERNEL_TASK).is_err(),
         "a task that does not own the display armed its doorbell"
@@ -328,14 +356,22 @@ pub fn wait_any_soak() -> Result<(), String> {
         rig.start_wait()?;
         let pick = ((round * 2_654_435_761) >> 7) as usize % (ENDPOINTS + 1);
         let expected = if pick == ENDPOINTS {
-            bus::publish(bus::device::PS2_MOUSE, bus::kind::BUTTON, 1, (round & 1) as i32);
+            bus::publish(
+                bus::device::PS2_MOUSE,
+                bus::kind::BUTTON,
+                1,
+                (round & 1) as i32,
+            );
             RAW_INPUT_READY
         } else {
             channels::send(rig.senders[pick], &message).map_err(|e| format!("{e:?}"))?;
             1 << pick
         };
         let mask = rig.finish_wait(before)?;
-        check!(mask == expected, "round {round}: mask {mask:#x}, expected {expected:#x}");
+        check!(
+            mask == expected,
+            "round {round}: mask {mask:#x}, expected {expected:#x}"
+        );
         if pick == ENDPOINTS {
             drained.clear();
             bus::drain(slot, rig.thread, 16, &mut drained).map_err(|e| format!("{e:?}"))?;
@@ -343,7 +379,10 @@ pub fn wait_any_soak() -> Result<(), String> {
             task::harness::switch_current(rig.thread);
             let taken = channels::try_recv(HANDLES[pick].load(Ordering::Relaxed));
             task::harness::switch_current(task::KERNEL_TASK);
-            check!(matches!(taken, Ok(Some(_))), "round {round}: nothing to take");
+            check!(
+                matches!(taken, Ok(Some(_))),
+                "round {round}: nothing to take"
+            );
         }
         check!(
             chan::total_waiters() == 0 && chan::queued_waiters() == 0,

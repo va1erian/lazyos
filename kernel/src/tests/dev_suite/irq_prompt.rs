@@ -49,7 +49,15 @@ static EXTRA: AtomicU64 = AtomicU64::new(0);
 static RAISED_DELTA: AtomicU64 = AtomicU64::new(0);
 
 fn reset_counters() {
-    for value in [&STAMP_TSC, &STAMP_TICK, &CROSSED, &ACKS, &ACK_FAILURES, &EXTRA, &SPIN] {
+    for value in [
+        &STAMP_TSC,
+        &STAMP_TICK,
+        &CROSSED,
+        &ACKS,
+        &ACK_FAILURES,
+        &EXTRA,
+        &SPIN,
+    ] {
         value.store(0, Ordering::Relaxed);
     }
     TAKEN.store(0, Ordering::Relaxed);
@@ -127,7 +135,10 @@ fn claimed_driver(fx: &Fixture, line: u8) -> Result<(usize, DeviceId), String> {
         task::switch::yield_now();
     }
     check!(
-        matches!(task::harness::state(slot), Some(crate::task::TaskState::Blocked { .. })),
+        matches!(
+            task::harness::state(slot),
+            Some(crate::task::TaskState::Blocked { .. })
+        ),
         "the driver is not parked in recv: {:?}",
         task::harness::state(slot)
     );
@@ -190,7 +201,10 @@ pub fn irq_prompt_idle_claimant() -> Result<(), String> {
         result
     })?;
     let taken = TAKEN.load(Ordering::Relaxed).min(SAMPLES);
-    check!(taken == SAMPLES, "only {taken} of {SAMPLES} interrupts reached the driver");
+    check!(
+        taken == SAMPLES,
+        "only {taken} of {SAMPLES} interrupts reached the driver"
+    );
     let mut values: Vec<u64> = LATENCY.iter().map(|v| v.load(Ordering::Relaxed)).collect();
     values.sort_unstable();
     let crossed = CROSSED.load(Ordering::Relaxed);
@@ -204,7 +218,10 @@ pub fn irq_prompt_idle_claimant() -> Result<(), String> {
         crossed <= (SAMPLES / 10) as u64,
         "{crossed} of {SAMPLES} deliveries waited for a timer tick"
     );
-    check!(EXTRA.load(Ordering::Relaxed) == 0, "more than one message was queued");
+    check!(
+        EXTRA.load(Ordering::Relaxed) == 0,
+        "more than one message was queued"
+    );
     check!(ACK_FAILURES.load(Ordering::Relaxed) == 0, "an ack failed");
     Ok(())
 }
@@ -222,7 +239,10 @@ pub fn irq_prompt_storm_slow_claimant() -> Result<(), String> {
     let (elapsed, acks) = isolated(|| -> Result<(u64, u64), String> {
         let (slot, dev) = claimed_driver(&fx, UART_LINE)?;
         NOISY.store(true, Ordering::Relaxed);
-        SPIN.store(crate::arch::clock::cycles_per_tick() / 50, Ordering::Relaxed);
+        SPIN.store(
+            crate::arch::clock::cycles_per_tick() / 50,
+            Ordering::Relaxed,
+        );
         // SAFETY: arm the transmit-empty interrupt; the noisy driver re-arms it.
         unsafe { outb(IER, IER_THRE) };
         let start = task::ticks();
@@ -231,7 +251,10 @@ pub fn irq_prompt_storm_slow_claimant() -> Result<(), String> {
             task::wait_sleep(task::ticks() + 1);
         }
         let elapsed = task::ticks() - start;
-        RAISED_DELTA.store(u64::from(irq::stats().raised - raised_before), Ordering::Relaxed);
+        RAISED_DELTA.store(
+            u64::from(irq::stats().raised - raised_before),
+            Ordering::Relaxed,
+        );
         // The device goes quiet: an interrupt still in flight is served (and
         // quieted) by the driver.
         NOISY.store(false, Ordering::Relaxed);
@@ -242,7 +265,10 @@ pub fn irq_prompt_storm_slow_claimant() -> Result<(), String> {
         let left = queued(ENDPOINT.load(Ordering::Relaxed))?;
         leave(&fx);
         stop_driver(slot);
-        check!(claim == Some((false, false)), "after the storm the claim is {claim:?}");
+        check!(
+            claim == Some((false, false)),
+            "after the storm the claim is {claim:?}"
+        );
         check!(left == 0, "{left} interrupt messages were left queued");
         Ok((elapsed, acks))
     })?;
@@ -255,8 +281,14 @@ pub fn irq_prompt_storm_slow_claimant() -> Result<(), String> {
         "{SLEEPS} one-tick sleeps took {elapsed} ticks under the storm"
     );
     // A storm, not a trickle: many interrupts per tick reached the driver.
-    check!(acks >= SLEEPS * 5, "only {acks} interrupts were handled in {elapsed} ticks");
-    check!(EXTRA.load(Ordering::Relaxed) == 0, "more than one message was queued");
+    check!(
+        acks >= SLEEPS * 5,
+        "only {acks} interrupts were handled in {elapsed} ticks"
+    );
+    check!(
+        EXTRA.load(Ordering::Relaxed) == 0,
+        "more than one message was queued"
+    );
     check!(ACK_FAILURES.load(Ordering::Relaxed) == 0, "an ack failed");
     Ok(())
 }
@@ -276,19 +308,36 @@ pub fn irq_prompt_laggard_stays_masked_in_interrupt() -> Result<(), String> {
     for round in 0..1_000u64 {
         irq::dispatch(LINE_A);
         intx::service_in_interrupt_at(2_000 + round);
-        check!(masked(LINE_A), "round {round}: unmasked inside the interrupt");
+        check!(
+            masked(LINE_A),
+            "round {round}: unmasked inside the interrupt"
+        );
     }
     intx::service_at(3_000);
-    check!(!masked(LINE_A), "the task-context pass did not let the line go");
-    check!(r.flags()? == (true, true, true), "claim state {:?}", r.flags()?);
-    check!(r.queued()? == 1, "the laggard was posted {} messages", r.queued()?);
+    check!(
+        !masked(LINE_A),
+        "the task-context pass did not let the line go"
+    );
+    check!(
+        r.flags()? == (true, true, true),
+        "claim state {:?}",
+        r.flags()?
+    );
+    check!(
+        r.queued()? == 1,
+        "the laggard was posted {} messages",
+        r.queued()?
+    );
     leave(&fx);
     Ok(())
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_irq_prompt_idle_claimant", irq_prompt_idle_claimant),
-    ("dev_irq_prompt_storm_slow_claimant", irq_prompt_storm_slow_claimant),
+    (
+        "dev_irq_prompt_storm_slow_claimant",
+        irq_prompt_storm_slow_claimant,
+    ),
     (
         "dev_irq_prompt_laggard_stays_masked_in_interrupt",
         irq_prompt_laggard_stays_masked_in_interrupt,

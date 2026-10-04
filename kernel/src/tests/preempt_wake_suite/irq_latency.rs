@@ -99,7 +99,9 @@ pub fn irq_wake_idle_latency() -> Result<(), String> {
             unsafe { outb(IER, IER_THRE) };
             let reason = KERNEL_QUEUE.wait(task::KERNEL_TASK, Some(task::ticks() + 50));
             if reason != crate::task::WakeReason::Woken {
-                result = Err(format!("sample {sample}: the kernel task woke with {reason:?}"));
+                result = Err(format!(
+                    "sample {sample}: the kernel task woke with {reason:?}"
+                ));
                 break;
             }
         }
@@ -110,7 +112,10 @@ pub fn irq_wake_idle_latency() -> Result<(), String> {
     unsafe { outb(IER, saved_ier) };
     outcome?;
     let taken = TAKEN.load(Ordering::Relaxed).min(SAMPLES);
-    check!(taken == SAMPLES, "only {taken} of {SAMPLES} interrupts reached the thread");
+    check!(
+        taken == SAMPLES,
+        "only {taken} of {SAMPLES} interrupts reached the thread"
+    );
     let mut values: Vec<u64> = LATENCY.iter().map(|v| v.load(Ordering::Relaxed)).collect();
     values.sort_unstable();
     let crossed = CROSSED.load(Ordering::Relaxed);

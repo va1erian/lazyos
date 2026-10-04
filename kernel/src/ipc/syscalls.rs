@@ -270,8 +270,8 @@ fn op_wait(args: &MsgArgs) -> Result<MsgResult, i64> {
     }
     let bytes = copy_in(args.parcel_ptr, count * 8)?;
     let mut handles = [0u64; channels::MAX_WAIT_ENDPOINTS];
-    for (handle, word) in handles.iter_mut().zip(bytes.chunks_exact(8)) {
-        *handle = u64::from_le_bytes(word.try_into().map_err(|_| errno::EFAULT)?);
+    for (handle, word) in handles.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *handle = u64::from_le_bytes(*word);
     }
     let ready = channels::wait_any(&handles[..count], args.flags, args.deadline_ticks())
         .map_err(channel_errno)?;
