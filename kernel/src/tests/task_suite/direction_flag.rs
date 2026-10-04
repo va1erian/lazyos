@@ -54,8 +54,9 @@ fn yield_with_df() -> u64 {
 fn syscall_with_df() -> u64 {
     let rflags: u64;
     // SAFETY: as `yield_with_df`; syscall 8 reads the tick counter and
-    // touches nothing else. `rax` receives the result, the other argument
-    // registers are saved and restored by the stub.
+    // touches nothing else. `rax` receives the result and the stub saves the
+    // other argument registers, but not `rcx`/`r11`, which the Rust
+    // dispatcher may clobber (the native ABI; see `process::gate`).
     unsafe {
         asm!(
             "std",
@@ -64,6 +65,8 @@ fn syscall_with_df() -> u64 {
             "pop {flags}",
             "cld",
             inout("rax") 8u64 => _,
+            lateout("rcx") _,
+            lateout("r11") _,
             flags = out(reg) rflags,
             options(nostack)
         );

@@ -276,7 +276,13 @@ pub fn next(
                 return Ok(Some(request));
             }
         }
-        if now() >= deadline || !task::relax::can_block() || test_clock::serving() {
+        // A killed provider stops waiting for work (nothing of its is in
+        // flight here) so it reaches its syscall return and dies.
+        if now() >= deadline
+            || !task::relax::can_block()
+            || test_clock::serving()
+            || task::signal::killed(task::current())
+        {
             return Ok(None);
         }
         park(&disk.work, deadline);
@@ -403,7 +409,11 @@ pub fn stats(id: usize) -> Option<(Stats, bool)> {
 
 /// Park the current task on `queue` until notified or `deadline`, with
 /// interrupts off as [`WaitQueue::wait`] requires. A signal does not end the
-/// wait; one tick is let through so the provider can run.
+/// wait; one tick is let through so the provider can run. A killed requester
+/// (whose every wait now returns at once) keeps waiting in such one-tick
+/// naps until its request completes or its deadline passes: an in-flight
+/// request is never abandoned, so the request slot and the filesystem state
+/// around it stay consistent, and the release path always runs.
 fn park(queue: &WaitQueue, deadline: u64) {
     let enabled = x86_64::instructions::interrupts::are_enabled();
     x86_64::instructions::interrupts::disable();

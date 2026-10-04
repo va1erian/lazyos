@@ -171,7 +171,8 @@ pub fn fd_seqpacket(fd: usize) -> bool {
 }
 
 /// Duplicate a descriptor into the lowest free slot at or above `min`.
-/// `dup` uses `min = 3`; `F_DUPFD` passes the caller's argument.
+/// `dup` uses `min = 0` (a closed standard stream is refilled first, as on
+/// Linux); `F_DUPFD` passes the caller's argument.
 /// `None` when `fd` is not open or no slot is free below `limit.fd_max`.
 pub fn fd_dup_min(fd: usize, min: usize) -> Option<usize> {
     let mut junk = Vec::new();
@@ -181,7 +182,7 @@ pub fn fd_dup_min(fd: usize, min: usize) -> Option<usize> {
         let task = tasks[me].as_mut()?;
         let entry = task.fds.get(fd)?.clone();
         // `dup`/`F_DUPFD` produce a descriptor without `FD_CLOEXEC`.
-        match task.fds.install_lowest(min.max(3), entry) {
+        match task.fds.install_lowest(min, entry) {
             Ok(index) => {
                 fdshare::mirror_fd(&mut tasks, me, index, &mut junk);
                 drop(tasks);
@@ -198,7 +199,7 @@ pub fn fd_dup_min(fd: usize, min: usize) -> Option<usize> {
 
 /// Duplicate a descriptor into the lowest free slot (`dup(2)`).
 pub fn fd_dup(fd: usize) -> Option<usize> {
-    fd_dup_min(fd, 3)
+    fd_dup_min(fd, 0)
 }
 
 /// Duplicate `old` into the specific descriptor `new` (closing it first).

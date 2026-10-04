@@ -166,3 +166,50 @@ fn ctrl_s_opens_save_as_and_shortcuts_wait_while_it_is_open() {
     });
     assert_eq!(seen, ["true", "untitled text"]);
 }
+
+#[test]
+fn a_page_break_adds_a_page_to_the_status_bar() {
+    let seen = drive(|stage, rig, _| {
+        type_text(stage, rig, "First page");
+        let before = rig.status(3);
+        stage.emit(Msg::PageBreak);
+        pump(stage);
+        type_text(stage, rig, "Second page");
+        vec![before, rig.status(3)]
+    });
+    assert_eq!(seen, ["Page 1 of 1", "Page 2 of 2"]);
+}
+
+#[test]
+fn page_setup_choices_change_the_page_as_one_undo_step() {
+    let seen = drive(|stage, rig, _| {
+        let landscape = || rig.editor.with_document(|d| d.page().is_landscape());
+        let before = landscape();
+        // 4 is Landscape in the Page setup menu.
+        stage.emit(Msg::PageChoice(4));
+        pump(stage);
+        let after = landscape();
+        stage.emit(Msg::Undo);
+        pump(stage);
+        vec![before, after, landscape()]
+            .into_iter()
+            .map(|b| b.to_string())
+            .collect()
+    });
+    assert_eq!(seen, ["false", "true", "false"]);
+}
+
+#[test]
+fn the_view_toggle_switches_to_draft_and_back() {
+    let seen = drive(|stage, rig, _| {
+        let mode = || format!("{:?}", rig.editor.current_view_mode());
+        let first = mode();
+        stage.emit(Msg::PageView(false));
+        pump(stage);
+        let draft = mode();
+        stage.emit(Msg::PageView(true));
+        pump(stage);
+        vec![first, draft, mode()]
+    });
+    assert_eq!(seen, ["Page", "Draft", "Page"]);
+}

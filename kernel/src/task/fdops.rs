@@ -2,7 +2,9 @@
 
 use super::*;
 
-/// Allocate the lowest free descriptor (>= 3) for `entry`. `None` when the
+/// Allocate the lowest free descriptor for `entry`, standard streams included:
+/// POSIX promises it, and BusyBox ash relies on it to give a background job
+/// `/dev/null` as stdin (`close(0); open("/dev/null") == 0`). `None` when the
 /// table is at `limit.fd_max` (the entry is dropped after the table unlocks).
 pub fn fd_open(entry: Fd) -> Option<usize> {
     let mut junk = Vec::new();
@@ -10,7 +12,7 @@ pub fn fd_open(entry: Fd) -> Option<usize> {
         let mut tasks = TASKS.lock();
         let me = current();
         let task = tasks[me].as_mut()?;
-        match task.fds.install_lowest(3, entry) {
+        match task.fds.install_lowest(0, entry) {
             Ok(fd) => {
                 fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
                 Some(fd)

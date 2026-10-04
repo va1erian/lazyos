@@ -4,6 +4,12 @@
 /// by `mimed` at boot. Written by the image build.
 pub const MIME_TYPES: &str = "/system/share/mime.types";
 
+/// The desktop pictures a desktop image ships (`Aurora.jpg`, `Dunes.jpg`,
+/// `LazyOS-Night.jpg`, `LazyOS-Green.jpg`; `assets/wallpapers`): Settings
+/// lists this directory and LazyShell draws the one `sys/ui/wallpaper` names.
+/// Written by the image build.
+pub const WALLPAPERS: &str = "/system/share/wallpapers";
+
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
 /// `writer-sample.png`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
 /// replaced by real core packages.
@@ -47,7 +53,7 @@ mod tests {
 
     #[test]
     fn data_lives_in_system_share() {
-        for path in [MIME_TYPES, SAMPLES, LAZYRAD_SAMPLES] {
+        for path in [MIME_TYPES, WALLPAPERS, SAMPLES, LAZYRAD_SAMPLES] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
         for path in [

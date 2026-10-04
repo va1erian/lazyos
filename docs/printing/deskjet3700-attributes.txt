@@ -1,0 +1,1931 @@
+# IPP 2.0, status 0x0000
+
+# group 0x01
+attributes-charset = utf-8
+attributes-natural-language = en
+
+# group 0x04
+printer-uri-supported = ipp://192.168.1.89/ipp/print
+  ipps://192.168.1.89:443/ipp/print
+uri-security-supported = none
+  tls
+uri-authentication-supported = requesting-user-name
+  requesting-user-name
+printer-settable-attributes-supported = none
+printer-wifi-ssid = [redacted]
+printer-wifi-state = 8
+printer-name = HPXXXXXX
+printer-location = 
+printer-more-info = http://192.168.1.89/#hId-pgAirPrint
+printer-info = HP DeskJet 3700 series [XXXXXX]
+printer-dns-sd-name = HP DeskJet 3700 series [XXXXXX]
+printer-make-and-model = HP DeskJet 3700 series
+printer-state = 3
+printer-state-reasons = none
+printer-state-message = 
+ipp-versions-supported = 1.0
+  1.1
+  2.0
+operations-supported = 2
+  4
+  8
+  57
+  9
+  10
+  11
+  5
+  6
+  19
+  3
+  7
+  59
+  60
+charset-configured = utf-8
+charset-supported = utf-8
+natural-language-configured = en
+generated-natural-language-supported = en
+  fr
+  de
+  es
+  it
+  sv
+  da
+  no
+  nl
+  fi
+  pt
+  pl
+  tr
+  zh-tw
+  ru
+  cs
+  hu
+  ko
+  he
+  el
+  ar
+  bg
+  hr
+  ro
+  sk
+  sl
+printer-strings-languages-supported = en
+  fr
+  de
+  es
+  it
+  sv
+  da
+  no
+  nl
+  fi
+  pt
+  pl
+  tr
+  zh-tw
+  ru
+  cs
+  hu
+  ko
+  he
+  el
+  ar
+  bg
+  hr
+  ro
+  sk
+  sl
+printer-strings-uri = http://192.168.1.89/ipp/files/en.strings
+document-format-default = application/octet-stream
+document-format-supported = application/vnd.hp-PCL
+  image/jpeg
+  application/PCLm
+  image/urf
+  image/pwg-raster
+  application/octet-stream
+document-format-version-supported = PCL3GUI
+  PJL
+  Automatic
+  JPEG
+  PCLM
+  AppleRaster
+  PWGRaster
+printer-is-accepting-jobs = true
+queued-job-count = 0
+pdl-override-supported = attempted
+printer-up-time = 6191500
+printer-current-time = 
+compression-supported = none
+  deflate
+  gzip
+color-supported = true
+job-creation-attributes-supported = copies
+  finishings
+  finishings-col
+  job-pages-per-set
+  sides
+  orientation-requested
+  media
+  print-quality
+  printer-resolution
+  output-bin
+  media-col
+  output-mode
+  print-content-optimize
+  pclm-source-resolution
+  print-color-mode
+  ipp-attribute-fidelity
+  job-name
+  page-ranges
+  multiple-document-handling
+  job-mandatory-attributes
+  print-rendering-intent
+  print-scaling
+reference-uri-schemes-supported = http
+  https
+printer-device-id = MFG:HP;MDL:DeskJet 3700 series;CMD:PCL3GUI,PJL,Automatic,JPEG,PCLM,AppleRaster,PWGRaster,DW-PCL,802.11,DESKJET,DYN;CLS:PRINTER;DES:T8X23B;CID:HPDeskjet_P976D;LEDMDIS:USB#FF#CC#00,USB#07#01#02,USB#FF#04#01;SN:[redacted];S:038000C480a00001002c240005ac1400032;Z:05000001000001,12000,17000000000000,181;
+printer-alert = 636f64653d756e6b6e6f776e3b73657665726974793d7761726e696e673b67726f75703d6f74686572
+printer-alert-description = calibrationRequired
+printer-uuid = urn:uuid:[redacted]
+landscape-orientation-requested-preferred = 5
+job-constraints-supported = {
+  resolver-name: fullbleed-sizes
+  media-top-margin: 0
+  media-bottom-margin: 0
+  media-left-margin: 0
+  media-right-margin: 0
+  media: na_executive_7.25x10.5in
+na_letter_8.5x11in
+na_legal_8.5x14in
+na_govt-letter_8x10in
+na_invoice_5.5x8.5in
+iso_a5_148x210mm
+iso_a4_210x297mm
+jis_b5_182x257mm
+jpn_hagaki_100x148mm
+iso_a6_105x148mm
+na_index-4x6_4x6in
+na_index-5x8_5x8in
+na_index-3x5_3x5in
+na_monarch_3.875x7.5in
+na_number-10_4.125x9.5in
+iso_dl_110x220mm
+iso_c5_162x229mm
+iso_c6_114x162mm
+na_a2_4.375x5.75in
+jpn_chou3_120x235mm
+jpn_chou4_90x205mm
+oe_photo-l_3.5x5in
+jpn_photo-2l_127x177.8mm
+na_5x7_5x7in
+oe_photo_4x5in
+na_personal_3.625x6.5in
+iso_b5_176x250mm
+om_small-photo_100x150mm
+na_foolscap_8.5x13in
+}
+job-resolvers-supported = {
+  resolver-name: fullbleed-sizes
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+}
+ipp-features-supported = airprint-1.5
+  ipp-everywhere
+which-jobs-supported = completed
+  not-completed
+  all
+job-ids-supported = true
+requesting-user-uri-supported = true
+multiple-operation-time-out-action = process-job
+printer-geo-location = 
+preferred-attributes-supported = false
+printer-config-change-date-time = 
+printer-config-change-time = 0
+printer-state-change-date-time = 
+printer-state-change-time = 6013715
+document-password-supported = 0
+printer-kind = document
+  envelope
+  photo
+  postcard
+media-supported = na_executive_7.25x10.5in
+  na_letter_8.5x11in
+  na_legal_8.5x14in
+  na_govt-letter_8x10in
+  na_invoice_5.5x8.5in
+  iso_a5_148x210mm
+  iso_a4_210x297mm
+  jis_b5_182x257mm
+  jpn_hagaki_100x148mm
+  iso_a6_105x148mm
+  na_index-4x6_4x6in
+  na_index-5x8_5x8in
+  na_index-3x5_3x5in
+  na_monarch_3.875x7.5in
+  na_number-10_4.125x9.5in
+  iso_dl_110x220mm
+  iso_c5_162x229mm
+  iso_c6_114x162mm
+  na_a2_4.375x5.75in
+  jpn_chou3_120x235mm
+  jpn_chou4_90x205mm
+  oe_photo-l_3.5x5in
+  jpn_photo-2l_127x177.8mm
+  na_5x7_5x7in
+  oe_photo_4x5in
+  na_personal_3.625x6.5in
+  iso_b5_176x250mm
+  om_small-photo_100x150mm
+  na_foolscap_8.5x13in
+  custom_min_3x5in
+  custom_max_8.5x14in
+media-default = iso_a4_210x297mm
+media-col-supported = media-type
+  media-size
+  media-top-margin
+  media-left-margin
+  media-right-margin
+  media-bottom-margin
+  media-source
+  media-size-name
+media-col-default = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+media-col-database = {
+  media-size: {
+    x-dimension: 18415
+    y-dimension: 26670
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18415
+    y-dimension: 26670
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18415
+    y-dimension: 26670
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18415
+    y-dimension: 26670
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 27940
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 27940
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 27940
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 27940
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 35560
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 35560
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 35560
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 35560
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 20320
+    y-dimension: 25400
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 20320
+    y-dimension: 25400
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 20320
+    y-dimension: 25400
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 20320
+    y-dimension: 25400
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 13970
+    y-dimension: 21590
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 13970
+    y-dimension: 21590
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 13970
+    y-dimension: 21590
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 13970
+    y-dimension: 21590
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 14800
+    y-dimension: 21000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 14800
+    y-dimension: 21000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 14800
+    y-dimension: 21000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 14800
+    y-dimension: 21000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18200
+    y-dimension: 25700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18200
+    y-dimension: 25700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18200
+    y-dimension: 25700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 18200
+    y-dimension: 25700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10500
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10500
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10500
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10500
+    y-dimension: 14800
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 15240
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 15240
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 15240
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 15240
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 20320
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 20320
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 20320
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 20320
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 7620
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 7620
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 7620
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 7620
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9842
+    y-dimension: 19050
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9842
+    y-dimension: 19050
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9842
+    y-dimension: 19050
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9842
+    y-dimension: 19050
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10477
+    y-dimension: 24130
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10477
+    y-dimension: 24130
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10477
+    y-dimension: 24130
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10477
+    y-dimension: 24130
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11000
+    y-dimension: 22000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11000
+    y-dimension: 22000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11000
+    y-dimension: 22000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11000
+    y-dimension: 22000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 16200
+    y-dimension: 22900
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 16200
+    y-dimension: 22900
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 16200
+    y-dimension: 22900
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 16200
+    y-dimension: 22900
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11400
+    y-dimension: 16200
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11400
+    y-dimension: 16200
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11400
+    y-dimension: 16200
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11400
+    y-dimension: 16200
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11112
+    y-dimension: 14605
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11112
+    y-dimension: 14605
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11112
+    y-dimension: 14605
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 11112
+    y-dimension: 14605
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12000
+    y-dimension: 23500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12000
+    y-dimension: 23500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12000
+    y-dimension: 23500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12000
+    y-dimension: 23500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9000
+    y-dimension: 20500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9000
+    y-dimension: 20500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9000
+    y-dimension: 20500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9000
+    y-dimension: 20500
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 8890
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 8890
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 8890
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 8890
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 12700
+    y-dimension: 17780
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10160
+    y-dimension: 12700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9207
+    y-dimension: 16510
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9207
+    y-dimension: 16510
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9207
+    y-dimension: 16510
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 9207
+    y-dimension: 16510
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 17600
+    y-dimension: 25000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 17600
+    y-dimension: 25000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 17600
+    y-dimension: 25000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 17600
+    y-dimension: 25000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 15000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 15000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 15000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 10000
+    y-dimension: 15000
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 33020
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 33020
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: photographic-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 33020
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-glossy
+}
+  media-col-database = {
+  media-size: {
+    x-dimension: 21590
+    y-dimension: 33020
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: com.hp.specialty-matte
+}
+finishings-col-database = 
+media-left-margin-supported = 296
+media-right-margin-supported = 296
+media-top-margin-supported = 296
+media-bottom-margin-supported = 1270
+media-source-supported = main
+media-type-supported = stationery
+  photographic-glossy
+  com.hp.specialty-glossy
+  com.hp.specialty-matte
+media-size-supported = {
+  x-dimension: 18415
+  y-dimension: 26670
+}
+  media-size-supported = {
+  x-dimension: 21590
+  y-dimension: 27940
+}
+  media-size-supported = {
+  x-dimension: 21590
+  y-dimension: 35560
+}
+  media-size-supported = {
+  x-dimension: 20320
+  y-dimension: 25400
+}
+  media-size-supported = {
+  x-dimension: 13970
+  y-dimension: 21590
+}
+  media-size-supported = {
+  x-dimension: 14800
+  y-dimension: 21000
+}
+  media-size-supported = {
+  x-dimension: 21000
+  y-dimension: 29700
+}
+  media-size-supported = {
+  x-dimension: 18200
+  y-dimension: 25700
+}
+  media-size-supported = {
+  x-dimension: 10000
+  y-dimension: 14800
+}
+  media-size-supported = {
+  x-dimension: 10500
+  y-dimension: 14800
+}
+  media-size-supported = {
+  x-dimension: 10160
+  y-dimension: 15240
+}
+  media-size-supported = {
+  x-dimension: 12700
+  y-dimension: 20320
+}
+  media-size-supported = {
+  x-dimension: 7620
+  y-dimension: 12700
+}
+  media-size-supported = {
+  x-dimension: 9842
+  y-dimension: 19050
+}
+  media-size-supported = {
+  x-dimension: 10477
+  y-dimension: 24130
+}
+  media-size-supported = {
+  x-dimension: 11000
+  y-dimension: 22000
+}
+  media-size-supported = {
+  x-dimension: 16200
+  y-dimension: 22900
+}
+  media-size-supported = {
+  x-dimension: 11400
+  y-dimension: 16200
+}
+  media-size-supported = {
+  x-dimension: 11112
+  y-dimension: 14605
+}
+  media-size-supported = {
+  x-dimension: 12000
+  y-dimension: 23500
+}
+  media-size-supported = {
+  x-dimension: 9000
+  y-dimension: 20500
+}
+  media-size-supported = {
+  x-dimension: 8890
+  y-dimension: 12700
+}
+  media-size-supported = {
+  x-dimension: 12700
+  y-dimension: 17780
+}
+  media-size-supported = {
+  x-dimension: 12700
+  y-dimension: 17780
+}
+  media-size-supported = {
+  x-dimension: 10160
+  y-dimension: 12700
+}
+  media-size-supported = {
+  x-dimension: 9207
+  y-dimension: 16510
+}
+  media-size-supported = {
+  x-dimension: 17600
+  y-dimension: 25000
+}
+  media-size-supported = {
+  x-dimension: 10000
+  y-dimension: 15000
+}
+  media-size-supported = {
+  x-dimension: 21590
+  y-dimension: 33020
+}
+  media-size-supported = {
+  x-dimension: 7620-21590
+  y-dimension: 12700-35560
+}
+media-ready = iso_a4_210x297mm
+media-col-ready = {
+  media-size: {
+    x-dimension: 21000
+    y-dimension: 29700
+  }
+  media-top-margin: 296
+  media-bottom-margin: 1270
+  media-left-margin: 296
+  media-right-margin: 296
+  media-source: main
+  media-type: stationery
+}
+finishings-col-ready = 
+finishings-col-supported = finishing-template
+printer-finisher = 
+printer-finisher-description = 
+pages-per-minute = 8
+pages-per-minute-color = 5
+jpeg-k-octets-supported = 0-12288
+jpeg-x-dimension-supported = 0-16384
+jpeg-y-dimension-supported = 1-16384
+pdf-versions-supported = none
+urf-supported = CP1
+  MT1-2-8-9-10-11
+  PQ3-4-5
+  RS300
+  SRGB24
+  OB9
+  OFU0
+  W8-16
+  DEVW8-16
+  DEVRGB24-48
+  ADOBERGB24-48
+  FN3
+  IS1
+  V1.4
+marker-names = tri-color ink
+  black ink
+marker-colors = #00FFFF#FF00FF#FFFF00
+  #000000
+marker-types = ink-cartridge
+  ink-cartridge
+marker-low-levels = 1
+  1
+marker-high-levels = 100
+  100
+marker-levels = 90
+  50
+printer-supply = 747970653d696e6b4361727472696467653b6d617863617061636974793d3130303b6c6576656c3d39303b636c6173733d737570706c79546861744973436f6e73756d65643b756e69743d70657263656e743b636f6c6f72616e746e616d653d6d756c74692d636f6c6f723b
+  747970653d696e6b4361727472696467653b6d617863617061636974793d3130303b6c6576656c3d35303b636c6173733d737570706c79546861744973436f6e73756d65643b756e69743d70657263656e743b636f6c6f72616e746e616d653d626c61636b3b
+printer-supply-description = Tri-color Cartridge
+  Black Cartridge
+printer-firmware-name = LYP2FN2218AR
+printer-firmware-string-version = LYP2FN2218AR
+printer-firmware-version = 4c595032464e323231384152
+printer-input-tray = 747970653d7368656574466565644175746f4e6f6e52656d6f7661626c653b64696d756e69743d6d6963726f6d65746572733b6d65646961666565643d3239373030303b6d6564696178666565643d3231303030303b6d617863617061636974793d2d323b6c6576656c3d2d323b7374617475733d303b6e616d653d496e7075745472617931
+printer-output-tray = 747970653d756e6b6e6f776e3b6d617863617061636974793d2d323b72656d61696e696e673d2d323b7374617475733d353b737461636b696e676f726465723d756e6b6e6f776e3b7061676564656c69766572793d6661636555703b6e616d653d4f75747075745472617931
+copies-default = 1
+finishings-default = 3
+finishings-col-default = 
+orientation-requested-default = 3
+print-quality-default = 4
+printer-resolution-default = 300x300dpi
+sides-default = one-sided
+output-bin-default = face-up
+output-mode-default = auto
+print-color-mode-default = auto
+multiple-document-handling-default = separate-documents-uncollated-copies
+number-up-default = 1
+presentation-direction-number-up-default = toright-tobottom
+print-rendering-intent-default = auto
+print-scaling-default = auto
+copies-supported = 1-99
+finishings-supported = 3
+job-pages-per-set-supported = 1-2147483647
+orientation-requested-supported = 3
+print-quality-supported = 3
+  4
+  5
+printer-resolution-supported = 300x300dpi
+sides-supported = one-sided
+output-bin-supported = face-up
+output-mode-supported = auto
+  auto-monochrome
+  monochrome
+  color
+print-color-mode-supported = auto
+  auto-monochrome
+  monochrome
+  color
+  process-monochrome
+page-ranges-supported = true
+multiple-document-handling-supported = separate-documents-uncollated-copies
+  separate-documents-collated-copies
+number-up-supported = 1
+presentation-direction-number-up-supported = toright-tobottom
+print-rendering-intent-supported = auto
+  perceptual
+print-scaling-supported = auto
+  auto-fit
+  fill
+  fit
+  none
+printer-icons = http://192.168.1.89/webApps/images/printer-small.png
+  http://192.168.1.89/webApps/images/printer.png
+  http://192.168.1.89/webApps/images/printer-large.png
+printer-supply-info-uri = http://192.168.1.89/#hId-pgInkConsumables
+print-content-optimize-default = auto
+print-content-optimize-supported = auto
+  photo
+  graphics
+  text
+  text-and-graphics
+pwg-raster-document-sheet-back = rotated
+pwg-raster-document-type-supported = sgray_8
+  srgb_8
+  adobe-rgb_8
+  sgray_16
+  srgb_16
+  adobe-rgb_16
+  rgb_8
+  rgb_16
+pwg-raster-document-resolution-supported = 300x300dpi
+epcl-version-supported = 1.0
+manual-duplex-supported = false
+pclm-source-resolution-supported = 300x300dpi
+  600x600dpi
+pclm-source-resolution-default = 600x600dpi
+pclm-strip-height-supported = 16
+pclm-strip-height-preferred = 16
+pclm-raster-back-side = rotated
+pclm-compression-method-preferred = jpeg
+  flate
+  rle
+document-format-varying-attributes = copies
+printer-get-attributes-supported = document-format
+printer-organization = 
+printer-organizational-unit = 
+identify-actions-default = flash
+identify-actions-supported = flash
+  pin
+limit-operations-supported = 10
+multiple-operation-time-out = 120
+multiple-document-jobs-supported = false

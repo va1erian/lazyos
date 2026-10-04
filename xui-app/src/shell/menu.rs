@@ -21,8 +21,9 @@ use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec, TextStyle};
 use xui_core::{Canvas, Control, Dip, MouseButton, Rect};
 
 use super::ctx::Ctx;
-use super::theme::color;
+use super::theme::{chrome_look, color, fill_bar};
 use crate::client_window::SurfaceRole;
+use xui_core::theme::look;
 
 /// Row text size.
 const TEXT: Dip = Dip(12.0);
@@ -234,8 +235,9 @@ fn rect(r: ShellRect, s: i32) -> Rect {
 fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let palette = ctx.theme.borrow().palette();
     let s = ctx.scale();
+    let deco = chrome_look(ctx.theme.borrow().is_dark());
     let bounds = canvas.bounds();
-    canvas.clear(color(palette.overlay_bg));
+    fill_bar(canvas, bounds, palette.overlay_bg, &deco);
     canvas.stroke_rect(bounds, color(palette.overlay_border), s as f32);
 
     // The banner: "LazyOS" read top to bottom, one letter per line, at its
@@ -246,7 +248,7 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         bounds.left + BANNER_W * s,
         bounds.bottom,
     );
-    canvas.fill_rect(banner, color(palette.overlay_selected));
+    look::face(canvas, banner, 0.0, color(palette.overlay_selected), &deco);
     let letter = TextStyle::new(color(0xFF_FF_FF), BANNER_TEXT)
         .bold()
         .centered()
@@ -275,7 +277,13 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         if row.action == Action::Header {
             // A category title: bold, in the banner's colour, never lit.
             canvas.push_clip(label);
-            let ink = color(palette.overlay_selected);
+            // The accent lifted toward white on a dark panel, where the plain
+            // accent is too dim to read as a title.
+            let ink = if ctx.theme.borrow().is_dark() {
+                color(uitheme::mix(palette.overlay_selected, 0xFF_FF_FF, 1, 2))
+            } else {
+                color(palette.overlay_selected)
+            };
             canvas.draw_text(
                 &row.label,
                 label,
@@ -286,7 +294,19 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         }
         let lit = row.enabled && hover == Some(index);
         if lit {
-            canvas.fill_rect(area, color(palette.overlay_selected));
+            let lit_area = Rect::new(
+                area.left + 2 * s,
+                area.top + s,
+                area.right - 2 * s,
+                area.bottom - s,
+            );
+            look::face(
+                canvas,
+                lit_area,
+                4.0 * s as f32,
+                color(palette.overlay_selected),
+                &deco,
+            );
         }
         let ink = if !row.enabled {
             uitheme::mix(palette.overlay_text, palette.overlay_bg, 3, 5)

@@ -158,12 +158,12 @@ impl Client {
     }
 }
 
-/// The user's headers for one hop: credential headers only when `trusted`
-/// (the hop is on the origin the user named).
+/// The user's headers for one hop: all of them on the origin the user named
+/// (`trusted`), only the harmless ones after a redirect elsewhere.
 fn sent_headers(opts: &Options, trusted: bool) -> impl Iterator<Item = (&str, &str)> {
     opts.headers
         .iter()
-        .filter(move |(name, _)| trusted || !redirect::is_credential_header(name))
+        .filter(move |(name, _)| trusted || redirect::crosses_origins(name))
         .map(|(name, value)| (name.as_str(), value.as_str()))
 }
 

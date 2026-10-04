@@ -412,6 +412,11 @@ pub fn await_reply(txn_id: u64) -> Result<Vec<u8>, Error> {
         if reason == WakeReason::TimedOut {
             expire_transaction(txn_id);
         }
+        // A killed caller must reach its syscall return to die: cancel the
+        // call so the next check ends the wait (with `Canceled`).
+        if reason == WakeReason::Interrupted && task::signal::killed(me) {
+            let _ = cancel(txn_id);
+        }
     }
 }
 

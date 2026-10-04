@@ -22,11 +22,26 @@ pub(super) struct Armed {
     pub(super) info: SigInfo,
 }
 
+/// The next pending signal the mask lets through, with its disposition.
+/// `SIGKILL` cannot be blocked and goes first: nothing (a handler, a stop)
+/// may run ahead of a kill.
 pub(super) fn next_deliverable(pml4: u64) -> Option<(u8, Disposition)> {
     with_signals(pml4, |state| {
-        let ready = state.pending & !state.blocked;
-        lowest_signal(ready).map(|sig| (sig, state.actions[sig as usize]))
+        let ready = state.pending & !clean_mask(state.blocked);
+        let sig = if ready & bit(SIGKILL) != 0 {
+            Some(SIGKILL)
+        } else {
+            lowest_signal(ready)
+        };
+        sig.map(|sig| (sig, state.actions[sig as usize]))
     })
+}
+
+/// The status a task ending on fatal signal `sig` records: the group exit's
+/// when one is in progress (every thread of a killed process reports the
+/// same status), otherwise `128 + sig`.
+pub(super) fn fatal_status(pml4: u64, sig: u8) -> u64 {
+    with_signals(pml4, |state| state.group_exit.unwrap_or(128 + sig as u64))
 }
 
 pub(super) fn clear_pending(pml4: u64, sig: u8) {
@@ -219,8 +234,9 @@ pub(super) fn halt_forever() -> ! {
 
 /// Park the caller while its process is stopped, resuming on `SIGCONT`. Used
 /// when a delivery boundary meets a stop default. A `SIGKILL` while stopped
-/// marks the task `Done`; there is nothing to resume, so it halts like any
-/// other termination (the scheduler has already moved on).
+/// wakes the task, which returns here and dies on the pending kill; a task
+/// marked `Done` some other way (a fault) halts like any other termination
+/// (the scheduler has already moved on).
 pub(super) fn wait_continued() {
     loop {
         let state = {
@@ -279,8 +295,7 @@ pub(super) fn apply_action(
             if default_action(sig) == DefaultAction::Core {
                 serial_println!("signal: task {} core-dumped on signal {sig}", current());
             }
-            terminate_process(pml4, 128 + sig as u64);
-            halt_forever();
+            exit_group(pml4, 128 + sig as u64);
         }
         DefaultAction::Stop => {
             stop_process(pml4);

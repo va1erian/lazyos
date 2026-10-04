@@ -338,6 +338,11 @@ fn sys_wait(deadline: u64) -> u64 {
             return pack_exit(slot, status);
         }
         let timeout = CHILD_EXIT.wait(me, (deadline != 0).then_some(deadline));
+        // A killed caller returns (as a timeout it never sees) so the gate
+        // can end it; a wait with no deadline would otherwise park again.
+        if timeout == WakeReason::Interrupted && task::signal::killed(me) {
+            return u64::MAX;
+        }
         if timeout == WakeReason::TimedOut {
             // A child may have exited on the very tick the deadline passed.
             return match task::reap_child() {

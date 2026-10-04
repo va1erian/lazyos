@@ -50,14 +50,14 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   `Ctrl+Shift+S` (Save As), `Ctrl+E` (Export as Markdown) and `Ctrl+Q`
   (Quit) are the app's (`ui.on_key`; the Windows key counts as `Ctrl`, and
   any combination with `Alt`, which includes AltGr, is left as typing);
-  `Ctrl+B/I/U/Z/Y/X/C/V/A` are the editor's own. The toolbar tooltips name
+  `Ctrl+B/I/U/Z/Y/X/C/V/A` and `Ctrl+Enter` (page break) are the editor's own. The toolbar tooltips name
   the shortcuts (`Save (Ctrl+S)`), and each icon-only button in the format
   row has a tooltip with its name. A `dialog_open` flag (the Editor's
   pattern) keeps `Esc`, `Enter` and the app's shortcuts from reaching the
   document while a dialog is up, and stops a second dialog opening over it.
 * **Status and title.** The status bar shows the file name (or "Untitled"),
-  Saved or Modified, and a word count taken from the plain text on each
-  change; the title is `LazyWriter: <name>`, `LazyWriter: *<name>` while
+  Saved or Modified, a word count taken from the plain text on each
+  change, and the caret's page (`Page 2 of 5`); the title is `LazyWriter: <name>`, `LazyWriter: *<name>` while
   modified. A document is modified once `on_change` fires after a save,
   open or new. Clicking a link shows its address in the status bar.
 * **Dialogs.** Open, Save, Export and Insert image are xui's portable
@@ -74,11 +74,33 @@ keys, pointer --> LazyOSBackend --> Ui --> RichTextEditor<Msg> --exec(Command)--
   address removes the link. It is one `Command::SetCharStyle`, so undo
   removes it.
 
+## Page view
+
+LazyWriter opens in **page view** (`ViewMode::Page`, xui-rich-text's
+`docs/plans/page-view.md`): the document's sheets on a desk, text inside the
+margins, dark on white in either theme, shrunk to fit when the window is
+narrower than a sheet. The book toggle at the right of the format row
+switches to draft view (one continuous column) and back.
+
+* **Page setup** (the ruler button) opens a menu with Paper (A4, Letter),
+  Orientation (Portrait, Landscape) and Margins (Normal: 25 mm on A4, 1 in
+  on Letter; Narrow: 12.7 mm; Wide: 50.8 mm left and right) submenus
+  (`src/page.rs`, `src/ui/page_menu.rs`). Each pick is one
+  `Command::SetPageSetup`, so undo reverts it, and the page is saved in the
+  `.lzw`. A document whose page matches no choice (written elsewhere) shows
+  no entry checked, and a pick starts from A4 Normal in its orientation.
+* **Page break**: `Ctrl+Enter` (the editor's own key) or the toolbar's Page
+  break item runs `Command::InsertPageBreak`; Backspace at the start of the
+  new page removes the break first. Draft view shows it as a dashed rule.
+* **Status bar**: a fourth part, `Page 2 of 5`, from
+  `RichTextEditor::page_info()`, refreshed on every edit and selection change
+  and when the view changes.
+
 ## Formats
 
 | Format | Direction | What |
 |---|---|---|
-| `.lzw` (`application/x-lazywriter`) | open, save | xui-rich-text's versioned JSON (`format::to_json` / `from_json`, crate feature `serde`) with every picture embedded as PNG. |
+| `.lzw` (`application/x-lazywriter`) | open, save | xui-rich-text's versioned JSON (`format::to_json` / `from_json`, crate feature `serde`) with every picture embedded as PNG, the page setup and page breaks. Files from before page view open on A4. |
 | `.md` | export only | GitHub Flavored Markdown (`format::to_markdown`). A document with pictures also gets `<name>_images/1.png`, `2.png`, ... beside the `.md`; the folder is created only when there is a picture. |
 | `.txt` | open only | Plain text (`Document::from_plain_text`), from the Open dialog. Save on a document opened from `.txt` never writes JSON over it: it opens Save As, suggesting `<name>.lzw`. |
 
@@ -129,8 +151,8 @@ at 8 KiB; pasting from another app inserts plain text.
 
 ## Known limits
 
-* One continuous column: no page view, no printing, no IME or bidi (the v1
-  scope of `xui-rich-text`).
+* No printing, headers, footers or page numbers on the page; no IME or bidi
+  (outside `xui-rich-text`'s scope so far).
 * No import of Markdown, HTML, RTF or Word documents; Markdown is export only.
 * The clipboard between apps is plain text, at most 8 KiB.
 * A path containing a space cannot be opened from Files or `pkgctl open` (a

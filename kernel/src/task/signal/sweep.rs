@@ -122,7 +122,7 @@ unsafe fn sweep_slot(
                     return None;
                 }
                 DefaultAction::Term | DefaultAction::Core => {
-                    return finish(tasks, slot, 128 + sig as u64);
+                    return finish(tasks, slot, fatal_status(pml4, sig));
                 }
             },
             Disposition::Handler { .. } => {

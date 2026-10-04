@@ -7,9 +7,10 @@
 //! - A redirect from `https` to `http` is refused: following it would hand
 //!   the rest of the exchange to anyone on the path, silently.
 //! - Each redirect counts against the limit; exceeding it is a failure.
-//! - Credential headers the user gave (`Authorization`, `Cookie`, ...) go
-//!   only to the origin they named, as curl does without
-//!   `--location-trusted`: a redirect must not hand them to another host.
+//! - Headers the user gave go only to the origin they named: any of them
+//!   may carry a secret (`Authorization`, `Cookie`, `X-Api-Key`, ...), so a
+//!   redirect to another host gets only the few that cannot (`Accept`, ...).
+//!   curl drops only the credential ones; this is the safer subset.
 
 use url::Url;
 
@@ -96,9 +97,10 @@ pub fn same_origin(a: &Url, b: &Url) -> bool {
         && a.port_or_known_default() == b.port_or_known_default()
 }
 
-/// Headers that carry credentials, sent only to the origin the user named.
-pub fn is_credential_header(name: &str) -> bool {
-    ["authorization", "proxy-authorization", "cookie"]
+/// The user headers that may follow a redirect to another origin: content
+/// negotiation and ranges, never anything that could carry a secret.
+pub fn crosses_origins(name: &str) -> bool {
+    ["accept", "accept-language", "cache-control", "range"]
         .iter()
         .any(|c| name.eq_ignore_ascii_case(c))
 }
@@ -223,8 +225,14 @@ mod tests {
         assert!(!same_origin(&start, &url("https://evil.example/")));
         assert!(!same_origin(&start, &url("https://a.example:8443/")));
         assert!(!same_origin(&url("http://a.example/"), &start));
-        assert!(is_credential_header("Authorization") && is_credential_header("COOKIE"));
-        assert!(is_credential_header("proxy-authorization"));
-        assert!(!is_credential_header("Accept") && !is_credential_header("X-Cookie"));
+        for secret in [
+            "Authorization",
+            "COOKIE",
+            "proxy-authorization",
+            "X-Api-Key",
+        ] {
+            assert!(!crosses_origins(secret), "{secret}");
+        }
+        assert!(crosses_origins("Accept") && crosses_origins("RANGE"));
     }
 }
