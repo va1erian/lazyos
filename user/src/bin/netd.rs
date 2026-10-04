@@ -180,7 +180,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         api::INTERFACE
     ));
 
-    let now_ms = sys::clock() as i64 * 10;
+    let now_ms = sys::monotonic_ms() as i64;
     let stack = Stack::new(
         RingDevice::detached(1514),
         PLACEHOLDER_MAC,
@@ -204,7 +204,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
 
     loop {
         let tick = sys::clock();
-        let now_ms = tick as i64 * 10;
+        let now_ms = sys::monotonic_ms() as i64;
 
         // The NIC: rebuild the attachment when asked to, when the ring broke,
         // or when the driver went quiet; attach when it is time to.
@@ -345,7 +345,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
             }
             continue;
         }
-        let reply = netd.dispatch(&message, sys::clock() as i64 * 10);
+        let reply = netd.dispatch(&message, sys::monotonic_ms() as i64);
         // A one-way message has nobody to answer, and a parked call is
         // answered later.
         if let Some(txn) = message.txn {
