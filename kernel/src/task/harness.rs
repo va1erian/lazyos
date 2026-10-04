@@ -144,8 +144,12 @@ pub fn state(index: usize) -> Option<TaskState> {
 /// Force `index`'s state, without queueing it anywhere (the wake-rule tests
 /// stage a blocked or done current task this way).
 pub fn set_state(index: usize, state: TaskState) {
-    if let Some(task) = TASKS.lock()[index].as_mut() {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[index].as_mut() {
         task.state = state;
+        if let TaskState::Blocked { deadline, .. } = state {
+            super::waiting::set_timer(index, deadline);
+        }
     }
 }
 
@@ -233,8 +237,14 @@ pub fn pml4(index: usize) -> Option<u64> {
     TASKS.lock()[index].as_ref().map(|task| task.pml4)
 }
 
-/// Run the deadline sweep with an explicit `now`, as a timer tick would.
+/// Run the deadline sweep with an explicit `now` in ticks, as the tick that
+/// makes `TICKS` reach `now` would.
 pub fn expire_deadlines(now: u64) {
+    expire_deadlines_ns(super::ticks_to_ns(now));
+}
+
+/// Run the deadline sweep with an explicit `now` in monotonic nanoseconds.
+pub fn expire_deadlines_ns(now: u64) {
     let mut tasks = TASKS.lock();
     super::expire_deadlines(&mut tasks, now);
 }

@@ -3,7 +3,12 @@
 Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
 (the kernel wake path) are built; their measurements, so far on the dev
 profile under WHPX, are in [`perf/report.md`](perf/report.md) and
-[`perf/history.md`](perf/history.md). P2 onward is not started.
+[`perf/history.md`](perf/history.md). P2 (timekeeping) is built: nanosecond
+deadlines on a timer queue, a one-shot local APIC deadline timer beside the
+100 Hz PIT tick (not the 1000 Hz PIT step, and not yet with the APIC as the
+tick itself), exact Linux timeouts and a native nanosecond sleep; a 1 ms
+sleep went from 10.0 ms to 1.04 ms (p50, WHPX, dev profile). P3 onward is
+not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -157,6 +162,20 @@ Exit: p99 IRQ-to-driver wake under 200 µs on an idle machine (from up to
 Tests: timer ordering, cancellation, wrap, sleeps of 100 µs to 10 s within
 tolerance; a soak arming and cancelling millions of timers.
 Exit: a 1 ms sleep returns within 1.2 ms; ping reports real sub-10 ms times.
+
+**As built** (details in `docs/architecture/tasks.md`, "Deadlines and the
+timer queue"): steps 1 and 4 as planned. For 2 and 3, the PIT stays the
+100 Hz tick and the local APIC timer, unused while the PIT ticks, runs
+one-shot for the earliest deadline inside the current tick period
+(`arch::event_timer`): sub-millisecond expiry with `TICKS`, the quantum and
+the #344 catch-up untouched, and the APIC already brought up by the H2 path.
+Not done: the 1000 Hz PIT step (unneeded), TSC-deadline mode, tickless idle,
+the IOAPIC, and a deadline timer when the APIC timer is itself the tick (a
+PC with a gated PIT, `LAZYOS_TIMER=lapic`), where deadlines still expire at
+ticks. Measured (WHPX, dev profile): `PERF:sleep_1ms` p50 10.0 ms -> 1.04 ms,
+p99 11.5 ms -> 1.9 ms; in `deadline_sleep_accuracy`, idle-CPU sleeps from
+100 µs to 1 s land 20-80 µs late (median). `ping` to the gateway reports
+`time=0 ms` (its RTT is under a millisecond; the reply carries whole ms).
 
 ### P3. Cursor and display
 

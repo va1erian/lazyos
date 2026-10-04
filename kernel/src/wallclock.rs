@@ -80,20 +80,22 @@ pub fn unix_secs() -> i64 {
     now().0
 }
 
-/// Convert a wall-clock instant to the PIT tick a sleeper must wait for.
-/// A time already in the past saturates to tick 0, which resolves
-/// immediately since ticks only advance.
-pub fn wall_to_ticks(secs: u64, centis: u64) -> u64 {
+/// Convert a wall-clock instant (`nanos` below one second) to the
+/// `arch::clock::monotonic_ns` deadline a sleeper must wait for: exactly the
+/// instant `now_ns` reports it, under the current offset. A time already in
+/// the past saturates to 0, which resolves immediately; one beyond the
+/// monotonic range saturates to `u64::MAX`.
+pub fn wall_to_monotonic_ns(secs: u64, nanos: u64) -> u64 {
     init();
-    let cs = (secs as i64)
-        .saturating_mul(HZ)
-        .saturating_add(centis as i64);
-    cs.saturating_sub(OFFSET_CS.load(Ordering::Relaxed)).max(0) as u64
+    const NS_PER_CS: i128 = 10_000_000;
+    let wall = i128::from(secs) * 1_000_000_000 + i128::from(nanos);
+    let mono = wall - i128::from(OFFSET_CS.load(Ordering::Relaxed)) * NS_PER_CS;
+    mono.clamp(0, i128::from(u64::MAX)) as u64
 }
 
 /// Step the clock to `secs` + `centis` (0..100) and persist it to the RTC.
-/// Sleepers already parked on an absolute realtime deadline keep their tick
-/// deadline; only later calls see the new offset.
+/// Sleepers already parked on an absolute realtime deadline keep their
+/// monotonic deadline; only later calls see the new offset.
 pub fn set(secs: i64, centis: u32) {
     init();
     OFFSET_CS.store(secs * HZ + i64::from(centis) - ticks(), Ordering::Relaxed);

@@ -162,8 +162,14 @@ pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: 
     if tick {
         charge_tick(tasks, cur);
     }
-    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
-    expire_deadlines(tasks, now);
+    expire_deadlines(tasks, crate::arch::clock::monotonic_ns());
+}
+
+/// Expire what is due now: the deadline timer's interrupt
+/// (`arch::event_timer`). Call with interrupts off and no lock held.
+pub fn expire_due() {
+    let mut tasks = TASKS.lock();
+    expire_deadlines(&mut tasks, crate::arch::clock::monotonic_ns());
 }
 
 /// Book one timer period to whoever consumed it: the current task when it

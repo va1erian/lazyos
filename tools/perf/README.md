@@ -25,6 +25,7 @@ syscall number of the longest interrupts-off stretch.
 | `input_present` | the same pointer record | the compositor's next `present` returns | the same moves |
 | `irqoff` | a syscall enters, or resumes inside itself | it returns, parks or naps | everything the boot and the run do |
 | `ipc_rt` | in-kernel `begin_call` | `await_reply` returns (no context switch) | 2000 echoes, once, 15 s after boot |
+| `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns | 200 sleeps, once, 17 s after boot |
 
 `input_present` takes the first `present` after `inputd` read the record as
 the one that moved the cursor; an unrelated repaint in between would shorten

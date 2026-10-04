@@ -22,9 +22,10 @@ Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
     input_present  pointer record published -> the compositor's next present returns
     irqoff         one interrupts-off stretch inside a syscall
     ipc_rt         in-kernel Messenger echo round trip (no context switch)
+    sleep_1ms      a 1 ms sleep of the kernel task, request -> return
 
 Exit status is non-zero when the image never reaches the desktop or a metric
-the run must produce (`irqoff`, `ipc_rt`, `input_read`) is missing.
+the run must produce (`irqoff`, `ipc_rt`, `input_read`, `sleep_1ms`) is missing.
 """
 
 from __future__ import annotations
@@ -48,16 +49,18 @@ from qemu_qmp import (  # noqa: E402
 )
 
 REPORT_DIR = ROOT / "docs" / "perf"
-METRICS = ("irq_wake", "input_read", "input_present", "irqoff", "ipc_rt")
-REQUIRED = ("irqoff", "ipc_rt", "input_read")
+METRICS = ("irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms")
+REQUIRED = ("irqoff", "ipc_rt", "input_read", "sleep_1ms")
 RE_METRIC = re.compile(
     r"PERF:(\w+):n=(\d+) p50_us=([\d.]+) p90_us=([\d.]+) p99_us=([\d.]+) "
     r"max_us=([\d.]+) mean_us=([\d.]+)"
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
 READY = ("XUID:UP:PASS", "INPUTD:READY")
-#: The kernel runs its IPC benchmark 15 s after boot; reports come every 2 s.
+#: The kernel runs its IPC benchmark 15 s after boot and its sleep benchmark
+#: (about 1 to 2 s long) at 17 s; reports come every 2 s.
 IPC_BENCH_S = 15.0
+SLEEP_BENCH_S = 17.0
 REPORT_PERIOD_S = 2.0
 #: `netdrv` prints this once its interrupt line is armed.
 NET_READY = "NETDRV:READY"
@@ -197,8 +200,8 @@ def append_history(payload: dict) -> None:
             "# Latency history", "",
             "One row per labelled `python tools/perf/run.py --label ...` run. Microseconds.", "",
             "| Label | Commit | Accel | irq_wake p50/p99/max | input_read p50/p99/max | "
-            "input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 |",
-            "|---|---|---|---|---|---|---|---|",
+            "input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 | sleep_1ms p50/p99/max |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
         path.write_text("\n".join(header) + "\n", encoding="utf-8")
     metrics, meta = payload["metrics"], payload["meta"]
@@ -214,7 +217,8 @@ def append_history(payload: dict) -> None:
         f"{cell('irq_wake', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('input_read', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('input_present', ('p50_us', 'p99_us', 'max_us'))} | "
-        f"{cell('irqoff', ('p99_us', 'max_us'))} | {cell('ipc_rt', ('p50_us', 'p99_us'))} |"
+        f"{cell('irqoff', ('p99_us', 'max_us'))} | {cell('ipc_rt', ('p50_us', 'p99_us'))} | "
+        f"{cell('sleep_1ms', ('p50_us', 'p99_us', 'max_us'))} |"
     )
     with path.open("a", encoding="utf-8") as handle:
         handle.write(row + "\n")
@@ -280,7 +284,7 @@ def main() -> int:
         knocker = threading.Thread(target=knock, args=(knock_port, stop), daemon=True)
         if not args.no_knock:
             knocker.start()
-        time.sleep(max(5.0, IPC_BENCH_S + 3 - (time.time() - boot)))
+        time.sleep(max(5.0, SLEEP_BENCH_S + 4 - (time.time() - boot)))
         print(f"moving the mouse: {args.moves} packets", flush=True)
         move_mouse(qmp, args.moves, args.pause)
         stop.set()

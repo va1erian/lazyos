@@ -3,6 +3,7 @@
 pub mod acpi_tables;
 pub mod clock;
 pub mod cpu;
+pub mod event_timer;
 pub mod fault;
 pub mod fault_report;
 pub mod fault_storm;

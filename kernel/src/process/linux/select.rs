@@ -13,30 +13,15 @@ use crate::user_ptr;
 
 use super::errno::{err, EBADF, EFAULT, EINTR, EINVAL};
 use super::io::scan_poll;
-use super::time::millis_to_ticks;
+use super::time::{deadline_after_ns, now_ns, timespec_ns, write_duration};
 
 /// `FD_SETSIZE`: the largest descriptor set `select` takes.
 const FD_SETSIZE: u64 = 1024;
 /// `POLLPRI`: exceptional conditions (out-of-band data); nothing here has any.
 const POLLPRI: u16 = 0x0002;
 
-/// A deadline in PIT ticks from a timeout of `millis` (rounded up).
-fn deadline_after(millis: u64) -> u64 {
-    if millis == 0 {
-        task::ticks()
-    } else {
-        task::ticks().saturating_add(millis_to_ticks(millis))
-    }
-}
-
-/// `(sec, nsec)` -> milliseconds, rounding a partial millisecond up.
-fn to_millis(sec: u64, nsec: u64) -> u64 {
-    sec.saturating_mul(1000)
-        .saturating_add(nsec.div_ceil(1_000_000))
-}
-
 /// Read a `struct timespec`/`struct timeval` (`unit` = 1 for nanoseconds,
-/// 1000 for microseconds) as milliseconds; `EINVAL` for a negative or
+/// 1000 for microseconds) as nanoseconds; `EINVAL` for a negative or
 /// non-canonical value.
 fn read_timeout(ptr: u64, unit: u64) -> Result<u64, u64> {
     let (Ok(sec), Ok(frac)) = (
@@ -48,27 +33,25 @@ fn read_timeout(ptr: u64, unit: u64) -> Result<u64, u64> {
     if sec < 0 || frac < 0 || frac as u64 >= 1_000_000_000 / unit {
         return Err(err(EINVAL));
     }
-    Ok(to_millis(sec as u64, frac as u64 * unit))
+    Ok(timespec_ns(sec as u64, frac as u64 * unit))
 }
 
 /// Write the time left before `deadline` back as a timespec/timeval.
 fn write_remaining(ptr: u64, deadline: u64, unit: u64) {
-    let left = deadline.saturating_sub(task::ticks());
-    let frac = (left % 100) * 10_000_000 / unit;
-    let _ = user_ptr::try_write::<i64>(ptr, (left / 100) as i64);
-    let _ = user_ptr::try_write::<i64>(ptr + 8, frac as i64);
+    write_duration(ptr, deadline.saturating_sub(now_ns()), unit);
 }
 
 /// Wait until `scan` reports a non-zero count (or an error), or `deadline`
-/// passes (`Ok(0)`), or a signal arrives (`EINTR`). `scan` runs with
-/// interrupts off, so no readiness change can slip between it and the park.
+/// (monotonic ns) passes (`Ok(0)`), or a signal arrives (`EINTR`). `scan`
+/// runs with interrupts off, so no readiness change can slip between it and
+/// the park.
 fn wait_ready(deadline: Option<u64>, mut scan: impl FnMut() -> u64) -> u64 {
     loop {
         let ready = scan();
-        if ready != 0 || deadline.is_some_and(|due| due <= task::ticks()) {
+        if ready != 0 || deadline.is_some_and(|due| due <= now_ns()) {
             return ready;
         }
-        match task::wait_poll(deadline) {
+        match task::wait_poll_ns(deadline) {
             WakeReason::Woken => {}
             WakeReason::TimedOut => return scan(),
             WakeReason::Interrupted => return err(EINTR),
@@ -98,7 +81,7 @@ pub(super) fn sys_ppoll(fds: u64, nfds: u64, timeout: u64, sigmask: u64, size: u
         None
     } else {
         match read_timeout(timeout, 1) {
-            Ok(millis) => Some(deadline_after(millis)),
+            Ok(ns) => Some(deadline_after_ns(ns)),
             Err(code) => return code,
         }
     };
@@ -230,7 +213,7 @@ pub(super) fn sys_select(nfds: u64, read: u64, write: u64, except: u64, timeout:
         None
     } else {
         match read_timeout(timeout, 1000) {
-            Ok(millis) => Some(deadline_after(millis)),
+            Ok(ns) => Some(deadline_after_ns(ns)),
             Err(code) => return code,
         }
     };
@@ -248,7 +231,7 @@ pub(super) fn sys_pselect6(nfds: u64, sets: [u64; 3], timeout: u64, sigmask: u64
         None
     } else {
         match read_timeout(timeout, 1) {
-            Ok(millis) => Some(deadline_after(millis)),
+            Ok(ns) => Some(deadline_after_ns(ns)),
             Err(code) => return code,
         }
     };

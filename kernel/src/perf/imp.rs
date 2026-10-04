@@ -11,6 +11,7 @@ static INPUT_READ: Samples = Samples::new();
 static INPUT_PRESENT: Samples = Samples::new();
 static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
+static SLEEP_1MS: Samples = Samples::new();
 
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
@@ -179,6 +180,9 @@ const REPORT_TICKS: u64 = 200;
 const IPC_BENCH_TICK: u64 = 1500;
 static NEXT_REPORT: AtomicU64 = AtomicU64::new(0);
 static IPC_DONE: AtomicBool = AtomicBool::new(false);
+/// The sleep benchmark runs once, after the IPC one.
+const SLEEP_BENCH_TICK: u64 = 1700;
+static SLEEP_DONE: AtomicBool = AtomicBool::new(false);
 static REPORTED_WORST: AtomicU64 = AtomicU64::new(0);
 
 pub fn service() {
@@ -190,6 +194,9 @@ pub fn service() {
     if now >= IPC_BENCH_TICK && !IPC_DONE.swap(true, Ordering::Relaxed) {
         super::ipcbench::run(|cycles| IPC_RT.record(cycles));
     }
+    if now >= SLEEP_BENCH_TICK && !SLEEP_DONE.swap(true, Ordering::Relaxed) {
+        super::sleepbench::run(|cycles| SLEEP_1MS.record(cycles));
+    }
     let per_tick = crate::arch::clock::cycles_per_tick();
     for (name, samples) in [
         ("irq_wake", &IRQ_WAKE),
@@ -197,6 +204,7 @@ pub fn service() {
         ("input_present", &INPUT_PRESENT),
         ("irqoff", &IRQOFF),
         ("ipc_rt", &IPC_RT),
+        ("sleep_1ms", &SLEEP_1MS),
     ] {
         if !samples.changed() {
             continue;

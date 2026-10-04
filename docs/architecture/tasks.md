@@ -23,7 +23,9 @@ ISR that performs context switches.
   until USB storage, whose I/O parks the writer deep inside ext2).
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept
-  until reaped). `WakeReason`: `Woken`, `TimedOut`, `Interrupted`.
+  until reaped). `WakeReason`: `Woken`, `TimedOut`, `Interrupted`. The
+  deadline is monotonic nanoseconds (`arch::clock::monotonic_ns`); see
+  "Deadlines and the timer queue" below.
 - Parentless tasks (`parent == 0`: kernel-started programs and
   `clone(CLONE_VM)` threads) have no `wait4` observer. The scheduler flags a
   finished one and `reclaim_pending` — run from a syscall entry or the mux
@@ -62,7 +64,7 @@ ISR that performs context switches.
 
 1. PIT tick -> `timer_isr` pushes 15 GP registers, calls `schedule(rsp)`.
 2. `schedule` acknowledges the PIC, bumps `TICKS`, saves `rsp`, charges
-   `cpu_ticks`, expires deadlines, sweeps signals (`signal::sweep`, handler
+   `cpu_ticks`, expires due deadlines from the timer queue, sweeps signals (`signal::sweep`, handler
    frames only through the installed table), then picks the next task.
 3. On a real switch: `mem::switch_to(pml4)`, sets TSS `RSP0` and
    `arch::linux::KERNEL_STACK`, restores `IA32_FS_BASE`, then delivers the
@@ -123,6 +125,46 @@ ISR that performs context switches.
 - Tests run real switches on ring-0 test threads (`task::kthread`,
   `LAZYOS_TESTS` only): `preempt_wake_suite`, `waitset_suite` and
   `dev_suite::irq_prompt`.
+
+**Deadlines and the timer queue** (docs/performance-plan.md P2)
+
+- Every timed wait is a deadline in monotonic nanoseconds. The tick-based
+  entry points (`WaitQueue::wait`/`park`, `task::idle`, `wait_sleep`, the
+  native ABI's tick deadlines, Messenger deadlines) keep their meaning by
+  converting with `task::ticks_to_ns` (`tick * 10 ms`): `monotonic_ns` is
+  `TICKS * 10 ms` plus less than one period, so a tick deadline passes on
+  exactly the tick it names. `TICKS` itself, `clock` (native syscall 8) and
+  every tick deadline still advance at 100 Hz.
+- `task::timerq::TIMERS` is an indexed binary min-heap over task slots, one
+  entry per blocked task with a deadline: `block_task` arms (or cancels) it,
+  `wake_task_with` cancels it, both under the task table (lock order `TASKS`
+  then `TIMERS`). `expire_deadlines` pops only the due entries; an entry
+  whose task is no longer blocked with that same deadline (stopped, finished,
+  replaced) is dropped. Scheduler entries no longer scan all 256 slots.
+- The deadline timer (`arch::event_timer`): with the PIT as the tick, the
+  local APIC timer (otherwise unused) runs one-shot on vector `0x31`, armed
+  for the earliest deadline if it falls inside the current tick period; a
+  later one (tick deadlines included) is armed by the tick that begins its
+  period. `monotonic_ns` cannot pass the end of the period the last counted
+  tick began, so arming sooner would fire, find nothing due and re-fire
+  every 20 µs for as long as the PIT's interrupt is late. Its interrupt runs the same expiry and then the
+  P1 preemption point, so a 1 ms sleep on an idle CPU returns tens of
+  microseconds late under WHPX instead of at the next tick. It is
+  calibrated against the TSC in a quarter tick; arming at most one period
+  ahead bounds the APIC/TSC calibration error to 10 ms worth. While the
+  tick (PIC line 0) is masked it does nothing. When the APIC timer is the
+  tick (`LAZYOS_TIMER=lapic`, a PC with a gated PIT), or the APIC cannot be
+  brought up, there is no deadline timer and deadlines are served at ticks
+  (10 ms) as before; `LAZYOS_EVENT_TIMER=0` builds that kernel on purpose.
+- Users: Linux `nanosleep`/`clock_nanosleep`, `poll`, `ppoll`, `select`,
+  `pselect6`, `epoll_wait` and futex timeouts are exact nanosecond deadlines
+  (no rounding to ticks); native syscall 34 (`process::timesys`) reads the
+  clock and sleeps until a nanosecond deadline (`sys::monotonic_ns`,
+  `sys::sleep_ns` in `user`).
+- Tests: `deadline_suite` (queue order, cancellation, equal deadlines,
+  past and far deadlines, a million-operation seeded soak against a model,
+  exact expiry through the task table, the tick ABI, real sleeps from 100 µs
+  to 1 s, and eight kernel threads arming and cancelling 3200 timers).
 
 **Locks and preemption** (issue #382)
 

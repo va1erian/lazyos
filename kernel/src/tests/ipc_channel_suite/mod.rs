@@ -70,7 +70,7 @@ fn blocked_call(slot: usize, deadline: Option<u64>) -> bool {
         Some(TaskState::Blocked {
             wait: WaitKind::Sleep,
             deadline: expected,
-        }) if expected == deadline
+        }) if expected == deadline.map(task::ticks_to_ns)
     )
 }
 

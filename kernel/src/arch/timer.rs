@@ -19,6 +19,9 @@
 //! for the rest of the kernel: `pic::set_masked(0, _)` masks the APIC timer
 //! when it is the source. One line reports the choice:
 //! `HW:TIMER:<pit|lapic> <calibration source> <timer input clock Hz>`.
+//!
+//! With the PIT as the tick, the otherwise idle APIC timer becomes the
+//! one-shot deadline timer (`event_timer`, docs/performance-plan.md P2.2).
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -224,6 +227,9 @@ pub fn init() {
             // SAFETY: once, before interrupts are enabled (we are in
             // `init_hardware`); it borrows PIT channel 2 and port 0x61.
             unsafe { clock::calibrate(HZ as u32) };
+            // Sub-tick deadlines get their own interrupt (P2.2).
+            let madt = platform.and_then(|p| p.madt.as_ref().ok());
+            super::event_timer::init(madt.map(|m| m.lapic_address));
         } else {
             crate::serial_println!("timer: WARNING: the PIT does not tick and nothing replaces it");
             info.source = "none";

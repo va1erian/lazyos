@@ -131,6 +131,7 @@ pub mod power;
 pub mod randsys;
 mod spawn;
 pub mod spawnv;
+pub mod timesys;
 pub mod wallsys;
 
 use credio::{read_cred, write_cred};

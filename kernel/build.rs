@@ -72,6 +72,9 @@ fn main() {
     // `LAZYOS_TIMER_REF=hpet|none` narrows the reference clocks (`arch::refclock`)
     // so the HPET and PIT-only calibrations can be tested under QEMU.
     println!("cargo:rerun-if-env-changed=LAZYOS_TIMER_REF");
+    // `LAZYOS_EVENT_TIMER=0` leaves out the one-shot deadline timer
+    // (`arch::event_timer`, P2.2): deadlines expire at 100 Hz ticks only.
+    println!("cargo:rerun-if-env-changed=LAZYOS_EVENT_TIMER");
     println!("cargo:rerun-if-env-changed=LAZYOS_X2APIC");
     println!("cargo:rustc-check-cfg=cfg(lazyos_x2apic)");
     if env::var_os("LAZYOS_X2APIC").as_deref() == Some(std::ffi::OsStr::new("1")) {

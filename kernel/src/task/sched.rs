@@ -211,27 +211,49 @@ pub fn cpu_ticks(slot: usize) -> u64 {
         .unwrap_or(0)
 }
 
-/// Wake every blocked task whose absolute deadline has passed at `now`, with
-/// [`WakeReason::TimedOut`]. The waiter is left enqueued: its wait loop removes
-/// itself once it observes the reason, which keeps the queue and the task table
-/// updates on their respective locks in a fixed order.
+/// Wake every blocked task whose absolute deadline (monotonic ns) has passed
+/// at `now`, with [`WakeReason::TimedOut`], then arm the deadline timer for
+/// the next one. The waiter is left enqueued on its wait queue: its wait loop
+/// removes itself once it observes the reason, which keeps the queue and the
+/// task table updates on their respective locks in a fixed order.
+///
+/// Only due entries of the timer queue are visited (P2.1). An entry whose
+/// task is no longer blocked with that same deadline is stale and dropped.
 pub(super) fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) {
-    // Waking sleepers rejoin at the current virtual time, like queue wakeups:
-    // a long sleep must not earn a burst of catch-up quanta (issue #58).
-    let now_pass = virtual_now(tasks);
-    for task in tasks.iter_mut().flatten() {
-        if let TaskState::Blocked {
-            deadline: Some(deadline),
-            ..
-        } = task.state
-        {
-            if now >= deadline {
-                task.state = TaskState::Runnable;
-                task.wake_reason = Some(WakeReason::TimedOut);
-                task.pass = task.pass.max(now_pass);
-            }
+    let cur = CURRENT.load(Ordering::Relaxed);
+    let mut timers = super::timerq::TIMERS.lock();
+    // Computed only if something is due: a long sleep must not earn a burst
+    // of catch-up quanta, so a woken sleeper rejoins at the current virtual
+    // time, like a queue wakeup (issue #58).
+    let mut now_pass = None;
+    while let Some((deadline, slot)) = timers.pop_due(now) {
+        let current = tasks[slot].as_ref().map(|task| task.state);
+        if !matches!(current, Some(TaskState::Blocked { deadline: Some(d), .. }) if d == deadline) {
+            continue;
         }
+        let pass = *now_pass.get_or_insert_with(|| virtual_now(tasks));
+        if let Some(task) = tasks[slot].as_mut() {
+            task.state = TaskState::Runnable;
+            task.wake_reason = Some(WakeReason::TimedOut);
+            task.pass = task.pass.max(pass);
+        }
+        crate::perf::on_wake(slot, cur);
+        super::preempt::note_wake(tasks, slot, cur);
     }
+    crate::arch::event_timer::program(next_event(timers.peek()), now);
+}
+
+/// The deadline the one-shot timer must fire for, given the queue's earliest
+/// entry: only one inside the current tick period. A later deadline (tick
+/// deadlines included, which pass exactly when `TICKS` reaches them) is left
+/// to the tick that begins its period, which re-arms the timer; nothing
+/// earlier is queued. See `arch::event_timer` for why it must not be armed
+/// sooner.
+fn next_event(earliest: Option<(u64, usize)>) -> Option<u64> {
+    let period_end = super::ticks_to_ns(super::ticks().saturating_add(1));
+    earliest
+        .map(|(deadline, _)| deadline)
+        .filter(|&deadline| deadline < period_end)
 }
 
 /// Whether `slot` is occupied and `Runnable` (blocked and done tasks are never
