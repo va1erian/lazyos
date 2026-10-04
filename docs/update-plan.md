@@ -175,6 +175,10 @@ from the stick; see "Sources".
 
 - **Core apps** follow the image already: `pkgd` compares
   `/system/packages/index` with `/apps` at boot and upgrades.
+  After a fallback or rollback the same reconcile must also go back down:
+  core packages that N+1 installed are replaced by the running image's
+  versions (`origin = core` only; a version the user installed themselves
+  stays).
 - **Settings** in `/conf` must stay readable by release N after N+1 has run,
   because fallback and rollback keep the state volume. Rule: a release may add
   confd keys and must keep reading old ones for one release; a migration that
