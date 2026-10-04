@@ -318,9 +318,8 @@ pub fn alloc_zeroed_frame() -> Option<PhysAddr> {
 /// Current reference count of `phys`: `0` = free, [`RESERVED`] = allocator
 /// metadata, `> 1` = shared between address spaces.
 ///
-/// Part of the diagnostics surface for tools (issue #54); the kernel itself
-/// only reads refcounts through the allocator.
-#[allow(dead_code)]
+/// The diagnostics surface for tools (issue #54), and the copy-on-write
+/// fault's sole-owner shortcut (`uspace::cow_fault`, P6.6).
 pub fn frame_refcount(phys: PhysAddr) -> u32 {
     match FRAMES.lock().as_ref() {
         Some(frames) if frames.contains(phys.as_u64()) => {
