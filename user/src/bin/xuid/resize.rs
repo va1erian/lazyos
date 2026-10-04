@@ -7,8 +7,8 @@ use user::messenger::display::{wire, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::geometry::{self, Edges};
 use super::cursor::present_cursor_outside;
+use super::geometry::{self, Edges};
 use super::theme::{border, title_h};
 
 /// An in-progress interactive resize.

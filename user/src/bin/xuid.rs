@@ -219,7 +219,15 @@ fn run() -> ! {
     let (screen_w, screen_h) = (info.width as i32, info.height as i32);
     // Safety: `va`/`size` come from the display bind and describe an RGBA8
     // screen buffer mapped in this task.
-    let screen = unsafe { Canvas::new(info.va, screen_w, screen_h) };
+    let mut screen = unsafe { Canvas::new(info.va, screen_w, screen_h) };
+    // Compose in the framebuffer's byte order when it has one, so `present`
+    // is a plain row copy (docs/performance-plan.md P3.2); RGBA otherwise.
+    if sys::display_native_layout() == Ok(sys::screen_layout::BGRA)
+        && sys::display_set_layout(sys::screen_layout::BGRA).is_ok()
+    {
+        screen.set_layout(display::PixelLayout::Bgra);
+        sys::write_str("xuid: composing in BGRA (present is a row copy)\n");
+    }
     let mut comp = Compositor::new(screen);
     // One receive buffer and one input batch for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses

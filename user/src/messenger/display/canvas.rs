@@ -72,14 +72,30 @@ impl Color {
     }
 }
 
-/// A software RGBA8 blitter over a mapped shared buffer.
+/// The byte order of a canvas pixel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PixelLayout {
+    /// `R, G, B, A`: every client buffer.
+    #[default]
+    Rgba,
+    /// `B, G, R, A`: the usual framebuffer order. A compositor that composes
+    /// its screen buffer in the framebuffer's order turns the kernel's
+    /// `present` into a plain row copy (docs/performance-plan.md P3.2).
+    Bgra,
+}
+
+/// A software RGBA8 (or BGRA8, [`PixelLayout`]) blitter over a mapped shared
+/// buffer.
 ///
 /// Every write is clipped to the rectangle being drawn and to the canvas
 /// bounds, so a caller can pass an over-large damage rectangle safely.
+/// Colours and blitted sources are RGBA whatever the layout: the canvas
+/// stores them in its own order.
 pub struct Canvas {
     base: *mut u8,
     width: i32,
     height: i32,
+    layout: PixelLayout,
 }
 
 impl Canvas {
@@ -96,6 +112,21 @@ impl Canvas {
             base: base as *mut u8,
             width,
             height,
+            layout: PixelLayout::Rgba,
+        }
+    }
+
+    /// Store pixels in `layout` from now on. What is already drawn is not
+    /// converted, so set it before the first frame.
+    pub fn set_layout(&mut self, layout: PixelLayout) {
+        self.layout = layout;
+    }
+
+    /// The opaque stored bytes of `color` in this canvas's layout.
+    fn pixel(&self, color: Color) -> [u8; 4] {
+        match self.layout {
+            PixelLayout::Rgba => [color.r, color.g, color.b, 0xff],
+            PixelLayout::Bgra => [color.b, color.g, color.r, 0xff],
         }
     }
 
@@ -159,7 +190,11 @@ impl Canvas {
         } else {
             (out.len() / row_bytes).min(r.h.max(0) as usize)
         };
-        for (index, chunk) in out.chunks_exact_mut(row_bytes.max(1)).take(rows).enumerate() {
+        for (index, chunk) in out
+            .chunks_exact_mut(row_bytes.max(1))
+            .take(rows)
+            .enumerate()
+        {
             chunk.copy_from_slice(self.row(r.x, r.y + index as i32, r.w));
         }
         Rect::new(r.x, r.y, r.w, rows as i32)
@@ -173,7 +208,11 @@ impl Canvas {
             return;
         }
         let row_bytes = rect.w as usize * 4;
-        for (index, chunk) in saved.chunks_exact(row_bytes).take(rect.h as usize).enumerate() {
+        for (index, chunk) in saved
+            .chunks_exact(row_bytes)
+            .take(rect.h as usize)
+            .enumerate()
+        {
             self.row_mut(rect.x, rect.y + index as i32, rect.w)
                 .copy_from_slice(chunk);
         }
@@ -192,8 +231,9 @@ impl Canvas {
         }
         let a = alpha as u32;
         let mix = |src: u8, dst: u8| ((src as u32 * a + dst as u32 * (255 - a) + 127) / 255) as u8;
+        let stored = self.pixel(color);
         let px = self.row_mut(x, y, 1);
-        for (dst, src) in px.iter_mut().zip([color.r, color.g, color.b]) {
+        for (dst, src) in px.iter_mut().zip(stored) {
             *dst = mix(src, *dst);
         }
         if let Some(alpha_byte) = px.get_mut(3) {
@@ -232,7 +272,7 @@ impl Canvas {
     /// Fill `rect` with `color`, clipped to `clip`.
     pub fn fill(&mut self, rect: Rect, clip: Rect, color: Color) {
         let r = self.visible(rect, clip);
-        let px = [color.r, color.g, color.b, 0xff];
+        let px = self.pixel(color);
         for y in r.y..r.y + r.h {
             for dst in self.row_mut(r.x, y, r.w).as_chunks_mut::<4>().0.iter_mut() {
                 dst.copy_from_slice(&px);
@@ -285,9 +325,13 @@ impl Canvas {
             if n == 0 {
                 break;
             }
+            let swap = self.layout == PixelLayout::Bgra;
             let row = self.row_mut(r.x, y, n as i32);
             row.copy_from_slice(&src[start..start + n * 4]);
             for px in row.as_chunks_mut::<4>().0.iter_mut() {
+                if swap {
+                    px.swap(0, 2);
+                }
                 px[3] = 0xff;
             }
         }
