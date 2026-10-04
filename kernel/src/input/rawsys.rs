@@ -63,7 +63,13 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
     }
     match operation {
         op::OPEN => match bus::open(me) {
-            Ok(_) => 0,
+            Ok(_) => {
+                // The consumer is on every keystroke's and pointer move's
+                // path: its doorbell wake (P1.3) must preempt ordinary work,
+                // as the sources' and the compositor's do.
+                task::raise_priority(me, task::PriorityClass::Interactive);
+                0
+            }
             Err(_) => negative(EBUSY),
         },
         op::POLL => poll(me, buf, capacity),
@@ -160,6 +166,7 @@ fn poll(me: usize, ptr: u64, capacity: u64) -> u64 {
     if bus::drain(id, me, slots, &mut events).is_err() {
         return negative(EBADF);
     }
+    crate::perf::input_read(events.len());
     let mut encoded = Vec::with_capacity(events.len() * RAW_EVENT_BYTES);
     for event in &events {
         encoded.extend_from_slice(&event.to_bytes());

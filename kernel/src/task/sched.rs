@@ -284,6 +284,8 @@ pub(super) fn pick_next(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> usize 
 /// (its stride) of virtual time. Only a runnable winner is charged, so a
 /// degenerate fallback to a parked `cur` does not advance its pass.
 pub(super) fn select_next(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) -> usize {
+    // This selection accounts for every wake so far (P1.1).
+    super::preempt::clear();
     let next = pick_next(tasks, cur);
     if runnable(tasks, next) {
         if let Some(task) = tasks[next].as_mut() {

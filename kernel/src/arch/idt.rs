@@ -435,6 +435,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     // Drain the i8042 (keyboard and auxiliary bytes alike, in order) and
     // decode what was collected, including bytes gathered while interrupts
     // were off (`input::ps2`).
+    crate::perf::irq_entry();
     // Inside an interrupt window only collect: decoding takes locks the
     // interrupted code may hold (`arch::irq_window`).
     if super::irq_window::is_open() {
@@ -444,10 +445,16 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     }
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
+    crate::perf::irq_exit();
+    // A key may have woken a task that should run now (P1.1).
+    crate::task::preempt_point();
 }
 
 extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     // The same intake as IRQ1: one FIFO keeps both ports' bytes in order.
+    crate::perf::irq_entry();
+    // Inside an interrupt window only collect: decoding takes locks the
+    // interrupted code may hold (`arch::irq_window`).
     if super::irq_window::is_open() {
         crate::input::ps2::service();
     } else {
@@ -455,4 +462,6 @@ extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     }
     // Safety: we are in the IRQ12 handler.
     unsafe { pic::end_of_interrupt(12) };
+    crate::perf::irq_exit();
+    crate::task::preempt_point();
 }

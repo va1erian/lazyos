@@ -43,6 +43,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazyrad",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
+    // LazyWeb: neither set has a globe; a link on an amber tile.
+    (
+        "xui-app/packages/lazyweb",
+        Art::Lucide(Lucide::Link, Tone::Amber),
+    ),
     ("xui-app/packages/network", Art::Village(Icon::Network)),
     ("xui-app/packages/nettools", Art::Village(Icon::Modem)),
     ("xui-app/packages/paint", Art::Village(Icon::Image)),

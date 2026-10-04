@@ -28,6 +28,7 @@
 
 mod endpoint;
 mod types;
+pub mod wait;
 
 pub use endpoint::{
     bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals, Endpoint,
@@ -84,6 +85,9 @@ pub mod op {
     pub const AUTHORIZE_TOPIC: u64 = 17;
     /// Replace every rule of one label (`CAP_IPC_CONTROL`; see [`super::policy`]).
     pub const ACL_LOAD: u64 = 18;
+    /// Park until one of several endpoints (or a doorbell) is ready; see
+    /// [`super::wait`].
+    pub const WAIT: u64 = 19;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A

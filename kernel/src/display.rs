@@ -227,7 +227,11 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::BIND => bind(a1),
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
-        op::PRESENT => present::present(a1),
+        op::PRESENT => {
+            let result = present::present(a1);
+            crate::perf::presented();
+            result
+        }
         op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
         op::MAP_BUFFER => buffers::map_buffer(a1, a2),
         op::CLOSE_BUFFER => buffers::close_buffer(a1),
@@ -407,7 +411,9 @@ pub fn push_event(event: Event) {
 }
 
 /// Queue a key press/release, translating the terminal key into a [`key`]
-/// code. Called from the keyboard IRQ when a compositor is bound.
+/// code. Called from the keyboard IRQ when a compositor is bound. Rings the
+/// compositor's key doorbell (P1.4); pointer events do not, because with
+/// `inputd` running the compositor takes the pointer from it instead.
 pub fn push_key(key: Key, down: bool) {
     let kind = if down { event::KEY_DOWN } else { event::KEY_UP };
     push_event(Event {
@@ -416,6 +422,34 @@ pub fn push_key(key: Key, down: bool) {
         b: 0,
         reserved: 0,
     });
+    let waiter = KEY_WAITER.swap(NO_OWNER, Ordering::AcqRel);
+    if waiter != NO_OWNER {
+        crate::ipc::channels::wake_parked(waiter);
+    }
+}
+
+/// The compositor while it waits for a key (`channels::wait_any`).
+static KEY_WAITER: AtomicUsize = AtomicUsize::new(NO_OWNER);
+
+/// Ring `me`'s doorbell on the next key, unless input is already queued.
+/// Returns whether input is waiting (nothing armed then); `Err` unless `me`
+/// owns the display.
+pub fn arm_key_doorbell(me: usize) -> Result<bool, ()> {
+    if OWNER.load(Ordering::Relaxed) != me || me == NO_OWNER {
+        return Err(());
+    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if !EVENTS.lock().is_empty() {
+            return Ok(true);
+        }
+        KEY_WAITER.store(me, Ordering::Release);
+        Ok(false)
+    })
+}
+
+/// Withdraw `me`'s key doorbell, if armed.
+pub fn disarm_key_doorbell(me: usize) {
+    let _ = KEY_WAITER.compare_exchange(me, NO_OWNER, Ordering::AcqRel, Ordering::Acquire);
 }
 
 /// Queue a pointer move.
@@ -497,7 +531,14 @@ fn key_code(key: Key) -> u32 {
 pub fn reset() {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);
+    KEY_WAITER.store(NO_OWNER, Ordering::Relaxed);
     EVENTS.lock().clear();
+}
+
+/// Test-harness hook: make `slot` the display owner without a bind.
+#[cfg(lazyos_tests)]
+pub fn set_owner_for_test(slot: usize) {
+    OWNER.store(slot, Ordering::Relaxed);
 }
 
 /// Test-harness hook: run `f` as if firmware had chosen a `width` x `height`

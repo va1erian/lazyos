@@ -255,6 +255,12 @@ impl ShellLink {
         })
     }
 
+    /// This task's end of the shell event channel, for a caller that parks
+    /// on it together with other endpoints (`messenger::wait::wait_any`).
+    pub fn events_endpoint(&self) -> Endpoint {
+        self.events
+    }
+
     /// The next queued shell event, without blocking. `Err` means the link is
     /// dead (`inputd` went away).
     ///

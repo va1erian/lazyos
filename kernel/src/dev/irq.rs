@@ -10,10 +10,15 @@
 //! 2. runs a kernel driver's plain `fn(line)` if one is registered, or
 //! 3. masks the line at the PIC, sets an atomic "raised" bit and sends EOI.
 //!
-//! The task-context bottom half (`dev::intx::service`) later turns the raised
-//! bit into one-way Messenger messages from the kernel identity. Masking the
-//! line first is what makes level-triggered INTx safe: the device keeps
-//! asserting, but the PIC cannot re-deliver until a claimant acknowledges.
+//! The bottom half (`dev::intx::service`) turns the raised bit into one-way
+//! Messenger messages from the kernel identity. It may lock and allocate, so
+//! it never runs inside [`dispatch`]; the line stub runs it right after,
+//! still in the interrupt, when the interrupt stopped user code or a task
+//! halted in `nap` (nothing that could hold its locks, P1.2), and otherwise
+//! it runs at the next syscall, the next tick that lands in such code, or the
+//! kernel task's loop. Masking the line first is what makes level-triggered
+//! INTx safe: the device keeps asserting, but the PIC cannot re-deliver until
+//! a claimant acknowledges.
 //!
 //! Lines 0 (timer), 1 (keyboard), 2 (cascade) and 12 (mouse) keep their own
 //! handlers and can never be claimed.
@@ -99,6 +104,7 @@ pub fn dispatch(line: u8) {
         // device nobody drives cannot storm.
         pic::set_masked(line, true);
         RAISED.fetch_or(1 << line, Ordering::AcqRel);
+        crate::perf::line_raised(line);
         RAISES.fetch_add(1, Ordering::Relaxed);
     }
     // SAFETY: called from the handler of `line`, once per interrupt.
@@ -114,6 +120,13 @@ fn in_service(line: u8) -> bool {
 /// Lines raised since the last call, for the bottom half.
 pub fn take_raised() -> u16 {
     RAISED.swap(0, Ordering::AcqRel)
+}
+
+/// Put `line` back for a later bottom-half pass (its line stays masked).
+pub(super) fn requeue(line: u8) {
+    if line < LINES {
+        RAISED.fetch_or(1 << line, Ordering::AcqRel);
+    }
 }
 
 /// Count an interrupt that no claim armed (the bottom half saw no listener).

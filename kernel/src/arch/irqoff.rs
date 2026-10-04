@@ -7,7 +7,7 @@
 //! return to user mode). Each span is charged to the syscall the current task
 //! is in; the per-syscall maximum is kept, and each new maximum of
 //! [`REPORT_US`] or more is logged as
-//! `IRQOFF:MAX abi=<native|linux> nr=<n> us=<n> over=<n> missed_ticks=<n>
+//! `IRQOFF:MAX abi=<native|linux|kernel> nr=<n> us=<n> over=<n> missed_ticks=<n>
 //! dropped=<n> from=<file:line> to=<file:line>` (`over`: spans past the bound so far;
 //! `missed_ticks`: timer periods the clock had to catch up, `arch::clock`;
 //! `from`/`to`: where the span began and ended, so the stretch that lacks a
@@ -44,6 +44,8 @@ pub const LINUX_SLOTS: usize = 512;
 
 /// Tag for a native syscall number (the same bit `process::gate` uses).
 const NATIVE: u64 = 1 << 63;
+/// Tag for a kernel section ([`kernel_section`]).
+const KERNEL: u64 = 1 << 62;
 /// Marks "no syscall" in [`TASK_NR`] and [`SPAN_NR`].
 const NONE: u64 = u64::MAX;
 
@@ -52,6 +54,7 @@ type Site = Location<'static>;
 /// Worst span per syscall, in TSC cycles.
 static MAX_NATIVE: [AtomicU64; NATIVE_SLOTS] = [const { AtomicU64::new(0) }; NATIVE_SLOTS];
 static MAX_LINUX: [AtomicU64; LINUX_SLOTS] = [const { AtomicU64::new(0) }; LINUX_SLOTS];
+static MAX_KERNEL: AtomicU64 = AtomicU64::new(0);
 /// The syscall each task is in (tagged), [`NONE`] outside one.
 static TASK_NR: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(NONE) }; MAX_TASKS];
 /// The open span: its start (0 = none), the syscall it is charged to and
@@ -59,6 +62,8 @@ static TASK_NR: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(NONE) }; MAX_TA
 static SPAN_START: AtomicU64 = AtomicU64::new(0);
 static SPAN_NR: AtomicU64 = AtomicU64::new(NONE);
 static SPAN_FROM: AtomicPtr<Site> = AtomicPtr::new(core::ptr::null_mut());
+/// The task whose syscall the open span belongs to.
+static SPAN_TASK: AtomicU64 = AtomicU64::new(0);
 /// Spans that reached [`REPORT_US`].
 static OVER: AtomicU64 = AtomicU64::new(0);
 
@@ -100,6 +105,19 @@ fn enter(tagged: u64, at: &'static Site) {
     start(tagged, at);
 }
 
+/// Run `f`, interrupts-off work of the kernel task (the periodic writeback,
+/// disk statistics), as a span of its own: its poll points open interrupt
+/// windows as a syscall's do, and its stretches are logged as `abi=kernel`.
+/// Call with interrupts off from task context, never from an interrupt
+/// handler.
+#[track_caller]
+pub fn kernel_section<R>(f: impl FnOnce() -> R) -> R {
+    enter(KERNEL, Location::caller());
+    let result = f();
+    exit();
+    result
+}
+
 /// The syscall returns to user mode: its last span ends.
 #[track_caller]
 pub fn exit() {
@@ -119,11 +137,30 @@ pub fn close() {
     record(nr, rdtsc().wrapping_sub(start), from, Location::caller());
 }
 
-/// Whether a syscall's interrupts-off span is open (we are in a syscall, not
-/// in a handler that interrupted user mode or a sleep).
+/// Whether the current task's syscall has an interrupts-off span open (we
+/// are in that syscall, not in a handler that interrupted user mode, a sleep
+/// or another task). The task check is a second line of defence: every path
+/// that gives up the CPU closes the span first ([`paused`]).
 #[inline]
 pub fn span_open() -> bool {
     SPAN_START.load(Ordering::Relaxed) != 0
+        && SPAN_TASK.load(Ordering::Relaxed) == crate::task::current() as u64
+}
+
+/// Run `f`, which lets interrupts in or gives up the CPU (a voluntary
+/// switch, a halt), outside the current span: the span ends before and,
+/// only if one was open, starts again after. A switch from an interrupt
+/// handler or an exit path therefore opens nothing for the task it returns
+/// to.
+#[track_caller]
+pub fn paused<R>(f: impl FnOnce() -> R) -> R {
+    let charged = span_open();
+    close();
+    let result = f();
+    if charged {
+        resume();
+    }
+    result
 }
 
 /// Interrupts are off again for the current task (after a window, a `nap`
@@ -141,6 +178,7 @@ fn start(tagged: u64, at: &'static Site) {
         return;
     }
     SPAN_FROM.store(at as *const Site as *mut Site, Ordering::Relaxed);
+    SPAN_TASK.store(crate::task::current() as u64, Ordering::Relaxed);
     let now = rdtsc();
     SPAN_START.store(now, Ordering::Relaxed);
     super::irq_window::restart(now);
@@ -226,6 +264,7 @@ fn report_queued() {
 fn slot_of(tagged: u64) -> &'static AtomicU64 {
     match split(tagged) {
         ("native", nr) => &MAX_NATIVE[(nr as usize).min(NATIVE_SLOTS - 1)],
+        ("kernel", _) => &MAX_KERNEL,
         (_, nr) => &MAX_LINUX[(nr as usize).min(LINUX_SLOTS - 1)],
     }
 }
@@ -233,6 +272,8 @@ fn slot_of(tagged: u64) -> &'static AtomicU64 {
 fn split(tagged: u64) -> (&'static str, u64) {
     if tagged & NATIVE != 0 {
         ("native", tagged & !NATIVE)
+    } else if tagged & KERNEL != 0 {
+        ("kernel", tagged & !KERNEL)
     } else {
         ("linux", tagged)
     }
@@ -265,6 +306,7 @@ pub fn reset() {
     for slot in MAX_NATIVE.iter().chain(MAX_LINUX.iter()) {
         slot.store(0, Ordering::Relaxed);
     }
+    MAX_KERNEL.store(0, Ordering::Relaxed);
     OVER.store(0, Ordering::Relaxed);
 }
 

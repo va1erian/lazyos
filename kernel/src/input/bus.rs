@@ -75,91 +75,8 @@ pub mod device {
     pub const PS2_MOUSE: u8 = 2;
 }
 
-/// The device-independent pointer encoding (`docs/usb-hid-plan.md`).
-///
-/// | kind | code | value |
-/// |---|---|---|
-/// | `REL_MOTION` | 0 | `dx` low `i16`, `dy` high `i16`: counts, screen-oriented (`dy > 0` is down) |
-/// | `ABS_MOTION` | 0 | `x` low `u16`, `y` high `u16`, normalised to `0..=0xFFFF` |
-/// | `BUTTON` | HID button usage ([`button`](pointer::button)) | `0` release, `1` press |
-/// | `SCROLL` | [`VERTICAL`](pointer::VERTICAL) or [`HORIZONTAL`](pointer::HORIZONTAL) | signed notches, `> 0` is up / right |
-///
-/// Producers split deltas wider than `i16` across records.
-pub mod pointer {
-    use super::kind;
-
-    /// HID button usages (page 0x09).
-    #[allow(dead_code)] // back/forward have no producer until USB mice
-    pub mod button {
-        pub const LEFT: u16 = 1;
-        pub const RIGHT: u16 = 2;
-        pub const MIDDLE: u16 = 3;
-        pub const BACK: u16 = 4;
-        pub const FORWARD: u16 = 5;
-    }
-
-    /// `SCROLL` codes.
-    pub const VERTICAL: u16 = 0;
-    #[allow(dead_code)] // no PS/2 horizontal wheel
-    pub const HORIZONTAL: u16 = 1;
-
-    /// Pack a relative motion.
-    pub fn pack_rel(dx: i16, dy: i16) -> i32 {
-        (u32::from(dx as u16) | (u32::from(dy as u16) << 16)) as i32
-    }
-
-    /// Unpack a relative motion: `(dx, dy)`.
-    pub fn unpack_rel(value: i32) -> (i16, i16) {
-        (
-            value as u32 as u16 as i16,
-            ((value as u32) >> 16) as u16 as i16,
-        )
-    }
-
-    /// Pack an absolute position.
-    #[allow(dead_code)] // no kernel producer: absolute devices are USB
-    pub fn pack_abs(x: u16, y: u16) -> i32 {
-        (u32::from(x) | (u32::from(y) << 16)) as i32
-    }
-
-    /// Unpack an absolute position: `(x, y)`.
-    #[allow(dead_code)]
-    pub fn unpack_abs(value: i32) -> (u16, u16) {
-        (value as u32 as u16, ((value as u32) >> 16) as u16)
-    }
-
-    /// Whether records of `kind` may be folded into their predecessor.
-    pub fn mergeable(kind: u8) -> bool {
-        matches!(kind, kind::REL_MOTION | kind::ABS_MOTION | kind::SCROLL)
-    }
-
-    /// `older` and `newer` combined: deltas add (saturating), positions
-    /// replace. Only meaningful for [`mergeable`] kinds.
-    pub fn merge(kind: u8, older: i32, newer: i32) -> i32 {
-        match kind {
-            kind::REL_MOTION => {
-                let (ax, ay) = unpack_rel(older);
-                let (bx, by) = unpack_rel(newer);
-                pack_rel(ax.saturating_add(bx), ay.saturating_add(by))
-            }
-            kind::SCROLL => older.saturating_add(newer),
-            _ => newer,
-        }
-    }
-
-    /// Whether relative motion `newer` turns back on an axis from `older`.
-    /// `inputd` clamps the cursor at the screen edges, and clamping a sum
-    /// equals clamping each step only while the steps share a direction
-    /// (`-300` into the corner then `+128` must land at 128, not at 0).
-    pub fn turns(kind: u8, older: i32, newer: i32) -> bool {
-        if kind != kind::REL_MOTION {
-            return false;
-        }
-        let ((ax, ay), (bx, by)) = (unpack_rel(older), unpack_rel(newer));
-        let opposed = |a: i16, b: i16| (a < 0 && b > 0) || (a > 0 && b < 0);
-        opposed(ax, bx) || opposed(ay, by)
-    }
-}
+#[path = "bus_pointer.rs"]
+pub mod pointer;
 
 /// Key event values. The kernel never synthesises repeat (`docs/input-plan.md`).
 pub mod value {
@@ -306,6 +223,8 @@ struct Slot {
     /// Task slot of the owner; `None` when free.
     owner: Option<usize>,
     ring: Ring,
+    /// The owner, while it is parked waiting for records (the doorbell).
+    waiter: Option<usize>,
 }
 
 struct Bus {
@@ -316,6 +235,7 @@ struct Bus {
 const FREE_SLOT: Slot = Slot {
     owner: None,
     ring: Ring::new(),
+    waiter: None,
 };
 
 static BUS: Mutex<Bus> = Mutex::new(Bus {
@@ -323,16 +243,38 @@ static BUS: Mutex<Bus> = Mutex::new(Bus {
     slots: [FREE_SLOT; MAX_CONSUMERS],
 });
 
+/// Record time: TSC-interpolated monotonic nanoseconds (it was the 10 ms
+/// tick, which made every latency below a tick invisible; P0).
 fn now_ns() -> u64 {
-    task::ticks().saturating_mul(10_000_000)
+    crate::arch::clock::monotonic_ns()
 }
 
-/// Publish one event to every consumer ring. Called from IRQ context (and from
-/// tests); never blocks and never allocates.
+/// Publish one event to every consumer ring and ring the doorbell of every
+/// consumer parked waiting for one (P1.3). Called from IRQ context (and from
+/// syscalls and tests); never blocks and never allocates.
 pub fn publish(device: u8, kind: u8, code: u16, value: i32) {
+    crate::perf::input_published(pointer::mergeable(kind));
+    let mut parked = [None; MAX_CONSUMERS];
+    {
+        let mut bus = BUS.lock();
+        append(&mut bus, device, kind, code, value);
+        for (slot, waiter) in bus.slots.iter_mut().zip(parked.iter_mut()) {
+            if slot.ring.len > 0 {
+                *waiter = slot.waiter.take();
+            }
+        }
+    }
+    // Woken with the bus lock released: the wake takes the Messenger queue
+    // and the task table, which the bus lock must never be held across.
+    for slot in parked.into_iter().flatten() {
+        crate::ipc::channels::wake_parked(slot);
+    }
+}
+
+/// Merge or queue one record into every live ring (the bus lock held).
+fn append(bus: &mut Bus, device: u8, kind: u8, code: u16, value: i32) {
     let ts_ns = now_ns();
-    let mut bus = BUS.lock();
-    if pointer::mergeable(kind) && merge_tail(&mut bus, device, kind, code, value, ts_ns) {
+    if pointer::mergeable(kind) && merge_tail(bus, device, kind, code, value, ts_ns) {
         return;
     }
     let seq = bus.next_seq;
@@ -418,6 +360,7 @@ pub fn open(owner: usize) -> Result<usize, Error> {
             .ok_or(Error::Full)?;
         bus.slots[id].owner = Some(owner);
         bus.slots[id].ring.clear();
+        bus.slots[id].waiter = None;
         Ok(id)
     })
 }
@@ -431,8 +374,38 @@ pub fn close(id: usize, owner: usize) -> Result<(), Error> {
         }
         slot.owner = None;
         slot.ring.clear();
+        slot.waiter = None;
         Ok(())
     })
+}
+
+/// Ring `owner`'s doorbell on the next publication, unless its ring already
+/// holds records. Returns whether records are waiting (then nothing is
+/// registered), or `BadId` when `owner` holds no consumer slot.
+pub fn arm_doorbell(owner: usize) -> Result<bool, Error> {
+    locked(|bus| {
+        let slot = bus
+            .slots
+            .iter_mut()
+            .find(|slot| slot.owner == Some(owner))
+            .ok_or(Error::BadId)?;
+        if slot.ring.len > 0 {
+            return Ok(true);
+        }
+        slot.waiter = Some(owner);
+        Ok(false)
+    })
+}
+
+/// Withdraw `owner`'s doorbell registration, if any.
+pub fn disarm_doorbell(owner: usize) {
+    locked(|bus| {
+        for slot in bus.slots.iter_mut() {
+            if slot.waiter == Some(owner) {
+                slot.waiter = None;
+            }
+        }
+    });
 }
 
 /// The consumer slot task `owner` holds, if any.
@@ -460,6 +433,7 @@ pub fn reset() {
         for slot in bus.slots.iter_mut() {
             slot.owner = None;
             slot.ring.clear();
+            slot.waiter = None;
         }
     });
 }

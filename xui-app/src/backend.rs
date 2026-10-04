@@ -365,6 +365,13 @@ impl LazyOSBackend {
         *self.on_first_frame.borrow_mut() = Some(Box::new(callback));
     }
 
+    /// The node holding the keyboard focus, if any: lets an app's shortcut
+    /// mapper (`Ui::on_key`) claim a key for one field only (LazyWeb's
+    /// address bar takes Enter; the page keeps it for its forms).
+    pub fn focused(&self) -> Option<WidgetId> {
+        self.focused.get()
+    }
+
     /// Frames presented through the display grant, or to `xuid`.
     pub fn frames(&self) -> u64 {
         self.frames.get()

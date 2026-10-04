@@ -90,6 +90,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     crate::dev::intx::service();
     crate::arch::irq_window::poll_point();
     LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
+    crate::perf::syscall_entry(NATIVE_SYSCALL | regs.rax);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }
@@ -165,6 +166,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // mode, instead of waiting for a tick to catch it there.
     task::signal::deliver_native();
     crate::arch::irqoff::exit();
+    crate::perf::syscall_exit();
+    // A task this call woke may outrank the caller (P1.1): run it now.
+    task::preempt_point();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

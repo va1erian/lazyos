@@ -318,12 +318,8 @@ fn sys_sbrk(increment: u64) -> u64 {
 fn exit(code: u32) -> ! {
     serial_println!("user: task exited with status {code}");
     task::finish_current(code as u64);
-    crate::arch::irqoff::close();
-    // Wait for the scheduler to switch to another task.
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
+    // Hand the CPU on now rather than at the next tick (P1.5).
+    task::exit_cpu()
 }
 
 /// syscall 7: wait for a child exit and reap it.

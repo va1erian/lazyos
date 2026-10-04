@@ -104,12 +104,23 @@ per-task thread pointer, restored on every context switch.
   memory a syscall validated stays valid. Decoding, deadline expiry, CPU
   charging (`take_uncharged`) and task selection wait for the next ordinary
   tick.
-- Windows open only inside a syscall (an `irqoff` span is open) with
-  interrupts off: never in a handler that interrupted user mode or a `nap`,
-  never in the kernel task, never before `irq_window::arm()` in `main`.
-- `irqoff` keeps the worst stretch per syscall (native and Linux numbers) and
-  logs each new maximum of 2 ms or more as `IRQOFF:MAX abi=<native|linux>
-  nr=<n> us=<n> over=<n> missed_ticks=<n> from=<file:line> to=<file:line>`:
+- Windows open only while an `irqoff` span of the current task is open,
+  with interrupts off: inside a syscall, or inside a kernel section
+  (`irqoff::kernel_section`: the kernel task's periodic writeback and disk
+  statistics, which run with interrupts off). Never in an interrupt handler,
+  a `nap`, or before `irq_window::arm()` in `main`. Where a poll point is due
+  but no span is open, it only drains the i8042 (`ps2::service`).
+- Every voluntary switch (`task::switch::yield_now`, and the `YieldMutex`
+  halt) runs outside the span and gives it back only if one was open
+  (`irqoff::paused`), so no span outlives its task's syscall; `exit_cpu`
+  ends it for good. `task::preempt_point` does nothing while a window is
+  open: an interrupt there stopped code that may hold locks.
+- The window's tick is acknowledged like `schedule`'s (`arch::timer`: the
+  8259 or the local APIC timer, a stale APIC tick ignored).
+- `irqoff` keeps the worst stretch per syscall (native and Linux numbers,
+  one slot for kernel sections) and logs each new maximum of 2 ms or more as
+  `IRQOFF:MAX abi=<native|linux|kernel> nr=<n> us=<n> over=<n>
+  missed_ticks=<n> dropped=<n> from=<file:line> to=<file:line>`:
   the stretch lacking a poll point lies between those two lines. Under a
   hypervisor a stretch also holds any time the host did not run the vCPU;
   for numbers free of host noise, boot under TCG with `-icount

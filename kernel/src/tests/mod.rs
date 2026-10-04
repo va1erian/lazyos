@@ -197,6 +197,7 @@ mod partition_suite;
 mod pipe_suite;
 mod power_suite;
 mod preempt_lock_suite;
+mod preempt_wake_suite;
 mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
@@ -216,6 +217,7 @@ mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod virtio_suite;
+mod waitset_suite;
 mod wallclock_suite;
 
 /// Every suite, run in the order listed. See the module doc for why the
@@ -235,10 +237,12 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    preempt_wake_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,
     ipc_suite::CASES,
     ipc_channel_suite::CASES,
+    waitset_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,
     label_suite::CASES,
@@ -267,6 +271,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::IRQ_SHARED,
     dev_suite::IRQ_EDGE,
     dev_suite::IRQ_REAL,
+    dev_suite::IRQ_PROMPT,
     dev_suite::SYSCALL,
     dev_suite::SYSCALL_GUARD,
     dev_suite::SYSCALL_OPS,

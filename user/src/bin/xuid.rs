@@ -158,7 +158,7 @@ mod window;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::messenger::display::{self, Canvas};
-use user::messenger::{self, registry};
+use user::messenger::{self, registry, wait};
 use user::sys;
 
 use compositor::Compositor;
@@ -170,6 +170,13 @@ const UP_MARKER: &str = "XUID:UP:PASS\n";
 const WM_MARKER: &str = "XUID:WM:PASS\n";
 /// The marker that says the shell-protocol additions came up (issue #167).
 const SHELL_MARKER: &str = "XUID:SHELL:PASS\n";
+/// Longest park while nothing is due (100 Hz ticks): requests, `inputd`'s
+/// pointer events and keys wake the loop themselves (docs/performance-plan.md
+/// P1.4), so this only paces the pull feeds (theme, power) and reaping.
+const IDLE_TICKS: u64 = 10;
+/// The park when the wait itself is refused, or while the pointer comes from
+/// the kernel's display queue: the old 2-tick poll.
+const FALLBACK_TICKS: u64 = 2;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -271,9 +278,39 @@ fn run() -> ! {
         comp.tick_power();
         comp.reap_dead_surfaces(sys::clock());
 
-        // 2. Requests: serve one, then loop (the deadline bounds the nap when
-        //    nothing is pending, keeping input latency at a couple of ticks).
-        let deadline = Some(sys::clock() + 2);
+        // 2. Park until a request, a shell event from `inputd` (pointer
+        //    moves) or a key arrives, then serve one request if one came.
+        let now = sys::clock();
+        let mut sources = [server, server];
+        let count = match comp.input_events() {
+            Some(events) => {
+                sources[1] = events;
+                2
+            }
+            None => 1,
+        };
+        // No doorbell rings for a pointer move on the kernel's display queue
+        // (the fallback when `inputd` does not own the pointer), so that
+        // stream keeps the short poll.
+        let idle = if comp.input.owns_pointer {
+            IDLE_TICKS
+        } else {
+            FALLBACK_TICKS
+        };
+        let ready =
+            match wait::wait_any(&sources[..count], wait::WAIT_DISPLAY_KEYS, Some(now + idle)) {
+                Ok(mask) => mask,
+                Err(error) if is_timeout(error) => 0,
+                // Never spin on a refused wait: fall back to the timed receive.
+                Err(_) => 1,
+            };
+        if ready & 1 == 0 {
+            comp.reap_dead_shell();
+            continue;
+        }
+        // Ready means queued, so this returns at once; the deadline only
+        // bounds the fallback.
+        let deadline = Some(now + FALLBACK_TICKS);
         match server.recv_with(&mut request_buf, deadline) {
             Ok(message) => {
                 if let Some(txn) = message.txn {

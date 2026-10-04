@@ -38,6 +38,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("irqoff_nap_ends_span", nap_ends_span),
     (
+        "irqoff_paused_reopens_only_open_spans",
+        paused_reopens_only_open_spans,
+    ),
+    (
         "irqwin_soak_ticks_through_windows",
         soak_ticks_through_windows,
     ),
@@ -306,6 +310,31 @@ pub fn nap_ends_span() -> Result<(), String> {
         },
         |l| l.worst_us < 1_900,
     )?;
+    Ok(())
+}
+
+/// Code that gives up the CPU or lets interrupts in (`yield_now`, the
+/// `YieldMutex` halt) runs outside the span and gets it back only if it had
+/// one: a switch made from an interrupt handler or an exit path must never
+/// leave a span open for whatever runs next, or windows would open outside
+/// a syscall.
+pub fn paused_reopens_only_open_spans() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    irqoff::close();
+    let outside = irqoff::paused(irqoff::span_open);
+    check!(!outside, "a span was open inside paused");
+    check!(
+        !irqoff::span_open(),
+        "paused opened a span that was not open"
+    );
+    let ((inside, after), _) = in_syscall(NR_A, || {
+        let inside = irqoff::paused(irqoff::span_open);
+        (inside, irqoff::span_open())
+    });
+    check!(!inside, "the syscall's span stayed open inside paused");
+    check!(after, "paused did not give the syscall its span back");
+    check!(!irqoff::span_open(), "a span outlived its syscall");
     Ok(())
 }
 

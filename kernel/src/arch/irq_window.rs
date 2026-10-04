@@ -21,7 +21,10 @@
 //!   FIFO lock is never held with interrupts on), leaving the decoding for the
 //!   next tick outside a window;
 //! * the other PIC lines only latch and mask (`dev::irq::dispatch`, lock-free
-//!   by design).
+//!   by design), and never run the device bottom half: a window is not a
+//!   quiet context (`task::interrupted_quiet_context`);
+//! * no handler yields: `task::preempt_point` does nothing while a window is
+//!   open.
 //!
 //! The work these defer (charging the tick, expiry, selection, decoding) runs
 //! at the next ordinary tick, at the latest just after the syscall returns.
@@ -72,13 +75,22 @@ pub fn restart(now: u64) {
 #[inline]
 #[track_caller]
 pub fn poll_point() {
-    if !may_open() {
+    if !ARMED.load(Ordering::Relaxed) || x86_64::instructions::interrupts::are_enabled() {
         return;
     }
-    let per_tick = super::clock::cycles_per_tick();
-    let due = per_tick / WINDOW_DIV;
-    if rdtsc().wrapping_sub(LAST.load(Ordering::Relaxed)) >= due {
+    let due = super::clock::cycles_per_tick() / WINDOW_DIV;
+    let now = rdtsc();
+    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < due {
+        return;
+    }
+    if super::irqoff::span_open() {
         open();
+    } else {
+        // No span: an interrupt handler, or interrupts-off code nothing
+        // accounts for. No window may open here, but the i8042 is still
+        // drained so its queue cannot overflow (`input::ps2`).
+        LAST.store(now, Ordering::Relaxed);
+        crate::input::ps2::service();
     }
 }
 
@@ -90,6 +102,7 @@ pub fn open() {
         return;
     }
     super::irqoff::close();
+    crate::perf::irqoff_pause();
     IRQ_WINDOW_OPEN.store(1, Ordering::SeqCst);
     // SAFETY: interrupts are enabled for exactly one instruction (`sti`
     // takes effect after the next one), so every pending interrupt is
@@ -103,6 +116,7 @@ pub fn open() {
     IRQ_WINDOW_OPEN.store(0, Ordering::SeqCst);
     OPENED.fetch_add(1, Ordering::Relaxed);
     LAST.store(rdtsc(), Ordering::Relaxed);
+    crate::perf::irqoff_resume();
     // Restarts the span, and `LAST` again if a syscall is being charged.
     super::irqoff::resume();
 }
@@ -119,13 +133,18 @@ pub fn is_open() -> bool {
 /// for the next ordinary tick ([`take_uncharged`]).
 #[no_mangle]
 extern "C" fn window_tick() {
+    if super::timer::stale_tick() {
+        // An APIC tick latched before the tick was masked: acknowledged
+        // there, and no tick for the kernel (as in `schedule`).
+        return;
+    }
     let periods = super::clock::periods_since_last();
     super::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
     WINDOW_TICKS.fetch_add(periods, Ordering::Relaxed);
     UNCHARGED.fetch_add(periods, Ordering::Relaxed);
-    // SAFETY: called only from `timer_isr`, i.e. in the IRQ0 handler with
-    // IRQ0 in service at the PIC.
-    unsafe { super::pic::end_of_interrupt(0) };
+    // SAFETY: called only from `timer_isr`, i.e. in the tick handler (PIT
+    // IRQ0 or the local APIC timer) with the tick in service, once.
+    unsafe { super::timer::end_of_tick() };
     crate::input::ps2::service();
 }
 
@@ -150,8 +169,8 @@ pub fn window_ticks() -> u64 {
     WINDOW_TICKS.load(Ordering::Relaxed)
 }
 
-/// Windows open only inside a syscall (an `irqoff` span is being charged)
-/// with interrupts off. Never in an interrupt handler: the timer
+/// Windows open only inside a syscall or a kernel section (an `irqoff` span
+/// is being charged) with interrupts off. Never in an interrupt handler: the timer
 /// acknowledges IRQ0 early, so a window there could nest ticks. A handler
 /// entered from user mode, a `nap` or the kernel task finds no open span.
 fn may_open() -> bool {

@@ -90,9 +90,12 @@ pub mod fpu;
 mod fs_base;
 #[cfg(lazyos_tests)]
 pub mod harness;
+#[cfg(lazyos_tests)]
+pub mod kthread;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;
+mod preempt;
 mod sched;
 mod schedule;
 pub mod slotmask;
@@ -109,6 +112,9 @@ pub use fdtypes::*;
 pub use lifecycle::*;
 pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
+#[allow(unused_imports)] // test hook
+pub use preempt::pending as resched_pending;
+pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
 pub use sched::*;
 pub use spawn::*;
 pub use stats::*;

@@ -1,6 +1,9 @@
 # Performance and responsiveness plan
 
-Status: draft, 2026-10-03. Nothing here is built yet.
+Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
+(the kernel wake path) are built; their measurements, so far on the dev
+profile under WHPX, are in [`perf/report.md`](perf/report.md) and
+[`perf/history.md`](perf/history.md). P2 onward is not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not

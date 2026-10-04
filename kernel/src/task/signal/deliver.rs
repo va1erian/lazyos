@@ -226,11 +226,8 @@ pub(super) fn saved_regs_from_stack(rax: u64) -> UserRegs {
 
 /// Halt the CPU until the scheduler runs another task.
 pub(super) fn halt_forever() -> ! {
-    crate::arch::irqoff::close();
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
+    // The task is done: hand the CPU on now (P1.5).
+    crate::task::exit_cpu()
 }
 
 /// Park the caller while its process is stopped, resuming on `SIGCONT`. Used

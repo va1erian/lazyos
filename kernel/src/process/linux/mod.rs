@@ -222,6 +222,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     crate::arch::irqoff::enter_linux(nr);
     task::reclaim_pending();
     super::gate::LAST_SYSCALL.store(nr, core::sync::atomic::Ordering::Relaxed);
+    crate::perf::syscall_entry(nr);
     trace_syscall(nr);
     let result = match nr {
         0 => io::sys_read(a1, a2, a3),
@@ -373,6 +374,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     let restart = restartable(nr).then_some(nr);
     let result = task::signal::deliver_linux_restartable(result, restart);
     crate::arch::irqoff::exit();
+    crate::perf::syscall_exit();
     result
 }
 

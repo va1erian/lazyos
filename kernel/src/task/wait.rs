@@ -102,11 +102,7 @@ impl WaitQueue {
         // Enter the scheduler through the voluntary gate: the saved context is
         // a regular interrupt frame, so resuming later lands right here with
         // the blocking syscall's stack still intact.
-        // Other tasks run meanwhile: this syscall's interrupts-off stretch
-        // ends here and starts again on resume (`arch::irqoff`).
-        crate::arch::irqoff::close();
         super::switch::yield_now();
-        crate::arch::irqoff::resume();
         loop {
             if let Some(reason) = take_wake_reason(task) {
                 // The deadline sweep and notifiers leave the waiter enqueued;

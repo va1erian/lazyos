@@ -1,5 +1,5 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, Doom, the Linux programs, the HTTPS tools), run before `cargo build`.
+player package, Doom, the Linux programs, the HTTPS tools, LazyWeb), run before `cargo build`.
 `catalog` re-exports them; they live apart to keep it small."""
 
 from __future__ import annotations
@@ -50,7 +50,15 @@ def tls_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/nettls/build.py", "--require"]}]
 
 
+def lazyweb_step(cfg: dict) -> list[dict]:
+    """The step that builds the LazyWeb browser (with the other xui apps and
+    their core packages; NetSurf needs zig), when the image embeds it."""
+    if not cfg.get("lazyweb"):
+        return []
+    return [{"label": "Build xui apps with LazyWeb (zig)", "argv": [PY, "tools/xui/build.py"]}]
+
+
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + linuxapps_step(cfg)
-            + tls_step(cfg))
+            + tls_step(cfg) + lazyweb_step(cfg))
