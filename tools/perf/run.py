@@ -14,6 +14,7 @@ QMP and parses the kernel's `PERF:` serial lines into `docs/perf/report.md`
     python tools/perf/run.py --no-build           # re-measure the current image
     python tools/perf/run.py --accel none         # force TCG (informative only)
     python tools/perf/run.py --label "P1.1"       # also append a row to docs/perf/history.md
+    python tools/perf/run.py --usb                # the moves through a USB mouse on qemu-xhci
 
 Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
 
@@ -24,6 +25,8 @@ Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
     ipc_rt         in-kernel Messenger echo round trip (no context switch)
     sleep_1ms      a 1 ms sleep of the kernel task, request -> return
     present        the compositor's present syscall, start to return
+    report         printing one PERF report (what the harness itself costs)
+    usb_input_present  the xHCI interrupt behind a USB pointer record -> the next present
 
 Exit status is non-zero when the image never reaches the desktop or a metric
 the run must produce (`irqoff`, `ipc_rt`, `input_read`, `sleep_1ms`) is missing.
@@ -52,7 +55,7 @@ from qemu_qmp import (  # noqa: E402
 REPORT_DIR = ROOT / "docs" / "perf"
 METRICS = (
     "irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms", "present",
-    "report", "input_present_rpt",
+    "report", "input_present_rpt", "usb_input_present",
 )
 REQUIRED = ("irqoff", "ipc_rt", "input_read", "sleep_1ms")
 RE_METRIC = re.compile(
@@ -74,14 +77,17 @@ KNOCK_GUEST_PORT = 7
 KNOCK_PERIOD_S = 0.05
 
 
-def build_image() -> Path:
+def build_image(usb: bool) -> Path:
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NET="1", LAZYOS_PERF="1")
+    if usb:
+        env["LAZYOS_USB"] = "1"
     # Always: the image embeds target/xui/*.elf as they are, so building them
     # only when missing measured stale apps after an xui-app change. Cargo
     # makes an unchanged rebuild cheap.
     print("building xui apps: python tools/xui/build.py", flush=True)
     subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT, check=True)
-    print("building: LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1 cargo build", flush=True)
+    print("building: LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1"
+          + (" LAZYOS_USB=1" if usb else "") + " cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
         sys.exit(f"cargo build failed:\n{result.stderr[-4000:]}")
@@ -109,8 +115,10 @@ def wait_for(path: Path, proc: subprocess.Popen, markers: tuple[str, ...], timeo
 
 def move_mouse(qmp: Qmp, moves: int, pause: float) -> None:
     """`moves` single-packet moves, back and forth so the cursor stays on screen.
-    Each move is its own PS/2 packet and its own IRQ12 burst; the pause keeps
-    them apart so each is measured on its own, not merged on the bus."""
+    Each move is its own PS/2 packet (a USB report with `--usb`, where QEMU
+    routes the move to the only pointer, the `usb-mouse`) and its own
+    interrupt; the pause keeps them apart so each is measured on its own, not
+    merged on the bus."""
     for index in range(moves):
         step = 6 if (index // 20) % 2 == 0 else -6
         qmp.mouse_move(step, step // 2, delay=0)
@@ -169,7 +177,7 @@ def write_report(payload: dict) -> Path:
         f"- Commit: `{meta['commit']}`" + (f" ({meta['label']})" if meta.get("label") else ""),
         f"- Accelerator: {meta['accel']}",
         f"- Kernel build profile: {meta['profile']}",
-        f"- Mouse moves: {meta['moves']} PS/2 packets, {meta['pause_ms']} ms apart",
+        f"- Mouse moves: {meta['moves']} {'USB reports (qemu-xhci)' if meta.get('usb') else 'PS/2 packets'}, {meta['pause_ms']} ms apart",
         "",
         "Provisional: the plan's gates are taken on the optimized (release-profile) "
         "kernel build, which is being introduced separately; numbers from the dev "
@@ -255,11 +263,14 @@ def main() -> int:
     parser.add_argument("--pause", type=float, default=0.06, help="seconds between packets")
     parser.add_argument("--boot-timeout", type=float, default=180.0)
     parser.add_argument("--label", help="append this run to docs/perf/history.md under this label")
+    parser.add_argument("--usb", action="store_true",
+                        help="LAZYOS_USB=1, a qemu-xhci with a USB mouse and keyboard and no "
+                             "i8042: the moves go through usbd (usb_input_present)")
     parser.add_argument("--no-knock", action="store_true",
                         help="no host traffic (no device interrupts; isolates the input path)")
     args = parser.parse_args()
 
-    image = Path(args.image) if args.no_build else build_image()
+    image = Path(args.image) if args.no_build else build_image(args.usb)
     qemu = find_qemu(args.qemu)
     out = (ROOT / args.out) if not Path(args.out).is_absolute() else Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -271,6 +282,9 @@ def main() -> int:
         "-netdev", f"user,id=n0,hostfwd=tcp:127.0.0.1:{knock_port}-:{KNOCK_GUEST_PORT}",
         "-device", "virtio-net-pci,netdev=n0",
     ]
+    if args.usb:
+        extra += ["-machine", "pc,i8042=off", "-device", "qemu-xhci,id=xhci0",
+                  "-device", "usb-kbd,id=kbd,bus=xhci0.0", "-device", "usb-mouse,id=mouse,bus=xhci0.0"]
     port = free_port()
     command = build_qemu_command(qemu, str(image), port, serial_log, memory=args.memory, extra_args=extra)
     print(f"booting ({accel}): {' '.join(command)}", flush=True)
@@ -311,6 +325,7 @@ def main() -> int:
             "profile": kernel_profile(),
             "moves": args.moves,
             "pause_ms": int(args.pause * 1000),
+            "usb": args.usb,
         },
         **parsed,
     }
@@ -321,7 +336,8 @@ def main() -> int:
         row = parsed["metrics"].get(name)
         print(f"  {name:14} " + (json.dumps(row) if row else "no samples"))
     print(f"report: {report.relative_to(ROOT)}")
-    missing = [name for name in REQUIRED if name not in parsed["metrics"]]
+    required = REQUIRED + (("usb_input_present",) if args.usb else ())
+    missing = [name for name in required if name not in parsed["metrics"]]
     if missing:
         print(f"FAIL: no samples for {', '.join(missing)}", file=sys.stderr)
         return 1

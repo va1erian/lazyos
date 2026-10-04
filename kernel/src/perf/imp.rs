@@ -17,6 +17,15 @@ static PRESENT: Samples = Samples::new();
 /// interval contained a report: what the harness itself costs the input path.
 static REPORT: Samples = Samples::new();
 static INPUT_PRESENT_RPT: Samples = Samples::new();
+/// From the xHCI interrupt behind a USB pointer record to the present.
+static USB_INPUT_PRESENT: Samples = Samples::new();
+/// The newest device interrupt posted to each task (consumed by a publish).
+static IRQ_LAST: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// The interrupt stamp of the source batch being published (0: none).
+static SOURCE_STAMP: AtomicU64 = AtomicU64::new(0);
+/// The USB pointer pipeline: oldest record published, then read.
+static USB_POINTER_PENDING: AtomicU64 = AtomicU64::new(0);
+static USB_POINTER_READ: AtomicU64 = AtomicU64::new(0);
 /// TSC at the end of the last report (0: none yet).
 static LAST_REPORT_END: AtomicU64 = AtomicU64::new(0);
 
@@ -99,12 +108,38 @@ pub fn on_run(slot: usize) {
     }
 }
 
+/// The newest interrupt posted to `owner`: the claim's line stays masked
+/// until the driver acknowledges, so between two of its looks there is one,
+/// and a stale one (an event that published nothing) is overwritten.
+pub fn irq_posted(owner: usize) {
+    let chain = CHAIN.load(Ordering::Relaxed);
+    if let (Some(last), true) = (IRQ_LAST.get(owner), chain != 0) {
+        last.store(chain, Ordering::Relaxed);
+    }
+}
+
+pub fn source_publishing(owner: usize) {
+    let stamp = IRQ_LAST
+        .get(owner)
+        .map_or(0, |last| last.swap(0, Ordering::Relaxed));
+    SOURCE_STAMP.store(stamp, Ordering::Relaxed);
+}
+
+pub fn source_published() {
+    SOURCE_STAMP.store(0, Ordering::Relaxed);
+}
+
 pub fn input_published(pointer: bool) {
     LAST_INPUT_TICK.store(task::ticks(), Ordering::Relaxed);
     let now = rdtsc();
     let _ = INPUT_PENDING.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
     if pointer {
         let _ = POINTER_PENDING.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
+        let irq = SOURCE_STAMP.load(Ordering::Relaxed);
+        if irq != 0 {
+            let _ =
+                USB_POINTER_PENDING.compare_exchange(0, irq, Ordering::Relaxed, Ordering::Relaxed);
+        }
     }
 }
 
@@ -120,10 +155,18 @@ pub fn input_read(count: usize) {
     if pointer != 0 {
         let _ = POINTER_READ.compare_exchange(0, pointer, Ordering::Relaxed, Ordering::Relaxed);
     }
+    let usb = USB_POINTER_PENDING.swap(0, Ordering::Relaxed);
+    if usb != 0 {
+        let _ = USB_POINTER_READ.compare_exchange(0, usb, Ordering::Relaxed, Ordering::Relaxed);
+    }
 }
 
 pub fn presented(started: u64) {
     record(&PRESENT, rdtsc().wrapping_sub(started));
+    let usb = USB_POINTER_READ.swap(0, Ordering::Relaxed);
+    if usb != 0 {
+        record(&USB_INPUT_PRESENT, rdtsc().wrapping_sub(usb));
+    }
     let pointer = POINTER_READ.swap(0, Ordering::Relaxed);
     if pointer != 0 {
         let cycles = rdtsc().wrapping_sub(pointer);
@@ -242,6 +285,7 @@ pub fn service() {
         ("present", &PRESENT),
         ("report", &REPORT),
         ("input_present_rpt", &INPUT_PRESENT_RPT),
+        ("usb_input_present", &USB_INPUT_PRESENT),
     ] {
         if !samples.changed() {
             continue;

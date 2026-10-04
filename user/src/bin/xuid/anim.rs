@@ -226,7 +226,9 @@ fn small_rect(window: Rect, w: i32, h: i32, bounds: Rect) -> Rect {
 /// How far along the move trail outline `index` is `elapsed` nanoseconds
 /// in, out of [`FULL`]; `None` before it has started (nothing drawn).
 fn progress(elapsed: u64, index: u64) -> Option<i32> {
-    let own = elapsed.checked_sub(index * TRAIL_LAG_NS).filter(|t| *t > 0)?;
+    let own = elapsed
+        .checked_sub(index * TRAIL_LAG_NS)
+        .filter(|t| *t > 0)?;
     Some((own.min(PHASE_NS) * FULL as u64 / PHASE_NS) as i32)
 }
 

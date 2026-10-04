@@ -162,7 +162,16 @@ crash-test build that exits while holding a key.
   translators and multiple TTs, SuperSpeed hubs (QEMU's `usb-hub` is a
   full-speed USB 1.1 hub), low-speed devices. Intel's pre-Z890 EHCI port
   routing (`XUSB2PR`, PCI config space) is not done: Z890 has no EHCI.
-- Interrupts: `usbd` polls. Registering its sources raises it to the
+- Interrupts (P3.7, `usbd/irq.rs`): each controller is claimed with an
+  interrupt endpoint and interrupter 0 raises the INTx line (`IMOD` 40 us);
+  the idle loop parks on every controller's endpoint with the Messenger wait
+  set, clears `IMAN.IP`/`USBSTS.EINT` and acknowledges before draining the
+  ring, and keeps a 100 ms poll as a safety net (`USBD:IRQ hc=<n> armed`, or
+  `polled` when the line is refused). A live USB stick still idles in its
+  one-tick serve (its request queue is not an endpoint). USB pointer to
+  present measured from the xHCI interrupt (`tools/perf/run.py --usb`, WHPX):
+  p50 0.28 ms, p99 0.64 ms, against 4.8 ms and 10.4 ms polled.
+  Registering its sources raises it to the
   Interactive class, so a console repaint no longer starves it (QEMU's
   keyboard holds only 16 events); every interrupt endpoint is polled at most
   once per millisecond, which bounds what a flooding device costs. Under TCG

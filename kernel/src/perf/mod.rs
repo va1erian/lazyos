@@ -103,6 +103,31 @@ pub fn input_published(_pointer: bool) {
     imp::input_published(_pointer);
 }
 
+/// The bottom half posts an interrupt to claimant task `owner`: remember
+/// the interrupt's time for that task's next input publish.
+#[inline(always)]
+pub fn irq_posted(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::irq_posted(_owner);
+}
+
+/// A userspace input source (`usbd`, task `owner`) starts publishing a
+/// batch: its pointer records are stamped with the device interrupt that
+/// last woke it (the xHCI interrupt), not with the publish, so
+/// `usb_input_present` includes the driver's own delay.
+#[inline(always)]
+pub fn source_publishing(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::source_publishing(_owner);
+}
+
+/// The batch [`source_publishing`] opened is done.
+#[inline(always)]
+pub fn source_published() {
+    #[cfg(lazyos_perf)]
+    imp::source_published();
+}
+
 /// A raw-bus consumer drained `count` records.
 #[inline(always)]
 pub fn input_read(_count: usize) {

@@ -115,8 +115,7 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
     let doorbells = low & !WAIT_DEADLINE_NS;
     let empty = handles.is_empty() && doorbells == 0;
     let stray_fd = fd != 0 && doorbells & WAIT_FD == 0;
-    if handles.len() > MAX_WAIT_ENDPOINTS || empty || doorbells & !WAIT_DOORBELLS != 0 || stray_fd
-    {
+    if handles.len() > MAX_WAIT_ENDPOINTS || empty || doorbells & !WAIT_DOORBELLS != 0 || stray_fd {
         return Err(Error::BadParcel);
     }
     // `fd` came from 32 bits, so it fits a `usize` on this 64-bit kernel.

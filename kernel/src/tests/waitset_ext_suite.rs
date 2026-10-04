@@ -271,7 +271,10 @@ pub fn fd_soak() -> Result<(), String> {
                 let taken = as_task(rig.thread, || {
                     channels::try_recv(HANDLES[0].load(Ordering::Relaxed))
                 });
-                check!(matches!(taken, Ok(Some(_))), "round {round}: nothing to take");
+                check!(
+                    matches!(taken, Ok(Some(_))),
+                    "round {round}: nothing to take"
+                );
             }
             _ => {}
         }
@@ -285,7 +288,9 @@ pub fn fd_soak() -> Result<(), String> {
     // Every byte written was read back: the pipe is empty. Asked by `poll`
     // readiness, never by a wait: a wait made "as" the thread would park the
     // kernel task in the thread's slot.
-    let left = as_task(rig.thread, || task::fd_poll(r as usize, crate::ipc::pipe::POLLIN));
+    let left = as_task(rig.thread, || {
+        task::fd_poll(r as usize, crate::ipc::pipe::POLLIN)
+    });
     check!(left == Some(0), "bytes left over: {left:?}");
     as_task(rig.thread, || {
         sys(3, [r, 0, 0]);

@@ -9,6 +9,7 @@ python tools/perf/run.py                    # build, boot, measure, report
 python tools/perf/run.py --no-build         # re-measure the current image
 python tools/perf/run.py --label "P1.1"     # also append a row to docs/perf/history.md
 python tools/perf/run.py --accel none       # TCG: informative only
+python tools/perf/run.py --usb              # the moves through a USB mouse (LAZYOS_USB=1, qemu-xhci, no i8042)
 ```
 
 The image is built with `LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1`.
@@ -29,6 +30,7 @@ syscall number of the longest interrupts-off stretch.
 | `present` | the display owner's `present` syscall starts | it returns, breaths between chunks included (P3.2) | every frame the compositor shows during the run |
 | `report` | the kernel starts printing a report | it finished | every report |
 | `input_present_rpt` | an `input_present` sample | the same, booked only when a report ran inside it | the moves |
+| `usb_input_present` | the xHCI interrupt the kernel posted to `usbd` before it published a pointer record | the compositor's next `present` returns | `--usb`: the same moves through a `usb-mouse` |
 
 A report is several milliseconds of polled serial output (`report`, more
 under a hypervisor, where every byte is a VM exit), and the kernel task keeps
@@ -41,9 +43,10 @@ still overlapped; it should stay empty.
 the one that moved the cursor; an unrelated repaint in between would shorten
 the sample, never lengthen it.
 
-Not measured yet: USB input to present (the start stamp belongs at the xHCI
-transfer event, which the kernel cannot see while `usbd` polls the
-controller), disk read and exec time. TCP throughput has a harness of its
+`usb_input_present` starts at the device interrupt, not at the publish, so
+it includes `usbd`'s own delay: the bottom half notes the interrupt it posts
+to each claimant (`perf::irq_posted`) and a source's next publish consumes it
+(`perf::source_publishing`). Not measured yet: disk read and exec time. TCP throughput has a harness of its
 own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
 [`docs/perf/network.md`](../../docs/perf/network.md)), because its verdict is
 what crossed the wire, not a kernel histogram.
