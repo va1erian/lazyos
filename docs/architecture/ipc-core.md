@@ -54,7 +54,13 @@ userspace never names another task's handles.
   lock that saw it empty, the bus's doorbell under the bus lock), so a
   delivery, a peer close or an input publication wakes it through
   `MESSENGER`. `inputd` and `xuid` use it instead of short-deadline polling
-  (docs/performance-plan.md P1.3, P1.4).
+  (docs/performance-plan.md P1.3, P1.4). The other doorbells are the display
+  owner's key queue (`WAIT_DISPLAY_KEYS`), the `AF_INET` pump's bell
+  (`WAIT_INET`, `netd`) and the child-exit bell (`WAIT_CHILD`, any task;
+  `task/childbell.rs`, P7.1): ready while the caller has a finished child it
+  has not reaped, rung by every exit path next to the `CHILD_EXIT`
+  notification. `init` parks on its endpoint and its children's exits with
+  it, so a request is served at once and an idle supervisor does not wake.
 - **Poll calls.** A call with deadline `POLL_DEADLINE` (1, the user library's
   `EXPIRED_DEADLINE`) is not dead on arrival. `begin_call` gives its
   transaction a short real deadline (`POLL_GRACE_TICKS` = 3 ticks, so a callee

@@ -19,19 +19,26 @@ pub const WAIT_DISPLAY_KEYS: u64 = 2;
 /// Doorbell: an application acted on an `AF_INET` socket (the attached
 /// `netd` only, docs/performance-plan.md P4.1).
 pub const WAIT_INET: u64 = 4;
+/// Doorbell: a child of the caller finished and waits to be reaped with
+/// [`crate::sys::wait`] (any task; docs/performance-plan.md P7.1). It stays
+/// ready until every finished child is reaped.
+pub const WAIT_CHILD: u64 = 8;
 /// Bit of the ready mask that means "the raw input ring holds records".
 pub const RAW_INPUT_READY: u64 = 1 << 63;
 /// Bit of the ready mask that means "the display input queue has events".
 pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
 /// Bit of the ready mask that means "the `AF_INET` pump has work".
 pub const INET_READY: u64 = 1 << 61;
+/// Bit of the ready mask that means "a child waits to be reaped".
+pub const CHILD_READY: u64 = 1 << 60;
 
 /// Park until one of `endpoints` has a message or a closed peer, or one of
-/// the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`], [`WAIT_INET`])
-/// rings, or
+/// the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`], [`WAIT_INET`],
+/// [`WAIT_CHILD`]) rings, or
 /// `deadline` (absolute ticks; `None` waits forever) passes. Returns the
-/// ready mask: bit `i` for `endpoints[i]`, [`RAW_INPUT_READY`] and
-/// [`DISPLAY_INPUT_READY`] for the doorbells. A deadline that passes first is
+/// ready mask: bit `i` for `endpoints[i]`, [`RAW_INPUT_READY`],
+/// [`DISPLAY_INPUT_READY`], [`INET_READY`] and [`CHILD_READY`] for the
+/// doorbells. A deadline that passes first is
 /// `-ETIMEDOUT`, as for `recv`; a doorbell this task may not use is
 /// `-ENOENT`.
 pub fn wait_any(endpoints: &[Endpoint], doorbells: u64, deadline: Option<u64>) -> Result<u64> {

@@ -191,6 +191,7 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
         let parent = done.parent as usize;
         if parent != KERNEL_TASK && parent != 0 {
             post_sigchld(parent);
+            crate::task::childbell::ring(parent);
         }
     }
     crate::task::wait::CHILD_EXIT.notify_all();

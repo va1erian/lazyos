@@ -110,6 +110,14 @@ pub fn finish(index: usize, code: u64) {
     super::process::finish(index, code);
 }
 
+/// Make `parent` the parent of `slot` (the child-exit doorbell tests give a
+/// kernel thread children without a fork).
+pub fn set_parent(slot: usize, parent: usize) {
+    if let Some(task) = TASKS.lock()[slot].as_mut() {
+        task.parent = parent;
+    }
+}
+
 /// Point `current()` at `slot` without a context switch. The tests build
 /// multi-level process trees with `spawn_fork`, which forks the current
 /// task.

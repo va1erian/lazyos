@@ -456,6 +456,9 @@ pub fn inet_doorbell() -> Result<(), String> {
     rig.teardown()
 }
 
+#[path = "waitset_child.rs"]
+mod child;
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_waitset_ready_masks", ready_masks),
     ("ipc_waitset_wakes_on_any", wakes_on_any),
@@ -463,4 +466,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_waitset_display_key_doorbell", display_key_doorbell),
     ("ipc_waitset_inet_doorbell", inet_doorbell),
     ("ipc_waitset_soak", wait_any_soak),
+    ("ipc_waitset_child_doorbell", child::child_doorbell),
+    ("ipc_waitset_child_soak", child::child_soak),
 ];

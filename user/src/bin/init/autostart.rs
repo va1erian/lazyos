@@ -66,6 +66,14 @@ impl Autostart {
         }
     }
 
+    /// When the next step is due; `None` once every app is open and the
+    /// registry self-test ran.
+    pub(super) fn next_due(&self) -> Option<u64> {
+        let finished =
+            self.pending.is_empty() && matches!(self.stage, Stage::Apps { selftest_until: 0 });
+        (!finished).then_some(self.due)
+    }
+
     /// One step when due: a launch, or one poll of `pkgd`.
     pub(super) fn step(
         &mut self,

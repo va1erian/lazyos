@@ -37,6 +37,11 @@ impl LaunchSelftest {
         }
     }
 
+    /// When the next attempt is due, while the test has not run.
+    pub(super) fn next_due(&self) -> Option<u64> {
+        (!self.done).then_some(self.due)
+    }
+
     /// One attempt when due; schedules the next retry on a full task table.
     pub(super) fn step(
         &mut self,

@@ -196,6 +196,9 @@ command.
   (3 s); `MAX_RESTARTS` (5) rapid crashes make it `failed`. A child that stays
   up `STABLE_TICKS` (1 s) has its counter reset, so occasional crashes never
   exhaust the budget. `Stop` retires an app's rows without a restart.
+  The loop parks on its endpoint and its children's exits at once
+  (`wait_any` with `WAIT_CHILD`), waking otherwise only for a due restart or
+  a timed boot step: requests are answered at once.
 - *Phases and events.* A row is `pending`, `running`, `restarting`, `stopped`
   or `failed`. Every transition is published retained on
   `system/events/service/<name>` (`ServiceEvent`), which `healthd` and `logd`

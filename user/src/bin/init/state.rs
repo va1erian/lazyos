@@ -6,8 +6,6 @@
 
 use user::sys::Cred as SysCred;
 
-/// Serve subscriptions and due restarts at least this often (PIT ticks).
-pub(super) const POLL_TICKS: u64 = 5;
 /// First restart delay (PIT ticks, 100 Hz), doubled per rapid crash.
 pub(super) const BACKOFF_BASE: u64 = 10;
 /// Restart delay cap, so a crash loop stays gentle.

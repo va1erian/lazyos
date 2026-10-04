@@ -12,7 +12,7 @@ use user::messenger::{router, services};
 use user::sys;
 
 use super::state::{
-    Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, POLL_TICKS, STABLE_TICKS,
+    Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, STABLE_TICKS,
 };
 
 /// Start every `Pending` service whose dependencies are `Running`, repeating
@@ -327,16 +327,14 @@ fn backoff(restarts: u64) -> u64 {
     (BACKOFF_BASE << shift).min(BACKOFF_MAX)
 }
 
-/// The next tick the supervisor must wake at: a due restart, or the regular
-/// request-serving poll.
-pub(super) fn wake_deadline(services: &[Service], now: u64) -> u64 {
-    let mut deadline = now + POLL_TICKS;
-    for service in services {
-        if service.phase == Phase::Restarting && service.next_start < deadline {
-            deadline = service.next_start;
-        }
-    }
-    deadline
+/// The next tick the supervisor must wake at with nothing else to wake it: a
+/// due restart. Requests and child exits wake it on their own.
+pub(super) fn wake_deadline(services: &[Service]) -> Option<u64> {
+    services
+        .iter()
+        .filter(|service| service.phase == Phase::Restarting)
+        .map(|service| service.next_start)
+        .min()
 }
 
 /// Publish one service state event, retained per service, on the declared
