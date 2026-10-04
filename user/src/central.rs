@@ -152,6 +152,7 @@ impl Bus {
             id,
             request,
             stats_request,
+            bell: None,
         })
     }
 
@@ -196,6 +197,8 @@ pub struct Subscription {
     request: Vec<u8>,
     /// Pre-encoded `Stats` request, reused on every [`Subscription::stats_with`] call.
     stats_request: Vec<u8>,
+    /// Our end of the doorbell, once [`Subscription::bell`] asked for one.
+    bell: Option<Endpoint>,
 }
 
 impl Subscription {
@@ -226,6 +229,45 @@ impl Subscription {
         }
     }
 
+    /// The subscription's doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one message on the returned endpoint when events are
+    /// waiting. Park on it beside your own endpoints (`wait::wait_any`); on
+    /// each wake call [`Subscription::take_ring`], then drain
+    /// [`Subscription::recv_with`] with [`EXPIRED_DEADLINE`] until it returns
+    /// `None`, which re-arms the bell. Asked once; later calls return the
+    /// same end.
+    pub fn bell(&mut self) -> Result<Endpoint> {
+        if let Some(bell) = self.bell {
+            return Ok(bell);
+        }
+        let (mine, theirs) = create_pair()?;
+        let request = topics_client::bell_request(self.id, theirs.handle())?;
+        let mut scratch = [0u8; 512];
+        let installed = self
+            .endpoint
+            .call_with(&request, &mut scratch, None)
+            .and_then(|reply| match error_code(&reply) {
+                Some(code) => Err(Error::Topics(code)),
+                None => Ok(()),
+            });
+        if let Err(error) = installed {
+            // The transfer may not have happened: drop both ends (closing a
+            // handle that already moved is a harmless `EBADF`).
+            let _ = theirs.close();
+            let _ = mine.close();
+            return Err(error);
+        }
+        self.bell = Some(mine);
+        Ok(mine)
+    }
+
+    /// Consume the `Ready` the doorbell holds (the wait said one is there).
+    pub fn take_ring(&self, buf: &mut [u8]) {
+        if let Some(bell) = self.bell {
+            let _ = bell.recv_with(buf, Some(EXPIRED_DEADLINE));
+        }
+    }
+
     /// Per-subscription delivery counters, including QoS overflow drops.
     /// Takes a caller-owned reply buffer: a long-lived poll loop must reuse
     /// one here too, or the user bump allocator grows to fit both this and
@@ -243,6 +285,9 @@ impl Subscription {
 
     /// Drop this subscription; later publishes stop matching it.
     pub fn unsubscribe(self) -> Result<()> {
+        if let Some(bell) = self.bell {
+            let _ = bell.close();
+        }
         let request =
             topics_client::subscription_request(topics_client::method::UNSUBSCRIBE, self.id)?;
         let mut scratch = alloc::vec![0u8; DEFAULT_BUFFER];

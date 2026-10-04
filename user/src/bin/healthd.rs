@@ -38,7 +38,7 @@ mod handler;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, router, services, Endpoint, Error};
+use user::messenger::{self, registry, router, services, wait, Endpoint, Error};
 use user::sys;
 
 use aggregate::{apply_state, records, refresh, summary};
@@ -49,8 +49,9 @@ use handler::dispatch;
 /// and it is slow because the user runtime's bump allocator (`user/src/heap.rs`)
 /// never reclaims the reply buffers each call allocates.
 const POLL_TICKS: u64 = 20_000;
-/// How long the service sleeps waiting for messages between polls.
-const IDLE_TICKS: u64 = 5;
+/// How soon to look again while `init` cannot be reached or subscribed to
+/// (it registers before it starts any service, so this is a fallback).
+const CONNECT_RETRY_TICKS: u64 = 5;
 /// Age at which a `Report` stops overriding the derived row (PIT ticks).
 const REPORT_TTL: u64 = 250;
 
@@ -129,13 +130,6 @@ fn run() -> messenger::Result<()> {
                 events = services::init::wire::subscribe_system_events_service(bus, "+").ok();
             }
         }
-        drain_events(
-            &events,
-            &mut buffer,
-            &mut rows,
-            &mut broker,
-            &mut summary_state,
-        );
 
         // Resolve the supervisor when it becomes available (logd/healthd can
         // start before it has finished registering itself).
@@ -155,8 +149,40 @@ fn run() -> messenger::Result<()> {
             next_poll = sys::clock() + POLL_TICKS;
         }
 
-        // Serve one queued message, or wake for the next poll.
-        match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
+        // Park on requests and `init`'s service events at once: both are
+        // served as they arrive, and an idle `healthd` does not wake (P7).
+        let deadline = if events.is_none() || init.is_none() {
+            sys::clock() + CONNECT_RETRY_TICKS
+        } else {
+            next_poll
+        };
+        let ready = match &events {
+            Some(sub) => wait::wait_any(&[server, sub.endpoint()], 0, Some(deadline)),
+            None => wait::wait_any(&[server], 0, Some(deadline)),
+        };
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
+            Err(error) => return Err(error),
+        };
+        if ready & 0b10 != 0 {
+            let fed = take_event(
+                &events,
+                &mut buffer,
+                &mut rows,
+                &mut broker,
+                &mut summary_state,
+            );
+            if !fed {
+                // The feed died (`init`'s broker is gone): subscribe again.
+                events = None;
+            }
+        }
+        if ready & 1 == 0 {
+            continue;
+        }
+        // Serve the queued message (the wait says one is there).
+        match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
                 let reply = match dispatch(&mut rows, &mut broker, &message) {
                     Ok(parcel) => parcel,
@@ -192,36 +218,32 @@ fn connect_or_keep(bus: Option<router::Bus>, name: &str) -> Option<router::Bus> 
     }
 }
 
-/// Apply every queued `system/events/service/<name>` state event.
-fn drain_events(
+/// Apply one queued `system/events/service/<name>` state event; `false` when
+/// the feed failed (its broker is gone).
+fn take_event(
     events: &Option<router::Subscriber>,
     buffer: &mut [u8],
     rows: &mut Vec<HealthRow>,
     broker: &mut router::TopicBroker,
     summary_state: &mut Option<(String, String)>,
-) {
+) -> bool {
     let Some(events) = events else {
-        return;
+        return true;
     };
-    loop {
-        match events.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
-            Ok(Some(event)) => {
-                // The broker owns the topic, so its service name is trusted
-                // over any payload field; a malformed payload is dropped.
-                let Some(name) = services::service_event_name(&event.topic) else {
-                    continue;
-                };
-                let Ok(payload) =
-                    services::init::wire::decode_system_events_service(&event.payload)
-                else {
-                    continue;
-                };
-                apply_state(rows, name, &payload, broker, summary_state);
-            }
-            Ok(None) => return,
-            Err(_) => return,
-        }
+    let event = match events.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
+        Ok(Some(event)) => event,
+        Ok(None) => return true,
+        Err(_) => return false,
+    };
+    // The broker owns the topic, so its service name is trusted over any
+    // payload field; a malformed payload is dropped.
+    let Some(name) = services::service_event_name(&event.topic) else {
+        return true;
+    };
+    if let Ok(payload) = services::init::wire::decode_system_events_service(&event.payload) {
+        apply_state(rows, name, &payload, broker, summary_state);
     }
+    true
 }
 
 #[panic_handler]

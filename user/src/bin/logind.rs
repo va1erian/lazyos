@@ -38,11 +38,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, accounts, logind, registry, router, services, Endpoint, Parcel};
+use user::messenger::{self, accounts, logind, registry, router, services, wait, Endpoint, Parcel};
 use user::sys::{self, Cred};
 
-/// How long the service sleeps between polls (PIT ticks).
-const POLL_TICKS: u64 = 5;
+/// How long to wait before looking for the accounts service again (PIT
+/// ticks). `init` starts `logind` after `accountsd`, so this only
+/// covers an `accountsd` still registering or restarting.
+const ACCOUNTS_RETRY_TICKS: u64 = 5;
 /// Failed-login backoff (PIT ticks, 100 Hz); the friendly face of rate limiting.
 const FAIL_DELAY_TICKS: u64 = 30;
 /// Capabilities a console session starts with. Empty today: least privilege is
@@ -108,11 +110,15 @@ fn run() -> messenger::Result<()> {
         }
 
         if let Some(current) = active.as_ref() {
-            // Wait for the session's shell to exit (or poll for queries).
-            if let Some((pid, status)) = sys::wait(sys::clock() + POLL_TICKS) {
-                if pid == current.pid {
-                    end_session(&mut sessions, current, status, &mut bus);
-                    active = None;
+            // Park until a query or the session shell's exit (the child
+            // bell, P7): queries are answered at once, with no poll.
+            let ready = wait::wait_any(&[server], wait::WAIT_CHILD, None)?;
+            if ready & wait::CHILD_READY != 0 {
+                if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
+                    if pid == current.pid {
+                        end_session(&mut sessions, current, status, &mut bus);
+                        active = None;
+                    }
                 }
             }
             continue;
@@ -120,7 +126,7 @@ fn run() -> messenger::Result<()> {
 
         let Some(endpoint) = accountsd.as_ref() else {
             // No accounts service yet: wait for it to register.
-            sleep(POLL_TICKS);
+            sleep(ACCOUNTS_RETRY_TICKS);
             continue;
         };
         if let Some(started) = prompt_login(endpoint, &mut sessions, &mut next_session, &mut bus) {
@@ -344,10 +350,9 @@ fn read_line(echo: bool) -> String {
     }
 }
 
-/// Sleep by parking on the child-exit queue with a deadline: the native
-/// `wait` doubles as a timer when no child exists, and it does not busy-spin.
+/// Sleep `ticks` PIT ticks (10 ms each) on the native sleep.
 fn sleep(ticks: u64) {
-    let _ = sys::wait(sys::clock() + ticks);
+    sys::sleep_ns(ticks * 10_000_000);
 }
 
 #[panic_handler]

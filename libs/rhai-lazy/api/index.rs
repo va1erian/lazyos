@@ -156,4 +156,10 @@ pub static MODULES: &[ApiModule] = &[
         source: include_str!("messenger_topics.rhai"),
         topics: &[],
     },
+    ApiModule {
+        alias: "messenger_topics_bell",
+        interface: "os.lazy.messenger.topics.bell.v1",
+        source: include_str!("messenger_topics_bell.rhai"),
+        topics: &[],
+    },
 ];

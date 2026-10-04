@@ -22,7 +22,7 @@ use alloc::format;
 use core::panic::PanicInfo;
 
 use user::messenger::timed as api;
-use user::messenger::{self, errno, registry, services, Error};
+use user::messenger::{self, errno, registry, services, wait, Error};
 use user::sys;
 
 #[path = "timed/demo.rs"]
@@ -34,9 +34,10 @@ mod state;
 
 use state::{now, State};
 
-/// Longest park between housekeeping passes (PIT ticks, 100 Hz): bounds how
-/// late a `confd` change or a due tick is noticed.
-const IDLE_TICKS: u64 = 20;
+/// How often the `demo=1` evidence steps while it runs (PIT ticks, 100 Hz).
+/// Otherwise the service parks until a request, a `confd` change (its watch's
+/// doorbell) or the next minute tick.
+const DEMO_TICKS: u64 = 20;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -65,9 +66,30 @@ fn run() -> messenger::Result<()> {
     // per-call buffers).
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut announced = false;
+    let mut rung = false;
     loop {
-        housekeeping(&mut state, &mut demo, &mut announced);
-        match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
+        housekeeping(&mut state, &mut demo, &mut announced, rung);
+        let deadline = [
+            state.next_wake(),
+            demo.running().then(|| sys::clock() + DEMO_TICKS),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        let ready = match state.bell() {
+            Some(bell) => wait::wait_any(&[server, bell], 0, deadline),
+            None => wait::wait_any(&[server], 0, deadline),
+        };
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+            Err(error) => return Err(error),
+        };
+        rung = ready & 0b10 != 0;
+        if ready & 1 == 0 {
+            continue;
+        }
+        match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
                 let reply = handler::dispatch(&mut state, &message).unwrap_or_else(|error| {
                     services::error_reply(message.interface_id(), message.method(), error)
@@ -82,10 +104,11 @@ fn run() -> messenger::Result<()> {
     }
 }
 
-/// Zone sync, change polling, the minute tick and the demo, once per wakeup.
-fn housekeeping(state: &mut State, demo: &mut demo::Demo, announced: &mut bool) {
+/// Zone sync, a rung change notification, the minute tick and the demo,
+/// once per wakeup.
+fn housekeeping(state: &mut State, demo: &mut demo::Demo, announced: &mut bool, rung: bool) {
     let mut changed = state.sync_zone();
-    changed |= state.poll_changes();
+    changed |= state.poll_changes(rung);
     if changed {
         sys::write_str(&format!("TIMED:ZONE zone={}\n", state.zone.name));
         // A zone change must reach `time/tick` subscribers promptly.

@@ -12988,6 +12988,8 @@ pub mod os_lazy_messenger_topics_v1 {
     pub const METHOD_STATS: u32 = 267161228;
     /// `Ping` method id.
     pub const METHOD_PING: u32 = 2142761129;
+    /// `Bell` method id.
+    pub const METHOD_BELL: u32 = 1766698328;
 
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
@@ -13279,6 +13281,106 @@ pub mod os_lazy_messenger_topics_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.stats = decode_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
+    /// when the subscription has an event nobody is pulling, and no more
+    /// until a `NextEvent` from its owner finds the queue empty. The owner
+    /// parks on the other end beside its own endpoints (`wait_any`) and
+    /// drains with expired-deadline `NextEvent`s on each ring, instead of
+    /// polling. Owner only; a second bell replaces the first.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BellArgs {
+        pub subscription: u64,
+    }
+
+    pub fn encode_bell_args(value: &BellArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_bell_args(body: &[u8]) -> Result<BellArgs, Error> {
+        let mut out = BellArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `Bell` request carries outside its body.
+    pub const BELL_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Bell` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BellTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on.
+        pub bell: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Bell` request.
+    pub fn encode_bell_transfers(value: &BellTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.bell], Vec::new())
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_BELL => BELL_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+}
+
+/// `os.lazy.messenger.topics.bell.v1` (interface id `0xd4c79d9b36918ea0`).
+#[rustfmt::skip]
+pub mod os_lazy_messenger_topics_bell_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xd4c79d9b36918ea0;
+
+    /// `Ready` method id.
+    pub const METHOD_READY: u32 = 197800596;
+
+    /// `subscription` has events waiting.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReadyArgs {
+        pub subscription: u64,
+    }
+
+    pub fn encode_ready_args(value: &ReadyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.subscription)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ready_args(body: &[u8]) -> Result<ReadyArgs, Error> {
+        let mut out = ReadyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.subscription = field.as_u64()?;
             }
         }
         Ok(out)

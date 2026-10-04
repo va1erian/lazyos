@@ -2491,6 +2491,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "Bell",
+                id: 1766698328,
+                oneway: false,
+                doc: "Give a subscription a doorbell (docs/performance-plan.md P7.2): the\nbroker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`\nwhen the subscription has an event nobody is pulling, and no more\nuntil a `NextEvent` from its owner finds the queue empty. The owner\nparks on the other end beside its own endpoints (`wait_any`) and\ndrains with expired-deadline `NextEvent`s on each ring, instead of\npolling. Owner only; a second bell replaces the first.",
+                params: &[Field { name: "subscription", ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[Transfer { name: "bell", channel: Some("os.lazy.messenger.topics.bell.v1") }],
+            },
         ],
         structs: &[
             Struct {
@@ -2512,6 +2521,25 @@ pub static INTERFACES: &[Interface] = &[
         enums: &[
             Enum { name: "Qos", variants: &["Latest", "Buffered", "Conflate", "Reliable"] },
         ],
+        topics: &[],
+    },
+    Interface {
+        name: "os.lazy.messenger.topics.bell.v1",
+        id: 0xd4c79d9b36918ea0,
+        doc: "The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what\n`messengerd` sends on a subscriber's bell channel. One `Ready` per batch:\nthe subscriber drains the subscription until `NextEvent` comes back empty,\nwhich re-arms the bell.",
+        methods: &[
+            Method {
+                name: "Ready",
+                id: 197800596,
+                oneway: true,
+                doc: "`subscription` has events waiting.",
+                params: &[Field { name: "subscription", ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[],
+            },
+        ],
+        structs: &[],
+        enums: &[],
         topics: &[],
     },
     Interface {
