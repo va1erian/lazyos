@@ -8,7 +8,8 @@ use super::*;
 /// [`wait::WaitQueue`], which also records a wake reason and a deadline.
 #[allow(dead_code)]
 pub fn set_blocked(blocked: bool) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[current()].as_mut() {
         if task.state == TaskState::Done {
             return;
         }
@@ -22,6 +23,7 @@ pub fn set_blocked(blocked: bool) {
         };
         task.wake_reason = None;
     }
+    runq::sync(&tasks, current());
 }
 
 /// Whether the current task is parked on a wait queue.
@@ -57,6 +59,7 @@ pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
             set_timer(index, deadline);
         }
     }
+    runq::sync(&tasks, index);
 }
 
 /// Queue (or, for `None`, cancel) `index`'s deadline. Call with `TASKS`
@@ -87,6 +90,7 @@ pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
             task.pass = task.pass.max(now);
+            runq::sync(&tasks, index);
             let cur = CURRENT.load(Ordering::Relaxed);
             crate::perf::on_wake(index, cur);
             super::preempt::note_wake(&tasks, index, cur);

@@ -81,6 +81,8 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
     }
+    #[cfg(lazyos_tests)]
+    runq::verify(&tasks);
     on_entry(&mut tasks, cur, tick);
 
     // Apply pending signals at the boundary back to user mode: a term/core
@@ -100,11 +102,7 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // address space would otherwise leak (issue #133). The interrupted task is
     // left for the tick that switches away from it; `reclaim_pending` frees
     // the flagged slots from task context.
-    for slot in 1..MAX_TASKS {
-        if slot != cur {
-            mark_finished(&tasks, slot);
-        }
-    }
+    flag_finished(&tasks, cur);
 
     // Pick the highest class with a runnable task, then the fairest member
     // within it. A task that is blocked or done is never selected.
@@ -128,6 +126,17 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // soft-float): park them before `install` loads the next task's.
     fpu::save(cur);
     resume(next, cur)
+}
+
+/// Flag every finished parentless task except `cur` for reclamation. Only
+/// finished tasks are visited (the run queues' done mask, P6.1); zombies a
+/// parent has yet to reap stay in it and are skipped by `mark_finished`.
+pub(super) fn flag_finished(tasks: &[Option<Task>; MAX_TASKS], cur: usize) {
+    for slot in runq::done().iter() {
+        if slot != cur && slot != KERNEL_TASK {
+            mark_finished(tasks, slot);
+        }
+    }
 }
 
 /// Install `next` and return the stack pointer to resume it with, delivering

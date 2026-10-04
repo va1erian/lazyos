@@ -202,6 +202,7 @@ mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
+mod runq_suite;
 mod sched_suite;
 mod service_suite;
 mod signal_suite;
@@ -236,6 +237,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    runq_suite::CASES,
     preempt_wake_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,

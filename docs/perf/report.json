@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generated": "2026-10-04T02:34:57Z",
-    "commit": "bd0c5679+dirty",
-    "label": "P6 baseline",
+    "generated": "2026-10-04T02:49:31Z",
+    "commit": "81b4e4f6+dirty",
+    "label": "P6.1 run queues",
     "accel": "whpx",
     "profile": "dev (panic = \"abort\" opt-level = 2; kernel crate inherits it)",
     "moves": 200,
@@ -10,97 +10,97 @@
   },
   "metrics": {
     "irqoff": {
-      "n": 332958,
-      "p50_us": 0.4,
-      "p90_us": 2.9,
-      "p99_us": 15.7,
-      "max_us": 476798.9,
-      "mean_us": 1.2
+      "n": 331363,
+      "p50_us": 0.3,
+      "p90_us": 2.2,
+      "p99_us": 7.6,
+      "max_us": 475349.1,
+      "mean_us": 0.9
     },
     "sched": {
-      "n": 74165,
-      "p50_us": 1.9,
-      "p90_us": 23.1,
-      "p99_us": 38.6,
-      "max_us": 150.5,
-      "mean_us": 5.9
+      "n": 73517,
+      "p50_us": 0.9,
+      "p90_us": 16.6,
+      "p99_us": 32.3,
+      "max_us": 945.7,
+      "mean_us": 4.1
     },
     "irq_wake": {
-      "n": 668,
-      "p50_us": 56.4,
-      "p90_us": 118.7,
-      "p99_us": 5265.5,
-      "max_us": 26978.4,
-      "mean_us": 230.8
+      "n": 675,
+      "p50_us": 53.6,
+      "p90_us": 103.1,
+      "p99_us": 7211.0,
+      "max_us": 17606.4,
+      "mean_us": 236.0
     },
     "present": {
-      "n": 746,
+      "n": 747,
       "p50_us": 1.8,
-      "p90_us": 5.7,
-      "p99_us": 162.9,
-      "max_us": 5531.1,
-      "mean_us": 18.0
+      "p90_us": 5.8,
+      "p99_us": 166.8,
+      "max_us": 5600.2,
+      "mean_us": 15.3
     },
     "wake_run": {
-      "n": 61752,
-      "p50_us": 3.3,
-      "p90_us": 53.2,
-      "p99_us": 141.8,
-      "max_us": 421845.4,
-      "mean_us": 49.7
+      "n": 61798,
+      "p50_us": 1.6,
+      "p90_us": 35.8,
+      "p99_us": 189.4,
+      "max_us": 486997.7,
+      "mean_us": 28.0
     },
     "ipc_rt": {
       "n": 2000,
       "p50_us": 0.5,
-      "p90_us": 0.5,
-      "p99_us": 0.5,
-      "max_us": 0.5,
-      "mean_us": 0.5
+      "p90_us": 0.8,
+      "p99_us": 0.9,
+      "max_us": 40.5,
+      "mean_us": 0.6
     },
     "sleep_1ms": {
       "n": 200,
-      "p50_us": 1033.1,
-      "p90_us": 1135.9,
-      "p99_us": 1573.6,
-      "max_us": 1778.3,
-      "mean_us": 1053.8
+      "p50_us": 1033.3,
+      "p90_us": 1109.7,
+      "p99_us": 1585.3,
+      "max_us": 1875.1,
+      "mean_us": 1050.5
     },
     "msg_rt": {
       "n": 20000,
-      "p50_us": 5.6,
-      "p90_us": 8.9,
-      "p99_us": 9.8,
-      "max_us": 464.1,
-      "mean_us": 6.3
+      "p50_us": 4.3,
+      "p90_us": 5.9,
+      "p99_us": 8.3,
+      "max_us": 459.2,
+      "mean_us": 5.0
     },
     "input_read": {
       "n": 200,
-      "p50_us": 85.7,
-      "p90_us": 134.9,
-      "p99_us": 183.0,
-      "max_us": 239.9,
-      "mean_us": 95.1
+      "p50_us": 83.8,
+      "p90_us": 122.4,
+      "p99_us": 233.5,
+      "max_us": 5069.2,
+      "mean_us": 116.0
     },
     "input_present": {
       "n": 200,
-      "p50_us": 115.1,
-      "p90_us": 171.4,
-      "p99_us": 210.7,
-      "max_us": 278.2,
-      "mean_us": 125.6
+      "p50_us": 111.3,
+      "p90_us": 156.1,
+      "p99_us": 268.3,
+      "max_us": 5096.6,
+      "mean_us": 144.3
     }
   },
   "irqoff_worst": {
-    "us": 476798.9,
+    "us": 475349.1,
     "syscall": "0x8000000000000016"
   },
   "msg_tput": {
-    "msgs_per_s": 523198,
-    "calls_per_s": 156718
+    "msgs_per_s": 599337,
+    "calls_per_s": 195242
   },
   "idle_ctxsw": {
-    "seconds": 8.0,
-    "switches_per_s": 414.0,
-    "entries_per_s": 632.8
+    "seconds": 6.0,
+    "switches_per_s": 409.2,
+    "entries_per_s": 630.3
   }
 }

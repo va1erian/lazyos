@@ -83,19 +83,25 @@ pub(super) fn stride(weight: u16) -> u64 {
 
 /// The smallest pass among runnable tasks: the scheduler's "now". A task that
 /// spawns or wakes here starts even with its peers instead of claiming a
-/// backlog of catch-up quanta.
+/// backlog of catch-up quanta. Walks the run queues (P6.1), not the table.
 pub(super) fn virtual_now(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
-    tasks
-        .iter()
-        .flatten()
-        .filter(|task| task.state == TaskState::Runnable)
-        .map(|task| task.pass)
-        .min()
-        .unwrap_or(0)
+    let mut now: Option<u64> = None;
+    for rank in 0..PriorityClass::ALL.len() {
+        for slot in runq::runnable(rank).iter() {
+            if !runq::check(tasks, slot, rank) {
+                continue;
+            }
+            if let Some(task) = tasks[slot].as_ref() {
+                now = Some(now.map_or(task.pass, |now| now.min(task.pass)));
+            }
+        }
+    }
+    now.unwrap_or(0)
 }
 
 /// The smallest pass in the whole table, blocked tasks included (a blocked
-/// task's pass is its place in line when it wakes).
+/// task's pass is its place in line when it wakes). A full scan: only
+/// [`renormalize`] needs it, once every [`PASS_CEILING`] of virtual time.
 pub(super) fn min_pass(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
     tasks
         .iter()
@@ -117,6 +123,7 @@ pub fn set_priority(slot: usize, class: PriorityClass) -> bool {
         Some(task) => {
             task.class = class;
             task.weight = class.default_weight();
+            runq::sync(&tasks, slot);
             true
         }
         None => false,
@@ -133,6 +140,7 @@ pub fn raise_priority(slot: usize, class: PriorityClass) -> bool {
             if task.class.rank() < class.rank() {
                 task.class = class;
                 task.weight = class.default_weight();
+                runq::sync(&tasks, slot);
             }
             true
         }
@@ -237,6 +245,7 @@ pub(super) fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) 
             task.wake_reason = Some(WakeReason::TimedOut);
             task.pass = task.pass.max(pass);
         }
+        runq::sync(tasks, slot);
         crate::perf::on_wake(slot, cur);
         super::preempt::note_wake(tasks, slot, cur);
     }
@@ -273,22 +282,27 @@ pub(super) fn runnable(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> bool {
 /// The kernel task competes like any other task. It cannot starve user work
 /// because `mux::run` parks it with [`idle`] between frames: it is only
 /// `Runnable` for the one quantum it needs to repaint, not all the time.
+///
+/// Only the class's run queue is walked (P6.1): the cost is the number of
+/// runnable tasks, and the order key `(pass, distance after cur)` keeps the
+/// exact choice of the full round-robin scan this replaced.
 pub(super) fn pick_next_best(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Option<usize> {
     for rank in (0..PriorityClass::ALL.len()).rev() {
-        let mut best: Option<(usize, u64)> = None;
-        for step in 1..=MAX_TASKS {
-            let slot = (cur + step) % MAX_TASKS;
+        let mut best: Option<(u64, usize, usize)> = None;
+        for slot in runq::runnable(rank).iter() {
+            if !runq::check(tasks, slot, rank) {
+                continue;
+            }
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
             };
-            if task.state != TaskState::Runnable || task.class.rank() as usize != rank {
-                continue;
-            }
-            if best.is_none_or(|(_, pass)| task.pass < pass) {
-                best = Some((slot, task.pass));
+            // Round-robin position: `cur + 1` first, `cur` itself last.
+            let order = (slot + MAX_TASKS - cur - 1) % MAX_TASKS;
+            if best.is_none_or(|(pass, at, _)| (task.pass, order) < (pass, at)) {
+                best = Some((task.pass, order, slot));
             }
         }
-        if let Some((slot, _)) = best {
+        if let Some((_, _, slot)) = best {
             return Some(slot);
         }
     }
@@ -309,13 +323,27 @@ pub(super) fn select_next(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) -> 
     // This selection accounts for every wake so far (P1.1).
     super::preempt::clear();
     let next = pick_next(tasks, cur);
-    if runnable(tasks, next) {
-        if let Some(task) = tasks[next].as_mut() {
-            task.pass = task.pass.saturating_add(stride(task.weight));
-        }
+    charge(tasks, next);
+    next
+}
+
+/// Charge a selected runnable task one quantum (its stride) of virtual time,
+/// renormalizing when its pass reaches the ceiling. Every pass is at least
+/// the table minimum, so the full-table minimum can only reach
+/// [`PASS_CEILING`] once the charged pass has: the scan in [`renormalize`]
+/// runs then, not at every selection.
+pub(super) fn charge(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) {
+    if !runnable(tasks, slot) {
+        return;
+    }
+    let mut pass = 0;
+    if let Some(task) = tasks[slot].as_mut() {
+        task.pass = task.pass.saturating_add(stride(task.weight));
+        pass = task.pass;
+    }
+    if pass >= PASS_CEILING {
         renormalize(tasks);
     }
-    next
 }
 
 /// Shift every pass back by the table minimum once it reaches
