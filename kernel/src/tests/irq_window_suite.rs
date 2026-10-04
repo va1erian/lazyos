@@ -106,9 +106,14 @@ pub(in crate::tests) fn spin_us(us: u64, mut poll: impl FnMut()) {
     }
 }
 
-fn tsc() -> u64 {
+pub(in crate::tests) fn tsc() -> u64 {
     // SAFETY: `rdtsc` reads a CPU counter; no memory or privilege effects.
     unsafe { core::arch::x86_64::_rdtsc() }
+}
+
+/// Microseconds of TSC time since `start` (a [`tsc`] reading).
+pub(in crate::tests) fn elapsed_us(start: u64) -> u64 {
+    irqoff::to_us(tsc().wrapping_sub(start))
 }
 
 /// The best of [`ATTEMPTS`] runs of `attempt` by `worst_us`, failing only

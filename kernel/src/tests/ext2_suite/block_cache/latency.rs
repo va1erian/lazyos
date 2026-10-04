@@ -6,7 +6,9 @@
 //! timer tick missed (`tests::irq_window_suite` has the mechanism's tests).
 
 use super::*;
-use crate::tests::irq_window_suite::{in_syscall, kernel_task_only, Latency, BOUND_US};
+use crate::tests::irq_window_suite::{
+    elapsed_us, in_syscall, kernel_task_only, tsc, Latency, BOUND_US,
+};
 
 /// Volume size in 1 KiB blocks: 8 MiB, one block group.
 const BIG_BLOCKS: u32 = 8192;
@@ -16,6 +18,9 @@ const CHUNK: usize = 1024 * 1024;
 const PAGES: usize = 512;
 /// Rounds of write + fsync + read-back; the timing verdict is the best one.
 const ROUNDS: u32 = 6;
+/// Shortest round (µs of TSC time), and the most replacements one may take.
+const ROUND_US: u64 = 30_000;
+const MAX_REPLACEMENTS: u32 = 200;
 /// The syscall number the work is charged to (`write_file`).
 const NR_WRITE_FILE: u64 = 17;
 
@@ -37,19 +42,21 @@ fn big_disk() -> Result<&'static FakeDisk, String> {
     Ok(disk)
 }
 
-/// One round inside a syscall: replace a 1 MiB file and fsync it.
+/// One round inside a syscall: replace a 1 MiB file and fsync it, again and
+/// again until [`ROUND_US`] have passed (one replacement is faster than a
+/// tick under KVM), so the round spans several timer ticks.
 fn write_round(vfs: &mut Vfs, round: u32) -> Result<Latency, String> {
     let path = format!("/big{}", round % 3);
     let data = pattern_bytes(round, CHUNK);
     let (outcome, latency) = in_syscall(NR_WRITE_FILE, || -> Result<(), String> {
-        match vfs.create(Id::ROOT, &path, 0o644) {
-            Ok(_) => {}
-            Err(FsError::Exists) => vfs.truncate(Id::ROOT, &path, 0).map_err(fs_error)?,
-            Err(error) => return Err(fs_error(error)),
+        let start = tsc();
+        for _ in 0..MAX_REPLACEMENTS {
+            replace(vfs, &path, &data)?;
+            if elapsed_us(start) >= ROUND_US {
+                break;
+            }
         }
-        let written = vfs.write(Id::ROOT, &path, 0, &data).map_err(fs_error)?;
-        check!(written == CHUNK, "{path}: short write {written}");
-        vfs.flush(Id::ROOT, &path).map_err(fs_error)
+        Ok(())
     });
     outcome?;
     // Compared outside the syscall: the check is the test's, not the load's.
@@ -61,6 +68,18 @@ fn write_round(vfs: &mut Vfs, round: u32) -> Result<Latency, String> {
     drop(back);
     drop(data);
     Ok(latency)
+}
+
+/// Create-or-truncate `path`, write `data` and fsync it.
+fn replace(vfs: &mut Vfs, path: &str, data: &[u8]) -> Result<(), String> {
+    match vfs.create(Id::ROOT, path, 0o644) {
+        Ok(_) => {}
+        Err(FsError::Exists) => vfs.truncate(Id::ROOT, path, 0).map_err(fs_error)?,
+        Err(error) => return Err(fs_error(error)),
+    }
+    let written = vfs.write(Id::ROOT, path, 0, data).map_err(fs_error)?;
+    check!(written == data.len(), "{path}: short write {written}");
+    vfs.flush(Id::ROOT, path).map_err(fs_error)
 }
 
 /// Soak: rounds of 1 MiB writes and fsyncs through a cache half that size.
@@ -75,8 +94,8 @@ pub fn irq_latency_large_writes() -> Result<(), String> {
     for round in 0..ROUNDS {
         let latency = write_round(&mut vfs, round)?;
         check!(
-            latency.opened >= 1 && latency.window_ticks >= 1,
-            "round {round}: no window took a tick: {latency:?}"
+            latency.ticks >= 2 && latency.window_ticks == latency.ticks,
+            "round {round}: ticks did not come through windows: {latency:?}"
         );
         rounds.push(latency);
     }
