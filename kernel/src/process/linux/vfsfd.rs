@@ -92,10 +92,35 @@ fn read_at(file: &OpenFile, offset: u64, ptr: u64, len: u64) -> Result<usize, u6
     if buf.try_reserve_exact(want).is_err() {
         return Err(err(ENOMEM));
     }
-    buf.resize(want, 0);
+    // Zeroed in pieces: the first touch of fresh heap pages is what costs
+    // (several milliseconds for a megabyte the heap just grew by).
+    while buf.len() < want {
+        let step = (want - buf.len()).min(COPY_PIECE);
+        buf.resize(buf.len() + step, 0);
+        breathe();
+    }
     let count = file.read_at(offset, &mut buf).map_err(fs_err)?;
-    user_ptr::try_copy_to(ptr, &buf[..count]).map_err(|_| err(EFAULT))?;
+    // Out in pieces, interrupts let in between: each piece is checked against
+    // the address space as it is copied, so a range unmapped meanwhile is
+    // `-EFAULT`, never a write to memory the task no longer owns.
+    let mut done = 0;
+    for piece in buf[..count].chunks(COPY_PIECE) {
+        user_ptr::try_copy_to(ptr + done as u64, piece).map_err(|_| err(EFAULT))?;
+        done += piece.len();
+        breathe();
+    }
     Ok(count)
+}
+
+/// Bytes of a staging buffer zeroed, or copied to or from user memory,
+/// between two breaths. The first touch of fresh heap pages is what costs:
+/// about 17 us a page under WHPX, so 64 KiB stays near 0.3 ms.
+const COPY_PIECE: usize = 64 * 1024;
+
+/// Let pending interrupts in between two pieces of a long call: these
+/// handlers hold no lock (`block::iowait::breathe`).
+fn breathe() {
+    crate::block::iowait::breathe(crate::block::Wait::MaySleep);
 }
 
 /// `write(2)`: at the descriptor offset (or EOF for `O_APPEND`); the offset
@@ -147,11 +172,18 @@ fn write_at(
 /// Copy `len` user bytes into kernel memory. A filesystem write may sleep
 /// (`block::iowait`), and while it does the task's other threads may unmap
 /// the buffer: the bytes must not be read from user memory past that point.
+/// The copy is made in pieces with interrupts let in between, each piece
+/// checked against the address space as it is read.
 pub(super) fn stage(ptr: u64, len: usize) -> Result<Vec<u8>, u64> {
-    let source = user_ptr::try_bytes(ptr, len).map_err(|_| err(EFAULT))?;
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(len).map_err(|_| err(ENOMEM))?;
-    bytes.extend_from_slice(source);
+    while bytes.len() < len {
+        let take = (len - bytes.len()).min(COPY_PIECE);
+        let source =
+            user_ptr::try_bytes(ptr + bytes.len() as u64, take).map_err(|_| err(EFAULT))?;
+        bytes.extend_from_slice(source);
+        breathe();
+    }
     Ok(bytes)
 }
 

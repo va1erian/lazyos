@@ -11,12 +11,15 @@ use crate::fs::vfs::{
     DirEntry, FileKind, Filesystem, FsError, Id, Meta, NodeId, SetAttr, StatFs, Times,
 };
 
-/// Bytes one library read or write moves before the next piece. A syscall
-/// runs with interrupts off; between pieces the keyboard controller is
-/// drained (`input::ps2`), so the stretch without input servicing stays
-/// bounded whatever the size. 256 KiB is long enough for a run read to skip
-/// the cache (`ext2fs` `cache/range.rs`) and about 0.4 ms of copying.
-const PIECE: usize = 256 * 1024;
+/// Bytes one library read or write moves before the next piece. Between
+/// pieces the keyboard controller is drained (`input::ps2`) and, when the
+/// caller may sleep, interrupts are let in (`Entered::breathe`); inside one,
+/// the library pauses at its own points (between runs read, every 16 blocks
+/// written). A read piece of 1 MiB lets one contiguous run become one
+/// transfer of several device requests in flight at once; a write piece of
+/// 256 KiB is about 0.4 ms of copying into the cache.
+const READ_PIECE: usize = 1 << 20;
+const WRITE_PIECE: usize = 256 * 1024;
 
 impl Filesystem for Ext2 {
     fn name(&self) -> &'static str {
@@ -37,7 +40,7 @@ impl Filesystem for Ext2 {
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         let gate = self.enter();
         let mut done = 0;
-        for piece in buf.chunks_mut(PIECE) {
+        for piece in buf.chunks_mut(READ_PIECE) {
             if done > 0 {
                 gate.breathe();
             }
@@ -54,7 +57,7 @@ impl Filesystem for Ext2 {
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let gate = self.enter();
         let mut done = 0;
-        for piece in data.chunks(PIECE) {
+        for piece in data.chunks(WRITE_PIECE) {
             if done > 0 {
                 gate.breathe();
             }
@@ -81,7 +84,7 @@ impl Filesystem for Ext2 {
         let handle = handle_of(node)?;
         let gate = self.enter();
         let mut done = 0;
-        for piece in buf.chunks_mut(PIECE) {
+        for piece in buf.chunks_mut(READ_PIECE) {
             if done > 0 {
                 gate.breathe();
             }
@@ -101,7 +104,7 @@ impl Filesystem for Ext2 {
         let handle = handle_of(node)?;
         let gate = self.enter();
         let mut done = 0;
-        for piece in data.chunks(PIECE) {
+        for piece in data.chunks(WRITE_PIECE) {
             if done > 0 {
                 gate.breathe();
             }

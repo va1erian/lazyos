@@ -16,6 +16,11 @@ use super::*;
 /// request and the time one cache call holds the volume.
 const MAX_RUN_BLOCKS: u64 = 256;
 
+/// Files at least this large are streamed past the block cache (long runs
+/// only, `cache/range.rs`): reading one would only evict the working set.
+/// Smaller ones (programs above all) are cached for the next reader.
+const STREAM_BYTES: u64 = 8 << 20;
+
 impl Ext2 {
     /// Read up to `buf.len()` bytes of the regular file `inode` at `offset`;
     /// holes read as zeros and a read past the end returns 0.
@@ -31,6 +36,7 @@ impl Ext2 {
         }
         let count = min(size - offset, buf.len() as u64) as usize;
         let block_size = u64::from(self.block_size);
+        let stream = size >= STREAM_BYTES;
         let mut memo = MapMemo::new();
         let mut done = 0usize;
         while done < count {
@@ -59,7 +65,7 @@ impl Ext2 {
             if first == 0 {
                 out.fill(0); // a sparse hole reads as zero
             } else {
-                self.read_run(u64::from(first), run, inner as usize, out)?;
+                self.read_run(u64::from(first), run, inner as usize, out, stream)?;
             }
             done += len;
         }
@@ -68,12 +74,14 @@ impl Ext2 {
 
     /// Copy bytes `skip..skip + out.len()` of blocks `first..first + count`
     /// into `out` (`skip` is under one block, and the bytes lie inside the run).
+    /// `stream`: the file is large enough to read past the cache.
     pub(super) fn read_run(
         &self,
         first: u64,
         count: u64,
         skip: usize,
         out: &mut [u8],
+        stream: bool,
     ) -> Result<(), Ext2Error> {
         let size = self.block_size as usize;
         let end = first.checked_add(count).ok_or(Ext2Error::Invalid)?;
@@ -85,7 +93,7 @@ impl Ext2 {
         }
         if let Some(cache) = &self.cache {
             return self.with_cache(cache, |cache, io| {
-                cache.read_range(io, first, count, skip, out)
+                cache.read_range(io, first, count, skip, out, stream)
             });
         }
         // Uncached: whole blocks straight into `out`, partial edges through a

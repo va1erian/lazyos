@@ -2,9 +2,10 @@
 //!
 //! Cached blocks, dirty ones included, are copied from their pages. A stretch
 //! of uncached blocks is read in one request: through cache pages (with
-//! read-ahead) when it is short, so small files and metadata stay cached, or,
-//! when it is at least [`BYPASS_BLOCKS`] long and wanted whole, straight into
-//! the caller's buffer. A block that is not cached is current on the disk
+//! read-ahead), so small files, programs and metadata stay cached, or, for a
+//! file the caller says is large (`stream`) when the stretch is at least
+//! [`BYPASS_BLOCKS`] long and wanted whole, straight into the caller's
+//! buffer. A block that is not cached is current on the disk
 //! (dirty blocks are never dropped, and nothing writes the disk but a
 //! writeback under the same lock), so reading past the cache is exact.
 
@@ -26,6 +27,7 @@ impl BlockCache {
         count: u64,
         skip: usize,
         out: &mut [u8],
+        stream: bool,
     ) -> Result<(), IoError> {
         let size = self.block_size;
         let end = first + count;
@@ -44,7 +46,7 @@ impl BlockCache {
                     }
                     let whole = ((out.len() - pos) / size) as u64;
                     let run = (stop - block).min(whole);
-                    if inner == 0 && run >= BYPASS_BLOCKS {
+                    if stream && inner == 0 && run >= BYPASS_BLOCKS {
                         let bytes = run as usize * size;
                         io.read_sectors(
                             block * self.sectors_per_block,

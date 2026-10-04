@@ -129,7 +129,7 @@ fn reads_match_the_model(fs: &Ext2, block_size: u32, seed: u64) {
         sparse.truncate(at as usize);
         sparse.extend_from_slice(&data);
     }
-    let flat = bytes(7, 0, 2_000_000);
+    let flat = bytes(7, 0, 9_000_000);
     fs.write("/flat", 0, &flat).unwrap();
     models[3].1 = flat;
 
@@ -158,7 +158,7 @@ fn reads_match_the_model(fs: &Ext2, block_size: u32, seed: u64) {
 #[test]
 fn run_reads_match_the_model_uncached() {
     for (seed, block_size) in BLOCK_SIZES.iter().enumerate() {
-        let (io, fs) = fresh(16 << 20, *block_size);
+        let (io, fs) = fresh(32 << 20, *block_size);
         reads_match_the_model(&fs, *block_size, seed as u64 + 11);
         drop(fs);
         assert_clean(&io);
@@ -170,7 +170,7 @@ fn run_reads_match_the_model_through_small_and_large_caches() {
     for (seed, block_size) in BLOCK_SIZES.iter().enumerate() {
         // 24 blocks: everything evicts and bypasses; 4096: most stays dirty.
         for pages in [24usize, 4096] {
-            let io = formatted(16 << 20, *block_size);
+            let io = formatted(32 << 20, *block_size);
             let fs = open_cached(&io, pages);
             reads_match_the_model(&fs, *block_size, seed as u64 * 31 + pages as u64);
             fs.flush().unwrap();
@@ -184,10 +184,10 @@ fn run_reads_match_the_model_through_small_and_large_caches() {
 /// take them from the cache, never the stale disk copy.
 #[test]
 fn a_bypass_read_keeps_dirty_blocks_in_the_middle() {
-    let io = formatted(16 << 20, 4096);
+    let io = formatted(48 << 20, 4096);
     let fs = open_cached(&io, 512);
     fs.create("/big", 0o644, Owner::ROOT).unwrap();
-    let mut model = bytes(3, 0, 4 << 20);
+    let mut model = bytes(3, 0, 12 << 20);
     fs.write("/big", 0, &model).unwrap();
     fs.flush().unwrap();
     // Push the file out of the cache, then dirty a few blocks of it.
