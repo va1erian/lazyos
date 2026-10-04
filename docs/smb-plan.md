@@ -1,190 +1,195 @@
 # Network directories and SMB — exploration and plan
 
-Status: **draft, nothing built.** This document is the S0 deliverable: the
-protocol, transport, crypto and integration decisions needed before any code,
-and the staged path to the goal. It builds on networking stages N0–N5
+Status: **draft, nothing built.** This is the S0 deliverable. It is built
+inside-out from a **FUSE mechanism** — a user-space filesystem framework whose
+kernel side is as thin and generic as we can make it — so that every
+filesystem behaviour, including SMB, lives in userspace. SMB is then just one
+user-space filesystem, the way `sshfs` and `smbnetfs` are on Linux. The plan
+builds on networking stages N0–N5
 ([networking-plan.md](networking-plan.md) §10.1,
-[architecture/networking.md](architecture/networking.md)) and the TLS client
-precedent ([tls-plan.md](tls-plan.md)). Nothing about SMB exists in the tree
-today: a repo-wide search for `smb`, `cifs`, `samba`, `netbios` and `ntlm`
-matches only issue numbers and an unrelated benchmark function.
+[architecture/networking.md](architecture/networking.md)) and on the existing
+user-space **block provider** ([architecture/block-devices.md](architecture/block-devices.md)),
+whose kernel-mediated, parked, ring-3 provider shape we reuse.
 
 Scope — one concrete goal and one direction:
 
-1. **G1, file transfer.** From a running LazyOS instance, connect to a LAN Samba
-   server over TCP **445**, authenticate as a named user with a password
-   (NTLMv2), open a share, and transfer files **byte for byte**, both ways,
-   with directory listing. The named target is the server **`chatonnas`**
-   (login `chaton`). The harness proves G1 against a scripted SMB server on
-   the host using `LAZYOS_SMB_USER` and `LAZYOS_SMB_PASSWORD`; a `--live` run
-   uses the real server's password, entered at the prompt or supplied through
-   `LAZYOS_SMB_PASSWORD`.
-2. **G2, network directories.** A share appears as a browsable directory — a
-   `net` namespace the shell and the desktop file manager can walk — and,
-   later, a path mounted into the VFS so every program (including Linux ABI
-   ones) sees it. G2 is staged after G1; the filesystem layer has no mount
-   syscall and no user-space filesystem seam today (§9), so a true mount is a
-   separate, larger project.
+1. **G1, file transfer.** From a running LazyOS instance, mount a LAN Samba
+   share over TCP **445** through the FUSE mechanism, authenticate as a named
+   user with a password (NTLMv2), and transfer files **byte for byte**, both
+   ways, with directory listing. The named target is the server
+   **`chatonnas`** (login `chaton`). The harness proves G1 against a scripted
+   SMB server on the host using `LAZYOS_SMB_USER` and `LAZYOS_SMB_PASSWORD`; a
+   `--live` run uses the real server's password, entered at the prompt or
+   supplied through `LAZYOS_SMB_PASSWORD`. A direct `smb` command is kept as a
+   kernel-free way to exercise and judge the protocol.
+2. **G2, network directories.** The mounted share is a **real directory at a
+   path** that every program sees — native and Linux ABI alike — because the
+   kernel VFS routes ordinary `open`/`read`/`readdir` to the user-space
+   daemon.
+
+**Guiding rule.** The kernel gains **one generic file-provider backend and one
+syscall**, modeled on the block provider that already exists, and **no SMB,
+NTLM, network-session or file-semantics code**. Credentials, session state,
+caching, retries and the whole SMB2 state machine are a user-space daemon. Where
+a kernel change can be avoided at all, it is (§3.5).
 
 Related: [networking-plan.md](networking-plan.md),
 [architecture/networking.md](architecture/networking.md),
-[tls-plan.md](tls-plan.md), [filesystem-plan.md](filesystem-plan.md),
 [architecture/filesystem.md](architecture/filesystem.md),
-[security-model.md](security-model.md) §5 and §8,
-[packages.md](packages.md), [xui-plan.md](xui-plan.md).
+[architecture/block-devices.md](architecture/block-devices.md),
+[tls-plan.md](tls-plan.md), [filesystem-plan.md](filesystem-plan.md),
+[security-model.md](security-model.md) §5, [packages.md](packages.md),
+[xui-plan.md](xui-plan.md).
 
 ## 1. Summary of recommendations
 
 | Question | Recommendation |
 |---|---|
-| Protocol | **SMB2, dialect 2.1 (0x0210)**, over **Direct TCP port 445**. Not SMB1/CIFS (modern Samba disables it by default), not SMB3 first (AES-CMAC/GCM, preauth integrity and optional encryption are more crypto than G1 needs) |
-| Transport | Standard 4-byte NetBIOS session header on 445, then the 64-byte SMB2 header; no NetBIOS name service on the data path |
-| Authentication | **NTLMv2** with an NTLMSSP type 1/2/3 exchange inside `SESSION_SETUP`; the NTLM **domain** is taken from the server's challenge target info (falling back to `-W`/`WORKGROUP`) |
-| Signing | Implement **HMAC-SHA256 truncated to 16 bytes** (the SMB 2.1 rule). Sign established-session messages when the server requires it (or `--sign-required`), and optionally when asked with `--sign`; never sign the pre-authentication `SESSION_SETUP`. Key exchange (RC4) is off for the first cut |
-| Confidentiality | SMB 2.1 signing is **integrity only**: **G1 assumes a trusted LAN**, and transferred file bytes are visible to a passive observer. SMB3 encryption (confidentiality) is deferred to S6 |
-| Where it runs | **In the client process**, as TLS does. No SMB code in the kernel and no SMB service that sees plaintext (a `smbd`-style broker only if G2 needs a shared session) |
-| Language / target | A **standalone musl `std` workspace** (the `nettls/` shape): `std::net` over the N5 `AF_INET` shim, blocking and single-threaded, because the shim gives each thread its own descriptor table and the shim lacks `select`/`recvmsg` |
-| SMB crates | **Hand-write the wire layer**, host-tested and fuzzed like `libs/ftpwire`. The published Rust SMB crates (`pavao`, `smb-rs`, `smbclient`) are async and need a runtime/threads the shim cannot give |
-| Crypto | RustCrypto crates in the standalone workspace: **`md-4`** (NT hash), **`md-5`** + **`hmac`** (NTLMv2, HMAC-MD5), **`sha2`** + `hmac` (signing), `getrandom` (client challenge). `libs/crypto` is not used: it has no MD4/MD5 and its `no_std` target cannot link the AES family (§5) |
-| Tool | `smb`, a `smbclient`-shaped command (`ls`, `get`, `put`, `mkdir`, `rm`, `-L` to list shares), embedded at `/system/bin/smb` under `LAZYOS_SMB=1` |
-| Verification | `python tools/smb/run.py`: a scripted SMB2 server on the host loopback (reachable at `10.0.2.2`), judged from **the server's own file record and the pcap**, plus negative cases; `--live` reaches real `chatonnas` |
-| Name resolution | For G1 the server is named by IP or an `/etc/hosts` entry; S3 adds **NBNS (UDP 137)**, **mDNS/LLMNR** and DNS so `chatonnas` resolves on a real LAN (§7) |
+| Architecture | **FUSE first**: a generic kernel bridge plus a user-space daemon protocol. Any later network filesystem (9p, NFS, an sshfs-style one) reuses it; SMB is the first daemon |
+| Kernel delta | **One generic `Filesystem` backend** (`kernel/src/fs/fuse.rs`) and **one provider syscall**, a sibling of the block provider (syscall 33). No SMB, NTLM, network or filesystem-specific code |
+| Where SMB runs | A **user-space daemon** (`smbfuse`); the `smb` command links the same library in-process. Never the kernel |
+| Language | **Native `no_std`** in the `user/` workspace, over the existing Messenger socket client (`netsock`), as `ftp` and `nc` are. The mount removes the need for local file I/O in the client, so no musl program is needed |
+| Filesystem data path | A **64 KiB bounce buffer** first (the block provider's model: one copy each way, tiny kernel); a shared fenced buffer is a later optimisation |
+| Blocking | A VFS op parks the calling task while the daemon serves it; `flush`/`writeback` must never block (the flusher rule) |
+| Mount | The daemon registers a provider and names a mount point; the bridge mounts it into **both** the native and ABI `Vfs` tables. Authority is a policy rule, not mechanism |
+| Protocol | **SMB2, dialect 2.1 (0x0210)**, over **Direct TCP 445**. Not SMB1 (modern Samba disables it), not SMB3 first |
+| Authentication | **NTLMv2** inside `SESSION_SETUP`; the NTLM **domain** comes from the server's challenge target info |
+| Signing | **HMAC-SHA256 truncated to 16 bytes** on established sessions; `--sign`/`--sign-required` |
+| Confidentiality | SMB 2.1 signing is **integrity only**: **G1 assumes a trusted LAN**; SMB3 encryption is deferred |
+| Crypto | RustCrypto `md-4`, `md-5`, `hmac`, `sha2` (all `no_std`) plus native syscall 26 for randomness |
+| Tools | `smb` (direct transfer and protocol evidence) and `net mount`/`net ls` (through the mounted directory) |
+| Verification | A toy file daemon proves the **mechanism**; SMB is judged from the server's own file record and the pcap, plus negatives; `--live` against `chatonnas` |
 
 ## 2. Where we are
 
 | Piece | State today | Evidence |
 |---|---|---|
-| TCP and UDP for native tools | built (N3): `netd` over smoltcp, parked calls, 16 KiB parcels | [architecture/networking.md](architecture/networking.md) |
-| `std::net` for musl programs | built (N5): the kernel `AF_INET` shim pumped by `netd`; `nettls` fetches HTTPS this way | `kernel/src/ipc/inet/`, `nettls/src/lib.rs` |
-| Name resolution for musl | `/etc/resolv.conf` written by `netd`, `/etc/hosts` served from `/system/etc`; DNS names only | `kernel/src/process/linux/etcmap.rs`; [tls-plan.md](tls-plan.md) §5.1 |
-| A blocking client over the shim | proven: `nettls` (`std::net`, single-threaded, `SyncResolver`) | `nettls/src/` |
-| Crypto in the OS workspace | `libs/crypto`: SHA-256, HMAC-SHA256, HKDF, Argon2id only. **No MD4/MD5/RC4/DES/AES**; AEAD crates fail codegen on `x86_64-unknown-none` | `libs/crypto/`, `docs/tls-plan.md` §2 |
-| Crypto in a musl workspace | `nettls/crypto` (MIT): `aes-gcm`, `chacha20poly1305`, `sha2`, `hmac`, RustCrypto ECC/RSA. **No `md-4`/`md-5`/`rc4` yet**, but they are RustCrypto `MIT OR Apache-2.0` and add cleanly | `nettls/Cargo.lock`, `tools/nettls/licenses.py` |
-| VFS and mounts | a synchronous in-kernel `Filesystem` trait, mounts from `lazyos.cfg` only; **no `mount()` syscall**, no FUSE/9p/virtiofs/netfs seam | [architecture/filesystem.md](architecture/filesystem.md) §"Mounting" |
-| A user-space filesystem seam | none. The only ring-3 storage seam is the whole-disk **block provider** (syscall 33), not file-level | `kernel/src/block/provider.rs` |
-| A mediated file interface | **prose only**: `os.lazy.fs.reader.v1` is named but has no `.midl` and no implementation | `docs/messenger.md` §"Files" |
-| The transfer precedent | `ftp`: passive-mode TCP, host-tested `libs/ftpwire`, judged from the server's record and the pcap | `user/src/bin/ftp/`, `tools/net/run.py` |
+| User-space **block** provider | built: a ring-3 driver registers a whole disk; the kernel posts requests through a 64 KiB bounce buffer, parks the caller in 10-tick slices with a 10 s deadline, and treats two timeouts or provider death as a dead disk | `kernel/src/block/provider.rs`; [architecture/block-devices.md](architecture/block-devices.md) |
+| A user-space **file**-level seam | none: no FUSE/9p/virtiofs, and no `mount()` syscall | [architecture/filesystem.md](architecture/filesystem.md) §"Mounting" |
+| The kernel `Filesystem` trait | synchronous, `Send + Sync`, object-safe: `lookup/stat/read/write/truncate/setattr/create/mkdir/unlink/rmdir/rename/readdir/flush/writeback/statfs` | `kernel/src/fs/vfs/filesystem.rs` |
+| Mount tables and flags | `FS` (native) and `ABI_FS`, both `Vfs`; mounts from `lazyos.cfg` at boot, plus the late USB `/home`; `readdir` appends mount points | `kernel/src/fs/mod.rs`, `kernel/src/fs/mounts.rs`, `kernel/src/fs/vfs.rs` |
+| Errors | `FsError` has no `Io`/`Timeout`/unreachable variant; device failure folds into `Invalid` | `kernel/src/fs/vfs/meta.rs` |
+| TCP for native tools | built (N3): `netd` over smoltcp, parked calls, 16 KiB parcels | `user/src/messenger/netsock.rs`, `user/src/messenger/netstd.rs` |
+| A blocking native client precedent | built: `ftp` (passive TCP, host-tested `libs/ftpwire`, judged from the server record and the pcap) | `user/src/bin/ftp/`, `tools/net/run.py` |
+| Crypto in the OS workspace | `libs/crypto`: SHA-256, HMAC-SHA256, HKDF, Argon2id. **No MD4/MD5/AES**; the AES crates fail codegen on `x86_64-unknown-none` | `libs/crypto/`, `docs/tls-plan.md` §2 |
+| Native randomness | syscall 26, `random(buf, len)`, open to every task | `docs/networking-plan.md` §13 (N2) |
 | The named target | `chatonnas`, a Samba server; login `chaton`; the live password is supplied at run time; SMB on the usual port 445 | this brief |
 
-## 3. The protocol: why SMB2.1 over 445
+## 3. The FUSE mechanism (the foundation)
 
-SMB reached us in three shapes; only one is worth building first.
-
-| Shape | What | Fit | Verdict |
-|---|---|---|---|
-| **SMB2, dialect 2.1**, TCP 445 | The `0xFE 'S' 'M' 'B'` header, credits, compound requests, NTLMv2, HMAC-SHA256 signing | Samba's default floor is SMB2 (`server min protocol = SMB2_02`); 2.1 adds large reads/writes and durable handles but no new crypto. Everything G1 needs | **Build this** |
-| SMB1 / CIFS | The old `0xFF 'S' 'M' 'B'` header, dialects up to NT LM 0.12, NetBIOS session service | Disabled by default in current Samba (`server min protocol = SMB2`); a security liability | No |
-| SMB3 (3.0/3.0.2/3.1.1) | Adds AES-128-CMAC then AES-128/256-GCM signing, preauth integrity hashing, encryption, multichannel, persistent handles | Samba offers it, but it means SHA-512 preauth state, AES-CMAC/GCM and encryption policy before G1 needs any of it | Later (S5) |
-| SMB over NetBIOS (139) | SMB2 framed over the NetBIOS session service on 139 | Redundant with 445, which every modern server also listens on | No |
-
-**Why 2.1 and not 2.0.2.** Both are HMAC-SHA256; 2.1 is what Samba, Windows and
-macOS negotiate today when 3.x is not offered, and it fixes several 2.0.2
-behaviours (large MTU, write coalescing). Offering `[0x0210, 0x0202]` and
-taking what the server returns is the safe first cut.
-
-**Why Direct TCP.** On 445 the framing is a 4-byte NetBIOS session header (first
-byte `0x00`, a 24-bit big-endian length) followed by exactly that many bytes of
-SMB2 message. Compound requests (`NextCommand`) chain several SMB2 headers under
-one transport frame; the first cut may send one command per frame and still
-interoperate.
-
-## 4. Where it runs
+The plan starts here, not at SMB: a generic way for a user-space process to
+serve a directory tree, so no filesystem has to be written in the kernel.
 
 ```
-  smb  (and, in G2, netfsd)                    a static musl std program
-    │  std::net::TcpStream
-    ▼
-  kernel AF_INET shim (N5)  ⇄  netd  ⇄  netdrv  ⇄  virtio-net     (unchanged)
+  cat, ls, cp, a GUI file manager      native + Linux ABI callers
+        │  open/read/write/readdir/getdents/stat …     (ordinary VFS)
+        ▼
+  kernel Vfs (FS and ABI_FS)  ──►  kernel/src/fs/fuse.rs   generic proxy
+        │  request (op, path, handle, ≤64 KiB bounce buffer)   ┌──────────┐
+        │  reply   (result, data)                               │ parked   │
+        ▼                                                       │ caller   │
+  fuse provider syscall  ◄──── NEXT / REPLY loop ────  smbfuse (user space)
+                                                          │  smbwire + netsock
+                                                          ▼
+                                              netd ⇄ netdrv ⇄ virtio-net  (unchanged)
 ```
 
-| Option | For | Against | Verdict |
-|---|---|---|---|
-| **A. In the client process** (library in `smb`) | As TLS: the credentials and the plaintext of the files never leave the process that owns them; a crash is the client's | Each SMB program carries the code | **Chosen for G1** |
-| B. A single `smbc` service every app calls | One session per share, credentials entered once, a natural home for G2's mount | One process has every session key and every file's plaintext; needs a new IDL and the account to be passed to it | G2 only, and scoped |
-| C. SMB inside `netd` | Fewest hops | `netd` already parses hostile frames; adding NTLM and file semantics removes the split that justified it | Rejected |
-| D. SMB in the kernel | A path that "just works" everywhere | A hostile-remote parser in ring 0; the `Filesystem` trait is synchronous and would block kernel tasks on network I/O; weeks of kernel tests | Rejected |
+### 3.1 The kernel side, kept minimal
 
-**Why musl `std` and not a native `no_std` tool.** A native tool has no general
-file-write syscall, so `put` could only read a file and `get` only write to
-stdout or checksum — not a file transfer. A musl `std` program has ordinary
-`std::fs`, and the N5 shim already carries `nettls`. The constraints it leaves
-are real and stated (§8): one thread per descriptor table, no
-`select`/`recvmsg`, 16 KiB per tick per direction, 16 fds. SMB2 is a
-request/response protocol over one socket, so these are comfortable.
+Everything below is generic: it knows nothing about SMB or the network.
 
-## 5. The crypto the design needs
+| Piece | Change | Why it is small |
+|---|---|---|
+| `kernel/src/fs/fuse.rs` | A `Filesystem` impl that translates each trait call into a provider request and returns the reply | The trait already exists; this is a translator, not a filesystem |
+| A provider syscall (say 34, a sibling of the block provider's 33) | `OPEN`, `NEXT`, `REPLY`, `CLOSE`, and the mount/umount edge | Copies the block provider's parking, deadline, provider-death and one-outstanding-request design |
+| Mount registration | Attach a provider at a path in **both** `FS` and `ABI_FS`, as `mounts.rs`/`late.rs` do | One call into `Vfs::mount` |
+| `FsError` | Add `Io` and `Timeout` (or map to `Invalid`), and the errno mapping | A handful of arms in one enum and the two errno tables |
+| Kernel tests | Correctness + soak for the new syscall and backend (hostile paths, bad handles, provider death mid-op, fd/lifecycle, thousands of ops) | AGENTS.md requires it for any kernel component |
 
-NTLMv2 and SMB 2.1 signing need only small, well-understood primitives. None is
-in `libs/crypto`, and the OS `no_std` target currently cannot link the AES
-family (`libs/crypto/src/wrap.rs` explains the codegen failure), so the client
-brings its own, exactly as `nettls` does.
+**Data plane.** The first cut uses a per-provider **64 KiB bounce buffer**, the
+same bound as the block provider (`MAX_REQUEST_BYTES`): the kernel copies the
+caller's buffer into the request and copies the reply back. One copy each way,
+no pinning, no mapping, and the daemon never sees caller memory. A shared,
+fenced buffer (as the NIC rings and audio streams use) removes the copy later
+and is a pure optimisation — it changes no interface.
 
-| Need | Where it is used | Crate | Licence |
-|---|---|---|---|
-| MD4 | `NT_hash = MD4(UTF-16LE(password))` | `md-4` | MIT OR Apache-2.0 |
-| MD5 | `NTOWFv2`, `NTProofStr`, `SessionBaseKey` all use HMAC-MD5 | `md-5` | MIT OR Apache-2.0 |
-| HMAC | HMAC-MD5 (NTLMv2) and HMAC-SHA256 (SMB2 signing), generic over the digest | `hmac` (`Hmac<Md4/Md5/Sha256>`) | MIT OR Apache-2.0 |
-| SHA-256 | SMB 2.1 message signature (truncated to 16 bytes) | `sha2` | MIT OR Apache-2.0 |
-| Randomness | 8-byte NTLMv2 client challenge | `getrandom` (already in `nettls`) | MIT OR Apache-2.0 |
-| RC4 | Only if NTLM negotiation enables key exchange (client clears the flag, so unused first) | `rc4` (deferred) | MIT OR Apache-2.0 |
+**Requests and replies.** A request is `(op, handle, path, offset, len, flags)`
+plus the bounce payload; a reply is `(result/errno, len, attributes)` plus the
+payload. `readdir` returns encoded entries; `lookup`/`stat` return a fixed
+attribute block; `read`/`write` use the payload. Paths are relative to the
+mount root and length-bounded; the daemon treats every field as hostile, the
+same rule `libs/ftpwire` applies to server replies.
 
-The NTLMv2 computation, for the record:
+**Blocking and the flusher.** A VFS operation is synchronous: the backend posts
+the request and **parks the caller** (as the block provider parks a `read`),
+with a real deadline; when the daemon replies, the task wakes and the operation
+returns. The 5-second `fs::flusher` must **never block**
+(`kernel/src/fs/flusher.rs`), so `Filesystem::flush`/`writeback` on a FUSE mount
+must be a non-blocking no-op or a best-effort post: the daemon owns durability,
+exactly as `usbd` does for a block provider.
 
-```
-NT_hash      = MD4(UTF-16LE(password))
-NTOWFv2      = HMAC-MD5(NT_hash, UTF-16LE(uppercase(user) + domain))
-NTProofStr   = HMAC-MD5(NTOWFv2, server_challenge || client_blob)
-SessionBaseKey = HMAC-MD5(NTOWFv2, NTProofStr)
-```
+**Authority.** Registering a provider and mounting are privileged edges: a
+capability (like `CAP_BLOCK_PROVIDER`) plus a service uid allow it, and the
+default-deny ACL can further restrict the mount. The mechanism carries no
+policy; the label rules do ([security-model.md](security-model.md) §5).
 
-The `client_blob` is a 28-byte header (version, zeroes, timestamp as FILETIME,
-8-byte client challenge) followed by the server's target-info `AvPairs` echoed
-verbatim and a 4-byte terminator. The **timestamp** needs a plausible wall
-clock; a dead RTC (LazyOS falls back to 2026-01-01) breaks NTLMv2 the same way
-it breaks TLS, and the client must say so clearly rather than report a wrong
-password.
+**Caching and coherence.** The kernel backend is stateless; the daemon caches
+SMB metadata and handles. The VFS's own dentry/inode cache sits above and needs
+no change, but a remote tree can change underneath it, so the first cut treats
+FUSE attributes as short-lived and the daemon invalidates on its own writes.
+Making that explicit (an attribute-timeout field in the reply) is part of §3.4.
 
-The SMB 2.1 signature is the **first 16 bytes of `HMAC-SHA256(SessionKey,
-message)`**, computed with the signature field zeroed. Signing applies only to
-messages belonging to an established session (a nonzero `SessionId`): they are
-signed when the session requires it (the server's `SecurityMode` or
-`--sign-required`), or when `--sign` asks for it, and are otherwise optional.
-The `NEGOTIATE` exchange and the initial, pre-authentication `SESSION_SETUP`
-are never signed; signing and verification begin once authentication has
-yielded the `SessionId` and the `SessionKey`. `SessionKey = SessionBaseKey`
-because key exchange is off; if a server ever demands it, SMB3 (S5) is the
-answer, not RC4 in 2.1.
-
-**Licence.** `nettls/crypto` is deliberately MIT so a GPL-2.0-only NetSurf port
-can link it ([tls-plan.md](tls-plan.md) §3.2). The SMB client is a normal
-LazyOS program, but the same hygiene applies: every linked crate must pass
-`python tools/nettls/licenses.py` (or a sibling gate for the SMB workspace). All
-of the above are `MIT OR Apache-2.0`, which passes under the MIT choice. Nothing
-here touches `ring`, `aws-lc` or a plain Apache-2.0-only crate.
-
-## 6. The client library and the tool
-
-### 6.1 Layout
-
-Following `nettls/`:
+### 3.2 The user-space side
 
 | Path (proposed) | Role |
 |---|---|
-| `smb/` | A standalone `x86_64-unknown-linux-musl` workspace, like `nettls/` and `rhai-host/`; the OS workspace never resolves it |
-| `smb/proto/` | Pure protocol: transport framing, the SMB2 header and command encoders/decoders, NTLMv2, signing. `no_std`-friendly, host-tested, one fuzz entry |
-| `smb/src/` | The blocking session (`Session`, `Tree`, `File`), the `std::net` transport, the `smb` command-line front end |
-| `tools/smb/build.py` | Builds the workspace for musl (rust-lld, size-first profile), like `tools/nettls/build.py`; `--require` for CI |
-| `build_support/smb_embed.rs` | With `LAZYOS_SMB=1`, copies `target/smb/smb.elf` to `fhs::bin::SMB` and into `.image-manifest` |
-| `libs/fhs/src/bin.rs` | A new `SMB = "/system/bin/smb"` constant |
-| `tools/run_demo.py` `--smb`, `tools/lazygui/catalog.py` | The `LAZYOS_SMB=1` switch from both front ends, with a `test_catalog.py` case (AGENTS.md) |
+| `libs/fused/` | A `no_std` daemon library: the NEXT/REPLY loop over the provider syscall, request decoding, payload handling, and a `FuseFs` trait a daemon implements. Host-tested against a fake provider |
+| `libs/smbwire/` | The SMB2 + NTLMv2 protocol (no I/O); host-tested and fuzzed (§4.2) |
+| `user/src/bin/memfuse.rs` | A toy in-memory filesystem daemon that proves the mechanism with **no network at all** (stage F1) |
+| `user/src/bin/smbfuse.rs` | The SMB daemon: implements `FuseFs` over `smbwire` and `netsock` (§4.4) |
+| `user/src/bin/smb.rs` | The direct command for tests and diagnostics (§4.5) |
 
-The protocol crate being separate and `no_std`-friendly is deliberate: G2's
-`netfsd` (a native service) can link it without `std`, and the host tests run
-under the existing test tooling.
+### 3.3 What we deliberately do **not** put in the kernel
 
-### 6.2 Session flow against `chatonnas`
+- No SMB2, no NTLM, no signing, no session key.
+- No TCP or TLS; the daemon uses the socket service like any other client.
+- No credentials, no password storage, no `keyd` use.
+- No file semantics beyond pass-through; the daemon owns create/rename/delete.
+- No retries, reconnect, caching or case-insensitivity rules.
+- No per-filesystem code: adding 9p or an sshfs-style filesystem later is a new
+  user-space daemon, not a kernel patch.
 
-1. `TcpStream::connect(("10.0.2.2" | server IP, 445), CONNECT_MS)`.
+## 4. SMB as a user-space filesystem
+
+### 4.1 Protocol: why SMB2.1 over 445
+
+| Shape | What | Verdict |
+|---|---|---|
+| **SMB2, dialect 2.1**, TCP 445 | The `0xFE 'S' 'M' 'B'` header, credits, compounds, NTLMv2, HMAC-SHA256 signing | **Build this.** Samba's default floor is SMB2 (`server min protocol = SMB2_02`); 2.1 adds large reads/writes but no new crypto |
+| SMB1 / CIFS | The old `0xFF 'S' 'M' 'B'` header and NetBIOS session service | No: disabled by default in current Samba; a security liability |
+| SMB3 (3.0/3.0.2/3.1.1) | AES-CMAC then AES-GCM signing, preauth integrity, encryption | Later (F6): more crypto than G1 needs |
+| SMB over NetBIOS 139 | SMB2 framed over the NetBIOS session service | No: 445 is what every modern server listens on |
+
+On 445 the framing is a 4-byte NetBIOS session header (first byte `0x00`, a
+24-bit big-endian length) then the 64-byte SMB2 header. Compound requests
+(`NextCommand`) may be used later; the first cut sends one command per frame.
+
+### 4.2 The client library
+
+`libs/smbwire` (native `no_std` + `alloc`, host-tested and fuzzed like
+`libs/ftpwire`): transport framing, the SMB2 header and command
+encoders/decoders, NTLMv2, and signing. Published Rust SMB crates (`pavao`,
+`smb-rs`, `smbclient`) are async and need a runtime and threads the task model
+does not give, so the wire layer is hand-written.
+
+The transport is a trait with two implementations: `netsock` (`TcpStream`) for
+the native daemon and CLI, and an in-memory script for host unit tests. The
+daemon and the CLI share this library, so the harness exercises exactly the
+bytes a mount would send.
+
+### 4.3 Session flow against `chatonnas`
+
+1. `TcpStream::connect((server IP, 445), CONNECT_MS)`.
 2. **NEGOTIATE** — dialects `[0x0210, 0x0202]`, `SecurityMode` = signing enabled
    (and required only if `--sign-required`), a random `ClientGuid`, capabilities
    0. The response may carry an empty security buffer or a server `GSS` token
@@ -193,236 +198,232 @@ under the existing test tooling.
 3. **SESSION_SETUP** twice:
    - send NTLMSSP **type 1** (`NEGOTIATE_MESSAGE`) built from the server's
      flags, `NTLMSSP_NEGOTIATE_KEY_EXCH` **clear**;
-   - server replies `STATUS_MORE_PROCESSING_REQUIRED` with a **type 2**
-     (`CHALLENGE_MESSAGE`): 8-byte server challenge and the target-info
+   - the server replies `STATUS_MORE_PROCESSING_REQUIRED` with a **type 2**
+     (`CHALLENGE_MESSAGE`): the 8-byte server challenge and the target-info
      `AvPairs`. Read the NTLM domain from `MsvAvNbDomainName`, unless `-W` set
      one;
    - compute `NTProofStr`/blob and send **type 3** (`AUTHENTICATE_MESSAGE`);
-   - success yields `SessionId` (and, if signing, the `SessionKey` above).
-4. **TREE_CONNECT** to `\\chatonnas\<share>`; response gives a `TreeId`.
-5. **CREATE / READ / WRITE / CLOSE** and **QUERY_DIRECTORY** for listing;
-   **QUERY_INFO** for size and attributes; **SET_INFO** for rename/delete.
+   - success yields `SessionId` (and, if signing, the `SessionKey`).
+4. **TREE_CONNECT** to `\\chatonnas\<share>`; the response gives a `TreeId`.
+5. **CREATE / READ / WRITE / CLOSE**, **QUERY_DIRECTORY**, **QUERY_INFO**,
+   **SET_INFO**.
 6. **TREE_DISCONNECT**, **LOGOFF**.
 
-Every server-supplied field before it is trusted is checked against the
-4-byte/fixed sizes the spec fixes, the way `libs/ftpwire` treats replies; the
-host tests include oversized, truncated and contradictory frames.
+### 4.4 The daemon: FUSE operations onto SMB2
 
-### 6.3 The `smb` command
+| FUSE op | SMB2 |
+|---|---|
+| `lookup`, `stat` | `CREATE` (open, no read/write) or `QUERY_INFO`, then `CLOSE` |
+| `readdir` | `QUERY_DIRECTORY` (FileIdBothDirectoryInformation) |
+| `read` / `write` | `READ` / `WRITE` at an offset |
+| `create` / `mkdir` | `CREATE` (file or directory disposition) |
+| `unlink` / `rmdir` | `SET_INFO` (disposition delete), then `CLOSE` |
+| `rename` | `SET_INFO` (FileRenameInformation) |
+| `truncate` / `setattr` | `SET_INFO` (end-of-file and basic info) |
+| `flush` | `FLUSH` (best-effort, never blocking the kernel flusher) |
+| `statfs` | `QUERY_INFO` (FileFsFullSizeInformation) |
+
+The daemon holds the SMB session, its handles and its metadata cache. A
+caller-scoped credential resolves the requested `user`, and a session is reused
+only for the same **`(server, share, credential identity)`**; a mount asking
+for a mismatch is rejected.
+
+### 4.5 The `smb` command
 
 ```
 smb [--sign] [--sign-required] [-p PORT] [-W DOMAIN] [-d DIAG] -U user[%pass] //server/share [cmd ...]
-smb -L //server -U user[%pass]                 # list shares (S3)
+smb -L //server -U user[%pass]                 # list shares (F4)
 ```
 
 Commands: `ls [path]`, `cd`, `pwd`, `get REMOTE [LOCAL|-|!]`, `put LOCAL
 [REMOTE|-g N]`, `mkdir`, `rm`, `rmdir`. `get f -` writes to stdout, `get f !`
-checksums, `put -g N` generates a stream, mirroring `ftp`'s conventions so the
-harness sink can be the same. Serial markers: `SMB:DIALECT 0x0210`,
-`SMB:LOGON user=… domain=…`, `SMB:TREE share=…`, `SMB:LIST n=…`,
-`SMB:GET name bytes=N crc=…`, `SMB:PUT …`, `SMB:PASS|FAIL reason=…` — markers
-say when, they are never the verdict.
+checksums, `put -g N` generates a stream, mirroring `ftp`'s conventions. Native
+programs have no general file-write syscall, which is exactly why the plan's
+real transfer path is the **mount** (`cp` through the directory); the command
+exists to run the protocol without the kernel and to feed the harness sink.
+Serial markers: `SMB:DIALECT 0x0210`, `SMB:LOGON user=… domain=…`,
+`SMB:TREE share=…`, `SMB:LIST n=…`, `SMB:GET name bytes=N crc=…`, `SMB:PUT …`,
+`SMB:PASS|FAIL reason=…` — markers say when, they are never the verdict.
 
-### 6.4 Credentials
+## 5. The crypto the design needs
+
+NTLMv2 and SMB 2.1 signing need only small, well-understood primitives. None is
+in `libs/crypto`, and the AES family currently fails codegen on
+`x86_64-unknown-none` (`libs/crypto/src/wrap.rs`), so the protocol crate brings
+its own.
+
+| Need | Where | Crate | Licence |
+|---|---|---|---|
+| MD4 | `NT_hash = MD4(UTF-16LE(password))` | `md-4` | MIT OR Apache-2.0 |
+| MD5 | `NTOWFv2`, `NTProofStr`, `SessionBaseKey` (HMAC-MD5) | `md-5` | MIT OR Apache-2.0 |
+| HMAC | HMAC-MD5 (NTLMv2) and HMAC-SHA256 (signing) | `hmac` (`Hmac<Md4/Md5/Sha256>`) | MIT OR Apache-2.0 |
+| SHA-256 | the SMB 2.1 message signature (truncated to 16 bytes) | `sha2` | MIT OR Apache-2.0 |
+| Randomness | the 8-byte NTLMv2 client challenge | native syscall 26 | in tree |
+| RC4 | only if NTLM key exchange is ever enabled (the client clears the flag, so unused first) | `rc4` (deferred) | MIT OR Apache-2.0 |
+
+```
+NT_hash      = MD4(UTF-16LE(password))
+NTOWFv2      = HMAC-MD5(NT_hash, UTF-16LE(uppercase(user) + domain))
+NTProofStr   = HMAC-MD5(NTOWFv2, server_challenge || client_blob)
+SessionBaseKey = HMAC-MD5(NTOWFv2, NTProofStr)
+```
+
+The `client_blob` is a 28-byte header (version, zeroes, FILETIME timestamp,
+8-byte client challenge) followed by the server's target-info `AvPairs` echoed
+verbatim and a 4-byte terminator. The **timestamp** needs a plausible wall
+clock; a dead RTC (the 2026-01-01 fallback) breaks NTLMv2 the same way it
+breaks TLS, and the client must say so rather than report a wrong password.
+
+The SMB 2.1 signature is the **first 16 bytes of `HMAC-SHA256(SessionKey,
+message)`**, with the signature field zeroed. Signing applies only to messages
+belonging to an established session (a nonzero `SessionId`): signed when the
+session requires it (the server's `SecurityMode` or `--sign-required`), or when
+`--sign` asks, and otherwise optional. `NEGOTIATE` and the initial,
+pre-authentication `SESSION_SETUP` are never signed; signing and verification
+begin once authentication has yielded the `SessionId` and `SessionKey`.
+`SessionKey = SessionBaseKey` because key exchange is off; if a server ever
+demands it, SMB3 (F6) is the answer, not RC4 in 2.1.
+
+**Licence.** Every crate linked into the OS or a tool must have a
+GPLv2-compatible licence; `md-4`/`md-5`/`hmac`/`sha2` are `MIT OR Apache-2.0`,
+which passes under the MIT choice. Reuse the `tools/nettls/licenses.py` gate (or
+a sibling) so a later link into a GPL-2.0-only NetSurf port stays clean.
+
+## 6. Credentials
 
 The password is a real credential and must not appear in `argv` (visible in
-`/proc`), the serial log, a crash message or the pcap. In order:
+`/proc`), the serial log, a crash message, the pcap or a committed file. In
+order:
 
-1. **Prompted, never stored** — `smb` reads it from the Terminal using the
-   secret-input mode T4 adds ([tls-plan.md](tls-plan.md) §6.4); the harness
+1. **Prompted, never stored** — `smbfuse`/`smb` read it from the Terminal using
+   the secret-input mode T4 adds ([tls-plan.md](tls-plan.md) §6.4); the harness
    drives the real keyboard path with a `type_secret` step.
 2. **`LAZYOS_SMB_PASSWORD`** for headless `--live`/harness runs only; the value
    is never committed and the leak check scans every artifact.
 3. Later, optional **`keyd`-sealed** `~/.config/smb/<server>` (the same
    "obfuscated at rest until #187" caveat as `imapc`).
 
-The harness reads `LAZYOS_SMB_USER`/`LAZYOS_SMB_PASSWORD` from the host
-environment and never prints them; no fixed credential is committed.
+`smbfuse` authenticates on the caller's behalf and reuses a session only for the
+same `(server, share, credential identity)`. The harness reads
+`LAZYOS_SMB_USER`/`LAZYOS_SMB_PASSWORD` from the host environment and never
+prints them; no fixed credential is committed.
 
 ## 7. Reaching `chatonnas` by name
 
 `10.0.2.2` (QEMU slirp's host alias) is how the **harness** reaches a host
 server ([networking-host-access.md](networking-host-access.md) §"10.0.2.2").
-On a **real LAN**, `chatonnas` has to resolve, and Samba advertises itself three
-ways, none of which the current stack speaks:
+On a **real LAN**, `chatonnas` must resolve, and Samba advertises itself three
+ways the stack does not speak yet:
 
-| Mechanism | Port | Notes | Plan |
-|---|---|---|---|
-| DNS / `/etc/hosts` | 53 | Works only if the router knows the name, or the user adds a line | **S3**: `/etc/hosts` support exists; document the entry for `--live` |
-| **NBNS** (NetBIOS name service) | UDP 137 | Samba answers broadcast `NBSTAT`/`NAME QUERY`; the classic way a name like `chatonnas` resolves | **S3**: a small broadcast-then-unicast query, host-tested |
-| **mDNS** (`_smb._tcp.local`) / **LLMNR** | UDP 5353 / 5355 | What Avahi/systemd-resolved advertise; the modern path | **S3** |
-| WINS | UDP 137 unicast to a server | Enterprise; out of scope | No |
+| Mechanism | Port | Plan |
+|---|---|---|
+| DNS / `/etc/hosts` | 53 | `/etc/hosts` support exists; document the entry for `--live` |
+| **NBNS** (NetBIOS name service) | UDP 137 | **F4**: a small broadcast-then-unicast query, host-tested |
+| **mDNS** / **LLMNR** | UDP 5353 / 5355 | **F4** |
+| WINS | UDP 137 | No |
 
 The data path never needs NetBIOS once the IP is known: SMB2 over **445** is
-plain TCP. So name resolution is a convenience layer over `netd`'s UDP socket,
-added in S3; **G1** takes an IP or a hosts entry so it does not depend on it.
-
-A caveat the live run must respect: slirp reaches **only the host**, not the
-wider LAN. To talk to a physical `chatonnas`, the guest needs bridged/TAP
-networking (or real hardware), which is a launcher/`QEMU` concern (§11), not a
-protocol one.
+plain TCP. **G1** therefore takes an IP or a hosts entry so it does not depend
+on name resolution. A physical `chatonnas` also needs bridged/TAP networking
+from QEMU (or real hardware); slirp reaches only the host, which is fine for the
+harness (`--live` is the opt-in bridge run).
 
 ## 8. What the OS already gives, and its limits
 
 | Need | State | Note |
 |---|---|---|
-| TCP with deadlines | built | `nettls`'s pattern: `SO_RCVTIMEO`/`SO_SNDTIMEO`, non-blocking + `poll` fallback |
-| Single-threaded blocking I/O | required | the shim gives each thread its own fd table; SMB2 is one socket, so fine |
-| 16 KiB per call / per tick | built | a `READ`/`WRITE` of 16 KiB per round trip; large files take several round trips, acceptable (the link is ~1.6 MB/s) |
-| 16 fds per task | tight but enough | one control socket, plus one per tree |
-| `std::fs` for `get`/`put` | built (Linux ABI) | this is why the client is musl, not native |
-| Wall clock | RTC + PIT, no NTP | NTLMv2 timestamps and SMB2 `SystemTime`; a wrong clock must be reported as such |
-| Entropy | kernel CSPRNG + `getrandom` | the NTLM client challenge and `ClientGuid` |
-| No `select`/`recvmsg`/`sendmsg` | built limitation | blocking sequential SMB2 needs none; pipelining many requests would |
+| TCP with deadlines | built | `netsock` parked calls with explicit ms timeouts; the `ftp` pattern |
+| Provider registration + parking | built for blocks | the FUSE provider copies `kernel/src/block/provider.rs`'s design |
+| `readdir`/`stat`/`open` for ABI programs | built | the FUSE mount lands in the ABI table too, so `cat`/`cp` work |
+| File writes from the client | unnecessary | unlike the earlier draft, the mount does local I/O; the daemon never writes the local filesystem |
+| Wall clock | RTC + PIT, no NTP | NTLMv2 timestamp and SMB2 `SystemTime`; a wrong clock is reported as such |
+| Entropy | syscall 26 | client challenge and `ClientGuid` |
+| 16 KiB per socket call | built | one SMB2 `READ`/`WRITE` per round trip; a several-MiB file is many round trips at ~1.6 MB/s |
 
-## 9. G2: network directories
+## 9. Verification
 
-G2 has two levels, and they are very different amounts of work.
-
-**Level 1 — a `net` namespace (service + apps).** A userspace service,
-`netfsd`, resolves a caller-scoped SMB credential for each requested `user`
-and holds sessions per `(server, share, credential identity)`, rejecting a
-mount that asks for a mismatch, and serves a new MIDL
-interface, `os.lazy.netfs.v1` (`idl/netfs.midl`, generated by `midlc`,
-AGENTS.md):
-
-```idl
-interface os.lazy.netfs.v1 {
-    method Mount(server: String, share: String, user: String) -> (id: U32);  // parks for caller-scoped prompt/keyd authentication
-    method Unmount(id: U32) -> ();
-    method List(id: U32) -> (mounts: Array<MountInfo>);
-    method Opendir(id: U32, path: String) -> (dir: U32);
-    method Readdir(dir: U32) -> (entries: Array<Entry>);   // parks; empty = end
-    method Closedir(dir: U32) -> ();
-    method Stat(id: U32, path: String) -> (meta: Entry);
-    method Open(id: U32, path: String, mode: U32) -> (file: U32);
-    method Read(file: U32, max: U32) -> (data: Bytes);      // parks
-    method Write(file: U32, data: Bytes) -> (written: U32); // parks
-    method Close(file: U32) -> ();
-}
-```
-
-`netfsd` authenticates on the caller's behalf, prompting through the caller's
-Terminal secret mode or unwrapping a `keyd`-sealed credential, and reuses a
-session only for the same `(server, share, credential identity)`.
-
-The shell gains `net mount //chatonnas/share`, `net ls <id>:/path`, `net get`,
-`net put`; the XUI File Manager gains a **Network** location. This is a real
-"network directory" the user can walk and copy in and out of, and it is nearly
-all userspace — the only kernel work is whatever `netfsd` needs to be a
-long-running service (it is an ordinary task, so perhaps none).
-
-**Level 2 — a real mount at a path.** This is the larger project. The VFS has
-no `mount()` syscall and no user-space filesystem seam
-([architecture/filesystem.md](architecture/filesystem.md)); the only precedent
-is the privileged, whole-disk block provider (syscall 33). A file-level mount
-needs all of:
-
-1. a kernel `Filesystem` adapter (`kernel/src/fs/vfs/filesystem.rs`) that
-   proxies `lookup`/`read`/`write`/`readdir`/… to `netfsd`;
-2. a kernel-originated **synchronous** Messenger call (the same missing piece
-   networking stage N5's Linux shim needed) or a new native `netfs_*` syscall;
-3. a mount registration path reachable from ring 3 (a `mount`-shaped call
-   carrying server/share/credentials), mounting into **both** the native and
-   ABI `Vfs` tables, as `mounts.rs`/`late.rs` do;
-4. a timeout/error policy: `FsError` has no `Io`/`Timeout` variant and the
-   5-second flusher must never block on the network.
-
-Because a network round trip per `stat` is far slower than the VFS assumes,
-Level 2 also wants a small attribute/dentry cache with explicit invalidation.
-The plan of record: **ship Level 1, design Level 2 behind the same
-`os.lazy.netfs.v1`**, and treat the kernel adapter as its own reviewed project.
-The mediated `os.lazy.fs.reader.v1` that `docs/messenger.md` already names is
-the natural umbrella for it.
-
-## 10. Verification
-
-The verdict is always what the SMB server recorded and what crossed the wire,
-never a serial marker alone — the principle of `tools/net/run.py` and
+The verdict is what the SMB server recorded and what crossed the wire, never a
+serial marker alone — the principle of `tools/net/run.py` and
 `tools/net/tls_run.py`.
+
+**Mechanism first.** Before any SMB, `memfuse` is mounted and judged on its own:
+`ls`/`cat`/`cp`/`echo >` through the mount, a byte-exact copy round trip, and
+the kernel provider exercised under load. This proves the FUSE bridge with no
+network variable.
 
 **Harness peer.** A scripted SMB2 server on the host loopback, reachable from
 the guest at `10.0.2.2:PORT` with no QEMU forward (slirp maps the gateway to
-host loopback). Options, in order:
-
-- **`impacket`'s `smbserver.py`** (Python, MIT): a configurable SMB2 server with
-  `-username`/`-password` and a share directory, cross-platform on the dev
-  host, and it keeps a request log. First choice for CI.
-- **Real Samba in Docker / WSL**, with a pinned `smb.conf` (a `chaton` user, a
-  share, `server min protocol = SMB2`, signing off then on). Used by the
-  `--services`-style variant to prove interop with the same software as the
-  real target.
-- The developer's own **`chatonnas`** for `--live`, bridged by choice.
-
-Use a **high host port** (e.g. 1445) so the harness needs no host privilege,
-and let `smb -p` take it; the live run uses the usual **445**. (The guest's own
-*remote* port draw is unrestricted; only local binds below 1024 are refused.)
+host loopback): **`impacket`'s `smbserver.py`** (Python, MIT; `-username`/
+`-password`, a share directory, a request log) first, then **real Samba in
+Docker/WSL** with a pinned `smb.conf` for interop, and the developer's own
+**`chatonnas`** for `--live`. Use a **high host port** (e.g. 1445) so the
+harness needs no host privilege; the live run uses the usual **445**.
 
 | Layer | What | Run |
 |---|---|---|
-| Host unit | `smb/proto`: framing (length bounds, compound `NextCommand`), header encode/decode, every command, NTLMv2 vectors from `MS-NLMP` test values, signing vectors, hostile/truncated/oversized frames, a seeded fuzz entry shared with `cargo fuzz` | `cargo test --manifest-path smb/Cargo.toml` |
-| End to end | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share connects; `ls` equals the server's directory; `get` of a small text file, a several-hundred-KiB binary and a 0-byte file hash equal to the server's; `put` of generated bytes equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
-| Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes sent | in `run.py` |
-| Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned `WRITE`/`READ` accepted only when signing is optional and not requested) | `tools/smb/` pcap judge, with its own `test_judge.py` (the judge must fail when it should) |
-| Live (opt-in) | `--live --server chatonnas --user chaton` with the password typed (or `LAZYOS_SMB_PASSWORD`); `ls`, `get`, `put` against the real server, over bridged networking | manual |
+| Host unit | `libs/smbwire`: framing (length bounds, compound `NextCommand`), header encode/decode, every command, NTLMv2 vectors from `MS-NLMP`, signing vectors, hostile/truncated/oversized frames, a seeded fuzz entry; `libs/fused` against a fake provider | `cargo test -p smbwire -p fused` |
+| Kernel | The FUSE provider and backend: correctness (bad paths, bad handles, provider death mid-op) and soak (thousands of ops, fd lifecycle) | `python tools/test/run.py --accel none` |
+| Mechanism e2e | `tools/smb/run.py --memfuse`: mount, `cp` a file in and out, compare bytes | new |
+| SMB e2e | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share mounts; `ls` equals the server's directory; `cp` out hashes equal to the server's; `cp` in equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
+| Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes | in `run.py` |
+| Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned accepted only when signing is optional and not requested) | `tools/smb/` pcap judge + `test_judge.py` (the judge must fail when it should) |
+| Live (opt-in) | `--live --server chatonnas --user chaton` with the password typed (or `LAZYOS_SMB_PASSWORD`); `net mount`, `ls`, `cp` against the real server over bridged networking | manual |
 
 **Leak check.** The password must not appear in `serial.log`, the session
 record, the pcap or any committed file — the same scan `tls_run.py` does.
 
-## 11. Staged delivery
+## 10. Staged delivery
 
-Each stage is mergeable and ends with evidence.
+Each stage is mergeable and ends with evidence. The mechanism comes first; SMB
+is a daemon on top of it.
 
 | Stage | Deliverable | Kernel change | Evidence |
 |---|---|---|---|
-| **S0** | This plan reviewed; dialect/transport/crypto/harness pinned | none | this document |
-| **S1** | `smb/proto`: framing, SMB2 header, NEGOTIATE, SESSION_SETUP (NTLMv2), TREE_CONNECT, CREATE/READ/WRITE/CLOSE, QUERY_DIRECTORY/INFO, signing; host tests, NTLMv2 and signing vectors, fuzz entry | none | `cargo test`; a scripted server sees dialect 0x0210 and a valid type 3 |
-| **S2** | `smb` CLI, `LAZYOS_SMB=1`, `smb_embed.rs`, `--smb` in `run_demo.py` and the GUI; `smb/` workspace and `build.py`; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached** |
-| **S3** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none (over `netd` UDP) | `chatonnas` resolves; `-L` lists the server's shares; live get/put |
-| **S4** | `netfsd` + `os.lazy.netfs.v1` (Level 1); shell `net` commands; File Manager **Network** view | none expected | the file manager walks a share and copies in and out; a MIDL-driven ACL test |
-| **S5** | Level 2 mount: mediated filesystem seam, kernel `Filesystem` adapter, cache/invalidations, `FsError` I/O/timeout variants | **yes**, with correctness + soak tests | a Linux program `cat`s a file on the mounted share; `python tools/test/run.py --accel none` |
-| **S6** | SMB3: 3.1.1 negotiation, preauth integrity, AES-CMAC/GCM signing, encryption policy; large-file and pipelining performance | none | dialect 0x0311, encrypted share round-trip; throughput numbers |
+| **F0** | This plan reviewed; FUSE provider ABI, dialect, crypto and harness pinned | none | this document |
+| **F1** | The **FUSE mechanism**: the provider syscall, `kernel/src/fs/fuse.rs`, mount registration, `FsError` additions, `libs/fused`, the `memfuse` toy daemon; correctness + soak tests | **yes**, generic, with full tests | `memfuse` is mounted; `cp`/`ls`/`cat` round-trip byte-exact; `python tools/test/run.py --accel none` |
+| **F2** | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
+| **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view | none (the bridge is F1) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
+| **F4** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none | `chatonnas` resolves; `-L` lists the server's shares; live mount and `cp` |
+| **F5** | Hardening: shared fenced data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |
+| **F6** | SMB3: 3.1.1 negotiation, preauth integrity, AES-CMAC/GCM signing, encryption policy | none | dialect 0x0311, encrypted share round-trip |
 
-ACL grants land with the actor that needs them, not at the end: `netfsd`'s
-interface rules and any `keyd` use follow the same per-method, kernel-stamped
-identity model as `socket.v1` ([security-model.md](security-model.md) §5).
+ACL grants land with the actor that needs them: the provider/mount capability
+in F1, and `keyd` use in F3, follow the same per-method, kernel-stamped identity
+model as `socket.v1` ([security-model.md](security-model.md) §5).
 
-## 12. Risks and open questions
+## 11. Risks and open questions
 
-1. **The target share name is unknown.** `-L` (S3) or the server's `smb.conf`
-   supplies it; S1/S2 use a named share. If `-L` is required for G1, it moves a
-   slice of S3 earlier.
-2. **NTLM domain.** Sending the wrong domain is the most common
-   `LOGON_FAILURE`; the client derives it from the challenge target info and
-   only lets `-W` override, but a Samba configured unusually may still need a
-   flag the user provides.
-3. **Reaching a physical `chatonnas` from QEMU.** Slirp reaches only the host.
-   A LAN live run needs TAP/bridge networking (hard on Windows/WHPX) or real
-   hardware; the harness proves the protocol, `--live` proves the server.
-4. **Signing policy.** Samba's default does not require signing; some hardened
-   shares do. HMAC-SHA256 signing is in S1, so "required" is handled;
-   "encryption required" is refused with a clear message until S6.
-5. **Clock.** A dead RTC makes NTLMv2 fail as a wrong password. The client must
-   detect and say "the system clock looks like 2026-01-01", as TLS does. An
-   SNTP step (tls-plan T5) helps both.
-6. **Crypto build on the pinned nightly.** `md-4`/`md-5`/`hmac`/`sha2` are pure
-   Rust and expected to build for musl and for `x86_64-unknown-none`; if the
-   OS-target build of the protocol crate fails, the crypto stays in the musl
-   workspace and only the framing moves to `libs/`. Verify in S1.
-7. **Async-only SMB crates.** Published Rust SMB clients assume tokio and
-   threads; the shim forbids both. Hand-writing is the decision, but the effort
-   is real (S1 is the bulk of the work).
-8. **Level 2 mount size.** The mediated filesystem seam is a kernel project in
-   its own right; it is staged last and its absence does not block G1 or
-   Level 1.
-9. **Password handling.** A leak through a log nobody thought of is the worst
-   failure here; the harness scans every artifact, and the live run types the
-   password on the real keyboard path.
+1. **The FUSE provider is still kernel code.** It is generic and small, modeled
+   on the block provider, but it is a new syscall and a new backend and must
+   pass the correctness and soak suite before SMB leans on it. This is the one
+   unavoidable kernel cost; everything else is user space.
+2. **The target share name is unknown.** `-L` (F4) or the server's `smb.conf`
+   supplies it; F2/F3 use a named share. If `-L` is needed for G1, a slice of
+   F4 moves earlier.
+3. **NTLM domain.** The wrong domain is the most common `LOGON_FAILURE`; the
+   client derives it from the challenge target info and only lets `-W` override.
+4. **Reaching a physical `chatonnas` from QEMU.** Slirp reaches only the host;
+   a LAN run needs TAP/bridge networking (hard on Windows/WHPX) or real
+   hardware. The harness proves the protocol, `--live` proves the server.
+5. **Signing policy.** Samba's default does not require signing; some hardened
+   shares do. HMAC-SHA256 signing is in F2, so "required" is handled;
+   "encryption required" is refused with a clear message until F6.
+6. **Clock.** A dead RTC makes NTLMv2 fail as a wrong password; the client must
+   detect and say so. An SNTP step (tls-plan T5) helps both.
+7. **Native crypto build.** `md-4`/`md-5`/`hmac`/`sha2` are pure Rust and are
+   expected to build for `x86_64-unknown-none`; verify in F2. If one fails, the
+   crypto moves behind a small in-tree implementation rather than a musl
+   workspace, since the mount removes the old reason for a musl client.
+8. **Async-only SMB crates.** Published Rust SMB clients assume tokio and
+   threads; hand-writing is the decision, and F2 is the bulk of the work.
+9. **Remote vs. cached coherence.** A network tree changes under the VFS cache;
+   F5's attribute timeouts and invalidation are what keep `ls` honest.
 
-## 13. Non-goals
+## 12. Non-goals
 
-SMB1/CIFS, SMB over NetBIOS 139, SMB3 encryption and multichannel (S6),
-serving SMB (a `smbd` for LazyOS), DFS, shadow copies, oplocks/leases and
-change notifications, sparse/compressed files, SMB1-style mailslots, WINS,
-Active Directory (Kerberos) authentication, NTLMv1 (only NTLMv2 is accepted),
-and printing over SMB. Each has a seam above; none is needed for G1.
+Writing a filesystem in the kernel (the point of the mechanism is not to),
+SMB1/CIFS, SMB over NetBIOS 139, SMB3 encryption and multichannel (F6), serving
+SMB (a `smbd` for LazyOS), DFS, shadow copies, oplocks/leases and change
+notifications, sparse/compressed files, mailslots, WINS, Active Directory
+(Kerberos), NTLMv1 (only NTLMv2 is accepted), and printing over SMB. Each has a
+seam above; none is needed for G1.
