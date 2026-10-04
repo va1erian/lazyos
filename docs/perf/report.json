@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generated": "2026-10-03T21:44:09Z",
-    "commit": "8fa51ec1+dirty",
-    "label": "P1.5 exit hands CPU on (all of P1)",
+    "generated": "2026-10-04T01:21:11Z",
+    "commit": "a7bebbef",
+    "label": null,
     "accel": "whpx",
     "profile": "dev (panic = \"abort\" opt-level = 2; kernel crate inherits it)",
     "moves": 200,
@@ -10,48 +10,56 @@
   },
   "metrics": {
     "irqoff": {
-      "n": 3604365,
-      "p50_us": 3.1,
-      "p90_us": 6.5,
-      "p99_us": 9.3,
-      "max_us": 30882.6,
-      "mean_us": 3.3
+      "n": 76157,
+      "p50_us": 0.2,
+      "p90_us": 1.7,
+      "p99_us": 4.6,
+      "max_us": 22652.3,
+      "mean_us": 0.6
     },
     "irq_wake": {
-      "n": 432,
-      "p50_us": 145.2,
-      "p90_us": 229.1,
-      "p99_us": 7085.5,
-      "max_us": 19753.3,
-      "mean_us": 311.6
-    },
-    "input_read": {
-      "n": 200,
-      "p50_us": 134.2,
-      "p90_us": 255.6,
-      "p99_us": 393.0,
-      "max_us": 516.0,
-      "mean_us": 158.0
-    },
-    "input_present": {
-      "n": 200,
-      "p50_us": 279.7,
-      "p90_us": 397.7,
-      "p99_us": 545.0,
-      "max_us": 661.2,
-      "mean_us": 299.9
+      "n": 680,
+      "p50_us": 50.6,
+      "p90_us": 102.6,
+      "p99_us": 169.1,
+      "max_us": 7477.3,
+      "mean_us": 86.1
     },
     "ipc_rt": {
       "n": 2000,
-      "p50_us": 2.3,
-      "p90_us": 5.0,
-      "p99_us": 5.2,
-      "max_us": 69.8,
-      "mean_us": 3.3
+      "p50_us": 0.6,
+      "p90_us": 0.7,
+      "p99_us": 0.9,
+      "max_us": 27.8,
+      "mean_us": 0.7
+    },
+    "sleep_1ms": {
+      "n": 200,
+      "p50_us": 1037.6,
+      "p90_us": 1114.0,
+      "p99_us": 1889.0,
+      "max_us": 2262.6,
+      "mean_us": 1057.4
+    },
+    "input_read": {
+      "n": 200,
+      "p50_us": 72.6,
+      "p90_us": 115.4,
+      "p99_us": 207.6,
+      "max_us": 1282.1,
+      "mean_us": 89.6
+    },
+    "input_present": {
+      "n": 200,
+      "p50_us": 102.9,
+      "p90_us": 154.5,
+      "p99_us": 237.7,
+      "max_us": 1301.1,
+      "mean_us": 121.1
     }
   },
   "irqoff_worst": {
-    "us": 30882.6,
+    "us": 22652.3,
     "syscall": "0x800000000000001f"
   }
 }
