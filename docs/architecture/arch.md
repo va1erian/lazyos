@@ -103,9 +103,10 @@ per-task thread pointer, restored on every context switch.
   checks `IRQ_WINDOW_OPEN`), IRQ1/IRQ12 only collect bytes, and the other
   lines only latch (`dev::irq`, lock-free). Code holding the FIFO lock must
   never reach a poll point. Nothing switches tasks, so user
-  memory a syscall validated stays valid. Decoding, deadline expiry, CPU
-  charging (`take_uncharged`) and task selection wait for the next ordinary
-  tick.
+  memory a syscall validated stays valid. While a window is open, decoding,
+  deadline expiry, CPU charging (`take_uncharged`) and task selection are
+  deferred to the next scheduler entry outside a window: the next ordinary
+  tick, or a voluntary yield if the syscall parks first.
 - Windows open only while an `irqoff` span of the current task is open,
   with interrupts off: inside a syscall, or inside a kernel section
   (`irqoff::kernel_section`: the kernel task's periodic writeback and disk
