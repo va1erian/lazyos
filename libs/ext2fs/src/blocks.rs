@@ -3,6 +3,11 @@
 use super::*;
 
 impl Ext2 {
+    /// Give the host its pause between two units of work ([`BlockIo::pace`]).
+    pub(super) fn pace(&self) {
+        self.io.pace();
+    }
+
     /// Allocate a data block. A full volume with frees waiting for a commit
     /// commits and tries again. Cached, the new block starts as a zeroed
     /// *fresh* block, so whatever is written into it reaches the disk before
@@ -44,6 +49,7 @@ impl Ext2 {
         }
         let size = self.block_size as usize;
         for group in 0..self.groups {
+            self.pace();
             let desc = self.read_group(group)?;
             if desc.free_blocks == 0 {
                 continue;
@@ -264,10 +270,22 @@ impl Ext2 {
         start: u32,
         bits: u32,
     ) -> Result<Option<u32>, Ext2Error> {
-        for index in start..bits {
+        let mut index = start;
+        while index < bits {
+            // A full byte holds no clear bit: skip it whole. This is the
+            // common case on a filling volume, where every allocation scans
+            // the group's bitmap from the start.
+            if index.is_multiple_of(8) && bits - index >= 8 {
+                let byte = *buf.get((index / 8) as usize).ok_or(Ext2Error::Invalid)?;
+                if byte == 0xFF {
+                    index += 8;
+                    continue;
+                }
+            }
             if !Self::bitmap_test(buf, index)? {
                 return Ok(Some(index));
             }
+            index += 1;
         }
         Ok(None)
     }

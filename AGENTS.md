@@ -410,6 +410,23 @@ is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
+## Interrupt latency
+
+Syscalls run with interrupts off. Long kernel work calls
+`arch::irq_window::poll_point()` (the ext2 library through `BlockIo::pace`),
+which takes pending interrupts in a window whose handlers take no lock but
+the i8042 FIFO's, so a window is safe under any other lock (never reach a
+poll point while holding that one) and never switches tasks
+([`docs/architecture/arch.md`](docs/architecture/arch.md)). A new loop that
+can run long inside a syscall needs a poll point. Every boot logs each
+syscall's new worst interrupts-off stretch of 2 ms or more as
+`IRQOFF:MAX ... from=<file:line> to=<file:line>`; the missing poll point lies
+between the two lines. Under WHPX/KVM a loaded host inflates those numbers;
+for numbers free of host noise run the session under TCG with
+`--accel tcg --extra-arg=-icount --extra-arg=shift=0,sleep=off` (scale the
+script's timeouts up). Tests: `LAZYOS_TEST_FILTER=irq python tools/test/run.py
+--accel none`.
+
 ## ext2 library
 
 The ext2 driver is `libs/ext2fs` (`no_std` + `alloc`, depends only on `spin`), shared by

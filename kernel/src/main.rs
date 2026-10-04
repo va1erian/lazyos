@@ -350,6 +350,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
+    crate::arch::irq_window::arm();
     x86_64::instructions::interrupts::enable();
 
     // The kernel task becomes the terminal multiplexer.

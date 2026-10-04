@@ -143,6 +143,13 @@ ISR that performs context switches.
   (`enable_and_hlt` then `cli`) and `task::poll_until` do this; native
   `read_char`, redirected stdin, a stopped task and `WaitQueue::wait` use
   them.
+- A long syscall takes interrupts at poll points without giving up its locks
+  (`arch::irq_window`, see [arch.md](arch.md)): while a window is open the
+  timer only counts and acknowledges (`window_tick`, not `schedule`), so the
+  only lock a handler admitted there takes is the i8042 FIFO's (never held
+  across a poll point), and nothing is switched. Scheduling
+  latency is still the syscall's length; interrupt latency is bounded by the
+  window period (1 ms) plus the work between two poll points.
 - A hang is diagnosed with an NMI (`arch::nmi`): QMP `inject-nmi` (sent by
   `qemu_session.py` on a timed-out gate, or the monitor's `nmi`) prints
   `HANG:` lines through a lock-free UART writer: the interrupted context, the

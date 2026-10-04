@@ -35,6 +35,26 @@ pub enum Phase {
     Super,
 }
 
+impl Phase {
+    /// Every phase, in writeback order (`Phase as usize` indexes it).
+    pub const ALL: [Phase; 5] = [
+        Phase::Fresh,
+        Phase::Alloc,
+        Phase::Inodes,
+        Phase::Content,
+        Phase::Super,
+    ];
+}
+
+// `Phase::ALL[phase as usize] == phase`: the writeback's buckets rely on it.
+const _: () = {
+    let mut index = 0;
+    while index < Phase::ALL.len() {
+        assert!(Phase::ALL[index] as usize == index);
+        index += 1;
+    }
+};
+
 /// The fixed metadata locations of one volume.
 #[derive(Default)]
 pub struct Roles {

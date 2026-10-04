@@ -18,6 +18,7 @@ mod format_tests;
 mod malformed;
 mod ops;
 mod ops_state;
+mod pacing;
 mod populate_tests;
 mod recover;
 mod rename_file;

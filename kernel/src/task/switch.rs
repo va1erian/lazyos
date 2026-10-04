@@ -7,6 +7,9 @@
 //! to a different task/address space, so the `mov rsp, rax` below is what
 //! actually performs the switch.
 //!
+//! A tick that lands in an interrupt window (`arch::irq_window`) goes to
+//! `window_tick` instead and resumes the interrupted stack unchanged.
+//!
 //! The second argument to `schedule` tells a real timer tick (advance the
 //! clock, acknowledge the PIC, charge CPU time) apart from a voluntary
 //! reschedule, which must do none of those (issue #338): a park is not 10 ms
@@ -71,9 +74,19 @@ global_asm!(
         cld
         mov rdi, rsp
         mov esi, eax
+        /* A tick inside an interrupt window (`arch::irq_window`) only counts
+           and acknowledges: the window may hold any lock, so `schedule`
+           (which takes the task table) must not run, and nothing switches. */
+        test eax, eax
+        jz 3f
+        cmp byte ptr [rip + IRQ_WINDOW_OPEN], 0
+        je 3f
+        call window_tick
+        jmp 4f
+    3:
         call schedule
         mov rsp, rax
-
+    4:
         pop r15
         pop r14
         pop r13
@@ -107,10 +120,14 @@ extern "C" {
 /// Does not advance the tick counter, acknowledge the PIC, or charge a CPU
 /// tick; deadline expiry and task selection run exactly as on a tick.
 pub fn yield_now() {
-    crate::perf::irqoff_pause();
-    // SAFETY: `arch::idt::init` installs `yield_isr` at `YIELD_VECTOR`
-    // (0x81). The gate saves a full interrupt frame and restores it with
-    // `iretq`, so control returns here with every register intact.
-    unsafe { x86_64::instructions::interrupts::software_interrupt::<0x81>() };
-    crate::perf::irqoff_resume();
+    // Other tasks run meanwhile: the caller's interrupts-off span ends here
+    // and, if it had one, starts again when it is picked (`arch::irqoff`).
+    crate::arch::irqoff::paused(|| {
+        crate::perf::irqoff_pause();
+        // SAFETY: `arch::idt::init` installs `yield_isr` at `YIELD_VECTOR`
+        // (0x81). The gate saves a full interrupt frame and restores it with
+        // `iretq`, so control returns here with every register intact.
+        unsafe { x86_64::instructions::interrupts::software_interrupt::<0x81>() };
+        crate::perf::irqoff_resume();
+    });
 }

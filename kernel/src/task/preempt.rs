@@ -22,7 +22,9 @@
 //! at all interrupted code running with interrupts on, which by the #382
 //! rule holds no spin lock, so yielding there is exactly as safe as the
 //! timer preempting it there; a syscall return holds nothing by
-//! construction. The yield is the ordinary voluntary gate, so the task
+//! construction. The one exception is an interrupt taken inside an interrupt
+//! window (`arch::irq_window`), which stops a syscall that may hold locks:
+//! [`preempt_point`] does nothing while a window is open. The yield is the ordinary voluntary gate, so the task
 //! resumes right after it (inside its interrupt handler or at its syscall
 //! return) the next time it is picked.
 //!
@@ -79,6 +81,13 @@ pub fn pending() -> bool {
 /// could have preempted (interrupt return, syscall return): see the module
 /// docs.
 pub fn preempt_point() {
+    // An interrupt taken inside an interrupt window (`arch::irq_window`)
+    // stopped a syscall that may hold any lock: switching there could hand
+    // the CPU to a task that spins on one forever. The syscall's own return
+    // is the next preemption point.
+    if crate::arch::irq_window::is_open() {
+        return;
+    }
     if NEED_RESCHED.load(Ordering::Relaxed) {
         switch::yield_now();
     }
@@ -91,6 +100,9 @@ pub fn preempt_point() {
 /// point (the CPU is idle) or the next tick switches away. Call with
 /// interrupts off and no lock held (a syscall body).
 pub fn exit_cpu() -> ! {
+    // The finished syscall's interrupts-off stretch ends here, for good
+    // (`arch::irqoff`): no later switch back may reopen one.
+    crate::arch::irqoff::exit();
     loop {
         switch::yield_now();
         x86_64::instructions::interrupts::enable_and_hlt();

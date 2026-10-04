@@ -358,3 +358,11 @@ pub(super) fn run_nap_hook() {
 pub fn interrupt(index: usize) {
     super::wake_task_with(index, WakeReason::Interrupted);
 }
+
+/// Run `f` with the task table locked, as a syscall in the middle of task
+/// bookkeeping would (the interrupt-window suite checks that no handler a
+/// window admits ever needs it).
+pub fn with_table_locked<R>(f: impl FnOnce() -> R) -> R {
+    let _table = TASKS.lock();
+    f()
+}

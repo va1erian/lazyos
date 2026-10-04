@@ -134,8 +134,9 @@ impl State {
     /// spin count, or `None` on timeout. The wall-clock deadline is what bounds
     /// a wedged device: a spin count is not a duration, and a host stalled by
     /// load or by writing a fresh sparse image easily out-waits any fixed one.
-    /// `ticks()` cannot advance with interrupts masked, so a very large spin
-    /// count is the backstop for that case.
+    /// `ticks()` advances only through the interrupt windows the loop opens
+    /// (`arch::irq_window`; none outside a syscall), so a very large spin
+    /// count is the backstop for the cases without them.
     fn wait_used(&self, slot: &Slot) -> Option<u64> {
         let start = crate::task::ticks();
         let mut spins = 0u64;
@@ -150,9 +151,9 @@ impl State {
                 return Some(spins);
             }
             spins += 1;
-            // The wait runs with interrupts off: keep the i8042 drained.
-            if spins.is_multiple_of(1024) {
-                crate::input::ps2::service();
+            // The wait runs with interrupts off (`arch::irq_window`).
+            if spins.is_multiple_of(64) {
+                crate::arch::irq_window::poll_point();
             }
             if spins.is_multiple_of(4096)
                 && (crate::task::ticks().wrapping_sub(start) >= TIMEOUT_TICKS

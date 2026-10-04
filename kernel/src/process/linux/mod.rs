@@ -219,6 +219,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     // reclaimed here, on entry to a syscall: the current task holds no heap
     // lock, so dropping their buffers cannot deadlock (issue #133). Interrupts
     // are off inside the gate.
+    crate::arch::irqoff::enter_linux(nr);
     task::reclaim_pending();
     super::gate::LAST_SYSCALL.store(nr, core::sync::atomic::Ordering::Relaxed);
     crate::perf::syscall_entry(nr);
@@ -372,6 +373,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     extra::raise_sigpipe(nr, [a1, a2, a3, a4, a5, a6], result);
     let restart = restartable(nr).then_some(nr);
     let result = task::signal::deliver_linux_restartable(result, restart);
+    crate::arch::irqoff::exit();
     crate::perf::syscall_exit();
     result
 }
