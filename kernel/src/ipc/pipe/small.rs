@@ -1,11 +1,13 @@
 //! Small-ring pipes for `AF_INET` sockets.
 //!
-//! The kernel heap is 16 MiB and a pipe's ring is allocated eagerly, so the
-//! 64 KiB rings of `pipe(2)` are capped at [`super::MAX_PIPES`]. A network
-//! socket needs two directions but only as much buffering as `netd` keeps
-//! (16 KiB each way), so these rings are [`SMALL_CAPACITY`] and counted
-//! against their own cap, [`MAX_SMALL_PIPES`]: 128 rings are 4 MiB at most,
-//! enough for 64 sockets, which is also `netd`'s own table size.
+//! A pipe's ring is allocated eagerly, so the 64 KiB rings of `pipe(2)` are
+//! capped at [`super::MAX_PIPES`]. A network socket's rings are counted
+//! against their own cap, [`MAX_SMALL_PIPES`] (two per socket, 64 sockets,
+//! which is also `netd`'s own table size). Each holds as much as `netd`'s
+//! stack keeps per socket and direction (256 KiB, its TCP window), so a bulk
+//! transfer never waits on the ring between the application's calls
+//! (docs/performance-plan.md P4.3): 128 rings are 32 MiB of a kernel heap
+//! that grows on demand (`limits.rs`, half of RAM by default).
 //!
 //! **Doorbell.** The pump's doorbell (`ipc::inet::bell`) rings for what the
 //! application does on its side of a socket and never for what `netd` does on
@@ -15,8 +17,9 @@
 
 use super::*;
 
-/// Bytes one small ring buffers.
-pub const SMALL_CAPACITY: usize = 32 * 1024;
+/// Bytes one `AF_INET` ring buffers (the name predates P4.3, when it was
+/// smaller than a pipe's).
+pub const SMALL_CAPACITY: usize = 256 * 1024;
 /// Most small rings alive at once (two per socket).
 pub const MAX_SMALL_PIPES: usize = 128;
 /// The application reads this ring (`netd` writes it): a read that makes
