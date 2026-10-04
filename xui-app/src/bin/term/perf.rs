@@ -73,7 +73,8 @@ impl Perf {
     /// `bytes` were read from the pty; `at_prompt` when the shell's prompt
     /// is now on the cursor row.
     pub fn read(&mut self, bytes: usize, at_prompt: bool, paint: &PaintClock) {
-        let now = monotonic_ns();        if let Some(sent) = self.echo_pending.take() {
+        let now = monotonic_ns();
+        if let Some(sent) = self.echo_pending.take() {
             self.echoes.push(now.saturating_sub(sent) / 1000);
         }
         self.bytes += bytes;

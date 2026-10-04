@@ -117,9 +117,7 @@ impl LazyOSBackend {
         } else {
             CLIENT_IDLE_NS
         };
-        let deadline = next_timer
-            .unwrap_or(u64::MAX)
-            .min(now.saturating_add(idle));
+        let deadline = next_timer.unwrap_or(u64::MAX).min(now.saturating_add(idle));
         let flags = match self.watched_fd.get() {
             Some(fd) => sys::WAIT_FD | (fd as u64) << sys::WAIT_FD_SHIFT,
             None => 0,

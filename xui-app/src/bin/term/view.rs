@@ -59,7 +59,8 @@ impl Shown {
         let first = first_row(grid.row, visible);
         let rows: Vec<Vec<char>> = grid.cells[first..(first + visible).min(ROWS)].to_vec();
         let cursor = (grid.row.saturating_sub(first), grid.col);
-        let whole = self.layout != Some(layout) || self.first != first || self.rows.len() != rows.len();
+        let whole =
+            self.layout != Some(layout) || self.first != first || self.rows.len() != rows.len();
         let mut changed: Option<(usize, usize)> = None;
         let mut mark = |slot: usize| {
             changed = Some(match changed {
@@ -128,7 +129,10 @@ mod tests {
         grid.feed(b"/ # ");
         assert!(shown.update(&grid, Some(LAYOUT)).is_some(), "first frame");
         grid.feed(b"e");
-        assert_eq!(shown.update(&grid, Some(LAYOUT)), Some(Rect::new(0, 10, 640, 30)));
+        assert_eq!(
+            shown.update(&grid, Some(LAYOUT)),
+            Some(Rect::new(0, 10, 640, 30))
+        );
         assert_eq!(shown.update(&grid, Some(LAYOUT)), None, "nothing changed");
     }
 
@@ -138,11 +142,17 @@ mod tests {
         let mut shown = Shown::default();
         shown.update(&grid, Some(LAYOUT));
         grid.feed(b"out\r\n");
-        assert_eq!(shown.update(&grid, Some(LAYOUT)), Some(Rect::new(0, 10, 640, 50)));
+        assert_eq!(
+            shown.update(&grid, Some(LAYOUT)),
+            Some(Rect::new(0, 10, 640, 50))
+        );
         for _ in 0..30 {
             grid.feed(b"line\r\n");
         }
-        assert_eq!(shown.update(&grid, Some(LAYOUT)), Some(Rect::new(0, 0, 640, 400)));
+        assert_eq!(
+            shown.update(&grid, Some(LAYOUT)),
+            Some(Rect::new(0, 0, 640, 400))
+        );
     }
 
     #[test]
@@ -154,7 +164,10 @@ mod tests {
             width: 800,
             ..LAYOUT
         };
-        assert_eq!(shown.update(&grid, Some(wider)), Some(Rect::new(0, 0, 800, 400)));
+        assert_eq!(
+            shown.update(&grid, Some(wider)),
+            Some(Rect::new(0, 0, 800, 400))
+        );
     }
 
     #[test]
@@ -162,6 +175,9 @@ mod tests {
         let a = Rect::new(0, 0, 10, 10);
         assert!(overlaps(a, Rect::new(9, 9, 20, 20)));
         assert!(!overlaps(a, Rect::new(10, 0, 20, 10)));
-        assert_eq!(intersect(a, Rect::new(5, -5, 20, 5)), Rect::new(5, 0, 10, 5));
+        assert_eq!(
+            intersect(a, Rect::new(5, -5, 20, 5)),
+            Rect::new(5, 0, 10, 5)
+        );
     }
 }
