@@ -11,7 +11,8 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | `kernel/src/block/ata.rs` | ATA PIO primary-master driver (read path) |
 | `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
 | `kernel/src/dev/pci.rs` | PCI config-space access (0xCF8/0xCFC); moved here from `block/pci.rs` by the device core (#239) |
-| `kernel/src/block/virtio.rs` | Legacy virtio-blk (0.9.5) driver, read/write; one instance per PCI function |
+| `kernel/src/block/virtio.rs` (+ `virtio/plan.rs`, `ring.rs`, `queue.rs`, `io.rs`) | Legacy virtio-blk (0.9.5) driver, read/write; one instance per PCI function |
+| `kernel/src/block/iowait.rs` | How a request waits: park on deadlines (`Wait::MaySleep`) or spin (`Wait::Spin`); `breathe` for long CPU stretches |
 
 **`BlockDevice` trait** (`mod.rs:86`)
 
@@ -20,7 +21,8 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | `name` | registry name (`"ata0"`, `"virtio0"`) |
 | `sector_size` / `sector_count` | geometry (512 bytes everywhere today) |
 | `read_sectors` / `write_sectors` | whole sectors into/from a caller buffer |
-| `read_sectors_vectored` / `write_sectors_vectored` | one consecutive sector range as a list of buffers (the ext2 cache's pages); default: one call per buffer, virtio-blk: as few 64 KiB requests as the range allows, partitions translate |
+| `read_sectors_vectored` / `write_sectors_vectored` | one consecutive sector range as a list of buffers (the ext2 cache's pages); default: one call per buffer, virtio-blk: requests of up to 256 KiB, several in flight, partitions translate |
+| `read_sectors_vectored_with` / `write_sectors_vectored_with` | the same, saying how the caller may wait (`Wait::Spin`, `Wait::MaySleep`); the default ignores it, virtio-blk honours it, partitions forward it |
 | `stats` | request counters ([`stats.rs`](../../kernel/src/block/stats.rs)), virtio-blk only; partitions answer `None` |
 | `flush` | durability point; devices without a cache complete immediately |
 | `is_writable` | whether `write_sectors` can succeed (default: false) |
@@ -42,7 +44,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | Driver | Transport | Read | Write | Notes |
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
-| `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, one request at a time (up to 64 KiB, a descriptor per 4 KiB page of the 16-page bounce region), `is_writable` = attached |
+| `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, up to 8 requests in flight (up to 256 KiB each, DMA straight to and from the caller's buffers), polled, `is_writable` = attached |
 | `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
 - ATA is read-only because the write path was not needed for the FAT boot image;
@@ -50,27 +52,59 @@ trait, a fixed registry with a selected boot device, and three drivers.
   ATA still mounts, read-only, and logs that its mount (`/` or the legacy `/data`)
   is read-only.
 - Several virtio-blk functions are independent devices: each `Slot` owns its
-  queue, request header and bounce page, so a boot disk and a data disk never
-  share ring state. The registry names them in PCI enumeration order.
+  queue and its request slots' control blocks, so a boot disk and a data disk
+  never share ring state. The registry names them in PCI enumeration order.
 - Virtio negotiates no feature bits and detects but does not drive modern-only
   devices (`1af4:1042`), which need BAR mapping in the kernel page table (next
   step, `virtio.rs` module docs).
-- DMA buffers need physical addresses: virtio copies through a `'static`
-  bounce region because the kernel heap maps scattered frames, and the request
-  path never assumes that region is physically contiguous. One request is a
-  descriptor chain of the header, one descriptor per 4 KiB page (each address
-  translated with `virt_to_phys` at attach), and the status byte; at most
-  `MAX_REQUEST_BYTES` (64 KiB) per request, one request in flight, polled. A
-  queue too small for the 18-descriptor chain is refused at attach. ATA PIO has
-  no such constraint. The driver is split into `virtio.rs` (request path and
-  device), `virtio/io.rs` (ports and attach) and `virtio/queue.rs` (ring
-  memory and descriptors).
+- DMA (docs/performance-plan.md P5): the device reads and writes the
+  caller's own buffers. The kernel heap maps scattered frames and a stack
+  slice can straddle pages, so `virtio/plan.rs` cuts a transfer into requests
+  of up to 64 pieces that never cross a page (each translated with
+  `virt_to_phys` as it is planned) and 256 KiB, ending on a sector boundary;
+  a segment may straddle two requests. One request is a descriptor chain of
+  its slot's header, the pieces, and its slot's status byte. Up to
+  `MAX_INFLIGHT` (8) requests from any callers are in the queue at once
+  (`virtio/ring.rs`): the device lock is held only to submit and to reap,
+  whoever holds it reaps every completion (freeing its descriptors and
+  marking its request done), and the owner takes its result. A transfer
+  never returns while the device may still touch its buffers: it waits for
+  every request it submitted, and a request still outstanding after 10 s
+  resets the device (after which it touches no memory), failing every request
+  then in flight and setting the queue up again. A queue too small for the
+  66-descriptor chain is refused at attach. ATA PIO has no such constraint.
+  The driver is split into `virtio.rs` (transfers and the device),
+  `virtio/plan.rs`, `virtio/ring.rs`, `virtio/io.rs` (ports, attach, reset)
+  and `virtio/queue.rs` (ring memory and descriptors).
+- Waiting (`block/iowait.rs`): syscalls run with interrupts off, and the
+  driver used to busy-wait inside them, stopping the machine for every request
+  (a 1.6 s stretch in one `write`). A caller passing `Wait::MaySleep` parks
+  instead when the scheduler runs and `task::relax::can_block` holds: first
+  at about 3/4 of the device's usual answer time (a running average per
+  device and direction), then in slices of 20 to 250 µs on the P2 one-shot
+  deadline timer. The device's INTx line is shared with the network card's
+  user-space driver (line 11 on QEMU's machine), which a kernel handler
+  cannot share with a claimant, so the driver polls the used ring and asks for
+  no interrupts (`VRING_AVAIL_F_NO_INTERRUPT`). A killed waiter keeps waiting
+  in naps until the device is done with its buffers. Every other caller
+  (FAT, partition scans, boot-time mounts, the test suite's own task) passes
+  `Wait::Spin` and busy-waits as before, draining the i8042.
+- Who may sleep: the ext2 adapter, while it holds its volume gate
+  (`fs/ext2/volio.rs`). A gate holder holds the mount table (FS or ABI_FS) and
+  the gate, all `task::relax::YieldMutex`es, and the library's lock and block
+  cache lock, plain spin locks only ever reached through the gate (the
+  flusher try-locks it): a contender meets a yielding lock first, exactly as
+  under the USB block provider, which already parks there. FAT does not hold
+  its FAT-sector cache lock across a device read for the same reason.
+  `iowait::breathe` lets interrupts in during long CPU stretches under the
+  same rule (at most every 50 µs): between ext2 pieces, at the library's pause
+  points (`ext2fs::Ext2::set_pause`), between loader chunks, between staged
+  user copies and between serial-mirror chunks.
 
 **Vectored requests and counters.** The ext2 block cache
 ([`block-cache.md`](block-cache.md)) writes back runs of consecutive blocks
 whose pages are scattered frames, and reads ahead the same way; virtio-blk
-gathers such a list into its bounce region and scatters reads back out of it
-(`virtio/gather.rs`), so a 64 KiB run is one request. Every virtio request is
+points the device at those pages directly, so a 256 KiB run is one request. Every virtio request is
 counted (`IoStats`: reads, writes, bytes); once a disk has been idle for 3 s
 after activity the kernel task prints
 `block: virtio0 reads N (K KiB) writes M (K KiB) flushes F`, which is how the
@@ -152,5 +186,9 @@ Its partitions are scanned when the late home mount runs (`fs::late`), not
 at `block::init`. Details: [usb-storage.md](usb-storage.md).
 
 **Status.** Working: ATA reads (default QEMU image), virtio-blk reads/writes on
-several functions, PCI enumeration. Open: modern virtio (memory BAR), AHCI/NVMe, ATA writes, DMA
-rings for drivers beyond the bounce-buffer path.
+several functions with sleeping waits and several requests in flight, PCI
+enumeration. Open: modern virtio (memory BAR), an interrupt-driven virtio-blk
+(needs a PIC line a kernel handler can share with a user-space claimant),
+AHCI/NVMe, ATA writes. Tests: `virtio_suite`, `block_sleep_suite` (planner
+rules and soak, kernel threads parked in the driver beside a spinning caller,
+a killed waiter, four threads on one cached ext2 volume).
