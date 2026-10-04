@@ -89,6 +89,8 @@ pub fn same_class_wake_bounded() -> Result<(), String> {
     let switches = task::context_switches();
     let started = crate::arch::clock::monotonic_ns();
     task::idle_ns(started + WINDOW_NS);
+    // `idle_ns` returns with interrupts on; the harness runs with them off.
+    x86_64::instructions::interrupts::disable();
     let elapsed = crate::arch::clock::monotonic_ns() - started;
     let hogs = [
         HOG[0].load(Ordering::Relaxed) - hogs[0],
