@@ -42,6 +42,8 @@ pub enum Msg {
     FocusAddress,
     /// Escape in the address field.
     RestoreAddress,
+    /// The user changed the address field's text.
+    AddressEdited,
     Resized,
 }
 
@@ -62,6 +64,9 @@ pub struct Browser {
     title: String,
     /// The current load failed: its end is not a `WEB:LOAD`.
     failed: bool,
+    /// The user is typing an address: the page's own news (its URL as it
+    /// loads, redirects) must not replace what they typed.
+    editing: bool,
 }
 
 impl Browser {
@@ -78,7 +83,9 @@ impl Browser {
         let back = Button::new(ui, at.back, "Back")?.on_click(|| Some(Msg::Back));
         let forward = Button::new(ui, at.forward, "Forward")?.on_click(|| Some(Msg::Forward));
         let reload = Button::new(ui, at.reload, "Reload")?.on_click(|| Some(Msg::Reload));
-        let address = Edit::new(ui, at.address, "")?.cue("Type an address and press Enter");
+        let address = Edit::new(ui, at.address, "")?
+            .cue("Type an address and press Enter")
+            .on_change(|_| Some(Msg::AddressEdited));
         let go = Button::new(ui, at.go, "Go")?.on_click(|| Some(Msg::Go));
         let status = Label::new(ui, at.status, "")?;
         let view = NetSurfView::new(ui, at.view, &first, || Msg::Frame)?;
@@ -103,6 +110,7 @@ impl Browser {
             url: String::new(),
             title: String::new(),
             failed: false,
+            editing: false,
         };
         browser.show_url(&first);
         browser.set_status(&format!("Opening {}", browser.shown(&first)));
@@ -122,6 +130,9 @@ impl Browser {
 
     fn show_url(&mut self, url: &str) {
         self.url = url.to_string();
+        if self.editing {
+            return;
+        }
         let text = self.shown(url).to_string();
         self.address.set_text(&text);
     }
@@ -143,6 +154,7 @@ impl Browser {
         } else {
             url.to_string()
         };
+        self.editing = false;
         println!("WEB:NAV:{}", marker_text(self.shown(&target)));
         println!("WEB:TIME:{}ms:nav", trace::now_ms());
         self.failed = false;
@@ -273,11 +285,14 @@ impl App for Browser {
             Msg::FocusAddress => {
                 self.address.set_text("");
                 self.address.focus();
+                self.editing = true;
             }
             Msg::RestoreAddress => {
+                self.editing = false;
                 let url = self.url.clone();
                 self.show_url(&url);
             }
+            Msg::AddressEdited => self.editing = true,
             Msg::Resized => self.relayout(ui),
         }
         self.update_buttons();
