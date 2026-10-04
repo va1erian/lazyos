@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "generated": "2026-10-04T02:31:17Z",
+    "commit": "bd0c5679+dirty",
+    "label": null,
+    "accel": "whpx",
+    "memory": "1G"
+  },
+  "disk": {
+    "write_mbps": {
+      "value": 15.5,
+      "unit": "MB/s",
+      "detail": "buffered=16.0 MB/s fsync_ms=122"
+    },
+    "read_cold_mbps": {
+      "value": 483.6,
+      "unit": "MB/s",
+      "detail": ""
+    },
+    "read_again_mbps": {
+      "value": 488.3,
+      "unit": "MB/s",
+      "detail": ""
+    },
+    "read_binary_mbps": {
+      "value": 511.0,
+      "unit": "MB/s",
+      "detail": "size=1181592"
+    },
+    "exec_ms": {
+      "value": 2.78,
+      "unit": "ms",
+      "detail": "min=1.80 median=2.27 max=5.70"
+    },
+    "small_files_ms": {
+      "value": 531.0,
+      "unit": "ms",
+      "detail": "files=400 bytes=9830400"
+    }
+  },
+  "irqoff": {
+    "n": 9269,
+    "p50_us": 1.0,
+    "p90_us": 94.5,
+    "p99_us": 928.5,
+    "max_us": 1053869.5,
+    "mean_us": 159.2
+  },
+  "irqoff_worst": {
+    "us": 1053869.5,
+    "syscall": "0x1"
+  }
+}

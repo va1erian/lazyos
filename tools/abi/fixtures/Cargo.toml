@@ -105,3 +105,9 @@ path = "src/netfix.rs"
 [[bin]]
 name = "netbulk"
 path = "src/netbulk.rs"
+
+# Storage throughput and exec latency (docs/performance-plan.md P5): run by
+# `tools/perf/disk.py` as `abi-init`, never by the ABI bench.
+[[bin]]
+name = "diskbench"
+path = "src/diskbench.rs"

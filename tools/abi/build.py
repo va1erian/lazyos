@@ -50,6 +50,8 @@ NAMES = [
     "netfix",
     # Bulk TCP throughput: run by `tools/net/bulk.py`.
     "netbulk",
+    # Storage throughput and exec time: run by `tools/perf/disk.py`.
+    "diskbench",
 ]
 
 

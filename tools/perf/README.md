@@ -34,7 +34,28 @@ the sample, never lengthen it.
 
 Not measured yet: USB input to present (the start stamp belongs at the xHCI
 transfer event, which the kernel cannot see while `usbd` polls the
-controller), disk read and exec time. TCP throughput has a harness of its
+controller). TCP throughput has a harness of its
 own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
 [`docs/perf/network.md`](../../docs/perf/network.md)), because its verdict is
 what crossed the wire, not a kernel histogram.
+
+## Storage (`disk.py`, stage P5)
+
+```bash
+python tools/perf/disk.py                    # build, boot, measure
+python tools/perf/disk.py --label "P5.1"     # also append a row to docs/perf/disk.md
+python tools/perf/disk.py --no-build         # re-measure the current image
+```
+
+Builds an image whose `abi-init` is the `diskbench` fixture
+(`tools/abi/fixtures/src/diskbench.rs`, BusyBox beside it, `LAZYOS_PERF=1`,
+a fresh OS volume) and boots it headless with no other services. The fixture
+writes a 64 MiB file in 1 MiB writes and `fsync`s it, reads it back twice
+(twice the size of the largest block cache, so mostly from the device), reads
+`/system/bin/busybox` whole five times, spawns `busybox true` 20 times, and
+writes 400 files of 24 KiB in 8 directories (a package install's shape). Each
+phase checks the bytes it reads. It prints `DISK:<metric>:<value> <unit>`
+lines; the runner adds the kernel's `PERF:irqoff` histogram and
+`PERF:irqoff_worst` (the longest interrupts-off syscall stretch of the boot
+and the run) and writes `docs/perf/disk.json`. Labelled runs append to
+[`docs/perf/disk.md`](../../docs/perf/disk.md).
