@@ -94,11 +94,22 @@ class GitCheckoutTests(unittest.TestCase):
     def test_db_for_points_at_the_bare_repo(self) -> None:
         self.assertEqual(git_checkout._db_for(self.checkout()), self.db)
 
-    def test_find_checkout_matches_xui_by_shape(self) -> None:
-        self.assertEqual(git_checkout.find_checkout(self.git, self.rev), self.checkout())
+    def test_find_checkouts_matches_xui_by_shape(self) -> None:
+        self.assertEqual(git_checkout.find_checkouts(self.git, self.rev), [self.checkout()])
 
-    def test_find_checkout_ignores_unknown_revision(self) -> None:
-        self.assertIsNone(git_checkout.find_checkout(self.git, "0" * 40))
+    def test_find_checkouts_ignores_unknown_revision(self) -> None:
+        self.assertEqual(git_checkout.find_checkouts(self.git, "0" * 40), [])
+
+    def test_find_checkouts_handles_two_url_spellings(self) -> None:
+        # A second bare repo, the `www.github.com` spelling cargo treats as a
+        # different source but the same tree.
+        second = self.git / "db" / "xui-www"
+        git("init", "--bare", "-q", str(second))
+        git("push", "-q", str(second), f"{self.rev}:refs/heads/main", cwd=self.home / "xui-work")
+        found = git_checkout.find_checkouts(self.git, self.rev)
+        self.assertEqual(
+            {c.parent.name for c in found}, {"xui-abc", "xui-www"}
+        )
 
     def test_submodules_lists_both(self) -> None:
         checkout = self.checkout()

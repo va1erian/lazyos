@@ -25,13 +25,20 @@ This script removes that obstacle:
   resolve.  Cargo still fetches the revision first, so a moved pin re-seeds.
 * It clears any ``update = none`` setting an older run left, so every submodule
   is materialised rather than skipped.
+* It seeds *every* cargo checkout of the repository. Cargo keys git sources by
+  URL and two spellings are two sources: ``xui-app`` and ``doom`` use
+  ``https://github.com/va1erian/xui`` while ``lazyrad-os`` patches in
+  ``https://www.github.com/va1erian/xui``. Both trip the same way and both must
+  be fixed.
 
 Cargo's own git checkout is used on purpose: a ``[patch]`` vendoring the crates
 into this repository would change identities and paths (the built ELF's
 debuginfo) and is a much bigger change than the build needs.
 
-On non-Windows hosts, or when the checkout is already seeded, this is a no-op.
-Run it through ``tools/xui/build.py``; it needs ``git`` on ``PATH``.
+On non-Windows hosts, or when a checkout is already seeded, this is a no-op.
+Run it through the build scripts (``tools/xui/build.py``,
+``tools/lazyrad/build.py``, ``tools/doom/build.py``); it needs ``git`` on
+``PATH``.
 """
 
 from __future__ import annotations
@@ -57,12 +64,19 @@ def git_dir() -> Path:
     return base / "git"
 
 
-def find_checkout(git: Path, rev: str) -> Path | None:
-    """The cargo checkout directory for the revision, if the repo is fetched."""
+def find_checkouts(git: Path, rev: str) -> list[Path]:
+    """Every cargo checkout of the xui repository at ``rev``.
+
+    Cargo keys its git sources by URL, and two spellings of the same repository
+    are two sources: `xui-app` and `doom` use ``https://github.com/vaerier/xui``
+    while `lazyrad-os` patches in ``https://www.github.com/...``. Both need the
+    submodule fixup, so return them all.
+    """
     db_root = git / "db"
     if not db_root.is_dir():
-        return None
-    for db in db_root.iterdir():
+        return []
+    found: list[Path] = []
+    for db in sorted(db_root.iterdir()):
         if not (db / "config").is_file():
             continue
         probe = subprocess.run(
@@ -72,31 +86,14 @@ def find_checkout(git: Path, rev: str) -> Path | None:
         )
         if probe.returncode != 0:
             continue
-        # Cargo's bare repos have no `origin` remote; identify by the refs the
-        # revision is fetched under (`refs/commit/...` or `refs/branch/...`).
-        refs = subprocess.run(
-            ["git", "--git-dir", str(db), "for-each-ref", "--format=%(refname)",
-             f"--contains={rev}"],
-            capture_output=True, text=True,
-        ).stdout
-        if not refs.strip():
-            continue
-        if _db_origin(db) == XUI_URL or _db_looks_like_xui(db, rev):
-            return git / "checkouts" / db.name / rev[:7]
-    return None
+        if _db_is_xui(db, rev):
+            found.append(git / "checkouts" / db.name / rev[:7])
+    return found
 
 
-def _db_origin(db: Path) -> str:
-    """The DB's remote URL, if it has one (cargo's bare repos do not)."""
-    return subprocess.run(
-        ["git", "--git-dir", str(db), "remote", "get-url", "origin"],
-        capture_output=True, text=True,
-    ).stdout.strip()
-
-
-def _db_looks_like_xui(db: Path, rev: str) -> bool:
-    """True when the DB's tree at ``rev`` has xui's crates (cargo gives no URL
-    to match on, so the layout is the check)."""
+def _db_is_xui(db: Path, rev: str) -> bool:
+    """True when the DB's tree at ``rev`` is xui (cargo's bare repos carry no
+    URL to match on, so the layout is the check)."""
     out = subprocess.run(
         ["git", "--git-dir", str(db), "ls-tree", "--name-only", rev],
         capture_output=True, text=True,
@@ -216,27 +213,64 @@ def _rmtree(path: Path) -> None:
     shutil.rmtree(path, onerror=onerror)
 
 
+def resolve(manifest: Path, env: dict[str, str] | None = None) -> bool:
+    """Resolve ``manifest``'s dependencies, seeding the xui checkouts on Windows
+    if the first attempt trips over NetSurf's colon-named submodule files.
+
+    The first probe makes cargo fetch the pinned revision (its bare repos then
+    hold the sources) and fails at the submodule checkout; this fixup seeds
+    them; a second probe confirms the graph resolves. A no-op where it is not
+    needed.
+    """
+    def probe() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["cargo", "metadata", "--manifest-path", str(manifest),
+             "--format-version", "1"],
+            capture_output=True, text=True, env=env,
+        )
+
+    first = probe()
+    if first.returncode == 0:
+        return True
+    if os.name != "nt":
+        print(first.stderr.strip(), file=sys.stderr)
+        return False
+    if not ensure_xui_checkout():
+        print(first.stderr.strip(), file=sys.stderr)
+        return False
+    second = probe()
+    if second.returncode != 0:
+        print(second.stderr.strip(), file=sys.stderr)
+        return False
+    print("xui: seeded the git checkout for Windows", file=sys.stderr)
+    return True
+
+
 def ensure_xui_checkout(rev: str = XUI_REV) -> bool:
-    """Make cargo's checkout of ``rev`` usable on Windows. Returns True if it
-    is usable (or not needed on this host)."""
+    """Make cargo's checkouts of the xui repository usable on Windows. Returns
+    True if all are usable (or the fix is not needed on this host)."""
     if os.name != "nt":
         return True
     git = git_dir()
     # Cargo fetches the revision itself when it resolves the dependency; once it
-    # has, its bare repo is here and the checkout can be seeded.
-    if not (git / "db").is_dir():
+    # has, its bare repos are here and the checkouts can be seeded. At least one
+    # URL spelling of the repository must be present for the fix to matter.
+    checkouts = find_checkouts(git, rev)
+    if not checkouts:
         return False
-    checkout = find_checkout(git, rev)
-    if checkout is None:
-        return False
-    if checkout_seeded(checkout):
-        return True
-    try:
-        seed(checkout)
-    except subprocess.CalledProcessError as error:
-        print(f"warning: could not seed the xui checkout: {error}", file=sys.stderr)
-        return False
-    return checkout_seeded(checkout)
+    ok = True
+    for checkout in checkouts:
+        if checkout_seeded(checkout):
+            continue
+        try:
+            seed(checkout)
+        except subprocess.CalledProcessError as error:
+            print(f"warning: could not seed the xui checkout {checkout}: {error}",
+                  file=sys.stderr)
+            ok = False
+            continue
+        ok = checkout_seeded(checkout) and ok
+    return ok
 
 
 def main() -> int:

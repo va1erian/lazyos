@@ -138,25 +138,10 @@ def resolve_deps() -> bool:
     """Make the pinned xui git dependency resolvable (Windows checkout fixup).
 
     ``xui``'s NetSurf submodules ship files Windows cannot name, so cargo's
-    first resolve fails on a fresh machine. Cargo fetches the revision before it
-    checks the submodules out, so try it once, then seed the checkout without
-    the offending files and retry. A no-op where it is not needed.
+    first resolve fails on a fresh machine; ``git_checkout.resolve`` seeds the
+    checkout without those files and retries. A no-op where it is not needed.
     """
-    probe = run(
-        ["cargo", "metadata", "--manifest-path", str(APP / "Cargo.toml"),
-         "--format-version", "1"],
-        env=build_env(),
-    )
-    if probe.returncode == 0:
-        return True
-    if os.name != "nt":
-        print(probe.stderr.strip(), file=sys.stderr)
-        return False
-    if not git_checkout.ensure_xui_checkout():
-        print(probe.stderr.strip(), file=sys.stderr)
-        return False
-    print("xui: seeded the git checkout for Windows", file=sys.stderr)
-    return True
+    return git_checkout.resolve(APP / "Cargo.toml", env=build_env())
 
 
 def build_env() -> dict[str, str]:
