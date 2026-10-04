@@ -5,7 +5,7 @@ HTTPS pages with verified certificates (`LAZYOS_TLS=1`, `run_demo.py --tls`,
 judged by `tools/net/tls_run.py`); T4 (IMAP) and T5 are not started.
 Decisions taken: a Gmail test account with an app password exists, the
 password is typed on the real keyboard path (§6.4), and the TLS stack must be
-**GPLv2-compatible** (a NetSurf port, GPL-2.0-only, will link it), which ruled
+**GPLv2-compatible** (the NetSurf port, GPL-2.0-only, LazyWeb, links it: [lazyweb.md](lazyweb.md)), which ruled
 out `ring` in favour of a pure-Rust RustCrypto provider (§3.2).
 Networking stages
 N0–N5 are ([networking-plan.md](networking-plan.md) §10.1,
