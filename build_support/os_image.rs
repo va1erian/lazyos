@@ -380,8 +380,6 @@ pub fn compose(
     os_disk::check_boot_fits(bios)?;
     let mut head = bios.to_vec();
     os_disk::add_os_entry(&mut head[..512], settings.os_size);
-    let total = OS_START_LBA * SECTOR + settings.os_size;
-    let sectors = settings.os_size / SECTOR;
     match &plan.action {
         Action::Create => {
             let temp = image.with_file_name(format!(
@@ -391,16 +389,7 @@ pub fn compose(
                     .and_then(|n| n.to_str())
                     .unwrap_or("lazyos.img")
             ));
-            let result = create(
-                &temp,
-                &head,
-                plan.uuid,
-                total,
-                sectors,
-                settings.journal,
-                dirs,
-                files,
-            );
+            let result = create(&temp, &head, plan.uuid, settings, dirs, files);
             if let Err(error) = result {
                 let _ = std::fs::remove_file(&temp);
                 return Err(error);
@@ -420,12 +409,13 @@ fn create(
     temp: &Path,
     head: &[u8],
     uuid: [u8; 16],
-    total: u64,
-    sectors: u64,
-    journal: Option<u32>,
+    settings: &Settings,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
+    let total = OS_START_LBA * SECTOR + settings.os_size;
+    let sectors = settings.os_size / SECTOR;
+    let journal = settings.journal;
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
