@@ -27,7 +27,7 @@ fn take_or_register(
     let mut abandoned = Vec::new();
     let taken = take_locked(channel_id, side, waiter, &mut abandoned);
     // Woken with `CHANNELS` released (queue-then-task lock order).
-    wake(&abandoned);
+    wake(abandoned);
     let queued = taken?;
     match queued {
         Some(message) => {
@@ -218,28 +218,37 @@ pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
 
 /// Record `slot` as parked on `endpoint` (at most once).
 pub(super) fn add_waiter(endpoint: &mut Endpoint, slot: usize) {
-    if !endpoint.waiters.contains(&slot) {
-        endpoint.waiters.push(slot);
-    }
+    endpoint.waiters.insert(slot);
 }
 
 /// Drop `slot`'s registration on one side, if the channel still exists.
 fn remove_waiter(channel_id: u64, side: usize, slot: usize) {
     let mut channels = CHANNELS.lock();
     if let Ok(channel) = find_channel(&mut channels, channel_id) {
-        channel.endpoints[side]
-            .waiters
-            .retain(|&waiter| waiter != slot);
+        channel.endpoints[side].waiters.remove(slot);
     }
 }
 
-/// Wake each task in `slots` that is still parked on the Messenger queue.
+/// Wake each task in `slots` that is still parked on the Messenger queue,
+/// returning the first one that actually woke.
 ///
 /// Called with `CHANNELS` released (queue-then-task lock order). A slot that
 /// already returned, timed out or parked elsewhere is skipped by
 /// `notify_task`, so a stale registration can never wake an unrelated wait.
-pub(super) fn wake(slots: &[usize]) {
-    for &slot in slots {
-        MESSENGER.notify_task(slot);
+pub(super) fn wake(slots: impl IntoIterator<Item = usize>) -> Option<usize> {
+    let mut first = None;
+    for slot in slots {
+        if MESSENGER.notify_task(slot) && first.is_none() {
+            first = Some(slot);
+        }
+    }
+    first
+}
+
+/// Run `partner` (a callee a call woke, a caller a reply woke) as soon as the
+/// current task parks: the direct handoff of P6.2 (`task::hand_off`).
+pub(super) fn hand_off_to(partner: Option<usize>) {
+    if let Some(partner) = partner {
+        task::hand_off(partner);
     }
 }

@@ -404,6 +404,12 @@ pub struct Subscriber {
 }
 
 impl Subscriber {
+    /// The endpoint the broker pushes events into, to park on beside others
+    /// (`wait::wait_any`).
+    pub fn endpoint(&self) -> Endpoint {
+        self.endpoint
+    }
+
     /// Receive the next event, or `None` when `deadline` passes first.
     ///
     /// Allocates the receive buffer per call; a polling loop should use

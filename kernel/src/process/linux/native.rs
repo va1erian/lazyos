@@ -81,6 +81,9 @@ const NATIVE: &[&str] = &[
     // `LAZYOS_NETD=1`.
     fhs::bin::NC,
     fhs::bin::NSLOOKUP,
+    // Bulk TCP throughput (docs/performance-plan.md P4): `netbulk <host>
+    // <port> <bytes>`, against `tools/net/bulk.py`'s server.
+    fhs::bin::NETBULK,
     // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
     fhs::bin::FTP,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]

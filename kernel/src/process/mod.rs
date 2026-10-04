@@ -131,6 +131,7 @@ pub mod power;
 pub mod randsys;
 mod spawn;
 pub mod spawnv;
+pub mod timesys;
 pub mod wallsys;
 
 use credio::{read_cred, write_cred};
@@ -196,7 +197,7 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
         return u64::MAX;
     };
     task::write_output(bytes);
-    crate::serial::write_bytes(bytes);
+    crate::serial::mirror(bytes);
     len
 }
 

@@ -48,6 +48,23 @@ impl SlotMask {
             .any(|word| word.load(Ordering::Acquire) != 0)
     }
 
+    /// Whether `slot` is marked.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the run-queue check
+    pub fn contains(&self, slot: usize) -> bool {
+        self.words
+            .get(slot / 64)
+            .is_some_and(|word| word.load(Ordering::Acquire) & (1 << (slot % 64)) != 0)
+    }
+
+    /// The marked slots right now, without clearing them.
+    pub fn snapshot(&self) -> TakenSlots {
+        let mut seen = [0u64; WORDS];
+        for (out, word) in seen.iter_mut().zip(&self.words) {
+            *out = word.load(Ordering::Acquire);
+        }
+        TakenSlots(seen)
+    }
+
     /// Atomically take every marked slot (word by word), leaving the mask
     /// empty. A slot marked while this runs is either returned now or stays
     /// for the next call, never lost.
@@ -64,13 +81,33 @@ impl SlotMask {
 pub struct TakenSlots([u64; WORDS]);
 
 impl TakenSlots {
+    /// The slots marked in either set.
+    pub fn union(mut self, other: &TakenSlots) -> TakenSlots {
+        for (word, more) in self.0.iter_mut().zip(other.0) {
+            *word |= more;
+        }
+        self
+    }
+
     /// Whether nothing was marked.
     pub fn is_empty(&self) -> bool {
         self.0.iter().all(|word| *word == 0)
     }
 
-    /// The marked slots in ascending order.
+    /// The marked slots in ascending order. Visits set bits only (one
+    /// `trailing_zeros` per slot), so a sparse mask costs its population,
+    /// not [`MAX_TASKS`]: the scheduler walks its run queues this way.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        (0..MAX_TASKS).filter(|slot| self.0[slot / 64] & (1 << (slot % 64)) != 0)
+        self.0.iter().enumerate().flat_map(|(index, &word)| {
+            let mut rest = word;
+            core::iter::from_fn(move || {
+                if rest == 0 {
+                    return None;
+                }
+                let bit = rest.trailing_zeros() as usize;
+                rest &= rest - 1;
+                Some(index * 64 + bit)
+            })
+        })
     }
 }

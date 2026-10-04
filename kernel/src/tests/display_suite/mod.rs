@@ -38,6 +38,7 @@ fn event_at(events: &[u8], index: usize) -> (u32, i32) {
 
 mod bind_and_input;
 mod buffers;
+mod fastpresent;
 mod keys;
 mod large_screens;
 mod logical;
@@ -45,10 +46,12 @@ mod modes;
 mod modifiers;
 mod present;
 mod slots;
+mod wcswitch;
 mod wheel;
 
 pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
+pub(super) use fastpresent::*;
 pub(super) use keys::*;
 pub(super) use large_screens::*;
 pub(super) use logical::*;
@@ -56,6 +59,7 @@ pub(super) use modes::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
+pub(super) use wcswitch::*;
 pub(super) use wheel::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -90,6 +94,27 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_present_one_pixel", present_one_pixel),
     ("display_present_partial_unmap", present_partial_unmap),
     ("display_present_small_soak", present_small_soak),
+    (
+        "display_fast_blit_every_packing_and_layout",
+        fast_blit_every_packing_and_layout,
+    ),
+    (
+        "display_fast_blit_short_and_outside",
+        fast_blit_short_and_outside,
+    ),
+    ("display_fast_present_layout_ops", fast_present_layout_ops),
+    (
+        "display_fast_present_full_screen_chunks",
+        fast_present_full_screen_chunks,
+    ),
+    (
+        "display_fast_present_chunks_revalidate",
+        fast_present_chunks_revalidate,
+    ),
+    (
+        "display_fast_present_full_screen_soak",
+        fast_present_full_screen_soak,
+    ),
     ("display_slots_attach_rules", slots_attach_rules),
     (
         "display_slots_present_and_release",
@@ -124,6 +149,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_mode_switch_roundtrip", mode_switch_roundtrip),
     ("display_mode_switch_refusals", mode_switch_refusals),
     ("display_mode_switch_soak", mode_switch_soak),
+    (
+        "display_mode_switch_write_combining",
+        mode_switch_write_combining,
+    ),
     (
         "display_mode_refused_switch_restores_registers",
         mode_refused_switch_restores_registers,

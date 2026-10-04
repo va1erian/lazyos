@@ -1,7 +1,9 @@
 //! Clocks and sleeping: `gettimeofday`, `clock_gettime`/`clock_getres`,
-//! `nanosleep`/`clock_nanosleep`, and `getrandom`. [`millis_to_ticks`] is
-//! shared with the poll-style waits in [`super::io`] and [`super::epoll`],
-//! since a millisecond timeout is the common currency across all of them.
+//! `nanosleep`/`clock_nanosleep`, and `getrandom`. Every Linux timeout is a
+//! deadline in monotonic nanoseconds (docs/performance-plan.md P2.4); the
+//! helpers here ([`millis_deadline`], [`clock_deadline_ns`], ...) are shared
+//! with the poll-style waits in [`super::io`], [`super::select`],
+//! [`super::epoll`] and with [`super::futex`].
 
 use crate::task::{self, WakeReason};
 use crate::user_ptr;
@@ -18,15 +20,37 @@ pub(super) const CLOCK_MONOTONIC: u64 = 1;
 /// duration.
 const TIMER_ABSTIME: u64 = 1;
 
-/// Milliseconds to 100 Hz PIT ticks, rounding up so a positive timeout never
-/// fires early.
-pub(super) fn millis_to_ticks(millis: u64) -> u64 {
-    millis.div_ceil(10).max(1)
+/// Nanoseconds per second.
+const NS_PER_SEC: u64 = 1_000_000_000;
+
+/// The monotonic clock every Linux timeout is a deadline on (P2.4): the one
+/// `CLOCK_MONOTONIC` reports, in nanoseconds since boot.
+pub(super) fn now_ns() -> u64 {
+    crate::arch::clock::monotonic_ns()
 }
 
-/// Monotonic tick count from the PIT (100 Hz).
-fn now_ticks() -> u64 {
-    crate::arch::idt::TICKS.load(core::sync::atomic::Ordering::Relaxed)
+/// `(sec, nsec)` as nanoseconds, saturating.
+pub(super) fn timespec_ns(sec: u64, nsec: u64) -> u64 {
+    sec.saturating_mul(NS_PER_SEC).saturating_add(nsec)
+}
+
+/// The deadline `ns` from now.
+pub(super) fn deadline_after_ns(ns: u64) -> u64 {
+    now_ns().saturating_add(ns)
+}
+
+/// The deadline of a timeout of `millis` milliseconds (`poll`, `epoll_wait`).
+/// Exact: a timeout is no longer rounded up to whole 10 ms ticks.
+pub(super) fn millis_deadline(millis: u64) -> u64 {
+    deadline_after_ns(millis.saturating_mul(1_000_000))
+}
+
+/// Write `ns` as a `struct timespec` (`unit` 1) or `struct timeval`
+/// (`unit` 1000) at `out`, ignoring a fault (the remaining-time write-back of
+/// an interrupted wait is best effort).
+pub(super) fn write_duration(out: u64, ns: u64, unit: u64) {
+    let _ = user_ptr::try_write::<i64>(out, (ns / NS_PER_SEC) as i64);
+    let _ = user_ptr::try_write::<i64>(out + 8, ((ns % NS_PER_SEC) / unit) as i64);
 }
 
 /// `CLOCK_MONOTONIC_RAW`, `CLOCK_MONOTONIC_COARSE` and `CLOCK_BOOTTIME`: the
@@ -112,28 +136,25 @@ pub(super) fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) ->
     if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
         return err(EINVAL);
     }
-    // 100 Hz timer: round up to whole ticks, at least one so time advances.
-    // The sleep queue is never notified; the timer's deadline sweep is what
-    // makes this return, exactly like a timeout.
+    // A nanosecond deadline on the monotonic clock (P2.4): the deadline
+    // timer ends the sleep when it is due, not at the next 10 ms tick. The
+    // sleep queue is never notified; expiry is what makes this return,
+    // exactly like a timeout.
     if absolute && clock == CLOCK_REALTIME {
         return sleep_until_realtime(sec as u64, nsec as u64);
     }
     let deadline = if absolute {
-        clock_deadline_ticks(clock, sec as u64, nsec as u64)
+        clock_deadline_ns(clock, sec as u64, nsec as u64)
     } else {
-        let millis = (sec as u64)
-            .saturating_mul(1000)
-            .saturating_add((nsec as u64).div_ceil(1_000_000));
-        now_ticks().saturating_add(millis_to_ticks(millis))
+        deadline_after_ns(timespec_ns(sec as u64, nsec as u64))
     };
-    match task::wait_sleep(deadline) {
+    match task::wait_sleep_ns(deadline) {
         WakeReason::TimedOut => 0,
         WakeReason::Interrupted => {
             // TIMER_ABSTIME sleeps never report a remainder (there's nothing
             // to resume relative to); only a relative sleep does.
             if !absolute && rem != 0 {
-                let remaining = deadline.saturating_sub(now_ticks());
-                write_timespec(rem, remaining / 100, (remaining % 100) * 10_000_000);
+                write_duration(rem, deadline.saturating_sub(now_ns()), 1);
             }
             err(EINTR)
         }
@@ -141,38 +162,36 @@ pub(super) fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) ->
     }
 }
 
-/// Longest single wait of an absolute `CLOCK_REALTIME` sleep, in ticks. The
-/// wall clock can be stepped while a task sleeps, and nothing wakes sleepers
-/// when it is, so the deadline is re-derived from the wall clock this often.
-const REALTIME_RECHECK_TICKS: u64 = 100;
+/// Longest single wait of an absolute `CLOCK_REALTIME` sleep. The wall clock
+/// can be stepped while a task sleeps, and nothing wakes sleepers when it
+/// is, so the deadline is re-derived from the wall clock this often.
+const REALTIME_RECHECK_NS: u64 = NS_PER_SEC;
 
 /// Sleep until the wall clock reaches `(sec, nsec)`, following any
-/// `clock_settime` step in either direction within `REALTIME_RECHECK_TICKS`.
+/// `clock_settime` step in either direction within `REALTIME_RECHECK_NS`.
 fn sleep_until_realtime(sec: u64, nsec: u64) -> u64 {
     loop {
-        let target = clock_deadline_ticks(CLOCK_REALTIME, sec, nsec.min(999_999_999));
-        let now = now_ticks();
+        let target = clock_deadline_ns(CLOCK_REALTIME, sec, nsec);
+        let now = now_ns();
         if target <= now {
             return 0;
         }
-        if let WakeReason::Interrupted = task::wait_sleep(target.min(now + REALTIME_RECHECK_TICKS))
-        {
+        let step = target.min(now.saturating_add(REALTIME_RECHECK_NS));
+        if let WakeReason::Interrupted = task::wait_sleep_ns(step) {
             return err(EINTR);
         }
     }
 }
 
 /// Convert an absolute `(sec, nsec)` deadline on `clock`, expressed exactly as
-/// `clock_gettime` reports that clock, into the PIT tick count `wait_sleep`
-/// compares against. Rounds up so a sleeper never wakes before the requested
-/// instant; a deadline already in the past saturates to tick 0, which
-/// `wait_sleep` resolves immediately since ticks only advance.
-pub(super) fn clock_deadline_ticks(clock: u64, sec: u64, nsec: u64) -> u64 {
-    let centis = nsec.div_ceil(10_000_000);
+/// `clock_gettime` reports that clock, into the monotonic-nanosecond deadline
+/// the timer queue compares against. A deadline already in the past resolves
+/// at once.
+pub(super) fn clock_deadline_ns(clock: u64, sec: u64, nsec: u64) -> u64 {
     if clock == CLOCK_MONOTONIC {
-        sec.saturating_mul(100).saturating_add(centis)
+        timespec_ns(sec, nsec)
     } else {
-        crate::wallclock::wall_to_ticks(sec, centis)
+        crate::wallclock::wall_to_monotonic_ns(sec, nsec.min(NS_PER_SEC - 1))
     }
 }
 

@@ -111,6 +111,18 @@ pub mod op {
     pub const MAP_BUFFER: u64 = 5;
     /// Close a shared-buffer handle (unmap + drop the reference).
     pub const CLOSE_BUFFER: u64 = 6;
+    /// Declare the screen buffer's byte order (one of [`super::layout`]).
+    pub const SET_LAYOUT: u64 = 7;
+    /// The byte order `present` copies without conversion, or `-ENOENT`.
+    pub const NATIVE_LAYOUT: u64 = 8;
+}
+
+/// Screen-buffer byte orders for ops 7 and 8 (the fourth byte is ignored).
+pub mod layout {
+    /// `R, G, B, A`: the default after every bind.
+    pub const RGBA: u64 = 0;
+    /// `B, G, R, A`.
+    pub const BGRA: u64 = 1;
 }
 
 /// Errno values, matching the Linux numbering the rest of the native ABI uses.

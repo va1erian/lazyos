@@ -11,6 +11,25 @@ static INPUT_READ: Samples = Samples::new();
 static INPUT_PRESENT: Samples = Samples::new();
 static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
+static SLEEP_1MS: Samples = Samples::new();
+static PRESENT: Samples = Samples::new();
+static SCHED: Samples = Samples::new();
+static WAKE_RUN: Samples = Samples::new();
+/// How long one report took to print, and the `input_present` samples whose
+/// interval contained a report: what the harness itself costs the input path.
+static REPORT: Samples = Samples::new();
+static INPUT_PRESENT_RPT: Samples = Samples::new();
+/// From the xHCI interrupt behind a USB pointer record to the present.
+static USB_INPUT_PRESENT: Samples = Samples::new();
+/// The newest device interrupt posted to each task (consumed by a publish).
+static IRQ_LAST: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// The interrupt stamp of the source batch being published (0: none).
+static SOURCE_STAMP: AtomicU64 = AtomicU64::new(0);
+/// The USB pointer pipeline: oldest record published, then read.
+static USB_POINTER_PENDING: AtomicU64 = AtomicU64::new(0);
+static USB_POINTER_READ: AtomicU64 = AtomicU64::new(0);
+/// TSC at the end of the last report (0: none yet).
+static LAST_REPORT_END: AtomicU64 = AtomicU64::new(0);
 
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
@@ -18,6 +37,8 @@ static CHAIN: AtomicU64 = AtomicU64::new(0);
 static LINE_TSC: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 /// The chain stamp a woken task carries until it runs.
 static WAKE_STAMP: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// When each task was last woken by another one (0: not waiting to run).
+static WOKEN_AT: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
 
 /// Oldest raw record not yet read by a consumer, and the oldest pointer
 /// record read but not yet presented.
@@ -67,6 +88,12 @@ pub fn lines_posting(raised: u16) {
 }
 
 pub fn on_wake(slot: usize, current: usize) {
+    super::wakeups::woke(slot);
+    if slot != current {
+        if let Some(stamp) = WOKEN_AT.get(slot) {
+            let _ = stamp.compare_exchange(0, rdtsc(), Ordering::Relaxed, Ordering::Relaxed);
+        }
+    }
     let chain = CHAIN.load(Ordering::Relaxed);
     if chain == 0 {
         return;
@@ -82,6 +109,13 @@ pub fn on_wake(slot: usize, current: usize) {
 }
 
 pub fn on_run(slot: usize) {
+    super::wakeups::ran(slot);
+    if let Some(woken) = WOKEN_AT.get(slot) {
+        let at = woken.swap(0, Ordering::Relaxed);
+        if at != 0 {
+            record(&WAKE_RUN, rdtsc().wrapping_sub(at));
+        }
+    }
     let Some(stamp) = WAKE_STAMP.get(slot) else {
         return;
     };
@@ -91,11 +125,38 @@ pub fn on_run(slot: usize) {
     }
 }
 
+/// The newest interrupt posted to `owner`: the claim's line stays masked
+/// until the driver acknowledges, so between two of its looks there is one,
+/// and a stale one (an event that published nothing) is overwritten.
+pub fn irq_posted(owner: usize) {
+    let chain = CHAIN.load(Ordering::Relaxed);
+    if let (Some(last), true) = (IRQ_LAST.get(owner), chain != 0) {
+        last.store(chain, Ordering::Relaxed);
+    }
+}
+
+pub fn source_publishing(owner: usize) {
+    let stamp = IRQ_LAST
+        .get(owner)
+        .map_or(0, |last| last.swap(0, Ordering::Relaxed));
+    SOURCE_STAMP.store(stamp, Ordering::Relaxed);
+}
+
+pub fn source_published() {
+    SOURCE_STAMP.store(0, Ordering::Relaxed);
+}
+
 pub fn input_published(pointer: bool) {
+    LAST_INPUT_TICK.store(task::ticks(), Ordering::Relaxed);
     let now = rdtsc();
     let _ = INPUT_PENDING.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
     if pointer {
         let _ = POINTER_PENDING.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
+        let irq = SOURCE_STAMP.load(Ordering::Relaxed);
+        if irq != 0 {
+            let _ =
+                USB_POINTER_PENDING.compare_exchange(0, irq, Ordering::Relaxed, Ordering::Relaxed);
+        }
     }
 }
 
@@ -111,12 +172,25 @@ pub fn input_read(count: usize) {
     if pointer != 0 {
         let _ = POINTER_READ.compare_exchange(0, pointer, Ordering::Relaxed, Ordering::Relaxed);
     }
+    let usb = USB_POINTER_PENDING.swap(0, Ordering::Relaxed);
+    if usb != 0 {
+        let _ = USB_POINTER_READ.compare_exchange(0, usb, Ordering::Relaxed, Ordering::Relaxed);
+    }
 }
 
-pub fn presented() {
+pub fn presented(started: u64) {
+    record(&PRESENT, rdtsc().wrapping_sub(started));
+    let usb = USB_POINTER_READ.swap(0, Ordering::Relaxed);
+    if usb != 0 {
+        record(&USB_INPUT_PRESENT, rdtsc().wrapping_sub(usb));
+    }
     let pointer = POINTER_READ.swap(0, Ordering::Relaxed);
     if pointer != 0 {
-        record(&INPUT_PRESENT, rdtsc().wrapping_sub(pointer));
+        let cycles = rdtsc().wrapping_sub(pointer);
+        record(&INPUT_PRESENT, cycles);
+        if LAST_REPORT_END.load(Ordering::Relaxed) > pointer {
+            record(&INPUT_PRESENT_RPT, cycles);
+        }
     }
 }
 
@@ -151,6 +225,7 @@ pub fn irqoff_pause() {
         return;
     }
     IRQOFF.record(cycles);
+    super::bysys::record(SYSCALL_NR.load(Ordering::Relaxed), cycles);
     if cycles > WORST_IRQOFF.load(Ordering::Relaxed) {
         WORST_IRQOFF.store(cycles, Ordering::Relaxed);
         WORST_NR.store(SYSCALL_NR.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -166,6 +241,10 @@ pub fn irqoff_resume() {
     }
 }
 
+pub fn sched_exit(started: u64) {
+    record(&SCHED, rdtsc().wrapping_sub(started));
+}
+
 fn record(samples: &Samples, cycles: u64) {
     if cycles <= MAX_PLAUSIBLE_CYCLES {
         samples.record(cycles);
@@ -179,24 +258,64 @@ const REPORT_TICKS: u64 = 200;
 const IPC_BENCH_TICK: u64 = 1500;
 static NEXT_REPORT: AtomicU64 = AtomicU64::new(0);
 static IPC_DONE: AtomicBool = AtomicBool::new(false);
+/// The sleep benchmark runs once, after the IPC one.
+const SLEEP_BENCH_TICK: u64 = 1700;
+static SLEEP_DONE: AtomicBool = AtomicBool::new(false);
+/// The cross-process benchmark starts once, after the sleep one.
+const MSG_BENCH_TICK: u64 = 1900;
+static MSG_DONE: AtomicBool = AtomicBool::new(false);
 static REPORTED_WORST: AtomicU64 = AtomicU64::new(0);
+
+/// A report waits until input has been quiet this long (ticks)...
+const QUIET_TICKS: u64 = 20;
+/// ...but never longer than this past its due time (ticks).
+const MAX_DEFER_TICKS: u64 = 1000;
+/// Tick of the newest raw input record.
+static LAST_INPUT_TICK: AtomicU64 = AtomicU64::new(0);
+
+/// Whether the report due at `due` should wait: printing it takes several
+/// milliseconds of polled serial output (`PERF:report`), during which the
+/// kernel task keeps the CPU, so a report in the middle of an input burst
+/// lands in the very latencies it reports (`PERF:input_present_rpt`).
+fn defer_report(now: u64, due: u64) -> bool {
+    let quiet = now.saturating_sub(LAST_INPUT_TICK.load(Ordering::Relaxed)) >= QUIET_TICKS;
+    !quiet && now < due + MAX_DEFER_TICKS
+}
 
 pub fn service() {
     let now = task::ticks();
-    if now < NEXT_REPORT.load(Ordering::Relaxed) {
+    let due = NEXT_REPORT.load(Ordering::Relaxed);
+    if now < due {
         return;
     }
-    NEXT_REPORT.store(now + REPORT_TICKS, Ordering::Relaxed);
     if now >= IPC_BENCH_TICK && !IPC_DONE.swap(true, Ordering::Relaxed) {
         super::ipcbench::run(|cycles| IPC_RT.record(cycles));
     }
+    if now >= SLEEP_BENCH_TICK && !SLEEP_DONE.swap(true, Ordering::Relaxed) {
+        super::sleepbench::run(|cycles| SLEEP_1MS.record(cycles));
+    }
+    if now >= MSG_BENCH_TICK && !MSG_DONE.swap(true, Ordering::Relaxed) {
+        super::msgbench::start();
+    }
+    if due != 0 && defer_report(now, due) {
+        return;
+    }
+    NEXT_REPORT.store(now + REPORT_TICKS, Ordering::Relaxed);
     let per_tick = crate::arch::clock::cycles_per_tick();
+    let started = rdtsc();
     for (name, samples) in [
         ("irq_wake", &IRQ_WAKE),
         ("input_read", &INPUT_READ),
         ("input_present", &INPUT_PRESENT),
         ("irqoff", &IRQOFF),
         ("ipc_rt", &IPC_RT),
+        ("sleep_1ms", &SLEEP_1MS),
+        ("present", &PRESENT),
+        ("sched", &SCHED),
+        ("wake_run", &WAKE_RUN),
+        ("report", &REPORT),
+        ("input_present_rpt", &INPUT_PRESENT_RPT),
+        ("usb_input_present", &USB_INPUT_PRESENT),
     ] {
         if !samples.changed() {
             continue;
@@ -206,6 +325,7 @@ pub fn service() {
             print(name, &summary, per_tick);
         }
     }
+    super::wakeups::report(now);
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);
@@ -213,6 +333,33 @@ pub fn service() {
             "PERF:irqoff_worst:us={} syscall={nr:#x}\n",
             Micros(cycles_to_ns(worst, per_tick))
         ));
+    }
+    if let Some(top) = super::bysys::take_changed() {
+        line(format_args!(
+            "PERF:irqoff_by_syscall:{}\n",
+            BySyscall(top, per_tick)
+        ));
+    }
+    let end = rdtsc();
+    REPORT.record(end.wrapping_sub(started));
+    LAST_REPORT_END.store(end, Ordering::Relaxed);
+}
+
+/// `nr=us` pairs, longest first: `0x1=812.4 0x8000000000000005=420.0 ...`.
+struct BySyscall([(u64, u64); super::bysys::SHOWN], u64);
+
+impl core::fmt::Display for BySyscall {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (index, &(nr, cycles)) in self.0.iter().enumerate() {
+            if nr == super::bysys::EMPTY {
+                break;
+            }
+            if index > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{nr:#x}={}", Micros(cycles_to_ns(cycles, self.1)))?;
+        }
+        Ok(())
     }
 }
 
@@ -231,7 +378,7 @@ fn print(name: &str, summary: &Summary, per_tick: u64) {
 
 /// Print with interrupts off: an interrupt handler that prints uses
 /// `try_print`, and must find the port free rather than held by this task.
-fn line(args: core::fmt::Arguments) {
+pub(super) fn line(args: core::fmt::Arguments) {
     x86_64::instructions::interrupts::without_interrupts(|| crate::serial::_print(args));
 }
 

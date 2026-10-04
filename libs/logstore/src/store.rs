@@ -177,6 +177,12 @@ impl<F: JournalFs> Store<F> {
         Ok(())
     }
 
+    /// The tick [`Store::tick`] flushes at, while records are buffered: a
+    /// service that parks between events wakes for it (P7).
+    pub fn flush_due(&self) -> Option<u64> {
+        (self.pending_records > 0).then(|| self.last_flush.saturating_add(FLUSH_TICKS))
+    }
+
     /// Flush when a buffered record has waited [`FLUSH_TICKS`].
     pub fn tick(&mut self, now: u64) -> Result<(), F::Error> {
         if self.pending_records > 0 && now.saturating_sub(self.last_flush) >= FLUSH_TICKS {

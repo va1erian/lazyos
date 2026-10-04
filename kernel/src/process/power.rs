@@ -112,6 +112,7 @@ const I8042_SPINS: u32 = 100_000;
 #[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the gate only
 fn reboot() -> ! {
     crate::serial_println!("power: reboot requested");
+    crate::serial::flush();
     sync_filesystems();
     x86_64::instructions::interrupts::disable();
     // SAFETY: port I/O on the 8042 controller. Waiting for its input buffer
@@ -173,6 +174,7 @@ fn settle() {
 #[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the gate only
 fn shutdown() -> ! {
     crate::serial_println!("power: shutdown requested");
+    crate::serial::flush();
     sync_filesystems();
     x86_64::instructions::interrupts::disable();
     // SAFETY: these ports only exist on virtual machines: 0x604 is QEMU's ACPI

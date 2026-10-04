@@ -99,3 +99,15 @@ path = "src/linuxapps.rs"
 [[bin]]
 name = "netfix"
 path = "src/netfix.rs"
+
+# Bulk TCP throughput against `tools/net/bulk.py`'s host server
+# (docs/performance-plan.md P4); embedded as `/system/bin/netbulk-linux`.
+[[bin]]
+name = "netbulk"
+path = "src/netbulk.rs"
+
+# Storage throughput and exec latency (docs/performance-plan.md P5): run by
+# `tools/perf/disk.py` as `abi-init`, never by the ABI bench.
+[[bin]]
+name = "diskbench"
+path = "src/diskbench.rs"

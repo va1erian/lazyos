@@ -120,16 +120,11 @@ fn connect() -> messenger::Result<clipboard::Client> {
     Err(last)
 }
 
-/// Sleep one PIT tick by parking on a private channel pair with an expired
-/// deadline (userspace has no sleep syscall; the topics client uses the same
-/// trick). The pair is closed again so no channel leaks.
+/// Nap one PIT tick's worth between retries ([`user::sys::nap`], a real sleep;
+/// this used to park on a throwaway channel pair, since userspace had no
+/// sleep call).
 fn park_tick() {
-    if let Ok((probe, peer)) = messenger::create_pair() {
-        let mut scratch = [0u8; 16];
-        let _ = probe.recv_into(&mut scratch, Some(messenger::EXPIRED_DEADLINE));
-        let _ = probe.close();
-        let _ = peer.close();
-    }
+    user::sys::nap();
 }
 
 #[panic_handler]

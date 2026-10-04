@@ -47,12 +47,8 @@ pub(super) fn holds(name: &str) -> bool {
 }
 
 /// The supervision loop's wake-up while waiting: soon enough to ask again.
-pub(super) fn wake(deadline: u64, now: u64) -> u64 {
-    if ready() {
-        deadline
-    } else {
-        deadline.min(now + POLL_TICKS)
-    }
+pub(super) fn wake(now: u64) -> Option<u64> {
+    (!ready()).then_some(now + POLL_TICKS)
 }
 
 /// Ask the kernel once; returns true when this call ended the wait (the

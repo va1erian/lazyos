@@ -34,10 +34,11 @@
 //! is a one-future version of the same loop. The waker (built on
 //! `alloc::task::Wake`) records that a poll asked to be rescheduled; because
 //! kernel wakeups do not route through wakers, a future that returns `Pending`
-//! without parking in the kernel is simply polled again on the next pass. Our
-//! leaf futures always park, so the loop never spins for them; user futures
-//! that yield cooperatively burn the task's quantum until the next timer tick,
-//! which is the documented trade-off of a no_std single-task executor.
+//! without parking in the kernel is polled again on the next pass. Our leaf
+//! futures always park, so the loop never spins for them; a future that wakes
+//! itself and yields is polled again at once, and a pass that leaves work
+//! pending with no wake parks the task for a millisecond before the next
+//! (P7.4) instead of burning its quantum.
 //!
 //! # `service!`
 //!

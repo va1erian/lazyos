@@ -159,6 +159,7 @@ impl Drop for UserStack {
 
 mod acl_suite;
 mod arch_suite;
+mod block_sleep_suite;
 mod block_suite;
 mod boot_io_suite;
 mod boot_media_suite;
@@ -167,6 +168,7 @@ mod chmod_suite;
 mod confd_suite;
 mod credentials_suite;
 mod crypto_suite;
+mod deadline_suite;
 mod dev_suite;
 mod display_suite;
 mod exec_perm_suite;
@@ -176,6 +178,7 @@ mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
+mod heap_slab_suite;
 mod heap_suite;
 mod input_bus_suite;
 mod ipc_channel_suite;
@@ -194,6 +197,7 @@ mod native_exec_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
+mod poll_keys_suite;
 mod power_suite;
 mod preempt_lock_suite;
 mod preempt_wake_suite;
@@ -201,6 +205,7 @@ mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
+mod runq_suite;
 mod sched_suite;
 mod service_suite;
 mod signal_suite;
@@ -216,6 +221,7 @@ mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod virtio_suite;
+mod waitset_ext_suite;
 mod waitset_suite;
 mod wallclock_suite;
 
@@ -224,6 +230,7 @@ mod wallclock_suite;
 const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
+    heap_slab_suite::CASES,
     limits_suite::CASES,
     arch_suite::CASES,
     preempt_lock_suite::CASES,
@@ -235,12 +242,16 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    runq_suite::CASES,
     preempt_wake_suite::CASES,
+    poll_keys_suite::CASES,
+    deadline_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,
     ipc_suite::CASES,
     ipc_channel_suite::CASES,
     waitset_suite::CASES,
+    waitset_ext_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,
     label_suite::CASES,
@@ -254,6 +265,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,

@@ -3,7 +3,7 @@
 
 use std::vec::Vec;
 
-use crate::stack::{ready, Kind, SockAddr, SockError, MAX_PER_OWNER, MAX_SOCKETS};
+use crate::stack::{ready, Kind, SockAddr, SockError, MAX_PER_OWNER, MAX_SOCKETS, TCP_BUFFER};
 use crate::testpair::*;
 
 pub(super) const SERVER: u64 = 7;
@@ -115,9 +115,9 @@ fn a_full_send_buffer_would_block_and_recovers() {
             Err(SockError::WouldBlock) => break,
             Err(e) => panic!("{e:?}"),
         }
-        assert!(queued <= 64 * 1024, "the buffer is bounded");
+        assert!(queued <= TCP_BUFFER, "the buffer is bounded");
     }
-    assert!(queued >= 16 * 1024 - 4096);
+    assert!(queued >= TCP_BUFFER - 4096);
     assert_eq!(drain(&mut p, false, accepted, SERVER, queued).len(), queued);
     assert!(
         p.a.socket_send(client, CLIENT, &chunk).is_ok(),

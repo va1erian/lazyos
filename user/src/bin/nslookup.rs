@@ -37,7 +37,7 @@ fn connect() -> Result<Client, String> {
                 return Err(format!("no network stack: {}", error.message()))
             }
             Err(_) => {
-                let _ = sys::wait(sys::clock() + 1);
+                sys::nap();
             }
         }
     }
@@ -51,7 +51,7 @@ fn wait_for_address(client: &Client) {
         if client.addresses().is_ok_and(|list| !list.is_empty()) {
             return;
         }
-        let _ = sys::wait(sys::clock() + 1);
+        sys::nap();
     }
 }
 

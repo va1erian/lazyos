@@ -32,6 +32,7 @@ mod linux_abi;
 mod native_kill;
 mod suspend;
 mod sweep_space;
+mod wait_interrupt;
 
 pub(super) use delivery::*;
 pub(super) use hardening::*;
@@ -40,6 +41,7 @@ pub(super) use linux_abi::*;
 pub(super) use native_kill::*;
 pub(super) use suspend::*;
 pub(super) use sweep_space::*;
+pub(super) use wait_interrupt::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_signal_block_unblock", block_unblock_pending),
@@ -105,4 +107,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_soak_sweep_space_isolation",
         soak_sweep_space_isolation,
     ),
+    (
+        "task_signal_wait_interrupted_by_linux_signals",
+        wait_interrupted_by_linux_signals,
+    ),
+    ("task_signal_soak_wait_interrupted", soak_wait_interrupted),
 ];

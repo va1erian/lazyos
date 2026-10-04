@@ -30,6 +30,9 @@ static PACKET: Mutex<Packet> = Mutex::new(Packet::new());
 /// extension is enabled (the fourth byte carries the wheel movement).
 static PACKET_LEN: AtomicUsize = AtomicUsize::new(3);
 
+/// Reports per second the mouse is left at: the highest rate PS/2 defines.
+pub const SAMPLE_RATE: u8 = 200;
+
 struct Packet {
     data: [u8; 4],
     index: usize,
@@ -144,11 +147,17 @@ pub fn init() {
     // Defaults, then probe for the wheel, then enable data reporting.
     mouse_write(0xF6);
     let wheel = enable_wheel();
+    // The handshake leaves the rate at its last step, 80 reports a second;
+    // 200 halves the time a moving mouse waits for its next report
+    // (docs/performance-plan.md P3.9). Setting a rate keeps the wheel mode.
+    mouse_write(0xF3);
+    mouse_write(SAMPLE_RATE);
     mouse_write(0xF4);
 
     crate::serial_println!(
-        "mouse: PS/2 auxiliary device enabled ({})",
-        if wheel { "wheel" } else { "no wheel" }
+        "mouse: PS/2 auxiliary device enabled ({}), {} Hz",
+        if wheel { "wheel" } else { "no wheel" },
+        SAMPLE_RATE
     );
 }
 

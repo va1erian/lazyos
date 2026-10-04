@@ -148,6 +148,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_futex_unknown_ops_enosys", futex_unknown_ops_enosys),
     ("compat_futex_soak", futex_soak),
+    ("compat_futex_hashed_buckets", futex_hashed_buckets),
     ("compat_wait4_pid_selection", wait4_pid_selection),
     ("compat_wait4_signal_status", wait4_signal_status),
     ("compat_waitid_reports_exit", waitid_reports_exit),

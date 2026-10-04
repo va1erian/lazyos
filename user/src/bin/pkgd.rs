@@ -125,6 +125,8 @@ fn run() -> messenger::Result<()> {
         &[pkgd::INTERFACE, lifecycle::INTERFACE],
         0,
     )?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     let mut state = Pkgd::new();
     let volume_ok = match store::probe_store() {

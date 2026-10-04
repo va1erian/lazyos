@@ -14,9 +14,11 @@ use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 
 use super::{Error, Result};
 
+mod bell;
 mod client;
 mod wire;
 
+pub use bell::*;
 pub use client::*;
 pub use wire::*;
 
@@ -47,6 +49,8 @@ pub mod method {
     pub const STATS: u32 = generated::METHOD_STATS;
     /// Round-trip probe used to detect a live broker.
     pub const PING: u32 = generated::METHOD_PING;
+    /// Give a subscription a doorbell (P7.2).
+    pub const BELL: u32 = generated::METHOD_BELL;
 }
 
 /// Kernel mode code for a publish ACL check (`Mode::Publish`).

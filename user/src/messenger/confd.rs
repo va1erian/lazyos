@@ -286,13 +286,9 @@ impl Client {
     }
 }
 
-/// Sleep one PIT tick by parking on a private channel pair with an expired
-/// deadline. The pair is closed again, so no channel leaks.
+/// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
+/// this used to park on a throwaway channel pair, since userspace had no
+/// sleep call).
 fn park_tick() {
-    if let Ok((probe, peer)) = super::create_pair() {
-        let mut scratch = [0u8; 16];
-        let _ = probe.recv_into(&mut scratch, Some(super::EXPIRED_DEADLINE));
-        let _ = probe.close();
-        let _ = peer.close();
-    }
+    crate::sys::nap();
 }

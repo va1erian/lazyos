@@ -9,12 +9,14 @@
 //! instead of believing a lock was taken. The waiter table and its keying (per
 //! address space) are in [`super::futex_queue`].
 
-use crate::task::{self, WakeReason};
+use crate::task::WakeReason;
 use crate::user_ptr;
 
 use super::errno::{err, EAGAIN, EFAULT, EINTR, EINVAL, ENOSYS, ETIMEDOUT};
 use super::futex_queue::{self as queue, Key};
-use super::time::{clock_deadline_ticks, millis_to_ticks, CLOCK_MONOTONIC, CLOCK_REALTIME};
+use super::time::{
+    clock_deadline_ns, deadline_after_ns, now_ns, timespec_ns, CLOCK_MONOTONIC, CLOCK_REALTIME,
+};
 
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
@@ -117,16 +119,8 @@ fn relative_deadline(ptr: u64) -> Result<Option<u64>, u64> {
         return Ok(None);
     }
     let (sec, nsec) = read_timespec(ptr)?;
-    let millis = sec
-        .saturating_mul(1000)
-        .saturating_add(nsec.div_ceil(1_000_000));
     // A zero timeout is a poll: the deadline is already due.
-    let ticks = if millis == 0 {
-        0
-    } else {
-        millis_to_ticks(millis)
-    };
-    Ok(Some(task::ticks().saturating_add(ticks)))
+    Ok(Some(deadline_after_ns(timespec_ns(sec, nsec))))
 }
 
 /// `FUTEX_WAIT_BITSET`'s timeout: an absolute instant on `clock`.
@@ -135,7 +129,7 @@ fn absolute_deadline(clock: u64, ptr: u64) -> Result<Option<u64>, u64> {
         return Ok(None);
     }
     let (sec, nsec) = read_timespec(ptr)?;
-    Ok(Some(clock_deadline_ticks(clock, sec, nsec)))
+    Ok(Some(clock_deadline_ns(clock, sec, nsec)))
 }
 
 /// Park while `*uaddr == expected`. The comparison and the park are atomic
@@ -149,7 +143,7 @@ fn futex_wait(uaddr: u64, expected: u32, bitset: u32, deadline: Option<u64>) -> 
     if current != expected {
         return err(EAGAIN);
     }
-    if deadline.is_some_and(|due| due <= task::ticks()) {
+    if deadline.is_some_and(|due| due <= now_ns()) {
         return err(ETIMEDOUT);
     }
     match queue::wait(Key::current(uaddr), bitset, deadline) {
@@ -331,6 +325,11 @@ pub mod test_hooks {
 
     pub fn total() -> usize {
         queue::total_for_test()
+    }
+
+    /// Buckets of the hashed waiter table holding at least one waiter.
+    pub fn buckets_in_use() -> usize {
+        queue::buckets_in_use_for_test()
     }
 
     /// `(apply(old), compare(old))` for an encoded `FUTEX_WAKE_OP` word.

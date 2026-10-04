@@ -37,6 +37,7 @@ pub fn register_kernel() {
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, KERNEL_TASK);
 }
 /// Create a user task from an ELF image. Returns its slot index.
 ///
@@ -209,6 +210,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, index);
     Ok(index)
 }
 
@@ -306,6 +308,7 @@ pub fn spawn_thread_sharing(
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, index);
     Ok(index)
 }
 
@@ -417,6 +420,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, index);
     drop(tasks);
 
     // The child's break and mmap cursor continue where the parent's are.

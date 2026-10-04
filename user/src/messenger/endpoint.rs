@@ -39,12 +39,24 @@ impl Endpoint {
 
     /// Blocking call: encode `request`, wait for the reply, decode it.
     ///
-    /// The reply buffer is allocated per call; a long-lived service loop must
-    /// use [`Endpoint::call_with`] instead, because the user runtime's bump
-    /// allocator never reclaims these buffers (see `user/src/heap.rs`).
+    /// The reply buffer is allocated per call (not zeroed: [`ReplyBuffer`]);
+    /// a loop that calls often should still pass one buffer to
+    /// [`Endpoint::call_with`] and skip the allocation.
     pub fn call(&self, request: &Parcel, deadline: Option<u64>) -> Result<Parcel> {
-        let mut buf = vec![0u8; DEFAULT_BUFFER];
-        self.call_with(request, &mut buf, deadline)
+        let bytes = encode(request)?;
+        let mut buf = ReplyBuffer::new();
+        let args = MsgArgs {
+            handle: self.handle,
+            parcel_ptr: bytes.as_ptr() as u64,
+            parcel_len: bytes.len() as u64,
+            buf_ptr: buf.ptr(),
+            buf_cap: buf.capacity(),
+            deadline: deadline.unwrap_or(0),
+            ..MsgArgs::default()
+        };
+        let mut result = MsgResult::default();
+        syscall(op::CALL, &args, &mut result)?;
+        Parcel::decode(buf.filled(result.bytes)?).map_err(Error::Parcel)
     }
 
     /// [`Endpoint::call`] with a caller-owned reply buffer, for loops that
@@ -106,20 +118,16 @@ impl Endpoint {
 
     /// Wait for a [`Endpoint::begin_call`] transaction and decode its reply.
     pub fn await_reply(&self, txn_id: u64) -> Result<Parcel> {
-        let mut buf = vec![0u8; DEFAULT_BUFFER];
+        let mut buf = ReplyBuffer::new();
         let args = MsgArgs {
             txn_id,
-            buf_ptr: buf.as_mut_ptr() as u64,
-            buf_cap: buf.len() as u64,
+            buf_ptr: buf.ptr(),
+            buf_cap: buf.capacity(),
             ..MsgArgs::default()
         };
         let mut result = MsgResult::default();
         syscall(op::CALL_AWAIT, &args, &mut result)?;
-        let len = result.bytes as usize;
-        if len > buf.len() {
-            return Err(Error::Errno(-errno::E2BIG));
-        }
-        Parcel::decode(&buf[..len]).map_err(Error::Parcel)
+        Parcel::decode(buf.filled(result.bytes)?).map_err(Error::Parcel)
     }
 
     /// Answer a pending transaction with `reply` (the server side of a call).
@@ -307,6 +315,41 @@ impl Message {
     /// `message.carries(wire::OPEN_TRANSFERS)`.
     pub fn carries(&self, declared: messenger_generated::transfers::Transfers) -> bool {
         declared.matches(self.handles, self.buffers)
+    }
+}
+
+/// A [`DEFAULT_BUFFER`]-byte reply buffer the kernel fills, allocated but not
+/// zeroed (P7.4): zero-filling 16 KiB on every [`Endpoint::call`] was most of
+/// a small call's userspace cost, and only the bytes the kernel reports
+/// written are ever read.
+struct ReplyBuffer(Vec<u8>);
+
+impl ReplyBuffer {
+    fn new() -> ReplyBuffer {
+        ReplyBuffer(Vec::with_capacity(DEFAULT_BUFFER))
+    }
+
+    fn ptr(&mut self) -> u64 {
+        self.0.as_mut_ptr() as u64
+    }
+
+    fn capacity(&self) -> u64 {
+        self.0.capacity() as u64
+    }
+
+    /// The `len` bytes a successful call or await wrote.
+    fn filled(&mut self, len: u64) -> Result<&[u8]> {
+        let len = usize::try_from(len).map_err(|_| Error::Errno(-errno::E2BIG))?;
+        if len > self.0.capacity() {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        // SAFETY: `len` is the byte count of the syscall that just returned
+        // successfully on this buffer; the kernel copies exactly that many
+        // bytes to its start (`write_reply`, which refuses a reply larger
+        // than the capacity instead), and `len` fits the allocation (checked
+        // above), so `..len` is initialized `u8` data.
+        unsafe { self.0.set_len(len) };
+        Ok(&self.0)
     }
 }
 

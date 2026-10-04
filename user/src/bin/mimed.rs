@@ -86,6 +86,8 @@ fn run() -> messenger::Result<()> {
     sys::write_str("mimed: registered as ");
     sys::write_str(mime::NAME);
     sys::write_str("\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     let mut db = MimeDb::builtin();
     let mut override_buffer = [0u8; OVERRIDE_BUFFER];

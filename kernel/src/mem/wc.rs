@@ -54,7 +54,7 @@ pub fn under_hypervisor() -> bool {
 }
 
 /// The 4 KiB leaf entry mapping `va` in the active table, or why not.
-fn leaf(va: u64) -> Result<*mut u64, &'static str> {
+pub(super) fn leaf(va: u64) -> Result<*mut u64, &'static str> {
     let mut table = Cr3::read().0.start_address().as_u64();
     for shift in [39u64, 30, 21] {
         let entries = phys_to_virt(PhysAddr::new(table)).as_mut_ptr::<u64>();
@@ -123,6 +123,21 @@ pub fn map_write_combining(va: u64, len: u64) -> Result<u64, &'static str> {
         unsafe { core::arch::asm!("wbinvd", options(nostack, preserves_flags)) };
     });
     Ok(pages)
+}
+
+/// The write-combining policy for a framebuffer mapped at `[va, va + len)`,
+/// at boot and after a mode switch (`display::modeset`): remap it on bare
+/// metal only (see [`under_hypervisor`]), and say what happened on serial
+/// (`HW:FB:WC:...`).
+pub fn apply_policy(va: u64, len: u64) {
+    if under_hypervisor() {
+        crate::serial_println!("HW:FB:WC:SKIPPED (hypervisor: the framebuffer is guest RAM)");
+        return;
+    }
+    match map_write_combining(va, len) {
+        Ok(pages) => crate::serial_println!("HW:FB:WC:{pages} pages write-combining"),
+        Err(reason) => crate::serial_println!("HW:FB:WC:SKIPPED ({reason})"),
+    }
 }
 
 /// Whether `va`'s leaf selects the write-combining entry and that entry is

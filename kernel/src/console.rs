@@ -165,6 +165,15 @@ pub fn framebuffer_span() -> Option<(u64, u64)> {
         .map(|&(base, info)| (base as u64, info.byte_len as u64))
 }
 
+/// The framebuffer the console draws on now (`(base, byte length)`): the
+/// firmware's, or the one the last mode switch made.
+pub fn current_framebuffer_span() -> Option<(u64, u64)> {
+    let current = x86_64::instructions::interrupts::without_interrupts(|| *CURRENT.lock());
+    current
+        .or_else(|| RAW.get().copied())
+        .map(|(base, info)| (base as u64, info.byte_len as u64))
+}
+
 /// A second handle on the whole framebuffer for the panic screen, built
 /// without waiting on any lock. Whatever it draws may interleave with a
 /// half-finished blit of the code that panicked; the machine is stopping, so

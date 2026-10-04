@@ -11,7 +11,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::fs::vfs::{FileKind, FsError, Id};
+use crate::fs::vfs::{FileKind, FsError, Id, Node};
 
 /// The reason a load fails when the filesystem could not read the image: an
 /// I/O error (`EIO`), neither a bad image nor frame exhaustion.
@@ -73,28 +73,34 @@ enum Tree {
 
 /// A regular file streamed through a VFS, as the caller `id` may read it.
 ///
-/// The file is named by path and each read walks it again, like the
-/// descriptor layer's in-place files (`fs::openfile`). A file replaced while
-/// it loads yields a broken image, never kernel memory: every read is bounded
-/// by the buffer and checked against the size recorded at open.
+/// Where the filesystem has nodes (ext2) the file is resolved once at open
+/// and read by node; otherwise it is named by path and each read walks it
+/// again. A file replaced while it loads yields a broken image, never kernel
+/// memory: every read is bounded by the buffer and checked against the size
+/// recorded at open.
 pub struct VfsFile {
     tree: Tree,
     id: Id,
     path: String,
     len: u64,
+    node: Option<Node>,
 }
 
 impl VfsFile {
     /// The regular file at `path` in the Linux ABI VFS, if `id` may read it.
     pub fn abi(id: Id, path: &str) -> Result<VfsFile, FsError> {
         let meta = crate::fs::abi_check(id, path, crate::fs::vfs::READ)?;
-        VfsFile::new(Tree::Abi, id, path, meta.kind, meta.size)
+        let mut file = VfsFile::new(Tree::Abi, id, path, meta.kind, meta.size)?;
+        file.node = crate::fs::nodes::abi_open_node(id, path, crate::fs::vfs::READ)?;
+        Ok(file)
     }
 
     /// The regular file at `path` in the native VFS, if `id` may read it.
     pub fn native(id: Id, path: &str) -> Result<VfsFile, FsError> {
         let meta = crate::fs::vfs_check(id, path, crate::fs::vfs::READ)?;
-        VfsFile::new(Tree::Native, id, path, meta.kind, meta.size)
+        let mut file = VfsFile::new(Tree::Native, id, path, meta.kind, meta.size)?;
+        file.node = crate::fs::nodes::vfs_open_node(id, path, crate::fs::vfs::READ)?;
+        Ok(file)
     }
 
     fn new(tree: Tree, id: Id, path: &str, kind: FileKind, len: u64) -> Result<VfsFile, FsError> {
@@ -106,10 +112,14 @@ impl VfsFile {
             id,
             path: String::from(path),
             len,
+            node: None,
         })
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        if let Some(node) = &self.node {
+            return node.read(offset, buf);
+        }
         match self.tree {
             Tree::Abi => crate::fs::abi_read_at(self.id, &self.path, offset, buf),
             Tree::Native => crate::fs::vfs_read_at(self.id, &self.path, offset, buf),

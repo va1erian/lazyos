@@ -61,15 +61,13 @@ mod serve;
 use alloc::format;
 use core::panic::PanicInfo;
 use user::messenger::services::lifecycle;
-use user::messenger::{self, registry, services, Error};
+use user::messenger::{self, registry, services, wait, Endpoint, Error, Message};
 use user::sys;
 
-use feeds::Feeds;
+use feeds::{Feeds, Source, CONNECT_RETRY_TICKS, DENIAL_FALLBACK_TICKS};
 use journal::Journals;
 use log::Log;
 
-/// How long the service serves queries before checking its feeds again.
-const POLL_TICKS: u64 = 2;
 /// Deadline for the best-effort health report, so a busy `healthd` cannot
 /// stall the log.
 const HEALTH_TICKS: u64 = 10;
@@ -97,52 +95,92 @@ fn run() -> messenger::Result<()> {
         &[services::LOGD_INTERFACE, lifecycle::INTERFACE],
         0,
     )?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let mut log = Log::new(Journals::open(sys::clock()));
     let mut feeds = Feeds::new();
     // The health status last delivered to `healthd` (`None` until it is up).
     let mut reported: Option<&'static str> = None;
     let mut next_report = 0u64;
+    let mut next_denials = 0u64;
     // Reused receive buffer: large per-call buffers are never reclaimed by
-    // the user heap, so the polling loop must not allocate one per message.
+    // the user heap, so the loop must not allocate one per message.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
 
     loop {
-        feeds.connect();
-        feeds.drain_local(&mut log, &mut buffer);
-        feeds.drain_central(&mut log, &mut buffer);
+        let connected = feeds.connect();
         let now = sys::clock();
-        feeds.poll(&mut log, now);
+        // Sampled on every wake; the fallback timer only covers a quiet
+        // system (the counters have no wake source of their own).
+        feeds.poll_denials(&mut log);
+        if now >= next_denials {
+            next_denials = now + DENIAL_FALLBACK_TICKS;
+        }
         log.journals.tick(now);
-        if now >= next_report {
+        let healthy = reported == Some(log.journals.status());
+        if !healthy && now >= next_report {
             report_health(&log.journals, &mut reported);
             next_report = now + HEALTH_RETRY_TICKS;
         }
 
-        match server.recv_with(&mut buffer, Some(sys::clock() + POLL_TICKS)) {
-            Ok(message) => {
-                // An orderly shutdown (docs/shutdown.md): take in what the
-                // feeds still hold (the services' last stop events), make the
-                // journals durable, then go.
-                if let Some(reason) = lifecycle::stop_requested(&message) {
-                    feeds.drain_local(&mut log, &mut buffer);
-                    log.journals.sync(sys::clock());
-                    sys::write_str(&format!(
-                        "LOGD:STOP records={} verified={} persisted={} reason=\"{reason}\"\n",
-                        log.ring.total,
-                        log.ring.verify().0,
-                        log.journals.persisted()
-                    ));
-                    return Ok(());
-                }
-                let reply = serve::reply(&mut log, &message);
-                if let Some(txn) = message.txn {
-                    server.reply_or_drop(txn, &reply)?;
-                }
-            }
-            Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => {}
+        // Park on requests and every feed at once (P7.2): an idle `logd`
+        // wakes only for a journal flush, a retry, or the denial fallback.
+        let mut ends = [server; 4];
+        let mut sources = [Source::Events; 3];
+        let count = 1 + feeds.wait_set(&mut ends[1..], &mut sources);
+        let deadline = [
+            Some(next_denials),
+            log.journals.flush_due(),
+            (!connected).then_some(now + CONNECT_RETRY_TICKS),
+            (reported != Some(log.journals.status())).then_some(next_report),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        let ready = match wait::wait_any(&ends[..count], 0, deadline) {
+            Ok(ready) => ready,
+            Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
+        };
+        for (index, &source) in sources[..count - 1].iter().enumerate() {
+            if ready & (1 << (index + 1)) != 0 {
+                feeds.take(source, &mut log, &mut buffer);
+            }
         }
+        if ready & 1 == 0 {
+            continue;
+        }
+        let message = match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
+            Ok(message) => message,
+            Err(Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => continue,
+            Err(error) => return Err(error),
+        };
+        // An orderly shutdown (docs/shutdown.md): take in what the feeds
+        // still hold (the services' last stop events), make the journals
+        // durable, then go.
+        if let Some(reason) = lifecycle::stop_requested(&message) {
+            feeds.drain_local(&mut log, &mut buffer);
+            feeds.drain_central(&mut log, &mut buffer);
+            log.journals.sync(sys::clock());
+            sys::write_str(&format!(
+                "LOGD:STOP records={} verified={} persisted={} reason=\"{reason}\"\n",
+                log.ring.total,
+                log.ring.verify().0,
+                log.journals.persisted()
+            ));
+            return Ok(());
+        }
+        answer(&server, &mut log, &message)?;
     }
+}
+
+/// Serve one query.
+fn answer(server: &Endpoint, log: &mut Log, message: &Message) -> messenger::Result<()> {
+    let reply = serve::reply(log, message);
+    if let Some(txn) = message.txn {
+        server.reply_or_drop(txn, &reply)?;
+    }
+    Ok(())
 }
 
 /// Tell `healthd` whether the journals are written, once it is up and again

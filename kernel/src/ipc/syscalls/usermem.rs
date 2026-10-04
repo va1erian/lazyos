@@ -113,15 +113,18 @@ pub(super) fn materialize(table: PhysAddr, va: u64, write: bool) -> Result<u64, 
     translate(table, va, write)
 }
 
-/// Copy `len` bytes from a validated user range into a fresh `Vec`.
+/// Copy `len` bytes from a user range into a fresh `Vec`, walking the page
+/// tables once per page (P6.3): each page is translated (and materialized,
+/// as a fault would) right before its bytes are copied, so a bad page fails
+/// the copy with `-EFAULT` before anything of the result is visible.
 pub(super) fn copy_in(ptr: u64, len: usize) -> Result<Vec<u8>, i64> {
-    access_range(ptr, len, false)?;
+    ptr.checked_add(len as u64).ok_or(errno::EFAULT)?;
     let table = mem::kernel_table();
     let mut out: Vec<u8> = Vec::with_capacity(len);
     let mut done = 0usize;
     while done < len {
-        // `access_range` proved `ptr + len` does not overflow, so this add is
-        // safe for every `done < len`.
+        // `ptr + len` does not overflow (checked above), so this add is safe
+        // for every `done < len`.
         let va = ptr + done as u64;
         let phys = translate(table, va, false)?;
         let chunk = (4096 - (va & 0xfff) as usize).min(len - done);
@@ -138,18 +141,61 @@ pub(super) fn copy_in(ptr: u64, len: usize) -> Result<Vec<u8>, i64> {
     Ok(out)
 }
 
+/// Copy a fixed-size user block (the syscall's argument block) onto the
+/// stack: no allocation, one page walk per page.
+pub(super) fn copy_in_array<const N: usize>(ptr: u64) -> Result<[u8; N], i64> {
+    ptr.checked_add(N as u64).ok_or(errno::EFAULT)?;
+    let table = mem::kernel_table();
+    let mut out = [0u8; N];
+    let mut done = 0usize;
+    while done < N {
+        let va = ptr + done as u64;
+        let phys = translate(table, va, false)?;
+        let chunk = (4096 - (va & 0xfff) as usize).min(N - done);
+        let src = mem::phys_to_virt(PhysAddr::new(phys)).as_ptr::<u8>();
+        // Safety: `phys` is a live user frame mapped through the kernel's
+        // physical map, and `chunk` stays inside the page it points into and
+        // inside `out`.
+        unsafe { core::ptr::copy_nonoverlapping(src, out.as_mut_ptr().add(done), chunk) };
+        done += chunk;
+    }
+    Ok(out)
+}
+
 /// Copy `bytes` into a validated, writable user range.
 ///
 /// Shared with the read-only monitor syscalls (`sysinfo`, `sys_tasks`) so an
 /// unprivileged caller can never aim a kernel write at a kernel or unmapped
 /// address: the whole range is checked before a byte is written.
 pub(crate) fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
-    access_range(ptr, bytes.len(), true)?;
     let table = mem::kernel_table();
+    // The whole range is checked before a byte is written. Ranges of up to
+    // `CACHED` pages (every argument block and nearly every parcel) keep the
+    // translations of that check, so each page is walked once (P6.3).
+    const CACHED: usize = 16;
+    let end = ptr.checked_add(bytes.len() as u64).ok_or(errno::EFAULT)?;
+    let first = ptr & !0xfff;
+    let pages = if bytes.is_empty() {
+        0
+    } else {
+        ((end - 1 - first) >> 12) as usize + 1
+    };
+    let mut frames = [0u64; CACHED];
+    if pages <= CACHED {
+        for (index, frame) in frames.iter_mut().enumerate().take(pages) {
+            *frame = translate(table, first + ((index as u64) << 12), true)? & !0xfff;
+        }
+    } else {
+        access_range(ptr, bytes.len(), true)?;
+    }
     let mut done = 0usize;
     while done < bytes.len() {
         let va = ptr + done as u64;
-        let phys = translate(table, va, true)?;
+        let phys = if pages <= CACHED {
+            frames[((va - first) >> 12) as usize] + (va & 0xfff)
+        } else {
+            translate(table, va, true)?
+        };
         let chunk = (4096 - (va & 0xfff) as usize).min(bytes.len() - done);
         let dst = mem::phys_to_virt(PhysAddr::new(phys)).as_mut_ptr::<u8>();
         // Safety: `phys` is a live writable user frame mapped through the

@@ -318,9 +318,8 @@ pub fn alloc_zeroed_frame() -> Option<PhysAddr> {
 /// Current reference count of `phys`: `0` = free, [`RESERVED`] = allocator
 /// metadata, `> 1` = shared between address spaces.
 ///
-/// Part of the diagnostics surface for tools (issue #54); the kernel itself
-/// only reads refcounts through the allocator.
-#[allow(dead_code)]
+/// The diagnostics surface for tools (issue #54), and the copy-on-write
+/// fault's sole-owner shortcut (`uspace::cow_fault`, P6.6).
 pub fn frame_refcount(phys: PhysAddr) -> u32 {
     match FRAMES.lock().as_ref() {
         Some(frames) if frames.contains(phys.as_u64()) => {
@@ -366,10 +365,14 @@ pub fn frame_stats() -> FrameStats {
 /// coalesced boot map (`regions`), for `hwreport`-style summaries and tests.
 #[allow(dead_code)] // Read by the kernel suite; a hardware report is the next caller.
 pub fn usable_ranges() -> alloc::vec::Vec<(u64, u64)> {
-    match FRAMES.lock().as_ref() {
-        Some(frames) => (0..frames.count)
-            .map(|i| (frames.starts[i], frames.ends[i]))
-            .collect(),
-        None => alloc::vec::Vec::new(),
-    }
+    // Copy out first: the vector must not be allocated under the frame lock,
+    // since the heap's slabs take frames from this allocator (P6.4).
+    let Some((starts, ends, count)) = FRAMES
+        .lock()
+        .as_ref()
+        .map(|frames| (frames.starts, frames.ends, frames.count))
+    else {
+        return alloc::vec::Vec::new();
+    };
+    (0..count).map(|i| (starts[i], ends[i])).collect()
 }

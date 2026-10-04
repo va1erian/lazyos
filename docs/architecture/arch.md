@@ -12,6 +12,7 @@
 | `kernel/src/arch/idt.rs` | IDT, exception handlers, IRQs, page-fault dispatch, `TICKS` |
 | `kernel/src/arch/pic.rs` | 8259 remap (IRQ 0-15 -> vectors 32-47), PIT at 100 Hz; line 0 masks whichever source is the tick |
 | `kernel/src/arch/timer.rs` | tick source choice: PIT unless it is frozen or its IRQ0 never arrives (or `LAZYOS_TIMER=lapic`), then the local APIC timer; prints `HW:TIMER:<pit\|lapic> <source> <hz>` |
+| `kernel/src/arch/event_timer.rs` | deadline timer (P2): with the PIT as the tick, the APIC timer one-shot on vector `0x31` at the next sub-tick task deadline (`task::timerq`); none when the APIC is the tick or `LAZYOS_EVENT_TIMER=0` |
 | `kernel/src/arch/timer_cal.rs` | pure decisions: PIT verdict, CPUID 0x15 crystal, APIC count |
 | `kernel/src/arch/lapic.rs` | local APIC (x2APIC MSRs or uncached xAPIC MMIO), virtual wire (LINT0 ExtINT, LINT1 NMI), periodic timer |
 | `kernel/src/arch/refclock.rs` | ACPI PM timer and HPET as reference clocks; PIT channel-0 reads |

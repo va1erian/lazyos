@@ -73,5 +73,6 @@ pub fn spawn_kernel_thread(
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, index);
     Ok(index)
 }

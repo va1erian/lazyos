@@ -12,7 +12,7 @@ use crate::user_ptr;
 
 use super::errno::{err, EBADF, EEXIST, EINTR, EINVAL, ELOOP, EMFILE, ENOENT};
 use super::flags::{O_CLOEXEC, O_NONBLOCK};
-use super::time::millis_to_ticks;
+use super::time::millis_deadline;
 
 /// `eventfd2(2)` flags.
 const EFD_SEMAPHORE: u64 = 1;
@@ -183,14 +183,14 @@ pub(super) fn sys_epoll_wait(epfd: u64, events: u64, maxevents: u64, timeout: u6
     } else if timeout == 0 {
         return write_epoll_events(events, &epoll.ready(max));
     } else {
-        Some(task::ticks() + millis_to_ticks(timeout as u64))
+        Some(millis_deadline(timeout as u64))
     };
     loop {
         let ready = epoll.ready(max);
         if !ready.is_empty() {
             return write_epoll_events(events, &ready);
         }
-        match task::wait_poll(deadline) {
+        match task::wait_poll_ns(deadline) {
             WakeReason::Woken => {}
             WakeReason::TimedOut => return 0,
             WakeReason::Interrupted => return err(EINTR),

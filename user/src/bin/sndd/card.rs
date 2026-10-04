@@ -95,9 +95,9 @@ pub(super) struct Card {
     irq_buf: alloc::vec::Vec<u8>,
 }
 
-/// Sleep one PIT tick (userspace has no sleep syscall; `wait` doubles as one).
+/// Sleep one PIT tick ([`sys::nap`]).
 fn nap() {
-    let _ = sys::wait(sys::clock() + 1);
+    sys::nap();
 }
 
 impl Card {

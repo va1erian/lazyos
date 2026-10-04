@@ -59,6 +59,7 @@ use crate::mem;
 // two apart.
 use crate::process as user_process;
 
+pub mod childbell;
 pub mod diag;
 pub mod introspect;
 mod linux_spawn;
@@ -95,12 +96,15 @@ pub mod kthread;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;
+pub mod pollwait;
 mod preempt;
+mod runq;
 mod sched;
 mod schedule;
 pub mod slotmask;
 mod spawn;
 mod stats;
+pub mod timerq;
 mod waiting;
 
 pub use console::*;
@@ -112,10 +116,16 @@ pub use fdtypes::*;
 pub use lifecycle::*;
 pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
+pub use pollwait::{
+    notify_poll_key, scan_begin as poll_scan_begin, wait_keyed_ns as wait_poll_keyed_ns,
+};
 #[allow(unused_imports)] // test hook
 pub use preempt::pending as resched_pending;
-pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
+pub use preempt::{exit_cpu, hand_off, interrupted_quiet_context, preempt_point};
 pub use sched::*;
+pub use schedule::expire_due;
+#[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub use schedule::{context_switches, scheduler_entries};
 pub use spawn::*;
 pub use stats::*;
 pub use waiting::*;
@@ -229,8 +239,9 @@ pub enum WakeReason {
 pub enum TaskState {
     /// Eligible for the scheduler.
     Runnable,
-    /// Parked on a wait queue until woken or until `deadline` (absolute PIT
-    /// ticks, 100 Hz) passes. `None` means no timeout.
+    /// Parked on a wait queue until woken or until `deadline` (absolute
+    /// `arch::clock::monotonic_ns`, P2.1) passes. `None` means no timeout.
+    /// A deadline is also queued on `timerq::TIMERS` (`block_task`).
     Blocked {
         wait: WaitKind,
         deadline: Option<u64>,
@@ -372,6 +383,11 @@ pub fn start() {
     SCHEDULING.store(true, Ordering::Relaxed);
 }
 
+/// Whether [`start`] ran: tasks switch, so a task may park.
+pub fn scheduling() -> bool {
+    SCHEDULING.load(Ordering::Relaxed)
+}
+
 /// The task currently on the CPU.
 pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)
@@ -398,9 +414,21 @@ pub fn free_slots() -> usize {
         .count()
 }
 
-/// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
+/// The PIT tick counter (100 Hz). Tick-based wait APIs take absolute
+/// values of it; [`ticks_to_ns`] is what they mean on the timer queue.
 pub fn ticks() -> u64 {
     crate::arch::idt::TICKS.load(Ordering::Relaxed)
+}
+
+/// Nanoseconds per tick of [`ticks`] (100 Hz).
+pub const NS_PER_TICK: u64 = 10_000_000;
+
+/// A tick deadline as a monotonic-nanosecond deadline (saturating). Tick
+/// `t` begins at `t * 10 ms` of `arch::clock::monotonic_ns`, which reads
+/// `ticks() * 10 ms` plus less than one period, so the deadline passes on
+/// exactly the tick it always did.
+pub const fn ticks_to_ns(ticks: u64) -> u64 {
+    ticks.saturating_mul(NS_PER_TICK)
 }
 
 /// Timer ticks that found the CPU idle: the current task was parked in its

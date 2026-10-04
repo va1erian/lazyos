@@ -47,6 +47,11 @@ impl Demo {
         }
     }
 
+    /// Whether the evidence is still running (it steps on a timer).
+    pub(super) fn running(&self) -> bool {
+        !matches!(self.phase, Phase::Off | Phase::Done)
+    }
+
     pub(super) fn step(&mut self, state: &mut State) {
         let now = sys::clock();
         match self.phase {

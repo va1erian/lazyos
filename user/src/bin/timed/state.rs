@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
 use user::messenger::confd::{name_system_confd_changed, Client as Confd, CONFD_NOT_FOUND};
-use user::messenger::{self, errno, timed as api, Error, EXPIRED_DEADLINE};
+use user::messenger::{self, errno, timed as api, Endpoint, Error, EXPIRED_DEADLINE};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd` while it is unreachable.
@@ -24,6 +24,8 @@ pub(super) struct State {
     next_sync_try: u64,
     confd: Option<Confd>,
     watch: Option<Subscription>,
+    /// The watch's doorbell: rung when a change notification is waiting.
+    bell: Option<Endpoint>,
     bus: Option<Bus>,
     /// UTC second the next `time/tick` is due at.
     pub(super) next_tick: i64,
@@ -47,6 +49,7 @@ impl State {
             next_sync_try: 0,
             confd: None,
             watch: None,
+            bell: None,
             bus: None,
             next_tick: 0,
             announced: false,
@@ -68,11 +71,21 @@ impl State {
         match self.read_zone() {
             Ok(zone) => {
                 self.drop_watch();
-                self.watch = self.confd.as_ref().and_then(|c| {
+                let watched = self.confd.as_ref().and_then(|c| {
                     let topic = name_system_confd_changed(ZONE_KEY).ok()?;
-                    c.watch(&topic).ok()
+                    let mut watch = c.watch(&topic).ok()?;
+                    // The doorbell is what wakes this service for a change.
+                    match watch.bell() {
+                        Ok(bell) => Some((watch, bell)),
+                        Err(_) => {
+                            let _ = watch.unsubscribe();
+                            None
+                        }
+                    }
                 });
-                if self.watch.is_some() {
+                if let Some((watch, bell)) = watched {
+                    self.watch = Some(watch);
+                    self.bell = Some(bell);
                     self.synced = true;
                     sys::write_str(
                         "TIMED:CONFD:SYNC watching
@@ -97,11 +110,33 @@ impl State {
         }
     }
 
-    /// Drain the `confd` change subscription; re-read the zone on any event.
-    pub(super) fn poll_changes(&mut self) -> bool {
+    /// The watch's doorbell, to park on beside the service endpoint.
+    pub(super) fn bell(&self) -> Option<Endpoint> {
+        self.bell
+    }
+
+    /// The tick the service must wake at with nothing else to wake it: the
+    /// next `time/tick`, or the next `confd` sync attempt.
+    pub(super) fn next_wake(&self) -> Option<u64> {
+        let (unix, centis) = now();
+        let clock = sys::clock();
+        let seconds = self.next_tick.saturating_sub(unix).max(0) as u64;
+        let tick = clock + (seconds * 100).saturating_sub(u64::from(centis));
+        let sync = (!self.synced).then_some(self.next_sync_try.max(clock));
+        Some(sync.map_or(tick, |sync| sync.min(tick)))
+    }
+
+    /// Drain the `confd` change subscription when its bell `rung`; re-read
+    /// the zone on any event. The drain ends with an empty pull, which
+    /// re-arms the bell.
+    pub(super) fn poll_changes(&mut self, rung: bool) -> bool {
         let Some(watch) = &self.watch else {
             return false;
         };
+        if !rung {
+            return false;
+        }
+        watch.take_ring(&mut self.buffer);
         let mut changed = false;
         let mut lost = false;
         loop {
@@ -135,6 +170,7 @@ impl State {
 
     /// Release the change subscription at the broker, if any.
     fn drop_watch(&mut self) {
+        self.bell = None;
         if let Some(watch) = self.watch.take() {
             let _ = watch.unsubscribe();
         }
