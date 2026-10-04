@@ -255,17 +255,17 @@ impl ShellLink {
         })
     }
 
-    /// The next queued shell event, without blocking. `Err` means the link is
-    /// dead (`inputd` went away).
-    ///
-    /// Events this build does not know (a newer `inputd`) or cannot decode are
-    /// skipped, so `Ok(None)` always means the queue is empty.
     /// This task's end of the shell event channel, for a caller that parks
     /// on it together with other endpoints (`messenger::wait::wait_any`).
     pub fn events_endpoint(&self) -> Endpoint {
         self.events
     }
 
+    /// The next queued shell event, without blocking. `Err` means the link is
+    /// dead (`inputd` went away).
+    ///
+    /// Events this build does not know (a newer `inputd`) or cannot decode are
+    /// skipped, so `Ok(None)` always means the queue is empty.
     pub fn poll_event(&mut self) -> Result<Option<ShellEvent>> {
         loop {
             let message: Option<Message> = self.events.poll_recv_with(&mut self.buffer)?;

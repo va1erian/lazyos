@@ -57,15 +57,15 @@ impl InputLink {
 }
 
 impl Compositor {
-    /// Bring `inputd` up to date with the surface table and focus, and apply
-    /// what it reported. Cheap when nothing changed; called once per loop pass
-    /// and when a surface is created (so the client's `Open` can find it).
     /// The endpoint `inputd` posts shell events (pointer moves, sessions) to,
     /// while a link exists: the main loop parks on it beside its requests.
     pub(super) fn input_events(&self) -> Option<user::messenger::Endpoint> {
         self.input.link.as_ref().map(|link| link.events_endpoint())
     }
 
+    /// Bring `inputd` up to date with the surface table and focus, and apply
+    /// what it reported. Cheap when nothing changed; called once per loop pass
+    /// and when a surface is created (so the client's `Open` can find it).
     pub(super) fn sync_input(&mut self) {
         if self.input.link.is_none() && !self.connect_input() {
             return;

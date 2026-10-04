@@ -268,6 +268,7 @@ def main() -> int:
     port = free_port()
     command = build_qemu_command(qemu, str(image), port, serial_log, memory=args.memory, extra_args=extra)
     print(f"booting ({accel}): {' '.join(command)}", flush=True)
+    boot = time.time()
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     qmp = None
     try:
@@ -283,7 +284,6 @@ def main() -> int:
         knocker = threading.Thread(target=knock, args=(knock_port, stop), daemon=True)
         if not args.no_knock:
             knocker.start()
-        boot = time.time()
         time.sleep(max(5.0, SLEEP_BENCH_S + 4 - (time.time() - boot)))
         print(f"moving the mouse: {args.moves} packets", flush=True)
         move_mouse(qmp, args.moves, args.pause)
