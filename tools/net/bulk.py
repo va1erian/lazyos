@@ -86,7 +86,23 @@ def script(args) -> list[dict]:
             {"key": "enter", "until": f"NETBULK:{path}:", "timeout": 60},
             {"wait_for": f"NETBULK:{path}:done", "timeout": args.step_timeout},
         ]
+    # The card's counters: dropped frames and interrupts explain a slow run.
+    steps += [
+        {"type": "nicctl", "delay": 0.05},
+        {"key": "enter", "until": "NICCTL:INFO:", "timeout": 60},
+    ]
     return steps + [{"quit": True}]
+
+
+def card_counters(text: str) -> str:
+    """`nicctl`'s frame, drop and interrupt counts, as one line."""
+    rx = re.search(r"^rx\s+(\d+) frames, \d+ bytes, (\d+) dropped", text, re.M)
+    tx = re.search(r"^tx\s+(\d+) frames, \d+ bytes, (\d+) dropped", text, re.M)
+    irq = re.search(r"^irq\s+(\d+) interrupts", text, re.M)
+    if not (rx and tx and irq):
+        return "card counters unavailable"
+    return (f"rx_frames={rx[1]} rx_dropped={rx[2]} tx_frames={tx[1]} tx_dropped={tx[2]} "
+            f"interrupts={irq[1]}")
 
 
 def run_session(args, out: Path) -> tuple[bool, str]:
@@ -185,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BULK:{row['path']}:{row['kind']} host={row.get('host_mbps', '?')} MB/s "
               f"guest={row['guest_mbps']} MB/s header_ms={row.get('header_ms', '?')}"
               + (f" connect_us={row['connect_us']}" if row["connect_us"] is not None else ""))
+    print(f"BULK:CARD {card_counters(text)}")
     (out / "bulk.json").write_text(json.dumps({"bytes": args.bytes, "rounds": args.rounds, "accel": args.accel,
                                                "rows": rows, "problems": problems}, indent=1))
     for problem in problems[:20]:
