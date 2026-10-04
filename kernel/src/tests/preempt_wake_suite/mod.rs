@@ -14,8 +14,10 @@ use crate::task::wait::WaitQueue;
 use crate::task::{PriorityClass, TaskState, WaitKind};
 
 mod irq_latency;
+mod same_class;
 
 pub(super) use irq_latency::*;
+use same_class::same_class_wake_bounded;
 
 /// Where the test threads park.
 pub(super) static THREAD_QUEUE: WaitQueue = WaitQueue::new(WaitKind::Sleep);
@@ -101,9 +103,10 @@ fn select() {
     task::harness::switch_current(task::KERNEL_TASK);
 }
 
-/// The rules: a higher class preempts, the same or a lower class waits for a
-/// tick, an idle CPU takes anyone, a self-wake never asks, and a selection
-/// clears the request.
+/// The rules: a higher class preempts, a lower class waits for a tick, the
+/// same class preempts only when the woken task deserves the CPU (P6.2: the
+/// next selection would pick it), an idle CPU takes anyone, a self-wake
+/// never asks, and a selection clears the request.
 pub fn wake_rules() -> Result<(), String> {
     fresh();
     let normal = task::spawn_fork().map_err(|e| format!("fork: {e}"))?;
@@ -112,6 +115,9 @@ pub fn wake_rules() -> Result<(), String> {
     task::set_priority(normal, PriorityClass::Normal);
     task::set_priority(realtime, PriorityClass::Realtime);
     task::set_priority(peer, PriorityClass::Interactive);
+    // Not runnable until its own check: a runnable Realtime task would be
+    // the next pick, and no same-class wake could deserve the CPU.
+    task::harness::set_state(realtime, blocked());
     let me = task::KERNEL_TASK;
     let wake = |slot: usize| {
         task::harness::set_state(slot, blocked());
@@ -124,11 +130,50 @@ pub fn wake_rules() -> Result<(), String> {
         !task::resched_pending(),
         "a Normal wake asked to preempt the Interactive kernel task"
     );
+    let mine = task::harness::pass(me).unwrap_or(0);
+    task::harness::set_pass(peer, mine + 1000);
     check!(wake(peer), "the peer did not wake");
     check!(
         !task::resched_pending(),
-        "a same-class wake asked to preempt (it must wait for a tick)"
+        "a same-class wake whose pass is ahead asked to preempt"
     );
+    select();
+    // Deserving, but the kernel task was just selected: deferred to the end
+    // of its minimum slice, not taken now.
+    // Staged and woken with interrupts off: a tick in between would make a
+    // real selection and replace the staged slice.
+    task::harness::set_pass(me, 5000);
+    task::harness::set_pass(peer, 0);
+    let woke = x86_64::instructions::interrupts::without_interrupts(|| {
+        task::harness::fresh_slice();
+        wake(peer)
+    });
+    check!(woke, "the peer did not wake");
+    check!(
+        !task::resched_pending() && task::harness::deferred_pending(),
+        "a deserving wake inside the minimum slice: request {} deferred {}",
+        task::resched_pending(),
+        task::harness::deferred_pending()
+    );
+    select();
+    check!(
+        !task::harness::deferred_pending(),
+        "a selection left the deferral pending"
+    );
+    // Deserving, slice used up: preempts now.
+    task::harness::set_pass(me, 5000);
+    task::harness::set_pass(peer, 0);
+    let woke = x86_64::instructions::interrupts::without_interrupts(|| {
+        task::harness::expire_slice();
+        wake(peer)
+    });
+    check!(woke, "the peer did not wake");
+    check!(
+        task::resched_pending() && task::harness::pass(peer).is_some_and(|pass| pass <= 5000),
+        "a deserving same-class wake (pass {:?}) did not ask to preempt",
+        task::harness::pass(peer)
+    );
+    select();
     check!(wake(realtime), "the Realtime task did not wake");
     check!(
         task::resched_pending(),
@@ -171,7 +216,9 @@ pub fn wake_rules() -> Result<(), String> {
 /// passes a preemption point; the thread must run at once (one pass per
 /// wake, no lost and no extra wakeups) and park again, and nothing leaks
 /// (queue entries, a stuck request). Then the same with a same-class thread,
-/// which must *not* run until the kernel task gives the CPU up itself.
+/// which must run at the preemption point exactly when it deserves the CPU
+/// (the next selection would pick it, P6.2) and otherwise only when the
+/// kernel task gives the CPU up itself.
 pub fn wake_yield_soak() -> Result<(), String> {
     const ROUNDS: u64 = 100_000;
     fresh();
@@ -212,17 +259,39 @@ pub fn wake_yield_soak() -> Result<(), String> {
     );
     stop_thread(slot)?;
 
-    // Same class: the wake must wait for the kernel task to give way.
+    // Same class: the wake preempts only a task it deserves to.
     fresh();
     let slot = start_thread(counter, PriorityClass::Interactive)?;
     let base = RUNS.load(Ordering::Relaxed);
+    let mut preempted = 0u64;
     for round in 0..1000u64 {
-        THREAD_QUEUE.notify_one();
-        task::preempt_point();
+        // Past its minimum slice, so the pick rule alone decides. Interrupts
+        // stay off from the staging to the preemption point: a tick in
+        // between would make the selection itself.
+        let (deserves, requested, ran) =
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                task::harness::expire_slice();
+                THREAD_QUEUE.notify_one();
+                let deserves = task::harness::next_runnable() == slot;
+                let requested = task::resched_pending();
+                task::preempt_point();
+                (
+                    deserves,
+                    requested,
+                    RUNS.load(Ordering::Relaxed) == base + round + 1,
+                )
+            });
         check!(
-            RUNS.load(Ordering::Relaxed) == base + round,
-            "round {round}: a same-class wake preempted the kernel task"
+            requested == deserves,
+            "round {round}: request {requested} for a peer at pass {:?}, kernel at {:?}",
+            task::harness::pass(slot),
+            task::harness::pass(task::KERNEL_TASK)
         );
+        check!(
+            ran == deserves,
+            "round {round}: the peer ran {ran} at the preemption point, deserved {deserves}"
+        );
+        preempted += u64::from(deserves);
         // Give way the ordinary way. The stride scheduler may pick the
         // kernel task once more if its pass is behind; it cannot twice.
         for _ in 0..3 {
@@ -236,6 +305,10 @@ pub fn wake_yield_soak() -> Result<(), String> {
             "round {round}: the woken peer did not run when the CPU was yielded"
         );
     }
+    // The kernel task yields every round here, paying for a selection each
+    // time, so the peer may deserve every wake; the bound in wall time is
+    // `same_class_wake_bounded`'s.
+    serial_println!("TEST:task_preempt_wake_yield_soak:INFO:same_class_preempted={preempted}/1000");
     stop_thread(slot)
 }
 
@@ -305,4 +378,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("task_preempt_wake_yield_soak", wake_yield_soak),
     ("task_preempt_irq_wake_idle_latency", irq_wake_idle_latency),
     ("task_preempt_exit_hands_cpu_on", exit_hands_cpu_on),
+    (
+        "task_preempt_same_class_wake_bounded",
+        same_class_wake_bounded,
+    ),
 ];

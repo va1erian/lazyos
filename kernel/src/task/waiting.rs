@@ -79,7 +79,7 @@ pub(super) fn set_timer(index: usize, deadline: Option<u64>) {
 /// left untouched so the scheduler never resurrects it).
 pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
     let mut tasks = TASKS.lock();
-    // A task that slept while its peers ran rejoins at the current virtual
+    // A task that slept while its peers ran rejoins near the current virtual
     // time instead of being handed a burst of catch-up quanta (issue #58).
     let now = virtual_now(&tasks);
     if let Some(task) = tasks[index].as_mut() {
@@ -89,11 +89,13 @@ pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
             }
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
-            task.pass = task.pass.max(now);
+            rejoin(task, now);
             runq::sync(&tasks, index);
             let cur = CURRENT.load(Ordering::Relaxed);
             crate::perf::on_wake(index, cur);
-            super::preempt::note_wake(&tasks, index, cur);
+            if super::preempt::note_wake(&tasks, index, cur) {
+                super::sched::rearm_event_timer();
+            }
             return true;
         }
     }

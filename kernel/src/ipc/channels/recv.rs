@@ -233,13 +233,26 @@ fn remove_waiter(channel_id: u64, side: usize, slot: usize) {
     }
 }
 
-/// Wake each task in `slots` that is still parked on the Messenger queue.
+/// Wake each task in `slots` that is still parked on the Messenger queue,
+/// returning the first one that actually woke.
 ///
 /// Called with `CHANNELS` released (queue-then-task lock order). A slot that
 /// already returned, timed out or parked elsewhere is skipped by
 /// `notify_task`, so a stale registration can never wake an unrelated wait.
-pub(super) fn wake(slots: &[usize]) {
+pub(super) fn wake(slots: &[usize]) -> Option<usize> {
+    let mut first = None;
     for &slot in slots {
-        MESSENGER.notify_task(slot);
+        if MESSENGER.notify_task(slot) && first.is_none() {
+            first = Some(slot);
+        }
+    }
+    first
+}
+
+/// Run `partner` (a callee a call woke, a caller a reply woke) as soon as the
+/// current task parks: the direct handoff of P6.2 (`task::hand_off`).
+pub(super) fn hand_off_to(partner: Option<usize>) {
+    if let Some(partner) = partner {
+        task::hand_off(partner);
     }
 }

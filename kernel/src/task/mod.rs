@@ -116,7 +116,7 @@ pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
 #[allow(unused_imports)] // test hook
 pub use preempt::pending as resched_pending;
-pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
+pub use preempt::{exit_cpu, hand_off, interrupted_quiet_context, preempt_point};
 pub use sched::*;
 pub use schedule::expire_due;
 #[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)

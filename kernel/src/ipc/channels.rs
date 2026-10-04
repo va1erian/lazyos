@@ -378,7 +378,7 @@ pub fn begin_call(
     // Wake the callee: it may already be parked in `recv`, and nothing else
     // wakes it for this request. `send` does the same; the userspace
     // `messengerd` round trip depends on it.
-    wake(&receivers);
+    hand_off_to(wake(&receivers));
     // The caller stays runnable: `call` parks in `await_reply` (in the same
     // interrupts-off syscall, so no reply can slip in before the first wait),
     // and the two-step syscall form (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`) must
@@ -468,7 +468,7 @@ pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     // Only the caller waits for this outcome (in `await_reply`, or still
     // parked by `begin_call`).
     let caller = found.ok_or(Error::NoTransaction)?;
-    wake(&[caller]);
+    hand_off_to(wake(&[caller]));
     Ok(())
 }
 

@@ -207,6 +207,32 @@ pub fn pass(index: usize) -> Option<u64> {
     TASKS.lock()[index].as_ref().map(|task| task.pass)
 }
 
+/// Stage the current task as having used up its minimum slice (P6.2), so a
+/// deserving same-class wake preempts it at once.
+pub fn expire_slice() {
+    super::preempt::set_selected(super::current(), 0);
+}
+
+/// Stage the current task as just selected: a deserving same-class wake is
+/// deferred to the end of its minimum slice.
+pub fn fresh_slice() {
+    let end = crate::arch::clock::monotonic_ns() + super::preempt::MIN_SLICE_NS;
+    super::preempt::set_selected(super::current(), end);
+}
+
+/// Whether a same-class preemption is deferred to the end of a slice.
+pub fn deferred_pending() -> bool {
+    super::preempt::deferred().is_some()
+}
+
+/// Set task `index`'s stride pass (the wake-rule tests stage who deserves
+/// the CPU this way).
+pub fn set_pass(index: usize, pass: u64) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.pass = pass;
+    }
+}
+
 /// Compare the run queues with a full scan of the table; panics on the first
 /// difference (`runq::verify`).
 pub fn verify_runq() {

@@ -71,6 +71,7 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
 
     #[cfg(lazyos_tests)]
     harness::note_entry_flags();
+    let preempted = preempt::take_preempting() && !tick;
     let cur = CURRENT.load(Ordering::Relaxed);
     if tick {
         diag::note_tick(cur, current_rsp);
@@ -108,8 +109,27 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // within it. A task that is blocked or done is never selected.
     // `select_next` falls back to `cur` when nothing is runnable at all;
     // resuming `cur` there just re-enters its wait loop instead of stalling
-    // the CPU.
-    let next = select_next(&mut tasks, cur);
+    // the CPU. A task parking right after a Messenger call or reply runs
+    // its partner instead (P6.2, `preempt::hand_off`).
+    let charged_at = preempt::open_charge(cur);
+    let next = match preempt::take_handoff(&tasks, cur) {
+        Some(partner) => {
+            preempt::clear();
+            charge(&mut tasks, partner);
+            partner
+        }
+        None => select_next(&mut tasks, cur),
+    };
+    // `cur` leaves the CPU mid-quantum, preempted by a wake or parked: it
+    // pays for what it used (P6.2, `preempt::refund`).
+    let parked = tasks[cur]
+        .as_ref()
+        .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }));
+    if let Some(at) = charged_at {
+        if next != cur && (parked || (preempted && runnable(&tasks, cur))) {
+            preempt::refund(&mut tasks, cur, at);
+        }
+    }
     if next == cur {
         drop(tasks);
         signal::finish_sweep(&sweep_finished[..sweep_count]);

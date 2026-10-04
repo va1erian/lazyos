@@ -111,6 +111,17 @@ pub(super) fn min_pass(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
         .unwrap_or(0)
 }
 
+/// Place a task that is waking up in virtual time: no further behind `now`
+/// (the [`virtual_now`] of its wake) than one of its own strides. A sleeper
+/// can never bank catch-up quanta (issue #58), but it keeps up to one
+/// quantum of lag, so a task that mostly sleeps is the next pick when it
+/// wakes and its wake may preempt a CPU-bound peer of its class (P6.2); its
+/// runs then cost it at least a quarter stride each (`preempt::refund`),
+/// which bounds how often that can happen.
+pub(super) fn rejoin(task: &mut Task, now: u64) {
+    task.pass = task.pass.max(now.saturating_sub(stride(task.weight)));
+}
+
 /// Set a task's scheduling class, resetting its weight to the class default.
 /// Returns whether the slot holds a task.
 ///
@@ -243,12 +254,21 @@ pub(super) fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) 
         if let Some(task) = tasks[slot].as_mut() {
             task.state = TaskState::Runnable;
             task.wake_reason = Some(WakeReason::TimedOut);
-            task.pass = task.pass.max(pass);
+            rejoin(task, pass);
         }
         runq::sync(tasks, slot);
         crate::perf::on_wake(slot, cur);
+        // A deferral is armed below, with every other deadline.
         super::preempt::note_wake(tasks, slot, cur);
     }
+    crate::arch::event_timer::program(next_event(timers.peek()), now);
+}
+
+/// Re-arm the deadline timer after a wake deferred a preemption (P6.2). Call
+/// with the task table held: the queue lock nests inside it.
+pub(super) fn rearm_event_timer() {
+    let timers = super::timerq::TIMERS.lock();
+    let now = crate::arch::clock::monotonic_ns();
     crate::arch::event_timer::program(next_event(timers.peek()), now);
 }
 
@@ -258,11 +278,18 @@ pub(super) fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) 
 /// to the tick that begins its period, which re-arms the timer; nothing
 /// earlier is queued. See `arch::event_timer` for why it must not be armed
 /// sooner.
+///
+/// A preemption deferred to the end of a minimum slice (`preempt::defer`)
+/// counts as a deadline too.
 fn next_event(earliest: Option<(u64, usize)>) -> Option<u64> {
     let period_end = super::ticks_to_ns(super::ticks().saturating_add(1));
-    earliest
-        .map(|(deadline, _)| deadline)
-        .filter(|&deadline| deadline < period_end)
+    let deadline = earliest.map(|(deadline, _)| deadline);
+    let deferred = super::preempt::deferred();
+    let next = match (deadline, deferred) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (one, other) => one.or(other),
+    };
+    next.filter(|&deadline| deadline < period_end)
 }
 
 /// Whether `slot` is occupied and `Runnable` (blocked and done tasks are never
@@ -336,6 +363,7 @@ pub(super) fn charge(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) {
     if !runnable(tasks, slot) {
         return;
     }
+    super::preempt::note_selected(slot);
     let mut pass = 0;
     if let Some(task) = tasks[slot].as_mut() {
         task.pass = task.pass.saturating_add(stride(task.weight));
