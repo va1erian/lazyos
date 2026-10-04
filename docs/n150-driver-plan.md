@@ -109,10 +109,11 @@ image boots everywhere).
 
 ### P0 — Storage (dependency, not owned here)
 
-The NVMe controller driver is part of the NVMe-install work: the root volume
-must be readable before `init`, so it is an in-kernel block driver
-(driver-plan D1), polled first and on MSI once that lands. This plan assumes
-it and only adds:
+The NVMe controller driver is part of the NVMe-install work
+([nvme-install-plan.md](nvme-install-plan.md), PR #564, phase N1: polled, one
+queue pair, 512-byte LBAs): the root volume must be readable before `init`,
+so it is an in-kernel block driver (driver-plan D1). It moves to MSI once K1
+lands. This plan links to N1 rather than duplicating it and only adds:
 
 - **AHCI** for a box whose M.2 or 2.5" bay holds a SATA disk. In-kernel for
   the same reason, ports polled, NCQ optional. QEMU models it (`ich9-ahci`),
@@ -176,6 +177,14 @@ to power the display audio well.
   needed for a first cut) lets the package reach deeper C-states. Measured
   win needs a power meter; *inferred* to matter for a 6 W part that idles
   most of the day.
+- **Hardware watchdog (PCH iTCO).** The update work
+  ([update-plan.md](update-plan.md), on its own branch) wants a hung trial
+  boot of a new release to reboot by itself and fall back to the previous
+  slot. The PCH TCO timer does that: arm it early in boot, have `init` pet it
+  once the system is healthy, stop petting on a failed trial. It is a few
+  I/O registers behind the SMBus/LPC function (TCO base from the PCH, the
+  `NO_REBOOT` bit in the PMC) *to confirm on the box*; a kernel driver
+  because it must run before userspace.
 - **Restore on AC loss / wake on LAN** are firmware settings, documented in
   the install guide, not drivers.
 - **Fan and thermals** are run by the embedded controller; no driver.
@@ -218,18 +227,19 @@ tests, `python tools/test/run.py --accel none`, files under 500 lines).
 
 | Stage | Deliverable | Verified by |
 |---|---|---|
-| **K0** Survey | Boot `lazyos-usb.img` on the box; record `devctl`, `dmesg` and the `HW:*` lines; open `docs/compat/hardware.md` with the first row | photos and the copied text; decides K2's chip family |
+| **K0** Survey (same as the install plan's N0) | Boot `lazyos-usb.img` on the box; record `devctl`, `dmesg` and the `HW:*` lines; open `docs/compat/hardware.md` with the first row | photos and the copied text; decides K2's chip family |
 | **K1** MSI + `devd` | `Irq::Msi`, MSI vectors and LAPIC EOI, kernel-programmed MSI capability; `devd` with a static manifest moving `netdrv` and `sndd` to device-matched starts | QEMU q35: virtio-net and virtio-snd on MSI (`DEV:MSI:PASS`), storm and teardown tests as for INTx; `devd` starts nothing on a machine without the device |
 | **K2** Ethernet | `libs/<chip>` + `netdrv-<chip>` for the surveyed NIC; `nicdrv` engine split over a ring trait | host tests with a fake device; on the box: DHCP, `ping`, HTTPS fetch, a 1 GiB transfer without loss |
 | **K3** HDA | `libs/hda` + `sndd-hda`, generic codec parser | QEMU `intel-hda` WAV test like `tools/sound/run.py`; on the box: tone on the headphone jack |
-| **K4** Power | SCI power button to `init` shutdown; MWAIT idle; optional package temperature in `sysmon` | QEMU `system_powerdown` (ACPI power button event) ends in a clean shutdown; on the box: button press |
+| **K4** Power | SCI power button to `init` shutdown; MWAIT idle; iTCO watchdog for the update trial boot; optional package temperature in `sysmon` | QEMU `system_powerdown` (ACPI power button event) ends in a clean shutdown; on the box: button press |
 | **K5** AHCI | in-kernel AHCI block driver | QEMU `ich9-ahci` with an ext2 disk; skipped if the box is NVMe-only and nobody needs it |
 | **K6** Wi-Fi | per wifi-plan | per wifi-plan |
 
 Order: K0 first because it costs an hour and picks K2's chip. K1 next because
 every later driver is better on MSI and `devd` is what makes the package a
 package. K2 before K3: a networked box is useful headless, a silent one is
-fine. NVMe (sibling) runs in parallel with K1–K2 and benefits from K1.
+fine; the update work also needs K2 for updates over HTTPS (a USB stick
+works without it). NVMe (sibling) runs in parallel with K1–K2 and benefits from K1.
 
 ## 6. Risks and open questions
 
