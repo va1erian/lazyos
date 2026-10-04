@@ -14,9 +14,12 @@
 //!   `Runnable` synchronously and record [`super::WakeReason::Woken`]. The
 //!   scheduler only ever picks `Runnable` tasks, so the wake takes effect
 //!   without waiting for a timer tick;
-//! * every scheduler entry (tick or park) sweeps expired deadlines (`task::expire_deadlines`) and
-//!   marks those waiters `TimedOut`, so a parked task can never outlive its
-//!   deadline even if nothing notifies its queue.
+//! * every scheduler entry (tick or park) and the deadline timer's interrupt
+//!   (`arch::event_timer`) expire due deadlines from the timer queue
+//!   (`task::timerq`, `task::expire_deadlines`) and mark those waiters
+//!   `TimedOut`, so a parked task can never outlive its deadline even if
+//!   nothing notifies its queue. Deadlines are monotonic nanoseconds; the
+//!   tick-based entry points convert with `ticks_to_ns`.
 //!
 //! Locking: a wait queue is always locked *before* the task table, never after
 //! (notify takes the queue lock and then updates `TASKS`). Callers must hold no
@@ -26,7 +29,7 @@
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::{block_task, take_wake_reason, wake_task_with, WaitKind, WakeReason};
+use super::{block_task, take_wake_reason, ticks_to_ns, wake_task_with, WaitKind, WakeReason};
 
 /// Terminal input waiters: blocking `read` and `poll` on fd 0. The keyboard
 /// IRQ and injected terminal replies notify this queue. A single shared queue
@@ -79,19 +82,40 @@ impl WaitQueue {
     /// Call with interrupts disabled (syscall context). The enqueue and the
     /// state change then look atomic to the timer ISR: no tick can select the
     /// task in between, and no notifier can miss it afterwards.
+    /// `deadline` is in absolute PIT ticks (100 Hz), like [`WaitQueue::wait`].
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub(crate) fn park(&self, task: usize, deadline: Option<u64>) {
+        self.park_ns(task, deadline.map(ticks_to_ns));
+    }
+
+    /// [`WaitQueue::park`] with a deadline in `arch::clock::monotonic_ns`.
+    pub(crate) fn park_ns(&self, task: usize, deadline: Option<u64>) {
         self.state.lock().waiters.push(task);
         block_task(task, self.kind, deadline);
     }
 
     /// Block `task` until this queue wakes it or `deadline` (absolute PIT
-    /// ticks, 100 Hz) passes; `None` means no timeout.
+    /// ticks, 100 Hz) passes; `None` means no timeout. The tick deadline
+    /// keeps its meaning: it passes on the tick it names (`ticks_to_ns`).
+    pub fn wait(&self, task: usize, deadline: Option<u64>) -> WakeReason {
+        self.wait_ns(task, deadline.map(ticks_to_ns))
+    }
+
+    /// Block `task` until this queue wakes it or `deadline` (absolute
+    /// `arch::clock::monotonic_ns`) passes; `None` means no timeout.
     ///
     /// Must be called by the task itself with interrupts disabled. Returns as
-    /// soon as the wake reason is observed, which can be on the very tick that
-    /// woke it (deadline sweep) rather than a tick later.
-    pub fn wait(&self, task: usize, deadline: Option<u64>) -> WakeReason {
-        self.park(task, deadline);
+    /// soon as the wake reason is observed, which can be on the very entry
+    /// that expired it (a tick, a park, or the deadline timer's interrupt).
+    pub fn wait_ns(&self, task: usize, deadline: Option<u64>) -> WakeReason {
+        // A task being killed does not go to sleep: the kill's wake may have
+        // come before this park (the task was runnable inside its syscall),
+        // and nothing else would end the sleep. It returns at once, as if
+        // interrupted, and unwinds to the syscall return where it dies.
+        if super::signal::killed(task) {
+            return WakeReason::Interrupted;
+        }
+        self.park_ns(task, deadline);
         // Enter the scheduler through the voluntary gate: the saved context is
         // a regular interrupt frame, so resuming later lands right here with
         // the blocking syscall's stack still intact.
@@ -109,6 +133,8 @@ impl WaitQueue {
             // again before the re-check so the caller's contract (and its
             // next register-then-park) still holds when `wait` returns.
             super::nap();
+            #[cfg(lazyos_tests)]
+            super::harness::run_nap_hook();
         }
     }
 
@@ -143,6 +169,34 @@ impl WaitQueue {
             return false;
         }
         wake_task_with(task, WakeReason::Woken)
+    }
+
+    /// Wake every waiter `wanted` accepts (keyed wakeups, `task::pollwait`).
+    /// Returns how many moved to `Runnable`. `wanted` runs with the queue
+    /// locked: it may take only locks that never wrap this queue's.
+    pub fn notify_matching(&self, wanted: impl Fn(usize) -> bool) -> usize {
+        let mut state = self.state.lock();
+        let mut woken = 0;
+        let mut index = 0;
+        while index < state.waiters.len() {
+            let task = state.waiters[index];
+            if wanted(task) {
+                state.waiters.remove(index);
+                if wake_task_with(task, WakeReason::Woken) {
+                    woken += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+        woken
+    }
+
+    /// Drop every entry for `task` without waking it: the teardown of a task
+    /// that died parked here (its wait loop never ran to remove itself), so
+    /// the queue does not keep, and later wake, a slot that may be reused.
+    pub fn forget(&self, task: usize) {
+        self.state.lock().waiters.retain(|&waiter| waiter != task);
     }
 
     /// Whether `task` is enqueued here (test and diagnostics hook).

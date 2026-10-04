@@ -54,12 +54,13 @@ pub fn set_color(store: &dyn ConfigStore, key: &str, rgb: Option<u32>) -> Result
     }
 }
 
-/// Drop every theme key, returning to the compiled-in dark defaults.
+/// Drop every theme key and the desktop picture, returning to the
+/// compiled-in dark defaults.
 pub fn reset(store: &dyn ConfigStore) -> Result<(), StoreError> {
     for key in uitheme::ALL_KEYS {
         store.delete(key)?;
     }
-    Ok(())
+    store.delete(uitheme::KEY_WALLPAPER)
 }
 
 /// Switch the desktop animations on or off (`sys/ui/anim`, followed by
@@ -68,15 +69,22 @@ pub fn set_animations(store: &dyn ConfigStore, on: bool) -> Result<(), StoreErro
     store.set(uitheme::KEY_ANIM, Value::Bool(on))
 }
 
-/// The xui widget theme matching the desktop: xui's own light or dark palette
-/// with the desktop accent, so apps look like part of the same desktop. Text
-/// on the accent is picked from the accent itself, which may be any colour.
+/// The xui widget theme matching the desktop: xui's light palette, or
+/// Midnight in dark mode (the navy the window chrome uses,
+/// docs/xui-theme-proposals.md), with the desktop accent, so apps look like
+/// part of the same desktop. Text on the accent is picked from the accent
+/// itself, which may be any colour.
 pub fn xui_theme(mode: Mode, accent: u32) -> Theme {
     let mut theme = match mode {
         Mode::Light => Theme::light(),
-        Mode::Dark => Theme::dark(),
+        Mode::Dark => Theme::midnight(),
     };
-    let accent = accent & 0x00FF_FFFF;
+    let mut accent = accent & 0x00FF_FFFF;
+    if mode == Mode::Dark {
+        // The title-bar accent is a fill under white text; on navy controls
+        // (checks, rings, glows) a lighter shade of it reads better.
+        accent = uitheme::mix(accent, 0xFF_FF_FF, 1, 4);
+    }
     theme.accent = Color::hex(accent);
     theme.border_focused = Color::hex(accent);
     theme.text_on_accent = Color::hex(uitheme::text_on(accent));
@@ -139,6 +147,7 @@ mod tests {
         let store = MemStore::new();
         set_mode(&store, Mode::Light).unwrap();
         set_color(&store, uitheme::KEY_ACCENT, Some(1)).unwrap();
+        crate::wallpaper_ops::set(&store, Some("/pictures/a.png")).unwrap();
         reset(&store).unwrap();
         assert!(store.is_empty());
     }
@@ -169,17 +178,23 @@ mod tests {
 
     #[test]
     fn xui_theme_follows_mode_and_accent() {
+        // Dark is Midnight, with the accent lightened for navy controls.
         let dark = xui_theme(Mode::Dark, 0x336699);
         assert!(dark.is_dark);
-        assert_eq!(dark.accent, Color::hex(0x336699));
-        assert_eq!(dark.text_on_accent, Color::hex(uitheme::LIGHT_TEXT));
+        assert_eq!(dark.background, Theme::midnight().background);
+        let lighter = uitheme::mix(0x336699, 0xFF_FF_FF, 1, 4);
+        assert_eq!(dark.accent, Color::hex(lighter));
+        assert_eq!(dark.text_on_accent, Color::hex(uitheme::text_on(lighter)));
         let light = xui_theme(Mode::Light, 0xDCCEAA);
         assert!(!light.is_dark);
         assert_eq!(light.text_on_accent, Color::hex(uitheme::DARK_TEXT));
         // The default settings give dark with the default accent.
         let theme = xui_theme_for(&Settings::default());
         assert!(theme.is_dark);
-        assert_eq!(theme.accent, Color::hex(uitheme::DEFAULT_ACCENT));
+        assert_eq!(
+            theme.accent,
+            Color::hex(uitheme::mix(uitheme::DEFAULT_ACCENT, 0xFF_FF_FF, 1, 4))
+        );
     }
 
     #[test]

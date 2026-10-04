@@ -53,7 +53,7 @@ stages N0-N5 largely landed, S7 started; the per-element detail is in
 | GUI | display device grant (syscall 12), `xuid` compositor with window management (resize, maximize, minimize), pipelined Present with damage-only compositing, drag & drop, shell protocol (desktop and panel roles, window-list/focus events, global hotkeys), `inputd` (PS/2 and USB through one keymap and cursor), `clipboardd`, `mimed`, live themes through `confd`, XUI apps on tiny-skia as `xuid` clients | zero-copy scanout, live/fractional DPI scaling (integer 2x landed: `docs/hidpi-plan.md`), multi-session compositors |
 | Shell | LazyShell (desktop, taskbar, start menu); BusyBox `sh`, which also runs native programs; `init` app registry + `Launch`; Terminal, Files, Editor, Paint, Settings, Docs, Config, Task Manager (`sysmon`, with a Services tab), Devices and the Installer; every desktop app but LazyShell, the Terminal, Devices and the Installer is a `.lzp` core package that `pkgd` installs; `rhai` scripting, LazyRAD; shutdown and reboot through `init`; `top`, `messengerctl`, `fabricmon` | `lazyosctl`, signed packages |
 | Unix/ABI | Linux syscall shim runs static musl `std` programs: threads, futex, `fork`/`execve` (including `#!` scripts)/`wait4`, pipes, `AF_UNIX` stream/seqpacket sockets, `AF_INET` sockets through `netd`, epoll/eventfd, signals, per-process cwd, writes to the real tree, `CLONE_FILES`/`CLONE_FS`, the full futex family, `select`/`ppoll`, advisory locks, ptys; real programs (dash, lua, sqlite3, jq, ripgrep: `tools/linuxapps/`) | dynamic linking, `timerfd`/`signalfd`/`inotify`, `setitimer`/`alarm`, `SCM_RIGHTS`, links in the filesystems, more of the long tail (`tools/abi/coverage.py`) |
-| Net | `netd` on smoltcp (`libs/netstack`) over the `netdrv` virtio-net driver: DHCP, ARP, ICMP `ping`, TCP/UDP sockets and DNS (`os.lazy.net.socket.v1`), `nc`, `nslookup`, `ftp`, Linux `AF_INET` (stages N0-N5, [`networking-plan.md`](networking-plan.md)) | loopback, IPv6, TLS, firewall, service daemons, remote Messenger transport |
+| Net | `netd` on smoltcp (`libs/netstack`) over the `netdrv` virtio-net driver: DHCP, ARP, ICMP `ping`, TCP/UDP sockets and DNS (`os.lazy.net.socket.v1`), `nc`, `nslookup`, `ftp`, Linux `AF_INET` (stages N0-N5, [`networking-plan.md`](networking-plan.md)) | loopback, IPv6, TLS in services (`keyd`), firewall, service daemons, remote Messenger transport |
 | Observability | serial logs, ABI matrix/coverage, kernel test report, `FabricStats` v2, syscall 13/14 task and system snapshots, `messengerctl` (`stats-json`/`tasks-json` for the MCP bridge), `logd` with persistent journals in `/logs`, `healthd`, `sysmond`, the docs embedded at `/docs/os` and read by the Docs app | tracing, `auditd`, crash dumps |
 | Security | kernel-stamped identity, default-deny Messenger ACL engine (no uid policy is loaded, so unlabelled tasks stay in bootstrap-allow), installed apps confined by kernel labels to their manifest's permissions after install consent, per-driver device-class rules at boot, audit ring, quotas, validated user pointers on every syscall, `CAP_SYS_ADMIN` for the display grant, every `unsafe` documented and gated in CI | a uid policy, service accounts, sandbox profiles/syscall allowlists, a file sandbox, signed bundles, W^X/SMEP/SMAP, secrets sealing ([`security-hardening-plan.md`](security-hardening-plan.md)) |
 
@@ -343,7 +343,9 @@ and the compatibility matrix; `doctor` explains common failures.
 
 USB boot media (BIOS and UEFI images from one build) and the minimal feature
 set for booting on a physical PC are planned in
-[`real-pc-boot-plan.md`](real-pc-boot-plan.md).
+[`real-pc-boot-plan.md`](real-pc-boot-plan.md). Updating an installed machine
+(signed A/B image updates with automatic fallback) is planned in
+[`update-plan.md`](update-plan.md).
 
 ---
 
@@ -426,9 +428,9 @@ Stage status as of 2026-10-03 (issue and PR numbers are GitHub's):
 | S3 users, sessions, storage (#97) | landed, with gaps | ext2 OS volume at `/` with homes, `/conf`, `/logs` and `/apps` on it (#478, #506, #525); console login; services still root, passwords plaintext at rest |
 | S4 GUI stack (#112) | landed | `xuid` WM, drag & drop, xui client mode, clipboard, MIME, pipelined Present and damage-only compositing (#501), `inputd` (#395) |
 | S5 desktop shell (#156) | largely landed | LazyShell (#157, PR #505), the core apps as packages with the Installer (#509, #524), Settings, Docs, Task Manager; missing: graphical login (the desktop session is uid 0 without a login) and signed bundles |
-| S6 networking | N0-N5 landed | `netdrv`, `netd` (smoltcp), DHCP, TCP/UDP/DNS, `nc`, `nslookup`, `ftp`, Linux `AF_INET` (PRs #417-#459); `python tools/net/run.py --netd` judges the packet capture. Not started: loopback, TLS via `keyd`, daemons, a firewall, remote Messenger |
+| S6 networking | N0-N5 landed | `netdrv`, `netd` (smoltcp), DHCP, TCP/UDP/DNS, `nc`, `nslookup`, `ftp`, Linux `AF_INET` (PRs #417-#459); `python tools/net/run.py --netd` judges the packet capture. HTTPS clients `curl`/`wget`/`fetch` with verified TLS (`LAZYOS_TLS=1`, [`tls-plan.md`](tls-plan.md) T0-T3, PR #554) and the LazyWeb browser on NetSurf (`LAZYOS_LAZYWEB=1`, [`lazyweb.md`](lazyweb.md), PR #562). Not started: loopback, TLS via `keyd`, daemons, a firewall, remote Messenger |
 | S7 sandboxing | started | installed apps confined by kernel labels compiled from their manifests, with install consent (#432, #445, #464); driver class rules at boot (#503). No uid policy (the ACL stays in bootstrap-allow), service accounts, syscall allowlists or signing: [`security-hardening-plan.md`](security-hardening-plan.md) |
-| S8 SMP & performance | not started | |
+| S8 SMP & performance | started (performance only) | latency harness `python tools/perf/run.py` and the IRQ-driven wake path, P0-P1 of [`performance-plan.md`](performance-plan.md) (#563); no SMP |
 | S9 release engineering | partly | CI matrix, orderly shutdown and reboot (#504), docs readable in the guest; no release images or crash dumps |
 
 Immediate next steps:

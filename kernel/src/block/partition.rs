@@ -13,7 +13,7 @@
 //! registers after the drivers; [`scan_disk`] is the entry point for any
 //! device that appears later (the USB stick through `usbd`, track 5).
 
-use super::{check_range, BlockDevice, BlockError, SECTOR_SIZE};
+use super::{check_range, BlockDevice, BlockError, Wait, SECTOR_SIZE};
 use core::str;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Once;
@@ -191,6 +191,28 @@ impl BlockDevice for Partition {
         let total = bufs.iter().map(|buf| buf.len()).sum();
         self.disk
             .write_sectors_vectored(self.translate(lba, total)?, bufs)
+    }
+
+    fn read_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &mut [&mut [u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        self.disk
+            .read_sectors_vectored_with(self.translate(lba, total)?, bufs, wait)
+    }
+
+    fn write_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &[&[u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let total = bufs.iter().map(|buf| buf.len()).sum();
+        self.disk
+            .write_sectors_vectored_with(self.translate(lba, total)?, bufs, wait)
     }
 
     fn flush(&self) -> Result<(), BlockError> {

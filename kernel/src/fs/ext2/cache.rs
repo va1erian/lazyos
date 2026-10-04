@@ -49,8 +49,8 @@ pub(crate) struct FrameMemory {
 impl CacheMemory for FrameMemory {
     fn alloc(&self) -> Option<Box<dyn CachePage>> {
         // A write that fills the cache runs long with interrupts off and may
-        // never reach the device: keep the keyboard drained (`input::ps2`).
-        crate::input::ps2::service();
+        // never reach the device (`arch::irq_window`).
+        crate::arch::irq_window::poll_point();
         if mem::frame_stats().free < self.reserve {
             return None;
         }
@@ -108,7 +108,7 @@ impl Ext2 {
         // The flusher runs on the kernel task: never wait for a volume another
         // task holds (it may be parked on a USB provider); the next round
         // writes back what this one skipped.
-        let Some(_gate) = self.gate.try_lock() else {
+        let Some(_gate) = self.try_enter() else {
             return Ok(());
         };
         let result = self.volume.writeback();
@@ -127,12 +127,14 @@ impl Ext2 {
     /// The cache's counters, for diagnostics and tests.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn cache_stats(&self) -> Option<ext2fs::CacheStats> {
+        let _gate = self.enter();
         self.volume.cache_stats()
     }
 
     /// Dirty blocks waiting for a writeback.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn dirty_blocks(&self) -> usize {
+        let _gate = self.enter();
         self.volume.dirty_blocks()
     }
 

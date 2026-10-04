@@ -94,6 +94,7 @@ pub fn reset() {
             task.class = PriorityClass::Interactive;
             task.weight = PriorityClass::Interactive.default_weight();
         }
+        super::runq::sync_all(&tasks);
         removed
     };
     // Dropping removed tasks closes their pipe ends, which may notify a
@@ -108,6 +109,14 @@ pub fn reset() {
 /// children, like the real path).
 pub fn finish(index: usize, code: u64) {
     super::process::finish(index, code);
+}
+
+/// Make `parent` the parent of `slot` (the child-exit doorbell tests give a
+/// kernel thread children without a fork).
+pub fn set_parent(slot: usize, parent: usize) {
+    if let Some(task) = TASKS.lock()[slot].as_mut() {
+        task.parent = parent;
+    }
 }
 
 /// Point `current()` at `slot` without a context switch. The tests build
@@ -139,6 +148,19 @@ pub fn set_kind(index: usize, kind: super::Kind) {
 /// The state of task `index`.
 pub fn state(index: usize) -> Option<TaskState> {
     TASKS.lock()[index].as_ref().map(|task| task.state)
+}
+
+/// Force `index`'s state, without queueing it anywhere (the wake-rule tests
+/// stage a blocked or done current task this way).
+pub fn set_state(index: usize, state: TaskState) {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[index].as_mut() {
+        task.state = state;
+        if let TaskState::Blocked { deadline, .. } = state {
+            super::waiting::set_timer(index, deadline);
+        }
+    }
+    super::runq::sync(&tasks, index);
 }
 
 /// Classify `fd` in another task's descriptor table, so a test can verify
@@ -188,6 +210,70 @@ pub fn next_runnable() -> usize {
     super::pick_next(&tasks, super::current())
 }
 
+/// Task `index`'s stride pass (virtual time).
+pub fn pass(index: usize) -> Option<u64> {
+    TASKS.lock()[index].as_ref().map(|task| task.pass)
+}
+
+/// Stage the current task as having used up its minimum slice (P6.2), so a
+/// deserving same-class wake preempts it at once.
+pub fn expire_slice() {
+    super::preempt::set_selected(super::current(), 0);
+}
+
+/// Stage the current task as just selected: a deserving same-class wake is
+/// deferred to the end of its minimum slice.
+pub fn fresh_slice() {
+    let end = crate::arch::clock::monotonic_ns() + super::preempt::MIN_SLICE_NS;
+    super::preempt::set_selected(super::current(), end);
+}
+
+/// Whether a same-class preemption is deferred to the end of a slice.
+pub fn deferred_pending() -> bool {
+    super::preempt::deferred().is_some()
+}
+
+/// Set task `index`'s stride pass (the wake-rule tests stage who deserves
+/// the CPU this way).
+pub fn set_pass(index: usize, pass: u64) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.pass = pass;
+    }
+}
+
+/// Compare the run queues with a full scan of the table; panics on the first
+/// difference (`runq::verify`).
+pub fn verify_runq() {
+    super::runq::verify(&TASKS.lock());
+}
+
+/// The pick of the full-table scan the run queues replaced (P6.1): highest
+/// class first, then the smallest pass, ties in round-robin order after the
+/// current task. The suite checks `next_runnable` against it.
+pub fn reference_pick() -> usize {
+    let tasks = TASKS.lock();
+    let cur = super::current();
+    for class in PriorityClass::ALL.iter().rev() {
+        let mut best: Option<(usize, u64)> = None;
+        for step in 1..=super::MAX_TASKS {
+            let slot = (cur + step) % super::MAX_TASKS;
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
+            if task.state != TaskState::Runnable || task.class != *class {
+                continue;
+            }
+            if best.is_none_or(|(_, pass)| task.pass < pass) {
+                best = Some((slot, task.pass));
+            }
+        }
+        if let Some((slot, _)) = best {
+            return slot;
+        }
+    }
+    cur
+}
+
 /// Run one scheduling decision exactly as a timer tick would, without a
 /// context switch: charge the current task a CPU tick, run the stride
 /// selection, point `current()` at the winner, and return it. Tests use
@@ -199,11 +285,7 @@ pub fn simulate_tick() -> usize {
     // Same flagging the real tick does (issue #133): finished parentless
     // tasks are handed to `reclaim_pending`, the current one only when the
     // tick actually switches away from it.
-    for slot in 1..super::MAX_TASKS {
-        if slot != cur {
-            super::mark_finished(&tasks, slot);
-        }
-    }
+    super::schedule::flag_finished(&tasks, cur);
     let next = select_next(&mut tasks, cur);
     if next != cur {
         super::mark_finished(&tasks, cur);
@@ -225,8 +307,14 @@ pub fn pml4(index: usize) -> Option<u64> {
     TASKS.lock()[index].as_ref().map(|task| task.pml4)
 }
 
-/// Run the deadline sweep with an explicit `now`, as a timer tick would.
+/// Run the deadline sweep with an explicit `now` in ticks, as the tick that
+/// makes `TICKS` reach `now` would.
 pub fn expire_deadlines(now: u64) {
+    expire_deadlines_ns(super::ticks_to_ns(now));
+}
+
+/// Run the deadline sweep with an explicit `now` in monotonic nanoseconds.
+pub fn expire_deadlines_ns(now: u64) {
     let mut tasks = TASKS.lock();
     super::expire_deadlines(&mut tasks, now);
 }
@@ -249,6 +337,34 @@ pub fn set_user_frame(slot: usize, rip: u64, user_rsp: u64) -> bool {
         super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX, rip);
         super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX + 3, user_rsp);
     }
+    true
+}
+
+/// Make `slot`'s saved frame say it was saved in ring 0, like the frame of a
+/// task parked inside a syscall (the voluntary gate saves a kernel `CS`).
+/// Returns the `CS` it replaced, for [`set_frame_cs`] to put back when the
+/// test lets the task "return" to user mode.
+pub fn set_kernel_frame(slot: usize) -> Option<u64> {
+    use x86_64::instructions::segmentation::{Segment, CS};
+    let frame = frame_of(slot)?;
+    let kernel_cs = u64::from(CS::get_reg().0);
+    let index = super::signal::FRAME_RIP_INDEX + 1;
+    // SAFETY: `frame` is the interrupt frame the kernel built or saved on the
+    // slot's own kernel stack; `CS` follows RIP in the timer-frame layout.
+    unsafe {
+        let old = super::sys::frame_word(frame, index);
+        super::sys::put_frame_word(frame, index, kernel_cs);
+        Some(old)
+    }
+}
+
+/// Put `cs` back into `slot`'s saved frame (see [`set_kernel_frame`]).
+pub fn set_frame_cs(slot: usize, cs: u64) -> bool {
+    let Some(frame) = frame_of(slot) else {
+        return false;
+    };
+    // SAFETY: as `set_kernel_frame`.
+    unsafe { super::sys::put_frame_word(frame, super::signal::FRAME_RIP_INDEX + 1, cs) };
     true
 }
 
@@ -294,4 +410,39 @@ pub fn resume_delivery(slot: usize) -> bool {
         super::signal::finish_sweep(&[ended]);
     }
     ended.is_some()
+}
+
+/// What a task parked on a wait queue runs each time it wakes from a nap with
+/// no wake reason yet. The suite has no second task to play a peer, so this is
+/// how one acts *while* a blocking call waits: bytes that arrive later, or the
+/// `Interrupted` wake a signal brings.
+static NAP_HOOK: spin::Mutex<Option<fn()>> = spin::Mutex::new(None);
+
+/// Install (or with `None` remove) the [`NAP_HOOK`].
+pub fn set_nap_hook(hook: Option<fn()>) {
+    *NAP_HOOK.lock() = hook;
+}
+
+/// Run the [`NAP_HOOK`], if any, with its lock released (the hook may wake
+/// the waiter, which takes queue and task-table locks).
+pub(super) fn run_nap_hook() {
+    let hook = *NAP_HOOK.lock();
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+/// Wake `index` from its wait with `Interrupted`, as a deliverable signal
+/// does (`signal::wake_blocked_threads` skips the kernel task, which the
+/// suite runs as).
+pub fn interrupt(index: usize) {
+    super::wake_task_with(index, WakeReason::Interrupted);
+}
+
+/// Run `f` with the task table locked, as a syscall in the middle of task
+/// bookkeeping would (the interrupt-window suite checks that no handler a
+/// window admits ever needs it).
+pub fn with_table_locked<R>(f: impl FnOnce() -> R) -> R {
+    let _table = TASKS.lock();
+    f()
 }

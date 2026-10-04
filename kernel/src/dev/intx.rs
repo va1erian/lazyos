@@ -2,8 +2,11 @@
 //! (issue #240, driver-plan section 3.3).
 //!
 //! `dev::irq::dispatch` only masks the line and records that it fired.
-//! [`service`] runs from task context (every syscall entry and the mux loop),
-//! where it may lock and allocate, and does the rest:
+//! [`service`] does the rest, where it may lock and allocate: on the way out
+//! of the line's own interrupt when that interrupt stopped user code or a
+//! halted task (`task::interrupted_quiet_context`), on every syscall (native
+//! entry, Linux return), on a tick that lands in such code, and in the mux
+//! loop:
 //!
 //! * A raised line is delivered to **every armed claimant** as one one-way
 //!   message from the kernel identity. The line stays masked until every
@@ -63,6 +66,8 @@ struct Post {
     generation: u32,
     channel: u64,
     side: usize,
+    /// The claiming task (latency accounting, `perf::irq_posted`).
+    owner: usize,
 }
 
 /// Work collected under the lock and performed after it is dropped.
@@ -71,15 +76,18 @@ struct Batch {
     post_count: usize,
     expired: [Option<(DeviceId, usize)>; MAX_DEVICES],
     expired_count: usize,
+    /// Running inside an interrupt handler ([`service_in_interrupt`]).
+    in_interrupt: bool,
 }
 
 impl Batch {
-    const fn new() -> Batch {
+    const fn new(in_interrupt: bool) -> Batch {
         Batch {
             posts: [None; MAX_DEVICES],
             post_count: 0,
             expired: [None; MAX_DEVICES],
             expired_count: 0,
+            in_interrupt,
         }
     }
 
@@ -91,6 +99,7 @@ impl Batch {
                 generation: claim.generation,
                 channel: binding.channel,
                 side: binding.side,
+                owner: claim.owner,
             });
             self.post_count += 1;
         }
@@ -193,6 +202,14 @@ impl Claims {
                 now.saturating_add(ACK_DEADLINE_TICKS),
             );
         } else if in_flight == 0 {
+            if batch.in_interrupt {
+                // Unmasking here, inside the interrupt, would let a
+                // level-triggered device that nobody quiets re-enter at
+                // once, forever. Hand the raise to the next task-context
+                // pass, which lets the line go as below.
+                irq::requeue(line);
+                return;
+            }
             // Everyone is a laggard: nobody can be waited for, so let the line
             // go; `missed` remembers the interrupt for their late acks.
             pic::set_masked(line, false);
@@ -347,6 +364,24 @@ pub fn service() {
 
 /// [`service`] with an explicit clock, so tests can step time.
 pub fn service_at(now: u64) {
+    service_with(now, false);
+}
+
+/// [`service`] from an interrupt handler that stopped code holding no lock
+/// (`task::interrupted_quiet_context`, P1.2). The same work, except that a
+/// raise nobody can be notified of keeps its line masked until a
+/// task-context pass: see `Claims::raise`.
+pub fn service_in_interrupt() {
+    service_with(crate::task::ticks(), true);
+}
+
+/// [`service_in_interrupt`] with an explicit clock (tests).
+#[cfg(lazyos_tests)]
+pub fn service_in_interrupt_at(now: u64) {
+    service_with(now, true);
+}
+
+fn service_with(now: u64, in_interrupt: bool) {
     if super::teardown::exits_pending() {
         super::teardown::silence_exited();
     }
@@ -354,11 +389,11 @@ pub fn service_at(now: u64) {
     if raised == 0 && ACTIVE_ROUNDS.load(Ordering::Acquire) == 0 && !RETRY.load(Ordering::Acquire) {
         return;
     }
-    x86_64::instructions::interrupts::without_interrupts(|| run(now, raised));
+    x86_64::instructions::interrupts::without_interrupts(|| run(now, raised, in_interrupt));
 }
 
-fn run(now: u64, raised: u16) {
-    let mut batch = Batch::new();
+fn run(now: u64, raised: u16, in_interrupt: bool) {
+    let mut batch = Batch::new(in_interrupt);
     RETRY.store(false, Ordering::Release);
     {
         let mut claims = CLAIMS.lock();
@@ -373,7 +408,9 @@ fn run(now: u64, raised: u16) {
     for entry in batch.expired.iter().take(batch.expired_count).flatten() {
         record_timeout(entry.0, entry.1);
     }
+    crate::perf::lines_posting(raised);
     for post in batch.posts.iter().take(batch.post_count).flatten() {
+        crate::perf::irq_posted(post.owner);
         match post_irq(post) {
             Ok(()) => {
                 DELIVERED.fetch_add(1, Ordering::Relaxed);
@@ -381,6 +418,7 @@ fn run(now: u64, raised: u16) {
             Err(error) => CLAIMS.lock().post_failed(post, error),
         }
     }
+    crate::perf::lines_posted();
 }
 
 fn record_timeout(id: DeviceId, owner: usize) {

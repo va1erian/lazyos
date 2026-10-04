@@ -318,7 +318,7 @@ pub(super) fn recv_into(
 /// `setsockopt` (54): only `AF_INET` sockets take options so far.
 pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::Inet => super::inet::sys_setsockopt(fd, level, name, value, len),
+        FdKind::Inet => super::sockopt::sys_setsockopt(fd, level, name, value, len),
         FdKind::Closed => err(EBADF),
         kind => err(no_option(kind)),
     }
@@ -327,7 +327,7 @@ pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u6
 /// `getsockopt` (55): see [`sys_setsockopt`].
 pub(super) fn sys_getsockopt(fd: u64, level: u64, name: u64, value: u64, lenptr: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::Inet => super::inet::sys_getsockopt(fd, level, name, value, lenptr),
+        FdKind::Inet => super::sockopt::sys_getsockopt(fd, level, name, value, lenptr),
         FdKind::Closed => err(EBADF),
         kind => err(no_option(kind)),
     }

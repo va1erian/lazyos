@@ -73,7 +73,7 @@ pub(super) fn send_checked(
     let disposition = with_signals(pml4, |state| state.actions[sig as usize]);
     match sig {
         SIGKILL => {
-            terminate_process(pml4, 128 + sig as u64);
+            kill_process(pml4, 128 + sig as u64);
             return Ok(());
         }
         SIGSTOP => {
@@ -124,9 +124,86 @@ pub(super) fn send_checked(
     Ok(())
 }
 
+/// Kill the process `pml4` (Linux's group exit), the way `SIGKILL` does.
+///
+/// A task can only be ended where it stands when its saved frame is a user
+/// frame: it holds nothing of the kernel's. A task parked *inside* the kernel
+/// (blocked in a syscall, stopped in a delivery boundary, or runnable mid-call)
+/// may hold a lock or a request slot (an ext2 volume's gate, a block
+/// provider's request), and marking it `Done` would leak them forever: it
+/// never runs again to release them. Such a task gets `SIGKILL` pending
+/// (which no mask holds back), is woken with [`WakeReason::Interrupted`] if
+/// it sleeps, unwinds through its syscall and dies at the syscall return
+/// ([`deliver_linux`], `deliver_native`) or in the sweep once its frame is a
+/// user frame. The current task is always inside the kernel, so it is left
+/// to its own syscall return too.
+///
+/// Every thread records `status` (or the status of a group exit already in
+/// progress). Returns that status.
+pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
+    let status = with_signals(pml4, |state| {
+        state.pending |= bit(SIGKILL);
+        *state.group_exit.get_or_insert(status)
+    });
+    let me = current();
+    let mut parents = SlotList::new();
+    let mut parked = SlotList::new();
+    // Decide and finish under one hold of the table with interrupts off, so a
+    // task judged to be in user mode cannot enter the kernel before it ends.
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut tasks = TASKS.lock();
+        for slot in 1..MAX_TASKS {
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
+            if task.pml4 != pml4 || task.state == TaskState::Done {
+                continue;
+            }
+            // `128 + signal` is the status; `wait4` reports the signal itself,
+            // for the tasks ended here and for those that end later.
+            if (129..=128 + 64).contains(&status) {
+                crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
+            }
+            if slot == me {
+                continue;
+            }
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
+            let blocked = matches!(task.state, TaskState::Blocked { .. });
+            if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
+                if let Some(parent) = process::finish_locked(&mut tasks, slot, status) {
+                    parents.push(parent);
+                }
+            } else if blocked {
+                parked.push(slot);
+            }
+        }
+    });
+    for parent in parents.iter() {
+        process::after_finish(parent);
+    }
+    // Any blocked state, a stop (`WaitKind::Signal`) included: the kill ends
+    // the stop, and the woken wait sees `Interrupted`.
+    for slot in parked.iter() {
+        wake_task_with(slot, WakeReason::Interrupted);
+    }
+    status
+}
+
+/// End the current task on a fatal signal and start the group exit for the
+/// rest of its process (see [`kill_process`]). Called at a delivery boundary
+/// on the way back to user mode, where the current task holds nothing.
+pub(super) fn exit_group(pml4: u64, status: u64) -> ! {
+    let status = kill_process(pml4, status);
+    process::finish(current(), status);
+    halt_forever()
+}
+
 /// Terminate every live task sharing `pml4`, recording the same status for
-/// each. This is Linux's thread-group exit: fatal signals take the whole
-/// process with them.
+/// each, wherever each one stands. The fault paths use it for the faulting
+/// process; signal delivery uses [`kill_process`], which spares tasks parked
+/// inside the kernel until they leave it.
 pub fn terminate_process(pml4: u64, status: u64) -> usize {
     let mut slots = SlotList::new();
     {
@@ -156,8 +233,13 @@ pub fn terminate_process(pml4: u64, status: u64) -> usize {
     killed
 }
 
-/// Park every live task sharing `pml4` as stopped (`WaitKind::Signal`).
+/// Park every live task sharing `pml4` as stopped (`WaitKind::Signal`). A
+/// process being killed is not stopped: that would park the tasks the kill
+/// woke to unwind (Linux ignores stops once a group exit began).
 pub(super) fn stop_process(pml4: u64) {
+    if with_signals(pml4, |state| state.pending & bit(SIGKILL) != 0) {
+        return;
+    }
     let mut tasks = TASKS.lock();
     for slot in 1..MAX_TASKS {
         let Some(task) = tasks[slot].as_mut() else {
@@ -169,6 +251,7 @@ pub(super) fn stop_process(pml4: u64) {
                 deadline: None,
             };
             task.wake_reason = None;
+            crate::task::runq::sync(&tasks, slot);
         }
     }
 }

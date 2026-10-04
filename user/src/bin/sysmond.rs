@@ -36,7 +36,7 @@ use alloc::string::String;
 use core::panic::PanicInfo;
 use messenger_generated::os_lazy_sysmond_v1 as stats;
 use user::central;
-use user::messenger::{self, errno, registry, services, Error, Message, Parcel};
+use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskState};
 
@@ -47,8 +47,6 @@ use user::sysinfo::{self, Snapshot, TaskState};
 /// blocks each tick, so the service's footprint stays flat. The `snapshot`
 /// method is the on-demand path for anything that needs a fresh value *now*.
 const PUBLISH_TICKS: u64 = 500;
-/// How long the service sleeps between message polls.
-const IDLE_TICKS: u64 = 5;
 /// The evidence program `demo=1` spawns once the first snapshot is retained.
 const DEMO_PROGRAM: &str = fhs::bin::TOP;
 
@@ -77,6 +75,8 @@ fn run() -> messenger::Result<()> {
     sys::write_str(services::SYSMOND_NAME);
     sys::write_str("\n");
     sys::write_str("SYSMOND:REGISTER:PASS\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     // The central broker connection appears when `messengerd` has finished
     // registering its name (it is the supervisor's first service, but the two
@@ -116,7 +116,21 @@ fn run() -> messenger::Result<()> {
             demo_running = spawn_demo();
         }
 
-        match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
+        // Park until a request, the demo child's exit, or the next publish:
+        // an idle `sysmond` wakes once per publish (P7).
+        let doorbells = if demo_running { wait::WAIT_CHILD } else { 0 };
+        let ready = match wait::wait_any(&[server], doorbells, Some(next_publish)) {
+            Ok(ready) => ready,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+            Err(error) => return Err(error),
+        };
+        if ready & wait::CHILD_READY != 0 && sys::wait(sys::clock().max(1)).is_some() {
+            demo_running = false;
+        }
+        if ready & 1 == 0 {
+            continue;
+        }
+        match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
                 let reply = match dispatch(&message) {
                     Ok(parcel) => parcel,
@@ -140,11 +154,6 @@ fn run() -> messenger::Result<()> {
             }
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
-        }
-        // Non-blocking reap: an expired deadline returns after the next timer
-        // sweep, so the exited demo child does not linger as a zombie.
-        if demo_running && sys::wait(sys::clock()).is_some() {
-            demo_running = false;
         }
     }
 }

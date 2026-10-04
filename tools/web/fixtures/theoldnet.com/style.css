@@ -1,0 +1,7 @@
+/* TheOldNet.com stand-in (tools/web): period CSS 1 next to the HTML 3.2 attributes. */
+BODY { font-family: "Times New Roman", Times, serif; margin: 12px; }
+A:hover { color: #FF0000; text-decoration: underline overline; }
+TD { font-size: 14px; }
+TD.news { background-color: #330066; border-top: 2px dashed #FFFF00; }
+UL { list-style-type: square; }
+HR { color: #FF00FF; }

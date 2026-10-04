@@ -108,8 +108,8 @@ pub fn etc_files() -> Result<(), String> {
         group == "admin:x:0:admin\nuser:x:1000:user\n",
         "group rendered as {group:?}"
     );
-    let resolv = fabricated("/etc/resolv.conf")?;
-    check!(resolv.starts_with("nameserver "), "resolv.conf {resolv:?}");
+    // `/etc/resolv.conf` and the CA bundle exist only with their backing
+    // files (`etcmap`); the host table always has `localhost`.
     check!(fabricated("/etc/hosts")?.contains("127.0.0.1"), "hosts");
     let live = fabricated("/etc/passwd")?;
     check!(
@@ -131,7 +131,7 @@ pub fn etc_files() -> Result<(), String> {
     let mut buf = [0u8; 1024];
     let n = sys(217, &[dfd, buf.as_mut_ptr() as u64, 1024]);
     check!(
-        (n as i64) > 0 && buf[..n as usize].windows(11).any(|w| w == b"resolv.conf"),
+        (n as i64) > 0 && buf[..n as usize].windows(9).any(|w| w == b"os-releas"),
         "getdents /etc: {n:#x}"
     );
     sys(3, &[dfd]);

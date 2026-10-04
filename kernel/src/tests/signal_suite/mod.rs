@@ -27,22 +27,31 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 
 mod delivery;
 mod hardening;
+mod kill_parked;
 mod linux_abi;
 mod native_kill;
 mod suspend;
 mod sweep_space;
+mod wait_interrupt;
 
 pub(super) use delivery::*;
 pub(super) use hardening::*;
+pub(super) use kill_parked::*;
 pub(super) use linux_abi::*;
 pub(super) use native_kill::*;
 pub(super) use suspend::*;
 pub(super) use sweep_space::*;
+pub(super) use wait_interrupt::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_signal_block_unblock", block_unblock_pending),
     ("task_signal_kill_wakes_sleeper", kill_wakes_blocked),
     ("task_signal_kill_uncatchable", sigkill_uncatchable),
+    (
+        "task_signal_kill_defers_tasks_parked_in_kernel",
+        kill_defers_tasks_parked_in_kernel,
+    ),
+    ("task_signal_soak_kill_parked", soak_kill_parked),
     ("task_signal_sigchld_child_exit", sigchld_on_child_exit),
     (
         "task_signal_handler_frame_roundtrip",
@@ -98,4 +107,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_soak_sweep_space_isolation",
         soak_sweep_space_isolation,
     ),
+    (
+        "task_signal_wait_interrupted_by_linux_signals",
+        wait_interrupted_by_linux_signals,
+    ),
+    ("task_signal_soak_wait_interrupted", soak_wait_interrupted),
 ];

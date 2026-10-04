@@ -24,6 +24,7 @@ pub mod config;
 pub mod device;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod resolvconf;
 pub mod stack;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod testdns;
@@ -39,5 +40,5 @@ pub use config::Mode;
 pub use device::{DeviceStats, RingDevice};
 pub use stack::{
     ready, valid_host_name, Counters, DhcpState, Kind, LookupOutcome, LookupResult, PingError,
-    PingOutcome, PingResult, ResolveError, SockAddr, SockError, Source, Stack, State,
+    PingOutcome, PingResult, Received, ResolveError, SockAddr, SockError, Source, Stack, State,
 };

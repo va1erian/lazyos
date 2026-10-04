@@ -71,6 +71,8 @@ pub fn init() {
     // same scheduler gate; `timer::end_of_tick` acknowledges the right chip.
     idt[super::lapic::TIMER_VECTOR]
         .set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
+    // The one-shot deadline timer (P2.2), when the PIT is the tick.
+    idt[super::event_timer::VECTOR].set_handler_fn(super::event_timer::handler);
     idt[super::lapic::SPURIOUS_VECTOR].set_handler_fn(lapic_spurious_handler);
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
@@ -435,14 +437,33 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     // Drain the i8042 (keyboard and auxiliary bytes alike, in order) and
     // decode what was collected, including bytes gathered while interrupts
     // were off (`input::ps2`).
-    crate::input::ps2::on_irq();
+    crate::perf::irq_entry();
+    // Inside an interrupt window only collect: decoding takes locks the
+    // interrupted code may hold (`arch::irq_window`).
+    if super::irq_window::is_open() {
+        crate::input::ps2::service();
+    } else {
+        crate::input::ps2::on_irq();
+    }
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
+    crate::perf::irq_exit();
+    // A key may have woken a task that should run now (P1.1).
+    crate::task::preempt_point();
 }
 
 extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     // The same intake as IRQ1: one FIFO keeps both ports' bytes in order.
-    crate::input::ps2::on_irq();
+    crate::perf::irq_entry();
+    // Inside an interrupt window only collect: decoding takes locks the
+    // interrupted code may hold (`arch::irq_window`).
+    if super::irq_window::is_open() {
+        crate::input::ps2::service();
+    } else {
+        crate::input::ps2::on_irq();
+    }
     // Safety: we are in the IRQ12 handler.
     unsafe { pic::end_of_interrupt(12) };
+    crate::perf::irq_exit();
+    crate::task::preempt_point();
 }

@@ -59,16 +59,43 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
         Color { r, g, b }
     }
+
+    /// The colour `num/den` of the way from `self` to `other`.
+    pub fn lerp(self, other: Color, num: i32, den: i32) -> Color {
+        let den = den.max(1);
+        let one = |a: u8, b: u8| (a as i32 + (b as i32 - a as i32) * num / den) as u8;
+        Color::rgb(
+            one(self.r, other.r),
+            one(self.g, other.g),
+            one(self.b, other.b),
+        )
+    }
 }
 
-/// A software RGBA8 blitter over a mapped shared buffer.
+/// The byte order of a canvas pixel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PixelLayout {
+    /// `R, G, B, A`: every client buffer.
+    #[default]
+    Rgba,
+    /// `B, G, R, A`: the usual framebuffer order. A compositor that composes
+    /// its screen buffer in the framebuffer's order turns the kernel's
+    /// `present` into a plain row copy (docs/performance-plan.md P3.2).
+    Bgra,
+}
+
+/// A software RGBA8 (or BGRA8, [`PixelLayout`]) blitter over a mapped shared
+/// buffer.
 ///
 /// Every write is clipped to the rectangle being drawn and to the canvas
 /// bounds, so a caller can pass an over-large damage rectangle safely.
+/// Colours and blitted sources are RGBA whatever the layout: the canvas
+/// stores them in its own order.
 pub struct Canvas {
     base: *mut u8,
     width: i32,
     height: i32,
+    layout: PixelLayout,
 }
 
 impl Canvas {
@@ -85,6 +112,21 @@ impl Canvas {
             base: base as *mut u8,
             width,
             height,
+            layout: PixelLayout::Rgba,
+        }
+    }
+
+    /// Store pixels in `layout` from now on. What is already drawn is not
+    /// converted, so set it before the first frame.
+    pub fn set_layout(&mut self, layout: PixelLayout) {
+        self.layout = layout;
+    }
+
+    /// The opaque stored bytes of `color` in this canvas's layout.
+    fn pixel(&self, color: Color) -> [u8; 4] {
+        match self.layout {
+            PixelLayout::Rgba => [color.r, color.g, color.b, 0xff],
+            PixelLayout::Bgra => [color.b, color.g, color.r, 0xff],
         }
     }
 
@@ -125,6 +167,77 @@ impl Canvas {
         unsafe { core::slice::from_raw_parts_mut(self.base.add(at), w as usize * 4) }
     }
 
+    /// [`Canvas::row_mut`] for reading.
+    fn row(&self, x: i32, y: i32, w: i32) -> &[u8] {
+        if w <= 0 || x < 0 || y < 0 || y >= self.height || x.saturating_add(w) > self.width {
+            return &[];
+        }
+        let at = (y as usize * self.width as usize + x as usize) * 4;
+        // SAFETY: as in `row_mut`; `&self` keeps any writer away meanwhile.
+        unsafe { core::slice::from_raw_parts(self.base.add(at), w as usize * 4) }
+    }
+
+    /// Copy the pixels of `rect`, clipped to the canvas, into `out` row after
+    /// row, exactly as stored (no format conversion), and return the
+    /// rectangle copied. Rows that do not fit in `out` are not copied, so
+    /// the result is empty when `out` is too small for even one row.
+    pub fn save(&self, rect: Rect, out: &mut [u8]) -> Rect {
+        let full = Rect::new(0, 0, self.width, self.height);
+        let r = self.visible(rect, full);
+        let row_bytes = r.w.max(0) as usize * 4;
+        let rows = out
+            .len()
+            .checked_div(row_bytes)
+            .map_or(0, |fit| fit.min(r.h.max(0) as usize));
+        for (index, chunk) in out
+            .chunks_exact_mut(row_bytes.max(1))
+            .take(rows)
+            .enumerate()
+        {
+            chunk.copy_from_slice(self.row(r.x, r.y + index as i32, r.w));
+        }
+        Rect::new(r.x, r.y, r.w, rows as i32)
+    }
+
+    /// Put back what [`Canvas::save`] copied out of `rect` (the rectangle it
+    /// returned) from `saved`.
+    pub fn restore(&mut self, rect: Rect, saved: &[u8]) {
+        let full = Rect::new(0, 0, self.width, self.height);
+        if self.visible(rect, full) != rect || rect.is_empty() {
+            return;
+        }
+        let row_bytes = rect.w as usize * 4;
+        for (index, chunk) in saved
+            .chunks_exact(row_bytes)
+            .take(rect.h as usize)
+            .enumerate()
+        {
+            self.row_mut(rect.x, rect.y + index as i32, rect.w)
+                .copy_from_slice(chunk);
+        }
+    }
+
+    /// Blend `color` over the pixels from `(x, y)` rightwards with one
+    /// coverage per pixel (0..=255). The span must be visible (callers clip
+    /// with [`Canvas::visible`] first); an invisible one draws nothing.
+    fn blend_span(&mut self, x: i32, y: i32, alphas: &[u8], color: Color) {
+        let stored = self.pixel(color);
+        let row = self.row_mut(x, y, alphas.len() as i32);
+        for (dst, &alpha) in row.as_chunks_mut::<4>().0.iter_mut().zip(alphas) {
+            match alpha {
+                0 => {}
+                0xff => *dst = stored,
+                _ => {
+                    let a = alpha as u32;
+                    for (d, s) in dst.iter_mut().zip(stored).take(3) {
+                        *d = ((s as u32 * a + *d as u32 * (255 - a) + 127) / 255) as u8;
+                    }
+                    dst[3] = 0xff;
+                }
+            }
+        }
+    }
+
     /// Blend `color` over one pixel with coverage `alpha` (0..=255).
     pub fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
         if alpha == 0 {
@@ -138,8 +251,9 @@ impl Canvas {
         }
         let a = alpha as u32;
         let mix = |src: u8, dst: u8| ((src as u32 * a + dst as u32 * (255 - a) + 127) / 255) as u8;
+        let stored = self.pixel(color);
         let px = self.row_mut(x, y, 1);
-        for (dst, src) in px.iter_mut().zip([color.r, color.g, color.b]) {
+        for (dst, src) in px.iter_mut().zip(stored) {
             *dst = mix(src, *dst);
         }
         if let Some(alpha_byte) = px.get_mut(3) {
@@ -164,11 +278,14 @@ impl Canvas {
             let (glyph, coverage) = face.glyph(ch);
             let gx = (pen16 + 8) / 16 + glyph.left;
             let gy = baseline + glyph.top;
-            for row in 0..glyph.height as i32 {
-                for col in 0..glyph.width as i32 {
-                    let alpha = coverage[(row * glyph.width as i32 + col) as usize];
-                    self.blend_pixel(gx + col, gy + row, color, alpha, clip);
-                }
+            // Clip once per glyph, not once per pixel: a glyph outside the
+            // clip costs nothing, and the visible part is blended directly.
+            let (gw, gh) = (glyph.width as i32, glyph.height as i32);
+            let shown = self.visible(Rect::new(gx, gy, gw, gh), clip);
+            for py in shown.y..shown.y + shown.h {
+                let first = ((py - gy) * gw + (shown.x - gx)) as usize;
+                let alphas = coverage.get(first..first + shown.w as usize).unwrap_or(&[]);
+                self.blend_span(shown.x, py, alphas, color);
             }
             pen16 += glyph.advance_x16 as i32;
         }
@@ -178,11 +295,22 @@ impl Canvas {
     /// Fill `rect` with `color`, clipped to `clip`.
     pub fn fill(&mut self, rect: Rect, clip: Rect, color: Color) {
         let r = self.visible(rect, clip);
-        let px = [color.r, color.g, color.b, 0xff];
+        let px = self.pixel(color);
         for y in r.y..r.y + r.h {
             for dst in self.row_mut(r.x, y, r.w).as_chunks_mut::<4>().0.iter_mut() {
                 dst.copy_from_slice(&px);
             }
+        }
+    }
+
+    /// Fill `rect` with a vertical gradient from `top` (its first row) to
+    /// `bottom` (its last), clipped to `clip`. Each row is one colour, so it
+    /// costs what [`Canvas::fill`] does.
+    pub fn fill_vgradient(&mut self, rect: Rect, clip: Rect, top: Color, bottom: Color) {
+        let r = self.visible(rect, clip);
+        for y in r.y..r.y + r.h {
+            let color = top.lerp(bottom, y - rect.y, rect.h - 1);
+            self.fill(Rect::new(r.x, y, r.w, 1), r, color);
         }
     }
 
@@ -220,9 +348,13 @@ impl Canvas {
             if n == 0 {
                 break;
             }
+            let swap = self.layout == PixelLayout::Bgra;
             let row = self.row_mut(r.x, y, n as i32);
             row.copy_from_slice(&src[start..start + n * 4]);
             for px in row.as_chunks_mut::<4>().0.iter_mut() {
+                if swap {
+                    px.swap(0, 2);
+                }
                 px[3] = 0xff;
             }
         }
@@ -357,69 +489,5 @@ fn cursor_masks(sy: usize) -> (u16, u16) {
     (outline, body)
 }
 
-/// The 5x7 bitmap font used for decorations and demo text.
-///
-/// Each glyph is five columns; in a column byte, bit `n` is row `n` with
-/// row zero at the top. Only the characters a window title or a demo label
-/// needs are defined; anything else is skipped.
-pub mod font {
-    /// Glyph height in pixels.
-    pub const H: i32 = 7;
-    /// Advance per character (five glyph columns plus one pixel gap).
-    pub const ADVANCE: i32 = 6;
-
-    /// The cursor sprite, one bit per pixel (MSB = leftmost).
-    pub const CURSOR: [u8; 8] = [0x80, 0xC0, 0xA0, 0x90, 0x88, 0x84, 0xFC, 0xC0];
-
-    /// Look up a glyph, upper-casing lower-case ASCII first.
-    pub fn glyph(ch: char) -> Option<&'static [u8; 5]> {
-        let ch = ch.to_ascii_uppercase();
-        Some(match ch {
-            ' ' => &[0x00, 0x00, 0x00, 0x00, 0x00],
-            '-' => &[0x00, 0x08, 0x08, 0x08, 0x00],
-            '.' => &[0x00, 0x00, 0x40, 0x00, 0x00],
-            ':' => &[0x00, 0x00, 0x24, 0x00, 0x00],
-            '/' => &[0x40, 0x30, 0x08, 0x06, 0x01],
-            '+' => &[0x00, 0x08, 0x1C, 0x08, 0x00],
-            '!' => &[0x00, 0x00, 0x5F, 0x00, 0x00],
-            '?' => &[0x02, 0x01, 0x51, 0x09, 0x06],
-            '0' => &[0x3E, 0x51, 0x49, 0x45, 0x3E],
-            '1' => &[0x00, 0x42, 0x7F, 0x40, 0x00],
-            '2' => &[0x42, 0x61, 0x51, 0x49, 0x46],
-            '3' => &[0x22, 0x41, 0x49, 0x49, 0x36],
-            '4' => &[0x18, 0x14, 0x12, 0x7F, 0x10],
-            '5' => &[0x27, 0x45, 0x45, 0x45, 0x39],
-            '6' => &[0x3C, 0x4A, 0x49, 0x49, 0x30],
-            '7' => &[0x01, 0x71, 0x09, 0x05, 0x03],
-            '8' => &[0x3E, 0x41, 0x49, 0x41, 0x3E],
-            '9' => &[0x0E, 0x49, 0x49, 0x29, 0x1E],
-            'A' => &[0x7E, 0x09, 0x09, 0x09, 0x7E],
-            'B' => &[0x7F, 0x49, 0x49, 0x49, 0x36],
-            'C' => &[0x3E, 0x41, 0x41, 0x41, 0x22],
-            'D' => &[0x7F, 0x41, 0x41, 0x41, 0x3E],
-            'E' => &[0x7F, 0x49, 0x49, 0x49, 0x41],
-            'F' => &[0x7F, 0x09, 0x09, 0x09, 0x01],
-            'G' => &[0x3E, 0x41, 0x49, 0x49, 0x7A],
-            'H' => &[0x7F, 0x08, 0x08, 0x08, 0x7F],
-            'I' => &[0x41, 0x41, 0x7F, 0x41, 0x41],
-            'J' => &[0x70, 0x70, 0x70, 0x7F, 0x0F],
-            'K' => &[0x7F, 0x08, 0x14, 0x22, 0x41],
-            'L' => &[0x7F, 0x40, 0x40, 0x40, 0x40],
-            'M' => &[0x7F, 0x02, 0x04, 0x02, 0x7F],
-            'N' => &[0x7F, 0x02, 0x04, 0x08, 0x7F],
-            'O' => &[0x3E, 0x41, 0x41, 0x41, 0x3E],
-            'P' => &[0x7F, 0x09, 0x09, 0x09, 0x06],
-            'Q' => &[0x3E, 0x41, 0x51, 0x61, 0x7E],
-            'R' => &[0x7F, 0x09, 0x19, 0x29, 0x46],
-            'S' => &[0x26, 0x49, 0x49, 0x49, 0x32],
-            'T' => &[0x01, 0x01, 0x7F, 0x01, 0x01],
-            'U' => &[0x3F, 0x40, 0x40, 0x40, 0x3F],
-            'V' => &[0x1F, 0x20, 0x40, 0x20, 0x1F],
-            'W' => &[0x7F, 0x20, 0x18, 0x20, 0x7F],
-            'X' => &[0x63, 0x14, 0x08, 0x14, 0x63],
-            'Y' => &[0x03, 0x04, 0x78, 0x04, 0x03],
-            'Z' => &[0x41, 0x61, 0x51, 0x49, 0x43],
-            _ => return None,
-        })
-    }
-}
+#[path = "font5x7.rs"]
+pub mod font;

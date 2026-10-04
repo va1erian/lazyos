@@ -17,6 +17,7 @@ is done; the verdict comes from the capture.
     python tools/net/run.py --no-device          # no NIC: the driver must say so and idle
     python tools/net/run.py --poll               # interrupts off: the driver polls
     python tools/net/run.py --netd               # stage N2: netd, DHCP and ping (plus any variant above)
+    python tools/net/run.py --tls                # stage T3: curl/wget/fetch over HTTPS (tls_run.py)
 
 The image must be built with `LAZYOS_NET=1` (`--netd`: `LAZYOS_NETD=1`, which adds
 the stack service `netd` and its tools); this script does it unless `--no-build`. Exit status is non-zero on any failure.
@@ -37,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402,E501
 
 import analyze_pcap  # noqa: E402
+from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
 import hostpeers  # noqa: E402
 import pcap  # noqa: E402
 import sockets_pcap  # noqa: E402
@@ -83,17 +85,7 @@ NETFIX_LISTEN_PORT = 47774
 NETFIX_INBOUND_BYTES = 100_000
 #: The bytes the harness sends into the guest's listener.
 INBOUND_BYTES = 150_000
-#: Stage N4: the `ftp` client's session with the host's FTP server. The files
-#: the server starts with, what `put -g` sends, and the commands the client is
-#: expected to issue (the capture must show exactly the server's record, and
-#: this is what that record must be).
-FTP_UPLOAD_BYTES = 150_000
-FTP_FILES = {
-    "hello.txt": b"hello from the host ftp server" + bytes([10]),
-    "big.bin": hostpeers.pattern(120_000),
-}
-FTP_EXPECTED_VERBS = ["USER", "PASS", "TYPE", "PWD", "CWD", "CWD", "PASV", "LIST", "PASV", "RETR", "PASV",
-                      "RETR", "PASV", "STOR", "SIZE", "PASV", "RETR", "QUIT"]
+#: Stage N4: the `ftp` client's session with the host's FTP server (`ftp_judge.py`).
 NETD_PASS_MARKERS = (
     "NET:NIC:PASS",
     "NETCTL:INFO:PASS",
@@ -307,45 +299,11 @@ def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagram
     return ok
 
 
-def judge_ftp(frames, text: str, commands, transfers) -> bool:
-    """Stage N4's verdict: the FTP session on the wire (`sockets_pcap.check_ftp`)
-    and the checksums the client printed against the bytes the server holds."""
-    guest_ip = guest_address(text)
-    gateway = pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY)
-    problems: list[str] = []
-    verbs = [v for v, _ in commands]
-    if verbs != FTP_EXPECTED_VERBS:
-        problems.append(f"the server saw the commands {verbs}, expected {FTP_EXPECTED_VERBS}")
-    count, wire_problems = sockets_pcap.check_ftp(frames, guest_ip, gateway, hostpeers.FTP_PORT, commands, transfers)
-    problems += wire_problems
-    upload = hostpeers.xorshift_pattern(FTP_UPLOAD_BYTES)
-    expected = {
-        "PUT up.bin": (FTP_UPLOAD_BYTES, upload),
-        "GET up.bin": (FTP_UPLOAD_BYTES, upload),
-    }
-    for name, body in FTP_FILES.items():
-        expected[f"GET {name}"] = (len(body), body)
-    import re
-    import zlib
-    for key, (size, body) in expected.items():
-        verb, name = key.split()
-        match = re.search(rf"FTP:{verb} {re.escape(name)} bytes=(\d+) crc=([0-9a-f]{{8}})", text)
-        if not match:
-            problems.append(f"the client never reported {key}")
-        elif (int(match.group(1)), match.group(2)) != (size, f"{zlib.crc32(body):08x}"):
-            problems.append(f"{key}: the client reported {match.group(1)} bytes crc {match.group(2)}, "
-                            f"expected {size} bytes crc {zlib.crc32(body):08x}")
-    if not any(t[1] == "up" and t[2] == upload for t in transfers):
-        problems.append("the server never received the uploaded stream")
-    if problems:
-        for problem in problems[:10]:
-            print(f"NET:PCAP:FTP:FAIL {problem}")
-        return False
-    print(f"NET:PCAP:FTP:PASS commands={len(commands)} transfers={count} download and upload match byte for byte")
-    return True
-
-
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if "--tls" in argv:  # stage T3: its own harness, `tls_run.py` (same options)
+        import tls_run
+        return tls_run.main([a for a in argv if a != "--tls"])
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
     parser.add_argument("--out", default="shots/net", help="output dir (serial.log, net.pcap)")
@@ -533,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.netd:
         guest_mac = pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC)
         ok = judge_sockets(frames, guest_mac, text, tcp_streams, udp_datagrams, probe, netfix_probe) and ok
-        ok = judge_ftp(frames, text, ftp_commands, ftp_transfers) and ok
+        ok = judge_ftp(frames, guest_address(text), text, ftp_commands, ftp_transfers) and ok
     print("NET:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

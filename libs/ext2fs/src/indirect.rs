@@ -85,6 +85,49 @@ impl Ext2 {
         Ok(block)
     }
 
+    /// Resolve logical block `index` like [`Ext2::block_map`], keeping the
+    /// last pointer table of the walk in `memo`: consecutive blocks share it
+    /// (one table maps `ptrs_per_block` of them), so a sequential reader reads
+    /// each table once instead of once per block. Valid only while the volume
+    /// lock is held and the inode does not change (one read call).
+    pub(super) fn block_map_memo(
+        &self,
+        inode: &[u8; INODE_CORE_SIZE],
+        index: u32,
+        memo: &mut MapMemo,
+    ) -> Result<u32, Ext2Error> {
+        let path = self.locate(index).map_err(|_| Ext2Error::NotSupported)?;
+        if path.depth == 0 {
+            return Ok(Self::direct_ptr(inode, path.slot));
+        }
+        let size = self.block_size as usize;
+        let last = path.offsets[path.depth - 1] as usize * 4;
+        // The leaf table depends on every offset but the last.
+        let mut prefix = [0u32; MAX_DEPTH];
+        prefix[..path.depth - 1].copy_from_slice(&path.offsets[..path.depth - 1]);
+        let key = (path.slot, path.depth, prefix);
+        if memo.key == Some(key) {
+            return Ok(le32(&memo.table, last));
+        }
+        // The table is about to be overwritten: forget whose it was, so a
+        // hole or a failed read part-way never leaves it answering for a key.
+        memo.key = None;
+        let mut block = Self::direct_ptr(inode, path.slot);
+        for &offset in &path.offsets[..path.depth - 1] {
+            if block == 0 {
+                return Ok(0); // a hole anywhere on the path is a hole
+            }
+            self.read_block(u64::from(block), &mut memo.table[..size])?;
+            block = le32(&memo.table, offset as usize * 4);
+        }
+        if block == 0 {
+            return Ok(0);
+        }
+        self.read_block(u64::from(block), &mut memo.table[..size])?;
+        memo.key = Some(key);
+        Ok(le32(&memo.table, last))
+    }
+
     /// Account one newly allocated block in `i_blocks` (512-byte units).
     pub(super) fn add_inode_sectors(
         &self,
@@ -168,6 +211,22 @@ impl Ext2 {
         }
         self.add_inode_sectors(inode)?;
         Ok((child, true))
+    }
+}
+
+/// The leaf pointer table a [`Ext2::block_map_memo`] walk ended at, and
+/// where it hangs (slot, depth, the offsets above it).
+pub(super) struct MapMemo {
+    key: Option<(u32, usize, [u32; MAX_DEPTH])>,
+    table: [u8; MAX_BLOCK_SIZE],
+}
+
+impl MapMemo {
+    pub(super) fn new() -> MapMemo {
+        MapMemo {
+            key: None,
+            table: [0; MAX_BLOCK_SIZE],
+        }
     }
 }
 

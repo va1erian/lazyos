@@ -119,6 +119,8 @@ fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
     sys::write_str("KEYD:READY\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     // One receive buffer for the whole life of the service: the user bump
     // allocator never reclaims per-call buffers, so a long-lived loop must not

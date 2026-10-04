@@ -190,6 +190,13 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     let Some(parent) = parent else {
         return false;
     };
+    after_finish(parent);
+    true
+}
+
+/// The side effects of a [`finish_locked`] that returned `parent`, run once
+/// the task table lock is dropped.
+pub(crate) fn after_finish(parent: usize) {
     // The dead task's pipe ends close now, so a reader that has not reaped it
     // yet still sees end-of-file.
     super::close_exited_fds();
@@ -200,8 +207,8 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run
     // after dropping the task table, in queue-before-table order.
     signal::post_sigchld(parent);
+    super::childbell::ring(parent);
     CHILD_EXIT.notify_all();
-    true
 }
 
 /// [`finish`] on a caller-held task table, returning the dead task's parent so
@@ -223,6 +230,7 @@ pub(crate) fn finish_locked(
         task.exit_status = status;
         task.parent
     };
+    super::runq::sync(tasks, slot);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
     // runs later in task context, outside this lock.
@@ -269,6 +277,7 @@ pub fn kill_group(pgid: usize) -> usize {
         // See `finish`: queue before task table, and the table is now unlocked.
         for parent in parents {
             signal::post_sigchld(parent);
+            super::childbell::ring(parent);
         }
         CHILD_EXIT.notify_all();
     }

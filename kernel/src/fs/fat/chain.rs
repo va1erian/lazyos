@@ -48,15 +48,19 @@ impl Fat16 {
     }
 
     /// A FAT sector through the one-entry cache.
+    ///
+    /// The cache lock is not held across the device read: the volume is
+    /// reached from both mount tables, and a holder that waited in the block
+    /// driver would make a reader from the other table spin on this plain
+    /// lock with interrupts off.
     fn fat_sector(&self, lba: u32) -> Option<[u8; SECTOR_SIZE]> {
-        let mut cache = self.fat_cache.lock();
-        if let Some((cached, data)) = cache.as_ref() {
+        if let Some((cached, data)) = self.fat_cache.lock().as_ref() {
             if *cached == lba {
                 return Some(*data);
             }
         }
         let data = self.read_sector(lba)?;
-        *cache = Some((lba, data));
+        *self.fat_cache.lock() = Some((lba, data));
         Some(data)
     }
 

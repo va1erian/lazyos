@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/busybox_embed.rs"]
 mod busybox_embed;
+#[path = "build_support/ca_bundle.rs"]
+mod ca_bundle;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
 #[path = "build_support/docs_embed.rs"]
@@ -19,8 +21,12 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/hosts_embed.rs"]
+mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/lazyweb_embed.rs"]
+mod lazyweb_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]
@@ -39,6 +45,8 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/tls_embed.rs"]
+mod tls_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]
@@ -47,6 +55,8 @@ mod usb_image;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
+#[path = "build_support/wallpapers_embed.rs"]
+mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -153,6 +163,11 @@ fn main() {
     let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
         .expect("user faultprobe artifact not found");
     files.add_file(fhs::bin::FAULTPROBE, PathBuf::from(faultprobe));
+    // The cross-process Messenger benchmark (docs/performance-plan.md P6):
+    // `tools/perf/run.py` has the kernel start it; any shell can run it too.
+    let msgbench =
+        std::env::var_os("CARGO_BIN_FILE_USER_msgbench").expect("user msgbench artifact not found");
+    files.add_file(fhs::bin::MSGBENCH, PathBuf::from(msgbench));
     // The fabric observability tool (issue #70); boot it with
     // `LAZYOS_MESSENGERCTL=1`. Every program goes to its `fhs::bin` path, which
     // its spawners use byte for byte (ext2 is case-sensitive).
@@ -373,8 +388,13 @@ fn main() {
     // The desktop shell (issue #157), on by default with the desktop profile.
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
+    println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
+    // The desktop pictures LazyShell can draw behind the launchers.
+    if shell {
+        wallpapers_embed::embed(&mut files);
+    }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
@@ -405,6 +425,16 @@ fn main() {
     // The `rhai` scripting command (issue #319), found from `sh` in /system/bin.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut files, &manifest_dir);
+    // The resolver's host table and the TLS trust anchors, in every image
+    // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
+    // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
+    println!("cargo:rerun-if-changed=build_support/hosts_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/ca_bundle.rs");
+    println!("cargo:rerun-if-changed=build_support/tls_embed.rs");
+    hosts_embed::embed(&mut files);
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
+    ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
+    tls_embed::embed(&mut files, &manifest_dir);
     linuxapps_embed::embed(&mut files, &manifest_dir); // dash, lua, sqlite3, jq, rg
                                                        // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");

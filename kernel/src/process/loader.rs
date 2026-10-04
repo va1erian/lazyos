@@ -211,8 +211,11 @@ fn map_plan<I: Image + ?Sized>(
         // The file pages, then a last page shared with the next segment.
         let tail = segment.lazy_end.max(segment.lazy_start);
         for range in [segment.start..segment.lazy_start, tail..segment.end] {
-            for va in range.step_by(PAGE as usize) {
+            for (index, va) in range.step_by(PAGE as usize).enumerate() {
                 map_eager_page(table, va, segment.prot, &mut pages, &mut prots, &mut shared)?;
+                if index % 64 == 63 {
+                    breathe();
+                }
             }
         }
         copy_segment(image, &pages, segment, &mut chunk)?;
@@ -280,13 +283,25 @@ fn copy_segment<I: Image + ?Sized>(
         image.read_exact_at(segment.offset + copied, piece)?;
         copy_to_pages(pages, segment.vaddr + copied, piece);
         copied += count as u64;
+        breathe();
     }
     Ok(())
+}
+
+/// Between two steps of a large load: let interrupts in when the caller may
+/// sleep. Every caller of the loader is a syscall or a spawn that holds no
+/// lock while it loads (the new address space is owned by its guard, and the
+/// task table is taken only afterwards); before the scheduler starts this
+/// does nothing (`block::iowait::breathe`).
+fn breathe() {
+    crate::block::iowait::breathe(crate::block::Wait::MaySleep);
 }
 
 /// Copy `bytes` to user address `va` through the frames in `pages`.
 fn copy_to_pages(pages: &BTreeMap<u64, u64>, mut va: u64, mut bytes: &[u8]) {
     while !bytes.is_empty() {
+        // A big program is thousands of pages (`arch::irq_window`).
+        crate::arch::irq_window::poll_point();
         let in_page = (va & (PAGE - 1)) as usize;
         let count = (PAGE as usize - in_page).min(bytes.len());
         // INVARIANT: every page holding file bytes is eager (`lazy_start` is

@@ -85,6 +85,11 @@ impl Delivery {
         Reach::Live
     }
 
+    /// Whether any session has events waiting for room.
+    pub(super) fn backlogged(&self) -> bool {
+        !self.outboxes.is_empty()
+    }
+
     /// Retry every backlog. Returns the sessions found gone.
     pub(super) fn flush_all(&mut self, enter: &dyn Fn() -> Option<Vec<u8>>) -> Vec<u64> {
         let waiting: Vec<u64> = self.outboxes.keys().copied().collect();

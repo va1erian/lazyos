@@ -265,6 +265,17 @@ ack-gated with pull-driven retry and bounded queues (no userspace timers yet)
 `conflate` replacement and `buffered(N)` overflow paths count drops, which
 `messengerctl topics` / `Subscription::stats` expose.
 
+A service with other work cannot sit in `next_event`, so a subscription can
+have a **doorbell** (`Bell`, docs/performance-plan.md P7.2): the subscriber
+transfers one end of a fresh channel, and the broker sends one one-way
+`os.lazy.messenger.topics.bell.v1` `Ready` on it when the subscription has an
+event nobody is pulling, then no more until a `next_event` from its owner
+finds the queue empty. The subscriber parks on the other end beside its own
+endpoints (`wait_any`), and on a ring drains with expired-deadline
+`next_event`s until one comes back empty, which re-arms the bell
+(`central::Subscription::bell`/`take_ring`). `logd`'s central feed and
+`timed`'s `confd` watch use it instead of polling every few ticks.
+
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test when the broker is reachable
 and prints `TOPIC:FANOUT:PASS`, `TOPIC:WILDCARD:PASS`, `TOPIC:RETAINED:PASS`,
@@ -519,7 +530,11 @@ same ACL model. No protocol change at the parcel level.
 | Trace overhead when disabled | < 1% |
 | Handle create/destroy | > 1M/s |
 
-Benchmarks run in CI with regression gates.
+The first two rows are measured by `/system/bin/msgbench` (two user
+processes, `PERF:msg_rt` and `PERF:msg_tput`) through `tools/perf/run.py`:
+4 to 5 us median and 0.8 to 1 million one-way messages per second under WHPX
+on the dev profile (docs/performance-plan.md P6). No CI workflow runs the
+benchmark or gates on it yet; the other rows have no benchmark.
 
 ---
 

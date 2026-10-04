@@ -16,11 +16,11 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab" }
 # The optional Global Village multi-colour icon set. A target that prefers the
 # single-colour Lucide fallback (or cannot afford the crate) leaves the feature
 # off; the LazyOS Files app turns it on.
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4", optional = true }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab", optional = true }
 
 [features]
 # The std-backed `Platform` (`StdPlatform`), which the LazyOS app reuses over
@@ -33,6 +33,6 @@ village-icons = ["dep:xui-icons"]
 
 [dev-dependencies]
 # Offscreen rendering for the crate's headless tests.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c2552afbe944369fe301647929ea8c04791c2cc4", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab", default-features = false }
 # The resizable offscreen backend the window-resize tests drive.
 xui-app-testkit = { path = "../testkit" }

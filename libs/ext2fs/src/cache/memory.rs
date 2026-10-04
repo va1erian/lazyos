@@ -56,16 +56,18 @@ pub struct CacheConfig {
     /// work lost to a crash and the stall a writer can meet.
     pub dirty_limit: usize,
     /// Largest single device request the writeback and read-ahead build, in
-    /// bytes (a virtio-blk request carries at most 64 KiB here).
+    /// bytes. The driver may split it further.
     pub max_request: usize,
-    /// Blocks read ahead after a miss that continues the previous one.
+    /// Blocks read ahead after a miss that continues (or lands just past)
+    /// the previous one.
     pub readahead: usize,
     pub memory: Box<dyn CacheMemory>,
 }
 
 impl CacheConfig {
-    /// `blocks` heap pages, half of them allowed dirty, 64 KiB requests and
-    /// 64 KiB of read-ahead: the defaults every host starts from.
+    /// `blocks` heap pages, half of them allowed dirty, 256 KiB requests and
+    /// 256 KiB of read-ahead (at 4 KiB blocks): the defaults every host
+    /// starts from.
     pub fn heap(blocks: usize) -> CacheConfig {
         CacheConfig::with_memory(blocks, Box::new(HeapMemory))
     }
@@ -75,8 +77,8 @@ impl CacheConfig {
         CacheConfig {
             blocks,
             dirty_limit: (blocks / 2).max(1),
-            max_request: 64 * 1024,
-            readahead: 16,
+            max_request: 256 * 1024,
+            readahead: 64,
             memory,
         }
     }

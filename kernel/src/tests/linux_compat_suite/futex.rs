@@ -334,3 +334,66 @@ pub fn futex_soak() -> Result<(), String> {
     cleanup(&slots);
     Ok(())
 }
+
+/// The hashed table (P6.5): 48 waiters on 48 distinct words spread over many
+/// buckets; a wake of one word finds exactly its own waiter, a requeue moves
+/// a waiter between buckets and the moved waiter is then woken by its new
+/// word only, and nothing is left behind. 200 rounds.
+pub fn futex_hashed_buckets() -> Result<(), String> {
+    fresh()?;
+    let words = [0u32; 48];
+    let slots = threads(words.len())?;
+    let mut spread = 0;
+    for round in 0..200usize {
+        for (slot, word) in slots.iter().zip(&words) {
+            hooks::park(*slot, word as *const u32 as u64, u32::MAX);
+        }
+        spread = spread.max(hooks::buckets_in_use());
+        let pick = round % words.len();
+        let to = (pick + 7) % words.len();
+        // Move `pick`'s waiter onto `to`: `to` now has two, `pick` none.
+        check!(
+            futex(
+                &words[pick],
+                REQUEUE,
+                0,
+                1,
+                &words[to] as *const u32 as u64,
+                0
+            ) == 0,
+            "round {round}: requeue woke someone"
+        );
+        check!(
+            hooks::waiting(&words[pick] as *const u32 as u64) == 0
+                && hooks::waiting(&words[to] as *const u32 as u64) == 2,
+            "round {round}: the requeue did not move the waiter"
+        );
+        check!(
+            futex(&words[pick], WAKE, 64, 0, 0, 0) == 0,
+            "round {round}: the old word still woke a waiter"
+        );
+        for (index, word) in words.iter().enumerate() {
+            let want = match index {
+                index if index == pick => 0,
+                index if index == to => 2,
+                _ => 1,
+            };
+            let woken = futex(word, WAKE, 64, 0, 0, 0);
+            check!(
+                woken == want,
+                "round {round}: word {index} woke {woken}, expected {want}"
+            );
+        }
+        check!(
+            hooks::total() == 0,
+            "round {round}: {} entries left",
+            hooks::total()
+        );
+    }
+    check!(
+        spread >= 16,
+        "48 distinct words used only {spread} buckets: the hash does not spread"
+    );
+    cleanup(&slots);
+    Ok(())
+}

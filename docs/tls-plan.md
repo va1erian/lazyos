@@ -1,8 +1,12 @@
 # TLS and modern web services — exploration
 
-Status: **exploratory** (2026-10-03), with three decisions taken: a Gmail test
-account with an app password exists, zig is an accepted build dependency, and
-the password is typed on the real keyboard path (§6.4). Nothing here is built.
+Status: **T0 to T3 built** (2026-10-03): `curl`, `wget` and `fetch` fetch
+HTTPS pages with verified certificates (`LAZYOS_TLS=1`, `run_demo.py --tls`,
+judged by `tools/net/tls_run.py`); T4 (IMAP) and T5 are not started.
+Decisions taken: a Gmail test account with an app password exists, the
+password is typed on the real keyboard path (§6.4), and the TLS stack must be
+**GPLv2-compatible** (the NetSurf port, GPL-2.0-only, LazyWeb, links it: [lazyweb.md](lazyweb.md)), which ruled
+out `ring` in favour of a pure-Rust RustCrypto provider (§3.2).
 Networking stages
 N0–N5 are ([networking-plan.md](networking-plan.md) §10.1,
 [architecture/networking.md](architecture/networking.md)), and this document
@@ -34,11 +38,11 @@ Related: [networking-plan.md](networking-plan.md),
 |---|---|
 | Where TLS runs | **In the client process**, as on every other OS. No `tlsd`: a TLS service would see the plaintext of every application's traffic and parse every server's certificates in one place. `keyd` gets involved only when LazyOS *serves* TLS (§11) |
 | Which programs first | **Static musl `std` programs** on the Linux personality (like `rhai`, LazyRAD and the XUI apps). They already have `std::net` over the N5 `AF_INET` shim, so a TLS client is a library choice, not an OS port. Native `no_std` tools come later, if at all (§4.3) |
-| TLS library | **rustls 0.23** (TLS 1.2 and 1.3, client, Apache-2.0/MIT/ISC). Crypto provider: **`ring`**, cross-compiled with the zig toolchain the repo already uses for Doom and the Docs app; a pure-Rust RustCrypto provider is the fallback if the C build is a problem (§3) |
+| TLS library | **rustls 0.23** (TLS 1.2 and 1.3, client, Apache-2.0/MIT/ISC). Crypto provider: **`nettls-crypto`**, a small in-tree rustls provider over the pure-Rust RustCrypto crates (MIT), so the whole stack is GPLv2-compatible and needs no C compiler (§3.2) |
 | Trust anchors | One PEM bundle at **`/system/etc/ssl/certs/ca-certificates.crt`**, generated at build time from a pinned Mozilla root list, and visible to Linux programs at `/etc/ssl/certs/ca-certificates.crt` (§5.2) |
 | HTTP | **`ureq` 3** (blocking HTTP/1.1, rustls inside, redirects, chunked, gzip). No async runtime (§4.2). Its roots are configured explicitly from the system bundle, never its built-in `webpki-roots` (§5.2) |
 | IMAP | A small blocking client over **`imap-codec`** (a well-fuzzed IMAP4rev1 parser and encoder). Implicit TLS on port 993 only; no `STARTTLS` (§6) |
-| Tools | `fetch` (a curl-like `GET`) and `imapc` (`login`, `list`, `select`, `headers`, `logout`), static musl, embedded in `/system/bin` (§7) |
+| Tools | `fetch`, also installed as `curl` and `wget` with their usual options (built), and `imapc` (`login`, `list`, `select`, `headers`, `logout`; T4), static musl, embedded in `/system/bin` (§7) |
 | OS work this needs | Name resolution for musl (`/etc/resolv.conf`), the CA bundle at `/etc/ssl`, socket receive/send timeouts in the shim, a trustworthy wall clock (SNTP), and storage for the app password. No TLS code in the kernel (§5) |
 | Verification | `tools/net/run.py --tls`: host TLS servers (HTTPS and IMAPS) under a test CA, judged from what the servers recorded and the capture, including negative cases a correct client must refuse; an opt-in `--live` run against the real services (§8) |
 
@@ -49,11 +53,11 @@ Related: [networking-plan.md](networking-plan.md),
 | TCP/UDP, DNS for native tools | built (N3): `netd` over smoltcp, `Resolve` on `stack.v1` | [architecture/networking.md](architecture/networking.md) |
 | `std::net` for musl programs | built (N5): kernel `InetSock` objects pumped by `netd` | `kernel/src/ipc/inet/`, `netfix` fixture |
 | Reaching the internet | QEMU user networking (slirp) NATs the guest through the host; DNS at 10.0.2.3 forwards to the host's resolver | `tools/net/run.py`; `run_demo.py --net` |
-| `/etc` for Linux programs | a **synthetic empty directory**: no `resolv.conf`, `hosts` or `ssl/` | `kernel/src/process/linux/path.rs` (`synthetic_dir`) |
-| musl's resolver | cannot work: it reads `/etc/resolv.conf` and finds none | "Not done" in [architecture/networking.md](architecture/networking.md) |
-| Socket options | `setsockopt` accepts the usual options **and ignores them**, so `SO_RCVTIMEO`/`SO_SNDTIMEO` do nothing | same |
+| `/etc` for Linux programs | *(T1, built)* `resolv.conf` from `netd`'s `/transient/net/resolv.conf`, `hosts` and `ssl/certs/ca-certificates.crt` from `/system/etc`, read-only | `kernel/src/process/linux/etcmap.rs` |
+| musl's resolver | *(T1, built)* works through `/etc/resolv.conf`; `netfix` resolves a real name | `tools/abi/fixtures/src/netfix_names.rs` |
+| Socket options | *(T2, built)* `SO_RCVTIMEO`/`SO_SNDTIMEO` honoured on `AF_INET` sockets (read, write, `accept`, `connect`) | `kernel/src/process/linux/sockopt.rs`, `kernel/src/ipc/inet/timeout.rs` |
 | Sockets across threads | a thread gets its own descriptor table: a socket opened before `thread::spawn` is not visible in the new thread | same |
-| Throughput and latency | about 10 ms per control step (`connect`), at most 16 KiB per socket per direction per tick (about 1.6 MB/s) | same |
+| Throughput and latency | *(performance plan P4)* `netd` is woken by a kernel doorbell instead of its tick: a `connect` takes 0.5-1 ms on the local link; bulk TCP measures about 70 MB/s out and 130-190 MB/s in under WHPX (`tools/net/bulk.py`, `docs/perf/network.md`). Before P4 the table read "about 1.6 MB/s", a figure derived from the code; the first measurement found 50-60 MB/s under load and 10-13 ms per `connect` | `kernel/src/ipc/inet/bell.rs`, `user/src/bin/netd/inet/flow.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom` (seeded from `RDRAND` and timing) and native syscall 26 | `kernel/src/entropy.rs` |
 | Wall clock | RTC read once at boot plus PIT uptime; `clock_settime` with `CAP_SYS_TIME`; **no NTP**. A garbage RTC falls back to 2026-01-01 | `kernel/src/wallclock.rs` |
 | FPU/SIMD state | `FXSAVE`/`FXRSTOR` per task (x87 + SSE). **No `XSAVE`**, so AVX state is not preserved and `OSXSAVE` is off; AES-NI and `PCLMULQDQ` work (they use XMM registers) | `kernel/src/task/fpu.rs` |
@@ -81,9 +85,9 @@ What G1 and G2 need from a TLS client on the wire, today:
 | Candidate | What it is | Fit | Verdict |
 |---|---|---|---|
 | **[rustls](https://github.com/rustls/rustls) 0.23** | Memory-safe TLS 1.2/1.3 in Rust, with `webpki` for path validation; pluggable crypto providers; `std` or `no_std` + `alloc` | Builds unchanged for `x86_64-unknown-linux-musl`; everything in §2's table is supported; the default in `ureq`, `reqwest` and most of the Rust ecosystem; audited | **Use this** |
-| rustls + **`ring`** provider | `ring` 0.17: BoringSSL-derived primitives, Rust with C and pre-generated assembly | Fast (AES-NI, `PCLMULQDQ`), the most deployed rustls configuration. Needs a C compiler for the musl target: zig, which Doom and `xui-docs` already depend on | **Default provider** |
+| rustls + **`ring`** provider | `ring` 0.17: BoringSSL-derived primitives, Rust with C and pre-generated assembly | Fast (AES-NI, `PCLMULQDQ`), the most deployed rustls configuration. Needs a C compiler for the musl target: zig, which Doom and `xui-docs` already depend on | Was the default; ruled out by licence (§3.2) |
 | rustls + `aws-lc-rs` | rustls's own default provider | Needs CMake and a large C build; adds FIPS and post-quantum key exchange we do not need yet | No |
-| rustls + `rustls-rustcrypto` | Pure-Rust provider over the RustCrypto crates | No C at all, builds with rust-lld like `rhai`; younger and marked experimental, slower without hand-written assembly | **Fallback** if the zig build fights us |
+| rustls + `rustls-rustcrypto` | Pure-Rust provider over the RustCrypto crates | No C at all, builds with rust-lld like `rhai`; younger and marked experimental, slower without hand-written assembly | Considered; an alpha (§3.2) |
 | rustls + `graviola` | Pure Rust plus Rust-embedded assembly, fast | Its x86_64 code assumes AVX2-class CPUs; LazyOS does not save AVX state (§2), so it is unusable until `XSAVE` lands | Not now |
 | [embedded-tls](https://crates.io/crates/embedded-tls) | `no_std`, no allocator, TLS 1.3 client only | Certificate verification is partial; no TLS 1.2. Good for a microcontroller talking to one known server, not for the public web | No (for G1/G2) |
 | BusyBox `wget` / `ssl_client` | BusyBox's own TLS (`tls.c`) | Does not verify certificates at all; TLS 1.2 with a handful of suites | No; never treat it as secure |
@@ -93,25 +97,33 @@ What G1 and G2 need from a TLS client on the wire, today:
 `webpki` (rustls's verifier) is the piece that matters most for security: it is
 used by everything above and is the reason not to hand-roll anything here.
 
-### 3.2 Why `ring` and not a pure-Rust provider first
+### 3.2 The crypto provider: pure Rust, GPLv2-compatible
 
-- It is the provider with the most deployment behind it, and the one `ureq`
-  ships by default, so we take the tested path rather than the novel one.
-- Its assembly uses AES-NI, `PCLMULQDQ` and SSSE3, all of which LazyOS tasks
-  can use (XMM state is saved). Under TCG (CI without KVM) the handshake is the
-  slow part, and a software-only provider makes it noticeably slower.
-- The C toolchain is not new: `tools/xui/zig.py` already finds or installs zig
-  0.16, and `tools/doom/build.py` shows a static musl Rust + C link with it.
+*Decided (2026-10-03):* the first draft picked `ring`, built with zig. That
+changed when a NetSurf port came into view: NetSurf is GPL-2.0-only, so the
+TLS stack it links must be available under a GPLv2-compatible licence, and
+`ring` (Apache-2.0 AND ISC) and `aws-lc` are not. What was built instead:
 
-The cost: the TLS tools need zig to build, so without zig they are skipped with
-a warning, exactly as `xui-docs` is. *Decided (2026-10-03):* accepted; zig is
-already a build dependency for litehtml and Doom. `rustls-rustcrypto` stays the
-documented escape hatch, and the tools do not depend on which provider is used.
-
-One build detail to settle when pinning: `ring` probes CPU features through
-`cpuid`, and must not choose an AVX path. It checks `OSXSAVE` before AVX, so a
-kernel that leaves `CR4.OSXSAVE` clear is safe, but the ABI bench should carry a
-fixture that proves it (§8).
+- **`nettls/crypto`** (`nettls-crypto`, MIT so a GPLv2 binary can link it): a
+  rustls `CryptoProvider` modelled on rustls's `provider-example`, over
+  `aes-gcm`, `chacha20poly1305`, `sha2`, `hmac`, `x25519-dalek`, `p256`,
+  `p384`, `ed25519-dalek` and `rsa` (verification only, 2048 to 8192-bit
+  keys), with `getrandom` for randomness. It covers everything in §2's table.
+  `rustls-rustcrypto` was considered and passed over: an alpha that pulls
+  signing, PKCS#5 and QUIC code a client does not need.
+- **A licence gate:** `python tools/nettls/licenses.py` walks every crate
+  linked into the musl build (`cargo tree -e normal`) and fails on one with no
+  GPLv2-compatible licence choice. It caught `x509-cert`'s `flagset`
+  (Apache-2.0 only); the `-v` certificate details use a small DER reader
+  instead.
+- **No C, no zig:** the tools build with rust-lld like `rhai`.
+- **AVX:** the RustCrypto crates pick SIMD paths through `cpufeatures`, which
+  checks `XSAVE` and `OSXSAVE` and reads `XCR0` before choosing AVX; LazyOS
+  leaves `CR4.OSXSAVE` clear, so no AVX path is taken. The `tlsfix` fixture
+  reports it on every bench run and fails if that changes.
+- **Cost:** our provider glue has had no outside audit (the RustCrypto
+  crates under it have), and it is slower than `ring`'s assembly; under TCG a
+  handshake is noticeably slower, invisible with KVM.
 
 ## 4. Where TLS runs
 
@@ -120,7 +132,7 @@ fixture that proves it (§8).
 ```
   fetch     imapc     rhai http::get     a LazyRAD form           (musl std programs)
     │         │            │                  │
-    └── ureq / imap client ┴──── rustls + webpki + ring ──────────  in the caller's process
+    └── ureq / imap client ┴──── rustls + webpki + nettls-crypto ─  in the caller's process
                        │ std::net::TcpStream
                        ▼
              kernel AF_INET shim (N5) ⇄ netd ⇄ netdrv        (unchanged)
@@ -131,7 +143,7 @@ fixture that proves it (§8).
 | **A. Library in each client** | The model of every mainstream OS; plaintext never leaves the process that owns it; a compromised client exposes only its own connections | Every client carries its own copy (a few hundred KiB) | **Chosen** |
 | B. A `tlsd` service clients hand sockets to | One copy of the code; could hold client certificates | One process sees every application's plaintext and parses every server's certificates: the worst place to have a bug. Needs sockets passed between tasks, which neither Messenger replies nor the shim support | Rejected for clients |
 | C. TLS in `netd` | | `netd` already parses hostile frames; adding certificates and every plaintext to it removes the split that justified it | Rejected |
-| D. Kernel TLS (kTLS) | Fast record layer | A record decryptor in ring 0, for a throughput we cannot use (1.6 MB/s link pump) | Rejected |
+| D. Kernel TLS (kTLS) | Fast record layer | A record decryptor in ring 0, for a throughput the link pump could not use (it was put at 1.6 MB/s then; P4 measures 70-190 MB/s, and the argument from privilege stands alone) | Rejected |
 
 `keyd` stays the home of *long-term secrets*. A TLS client has none (its
 session keys are ephemeral), so `keyd` is not on the client path. It is for
@@ -236,8 +248,8 @@ starts at host time, so G1/G2 work from day one in the harness. Elsewhere:
 ### 5.4 Socket timeouts
 
 `ureq` and any IMAP client rely on `set_read_timeout`/`set_write_timeout`
-(`SO_RCVTIMEO`/`SO_SNDTIMEO`). The shim accepts and ignores them, so a silent
-server hangs a client forever. Implement both on `Fd::Inet` (the underlying
+(`SO_RCVTIMEO`/`SO_SNDTIMEO`). *(Built, T2.)* Before T2 the shim accepted and
+ignored them, so a silent server hung a client forever. Implement both on `Fd::Inet` (the underlying
 socket pair already has deadline-aware waits for `poll`). This is kernel code:
 correctness tests (blocking read times out with `EAGAIN`, a timeout of zero
 means none, hostile `timeval`s) and a soak in `kernel/src/tests/linux_suite/`,
@@ -249,11 +261,12 @@ can use non-blocking sockets and `poll`, which work today.
 - **Entropy:** `getrandom` from the kernel CSPRNG is what rustls needs for
   nonces and key shares. Note it in the plan: if `RDRAND` is missing on a real
   machine, early-boot seeding is weaker; TLS clients start long after boot.
-- **Throughput:** 1.6 MB/s is plenty for pages and mail headers. A 10 MiB
-  download takes several seconds; acceptable.
-- **Latency:** a TLS 1.3 handshake is one round trip plus `connect`; the
-  tick-driven pump adds tens of milliseconds, invisible next to the WAN.
-- **Memory:** a static rustls + ring + ureq binary is a few MiB; record
+- **Throughput:** the socket path is no longer the limit (P4 measures
+  70-190 MB/s of plain TCP); the record layer's own cost is.
+- **Latency:** a TLS 1.3 handshake is one round trip plus `connect`, which
+  costs under a millisecond on the local link since P4 (it was a tick or
+  more), invisible next to the WAN either way.
+- **Memory:** a static rustls + RustCrypto + ureq binary is about 1.7 MiB; record
   buffers are 16–32 KiB per connection.
 
 ## 6. Gmail IMAP with an app password (G2)
@@ -406,7 +419,7 @@ saw and what crossed the wire.
 | Layer | What | Run |
 |---|---|---|
 | Host unit | The tools' own logic against in-memory transports: URL and redirect rules, body caps, IMAP command encoding (quoting, literals, CRLF injection refused), response handling, the password never in error text | `cargo test --manifest-path nettls/Cargo.toml` |
-| ABI fixture | `tlsfix`: one rustls handshake against the harness server, plus a CPU-feature report (`ring` must not choose an AVX path) | `python tools/abi/run.py` |
+| ABI fixture | `tlsfix`: one rustls handshake against the harness server, plus a CPU-feature report (no AVX path may be chosen) | `python tools/abi/run.py` |
 | End to end | `python tools/net/run.py --tls`: `fetch` of every page (body hashes equal what the server served), the server saw SNI = the name and ALPN `http/1.1`; `imapc login`, `list`, `headers` (output equals the server's mailbox) | new |
 | Negative | The client **must refuse**: an expired leaf, a not-yet-valid leaf, a wrong host name, a self-signed leaf, an unknown CA, a TLS 1.0-only server, a server offering only CBC/RC4 suites, a truncated record, an `https`→`http` redirect, an IMAP server advertising `LOGINDISABLED` without `AUTH=PLAIN`. For each, the server's record shows no application data (or, for the last, no credentials) from the client, and `imapc` never sent `LOGIN` | in `--tls` |
 | Wire | From the pcap: every flow to the TLS ports starts with a ClientHello carrying the expected SNI; **the password's bytes appear nowhere in the capture**; nothing on 993 is plaintext after the handshake | `tools/net/tls_pcap.py` + `test_tls_pcap.py` (the judge fails when it should) |
@@ -430,12 +443,20 @@ typed with the ordinary `type` step from `LAZYOS_IMAP_USER`.
 
 | Stage | Deliverable | Kernel change | Evidence |
 |---|---|---|---|
-| **T0** | This plan reviewed; library choices pinned; `tlsfix` built with zig (ring) and run on the bench | none | `ABI:tlsfix:PASS` against a harness server, no AVX path |
+| **T0** | This plan reviewed; library choices pinned; `tlsfix` built and run on the bench | none | `ABI:tlsfix:PASS` against a harness server, no AVX path |
 | **T1** | `/etc/resolv.conf` and `/etc/hosts` (R2 static first, then R1 from `netd`); CA bundle at `/system/etc/ssl` and `/etc/ssl` | the `/etc` mappings, with tests | `netfix` resolves a name with `std`; `tlsfix` validates against the system bundle |
 | **T2** | `SO_RCVTIMEO`/`SO_SNDTIMEO` in the shim | **yes**, correctness + soak | kernel suite; a client against a silent server times out |
 | **T3** | `fetch`, `LAZYOS_TLS=1`, `--tls` in `run_demo.py` and the GUI, harness HTTPS peer and negative cases | none | `run.py --tls` page hashes and refusals; **G1 reached** with `--live` |
 | **T4** | Terminal secret-input mode (§6.4), `type_secret` session step, `imapc` (password typed at a prompt), harness IMAPS peer | none | `run.py --tls` IMAP session judged with the password typed over QMP and absent from every log; **G2 reached** with `--live` against Gmail |
 | **T5** | SNTP in `timed` with a build-date floor; `keyd`-wrapped saved password; `http` module for Rhai | none (capability grant for `timed`) | clock stepped from a skewed RTC in the harness; Rhai script fetches a page |
+
+**Where it stands (2026-10-03):** T0 to T3 are built. `tlsfix` passes on the
+bench; T1's `/etc` mappings and `netd`'s `resolv.conf` are covered by the
+kernel suite and `netfix`; T2's timeouts by the kernel suite; T3 by
+`python tools/net/tls_run.py` (`run.py --tls`), which runs `curl`, `wget` and
+`fetch` in the guest against the harness servers and judges the servers'
+records and the capture. `fetch` is installed as `curl` and `wget` too, with
+their usual options, replacing BusyBox's `wget` applet when `LAZYOS_TLS=1`.
 
 ## 10. Risks and open questions
 
@@ -444,8 +465,8 @@ typed with the ordinary `type` step from `LAZYOS_IMAP_USER`.
    needs either a browser or the device-code flow on another machine.
    *Resolved for now:* a Gmail test account with an app password is available
    for the live run.
-2. **The zig dependency** for a core tool. *Resolved:* accepted (zig already
-   builds litehtml and Doom); `rustls-rustcrypto` remains the fallback.
+2. **The zig dependency** for a core tool. *Moot:* the RustCrypto provider
+   needs no C compiler (§3.2).
 3. **Clock trust.** SNTP is spoofable; a network attacker who can move the
    clock back can make an expired, compromised certificate acceptable again.
    Roughtime or NTS would fix it; not needed for the goals.

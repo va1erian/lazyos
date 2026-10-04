@@ -4,7 +4,8 @@
 //!
 //! Everything OS-specific sits behind [`ConfigStore`] (confd on LazyOS, a map
 //! in tests), so the sections, presets and UI run and are tested on the host.
-//! Settings are confd keys: `sys/ui/*` (theme, followed live by `xuid`) and
+//! Settings are confd keys: `sys/ui/*` (theme, followed live by `xuid`; the
+//! desktop picture `sys/ui/wallpaper`, followed by LazyShell) and
 //! `sys/ui/menu` (the desktop context menu, followed live by `xuid`),
 //! `user/<uid>/menu/hidden/*` (the apps the start menu leaves out, read by
 //! LazyShell each time the menu opens),
@@ -13,6 +14,7 @@
 //! and the About facts come through [`System`] (`timed`, `sysinfo`).
 
 pub mod about_page;
+pub mod appearance_page;
 pub mod app;
 pub mod layout;
 pub mod hidden_ops;
@@ -26,6 +28,7 @@ pub mod system;
 pub mod theme_ops;
 pub mod time_ops;
 pub mod time_page;
+pub mod wallpaper_ops;
 
 pub use app::{Msg, SettingsApp};
 pub use sections::Section;

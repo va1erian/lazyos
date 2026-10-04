@@ -21,8 +21,10 @@ use user::messenger::net::{self as nic, Client, Shared};
 use user::messenger::registry;
 use user::sys;
 
-/// Slots per ring: 64 frames of burst each way, a 270 KiB buffer.
-const SLOTS: u32 = 64;
+/// Slots per ring: 256 frames of burst each way (a 1 MiB buffer), more than
+/// a 256 KiB TCP window in full-size segments, so a window's worth of
+/// frames never waits in the driver for room (docs/performance-plan.md P4.3).
+const SLOTS: u32 = 256;
 /// Ticks between attach attempts while the driver is missing.
 const RETRY_TICKS: u64 = 100;
 /// Ticks without any message from the driver (it sends a keep-alive every

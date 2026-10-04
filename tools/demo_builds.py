@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--modplayer`,
-`--linuxapps`, `--devices`) return False so the run stops instead of booting
+`--linuxapps`, `--tls`, `--lazyweb`, `--devices`) return False so the run stops instead of booting
 an image without what was asked for.
 """
 
@@ -61,6 +61,26 @@ def build_linuxapps() -> bool:
     """The Linux command-line programs (dash, lua, sqlite3, jq, rg from pinned
     sources); a missing toolchain or download stops the run."""
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
+
+
+def build_tls() -> bool:
+    """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
+    built by `tools/nettls/build.py`); a failed build stops the run."""
+    return required("the HTTPS tools", "nettls/build.py", ("--require",))
+
+
+#: LazyWeb's browser binary (`tools/xui/build.py` builds it with zig).
+LAZYWEB_ELF = ROOT / "target" / "xui" / "xui-lazyweb.elf"
+
+
+def build_lazyweb() -> bool:
+    """LazyWeb (`--lazyweb`): the xui apps when its binary is missing. NetSurf
+    is C, so `tools/xui/build.py` skips it (with a warning) without zig."""
+    if LAZYWEB_ELF.is_file() or (build_xui_apps() and LAZYWEB_ELF.is_file()):
+        return True
+    print(f"error: {LAZYWEB_ELF} was not built; LazyWeb needs zig "
+          "(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`)", file=sys.stderr)
+    return False
 
 
 def build_xui_apps() -> bool:

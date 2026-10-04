@@ -8,6 +8,7 @@
 use super::*;
 
 mod ctty;
+mod etcmap;
 mod fdshare;
 mod files;
 mod futex;
@@ -19,6 +20,7 @@ mod termios;
 mod wait;
 
 use ctty::*;
+use etcmap::*;
 use fdshare::*;
 use files::*;
 use futex::*;
@@ -146,6 +148,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_futex_unknown_ops_enosys", futex_unknown_ops_enosys),
     ("compat_futex_soak", futex_soak),
+    ("compat_futex_hashed_buckets", futex_hashed_buckets),
     ("compat_wait4_pid_selection", wait4_pid_selection),
     ("compat_wait4_signal_status", wait4_signal_status),
     ("compat_waitid_reports_exit", waitid_reports_exit),
@@ -179,6 +182,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_proc_files", proc_files),
     ("compat_dup3_renameat2_faccessat", dup3_renameat2_faccessat),
     ("compat_files_soak", files_soak),
+    ("compat_etc_backed_files", etc_backed_files),
+    ("compat_etc_backed_files_missing", etc_backed_files_missing),
+    (
+        "compat_etc_backed_files_untrusted",
+        etc_backed_files_untrusted,
+    ),
+    ("compat_etc_backed_files_soak", etc_backed_files_soak),
+    ("compat_tls_client_names", tls_client_names),
     ("compat_termios_roundtrip", termios_roundtrip),
     ("compat_termios_canonical_line", termios_canonical_line),
     ("compat_termios_soak", termios_soak),

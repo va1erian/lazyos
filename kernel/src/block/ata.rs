@@ -182,8 +182,8 @@ fn wait_not_busy() -> bool {
 }
 
 fn wait_for_data() -> bool {
-    // Once per sector: PIO runs with interrupts off (`input::ps2`).
-    crate::input::ps2::service();
+    // Once per sector: PIO runs with interrupts off (`arch::irq_window`).
+    crate::arch::irq_window::poll_point();
     wait_for_data_on(&mut Ports)
 }
 

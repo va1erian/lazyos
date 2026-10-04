@@ -1,0 +1,21 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"at": 2.0, "type": "echo typed latency", "delay": 0.12},
+  {"at": 0.5, "key": "enter", "until": "TERM:CMD:echo typed latency", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:PERF:cmd", "occurrence": 1, "timeout": 30},
+  {"at": 0.5, "type": "seq 1 20000 > /tmp/big", "delay": 0.12},
+  {"at": 0.5, "key": "enter", "until": "TERM:CMD:seq 1 20000 > /tmp/big", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:PERF:cmd", "occurrence": 2, "timeout": 60},
+  {"at": 0.5, "type": "wc -c /tmp/big", "delay": 0.12},
+  {"at": 0.5, "key": "enter", "until": "TERM:CMD:wc -c /tmp/big", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:PERF:cmd", "occurrence": 3, "timeout": 30},
+  {"at": 0.5, "type": "cat /tmp/big", "delay": 0.12},
+  {"at": 0.5, "key": "enter", "until": "TERM:CMD:cat /tmp/big", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:PERF:cmd", "occurrence": 4, "timeout": 300},
+  {"at": 1.0, "shot": "01_after_cat"},
+  {"at": 0.5, "type": "echo done", "delay": 0.12},
+  {"at": 0.5, "key": "enter", "until": "TERM:CMD:echo done", "timeout": 30, "retries": 2},
+  {"wait_for": "TERM:PERF:cmd", "occurrence": 5, "timeout": 30},
+  {"at": 1.0, "shot": "02_done"},
+  {"quit": true}
+]

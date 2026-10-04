@@ -23,7 +23,7 @@ use core::panic::PanicInfo;
 
 use inputmap::{Output, PointerOut};
 use user::messenger::input as api;
-use user::messenger::{self, errno, registry, Error};
+use user::messenger::{self, errno, registry, wait, Error};
 use user::sys;
 
 #[path = "inputd/config.rs"]
@@ -41,9 +41,12 @@ mod trace;
 
 use source::Item;
 
-/// Longest park between raw-bus polls (PIT ticks, 100 Hz): bounds typing
-/// latency at 20 ms without a per-event wakeup (the bus has no doorbell yet).
-const POLL_TICKS: u64 = 2;
+/// Longest park while nothing is due (PIT ticks, 100 Hz): the raw bus and the
+/// service endpoint wake the loop themselves (the kernel's `wait` op), so this
+/// only paces the `confd` layout watch, which is a pull subscription.
+const IDLE_TICKS: u64 = 50;
+/// Park while a client's backlog waits for room (it has no doorbell).
+const BACKLOG_TICKS: u64 = 2;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -59,15 +62,20 @@ pub extern "C" fn _start() -> ! {
 
 fn run() -> Result<(), &'static str> {
     let mut source = source::Source::open().map_err(|_| "cannot open the raw input bus")?;
-    // One endpoint serves both interfaces; the receive loop also paces the raw
-    // bus polling (the bus has no doorbell yet), so a request is answered the
-    // moment it arrives and a key within `POLL_TICKS`.
+    // One endpoint serves both interfaces. The loop parks on it and on the raw
+    // bus together (`wait_any`), so a request is answered and a key or a
+    // pointer move handled the moment it arrives (docs/performance-plan.md
+    // P1.3).
     let (published, server) = messenger::create_pair().map_err(|_| "no service channel")?;
     let interfaces = [api::INTERFACE, api::SHELL_INTERFACE];
     registry::register(api::NAME, &published, &interfaces, 0)
         .map_err(|_| "cannot register os.lazy.input.v1")?;
     registry::register(api::SHELL_NAME, &published, &interfaces, 0)
         .map_err(|_| "cannot register os.lazy.input.shell.v1")?;
+    // Serving: the autostart waits for this before opening app windows, so an
+    // app's one-shot input session open cannot race the registration above
+    // (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let mut hub = hub::Hub::new(config::default_layout());
     let mut config = config::Config::new();
     let trace = trace::Trace::from_args();
@@ -110,11 +118,27 @@ fn run() -> Result<(), &'static str> {
         hub.deliver(&outputs);
         outputs.clear();
 
+        let idle = if hub.backlogged() {
+            BACKLOG_TICKS
+        } else {
+            IDLE_TICKS
+        };
         let wake = hub
             .engine
             .next_due()
-            .map_or(now + POLL_TICKS, |due| due.min(now + POLL_TICKS))
+            .map_or(now + idle, |due| due.min(now + idle))
             .max(now + 1);
+        let ready = match wait::wait_any(&[server], wait::WAIT_RAW_INPUT, Some(wake)) {
+            Ok(mask) => mask,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+            // Never spin on a refused wait: fall back to a timed receive.
+            Err(_) => 1,
+        };
+        if ready & 1 == 0 {
+            continue;
+        }
+        // Ready means queued: this returns at once (the deadline only bounds
+        // the fallback after a refused wait).
         match server.recv_with(&mut buffer, Some(wake)) {
             Ok(message) => {
                 let reply = hub

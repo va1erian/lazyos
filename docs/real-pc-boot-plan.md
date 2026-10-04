@@ -48,7 +48,7 @@ no serial port.
    photograph, a hardware report, and a compatibility matrix.
 
 **Out (v1):** persistence to the stick or to internal disks (AHCI, NVMe, USB
-mass storage), networking and sound on real controllers (e1000e, Intel HDA),
+mass storage; [nvme-install-plan.md](nvme-install-plan.md) explores installing on an internal NVMe SSD), networking and sound on real controllers (e1000e, Intel HDA),
 SMP (S8), ACPI power management beyond S5, Secure Boot signing, laptop
 specifics (I2C-HID touchpads, backlight, lid), Wi-Fi ([wifi-plan.md](wifi-plan.md)
 explores it, with the M.2 card as its last stage), GPU drivers. Each has a

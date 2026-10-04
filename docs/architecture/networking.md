@@ -135,7 +135,10 @@ polled virtio-blk on both QEMU machine types), so the kernel's interrupt message
 and client calls arrive in the same `recv`, and a single wait with a deadline
 serves both. A line that is not routable, or `irq_mode=poll` (or `irq=poll` in
 the service arguments), falls back to polling: the loop then wakes every
-`poll_interval_ms`. Each wake: read the interrupt message if that is what came
+`poll_interval_ms`. With the line armed nothing needs a timer (P4.5): frames and
+finished transmits interrupt, the client's frames come with a kick, and a full
+client receive ring drops rather than holds; the loop parks for 20 ticks only to
+pace the link poll, the keep-alive and the configuration refresh. Each wake: read the interrupt message if that is what came
 (only slot 0 may send one; the ISR status is read to deassert the level, then
 `irq_ack`), answer the request if it was one, then pump.
 
@@ -198,8 +201,10 @@ echo requests itself) behind a `Stack` type; `netd` is the loop around it.
 
 **One loop, one endpoint, again.** `netd` resolves its own published endpoint and
 hands that handle to the driver as the notify endpoint of `AttachRing`, so one
-`recv` with a deadline serves client calls and the driver's `Notify` messages.
-The deadline is `Stack::poll_delay_ms` (smoltcp's next timer). The attachment is
+wait with a deadline serves client calls and the driver's `Notify` messages (a
+`wait_any` that also holds the kernel's `AF_INET` doorbell, see "Linux sockets").
+The deadline is `Stack::poll_delay_ms` (smoltcp's next timer). The rings have 256
+slots each way, more than a 256 KiB TCP window in full-size segments. The attachment is
 re-made when the driver goes away and comes back (`Reattach` does it on demand).
 
 **Device.** `RingDevice` is smoltcp's `Device` over the client side of the two
@@ -296,9 +301,12 @@ attach, an unknown rx mode, a wrong ring id), checks the frame-length policy
 through the counters, runs an intruder task that must be refused on the owner's
 ring, corrupts its own transmit ring (the driver must drop the client, count it
 and accept a new one), and finishes by asking the driver a question. The soak
-compares the fabric snapshot's handle, endpoint, shared-buffer and mapping totals
-before and after 40 cycles: any growth fails it, as does a driver ring error or
-a transmit slot that did not come back.
+compares the handles, shared buffers and buffer bytes of `nicctl` and `netdrv`
+(the fabric snapshot's per-task counts) before and after 40 cycles: any change
+fails it, as does a driver ring error or a transmit slot that did not come
+back. System-wide totals are not judged, since the rest of the system keeps
+starting things meanwhile (`init` restarting a service or launching one, `pkgd`);
+`NICCTL:SOAK:OTHERS` prints them and every other task whose handles moved.
 
 | Layer | What | Run |
 |---|---|---|
@@ -378,7 +386,8 @@ loop's wait is the minimum of smoltcp's next timer, the nearest parked deadline 
 the next sweep. A `Connect` that timed out leaves the handshake running; calling again
 waits for the same attempt.
 
-**Limits.** 64 sockets, 8 per owner, 16 KiB of buffer each way per stream (8
+**Limits.** 64 sockets, 8 per owner, 256 KiB of buffer each way per stream (the window
+is scaled from it; Reno congestion control; a 10 ms delayed ACK; P4.3) (8
 datagrams of 1472 bytes for UDP), a listener's backlog is at most 8 smoltcp sockets
 (one connection each), at most 32 closed streams finishing in the background (the
 oldest is aborted past that, and any stream lingers at most 30 s). Nothing is sized
@@ -502,7 +511,7 @@ FIN, a transfer with no connection, an unrelated connection, bytes the wrong way
 
 ```
 musl / std::net / BusyBox --socket(AF_INET)--> kernel InetSock <-- syscall 27 --> netd --> netstack --> netdrv
-                                        (side B of a small ring pair)   (side A, polled on netd's tick)
+                                        (side B of a ring pair)    (side A; the pump's doorbell wakes netd)
 ```
 
 Static musl programs issue raw `socket`/`connect`/`sendto` syscalls, so the kernel has
@@ -523,8 +532,10 @@ in-kernel suite, which has no scheduler.
 | `kernel/src/ipc/inet/sock.rs` | `InetSock`: states, `begin_*`/`finish` for the control calls, accept queue, `poll_gen`, close on drop |
 | `kernel/src/ipc/inet/pump.rs` | What `netd` calls: `next_request`, `complete`, `accepted`, `net_read`, `net_write`, `net_eof`, `net_error`, `close_ack`, and the wire form of a request |
 | `kernel/src/process/inetsys.rs` | Native syscall 27, the userspace face of the pump |
-| `kernel/src/process/linux/inet.rs` | `socket`, `bind`, `connect`, `listen`, `accept`/`accept4`, `shutdown`, `getsockname`/`getpeername`, `sendto`/`recvfrom`, `read`/`write`, `setsockopt`/`getsockopt` for `AF_INET` |
-| `kernel/src/ipc/pipe/small.rs` | 32 KiB rings (the kernel heap is 16 MiB; a socket's pair is 64 KiB, the cap is 128 rings) |
+| `kernel/src/process/linux/inet.rs` | `socket`, `bind`, `connect`, `listen`, `accept`/`accept4`, `shutdown`, `getsockname`/`getpeername`, `sendto`/`recvfrom`, `read`/`write` for `AF_INET` |
+| `kernel/src/process/linux/sockopt.rs`, `kernel/src/ipc/inet/timeout.rs` | `setsockopt`/`getsockopt`; `SO_RCVTIMEO`/`SO_SNDTIMEO` stored in ticks |
+| `kernel/src/ipc/inet/bell.rs` | The pump's doorbell: what an application does that `netd` must act on wakes it (P4.1) |
+| `kernel/src/ipc/pipe/small.rs` | 256 KiB rings, a TCP window each (a socket's pair is 512 KiB, the cap is 128 rings, 32 MiB of a heap that grows on demand); which end rings the doorbell |
 | `user/src/bin/netd/inet.rs`, `inet/flow.rs`, `user/src/sys/inetpump.rs` | The pump in `netd` and its syscall wrapper |
 | `tools/abi/fixtures/src/netfix.rs` | The Linux `std::net` program the shim is judged by |
 
@@ -539,9 +550,19 @@ wait in the listener's queue (16 at most).
 
 **Bytes.** The application reads and writes side B with the ordinary socket code, so `read`,
 `write`, `poll`, `epoll` (edges included), `dup`, `fork` and `shutdown` need nothing from
-`netd`. `netd` polls side A each tick (the kernel never wakes a service; the loop waits one
-tick when sockets are open or requests queued, five otherwise): up to 16 KiB per socket per
-direction per pass. A datagram socket's messages carry the peer's address in front (6 bytes),
+`netd`. **No timer** (docs/performance-plan.md P4.1): the kernel rings the pump's doorbell
+(`ipc/inet/bell.rs`) when a request is queued, when the application writes into an empty send
+ring, reads from a receive ring with under 2 KiB free (the only case in which `netd` can be
+holding bytes for it) or drops either ring; `netd`'s own reads and writes never ring.
+`netd` parks in `wait_any` on its endpoint and the bell (`WAIT_INET`, only the attached task
+may arm it). **Draining in place** (P4.2): `netd` reads side A straight into the stack's free
+send space and writes the stack's queued bytes straight into side A
+(`Stack::socket_send_with`/`socket_recv_with`), so nothing is staged or allocated and nothing
+leaves one side that the other cannot hold; each direction loops until a side is exhausted or
+the socket's 256 KiB budget for the pass is spent, and a pass that moved bytes is followed by
+another at once (what is left rings no bell and may bring no frame). One syscall-27 `READ`
+fills `netd`'s buffer in place and may move 4 MiB; one Linux `read`/`write` moves up to a whole
+ring (P4.4). A datagram socket's messages carry the peer's address in front (6 bytes),
 so `sendto`/`recvfrom` prepend and strip it. Closing the last descriptor queues a close; `netd`
 first sends the bytes the application wrote, then closes the stack socket and acknowledges, and
 the kernel frees the slot only then.
@@ -550,13 +571,26 @@ the kernel frees the slot only then.
 and every other op needs the attached task. Attaching again (a restarted `netd`) discards every
 socket of the old one: their applications read end of stream and get `EPIPE`.
 
+**Timeouts.** `SO_RCVTIMEO` and `SO_SNDTIMEO` behave as on Linux (docs/tls-plan.md §5.4): a
+`struct timeval` whose `tv_usec` is outside `0..1_000_000` is `EDOM`, a short `optlen` `EINVAL`,
+`{0, 0}` means none, a negative `tv_sec` gives up at once, and the value is kept rounded up to
+whole 10 ms ticks, which `getsockopt` reports. A blocking `read`/`recv`/`recvfrom` (UDP too) or
+`accept` that waits longer returns `EAGAIN`, a blocking `write`/`send`/`sendto` on a full ring
+returns `EAGAIN` (or the bytes it did write), and a blocking `connect` returns `EINPROGRESS`
+while the connection goes on. The deadline is fixed when the call starts; a signal still ends
+the wait with `EINTR`; non-blocking sockets are unaffected.
+
 **Limits and gaps.** Per-call `MSG_DONTWAIT` and `MSG_PEEK` are ignored (the descriptor's
 `O_NONBLOCK` is honoured); `sendmsg`/`recvmsg`, `select` and `ppoll` are not implemented (musl's
 resolver and `std` do not need them here); `setsockopt` accepts the usual options and ignores
-them; `AF_INET6`, raw sockets and netlink are still `EAFNOSUPPORT`; port numbers below 1024 are
+them, except `SO_RCVTIMEO` and `SO_SNDTIMEO`; `AF_INET6`, raw sockets and netlink are still `EAFNOSUPPORT`; port numbers below 1024 are
 refused by `netd` as for Messenger clients; a `netd` that dies leaves open sockets to see end
-of stream only when the new one attaches; latency is a tick per control step (about 10 ms per
-`connect`) and throughput is bounded by the 16 KiB chunk per tick per direction.
+of stream only when the new one attaches. **Speed** (`python tools/net/bulk.py`,
+[`docs/perf/network.md`](../perf/network.md); WHPX, dev profile, user networking): a `connect` to
+the gateway takes 0.5-1 ms (the first after a program starts 1-10 ms), and bulk TCP runs at about
+70 MB/s guest to host and 130-190 MB/s host to guest (before P4: 10-13 ms per `connect`, and
+about 50 MB/s and 60 MB/s on a quiet host). Delayed ACKs and retransmission timers still round
+to `netd`'s 10 ms clock until P2 gives it a finer one.
 
 ### N5 evidence
 
@@ -567,7 +601,7 @@ of stream only when the new one attaches; latency is a tick per control step (ab
   non-blocking connect (success and failure), listen/accept/accept4, the bounded accept queue,
   datagrams (addresses, truncation, connected UDP), `poll` and edge-triggered `epoll`, socket
   options, `dup` and `close`. Stress: 3 000 connect/exchange/close rounds, 5 000 datagrams of every
-  length, a megabyte each way through the 32 KiB rings byte for byte, a close right after a write,
+  length, a megabyte each way through the rings byte for byte, a close right after a write,
   a `netd` restart with sockets open, and six seeds of 2 000 random calls with bounds checked at
   every step; each test ends by checking that no descriptor, socket slot, queued request or ring
   was left.
@@ -581,7 +615,7 @@ of stream only when the new one attaches; latency is a tick per control step (ab
 
 ## Not done
 
-BusyBox `nc`/`wget`/`ftpget` as clients of the shim (no BusyBox in the local build; the CI bench has one), `/etc/resolv.conf` and `/etc/hosts` for musl's resolver, sockets used from a second thread (the shim gives a thread a descriptor table of its own: `thread::spawn` after `socket` cannot share it), `sendmsg`/`recvmsg`/`select`/`ppoll`, `MSG_DONTWAIT`/`MSG_PEEK`, a kernel wake-up for `netd` instead of its tick; per-profile tightening of the
+BusyBox `nc`/`wget`/`ftpget` as clients of the shim (no BusyBox in the local build; the CI bench has one), `/etc/resolv.conf` and `/etc/hosts` for musl's resolver, sockets used from a second thread (the shim gives a thread a descriptor table of its own: `thread::spawn` after `socket` cannot share it), `sendmsg`/`recvmsg`/`select`/`ppoll`, `MSG_DONTWAIT`/`MSG_PEEK`; per-profile tightening of the
 socket rules and a policy loader (the ACL refuses nothing today, so `Renew` and
 `Reattach` are callable by anyone); `CAP_NET_BIND` (nobody binds a port below
 1024) and `CAP_NET_RAW`; loopback (a socket cannot connect to this machine's own
@@ -600,5 +634,8 @@ for the PCI bring-up that `sndd` and `netdrv` both carry, and `sndd`'s
 `discard_transfers` leaving extra transferred handles open; `devd` (the driver is
 started by `init`'s manifest or the kernel directly); MSI/MSI-X (INTx only);
 checksum/segmentation offload and jumbo frames; a second NIC driver (e1000); a
-tickless serve loop (the loop wakes every 2 ticks while a client is attached, and
-every 20 otherwise).
+fully tickless serve loop (with the line armed the loop wakes every 20 ticks only
+for the link poll, the client's keep-alive and the configuration refresh; the
+2-tick wake while a client was attached went in P4.5); `EVENT_IDX` and merged
+receive buffers (P4.6: about one interrupt per 30 received frames already under
+bulk load, so not yet worth it).

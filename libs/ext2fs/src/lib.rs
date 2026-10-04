@@ -16,7 +16,10 @@
 //! (`docs/platform-plan.md` section 4.4); the host build drives it directly
 //! through [`Ext2::mkdir_p`], [`Ext2::write_file`] and [`Ext2::remove_tree`].
 //! It touches the outside world through three seams only: a [`BlockIo`] device,
-//! a [`Clock`], and its own error and metadata types. It implements:
+//! a [`Clock`], and its own error and metadata types. Long operations call
+//! [`BlockIo::pace`] once per unit of work (block, pending free, writeback
+//! request), where a host running the library with interrupts off (the
+//! kernel) takes them. It implements:
 //!
 //! * superblock and group descriptors, with the free counters kept in sync;
 //! * inode and directory operations: `lookup`, `create`, `mkdir`, `unlink`,
@@ -80,6 +83,7 @@ mod error;
 mod file_io;
 mod format;
 mod geometry;
+mod handle;
 mod indirect;
 mod io;
 mod layout;
@@ -87,6 +91,7 @@ mod links;
 mod open;
 mod orphans;
 mod populate;
+mod read_run;
 mod readdir;
 mod rename;
 mod rename_file;
@@ -114,6 +119,7 @@ pub use cache::CacheStats;
 pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;
+pub use handle::FileHandle;
 pub use layout::MAX_FILE_SIZE;
 pub use orphans::{OrphanReport, MAX_SCAN_DIRS};
 #[cfg(any(test, feature = "check"))]
@@ -194,6 +200,8 @@ pub struct Ext2 {
     error_unreported: AtomicBool,
     /// Serialises every operation; see the module docs.
     lock: Mutex<()>,
+    /// Called between the steps of a long operation ([`Ext2::set_pause`]).
+    pause: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Ext2 {
@@ -260,6 +268,23 @@ impl Ext2 {
     /// This is the umount/fsync/shutdown surface (`state.rs` has the ordering).
     pub fn flush(&self) -> Result<(), Ext2Error> {
         self.sync_volume()
+    }
+
+    /// Have `hook` called between the steps of long operations (freeing a
+    /// large file's blocks, applying a commit's frees, scanning a directory
+    /// block, every 16 blocks written, every run read), with the volume lock
+    /// held: a kernel whose calls run with interrupts off lets them in there
+    /// (`kernel/src/fs/ext2/volio.rs`). The hook must not call back into the
+    /// volume.
+    pub fn set_pause(&mut self, hook: Box<dyn Fn() + Send + Sync>) {
+        self.pause = Some(hook);
+    }
+
+    /// A point where a long operation may pause (see [`Ext2::set_pause`]).
+    pub(crate) fn pause_point(&self) {
+        if let Some(hook) = &self.pause {
+            hook();
+        }
     }
 
     /// The current time as an inode field holds it: the [`Clock`], clamped to

@@ -140,7 +140,9 @@ class MainTests(unittest.TestCase):
             build, "MANIFEST", manifest
         ), mock.patch.object(build, "OUT_DIR", out), mock.patch.object(
             build, "ensure_target", return_value=True
-        ), mock.patch.object(build, "build_env", return_value={}), mock.patch.object(
+        ), mock.patch.object(build, "resolve_deps", return_value=True), mock.patch.object(
+            build, "build_env", return_value={}
+        ), mock.patch.object(
             build, "run", side_effect=fake_run
         ), contextlib.redirect_stdout(io.StringIO()) as stdout:
             code = build.main(argv)
@@ -284,7 +286,9 @@ class MainTests(unittest.TestCase):
                 build, "MANIFEST", manifest
             ), mock.patch.object(build, "OUT_DIR", out), mock.patch.object(
                 build, "ensure_target", return_value=True
-            ), mock.patch.object(build, "build_env", return_value={}), mock.patch.object(
+            ), mock.patch.object(build, "resolve_deps", return_value=True), mock.patch.object(
+                build, "build_env", return_value={}
+            ), mock.patch.object(
                 build, "run", side_effect=fake_run
             ), contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(
                 io.StringIO()

@@ -24,8 +24,15 @@ pub const MAX_SOCKETS: usize = 64;
 pub const MAX_PER_OWNER: usize = 8;
 /// Connections a listener may have completed and waiting, at most.
 pub const MAX_BACKLOG: usize = 8;
-/// Bytes of buffer each way for a stream socket.
-pub const TCP_BUFFER: usize = 16 * 1024;
+/// Bytes of buffer each way for a stream socket. 256 KiB windows (smoltcp
+/// scales the advertised window from the receive buffer: shift 2) keep a
+/// bulk transfer from stalling on the window between round trips
+/// (docs/performance-plan.md P4.3); 64 sockets cost 32 MiB at most.
+pub const TCP_BUFFER: usize = 256 * 1024;
+/// How long a received segment may wait for its ACK when no second one
+/// follows (smoltcp's default too; said here so the clock it rounds to,
+/// `netd`'s 10 ms tick, is visible next to it).
+pub const ACK_DELAY_MS: u64 = 10;
 /// Largest `Send` and `Recv` chunk.
 pub const MAX_CHUNK: usize = 16 * 1024;
 /// Datagrams a datagram socket queues each way.
@@ -189,6 +196,10 @@ pub(super) fn new_tcp_socket() -> tcp::Socket<'static> {
     socket.set_timeout(Some(Duration::from_secs(TCP_TIMEOUT_SECS)));
     // Interactive tools send small writes; do not hold them for an ACK.
     socket.set_nagle_enabled(false);
+    socket.set_ack_delay(Some(Duration::from_millis(ACK_DELAY_MS)));
+    // Without a controller smoltcp sends a whole window at once, whatever
+    // the path drops; Reno backs off on loss (Cubic would need f64 here).
+    socket.set_congestion_control(tcp::CongestionControl::Reno);
     socket
 }
 

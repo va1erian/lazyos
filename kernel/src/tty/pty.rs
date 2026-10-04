@@ -161,7 +161,7 @@ impl Pty {
         self.slave_events.fetch_add(1, Ordering::AcqRel);
         self.input_wq.notify_all();
         self.output_wq.notify_all();
-        crate::task::notify_poll();
+        crate::task::notify_poll_key(self as *const Self as u64);
     }
 
     fn master_open(&self) -> bool {
@@ -178,7 +178,7 @@ impl Pty {
         // A settings change can make a read possible (leaving canonical mode).
         self.slave_events.fetch_add(1, Ordering::AcqRel);
         self.input_wq.notify_all();
-        crate::task::notify_poll();
+        crate::task::notify_poll_key(self as *const Self as u64);
         result
     }
 
@@ -234,7 +234,7 @@ impl Pty {
                     }
                     drop(state);
                     self.output_wq.notify_all();
-                    crate::task::notify_poll();
+                    crate::task::notify_poll_key(self as *const Self as u64);
                     return Ok(n);
                 }
                 if self.slave_gone() {
@@ -265,7 +265,7 @@ impl Pty {
                 if state.ldisc.readable() {
                     let n = state.ldisc.read(dst);
                     drop(state);
-                    crate::task::notify_poll();
+                    crate::task::notify_poll_key(self as *const Self as u64);
                     return Ok(n);
                 }
                 if !self.master_open() {
@@ -324,7 +324,7 @@ impl Pty {
                         drop(state);
                         self.master_events.fetch_add(1, Ordering::AcqRel);
                         self.output_wq.notify_all();
-                        crate::task::notify_poll();
+                        crate::task::notify_poll_key(self as *const Self as u64);
                         return Ok(taken);
                     }
                 }

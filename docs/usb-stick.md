@@ -58,6 +58,26 @@ free space is loaded too), at the cost of room for files written to `/`.
 
 Everything on the stick is erased.
 
+The easiest way is the stick maker window, which builds the image, lists the
+sticks and writes one (Tkinter, no extra packages; on Debian/Ubuntu Tkinter is
+`apt install python3-tk`):
+
+```bash
+python3 tools/boot/stick_gui.py          # Linux, as your user: pkexec asks for root to write
+python tools\boot\stick_gui.py          # Windows, in an Administrator prompt
+```
+
+Its **Build image** button runs `run_demo.py --desktop --usb-image
+--build-only` (release profile by default, with the `/home` size you pick, so
+`LAZYOS_USB_HOME_SIZE`); **Write to stick** asks twice like the command line
+and runs `write_stick.py --yes`, whose checks, write and SHA-256 read-back are
+the same, with a progress bar. Sticks the tool refuses are listed greyed out
+with the reason. On Linux the build runs as you and only the write is
+elevated (through `pkexec`, so a polkit agent must be running; or start the
+window with `sudo`).
+
+The same from the command line:
+
 ```bash
 python3 tools/boot/write_stick.py --list                 # removable/USB disks only, with size and model
 sudo python3 tools/boot/write_stick.py --device /dev/sdX # Linux

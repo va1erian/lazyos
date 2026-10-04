@@ -21,6 +21,7 @@ use super::ctx::Ctx;
 use super::icons::IconCache;
 use super::taskbar::{self, BarApp};
 use super::theme::desktop_theme;
+use super::wallpaper::Wallpaper;
 use super::{heartbeat, link, menu, service};
 use crate::client_window::SurfaceRole;
 
@@ -51,6 +52,11 @@ pub struct DesktopApp {
     service: service::ShellService,
     /// The package icons decoded so far.
     images: IconCache,
+    wallpaper: Wallpaper,
+    /// The launcher column in screen pixels: where the labels sit.
+    labels: ShellRect,
+    /// Whether the launchers sit on something dark (the picture, else the mode).
+    dark: bool,
 }
 
 /// The launchers as an icon model.
@@ -176,6 +182,9 @@ impl DesktopApp {
             beat: heartbeat::Heartbeat::new(),
             service: service::ShellService::default(),
             images: IconCache::default(),
+            wallpaper: Wallpaper::default(),
+            labels: ShellRect::new(area.left, area.top, area.width(), area.height()),
+            dark,
         }
     }
 
@@ -218,8 +227,7 @@ impl DesktopApp {
             self.ctx.repaint_bar();
         }
         if self.beat.theme(&self.ctx) {
-            let dark = self.ctx.theme.borrow().is_dark();
-            ui.set_theme(desktop_theme(&self.ctx.theme.borrow().palette(), dark));
+            self.retheme(ui);
             self.rebuild_icons();
             // A new clock format (Settings, Time & Date) changes the width
             // the clock reserves, so the entries move.
@@ -238,6 +246,21 @@ impl DesktopApp {
         self.beat.report_first_frame(&self.ctx, self.icons.len());
     }
 
+    /// Apply the settings just read: the picture (loaded when its path
+    /// changed), then the colours, with label ink that reads on the picture.
+    fn retheme(&mut self, ui: &Ui<DeskMsg>) {
+        let feed = self.ctx.theme.borrow();
+        let s = self.ctx.scale();
+        let screen = (self.ctx.screen.0 * s, self.ctx.screen.1 * s);
+        if self.wallpaper.sync(feed.wallpaper(), screen, self.labels) {
+            self.ctx
+                .backend
+                .set_backdrop(ui.window(), self.wallpaper.image());
+        }
+        self.dark = self.wallpaper.dark().unwrap_or(feed.is_dark());
+        ui.set_theme(desktop_theme(&feed.palette(), self.dark));
+    }
+
     fn rebuild_icons(&mut self) {
         let images = self
             .ctx
@@ -249,7 +272,7 @@ impl DesktopApp {
         self.icons.set_model(Launchers {
             entries: self.ctx.launchers.borrow().clone(),
             images,
-            dark: self.ctx.theme.borrow().is_dark(),
+            dark: self.dark,
         });
         self.icons.select(None);
     }

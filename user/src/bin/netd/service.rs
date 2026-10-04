@@ -157,7 +157,7 @@ impl Netd {
 
     fn addresses(&self) -> Result<Vec<u8>> {
         let state = self.stack.state();
-        let now_ms = sys::clock() as i64 * 10;
+        let now_ms = sys::monotonic_ms() as i64;
         let list = state
             .addr
             .map(|addr| wire::AddressInfo {

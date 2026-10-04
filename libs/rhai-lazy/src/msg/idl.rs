@@ -980,6 +980,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "accepted", ty: Ty::Bool }, Field { name: "phase", ty: Ty::String }],
                 transfers: &[],
             },
+            Method {
+                name: "Ready",
+                id: 197800596,
+                oneway: true,
+                doc: "A supervised service tells `init` it is serving (docs/performance-plan.md\nP7.3): its name is registered and requests are answered. Rows that\ndepend on it start only then, and the desktop's apps only once every\nboot service is ready. Only the running task of a manifest row counts;\nanything else is ignored.",
+                params: &[],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -1191,6 +1200,33 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The cursor position and held `buttons` (as in `PointerEvent`), to seed\nthe compositor's cursor after `Attach`.",
                 params: &[],
                 returns: &[Field { name: "x", ty: Ty::I32 }, Field { name: "y", ty: Ty::I32 }, Field { name: "buttons", ty: Ty::U32 }],
+                transfers: &[],
+            },
+            Method {
+                name: "NoteFocus",
+                id: 10,
+                oneway: true,
+                doc: "One-way `SetFocus`: the compositor's main loop never waits on `inputd`\n(docs/performance-plan.md P3.6). Requests from one sender are handled\nin the order sent, on the same endpoint as the clients' `Open`, so a\nsurface noted before the compositor answers `CreateSurface` is known\nby the time its client opens a session. Refused calls are dropped.",
+                params: &[Field { name: "surface", ty: Ty::Option(&Ty::U64) }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "NoteSurface",
+                id: 11,
+                oneway: true,
+                doc: "One-way `RegisterSurface` (see `NoteFocus`).",
+                params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "owner", ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "ForgetSurface",
+                id: 12,
+                oneway: true,
+                doc: "One-way `UnregisterSurface` (see `NoteFocus`).",
+                params: &[Field { name: "surface", ty: Ty::U64 }],
+                returns: &[],
                 transfers: &[],
             },
             Method {
@@ -2464,6 +2500,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "Bell",
+                id: 1766698328,
+                oneway: false,
+                doc: "Give a subscription a doorbell (docs/performance-plan.md P7.2): the\nbroker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`\nwhen the subscription has an event nobody is pulling, and no more\nuntil a `NextEvent` from its owner finds the queue empty. The owner\nparks on the other end beside its own endpoints (`wait_any`) and\ndrains with expired-deadline `NextEvent`s on each ring, instead of\npolling. Owner only; a second bell replaces the first.",
+                params: &[Field { name: "subscription", ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[Transfer { name: "bell", channel: Some("os.lazy.messenger.topics.bell.v1") }],
+            },
         ],
         structs: &[
             Struct {
@@ -2485,6 +2530,25 @@ pub static INTERFACES: &[Interface] = &[
         enums: &[
             Enum { name: "Qos", variants: &["Latest", "Buffered", "Conflate", "Reliable"] },
         ],
+        topics: &[],
+    },
+    Interface {
+        name: "os.lazy.messenger.topics.bell.v1",
+        id: 0xd4c79d9b36918ea0,
+        doc: "The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what\n`messengerd` sends on a subscriber's bell channel. One `Ready` per batch:\nthe subscriber drains the subscription until `NextEvent` comes back empty,\nwhich re-arms the bell.",
+        methods: &[
+            Method {
+                name: "Ready",
+                id: 197800596,
+                oneway: true,
+                doc: "`subscription` has events waiting.",
+                params: &[Field { name: "subscription", ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[],
+            },
+        ],
+        structs: &[],
+        enums: &[],
         topics: &[],
     },
     Interface {

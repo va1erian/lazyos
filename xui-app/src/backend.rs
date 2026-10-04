@@ -26,6 +26,7 @@
 //!
 //! [`run`]: Backend::run
 
+mod backdrop;
 mod double_click;
 mod event_loop;
 mod focus;
@@ -46,9 +47,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use xui_canvas::{OffscreenBackend, Surface};
-use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
+use xui_core::backend::{Painter, ParentRef, TimerId, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
-use xui_core::{Color, Key, Modifiers, Rect};
+use xui_core::{Key, Modifiers, Rect};
 
 use crate::client_window::{ClientState, ClientWindow, SurfaceRole};
 use crate::display;
@@ -61,8 +62,10 @@ const DEFAULT_DPI: u32 = 96;
 const POLL_MILLIS: u64 = 5;
 /// Largest batch of kernel input records drained per poll.
 const INPUT_BATCH: usize = 64;
-/// Longest the client-mode event receive parks before the loop runs timers.
-const CLIENT_POLL_TICKS: u64 = 1;
+/// Longest a client-mode loop parks with no timer armed and no event
+/// (docs/performance-plan.md P3.8): only a safety net, since every event
+/// endpoint wakes the park and timers bound it.
+const CLIENT_IDLE_NS: u64 = 1_000_000_000;
 /// Receive buffer for one compositor event message.
 const CLIENT_INPUT_BYTES: usize = 4096;
 
@@ -113,9 +116,16 @@ pub struct LazyOSBackend {
     /// Keys an `inputd` session reported down and not yet up, so a focus loss
     /// can release them (`KeyboardLeave`).
     held_keys: RefCell<Vec<Key>>,
-    /// Repeating timers armed by [`Backend::set_timer`], in PIT ticks.
+    /// Repeating timers armed by [`Backend::set_timer`].
     timers: RefCell<Vec<Timer>>,
     next_timer: Cell<usize>,
+    /// The descriptor [`LazyOSBackend::watch_fd`] parks on, and whether it
+    /// became readable since the primary window last heard of it.
+    watched_fd: Cell<Option<i32>>,
+    fd_ready: Cell<bool>,
+    /// The window rectangle being repainted while painters run
+    /// ([`LazyOSBackend::paint_damage`]).
+    paint_damage: Cell<Option<Rect>>,
     /// Frames presented so far.
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
@@ -142,15 +152,21 @@ pub struct LazyOSBackend {
     shaper: OffscreenBackend,
 }
 
-/// One repeating timer; `deadline` is an absolute PIT tick (100 Hz).
+/// One repeating timer, on the monotonic nanosecond clock
+/// ([`sys::monotonic_ns`]): a 16 ms timer fires every 16 ms, not at the
+/// next 10 ms tick after it.
 struct Timer {
     id: usize,
     /// The window the timer belongs to, so its `Timer` event reaches that
     /// window and not whichever one the loop ticks first.
     window: u64,
-    millis: u64,
-    deadline: u64,
+    period_ns: u64,
+    deadline_ns: u64,
 }
+
+/// The `TimerId` of the `Timer` event that reports a readable watched
+/// descriptor ([`LazyOSBackend::watch_fd`]); real timers count up from 1.
+pub const FD_TIMER: TimerId = TimerId(usize::MAX);
 
 struct Window {
     /// The painting surface. Only the damaged rectangle of it is meaningful
@@ -161,7 +177,10 @@ struct Window {
     /// rectangles of `surface`, accumulated. Presents copy from it.
     frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
-    background: Color,
+    /// The window's theme, for the background under every repaint.
+    theme: xui_core::Theme,
+    /// A picture drawn over the background, under every node (`backdrop`).
+    backdrop: Option<Rc<xui_core::image::Image>>,
     dpi: u32,
     width: i32,
     height: i32,
@@ -257,6 +276,9 @@ impl LazyOSBackend {
             held_keys: RefCell::new(Vec::new()),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
+            watched_fd: Cell::new(None),
+            fd_ready: Cell::new(false),
+            paint_damage: Cell::new(None),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
             size_hints: Cell::new(None),
@@ -361,6 +383,13 @@ impl LazyOSBackend {
         *self.on_first_frame.borrow_mut() = Some(Box::new(callback));
     }
 
+    /// The node holding the keyboard focus, if any: lets an app's shortcut
+    /// mapper (`Ui::on_key`) claim a key for one field only (LazyWeb's
+    /// address bar takes Enter; the page keeps it for its forms).
+    pub fn focused(&self) -> Option<WidgetId> {
+        self.focused.get()
+    }
+
     /// Frames presented through the display grant, or to `xuid`.
     pub fn frames(&self) -> u64 {
         self.frames.get()
@@ -417,7 +446,8 @@ mod test_support {
                 surface: Surface::new(64, 64),
                 frame: Vec::new(),
                 sink: Some(sink),
-                background: xui_core::Theme::light().background,
+                theme: xui_core::Theme::light(),
+                backdrop: None,
                 dpi: DEFAULT_DPI,
                 width: 64,
                 height: 64,

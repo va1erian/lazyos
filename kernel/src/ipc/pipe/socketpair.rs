@@ -49,10 +49,12 @@ impl SocketPair {
     }
 
     /// Build a pair of small-ring pipes (an `AF_INET` socket's data path), or
-    /// `None` at the small-ring cap.
+    /// `None` at the small-ring cap. Side A is `netd`'s, side B the
+    /// application's: B's reads of `ab` and writes to `ba` ring the pump's
+    /// doorbell (`small.rs`).
     pub fn new_small(mode: Mode) -> Option<Arc<SocketPair>> {
-        let ab = Pipe::new_small(mode)?;
-        let ba = Pipe::new_small(mode)?;
+        let ab = Pipe::new_small(mode, small::BELL_ON_READ)?;
+        let ba = Pipe::new_small(mode, small::BELL_ON_WRITE)?;
         Some(Self::from_pipes(ab, ba))
     }
 
@@ -168,20 +170,44 @@ impl SocketPair {
     /// Read bytes the peer wrote; `Ok(0)` once the peer side is fully closed
     /// or this side has been `SHUT_RD`.
     pub fn read(&self, side: Side, dst: &mut [u8], nonblock: bool) -> Result<usize, Error> {
+        self.read_until(side, dst, nonblock, None)
+    }
+
+    /// [`SocketPair::read`] that waits no later than `deadline` (absolute
+    /// ticks), then reports [`Error::WouldBlock`] (`SO_RCVTIMEO`).
+    pub fn read_until(
+        &self,
+        side: Side,
+        dst: &mut [u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if self.is_shutdown(side, 0) {
             return Ok(0);
         }
         let (read, _) = self.directions(side);
-        read.read(End::Read, dst, nonblock)
+        read.read_until(End::Read, dst, nonblock, deadline)
     }
 
     /// Write bytes for the peer to read; `SHUT_WR` makes this `BrokenPipe`.
     pub fn write(&self, side: Side, src: &[u8], nonblock: bool) -> Result<usize, Error> {
+        self.write_until(side, src, nonblock, None)
+    }
+
+    /// [`SocketPair::write`] that waits for space no later than `deadline`
+    /// (absolute ticks), then reports [`Error::WouldBlock`] (`SO_SNDTIMEO`).
+    pub fn write_until(
+        &self,
+        side: Side,
+        src: &[u8],
+        nonblock: bool,
+        deadline: Option<u64>,
+    ) -> Result<usize, Error> {
         if self.is_shutdown(side, 1) {
             return Err(Error::BrokenPipe);
         }
         let (_, write) = self.directions(side);
-        write.write(src, End::Write, nonblock)
+        write.write_until(src, End::Write, nonblock, deadline)
     }
 
     /// `poll` revents for one side, merging its read and write directions.
@@ -193,6 +219,12 @@ impl SocketPair {
     /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
     /// `epoll` interests: the counter changes whenever either direction's
     /// readiness could have changed (data, space, or a close).
+    /// The keyed-wakeup keys of both direction pipes (`task::pollwait`): a
+    /// pipe announces its events under its own address.
+    pub fn pipe_keys(&self) -> [u64; 2] {
+        [Arc::as_ptr(&self.ab) as u64, Arc::as_ptr(&self.ba) as u64]
+    }
+
     pub fn poll_gen(&self, side: Side, events: u16) -> (u16, u64) {
         let (read, write) = self.directions(side);
         let revents = read.poll(End::Read, events) | write.poll(End::Write, events);

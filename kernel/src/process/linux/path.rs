@@ -97,7 +97,7 @@ fn synthetic_dir(path: &str) -> bool {
     matches!(
         path,
         "/" | "/bin" | "/sbin" | "/usr" | "/dev" | "/dev/pts" | "/proc" | "/proc/self" | "/etc"
-    )
+    ) || super::etcmap::is_dir(path)
 }
 
 /// The data devices (`/dev/null` and friends, see [`open_device_fd`]).
@@ -151,9 +151,15 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             times: vfs::Times::default(),
         });
     }
-    if applet_name(path).is_some() {
-        return crate::fs::abi_stat(Id::current(), fhs::bin::BUSYBOX)
+    if let Some(program) = system_bin_path(path) {
+        // What `execve` of the name runs: the `/system/bin` program of that
+        // name (`/usr/bin/wget` is `fetch` once `/system/bin/wget` exists),
+        // else BusyBox's applet.
+        let id = Id::current();
+        return crate::fs::abi_stat(id, &program)
             .ok()
+            .filter(|meta| meta.kind == FileKind::File)
+            .or_else(|| crate::fs::abi_stat(id, fhs::bin::BUSYBOX).ok())
             .map(|meta| Meta {
                 ino: 0,
                 mode: vfs::S_IFREG | 0o555,
@@ -288,64 +294,6 @@ pub(super) fn self_exe() -> String {
     }
 }
 
-fn push_dirent(out: &mut Vec<u8>, ino: u64, d_type: u8, name: &str) {
-    let start = out.len();
-    out.extend_from_slice(&ino.to_le_bytes()); // d_ino
-    out.extend_from_slice(&0u64.to_le_bytes()); // d_off
-    out.extend_from_slice(&0u16.to_le_bytes()); // d_reclen (patched below)
-    out.push(d_type);
-    out.extend_from_slice(name.as_bytes());
-    out.push(0);
-    while !(out.len() - start).is_multiple_of(8) {
-        out.push(0);
-    }
-    let reclen = (out.len() - start) as u16;
-    out[start + 16..start + 18].copy_from_slice(&reclen.to_le_bytes());
-}
-
-/// The `linux_dirent64` type byte for a VFS node kind.
-fn dtype_of(kind: FileKind) -> u8 {
-    const DT_DIR: u8 = 4;
-    const DT_REG: u8 = 8;
-    match kind {
-        FileKind::Dir => DT_DIR,
-        FileKind::File => DT_REG,
-    }
-}
-
-/// The `.`/`..` prefix every directory stream starts with.
-fn empty_dir_stream() -> Vec<u8> {
-    const DT_DIR: u8 = 4;
-    let mut out = Vec::new();
-    push_dirent(&mut out, 1, DT_DIR, ".");
-    push_dirent(&mut out, 1, DT_DIR, "..");
-    out
-}
-
-/// Build a `linux_dirent64` stream for a directory, so `getdents64` can read
-/// it like a file (the fd table stores byte snapshots, not directory handles).
-/// The ABI VFS supplies the real entries; `.`/`..` are added here.
-fn dir_stream(path: &str) -> Result<Vec<u8>, FsError> {
-    let mut out = empty_dir_stream();
-    let entries = match crate::fs::abi_readdir(Id::current(), path) {
-        Ok(entries) => entries,
-        Err(FsError::NotFound) => {
-            // A synthetic directory (`/etc`, `/proc`) lists what it fabricates.
-            let names = super::procfs::children(path).ok_or(FsError::NotFound)?;
-            for (index, (name, dir)) in names.iter().enumerate() {
-                let kind = if *dir { FileKind::Dir } else { FileKind::File };
-                push_dirent(&mut out, 100 + index as u64, dtype_of(kind), name);
-            }
-            return Ok(out);
-        }
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        push_dirent(&mut out, entry.ino, dtype_of(entry.kind), &entry.name);
-    }
-    Ok(out)
-}
-
 /// Refuse a write-mode open of a fabricated entry (a synthetic directory or a
 /// BusyBox applet alias): check the mount's write permission first (so a
 /// denial is `EACCES`), then answer `EROFS` because there is no backing node.
@@ -360,7 +308,7 @@ fn write_open_denied(path: &str) -> u64 {
 
 /// Open a directory as a snapshot of its `getdents64` stream.
 fn open_dir_fd(path: &str, meta: Meta) -> u64 {
-    match dir_stream(path) {
+    match super::dirstream::dir_stream(path) {
         Ok(data) => open_snapshot(data, file_meta(meta, String::from(path), false, false)),
         Err(error) => fs_err(error),
     }
@@ -427,6 +375,9 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
             // Fabricated entries cannot be created or written through.
             if write_access || truncate || create {
                 return write_open_denied(path);
+            }
+            if directory && meta.kind != FileKind::Dir {
+                return err(ENOTDIR);
             }
             return if meta.kind == FileKind::Dir {
                 open_dir_fd(path, meta)

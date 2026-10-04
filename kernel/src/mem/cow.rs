@@ -63,6 +63,7 @@ pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
 /// # Safety
 /// `src_phys` must be a page table of `level`.
 unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
+    crate::arch::irq_window::poll_point();
     let new_phys = alloc_zeroed_frame()?;
     let src = entry_table(PhysAddr::new(src_phys));
     let dst = entry_table(new_phys);

@@ -13,6 +13,7 @@ the disk's model and size and asks twice, the second time for the device name
 typed back, then writes the whole image and reads it back to compare SHA-256
 digests. Everything on the disk is lost.
 
+`tools/boot/stick_gui.py` does the same, and the build, from a window.
 Rufus (choose "DD Image" mode when asked) or balenaEtcher do the same job on
 Windows and macOS.
 """
@@ -196,6 +197,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos-usb.img"))
     parser.add_argument("--device", help="the disk to write (/dev/sdX or \\\\.\\PhysicalDriveN)")
     parser.add_argument("--list", action="store_true", help="list removable disks and exit")
+    parser.add_argument("--yes", action="store_true",
+                        help="skip the two questions (the GUI, stick_gui.py, asks them itself)")
     args = parser.parse_args(argv)
 
     image = Path(args.image)
@@ -218,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     reason = refusal(disk, image.stat().st_size)
     if reason:
         raise SystemExit(f"refusing {disk.path}: {reason}")
-    if not confirm(disk, image):
+    if not args.yes and not confirm(disk, image):
         print("nothing written")
         return 1
     if os.name == "nt":

@@ -61,6 +61,11 @@ pub fn fence_wait(handle: u64, sequence: u64, deadline: Option<u64>) -> Result<(
             }
         }
         let reason = FENCES.wait(me, deadline);
+        // A killed waiter must reach its syscall return to die; the error is
+        // never seen.
+        if reason == WakeReason::Interrupted && task::signal::killed(me) {
+            return Err(Error::TimedOut);
+        }
         if reason != WakeReason::TimedOut {
             continue;
         }

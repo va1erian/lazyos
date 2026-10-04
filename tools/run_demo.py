@@ -25,6 +25,8 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
+    python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -58,8 +60,10 @@ from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
+import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_xui_apps,
+    build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_modplayer, build_rhai,
+    build_tls, build_xui_apps,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
@@ -198,6 +202,8 @@ def main(argv: list[str]) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
+    parser.add_argument("--build-only", action="store_true",
+                        help="build the image(s) and exit without booting QEMU")
     parser.add_argument("--release", action="store_true",
                         help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
@@ -289,6 +295,15 @@ def main(argv: list[str]) -> int:
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--tls", action="store_true",
+                        help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
+                             "`wget` and `fetch` in /system/bin, one rustls program that "
+                             "verifies certificates against /etc/ssl/certs, built by "
+                             "tools/nettls/build.py (docs/tls-plan.md)")
+    parser.add_argument("--lazyweb", action="store_true",
+                        help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
+                             "a core package; NetSurf compiled with zig by tools/xui/build.py), "
+                             "networking and the HTTPS tools (docs/lazyweb.md)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -313,11 +328,16 @@ def main(argv: list[str]) -> int:
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
-    args.desktop = args.desktop or args.devices or args.doom or args.lazyrad
+    args.desktop = args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
+    # A browser wants HTTPS (curl beside it too), and HTTPS needs a network.
+    args.tls = args.tls or args.lazyweb
+    args.net = args.net or args.tls
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
         parser.error("--reset-home conflicts with --no-home-disk")
+    if args.build_only and args.no_build:
+        parser.error("--build-only conflicts with --no-build")
     if args.reset_os and args.no_build:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
@@ -370,6 +390,14 @@ def main(argv: list[str]) -> int:
             if not build_linuxapps():
                 return 1
             env["LAZYOS_LINUXAPPS"] = "1"
+        if args.tls:
+            if not build_tls():
+                return 1
+            env["LAZYOS_TLS"] = "1"
+        if args.lazyweb:
+            if not build_lazyweb():
+                return 1
+            env["LAZYOS_LAZYWEB"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
@@ -408,6 +436,8 @@ def main(argv: list[str]) -> int:
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
+        if args.build_only:
+            return 0
 
     image = Path(args.image)
     if not image.is_file():

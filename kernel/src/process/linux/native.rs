@@ -81,6 +81,9 @@ const NATIVE: &[&str] = &[
     // `LAZYOS_NETD=1`.
     fhs::bin::NC,
     fhs::bin::NSLOOKUP,
+    // Bulk TCP throughput (docs/performance-plan.md P4): `netbulk <host>
+    // <port> <bytes>`, against `tools/net/bulk.py`'s server.
+    fhs::bin::NETBULK,
     // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
     fhs::bin::FTP,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
@@ -274,6 +277,11 @@ pub(crate) fn wait_for(slot: usize) -> u64 {
                         SigInfo::kernel(),
                     );
                 }
+                // The caller itself is being killed: it dies at its syscall
+                // return and its child is re-parented, so stop waiting.
+                if signal::killed(task::current()) {
+                    return LOST_CHILD_STATUS;
+                }
             }
         }
     }
@@ -355,6 +363,11 @@ pub(crate) fn read_redirected() -> Option<u64> {
         FdKind::Pipe | FdKind::Socket => {
             let mut byte = [0u8; 1];
             Some(task::poll_until(|| {
+                // A killed task must reach its syscall return to die; this
+                // loop never parks, so no `Interrupted` wake would end it.
+                if task::signal::killed(task::current()) {
+                    return Some(EOF_CHAR);
+                }
                 match task::fd_stream_read(0, &mut byte) {
                     Ok(1) => Some(u64::from(byte[0])),
                     Err(pipe::Error::WouldBlock) => None,

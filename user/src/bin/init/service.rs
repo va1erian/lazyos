@@ -102,6 +102,8 @@ pub(super) struct Service {
     pub(super) stop_deadline: u64,
     /// Whether the shutdown already sent this row `SIGKILL`.
     pub(super) killed: bool,
+    /// Whether the current run said it serves (`init.Ready`, `ready.rs`).
+    pub(super) ready: bool,
 }
 
 impl Service {
@@ -133,6 +135,7 @@ impl Service {
             last_status: None,
             stop_deadline: 0,
             killed: false,
+            ready: false,
         }
     }
 
@@ -165,6 +168,7 @@ impl Service {
             last_status: None,
             stop_deadline: 0,
             killed: false,
+            ready: false,
         }
     }
 
@@ -198,6 +202,7 @@ impl Service {
             last_status: None,
             stop_deadline: 0,
             killed: false,
+            ready: false,
         }
     }
 }

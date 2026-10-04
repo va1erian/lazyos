@@ -1,0 +1,30 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait": 3.0},
+  {"shot": "00_desktop"},
+
+  {"mouse_move": [-400, -400]},
+  {"mouse_move": [-400, -400]},
+  {"mouse_move": [-400, -400]},
+  {"mouse_move": [662, 58]},
+  {"wait": 0.3},
+  {"mouse_click": "left"},
+  {"shot": "01_iconify_a"},
+  {"shot": "01_iconify_b"},
+  {"shot": "01_iconify_c"},
+  {"shot": "01_iconify_d"},
+  {"wait": 1.0},
+  {"shot": "02_minimized"},
+
+  {"mouse_move": [-492, 645]},
+  {"wait": 0.3},
+  {"mouse_click": "left"},
+  {"shot": "03_restore_a"},
+  {"shot": "03_restore_b"},
+  {"shot": "03_restore_c"},
+  {"shot": "03_restore_d"},
+  {"wait": 1.0},
+  {"shot": "04_restored"},
+  {"quit": true}
+]

@@ -189,8 +189,35 @@ fn begin(
 
 impl Shutdown {
     /// Advance the sequence; called every supervision-loop wakeup after the
-    /// exits were reaped. Only returns once `power` is refused.
+    /// exits were reaped. A stage that completes enters the next one at once
+    /// (the loop parks until an exit or [`Shutdown::next_deadline`] in
+    /// between). Only returns once `power` is refused.
     pub(super) fn step(&mut self, services: &mut [Service], broker: &mut router::TopicBroker) {
+        loop {
+            let (stage, entered) = (self.stage, self.entered);
+            self.step_once(services, broker);
+            if self.stage == stage && self.entered == entered {
+                return;
+            }
+        }
+    }
+
+    /// When the sequence must look again with no exit to wake it: the
+    /// earliest stop deadline of a `Stopping` row, or the global deadline.
+    /// Nothing is timed once the services are down (`power` ran).
+    pub(super) fn next_deadline(&self, services: &[Service]) -> Option<u64> {
+        if matches!(self.stage, Stage::Quiesced | Stage::Failed) {
+            return None;
+        }
+        services
+            .iter()
+            .filter(|row| row.phase == Phase::Stopping)
+            .map(|row| row.stop_deadline)
+            .chain(core::iter::once(self.deadline))
+            .min()
+    }
+
+    fn step_once(&mut self, services: &mut [Service], broker: &mut router::TopicBroker) {
         let now = sys::clock();
         if (self.force || now >= self.deadline)
             && matches!(self.stage, Stage::Apps | Stage::Services)

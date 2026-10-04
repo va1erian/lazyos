@@ -113,7 +113,7 @@ fn write_kernel_bytes(fd: u64, bytes: &[u8]) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Terminal => {
             task::write_output(bytes);
-            crate::serial::write_bytes(bytes);
+            crate::serial::mirror(bytes);
             bytes.len() as u64
         }
         FdKind::Pipe | FdKind::Socket => match task::fd_stream_write(fd as usize, bytes) {

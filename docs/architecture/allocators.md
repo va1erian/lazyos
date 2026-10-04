@@ -32,6 +32,18 @@ kernel object slab allocator, and the ring-3 bump allocator.
 - Never shrinks (the linked-list allocator cannot give memory back); the
   high-water mark is what the kernel once needed. `heap_stats()` reports
   `total`, `used`, `free`, `max`, `growths` and `grow_failures`.
+- **Small objects** (P6.4): requests of up to 2 KiB (size or alignment) are
+  served from the heap's own slab classes (`slab::Class`, 32 B to 2 KiB, a
+  separate set from the typed-object slabs below): a free-list pop or push
+  under one interrupts-off lock instead of a first-fit walk. A slab is one
+  page-aligned page allocated from the list (growing the heap like any
+  allocation), so the heap's span, ceiling and frame use are unchanged; a
+  page stays with its class once carved. Every layout a class fits is served
+  by that class, so `dealloc` finds the class from the layout. `heap_stats()`
+  counts a slab page's free slots as free. Lock order: the slab lock, then
+  the list's.
+  Tests: `heap_slab_suite` (placement, alignment, exact accounting, a
+  2M-operation soak).
 
 **Slab allocator** (`slab.rs`, issue #61)
 

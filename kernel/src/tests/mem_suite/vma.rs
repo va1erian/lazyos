@@ -237,17 +237,22 @@ pub fn vma_cow_mprotect() -> Result<(), String> {
         "the parent VMA did not take the new protection"
     );
 
-    // The child still shares the original frame and can copy on write.
+    // The child is now the original frame's only owner: its write fault
+    // keeps that frame, made writable in place (P6.6), not a copy.
     check!(
         mem::cow_fault(child, base),
         "child cow_fault failed after the parent mprotect"
     );
     let child_phys = frame_of(child, base)?;
+    let child_entry = raw_entry(child, base).ok_or("child page vanished")?;
     check!(
-        child_phys != shared && child_phys != private,
-        "child did not get its own copy"
+        child_phys == shared
+            && child_phys != private
+            && child_entry & PTE_WRITABLE != 0
+            && child_entry & COW_BIT == 0,
+        "the child, sole owner of the frame, was copied or left read-only: {child_entry:#x}"
     );
-    check!(frame_matches(child_phys, 0x5a), "child copy is corrupted");
+    check!(frame_matches(child_phys, 0x5a), "child page is corrupted");
 
     mem::unmap_range(parent, base, base + 4096);
     mem::unmap_range(child, base, base + 4096);

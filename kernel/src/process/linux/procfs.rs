@@ -208,13 +208,13 @@ pub(super) fn children(dir: &str) -> Option<Vec<(String, bool)>> {
     };
     let mut names = Vec::new();
     match dir {
-        "/etc" => names.extend(super::etcfs::names().map(|n| (String::from(n), false))),
+        "/etc" => names.extend(super::etcfs::names()),
         "/proc" => {
             names.push((String::from("self"), true));
             files("/proc/", &mut names);
         }
         "/proc/self" => files("/proc/self/", &mut names),
-        _ => return None,
+        _ => return super::etcmap::children(dir),
     }
     Some(names)
 }

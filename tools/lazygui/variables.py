@@ -73,6 +73,13 @@ def make_vars() -> dict:
         "simple_net": b(value=False),
         "linuxapps": b(value=False),
         "simple_linuxapps": b(value=False),
+        # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
+        "tls": b(value=False),
+        "simple_tls": b(value=False),
+        # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
+        # desktop, networking and HTTPS).
+        "lazyweb": b(value=False),
+        "simple_lazyweb": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

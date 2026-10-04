@@ -1,0 +1,97 @@
+name: tls
+
+# HTTPS clients (docs/tls-plan.md, stages T0-T3): host tests of `nettls/`
+# (`fetch`, also run as `curl` and `wget`), the TLS capture judge's own tests,
+# and the end-to-end harness: the tools (rustls over RustCrypto, static musl), embedded with
+# a throwaway test CA, fetch pages from host TLS servers and must refuse the
+# negative ones; the verdict is what those servers and the packet capture saw.
+# The live run against public sites (`tls_run.py --live`) is manual only.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tls-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: nettls
+          workspaces: |
+            nettls -> target
+
+      - name: TLS capture judge (it must fail when it should)
+        run: python tools/net/test_tls_pcap.py
+
+      - name: nettls host tests (argument parsing, redirects, roots, refusals)
+        run: |
+          python -m pip install cryptography
+          cargo test --manifest-path nettls/Cargo.toml --workspace
+          python tools/nettls/test_host.py
+
+      - name: GPLv2-compatible dependency tree
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          python tools/nettls/licenses.py
+
+  harness:
+    name: harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image-tls
+          workspaces: |
+            . -> target
+            nettls -> target
+
+      - name: Install the certificate generator
+        run: python -m pip install cryptography
+
+      - uses: ./.github/actions/busybox
+
+      - name: Build, boot, fetch over HTTPS and judge
+        run: python tools/net/tls_run.py --out shots/tls
+
+      - name: Upload the capture and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls
+          path: |
+            shots/tls/**
+            !shots/tls/certs/*.key
+          if-no-files-found: warn

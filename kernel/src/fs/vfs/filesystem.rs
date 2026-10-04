@@ -1,6 +1,6 @@
 //! The [`Filesystem`] trait mounted filesystems implement.
 
-use super::{DirEntry, FsError, Id, Meta, SetAttr, StatFs};
+use super::{DirEntry, FsError, Id, Meta, NodeId, SetAttr, StatFs};
 use alloc::vec::Vec;
 
 /// The filesystem implementations the VFS can mount. Methods take paths
@@ -28,6 +28,35 @@ pub trait Filesystem: Send + Sync {
 
     /// Write `data` at `offset`, extending the file; returns the count.
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError>;
+
+    /// Resolve the regular file at `path` once for the `*_node` calls below
+    /// (`vfs/node.rs`). The default has no nodes: `Ok(None)`, and callers
+    /// keep using the path.
+    fn open_node(&self, _path: &str) -> Result<Option<NodeId>, FsError> {
+        Ok(None)
+    }
+
+    /// [`Filesystem::read`] by node. A node whose file is gone (deleted, or
+    /// its inode reused) is [`FsError::NotFound`].
+    fn read_node(&self, _node: NodeId, _offset: u64, _buf: &mut [u8]) -> Result<usize, FsError> {
+        Err(FsError::NotSupported)
+    }
+
+    /// [`Filesystem::write`] by node.
+    fn write_node(&self, _node: NodeId, _offset: u64, _data: &[u8]) -> Result<usize, FsError> {
+        Err(FsError::NotSupported)
+    }
+
+    /// Metadata by node.
+    fn stat_node(&self, _node: NodeId) -> Result<Meta, FsError> {
+        Err(FsError::NotSupported)
+    }
+
+    /// [`Filesystem::truncate`] by node. The default answers
+    /// [`FsError::NotSupported`].
+    fn truncate_node(&self, _node: NodeId, _size: u64) -> Result<(), FsError> {
+        Err(FsError::NotSupported)
+    }
 
     /// Truncate (or zero-extend) a regular file to `size` bytes. Backends that
     /// do not implement it answer [`FsError::NotSupported`].

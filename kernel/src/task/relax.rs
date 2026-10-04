@@ -36,8 +36,10 @@ impl spin::RelaxStrategy for Yield {
         } else {
             // Let one interrupt in (the tick that wakes a parked holder or
             // its driver), then restore the caller's interrupt state.
-            interrupts::enable_and_hlt();
-            interrupts::disable();
+            crate::arch::irqoff::paused(|| {
+                interrupts::enable_and_hlt();
+                interrupts::disable();
+            });
         }
     }
 }
