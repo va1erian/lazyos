@@ -42,6 +42,7 @@ pub mod flusher;
 pub mod hidden;
 pub mod late;
 pub(crate) mod mounts;
+pub mod nodes;
 pub mod openfile;
 pub mod overlay;
 pub mod ramfs;

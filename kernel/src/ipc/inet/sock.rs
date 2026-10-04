@@ -140,11 +140,15 @@ impl InetSock {
     }
 
     fn post(&self, op: Op) -> bool {
-        TABLE.lock().push(Request {
+        let queued = TABLE.lock().push(Request {
             id: self.id,
             kind: self.kind,
             op,
-        })
+        });
+        if queued {
+            super::bell::ring();
+        }
+        queued
     }
 
     /// Queue `op` for `netd`. `EALREADY` when it is still busy with a
@@ -378,6 +382,8 @@ impl Drop for InetSock {
                 kind: self.kind,
                 op: Op::Close,
             });
+            drop(table);
+            super::bell::ring();
         }
     }
 }

@@ -92,8 +92,9 @@ pub fn user_table_shares_kernel_half() -> Result<(), String> {
     Ok(())
 }
 
-/// COW fork: clone marks both sides read-only, and the first writer on each
-/// side gets a private copy with the original contents.
+/// COW fork: clone marks both sides read-only; the first writer gets a
+/// private copy with the original contents, and the last one left keeps the
+/// shared frame, made writable in place (the refcount-1 shortcut, P6.6).
 pub fn cow_clone_copies_on_write() -> Result<(), String> {
     let parent = mem::new_user_table().ok_or("new_user_table failed")?;
     let pages = process::map_range(parent, TEST_VA, TEST_VA + 2 * 4096).map_err(to_string)?;
@@ -147,17 +148,25 @@ pub fn cow_clone_copies_on_write() -> Result<(), String> {
         );
 
         check!(
+            mem::frame_refcount(PhysAddr::new(*shared_phys)) == 1,
+            "page {index}: the shared frame kept {} references after the child's copy",
+            mem::frame_refcount(PhysAddr::new(*shared_phys))
+        );
+        check!(
             mem::cow_fault(parent, *va),
             "cow_fault failed on the parent, page {index}"
         );
         let parent_phys = frame_of(parent, *va)?;
+        let parent_entry = raw_entry(parent, *va).ok_or("parent lost the page")?;
         check!(
-            parent_phys != child_phys && parent_phys != *shared_phys,
-            "parent page {index} was not copied"
+            parent_phys == *shared_phys
+                && parent_entry & PTE_WRITABLE != 0
+                && parent_entry & COW_BIT == 0,
+            "parent page {index}, the frame's last owner, was copied or left read-only: {parent_entry:#x}"
         );
         check!(
             frame_matches(parent_phys, seed),
-            "parent copy of page {index} is corrupted"
+            "parent page {index} is corrupted"
         );
     }
 
@@ -217,12 +226,12 @@ pub fn soak_cow_fork_churn() -> Result<(), String> {
             );
             let parent_phys = frame_of(parent, *va)?;
             check!(
-                parent_phys != child_phys && parent_phys != *shared_phys,
-                "iteration {iteration}: parent page {index} not copied"
+                parent_phys == *shared_phys && parent_phys != child_phys,
+                "iteration {iteration}: parent page {index} (sole owner) was copied"
             );
             check!(
                 frame_matches(parent_phys, seed),
-                "iteration {iteration}: parent copy of page {index} corrupted"
+                "iteration {iteration}: parent page {index} corrupted"
             );
         }
         if iteration % 100 == 0 {
@@ -238,6 +247,58 @@ pub fn soak_cow_fork_churn() -> Result<(), String> {
     check!(
         cycles < MAX_CYCLES,
         "soak used {cycles} cycles, over the {MAX_CYCLES} budget"
+    );
+    Ok(())
+}
+
+/// The refcount-1 shortcut (P6.6), 2000 times: a forked child that exits
+/// without writing leaves the parent the only owner of each shared frame, so
+/// the parent's write fault makes the page writable in place: same frame,
+/// contents intact, no frame allocated, nothing leaked across the churn.
+pub fn cow_sole_owner_keeps_frame() -> Result<(), String> {
+    // Measured after one warm-up round: the first may carve heap slabs.
+    let mut free_before = 0;
+    for iteration in 0..2000u32 {
+        if iteration == 1 {
+            free_before = mem::frame_stats().free;
+        }
+        let parent = mem::new_user_table().ok_or("new_user_table failed")?;
+        let pages = process::map_range(parent, TEST_VA, TEST_VA + 2 * 4096).map_err(to_string)?;
+        for (index, (_, phys)) in pages.iter().enumerate() {
+            fill_frame(*phys, page_seed(iteration, index));
+        }
+        let child = mem::clone_user_table(parent).ok_or("clone_user_table failed")?;
+        mem::free_user_table(child);
+        for (index, (va, phys)) in pages.iter().enumerate() {
+            check!(
+                mem::frame_refcount(PhysAddr::new(*phys)) == 1,
+                "iteration {iteration}: page {index} still shared after the child left"
+            );
+            let allocated = mem::frame_stats().allocated;
+            check!(
+                mem::cow_fault(parent, *va),
+                "iteration {iteration}: cow_fault failed, page {index}"
+            );
+            check!(
+                mem::frame_stats().allocated == allocated,
+                "iteration {iteration}: the sole owner's fault allocated a frame"
+            );
+            let entry = raw_entry(parent, *va).ok_or("the page vanished")?;
+            check!(
+                entry & PTE_ADDR == *phys && entry & PTE_WRITABLE != 0 && entry & COW_BIT == 0,
+                "iteration {iteration}: page {index} entry {entry:#x} after the fault"
+            );
+            check!(
+                frame_matches(*phys, page_seed(iteration, index)),
+                "iteration {iteration}: page {index} corrupted"
+            );
+        }
+        mem::free_user_table(parent);
+    }
+    let free_after = mem::frame_stats().free;
+    check!(
+        free_after == free_before,
+        "{free_before} frames free before the churn, {free_after} after"
     );
     Ok(())
 }

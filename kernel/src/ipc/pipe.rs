@@ -179,6 +179,9 @@ pub struct Pipe {
     write_events: AtomicU64,
     /// Allocated from the small-ring budget (`small.rs`), not `MAX_PIPES`.
     small: bool,
+    /// Which of the application's actions ring the `AF_INET` pump's doorbell
+    /// (`small::BELL_*`; zero for every other pipe).
+    bell: u8,
 }
 
 impl Pipe {
@@ -228,6 +231,7 @@ impl Pipe {
             read_events: AtomicU64::new(0),
             write_events: AtomicU64::new(0),
             small,
+            bell: 0,
         }
     }
 
@@ -279,7 +283,8 @@ impl Pipe {
                     self.read_wq.notify_all();
                 }
             }
-            crate::task::notify_poll();
+            crate::task::notify_poll_key(self as *const Self as u64);
+            self.bell_on_release(end);
         }
     }
 
@@ -362,6 +367,7 @@ impl Pipe {
         loop {
             {
                 let mut ring = self.state.lock();
+                let free_before = ring.buf.len() - ring.len;
                 if ring.mode == Mode::Seqpacket {
                     if let Some(&message) = ring.frames.front() {
                         let n = message.min(dst.len());
@@ -369,19 +375,16 @@ impl Pipe {
                         if message > copied {
                             ring.discard(message - copied);
                         }
+                        let full = ring.frames.len() >= MAX_FRAMES;
                         ring.frames.pop_front();
                         drop(ring);
-                        self.write_events.fetch_add(1, Ordering::AcqRel);
-                        self.write_wq.notify_all();
-                        crate::task::notify_poll();
+                        self.after_read(if full { 0 } else { free_before });
                         return Ok(n);
                     }
                 } else if !ring.is_empty() {
                     let n = ring.drain_into(dst);
                     drop(ring);
-                    self.write_events.fetch_add(1, Ordering::AcqRel);
-                    self.write_wq.notify_all();
-                    crate::task::notify_poll();
+                    self.after_read(free_before);
                     return Ok(n);
                 }
                 if self.writers.load(Ordering::Acquire) == 0 {
@@ -431,6 +434,7 @@ impl Pipe {
                     return Err(Error::MessageTooLong);
                 }
                 if self.space_for(&ring, src.len()) {
+                    let was_empty = !ring.has_data();
                     let n = ring.fill_from(src);
                     if ring.mode == Mode::Seqpacket {
                         ring.frames.push_back(n);
@@ -438,7 +442,8 @@ impl Pipe {
                     drop(ring);
                     self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
-                    crate::task::notify_poll();
+                    crate::task::notify_poll_key(self as *const Self as u64);
+                    self.bell_after_write(was_empty);
                     return Ok(n);
                 }
             }
@@ -447,6 +452,16 @@ impl Pipe {
             }
             block_on(&self.write_wq, deadline)?;
         }
+    }
+}
+
+impl Pipe {
+    /// A read took bytes: writers may go on (and the doorbell may ring).
+    fn after_read(&self, free_before: usize) {
+        self.write_events.fetch_add(1, Ordering::AcqRel);
+        self.write_wq.notify_all();
+        crate::task::notify_poll_key(self as *const Self as u64);
+        self.bell_after_read(free_before);
     }
 }
 

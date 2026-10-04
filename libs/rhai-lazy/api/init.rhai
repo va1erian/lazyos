@@ -76,6 +76,19 @@ fn shutdown(mode, reason, force) {
     msg::connect("os.lazy.init.v1").invoke("Shutdown", [mode, reason, force])
 }
 
+/// `Ready() -> () oneway`
+///
+/// A supervised service tells `init` it is serving (docs/performance-plan.md
+/// P7.3): its name is registered and requests are answered. Rows that
+/// depend on it start only then, and the desktop's apps only once every
+/// boot service is ready. Only the running task of a manifest row counts;
+/// anything else is ignored.
+///
+/// One-way: returns `()` once the message is queued.
+fn ready() {
+    msg::connect("os.lazy.init.v1").invoke("Ready", [])
+}
+
 /// A `PowerState` with every field at its zero value.
 ///
 /// The shutdown's progress: the payload of `system/power/state`.

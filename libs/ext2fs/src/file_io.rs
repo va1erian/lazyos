@@ -19,31 +19,7 @@ impl Ext2 {
         if kind_from_mode(le16(&inode, INO_MODE)) != Some(FileKind::File) {
             return Err(Ext2Error::IsDir);
         }
-        let size = self.file_size(&inode);
-        if offset >= size || buf.is_empty() {
-            return Ok(0);
-        }
-        let count = min(size - offset, buf.len() as u64) as usize;
-        let block_size = u64::from(self.block_size);
-        let size_usize = self.block_size as usize;
-        let mut done = 0usize;
-        while done < count {
-            self.pace();
-            let position = offset + done as u64;
-            let index = self.block_index(position)?;
-            let inner = (position % block_size) as usize;
-            let chunk = min(size_usize - inner, count - done);
-            let block = self.block_map(&inode, index)?;
-            if block == 0 {
-                buf[done..done + chunk].fill(0); // a sparse hole reads as zero
-            } else {
-                let mut tmp = [0u8; MAX_BLOCK_SIZE];
-                self.read_block(u64::from(block), &mut tmp[..size_usize])?;
-                buf[done..done + chunk].copy_from_slice(&tmp[inner..inner + chunk]);
-            }
-            done += chunk;
-        }
-        Ok(done)
+        self.read_data(&inode, offset, buf)
     }
 
     /// Write `data` at `offset`, growing the file. A write that fails part-way reports
@@ -51,10 +27,22 @@ impl Ext2 {
     pub fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, Ext2Error> {
         let _guard = self.lock.lock();
         let ino = self.resolve(path)?;
-        let mut inode = self.read_inode(ino)?;
+        let inode = self.read_inode(ino)?;
         if kind_from_mode(le16(&inode, INO_MODE)) != Some(FileKind::File) {
             return Err(Ext2Error::IsDir);
         }
+        self.write_data(ino, inode, offset, data)
+    }
+
+    /// Write `data` at `offset` into regular file `ino`, whose inode is
+    /// `inode` (read under the same lock hold).
+    pub(super) fn write_data(
+        &self,
+        ino: u32,
+        mut inode: [u8; INODE_CORE_SIZE],
+        offset: u64,
+        data: &[u8],
+    ) -> Result<usize, Ext2Error> {
         if data.is_empty() {
             return Ok(0);
         }
@@ -66,7 +54,9 @@ impl Ext2 {
         let mut done = 0usize;
         let mut failure = None;
         while done < data.len() {
-            self.pace();
+            if done > 0 && (done / size_usize).is_multiple_of(16) {
+                self.pace();
+            }
             let position = offset + done as u64;
             let index = self.block_index(position)?;
             let inner = (position % block_size) as usize;
@@ -79,7 +69,8 @@ impl Ext2 {
                 }
             };
             let mut tmp = [0u8; MAX_BLOCK_SIZE];
-            if !fresh {
+            // A block written whole needs nothing of what it held.
+            if !fresh && chunk < size_usize {
                 if let Err(error) = self.read_block(u64::from(block), &mut tmp[..size_usize]) {
                     failure = Some(error);
                     break;

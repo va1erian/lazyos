@@ -1,26 +1,42 @@
 //! The topics `logd` records: `init`'s and the central broker's
 //! `system/events/#`, `healthd`'s `system/health/+`, plus two sampled
 //! counters (fabric denials and the central queue's drops).
+//!
+//! Every feed has a wake source `logd` parks on (P7.2): the two local brokers
+//! push into endpoints of ours, and the central subscription rings its
+//! doorbell (`topics.Bell`) when events are waiting. The denial counters have
+//! none (the kernel's audit ring is written under locks a wake may not take),
+//! so they are sampled on every wake and on a slow fallback timer.
 
 use alloc::format;
 
 use user::central;
-use user::messenger::{self, router, services, topics_client};
+use user::messenger::{self, router, services, topics_client, Endpoint};
 use user::sys;
 
 use crate::log::Log;
 use crate::payload;
 
-/// How often the fabric audit counters are sampled for denial records.
-const DENIAL_POLL_TICKS: u64 = 25;
+/// How often the fabric audit counters are sampled when nothing else wakes
+/// `logd` (it samples them on every wake too).
+pub(super) const DENIAL_FALLBACK_TICKS: u64 = 1000;
+/// How soon to try again while a feed cannot be attached (its broker is not
+/// up yet: `healthd` starts after `logd`).
+pub(super) const CONNECT_RETRY_TICKS: u64 = 10;
 /// Queue depth for the central `system/events/#` audit feed. `Latest` (depth
 /// one) would let the broker silently overwrite an event that arrives before
-/// this loop's next poll; buffering gives the drain loop real headroom, with
-/// any overflow still counted and logged (see [`Feeds::poll_overflow`])
-/// rather than silently lost.
+/// this loop drains it; buffering gives the drain real headroom, with any
+/// overflow still counted and logged (see [`Feeds::poll_overflow`]) rather
+/// than silently lost.
 const CENTRAL_QUEUE_DEPTH: u32 = topics_client::Qos::MAX_DEPTH;
-/// How often the central subscription's drop counter is sampled.
-const OVERFLOW_POLL_TICKS: u64 = 25;
+
+/// One source of work [`Feeds::wait_set`] hands the loop.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    Events,
+    Health,
+    Central,
+}
 
 /// Every feed: a cached bus endpoint plus the attached sink, so a failed
 /// subscribe retries without resolving a new handle every loop.
@@ -31,11 +47,11 @@ pub(super) struct Feeds {
     health: Option<router::Subscriber>,
     central: Option<central::Bus>,
     central_events: Option<central::Subscription>,
+    /// The central subscription's doorbell.
+    central_bell: Option<Endpoint>,
     central_warned: bool,
     central_drops: u64,
     audit: Option<(u64, u64, u64)>,
-    next_denial_poll: u64,
-    next_overflow_poll: u64,
     // Reused snapshot buffers: the user heap never reclaims large per-call
     // buffers.
     stats_buffer: alloc::vec::Vec<u8>,
@@ -51,18 +67,17 @@ impl Feeds {
             health: None,
             central: None,
             central_events: None,
+            central_bell: None,
             central_warned: false,
             central_drops: 0,
             audit: None,
-            next_denial_poll: 0,
-            next_overflow_poll: 0,
             stats_buffer: alloc::vec![0u8; messenger::FabricStats::SIZE],
             central_stats_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
         }
     }
 
-    /// Subscribe to whatever feed is not attached yet.
-    pub(super) fn connect(&mut self) {
+    /// Subscribe to whatever feed is not attached yet; `true` when all are.
+    pub(super) fn connect(&mut self) -> bool {
         if self.events.is_none() {
             self.events_bus = connect_or_keep(self.events_bus.take(), services::INIT_NAME);
             if let Some(bus) = &self.events_bus {
@@ -80,9 +95,10 @@ impl Feeds {
         // Centrally published service events (`mimed` launch records, the
         // clipboard audit trail). The central broker isn't batch-subscribed
         // by the router, so this is a separate client and sink.
-        if self.central_events.is_none() {
+        if self.central_bell.is_none() {
             self.connect_central();
         }
+        self.events.is_some() && self.health.is_some() && self.central_bell.is_some()
     }
 
     fn connect_central(&mut self) {
@@ -95,18 +111,25 @@ impl Feeds {
         let Some(bus) = &mut self.central else {
             return;
         };
-        match bus.subscribe_with_qos(
-            "system/events/#",
-            topics_client::Qos::Buffered(CENTRAL_QUEUE_DEPTH),
-        ) {
-            Ok(subscription) => {
+        let subscribed = bus
+            .subscribe_with_qos(
+                "system/events/#",
+                topics_client::Qos::Buffered(CENTRAL_QUEUE_DEPTH),
+            )
+            .and_then(|mut subscription| {
+                let bell = subscription.bell()?;
+                Ok((subscription, bell))
+            });
+        match subscribed {
+            Ok((subscription, bell)) => {
                 self.central_events = Some(subscription);
+                self.central_bell = Some(bell);
                 self.central_drops = 0;
             }
             Err(error) => {
                 // The bus itself may be the reason the subscribe failed (e.g.
-                // the broker restarted); drop it too so the next loop resolves
-                // a fresh one instead of retrying a dead handle forever.
+                // the broker restarted); drop it too so the next attempt
+                // resolves a fresh one instead of retrying a dead handle.
                 self.central = None;
                 self.warn("logd: central subscribe failed: ", error.message());
             }
@@ -123,15 +146,65 @@ impl Feeds {
         }
     }
 
-    /// Move every queued `init`/`healthd` event into the log.
+    /// The endpoints to park on beside the service's own, into `ends` and
+    /// `sources` (at least three slots each); returns how many.
+    pub(super) fn wait_set(&self, ends: &mut [Endpoint], sources: &mut [Source]) -> usize {
+        let mut count = 0;
+        let feeds = [
+            (
+                self.events.as_ref().map(router::Subscriber::endpoint),
+                Source::Events,
+            ),
+            (
+                self.health.as_ref().map(router::Subscriber::endpoint),
+                Source::Health,
+            ),
+            (self.central_bell, Source::Central),
+        ];
+        for (end, source) in feeds {
+            if let Some(end) = end {
+                ends[count] = end;
+                sources[count] = source;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Take what `source` signalled into the log.
+    pub(super) fn take(&mut self, source: Source, log: &mut Log, buffer: &mut [u8]) {
+        match source {
+            Source::Events => {
+                if !take_one(log, &self.events, buffer) {
+                    self.events = None;
+                }
+            }
+            Source::Health => {
+                if !take_one(log, &self.health, buffer) {
+                    self.health = None;
+                }
+            }
+            Source::Central => {
+                if let Some(sub) = &self.central_events {
+                    sub.take_ring(buffer);
+                }
+                self.drain_central(log, buffer);
+                self.poll_overflow(log);
+            }
+        }
+    }
+
+    /// Move every queued `init`/`healthd` event into the log (the shutdown's
+    /// last look).
     pub(super) fn drain_local(&mut self, log: &mut Log, buffer: &mut [u8]) {
         drain(log, &self.events, buffer);
         drain(log, &self.health, buffer);
     }
 
-    /// Move every queued central-broker event into the log. The central
-    /// subscription hands back the same [`router::Event`] shape as the local
-    /// one, so the record format is identical.
+    /// Move every queued central-broker event into the log; the empty pull at
+    /// the end re-arms the doorbell. The central subscription hands back the
+    /// same [`router::Event`] shape as the local one, so the record format is
+    /// identical.
     pub(super) fn drain_central(&mut self, log: &mut Log, buffer: &mut [u8]) {
         let Some(sub) = self.central_events.as_ref() else {
             return;
@@ -144,11 +217,13 @@ impl Feeds {
                 ),
                 Ok(None) => return,
                 Err(_) => {
-                    // The feed died (e.g. the broker restarted): drop both the
-                    // subscription and the bus, or `connect`'s gate would
-                    // never fire again and this dead handle would be retried
-                    // forever.
+                    // The feed died (e.g. the broker restarted): drop the
+                    // subscription, its bell and the bus, so `connect`
+                    // attaches afresh instead of retrying a dead handle.
                     self.central_events = None;
+                    if let Some(bell) = self.central_bell.take() {
+                        let _ = bell.close();
+                    }
                     self.central = None;
                     return;
                 }
@@ -156,21 +231,10 @@ impl Feeds {
         }
     }
 
-    /// Sample the counters that are due.
-    pub(super) fn poll(&mut self, log: &mut Log, now: u64) {
-        if now >= self.next_denial_poll {
-            self.poll_denials(log);
-            self.next_denial_poll = now + DENIAL_POLL_TICKS;
-        }
-        if now >= self.next_overflow_poll {
-            self.poll_overflow(log);
-            self.next_overflow_poll = now + OVERFLOW_POLL_TICKS;
-        }
-    }
-
     /// Append an overflow record when the central subscription's drop counter
     /// advances, so a `Buffered`-QoS queue that still overran (a burst larger
-    /// than [`CENTRAL_QUEUE_DEPTH`]) leaves its own trace in the log.
+    /// than [`CENTRAL_QUEUE_DEPTH`]) leaves its own trace in the log. Drops
+    /// only happen when events arrive, which rings the bell: checked there.
     fn poll_overflow(&mut self, log: &mut Log) {
         let Some(subscriber) = &self.central_events else {
             return;
@@ -191,7 +255,7 @@ impl Feeds {
     }
 
     /// Append a record when the fabric audit counters advance.
-    fn poll_denials(&mut self, log: &mut Log) {
+    pub(super) fn poll_denials(&mut self, log: &mut Log) {
         let Ok(stats) = messenger::fabric_stats_with(&mut self.stats_buffer) else {
             return;
         };
@@ -220,20 +284,34 @@ fn connect_or_keep(bus: Option<router::Bus>, name: &str) -> Option<router::Bus> 
     }
 }
 
+/// Move one queued event from a subscriber into the log (the wait said one
+/// is there); `false` when the feed failed (its broker is gone).
+fn take_one(log: &mut Log, subscriber: &Option<router::Subscriber>, buffer: &mut [u8]) -> bool {
+    let Some(subscriber) = subscriber else {
+        return true;
+    };
+    match subscriber.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
+        Ok(Some(event)) => {
+            log.append(
+                &event.topic,
+                &payload::describe(&event.topic, &event.payload),
+            );
+            true
+        }
+        Ok(None) => true,
+        Err(_) => false,
+    }
+}
+
 /// Move every queued event from one subscriber into the log.
 fn drain(log: &mut Log, subscriber: &Option<router::Subscriber>, buffer: &mut [u8]) {
-    let Some(subscriber) = subscriber else {
-        return;
-    };
-    loop {
+    while let Some(subscriber) = subscriber {
         match subscriber.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(Some(event)) => log.append(
                 &event.topic,
                 &payload::describe(&event.topic, &event.payload),
             ),
-            Ok(None) => return,
-            // A feed error (e.g. the broker restarted) is retried next loop.
-            Err(_) => return,
+            _ => return,
         }
     }
 }

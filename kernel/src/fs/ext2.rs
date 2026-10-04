@@ -17,28 +17,32 @@
 //! The library error maps 1:1 onto [`FsError`] in the single `From` below.
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use super::hidden;
 use super::vfs::FsError;
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
-use crate::task::relax::YieldMutex;
 
 mod cache;
 mod fsimpl;
+mod volio;
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 ///
 /// `gate` serialises every call into the library. The library's own lock is
-/// a plain spin lock, and a call may park inside it waiting for a user-space
-/// block provider (a USB stick); both mount tables reach the same volume, so
-/// a second task must meet a lock that yields (`task::relax`) before it can
-/// reach the library's.
+/// a plain spin lock, and a call may park inside it: waiting for a user-space
+/// block provider (a USB stick), or for virtio-blk (`block::iowait`). Both
+/// mount tables reach the same volume, so a second task must meet a lock that
+/// yields (`task::relax`) before it can reach the library's ([`volio`]).
 pub struct Ext2 {
     volume: ext2fs::Ext2,
     /// The registry name of the device, for the log lines.
     device: &'static str,
-    gate: YieldMutex<()>,
+    gate: volio::Gate,
+    /// The device as the library reaches it, and whether the gate's holder
+    /// may sleep in it.
+    io: Arc<volio::VolumeIo>,
 }
 
 impl Ext2 {
@@ -66,11 +70,13 @@ impl Ext2 {
         if device.sector_size() != SECTOR_SIZE {
             return Err(FsError::NotSupported);
         }
-        let io = Box::new(device);
-        let volume = match config {
+        let shared = volio::VolumeIo::new(device);
+        let io = Box::new(volio::SharedIo(shared.clone()));
+        let mut volume = match config {
             Some(config) => ext2fs::Ext2::open_cached(io, super::vfs::now, config)?,
             None => ext2fs::Ext2::open(io, super::vfs::now)?,
         };
+        volume.set_pause(volio::pause_hook(&shared));
         // A mount never repairs anything (no fsck here); it only makes the
         // situation visible. The flag survives our own clean shutdowns: only
         // a check clears it (the image build's `Ext2::recover`).
@@ -86,7 +92,8 @@ impl Ext2 {
         Ok(Ext2 {
             volume,
             device: device.name(),
-            gate: YieldMutex::new(()),
+            gate: volio::Gate::new(()),
+            io: shared,
         })
     }
 
@@ -109,14 +116,14 @@ impl Ext2 {
     /// The superblock's free-block counter (the future `statfs` surface).
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_blocks(&self) -> Result<u32, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.free_blocks()?)
     }
 
     /// The superblock's free-inode counter.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_inodes(&self) -> Result<u32, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.free_inodes()?)
     }
 
@@ -124,7 +131,7 @@ impl Ext2 {
     /// to check directory bookkeeping (`.`/`..` links) after renames.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn link_count(&self, path: &str) -> Result<u16, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.link_count(path)?)
     }
 
@@ -132,7 +139,7 @@ impl Ext2 {
     /// This is the diagnostic surface the tests use to see allocation reuse.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn mapped_block(&self, path: &str, index: u32) -> Result<u32, FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.mapped_block(path, index)?)
     }
 
@@ -140,7 +147,7 @@ impl Ext2 {
     /// This is the umount/fsync/shutdown surface.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the trait method is the caller
     pub fn flush(&self) -> Result<(), FsError> {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         Ok(self.volume.flush()?)
     }
 
@@ -155,7 +162,7 @@ impl Ext2 {
     /// volume; a file that cannot be reclaimed is reported and left for the
     /// next mount.
     pub fn reclaim_orphans(&self) -> usize {
-        let _gate = self.gate.lock();
+        let _gate = self.enter();
         let report = self.volume.reclaim_orphans(hidden::PREFIX);
         if report.scan_truncated {
             serial_println!(
@@ -192,55 +199,6 @@ impl From<ext2fs::Ext2Error> for FsError {
             E::NameTooLong => FsError::NameTooLong,
             E::NotSupported => FsError::NotSupported,
         }
-    }
-}
-
-/// A registered device is the library's disk. The explicit `BlockDevice::`
-/// calls matter: method syntax on `&&dyn BlockDevice` would find this very
-/// impl first and recurse.
-///
-/// A file syscall runs with interrupts off and may do thousands of block
-/// operations; every transfer, and every unit of work the library paces
-/// itself by, is a poll point for an interrupt window (`arch::irq_window`).
-impl ext2fs::BlockIo for &'static dyn BlockDevice {
-    fn sector_count(&self) -> u64 {
-        BlockDevice::sector_count(*self)
-    }
-
-    fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), ext2fs::IoError> {
-        crate::arch::irq_window::poll_point();
-        BlockDevice::read_sectors(*self, lba, buf).map_err(io_error)
-    }
-
-    fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), ext2fs::IoError> {
-        crate::arch::irq_window::poll_point();
-        BlockDevice::write_sectors(*self, lba, buf).map_err(io_error)
-    }
-
-    fn read_sectors_vectored(
-        &self,
-        lba: u64,
-        bufs: &mut [&mut [u8]],
-    ) -> Result<(), ext2fs::IoError> {
-        crate::arch::irq_window::poll_point();
-        BlockDevice::read_sectors_vectored(*self, lba, bufs).map_err(io_error)
-    }
-
-    fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), ext2fs::IoError> {
-        crate::arch::irq_window::poll_point();
-        BlockDevice::write_sectors_vectored(*self, lba, bufs).map_err(io_error)
-    }
-
-    fn flush(&self) -> Result<(), ext2fs::IoError> {
-        BlockDevice::flush(*self).map_err(io_error)
-    }
-
-    fn is_writable(&self) -> bool {
-        BlockDevice::is_writable(*self)
-    }
-
-    fn pace(&self) {
-        crate::arch::irq_window::poll_point();
     }
 }
 

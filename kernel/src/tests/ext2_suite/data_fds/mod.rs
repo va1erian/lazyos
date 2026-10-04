@@ -20,6 +20,7 @@ mod inherit;
 mod inspect;
 mod io;
 mod names;
+mod nodes;
 mod reserved;
 mod sizing;
 mod soak;
@@ -63,6 +64,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_data_rename_over_open_file",
         names::rename_over_open_file,
+    ),
+    (
+        "linux_data_names_changed_behind_the_registry",
+        nodes::names_changed_behind_the_registry,
     ),
     ("linux_data_permission_denials", names::permission_denials),
     (
@@ -397,6 +402,8 @@ fn nothing_open(baseline: usize) -> bool {
 /// A formatted ext2 disk mounted as `/data` in the ABI table, restored on drop.
 struct Data {
     disk: &'static FakeDisk,
+    /// The mounted volume, for changes made behind the ABI table's back.
+    fs: Arc<Ext2>,
     previous: Option<Vfs>,
     /// Files registered as open before the test began.
     open_files: usize,
@@ -414,9 +421,10 @@ impl Data {
             let _ = task::fd_close(fd);
         }
         let (fs, _vfs, disk) = mounted_in(slot, 1024, VOLUME_BLOCKS)?;
-        let previous = crate::fs::install_abi_data_for_test(fs);
+        let previous = crate::fs::install_abi_data_for_test(fs.clone());
         Ok(Data {
             disk,
+            fs,
             previous,
             open_files: crate::fs::openfile::open_files(),
         })

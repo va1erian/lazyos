@@ -2,16 +2,18 @@
 //! BIOS, reset and start it, run commands, and pump the event ring (xHCI
 //! 4.2, 4.6, 4.9, 4.22.1).
 //!
-//! Polling only (the plan's first step): the event ring is read on every loop
-//! pass and after every doorbell. Events nobody is waiting for yet (a
-//! transfer completing while a command runs, a port change) are kept in a
-//! queue and handed out later.
+//! The event ring is read on every loop pass and after every doorbell, and
+//! interrupter 0 raises the claim's interrupt line when an event lands, so an
+//! idle driver sleeps until then (`irq.rs`, P3.7). Events nobody is waiting
+//! for yet (a transfer completing while a command runs, a port change) are
+//! kept in a queue and handed out later.
 
 use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use user::dev::{self, Row};
+use user::messenger::Endpoint;
 use user::sys;
 use xhci::extcap::{self, Handoff, Ports};
 use xhci::regs::{self, cap, op, rt, Mmio, Structural};
@@ -99,6 +101,9 @@ pub(super) struct Hc {
     /// The bulk data buffer this controller's sticks share (`msc.rs`), made
     /// on first use and kept: they are served one transfer at a time.
     bulk: Option<Region>,
+    /// Where the kernel posts this claim's interrupts, once armed (`irq.rs`);
+    /// `None` polls.
+    pub(super) irq: Option<Endpoint>,
 }
 
 /// The bulk window: the most one Normal TRB moves, and an alignment it never
@@ -149,7 +154,7 @@ impl Hc {
         if row.bar_meta[0] & 0b11 != 0b01 || row.bar_len[0] < 0x1000 {
             return Err(Error::Bar);
         }
-        let handle = dev::claim(row.id, None, false).map_err(Error::Dev)?;
+        let (handle, irq) = super::irq::claim(row)?;
         let command = dev::cfg_read(handle, PCI_COMMAND, 2).map_err(Error::Dev)?;
         dev::cfg_write(
             handle,
@@ -205,10 +210,12 @@ impl Hc {
             pool: [const { None }; MAX_SLOTS as usize + 1],
             regions: 0,
             bulk: None,
+            irq: None,
         };
         hc.reset()?;
         hc.configure()?;
         hc.start()?;
+        super::irq::arm(&mut hc, irq);
         Ok(hc)
     }
 
@@ -442,6 +449,24 @@ impl Hc {
     pub(super) fn next_event(&mut self) -> Option<Trb> {
         self.pump();
         self.pending.pop_front()
+    }
+
+    /// Interrupter 0 raises the interrupt: no moderation beyond `imod`
+    /// (250 ns units), pending flag cleared, then the controller-wide enable.
+    pub(super) fn enable_interrupter(&mut self, imod: u32) {
+        let at = self.rt + rt::INTERRUPTERS;
+        self.bar.write32(at + rt::IMOD, imod);
+        self.bar.write32(at + rt::IMAN, rt::IMAN_IE | rt::IMAN_IP);
+        let cmd = self.opreg(op::USBCMD);
+        self.set_opreg(op::USBCMD, cmd | op::CMD_INTE);
+    }
+
+    /// Clear interrupter 0's pending flag and the status bit (both write 1
+    /// to clear), so the line drops before the kernel unmasks it.
+    pub(super) fn clear_interrupt(&mut self) {
+        let at = self.rt + rt::INTERRUPTERS + rt::IMAN;
+        self.bar.write32(at, rt::IMAN_IE | rt::IMAN_IP);
+        self.set_opreg(op::USBSTS, op::STS_EINT);
     }
 
     /// `PORTSC` of `port` (1-based).

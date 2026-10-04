@@ -19,8 +19,10 @@ use core::cell::UnsafeCell;
 const CHUNK: usize = 64 * 1024;
 /// Smallest size class: room for the free-list link, and 16-byte aligned.
 const MIN_CLASS_SHIFT: u32 = 4;
-/// Largest size class that is recycled.
-const MAX_CLASS_SHIFT: u32 = 16;
+/// Largest size class that is recycled: 1 MiB, so a long-running service
+/// that opens and closes big buffers (`netd`'s 256 KiB TCP windows, one pair
+/// per connection) reuses them instead of growing the bump region.
+const MAX_CLASS_SHIFT: u32 = 20;
 const MAX_CLASS: usize = 1 << MAX_CLASS_SHIFT;
 /// Blocks of a class are aligned to the class size, capped here so a large
 /// class wastes at most one page of padding in the bump region.

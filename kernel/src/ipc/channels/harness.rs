@@ -32,7 +32,7 @@ pub fn endpoint_waiters(handle: u64) -> Result<Vec<usize>, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let channels = CHANNELS.lock();
     let channel = find_channel_ref(&channels, channel_id)?;
-    Ok(channel.endpoints[side].waiters.clone())
+    Ok(channel.endpoints[side].waiters.iter().collect())
 }
 
 /// Registrations across every live endpoint (a leak never returns to 0).

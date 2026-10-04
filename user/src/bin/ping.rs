@@ -56,7 +56,7 @@ fn connect() -> Result<Client, String> {
                 return Err(format!("no network stack: {}", error.message()))
             }
             Err(_) => {
-                let _ = sys::wait(sys::clock() + 1);
+                sys::nap();
             }
         }
     }

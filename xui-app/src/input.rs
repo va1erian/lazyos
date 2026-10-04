@@ -136,7 +136,8 @@ impl Session {
     pub fn open(surface: u64) -> Result<Session, i64> {
         let service = msg_resolve(NAME)?;
         let result = Session::open_on(service, surface);
-        let _ = crate::display::close(service);
+        // A resolved handle: release it (closing would end inputd's side).
+        let _ = crate::display::release(service);
         result
     }
 
@@ -181,7 +182,7 @@ impl Session {
             }) {
                 let _ = call(service, wire::METHOD_CLOSE, body, Vec::new());
             }
-            let _ = crate::display::close(service);
+            let _ = crate::display::release(service);
         }
         let _ = crate::display::close(self.events);
     }

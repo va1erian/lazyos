@@ -17,7 +17,7 @@ use uitheme::Settings;
 use user::central::{Bus, Subscription};
 use user::messenger::confd::Client;
 use user::messenger::topics_client::Qos;
-use user::messenger::DEFAULT_BUFFER;
+use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
 
 use super::theme;
@@ -26,9 +26,6 @@ use super::theme;
 const POLL_TICKS: u64 = 25;
 /// Ticks between attempts to reach `confd` or the broker while unreachable.
 const RETRY_TICKS: u64 = 300;
-/// Ticks one topic poll may wait: an already-expired deadline makes the
-/// caller leave before the broker answers, which loses the event.
-const RECV_TICKS: u64 = 2;
 /// Ticks the subscribe call may wait for the broker before it is abandoned.
 const SUBSCRIBE_TICKS: u64 = 5;
 /// Topic filter for every `sys/ui/*` change.
@@ -147,7 +144,13 @@ impl ThemeFeed {
         };
         let mut any = false;
         loop {
-            match watch.recv_with(&mut self.buffer, Some(sys::clock() + RECV_TICKS)) {
+            // A poll (`EXPIRED_DEADLINE`), never a wait: the broker parks a
+            // `NextEvent` with no event until the caller's deadline, and a
+            // two-tick deadline here froze the compositor (and the cursor)
+            // for 10 to 20 ms every `POLL_TICKS`. The kernel keeps a poll open
+            // for the broker's whole service turn (`channels::POLL_DEADLINE`),
+            // so a queued event is still delivered.
+            match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
                 Ok(Some(_)) => any = true,
                 Ok(None) => break,
                 Err(_) => {

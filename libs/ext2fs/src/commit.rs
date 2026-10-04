@@ -29,6 +29,8 @@ use super::*;
 /// Pending frees past this many trigger a commit, bounding the list (a 2 GiB
 /// file has half a million blocks).
 const MAX_PENDING: usize = 16 * 1024;
+/// Frees applied between two pause points ([`Ext2::set_pause`]).
+const PAUSE_EVERY: usize = 256;
 
 /// Blocks and inodes freed since the last commit, applied by it.
 #[derive(Default)]
@@ -117,12 +119,13 @@ impl Ext2 {
     /// means the image was already inconsistent) does not stop the rest.
     fn apply(&self, pending: &Pending) -> Result<(), Ext2Error> {
         let mut first = Ok(());
-        for &block in &pending.blocks {
-            self.pace();
+        for (index, &block) in pending.blocks.iter().enumerate() {
             first = first.and(self.release_block(block));
+            if index % PAUSE_EVERY == PAUSE_EVERY - 1 {
+                self.pace();
+            }
         }
         for &(ino, is_dir) in &pending.inodes {
-            self.pace();
             first = first.and(self.release_inode(ino, is_dir));
         }
         first

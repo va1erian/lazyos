@@ -15,14 +15,16 @@ use super::installed::{alias_of, InstalledApps};
 use super::launch::{authorize, launch_argument, launch_row, MAX_LAUNCH_PATH};
 use super::state::{
     Phase, Restart, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, LAUNCH_SELFTEST_ATTEMPTS,
-    LAUNCH_SELFTEST_DELAY, LAUNCH_SELFTEST_RETRY,
+    LAUNCH_SELFTEST_RETRY,
 };
 use super::supervise::{argv, restarts_after};
 
 /// The boot launch self-test: one `Launch("top")` into this supervisor's own
-/// session, retried while the task table is full. `top` is `Once`, so it exits
+/// session once the boot services are ready, retried while the task table is
+/// full. `top` is `Once`, so it exits
 /// after its own `SYS:TOP:PASS`, which proves the launched app really ran.
 pub(super) struct LaunchSelftest {
+    /// When a refused attempt is retried (0: at the next step).
     due: u64,
     attempts: u64,
     done: bool,
@@ -31,10 +33,16 @@ pub(super) struct LaunchSelftest {
 impl LaunchSelftest {
     pub(super) fn new() -> LaunchSelftest {
         LaunchSelftest {
-            due: sys::clock() + LAUNCH_SELFTEST_DELAY,
+            due: 0,
             attempts: 0,
             done: false,
         }
+    }
+
+    /// When a retry is due, while the test has not run; the first attempt
+    /// follows readiness, which wakes the supervisor on its own.
+    pub(super) fn next_due(&self) -> Option<u64> {
+        (!self.done && self.due != 0).then_some(self.due)
     }
 
     /// One attempt when due; schedules the next retry on a full task table.
@@ -44,7 +52,7 @@ impl LaunchSelftest {
         broker: &mut router::TopicBroker,
         now: u64,
     ) {
-        if self.done || now < self.due {
+        if self.done || now < self.due || !super::ready::settled(services) {
             return;
         }
         self.attempts += 1;

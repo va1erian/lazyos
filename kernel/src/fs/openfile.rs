@@ -4,8 +4,10 @@
 //! A snapshot descriptor copies the file into the kernel heap at `open`, which
 //! is fine for a few kilobytes on `/tmp` but wrong for a volume that outlives
 //! the boot: the copy is bounded by the heap, and a second opener never sees the
-//! first one's writes. An [`OpenFile`] holds only a path and an offset, and
-//! every read and write goes to the [`Vfs`](super::vfs::Vfs) at that offset.
+//! first one's writes. An [`OpenFile`] holds a path and an offset, and every
+//! read and write goes to the filesystem at that offset: by node where the
+//! backend has nodes (ext2: the inode, resolved once at `open`,
+//! `vfs/node.rs`), otherwise through the [`Vfs`](super::vfs::Vfs) by path.
 //!
 //! # POSIX behaviour the path alone cannot give
 //!
@@ -42,15 +44,19 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use spin::Mutex;
 
-use super::vfs::{FsError, Id, Meta, Path, StatFs};
+use super::vfs::{FsError, Id, Meta, Node, NodeId, Path, StatFs};
 
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
-    /// Absolute ABI path, kept current across renames.
+    /// Absolute ABI path, kept current across renames. Empty once the name
+    /// is known to belong to another file (see [`share_inode`]).
     path: Mutex<String>,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
     orphan: AtomicBool,
+    /// The file itself, where its filesystem has nodes: reads and writes go
+    /// here and never resolve the path again.
+    node: Option<Node>,
 }
 
 impl Inode {
@@ -88,7 +94,9 @@ impl OpenFile {
         append: bool,
     ) -> Result<Arc<OpenFile>, FsError> {
         let path = Path::parse(path).to_path_string();
-        let inode = share_inode(path)?;
+        // Access was checked by the caller; the node is opened as root.
+        let node = super::nodes::abi_open_node(Id::ROOT, &path, 0)?;
+        let inode = share_inode(path, node)?;
         Ok(Arc::new(OpenFile {
             inode,
             offset: AtomicU64::new(0),
@@ -147,28 +155,67 @@ impl OpenFile {
     }
 
     pub fn stat(&self) -> Result<Meta, FsError> {
-        super::abi_stat(Id::ROOT, &self.path())
+        match &self.inode.node {
+            Some(node) => node.stat(),
+            None => super::abi_stat(Id::ROOT, &self.path()),
+        }
     }
 
     pub fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
-        super::abi_read_at(Id::ROOT, &self.path(), offset, buf)
+        match &self.inode.node {
+            Some(node) => node.read(offset, buf),
+            None => super::abi_read_at(Id::ROOT, &self.path(), offset, buf),
+        }
     }
 
+    /// Write at `offset`. Through a node, the mount table's cached metadata
+    /// of the path is refreshed afterwards, as a write by path does.
     pub fn write_at(&self, offset: u64, data: &[u8]) -> Result<usize, FsError> {
-        super::abi_write(Id::ROOT, &self.path(), offset, data)
+        let Some(node) = &self.inode.node else {
+            return super::abi_write(Id::ROOT, &self.path(), offset, data);
+        };
+        let written = node.write(offset, data)?;
+        let path = self.path();
+        if !path.is_empty() {
+            if let Ok(meta) = node.stat() {
+                super::nodes::abi_refresh(&path, meta);
+            }
+        }
+        Ok(written)
     }
 
+    /// Set the file's size. Through a node this acts on the inode directly, so
+    /// it still works after the name was taken by another file
+    /// ([`share_inode`] clears the path then); the mount table's cached
+    /// metadata of the path is refreshed afterwards, as a write by path does.
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
-        super::abi_truncate(Id::ROOT, &self.path(), size)
+        let Some(node) = &self.inode.node else {
+            return super::abi_truncate(Id::ROOT, &self.path(), size);
+        };
+        node.truncate(size)?;
+        let path = self.path();
+        if !path.is_empty() {
+            if let Ok(meta) = node.stat() {
+                super::nodes::abi_refresh(&path, meta);
+            }
+        }
+        Ok(())
     }
 
-    /// Flush the filesystem this file lives on (`fsync`).
+    /// Flush the filesystem this file lives on (`fsync`). Through a node, this
+    /// does not depend on the path still naming the file.
     pub fn flush(&self) -> Result<(), FsError> {
-        super::abi_flush(Id::ROOT, &self.path())
+        match &self.inode.node {
+            Some(node) => node.flush(),
+            None => super::abi_flush(Id::ROOT, &self.path()),
+        }
     }
 
     pub fn statfs(&self) -> Result<StatFs, FsError> {
-        super::abi_statfs(Id::ROOT, &self.path())
+        match &self.inode.node {
+            Some(node) => node.statfs(),
+            None => super::abi_statfs(Id::ROOT, &self.path()),
+        }
     }
 }
 
@@ -176,24 +223,42 @@ impl Drop for OpenFile {
     /// The last description of an unlinked file frees it.
     fn drop(&mut self) {
         if release(&self.inode) && self.inode.orphan.load(Ordering::Relaxed) {
-            let _ = super::abi_unlink_raw(Id::ROOT, &self.inode.path());
+            let path = self.inode.path();
+            if !path.is_empty() {
+                let _ = super::abi_unlink_raw(Id::ROOT, &path);
+            }
         }
     }
 }
 
 /// The shared [`Inode`] for `path`, registering a new one if it is not open.
-fn share_inode(path: String) -> Result<Arc<Inode>, FsError> {
+///
+/// An open inode registered under `path` is shared only if it is the same
+/// file as `node`: the name can have been given to another file behind this
+/// registry's back (the native VFS deletes and renames without it). A stale
+/// entry then loses the name, so lookups by path (`unlink`, `rename`) find
+/// the file that has it now; its descriptors keep their node.
+fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> {
+    let id = node.as_ref().map(Node::id);
     let mut open = OPEN.lock();
     if let Some(found) = open.iter().find(|inode| *inode.path.lock() == path) {
-        return Ok(Arc::clone(found));
+        if node_id(found) == id {
+            return Ok(Arc::clone(found));
+        }
+        found.path.lock().clear();
     }
     open.try_reserve(1).map_err(|_| FsError::NoSpace)?;
     let inode = Arc::new(Inode {
         path: Mutex::new(path),
         orphan: AtomicBool::new(false),
+        node,
     });
     open.push(Arc::clone(&inode));
     Ok(inode)
+}
+
+fn node_id(inode: &Inode) -> Option<NodeId> {
+    inode.node.as_ref().map(Node::id)
 }
 
 /// Drop one description's claim on `inode`; true when it was the last, in which

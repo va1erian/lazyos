@@ -10,7 +10,7 @@ use xui_core::{Key, Modifiers, MouseButton, Rect};
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
-use super::{LazyOSBackend, CLIENT_INPUT_BYTES, CLIENT_POLL_TICKS, INPUT_BATCH};
+use super::{LazyOSBackend, CLIENT_INPUT_BYTES, INPUT_BATCH};
 
 impl LazyOSBackend {
     /// Route one key press: focus navigation first, then the focused widget.
@@ -109,12 +109,14 @@ impl LazyOSBackend {
     }
 
     /// Drain the event endpoint (client mode): compositor messages carry
-    /// pointer, key and window-close events.
+    /// pointer, key and window-close events. Only queued messages are read
+    /// (the loop parks on every window's endpoint at once afterwards,
+    /// `park_client`), so a window with nothing queued costs one cheap
+    /// syscall instead of a one-tick receive.
     pub(super) fn pump_client_input(&self, window: WindowId, events: u64) {
         let mut buf = [0u8; CLIENT_INPUT_BYTES];
-        loop {
-            let deadline = sys::clock_ticks().saturating_add(CLIENT_POLL_TICKS);
-            match sys::msg_recv(events, &mut buf, deadline) {
+        while matches!(sys::msg_queued(events), Ok(queued) if queued > 0) {
+            match sys::msg_recv(events, &mut buf, sys::EXPIRED_DEADLINE) {
                 Ok(result) => {
                     let len = result.bytes as usize;
                     let Some(parcel) = display::decode_message(&buf[..len]) else {

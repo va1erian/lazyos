@@ -71,6 +71,8 @@ pub fn init() {
     // same scheduler gate; `timer::end_of_tick` acknowledges the right chip.
     idt[super::lapic::TIMER_VECTOR]
         .set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
+    // The one-shot deadline timer (P2.2), when the PIT is the tick.
+    idt[super::event_timer::VECTOR].set_handler_fn(super::event_timer::handler);
     idt[super::lapic::SPURIOUS_VECTOR].set_handler_fn(lapic_spurious_handler);
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);

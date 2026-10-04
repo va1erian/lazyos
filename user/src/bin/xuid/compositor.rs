@@ -7,6 +7,7 @@
 use alloc::vec::Vec;
 use user::messenger::display::{Canvas, Rect};
 
+use super::cursor::CursorOverlay;
 use super::drag::DragSession;
 use super::held::HeldInput;
 use super::inputlink::InputLink;
@@ -27,6 +28,8 @@ pub(super) struct Compositor {
     pub(super) surfaces: Vec<Surface>,
     /// The pointer position, screen-absolute, as far as input was handled.
     pub(super) pointer: (i32, i32),
+    /// The cursor sprite over the composed scene, and the scene under it.
+    pub(super) cursor: CursorOverlay,
     /// The focused window, if any.
     pub(super) focused: Option<u64>,
     /// The window-manager title-bar drag (issue #143).
@@ -97,6 +100,7 @@ impl Compositor {
             screen,
             surfaces: Vec::new(),
             pointer,
+            cursor: CursorOverlay::new(),
             focused: None,
             drag: None,
             resize: None,

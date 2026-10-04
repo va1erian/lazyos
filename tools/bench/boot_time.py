@@ -54,6 +54,10 @@ MILESTONES: list[tuple[str, str, int]] = [
     ("sched_started", r"^LazyOS: scheduler started", 1),
     ("desktop_ready", r"^XUID:UP:PASS", 1),
     ("clients_ready", r"^XDEMO:UP:PASS", 2),
+    # The full desktop (`LAZYOS_DESKTOP=1`): init's autostart opened the shell
+    # and the Terminal, and each painted its first frame.
+    ("shell_ready", r"^SHELL:UP:PASS", 1),
+    ("terminal_ready", r"^TERM:UP:PASS", 1),
 ]
 PHASE_RE = re.compile(r"^BOOT:PHASE:([A-Za-z0-9_]+):tsc=(\d+)")
 
@@ -143,6 +147,7 @@ def run_once(qemu: str, image: Path, accel: str, args, scratch: Path) -> dict:
         qmp = Qmp("127.0.0.1", port, 30)
         result["t"]["qmp_ready"] = time.perf_counter() - t0
         need = {"desktop_ready"} | ({"clients_ready"} if args.clients else set())
+        need |= {name for name in args.need.split(",") if name}
         need |= set() if args.no_frames else {"first_frame"}
         result["need"] = sorted(need)
         while time.perf_counter() - t0 < args.timeout:
@@ -263,6 +268,9 @@ def main() -> int:
     ap.add_argument("--no-frames", action="store_true", help="skip screendump polling")
     ap.add_argument("--clients", action=argparse.BooleanOptionalAction, default=True,
                     help="also wait for the XDEMO client markers")
+    ap.add_argument("--need", default="", metavar="NAMES",
+                    help="more milestones a run must reach, comma-separated (the full desktop:"
+                         " --no-clients --need shell_ready,terminal_ready)")
     ap.add_argument("--extra-arg", action="append", default=[], metavar="ARG")
     ap.add_argument("--json", help="write raw runs + summaries here")
     args = ap.parse_args()

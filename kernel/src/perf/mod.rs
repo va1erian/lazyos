@@ -10,6 +10,16 @@
 //! | `input_present` | the same publication, for pointer records | the compositor's next `present` syscall returns |
 //! | `irqoff` | a syscall enters (interrupts off) | it returns, parks, or naps (interrupts back on) |
 //! | `ipc_rt` | `begin_call` of an in-kernel echo | `await_reply` returns its reply (no context switch) |
+//! | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns |
+//! | `present` | the display owner's `present` syscall starts | it returns (breaths between chunks included) |
+//! | `sched` | a scheduler entry (tick, park or yield) | it returns the stack to resume (selection, bookkeeping, the switch) |
+//! | `wake_run` | a task wakes another one (any cause) | the woken task is put on the CPU |
+//!
+//! `PERF:ctxsw:tick=<t> switches=<n> entries=<n>` gives the running totals of
+//! context switches and scheduler entries, so a harness can take a rate over
+//! any window. `/system/bin/msgbench` (started once, 19 s after boot) prints
+//! `PERF:msg_rt` (a cross-process `Ping` round trip, user `rdtsc` around the
+//! call) and `PERF:msg_tput` itself, in the same format.
 //!
 //! Durations are TSC cycles, converted with the PIT calibration when printed.
 //! [`report`] runs from the kernel task and prints one line per metric that
@@ -19,7 +29,9 @@
 //! PERF:<metric>:n=<count> p50_us=<f> p90_us=<f> p99_us=<f> max_us=<f> mean_us=<f>
 //! ```
 //!
-//! `tools/perf/run.py` parses the last line of each metric.
+//! `tools/perf/run.py` parses the last line of each metric. Every report also
+//! prints the per-task wake and switch counters (`PERF:sched`, [`wakeups`]),
+//! which `tools/perf/idle.py` turns into an idle desktop's rates.
 //!
 //! Wake attribution: an interrupt sets the *chain stamp* (its TSC) for as long
 //! as its handler runs, and the device bottom half sets it to the raising
@@ -29,11 +41,19 @@
 //! was halted in its own wait loop) counts as running at once.
 
 #[cfg(lazyos_perf)]
+mod bysys;
+#[cfg(lazyos_perf)]
 mod hist;
 #[cfg(lazyos_perf)]
 mod imp;
 #[cfg(lazyos_perf)]
 mod ipcbench;
+#[cfg(lazyos_perf)]
+mod msgbench;
+#[cfg(lazyos_perf)]
+mod sleepbench;
+#[cfg(lazyos_perf)]
+mod wakeups;
 
 /// Read the time-stamp counter.
 #[inline(always)]
@@ -99,6 +119,31 @@ pub fn input_published(_pointer: bool) {
     imp::input_published(_pointer);
 }
 
+/// The bottom half posts an interrupt to claimant task `owner`: remember
+/// the interrupt's time for that task's next input publish.
+#[inline(always)]
+pub fn irq_posted(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::irq_posted(_owner);
+}
+
+/// A userspace input source (`usbd`, task `owner`) starts publishing a
+/// batch: its pointer records are stamped with the device interrupt that
+/// last woke it (the xHCI interrupt), not with the publish, so
+/// `usb_input_present` includes the driver's own delay.
+#[inline(always)]
+pub fn source_publishing(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::source_publishing(_owner);
+}
+
+/// The batch [`source_publishing`] opened is done.
+#[inline(always)]
+pub fn source_published() {
+    #[cfg(lazyos_perf)]
+    imp::source_published();
+}
+
 /// A raw-bus consumer drained `count` records.
 #[inline(always)]
 pub fn input_read(_count: usize) {
@@ -106,11 +151,11 @@ pub fn input_read(_count: usize) {
     imp::input_read(_count);
 }
 
-/// The display owner's `present` returned.
+/// The display owner's `present`, begun at TSC `started`, returned.
 #[inline(always)]
-pub fn presented() {
+pub fn presented(_started: u64) {
     #[cfg(lazyos_perf)]
-    imp::presented();
+    imp::presented(_started);
 }
 
 /// A syscall entered with interrupts off (`nr` for the report).
@@ -139,6 +184,22 @@ pub fn irqoff_pause() {
 pub fn irqoff_resume() {
     #[cfg(lazyos_perf)]
     imp::irqoff_resume();
+}
+
+/// A scheduler entry starts: its TSC, for [`sched_exit`] (0 when unmeasured).
+#[inline(always)]
+pub fn sched_enter() -> u64 {
+    #[cfg(lazyos_perf)]
+    return rdtsc();
+    #[cfg(not(lazyos_perf))]
+    0
+}
+
+/// The scheduler entry begun at `started` returns.
+#[inline(always)]
+pub fn sched_exit(_started: u64) {
+    #[cfg(lazyos_perf)]
+    imp::sched_exit(_started);
 }
 
 /// Print every metric that changed (kernel task, periodically).

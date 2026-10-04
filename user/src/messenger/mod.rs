@@ -444,17 +444,11 @@ pub mod netsock;
 /// `std::net`.
 pub mod netstd;
 
-/// Sleep one PIT tick by parking on a private channel pair with an expired
-/// deadline (userspace has no sleep syscall); the pair is closed again, so no
-/// channel leaks. For retry loops that wait for a service to appear or for a
-/// shared endpoint to be free (`-EDEADLK`).
+/// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
+/// this used to park on a throwaway channel pair, since userspace had no
+/// sleep call).
 pub fn park_tick() {
-    if let Ok((probe, peer)) = create_pair() {
-        let mut scratch = [0u8; 16];
-        let _ = probe.recv_into(&mut scratch, Some(EXPIRED_DEADLINE));
-        let _ = probe.close();
-        let _ = peer.close();
-    }
+    crate::sys::nap();
 }
 
 /// Client and wire shapes for `pkgd`, the application package manager

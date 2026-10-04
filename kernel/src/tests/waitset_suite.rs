@@ -18,20 +18,23 @@ use crate::task::{PriorityClass, WaitKind};
 const ENDPOINTS: usize = channels::MAX_WAIT_ENDPOINTS;
 
 /// The thread's endpoint handles (in its own table) and how many it waits on.
-static HANDLES: [AtomicU64; ENDPOINTS] = [const { AtomicU64::new(0) }; ENDPOINTS];
-static COUNT: AtomicUsize = AtomicUsize::new(0);
-/// Whether the thread waits on the raw bus too, and its deadline (0: none).
-static RAW: AtomicU64 = AtomicU64::new(0);
-static DEADLINE: AtomicU64 = AtomicU64::new(0);
+pub(super) static HANDLES: [AtomicU64; ENDPOINTS] = [const { AtomicU64::new(0) }; ENDPOINTS];
+pub(super) static COUNT: AtomicUsize = AtomicUsize::new(0);
+/// The thread's wait flags (doorbells, `WAIT_DEADLINE_NS`, `WAIT_FD`) and its
+/// deadline (0: none).
+pub(super) static RAW: AtomicU64 = AtomicU64::new(0);
+pub(super) static DEADLINE: AtomicU64 = AtomicU64::new(0);
 /// What each wait returned: the mask, or `u64::MAX - errno-ish` on error.
-static LAST: AtomicU64 = AtomicU64::new(0);
-static WAITS: AtomicU64 = AtomicU64::new(0);
+pub(super) static LAST: AtomicU64 = AtomicU64::new(0);
+pub(super) static WAITS: AtomicU64 = AtomicU64::new(0);
+/// `monotonic_ns` when the last wait returned, read in the thread itself.
+pub(super) static RETURNED_NS: AtomicU64 = AtomicU64::new(0);
 /// The thread parks here between rounds; the kernel task while it waits.
 static GATE: WaitQueue = WaitQueue::new(WaitKind::Sleep);
-const TIMED_OUT: u64 = u64::MAX;
-const FAILED: u64 = u64::MAX - 1;
+pub(super) const TIMED_OUT: u64 = u64::MAX;
+pub(super) const FAILED: u64 = u64::MAX - 1;
 
-fn parcel_bytes() -> Result<Vec<u8>, String> {
+pub(super) fn parcel_bytes() -> Result<Vec<u8>, String> {
     let mut body = libmessenger::Encoder::new();
     body.u32(1, 7).map_err(|e| e.message())?;
     let parcel = libmessenger::Parcel {
@@ -73,19 +76,20 @@ extern "C" fn waiter() -> ! {
             Err(ChannelError::TimedOut) => TIMED_OUT,
             Err(_) => FAILED,
         };
+        RETURNED_NS.store(crate::arch::clock::monotonic_ns(), Ordering::Relaxed);
         LAST.store(outcome, Ordering::Relaxed);
         WAITS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-struct Rig {
-    thread: usize,
+pub(super) struct Rig {
+    pub(super) thread: usize,
     /// The kernel task's sending handles, one per thread endpoint.
-    senders: Vec<u64>,
+    pub(super) senders: Vec<u64>,
 }
 
 /// A Realtime waiting thread with `count` endpoints in its own table.
-fn rig(count: usize) -> Result<Rig, String> {
+pub(super) fn rig(count: usize) -> Result<Rig, String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -117,7 +121,7 @@ fn rig(count: usize) -> Result<Rig, String> {
 impl Rig {
     /// Start one wait: the thread runs (it outranks the kernel task) until
     /// it parks in `wait_any`.
-    fn start_wait(&self) -> Result<(), String> {
+    pub(super) fn start_wait(&self) -> Result<(), String> {
         GATE.notify_one();
         task::preempt_point();
         check!(
@@ -130,7 +134,7 @@ impl Rig {
     /// The result of the wait that just finished (the thread is back at its
     /// gate). Wakes are delivered through a preemption point, as a syscall
     /// return would.
-    fn finish_wait(&self, waits_before: u64) -> Result<u64, String> {
+    pub(super) fn finish_wait(&self, waits_before: u64) -> Result<u64, String> {
         task::preempt_point();
         check!(
             WAITS.load(Ordering::Relaxed) == waits_before + 1,
@@ -145,7 +149,7 @@ impl Rig {
         Ok(LAST.load(Ordering::Relaxed))
     }
 
-    fn teardown(self) -> Result<(), String> {
+    pub(super) fn teardown(self) -> Result<(), String> {
         task::harness::switch_current(task::KERNEL_TASK);
         channels::forget_task(self.thread);
         task::harness::finish(self.thread, 0);
@@ -190,7 +194,8 @@ pub fn ready_masks() -> Result<(), String> {
         "an empty set was accepted"
     );
     check!(
-        channels::wait_any(&receivers[1..2], 4, None) == Err(ChannelError::BadParcel),
+        channels::wait_any(&receivers[1..2], channels::WAIT_DOORBELLS + 1, None)
+            == Err(ChannelError::BadParcel),
         "an unknown doorbell was accepted"
     );
     check!(
@@ -395,10 +400,76 @@ pub fn wait_any_soak() -> Result<(), String> {
     rig.teardown()
 }
 
+/// The `AF_INET` pump's doorbell (P4.1): a request queued by an application
+/// wakes the attached `netd` parked on it (alone and beside an endpoint),
+/// a ring while nobody waits is kept for the next wait, the bell is disarmed
+/// afterwards, and only the attached task may arm it.
+pub fn inet_doorbell() -> Result<(), String> {
+    use crate::ipc::inet::{self, bell, Addr, Kind};
+    let rig = rig(1)?;
+    inet::reset();
+    inet::attach(rig.thread);
+    RAW.store(channels::WAIT_INET, Ordering::Relaxed);
+    let peer = Addr {
+        ip: [10, 0, 2, 2],
+        port: 7,
+    };
+    for (count, label) in [(0usize, "bell only"), (1, "bell and an endpoint")] {
+        COUNT.store(count, Ordering::Relaxed);
+        let sock = inet::create(Kind::Stream).ok_or("no socket")?;
+        let before = WAITS.load(Ordering::Relaxed);
+        rig.start_wait()?;
+        check!(
+            bell::armed(),
+            "{label}: the parked netd did not arm the bell"
+        );
+        sock.begin_connect(peer)
+            .map_err(|e| format!("connect: {e}"))?;
+        let mask = rig.finish_wait(before)?;
+        check!(
+            mask == channels::INET_READY,
+            "{label}: connect gave {mask:#x}"
+        );
+        check!(!bell::armed(), "{label}: the bell stayed armed");
+        // The close request rings while nobody waits: the next wait returns
+        // at once.
+        drop(sock);
+        let before = WAITS.load(Ordering::Relaxed);
+        GATE.notify_one();
+        task::preempt_point();
+        check!(
+            WAITS.load(Ordering::Relaxed) == before + 1
+                && LAST.load(Ordering::Relaxed) == channels::INET_READY,
+            "{label}: a pending ring did not satisfy the next wait"
+        );
+        while inet::next_request().is_some() {}
+    }
+    check!(
+        bell::arm(task::KERNEL_TASK).is_err(),
+        "a task that is not the attached netd armed the bell"
+    );
+    check!(
+        channels::wait_any(&[], channels::WAIT_INET, None) == Err(ChannelError::WrongKind),
+        "the bell was accepted from a task that is not netd"
+    );
+    inet::reset();
+    check!(
+        bell::arm(rig.thread).is_err(),
+        "a detached netd armed the bell"
+    );
+    rig.teardown()
+}
+
+#[path = "waitset_child.rs"]
+mod child;
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_waitset_ready_masks", ready_masks),
     ("ipc_waitset_wakes_on_any", wakes_on_any),
     ("ipc_waitset_raw_input_doorbell", raw_input_doorbell),
     ("ipc_waitset_display_key_doorbell", display_key_doorbell),
+    ("ipc_waitset_inet_doorbell", inet_doorbell),
     ("ipc_waitset_soak", wait_any_soak),
+    ("ipc_waitset_child_doorbell", child::child_doorbell),
+    ("ipc_waitset_child_soak", child::child_soak),
 ];

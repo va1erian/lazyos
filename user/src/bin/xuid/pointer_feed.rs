@@ -60,6 +60,17 @@ fn event(kind: EventKind, a: i32, b: i32) -> Event {
     }
 }
 
+/// Whether `newer` makes `older` redundant (docs/performance-plan.md P3.4):
+/// `older` only moved the pointer, with no wheel and no button edge against
+/// `before` (the forwarded buttons held until then), and `newer` holds the
+/// same buttons. Applying `newer` alone then lands in the same state with
+/// the same edges at the same places; a press or release is never moved to
+/// a later position.
+pub(super) fn supersedes(before: u32, older: &PointerState, newer: &PointerState) -> bool {
+    let (was, now) = (forwarded(older.buttons), forwarded(newer.buttons));
+    older.wheel == 0 && older.wheel_h == 0 && was == before && now == was
+}
+
 /// The forwarded-button bits of a mask.
 pub(super) fn forwarded(buttons: u32) -> u32 {
     buttons & ((1 << BUTTONS) - 1)
@@ -156,6 +167,19 @@ pub(super) fn selftest_pointer_feed() -> &'static str {
         if got.len() != want.len() || got.iter().zip(want).any(|(e, w)| (e.kind, e.a) != *w) {
             return "XUID:POINTER:FAIL translate\n";
         }
+    }
+    // Coalescing: moves merge, a wheel or a button change never does.
+    let coalesce = supersedes(0, &state(1, 1, 0, 0), &state(9, 9, 0, 1))
+        && supersedes(1, &state(1, 1, 1, 0), &state(2, 2, 1, 0))
+        // The press itself must stay where it happened (a title-bar drag).
+        && !supersedes(0, &state(1, 1, 1, 0), &state(2, 2, 1, 0))
+        && !supersedes(0, &state(1, 1, 0, 1), &state(2, 2, 0, 0))
+        && !supersedes(0, &state(1, 1, 0, 0), &state(1, 1, 1, 0))
+        && !supersedes(1, &state(1, 1, 1, 0), &state(1, 1, 0, 0))
+        // Back/forward stay with `inputd`: their edges do not split a run.
+        && supersedes(0, &state(1, 1, 8, 0), &state(2, 2, 0, 0));
+    if !coalesce {
+        return "XUID:POINTER:FAIL coalesce\n";
     }
     "XUID:POINTER:PASS\n"
 }

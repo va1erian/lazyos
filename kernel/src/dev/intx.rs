@@ -66,6 +66,8 @@ struct Post {
     generation: u32,
     channel: u64,
     side: usize,
+    /// The claiming task (latency accounting, `perf::irq_posted`).
+    owner: usize,
 }
 
 /// Work collected under the lock and performed after it is dropped.
@@ -97,6 +99,7 @@ impl Batch {
                 generation: claim.generation,
                 channel: binding.channel,
                 side: binding.side,
+                owner: claim.owner,
             });
             self.post_count += 1;
         }
@@ -407,6 +410,7 @@ fn run(now: u64, raised: u16, in_interrupt: bool) {
     }
     crate::perf::lines_posting(raised);
     for post in batch.posts.iter().take(batch.post_count).flatten() {
+        crate::perf::irq_posted(post.owner);
         match post_irq(post) {
             Ok(()) => {
                 DELIVERED.fetch_add(1, Ordering::Relaxed);

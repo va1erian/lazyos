@@ -213,3 +213,41 @@ fn truncated_bodies_are_rejected_and_empty_ones_decode_to_zero() {
     assert_eq!(empty.code, 0);
     assert_eq!(empty.state, input::KEY_STATE_DOWN);
 }
+
+/// The one-way shell notes (docs/performance-plan.md P3.6) are pinned and
+/// carry exactly the records of their two-way twins, which `inputd` decodes
+/// with the twins' decoders.
+#[test]
+fn one_way_notes_match_their_two_way_twins() {
+    assert_eq!(
+        [
+            shell::METHOD_NOTEFOCUS,
+            shell::METHOD_NOTESURFACE,
+            shell::METHOD_FORGETSURFACE,
+        ],
+        [10, 11, 12]
+    );
+    for surface in [None, Some(0), Some(7), Some(u64::MAX)] {
+        let note = shell::encode_note_focus_args(&shell::NoteFocusArgs { surface }).unwrap();
+        let call = shell::encode_set_focus_args(&shell::SetFocusArgs { surface }).unwrap();
+        assert_eq!(note, call);
+        assert_eq!(
+            shell::decode_set_focus_args(&note).unwrap().surface,
+            surface
+        );
+    }
+    let note = shell::encode_note_surface_args(&shell::NoteSurfaceArgs {
+        surface: 9,
+        owner: 42,
+    })
+    .unwrap();
+    let decoded = shell::decode_register_surface_args(&note).unwrap();
+    assert_eq!((decoded.surface, decoded.owner), (9, 42));
+    let note = shell::encode_forget_surface_args(&shell::ForgetSurfaceArgs { surface: 3 }).unwrap();
+    assert_eq!(
+        shell::decode_unregister_surface_args(&note)
+            .unwrap()
+            .surface,
+        3
+    );
+}

@@ -2,93 +2,74 @@
 //!
 //! QEMU's `-drive if=virtio` creates a transitional `1af4:1001` device whose
 //! BAR0 is the virtio 0.9.5 I/O window: this driver drives that interface. It
-//! negotiates no feature bits, sets up queue 0 as a split virtqueue in a
-//! static, physically contiguous region, and completes one block request at a
-//! time (registry callers are serialised by the driver's mutex).
+//! negotiates no feature bits and sets up queue 0 as a split virtqueue in a
+//! static, physically contiguous region.
 //!
-//! Each attached function owns one [`Slot`]: its own queue, request header and
-//! bounce page, plus the registry-facing device. The device core offers
-//! functions one at a time ([`attach_function`]), so a boot disk and a data
-//! disk on separate virtio-blk functions are two independent block devices
-//! (`virtio0`, `virtio1`, ...) that never share queue state.
+//! Each attached function owns one [`Slot`]: its queue, one control block
+//! (request header and status byte) per request slot, and the registry-facing
+//! device. The device core offers functions one at a time
+//! ([`attach_function`]), so a boot disk and a data disk on separate
+//! virtio-blk functions are two independent block devices (`virtio0`,
+//! `virtio1`, ...) that never share queue state.
+//!
+//! # Requests (docs/performance-plan.md P5)
+//!
+//! A transfer is cut into requests of up to 256 KiB ([`plan`]); up to
+//! [`MAX_INFLIGHT`] requests, from any callers, are in the queue at once
+//! (`ring.rs`). The device reads and writes the caller's buffers directly,
+//! one descriptor per page piece translated with [`super::virt_to_phys`]:
+//! there is no bounce copy. The device's lock is held only to submit and to
+//! reap, never while waiting, and a waiter that may sleep parks
+//! ([`super::iowait`]) while the device works.
+//!
+//! A transfer never returns while the device may still touch its buffers: it
+//! waits for every request it submitted, and a request that does not complete
+//! within [`TIMEOUT_NS`] resets the device (after which it touches no memory),
+//! failing every request then in flight.
 //!
 //! Modern-only devices (`1af4:1042`) are detected but not driven yet: they
 //! expose their control structures through PCI capabilities and a memory BAR,
-//! which needs BAR mapping in the kernel page table. That is the documented
-//! next step; the default boot disk is ATA, so the legacy path covers QEMU
-//! today and the ATA path keeps working untouched.
-//!
-//! DMA addresses come from [`super::virt_to_phys`] because the kernel heap maps
-//! scattered physical frames. The descriptor table and rings live in a
-//! `'static`; payloads bounce through a `'static` 4 KiB page, so the caller's
-//! buffer may be a stack slice or a heap buffer without any physical-layout
-//! requirement.
+//! which needs BAR mapping in the kernel page table.
 
-mod gather;
 mod io;
+pub mod plan;
 mod queue;
+mod ring;
 
+use alloc::vec::Vec;
+use core::cell::UnsafeCell;
+use core::sync::atomic::Ordering;
+use spin::Mutex;
+use x86_64::VirtAddr;
+
+use super::iowait::{self, Expect};
 use super::stats::IoStats;
 use super::virtio_diag as diag;
-use super::{BlockDevice, BlockError, SECTOR_SIZE};
-use core::cell::UnsafeCell;
-use core::sync::atomic::{fence, Ordering};
-use gather::Cursor;
+use super::{BlockDevice, BlockError, Wait, SECTOR_SIZE};
 pub use io::attach_function;
-use io::{in8, out16, ISR, QUEUE_NOTIFY};
-use queue::{write_desc, Control, ControlCell, Queue, QUEUE_BYTES};
-use spin::Mutex;
+use io::{out16, QUEUE_NOTIFY};
+use plan::Cursor;
+use queue::{Control, ControlCell, Queue, QUEUE_BYTES};
+use ring::{Hints, Ring, MAX_INFLIGHT};
 
-/// A request must complete within this many 100 Hz ticks (10 s).
-const TIMEOUT_TICKS: u64 = 1000;
-/// Spin bound used when the tick counter is not advancing (interrupts masked).
-const SPIN_BACKSTOP: u64 = 4_000_000_000;
-
-/// DMA granule: one descriptor per page, each page translated on its own
-/// because neither statics nor the heap are promised to be physically contiguous.
-const PAGE: usize = 4096;
-/// One request moves at most this many bytes through the bounce region.
-const MAX_REQUEST_BYTES: usize = 64 * 1024;
-const BOUNCE_PAGES: usize = MAX_REQUEST_BYTES / PAGE;
-/// Header + one descriptor per page + status.
-const MAX_CHAIN: usize = BOUNCE_PAGES + 2;
-
-// Descriptor flags (virtio 0.9.5).
-const DESC_NEXT: u16 = 1;
-const DESC_WRITE: u16 = 2;
-// Block request types.
-const BLK_IN: u32 = 0;
-const BLK_OUT: u32 = 1;
+/// A request that has not completed after this long resets the device.
+const TIMEOUT_NS: u64 = 10_000_000_000;
+/// Bytes in one request (fewer when the buffers need more than
+/// [`plan::MAX_PIECES`] page pieces).
+pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
 /// How many virtio-blk functions can be driven at once (one [`Slot`] each).
 const MAX_VIRTIO: usize = 4;
 /// Registry names, indexed by slot.
 const NAMES: [&str; MAX_VIRTIO] = ["virtio0", "virtio1", "virtio2", "virtio3"];
 
-/// The bounce region for request payloads: [`BOUNCE_PAGES`] page-aligned pages.
-#[repr(C, align(4096))]
-struct Bounce(UnsafeCell<[u8; MAX_REQUEST_BYTES]>);
-
-// Safety: like `Queue`, only touched under the driver's mutex.
-unsafe impl Sync for Bounce {}
-
-/// Everything discovered at probe time. `avail_idx`/`used_idx` track the ring
-/// positions; one outstanding request means they advance in lockstep.
-#[derive(Clone, Copy)]
+/// Everything discovered at attach, and the queue's bookkeeping.
 struct State {
     io: u16,
     sectors: u64,
-    qsize: u16,
-    avail_off: usize,
-    used_off: usize,
-    avail_idx: u16,
-    used_idx: u16,
-    /// A request was submitted and its completion not yet consumed (it timed out).
-    outstanding: bool,
-    header_phys: u64,
-    /// Physical address of each bounce page, translated once at attach.
-    page_phys: [u64; BOUNCE_PAGES],
-    status_phys: u64,
+    ring: Ring,
+    /// Physical address of each request slot's control block.
+    control_phys: [u64; MAX_INFLIGHT],
 }
 
 /// One driven function: its DMA memory and the registry-facing device. The
@@ -96,8 +77,7 @@ struct State {
 #[repr(C)]
 struct Slot {
     queue: Queue,
-    bounce: Bounce,
-    control: ControlCell,
+    controls: [ControlCell; MAX_INFLIGHT],
     device: VirtioBlk,
 }
 
@@ -106,6 +86,10 @@ pub struct VirtioBlk {
     /// Index into [`SLOTS`]; names the device and finds its DMA memory.
     index: usize,
     state: Mutex<Option<State>>,
+    hints: Hints,
+    /// How long reads and writes usually take, for a waiter's first look.
+    expect_read: Expect,
+    expect_write: Expect,
     stats: IoStats,
 }
 
@@ -113,14 +97,18 @@ impl Slot {
     const fn new(index: usize) -> Slot {
         Slot {
             queue: Queue(UnsafeCell::new([0; QUEUE_BYTES])),
-            bounce: Bounce(UnsafeCell::new([0; MAX_REQUEST_BYTES])),
-            control: ControlCell(UnsafeCell::new(Control {
-                header: [0; 16],
-                status: 0,
-            })),
+            controls: [const {
+                ControlCell(UnsafeCell::new(Control {
+                    header: [0; 16],
+                    status: 0,
+                }))
+            }; MAX_INFLIGHT],
             device: VirtioBlk {
                 index,
                 state: Mutex::new(None),
+                hints: Hints::new(),
+                expect_read: Expect::new(),
+                expect_write: Expect::new(),
                 stats: IoStats::new(),
             },
         }
@@ -129,142 +117,242 @@ impl Slot {
 
 static SLOTS: [Slot; MAX_VIRTIO] = [Slot::new(0), Slot::new(1), Slot::new(2), Slot::new(3)];
 
-impl State {
-    /// Poll the used ring until the outstanding request completes; returns the
-    /// spin count, or `None` on timeout. The wall-clock deadline is what bounds
-    /// a wedged device: a spin count is not a duration, and a host stalled by
-    /// load or by writing a fresh sparse image easily out-waits any fixed one.
-    /// `ticks()` advances only through the interrupt windows the loop opens
-    /// (`arch::irq_window`; none outside a syscall), so a very large spin
-    /// count is the backstop for the cases without them.
-    fn wait_used(&self, slot: &Slot) -> Option<u64> {
-        let start = crate::task::ticks();
-        let mut spins = 0u64;
-        loop {
-            fence(Ordering::Acquire);
-            // Safety: the used index is a device-written u16 in our queue.
-            let seen = unsafe {
-                ((slot.queue.0.get() as *const u8).add(self.used_off + 2) as *const u16)
-                    .read_volatile()
-            };
-            if seen != self.used_idx {
-                return Some(spins);
-            }
-            spins += 1;
-            // The wait runs with interrupts off (`arch::irq_window`).
-            if spins.is_multiple_of(64) {
-                crate::arch::irq_window::poll_point();
-            }
-            if spins.is_multiple_of(4096)
-                && (crate::task::ticks().wrapping_sub(start) >= TIMEOUT_TICKS
-                    || spins >= SPIN_BACKSTOP)
-            {
-                return None;
-            }
-            core::hint::spin_loop();
-        }
+/// One transfer: its segments, how far it got, and its requests in the queue.
+struct Transfer<'a> {
+    write: bool,
+    lba: u64,
+    segments: &'a [(u64, usize)],
+    total: usize,
+    cursor: Cursor,
+    submitted: usize,
+    /// Request slot -> the queue epoch it was submitted in.
+    mine: [Option<u64>; MAX_INFLIGHT],
+    result: Result<(), BlockError>,
+}
+
+impl Transfer<'_> {
+    fn in_flight(&self) -> bool {
+        self.mine.iter().any(Option::is_some)
     }
 
-    /// Finish a request that timed out earlier. Until the device reports it,
-    /// it may still read the bounce page or write the status byte, so nothing
-    /// may reuse them. Errors when the device is still silent.
-    fn drain(&mut self, slot: &Slot) -> Result<(), BlockError> {
-        if self.outstanding {
-            self.wait_used(slot).ok_or(BlockError::Io)?;
-            self.outstanding = false;
-            self.used_idx = self.used_idx.wrapping_add(1); // the late completion
-        }
-        Ok(())
+    fn mask(&self) -> u32 {
+        (0..MAX_INFLIGHT)
+            .filter(|&slot| self.mine[slot].is_some())
+            .fold(0, |mask, slot| mask | 1 << slot)
+    }
+}
+
+/// What a wait compares the lock-free hints against.
+#[derive(Clone, Copy)]
+struct Snapshot {
+    epoch: u64,
+    released: u64,
+    used_off: usize,
+}
+
+impl VirtioBlk {
+    fn slot(&self) -> &'static Slot {
+        &SLOTS[self.index]
     }
 
-    /// Submit one request for `bytes` (already copied into the bounce page for
-    /// writes) and wait for the used ring to report it. The caller holds the
-    /// driver lock, so exactly one request is outstanding.
-    fn complete(
-        &mut self,
-        slot: &Slot,
+    /// Move the bytes of `segments` (`(address, length)`, back to back)
+    /// to (`write`) or from the device at `lba`.
+    fn transfer(
+        &self,
         write: bool,
         lba: u64,
-        bytes: usize,
+        segments: &[(u64, usize)],
+        wait: Wait,
     ) -> Result<(), BlockError> {
-        if bytes == 0 || bytes > MAX_REQUEST_BYTES || !bytes.is_multiple_of(SECTOR_SIZE) {
-            return Err(BlockError::Unsupported);
+        let total: usize = segments.iter().map(|&(_, len)| len).sum();
+        super::check_range(SECTOR_SIZE, self.sector_count(), lba, total)?;
+        if total == 0 {
+            return Ok(());
         }
-        debug_assert!(!self.outstanding, "drain() must run before a new request");
-        // Header: request type, reserved, starting sector.
-        // Safety: the control block is exclusively ours while the lock is held.
-        unsafe {
-            let control = slot.control.0.get();
-            let header = (*control).header.as_mut_ptr();
-            (header as *mut u32).write_volatile(if write { BLK_OUT } else { BLK_IN });
-            (header.add(4) as *mut u32).write_volatile(0);
-            (header.add(8) as *mut u64).write_volatile(lba);
-            // A non-zero sentinel distinguishes "device answered" from "device
-            // never touched it".
-            (*control).status = 0xFF;
-        }
-
-        // Chain: header (device readable), one descriptor per bounce page
-        // (writable for BLK_IN), status.
-        // Safety: the queue static is exclusively ours while the lock is held,
-        // and `attach` checked the queue holds `MAX_CHAIN` descriptors.
-        unsafe {
-            let queue = slot.queue.0.get() as *mut u8;
-            let data_flags = if write { 0 } else { DESC_WRITE };
-            write_desc(queue, 0, self.header_phys, 16, DESC_NEXT, 1);
-            let pages = bytes.div_ceil(PAGE);
-            for (page, phys) in self.page_phys[..pages].iter().enumerate() {
-                let len = (bytes - page * PAGE).min(PAGE);
-                let next = page as u16 + 2;
-                write_desc(
-                    queue,
-                    page + 1,
-                    *phys,
-                    len as u32,
-                    DESC_NEXT | data_flags,
-                    next,
-                );
+        let expect = if write {
+            &self.expect_write
+        } else {
+            &self.expect_read
+        };
+        let mut transfer = Transfer {
+            write,
+            lba,
+            segments,
+            total,
+            cursor: Cursor::default(),
+            submitted: 0,
+            mine: [None; MAX_INFLIGHT],
+            result: Ok(()),
+        };
+        loop {
+            let Some(snapshot) = self.step(&mut transfer) else {
+                // Not attached (or detached by a failed reset): nothing of
+                // ours can be in the queue.
+                return Err(BlockError::Io);
+            };
+            let finished = transfer.submitted == transfer.total || transfer.result.is_err();
+            if !transfer.in_flight() && finished {
+                return transfer.result;
             }
-            write_desc(queue, pages + 1, self.status_phys, 1, DESC_WRITE, 0);
-
-            let avail = queue.add(self.avail_off);
-            let slot = usize::from(self.avail_idx % self.qsize);
-            (avail.add(4 + slot * 2) as *mut u16).write_volatile(0);
-            self.avail_idx = self.avail_idx.wrapping_add(1);
-            (avail.add(2) as *mut u16).write_volatile(self.avail_idx);
-        }
-        // Publish descriptors before ringing the doorbell.
-        fence(Ordering::Release);
-        out16(self.io + QUEUE_NOTIFY, 0);
-
-        self.outstanding = true;
-        let spins = match self.wait_used(slot) {
-            Some(spins) => spins,
-            None => {
-                // The device still owns the descriptors, the bounce page and the
-                // status byte. `outstanding` stays set so the next request drains
-                // this one first instead of mistaking its late completion for its own.
-                diag::log(self.io, write, lba, bytes, "timeout", 0);
+            let mask = transfer.mask();
+            let hints = &self.hints;
+            let queue = &self.slot().queue;
+            let progressed = || {
+                hints.done.load(Ordering::Acquire) & mask != 0
+                    || hints.epoch.load(Ordering::Acquire) != snapshot.epoch
+                    || hints.released.load(Ordering::Acquire) != snapshot.released
+                    || Ring::device_used(queue, snapshot.used_off)
+                        != hints.reaped.load(Ordering::Acquire)
+            };
+            if !iowait::wait_until(wait, expect, TIMEOUT_NS, progressed) {
+                self.reset_after_timeout(write, lba, total);
+                // The reset failed every request in flight, ours included:
+                // the device will not touch our buffers again.
                 return Err(BlockError::Io);
             }
-        };
-        // Consume the completion before anything else, so the next request
-        // (including the next chunk of this transfer) waits for its own.
-        self.outstanding = false;
-        self.used_idx = self.used_idx.wrapping_add(1);
-        if spins >= diag::SLOW_SPINS {
-            diag::log(self.io, write, lba, bytes, "slow (completed)", spins);
-        }
-        // Safety: as above, the status byte is device-written.
-        let status = unsafe { (*slot.control.0.get()).status };
-        let _ = in8(self.io + ISR); // deassert the legacy interrupt
-        if status == 0 {
-            Ok(())
-        } else {
-            diag::log(self.io, write, lba, bytes, "status", u64::from(status));
-            Err(BlockError::Io)
         }
     }
+
+    /// Under the lock: reap, take our finished requests, submit what fits.
+    /// Returns what the following wait compares against, or `None` when the
+    /// device is not attached.
+    fn step(&self, transfer: &mut Transfer) -> Option<Snapshot> {
+        let slot = self.slot();
+        let mut guard = self.state.lock();
+        let state = guard.as_mut()?;
+        let stats = &self.stats;
+        state
+            .ring
+            .reap(&slot.queue, &slot.controls, &self.hints, |write, bytes| {
+                stats.count(write, bytes);
+            });
+        let epoch = self.hints.epoch.load(Ordering::Acquire);
+        self.take_finished(state, transfer, epoch);
+        let mut published = false;
+        while transfer.result.is_ok() && transfer.submitted < transfer.total {
+            let Some(free) = state.ring.free_slot() else {
+                break;
+            };
+            let plan = match plan::plan(
+                transfer.segments,
+                transfer.cursor,
+                MAX_REQUEST_BYTES,
+                |virt| super::virt_to_phys(VirtAddr::new(virt)).map(|phys| phys.as_u64()),
+            ) {
+                Ok(plan) => plan,
+                Err(_) => {
+                    // Unmapped or sub-sector buffers: nothing more is sent.
+                    transfer.result = Err(BlockError::Unsupported);
+                    break;
+                }
+            };
+            if !state.ring.fits(&plan) {
+                break;
+            }
+            let at = transfer.lba + (transfer.submitted / SECTOR_SIZE) as u64;
+            // SAFETY: the queue and control block are this device's, slot
+            // `free` is unused, the lock is held, and the plan's buffers are
+            // the caller's segments, which outlive this transfer: it returns
+            // only once every request it submitted completed or the device
+            // was reset.
+            unsafe {
+                state.ring.submit(
+                    &slot.queue,
+                    &slot.controls[free],
+                    state.control_phys[free],
+                    free,
+                    transfer.write,
+                    at,
+                    &plan,
+                );
+            }
+            // A stale completion bit of the slot's previous request must not
+            // wake this one's waiter.
+            self.hints.done.fetch_and(!(1 << free), Ordering::AcqRel);
+            transfer.mine[free] = Some(epoch);
+            transfer.cursor.advance(transfer.segments, plan.bytes);
+            transfer.submitted += plan.bytes;
+            published = true;
+        }
+        if published {
+            core::sync::atomic::fence(Ordering::Release);
+            out16(state.io + QUEUE_NOTIFY, 0);
+        }
+        Some(Snapshot {
+            epoch,
+            released: self.hints.released.load(Ordering::Acquire),
+            used_off: state.ring.used_off,
+        })
+    }
+
+    /// Take the results of `transfer`'s requests that finished (or that a
+    /// reset failed) and free their slots.
+    fn take_finished(&self, state: &mut State, transfer: &mut Transfer, epoch: u64) {
+        for index in 0..MAX_INFLIGHT {
+            let Some(mine) = transfer.mine[index] else {
+                continue;
+            };
+            if mine != epoch {
+                // A reset failed it; the slot may already be someone else's.
+                transfer.mine[index] = None;
+                transfer.result = Err(BlockError::Io);
+                continue;
+            }
+            let Some(entry) = state.ring.inflight[index] else {
+                continue;
+            };
+            if !entry.done {
+                continue;
+            }
+            if entry.status != 0 {
+                diag::log(
+                    state.io,
+                    entry.write,
+                    entry.lba,
+                    entry.bytes,
+                    "status",
+                    u64::from(entry.status),
+                );
+                transfer.result = Err(BlockError::Io);
+            }
+            state.ring.release(index, &self.hints);
+            transfer.mine[index] = None;
+        }
+    }
+
+    /// A request outlived [`TIMEOUT_NS`]: reset the device so it lets go of
+    /// every buffer, fail all requests then in flight, and set the queue up
+    /// again for the next caller.
+    fn reset_after_timeout(&self, write: bool, lba: u64, bytes: usize) {
+        let mut guard = self.state.lock();
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+        diag::log(state.io, write, lba, bytes, "timeout; device reset", 0);
+        self.hints.epoch.fetch_add(1, Ordering::AcqRel);
+        // SAFETY: `state.io` is this slot's device and the lock is held, so
+        // nobody else touches the queue; after the reset write the device
+        // touches no guest memory.
+        match unsafe { io::reset(self.slot(), state.io) } {
+            Some(ring) => state.ring = ring,
+            None => *guard = None, // the device did not come back: detached
+        }
+        // Every waiter sees the new epoch and fails its requests; no slot of
+        // the fresh queue is done.
+        self.hints.done.store(0, Ordering::Release);
+        self.hints.reaped.store(0, Ordering::Release);
+        self.hints.released.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// `(address, length)` of each buffer.
+fn spans(bufs: impl Iterator<Item = (*const u8, usize)>) -> Result<Vec<(u64, usize)>, BlockError> {
+    let mut out = Vec::new();
+    for (ptr, len) in bufs {
+        out.try_reserve(1).map_err(|_| BlockError::Io)?;
+        out.push((ptr as u64, len));
+    }
+    Ok(out)
 }
 
 impl BlockDevice for VirtioBlk {
@@ -277,64 +365,44 @@ impl BlockDevice for VirtioBlk {
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
-        self.read_sectors_vectored(lba, &mut [buf])
+        self.read_sectors_vectored_with(lba, &mut [buf], Wait::Spin)
     }
 
     fn write_sectors(&self, lba: u64, buf: &[u8]) -> Result<(), BlockError> {
-        self.write_sectors_vectored(lba, &[buf])
+        self.write_sectors_vectored_with(lba, &[buf], Wait::Spin)
     }
 
-    /// The segments are one byte range, moved in requests of up to
-    /// [`MAX_REQUEST_BYTES`] through the bounce region.
     fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), BlockError> {
-        let slot = &SLOTS[self.index];
-        let mut guard = self.state.lock();
-        let state = guard.as_mut().ok_or(BlockError::Io)?;
-        let total = bufs.iter().map(|buf| buf.len()).sum();
-        super::check_range(SECTOR_SIZE, state.sectors, lba, total)?;
-        state.drain(slot)?;
-        let mut cursor = Cursor::default();
-        let mut done = 0;
-        while done < total {
-            let len = (total - done).min(MAX_REQUEST_BYTES);
-            state.complete(slot, false, lba + (done / SECTOR_SIZE) as u64, len)?;
-            self.stats.count(false, len);
-            // Safety: the completed request filled the bounce region and the
-            // device is done with it; it is ours alone while the lock is held.
-            let bounce =
-                unsafe { core::slice::from_raw_parts(slot.bounce.0.get() as *const u8, len) };
-            cursor.scatter(bounce, bufs);
-            done += len;
-        }
-        Ok(())
+        self.read_sectors_vectored_with(lba, bufs, Wait::Spin)
     }
 
-    /// The write counterpart of [`VirtioBlk::read_sectors_vectored`].
     fn write_sectors_vectored(&self, lba: u64, bufs: &[&[u8]]) -> Result<(), BlockError> {
-        let slot = &SLOTS[self.index];
-        let mut guard = self.state.lock();
-        let state = guard.as_mut().ok_or(BlockError::Io)?;
-        let total = bufs.iter().map(|buf| buf.len()).sum();
-        super::check_range(SECTOR_SIZE, state.sectors, lba, total)?;
-        state.drain(slot)?;
-        let mut cursor = Cursor::default();
-        let mut done = 0;
-        while done < total {
-            let len = (total - done).min(MAX_REQUEST_BYTES);
-            {
-                // Safety: no request is outstanding (drained above, and each
-                // `complete` consumes its own), so the bounce region is ours
-                // alone while the lock is held; the borrow ends before the
-                // device is handed the region.
-                let bounce =
-                    unsafe { core::slice::from_raw_parts_mut(slot.bounce.0.get() as *mut u8, len) };
-                cursor.gather(bufs, bounce);
-            }
-            state.complete(slot, true, lba + (done / SECTOR_SIZE) as u64, len)?;
-            self.stats.count(true, len);
-            done += len;
-        }
-        Ok(())
+        self.write_sectors_vectored_with(lba, bufs, Wait::Spin)
+    }
+
+    /// The device writes straight into `bufs`, which stay borrowed until
+    /// every request completed (or the device was reset).
+    fn read_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &mut [&mut [u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let segments = spans(
+            bufs.iter_mut()
+                .map(|buf| (buf.as_mut_ptr() as *const u8, buf.len())),
+        )?;
+        self.transfer(false, lba, &segments, wait)
+    }
+
+    fn write_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &[&[u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let segments = spans(bufs.iter().map(|buf| (buf.as_ptr(), buf.len())))?;
+        self.transfer(true, lba, &segments, wait)
     }
 
     fn is_writable(&self) -> bool {

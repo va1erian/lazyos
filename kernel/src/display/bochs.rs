@@ -11,7 +11,6 @@
 //! back after the switch, so an unexpected adapter keeps the firmware mode.
 
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
-use x86_64::PhysAddr;
 
 use crate::arch::io::{inw, outw};
 use crate::dev::pci;
@@ -247,7 +246,19 @@ impl Adapter {
             return Err(ModeError::NotApplied);
         }
         let _ = read(REG_VIRT_HEIGHT);
-        let base = crate::mem::phys_to_virt(PhysAddr::new(self.lfb)).as_u64() as usize;
+        // Its own 4 KiB mapping beside the boot framebuffer, not the
+        // physical-memory map's large pages, so it can be write-combining
+        // (`mem::fbwindow`; the caller applies the policy).
+        let anchor = crate::console::framebuffer_span().map_or(0, |(base, _)| base);
+        let base = match crate::mem::fbwindow::map(self.lfb, mode_bytes(virt_width, height), anchor)
+        {
+            Ok(base) => base as usize,
+            Err(reason) => {
+                crate::serial_println!("display: no mapping for the new mode ({reason})");
+                saved.restore();
+                return Err(ModeError::NotApplied);
+            }
+        };
         Ok(Mode {
             base,
             info: FrameBufferInfo {

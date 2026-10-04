@@ -51,6 +51,8 @@ mod hc;
 mod hid;
 #[path = "usbd/hub.rs"]
 mod hub;
+#[path = "usbd/irq.rs"]
+mod irq;
 #[path = "usbd/mem.rs"]
 mod mem;
 #[path = "usbd/msc.rs"]
@@ -211,14 +213,20 @@ fn run() -> Result<(), Error> {
         "USBD:READY devices={devices} controllers={}\n",
         controllers.len()
     ));
+    let mut irq_buf = alloc::vec![0u8; 256];
     loop {
+        // Acknowledge interrupts first: the line stays masked until then,
+        // and an event landing after the acknowledgement interrupts again.
+        irq::service(&mut controllers, &mut irq_buf);
         let mut busy = false;
         for controller in &mut controllers {
             busy |= controller.poll(&settings);
             busy |= controller.serve_storage();
         }
+        // A live stick's request queue is not a Messenger endpoint, so with
+        // one plugged in the idle wait stays its one-tick serve.
         if !busy && !controllers.iter_mut().any(Controller::wait_storage) {
-            hc::nap();
+            irq::park(&controllers);
         }
     }
 }

@@ -135,6 +135,15 @@ programs! {
     /// The `std::net` Linux fixture `netd demo=1` runs (stage N5), when the
     /// harness built one.
     NETFIX = "netfix";
+    /// `netbulk`, bulk TCP throughput over the native socket service
+    /// (docs/performance-plan.md P4).
+    NETBULK = "netbulk";
+    /// The same over the Linux `AF_INET` shim: the fixture
+    /// `tools/abi/fixtures/src/netbulk.rs`, when the harness built one.
+    NETBULK_LINUX = "netbulk-linux";
+    /// `msgbench`, the cross-process Messenger round-trip and throughput
+    /// benchmark (docs/performance-plan.md P6).
+    MSGBENCH = "msgbench";
     /// The clipboard copy demo.
     CLIPCP = "clipcp";
     /// The clipboard paste demo.

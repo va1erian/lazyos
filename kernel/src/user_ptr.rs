@@ -139,6 +139,22 @@ pub fn try_bytes<'a>(addr: u64, len: usize) -> Result<&'a [u8], Fault> {
 /// emulation, all with interrupts off.
 const COPY_PIECE: usize = 64 * 1024;
 
+/// Borrow `len` writable bytes at `addr` as a slice, so a producer can fill
+/// user memory in place (the `AF_INET` pump reads a ring straight into it).
+///
+/// The same rule as [`try_bytes`]: never hold it across a point where the
+/// task could block or its threads unmap the range.
+pub fn try_bytes_mut<'a>(addr: u64, len: usize) -> Result<&'a mut [u8], Fault> {
+    check(addr, len, true)?;
+    if len == 0 {
+        return Ok(&mut []);
+    }
+    // SAFETY: `check` proved the whole range is present and writable user
+    // memory in the active address space for the duration of the syscall,
+    // and nothing in the kernel aliases user pages.
+    Ok(unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, len) })
+}
+
 /// Copy `src` to `addr`.
 pub fn try_copy_to(addr: u64, src: &[u8]) -> Result<(), Fault> {
     check(addr, src.len(), true)?;

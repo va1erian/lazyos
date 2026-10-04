@@ -104,6 +104,7 @@ pub(super) fn take_finished(
         return None;
     }
     let dead = tasks[slot].take()?;
+    runq::sync(tasks, slot);
     let pml4 = dead.pml4;
     let shared = tasks
         .iter()
@@ -317,7 +318,9 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
     let (index, status, pml4, shared, dead) = {
         let mut tasks = TASKS.lock();
         let mut found = None;
-        for index in 1..MAX_TASKS {
+        // Only finished tasks can be reaped: the run queues index them, in
+        // ascending slot order like the full scan this replaced.
+        for index in runq::done().iter().filter(|&index| index != KERNEL_TASK) {
             let finished = tasks[index]
                 .as_ref()
                 .map(|task| {
@@ -339,6 +342,7 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
                     other != index && task.as_ref().is_some_and(|task| task.pml4 == pml4)
                 });
                 let dead = tasks[index].take();
+                runq::sync(&tasks, index);
                 found = Some((index, status, pml4, shared, dead));
                 break;
             }

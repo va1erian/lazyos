@@ -71,6 +71,29 @@ fn round_trip_parcel() {
 }
 
 #[test]
+fn view_reads_in_place() {
+    let parcel = sample_parcel();
+    let mut bytes = Vec::new();
+    parcel.encode(&mut bytes).unwrap();
+    let view = ParcelView::parse(&bytes).unwrap();
+    assert_eq!(view.header, parcel.header);
+    assert_eq!(view.body(), &parcel.body[..]);
+    assert_eq!(view.handle_count(), 3);
+    assert_eq!(view.buffer_count(), 1);
+    assert_eq!(view.handles().collect::<Vec<_>>(), parcel.handles);
+    assert_eq!(view.buffers().collect::<Vec<_>>(), parcel.buffers);
+    // The body slice is the caller's bytes, not a copy.
+    assert!(core::ptr::eq(
+        view.body().as_ptr(),
+        bytes[HEADER_SIZE..].as_ptr()
+    ));
+    assert_eq!(
+        ParcelView::parse(&bytes[..bytes.len() - 1]),
+        Err(Error::Truncated)
+    );
+}
+
+#[test]
 fn every_kind_decodes() {
     let parcel = sample_parcel();
     let mut bytes = Vec::new();
@@ -219,6 +242,18 @@ fn fuzz_decode_never_panics() {
 
         // The contract: no panic, ever. Contents may be Ok or Err.
         let _ = Parcel::decode(&bytes);
+        // The in-place view accepts exactly what decode accepts, and reads
+        // the same parcel out of it.
+        match (ParcelView::parse(&bytes), Parcel::decode(&bytes)) {
+            (Ok(view), Ok(parcel)) => {
+                assert_eq!(view.header, parcel.header);
+                assert_eq!(view.body(), &parcel.body[..]);
+                assert!(view.handles().eq(parcel.handles.iter().copied()));
+                assert!(view.buffers().eq(parcel.buffers.iter().copied()));
+            }
+            (Err(left), Err(right)) => assert_eq!(left, right),
+            (view, parcel) => panic!("view {view:?} disagrees with decode {parcel:?}"),
+        }
         if let Ok(parcel) = Parcel::decode(&bytes) {
             let mut decoder = Decoder::new(&parcel.body);
             while let Ok(Some(field)) = decoder.next() {

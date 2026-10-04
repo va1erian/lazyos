@@ -96,6 +96,16 @@ interface os.lazy.input.shell.v1 {
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
     method GetPointer() -> (x: I32, y: I32, buttons: U32) = 9;
+    /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
+    /// (docs/performance-plan.md P3.6). Requests from one sender are handled
+    /// in the order sent, on the same endpoint as the clients' `Open`, so a
+    /// surface noted before the compositor answers `CreateSurface` is known
+    /// by the time its client opens a session. Refused calls are dropped.
+    method NoteFocus(surface: Option<U64>) -> () = 10 oneway;
+    /// One-way `RegisterSurface` (see `NoteFocus`).
+    method NoteSurface(surface: U64, owner: U64) -> () = 11 oneway;
+    /// One-way `UnregisterSurface` (see `NoteFocus`).
+    method ForgetSurface(surface: U64) -> () = 12 oneway;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64) -> () = 20 oneway;
     /// Shell event: a client asked for a grab (reserved; never sent yet).

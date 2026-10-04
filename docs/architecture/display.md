@@ -43,6 +43,8 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | 4 | `create_buffer` | in: size; out: `[handle, va, size]` |
 | 5 | `map_buffer` | in: handle; out: `va` |
 | 6 | `close_buffer` | in: handle; unmaps and drops the reference (`-EBADF` if not held, `-EBUSY` for the bound compositor's screen buffer) |
+| 7 | `set_layout` | in: the screen buffer's byte order, `0` RGBA (the default after every bind) or `1` BGRA; owner only |
+| 8 | `native_layout` | out: the order `present` copies without converting, or `-ENOENT` (a 24-bit or other mode: every present converts); owner only |
 
 - One owner at a time; the kernel task is refused; `bind` needs `CAP_SYS_ADMIN`
   (`-EPERM` otherwise: the owner sees every pixel and keystroke); every pointer
@@ -52,6 +54,23 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   to the real framebuffer (`console::with_framebuffer`). Direct scanout is not
   used because the bootloader framebuffer frames live outside the allocator's
   usable regions (zero-copy scanout is an S8 follow-up).
+- **Fast present** (docs/performance-plan.md P3.2, `display/present.rs`,
+  `gfx/blit.rs`). The blit clamps once and slices each source row once; no
+  per-pixel bounds check. When the screen buffer is in the framebuffer's own
+  byte order (op 8 says which; `xuid` then declares it with op 7 and
+  composes in it, `Canvas::set_layout`) a row is one `copy_nonoverlapping`,
+  the kernel's `rep movs` memcpy; any other pairing (a 24-bit BIOS mode, an
+  RGBA buffer on a BGR framebuffer) is converted per pixel, so the layout is
+  never a correctness question. A present is copied 128 KiB of rows per
+  console-lock hold (`CHUNK_BYTES`); between chunks the lock is released
+  and pending interrupts are let in, then the device bottom half and the P1
+  preemption point run, exactly as a syscall's `nap` does (the #382 rule
+  holds: no lock is held while interrupts are on). Every chunk re-reads the
+  grant and re-validates its own rows, since the owner's other threads may
+  unmap the buffer or the grant may go away meanwhile (`-EFAULT`, or the rest
+  of the present is dropped). A cursor-sized present is one chunk. In the
+  kernel suite, which has no scheduler, a breath only counts and runs a test
+  hook (`display_fast_*` tests).
 - Budgets follow the screen (docs/architecture/limits.md): the per-process
   shared-buffer allowance (`limit.shared_buffer_max`) defaults to three
   screen-sized surfaces (the screen buffer plus a double-buffered full-screen
@@ -65,7 +84,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   std VGA (Bochs DISPI, PCI `1234:1111`, `display/bochs.rs`) while
   `fs::init` reads the boot volume, before anything binds: the mode is
   checked against the adapter's maximum and VRAM and read back, the linear
-  framebuffer is BAR0 through the physical map, and the console, the grant
+  framebuffer (BAR0) gets its own 4 KiB-page window beside the boot
+  framebuffer (`mem/fbwindow.rs`; the physical map's large pages could never
+  be write-combining) with the boot's WC policy applied (`wc::apply_policy`:
+  bare metal only), and the console, the grant
   geometry, the derived limits and the mouse bounds move to it
   (`display/modeset.rs`). A requested mode is the logical screen whole: the
   1920x1080 cap of `display/logical.rs` applies only to a mode firmware chose.
@@ -169,7 +191,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (`xuid/inputlink.rs`) and turns each event into its usual internal
   move / wheel / press / release (`xuid/pointer_feed.rs`, boot self-test
   `XUID:POINTER:PASS`), so hit-testing, drags and the `display.v1` events
-  below are unchanged. While attached it drops the pointer records of the
+  below are unchanged. Queued events are coalesced first (P3.4): a state
+  that only moved the pointer, with no button edge and no wheel, is dropped
+  when the next one holds the same buttons, so a backlog costs one repaint
+  and a press or release always happens where it happened. While attached it drops the pointer records of the
   display stream described above and keeps only its keys; if `inputd` dies it
   releases the buttons it held, uses the display stream again, and takes the
   pointer back once `inputd` is restarted (`xuid: pointer from inputd` /
@@ -190,7 +215,9 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   (physical HID `code`, `sym`, modifier bits, `Down`/`Up`/`Repeat`) and
   `TextInput` directly from `inputd`, only while focused. `xuid` is the shell
   client of `inputd` (`os.lazy.input.shell.v1`: it registers each surface's
-  creator and reports focus) and stops carrying keystrokes for a surface once
+  creator and reports focus, with the one-way `NoteSurface`, `ForgetSurface`
+  and `NoteFocus` so its loop never waits on `inputd`; one endpoint keeps them
+  ordered before the client's `Open`) and stops carrying keystrokes for a surface once
   `inputd` reports a session for it (`SessionOpened`). The frozen
   `KeyDown`/`KeyUp` below are still synthesised, from the kernel's legacy
   stream, for surfaces without a session (native demo clients, images without
@@ -260,18 +287,33 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   lists them too, so they stay reachable with no shell; `Tab` cycles focus
   skipping minimized ones. The close button sends the client a one-way
   `WindowClose` (method 10) event, which `xdemo` treats as "exit". Only
-  `Commit` uses per-surface damage; WM layout changes repaint the full screen
-  (a drag repaints the union of the old/new window rectangles). Within the
+  `Commit` uses per-surface damage; most WM layout changes repaint the full
+  screen (a drag repaints the union of the old/new window rectangles; a
+  click that raises or focuses a window repaints that window and the one
+  that lost focus, and a click on the focused top window nothing, P3.5). Within the
   damage, repaint paints each layer only where no opaque layer above it (window,
   panel, Alt+Tab panel) lies, so hidden windows cost nothing (#360).
 - **Input during animations.** The minimize/restore/maximize/open zooms
-  (`xuid/anim.rs`) are a short blocking loop of frames. Each frame reads the
+  (`xuid/anim.rs`) are a short blocking loop of frames, paced by time: each
+  phase takes 100 ms for the leading outline (the two trailing ones lag
+  10 ms each), frames are slotted at 60 Hz with nanosecond sleeps
+  (`sys::sleep_until_ns`), and a frame that overruns its slot makes the next
+  one further along rather than the animation longer. Each frame reads the
   pending input itself (the kernel display queue, and `inputd`'s
   `PointerEvent`s while it owns the pointer) into a preallocated queue on the
   `Compositor` (`xuid/held.rs`): nothing is dropped or reordered, the main loop
   handles the held events before any newer input, and the frame draws the
   cursor, above the wireframe, at the newest pointer position, so the pointer
   never freezes. Boot self-test `XUID:HELD:PASS`.
+- **The cursor is an overlay** (P3.1, `xuid/cursor.rs`). The screen buffer
+  holds the composed scene with the sprite stamped on it, and `xuid` keeps
+  the scene pixels under the sprite (save-under). A pointer move restores
+  the old sprite rectangle, saves and stamps the new one and presents the
+  two (one present when they overlap): nothing is recomposed, whatever the
+  distance moved. Everything that writes the screen buffer (`repaint`, the
+  zoom frames, the resize wireframe) lifts the sprite first and stamps it
+  after, which keeps the saved pixels exact. Boot self-test
+  `XUID:CURSOR:PASS`.
 
 **Resize and maximize**
 
@@ -291,7 +333,9 @@ restore, between close and minimize) and interactive resize edges.
 - **Outline resize.** A press on an edge consumes the press and starts a
   `ResizeDrag`; moving the pointer composes the old and new outline rectangles
   and draws a wireframe (`xuid/anim.rs::outline`) without re-rendering the
-  window. On release the new geometry is adopted and the client gets a one-way
+  window. The live outline is part of the scene: `compose` XORs it onto every
+  repaint inside it, so a client redrawing under it (a blinking caret) does
+  not erase it. On release the new geometry is adopted and the client gets a one-way
   `Configure(width, height, Normal)` (method 33) plus a shell `Resized` event.
   `Escape` cancels and erases the outline; a destroyed surface clears the drag.
   Resize and title-bar drag are mutually exclusive and neither starts during a
@@ -527,6 +571,22 @@ copies the damage of the frame it missed as well as the current one. A new windo
 theme change damage the whole window. `dragdemo` and `shellprobe` stay on
 `AttachBuffer`/`Commit`: `dragdemo` redraws only on a drop, and `shellprobe`
 is what exercises the legacy path.
+
+Between passes an `xui-app` client parks once on every window's event and
+input-session endpoint (the P1 wait set, `xui-app/src/backend/event_loop.rs`
+`park_client`) until a message arrives or its next timer is due, instead of a
+one-tick receive per window (docs/performance-plan.md P3.8). Timers run on the
+monotonic nanosecond clock (`WAIT_DEADLINE_NS`), so a 16 ms timer fires every
+16 ms, not at the tick after it, and keeps its cadence without bursting after
+a stall. `LazyOSBackend::watch_fd` adds one Linux descriptor to the park
+(`WAIT_FD`), `watch_endpoint` adds endpoints the app serves or follows (the
+shell's `os.lazy.shell` endpoint, its compositor link, topic doorbells from
+`platform::topicwatch`), and `wake_at` a one-shot deadline; the primary
+window hears any of them as a `Timer` event with id `FD_TIMER`
+(`backend/watch.rs`). A message posted to a window (`Backend::wake`) runs one
+more pass before the loop parks. With nothing due the park lasts up to 10 s,
+a safety net only. LazyShell has no repeating timer: it wakes for those
+sources and when its clock text next changes (docs/performance-plan.md P7).
 
 **Retitling a window (`SetTitle`, method 29)**
 

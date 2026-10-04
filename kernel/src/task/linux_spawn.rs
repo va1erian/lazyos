@@ -137,6 +137,7 @@ fn spawn_linux_in<I: Image + ?Sized>(
         output: Vec::new(),
         input: VecDeque::new(),
     });
+    super::runq::sync(&tasks, index);
     register_bumps(pml4.as_u64(), started.brk, user_process::linux::MMAP_BASE);
     Ok(index)
 }

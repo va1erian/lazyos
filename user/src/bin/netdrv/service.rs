@@ -50,11 +50,6 @@ impl Service {
         }
     }
 
-    /// Whether a client is attached (the loop wakes more often then).
-    pub(super) fn busy(&self) -> bool {
-        self.attachment.is_some()
-    }
-
     /// Release the attachment's buffer and endpoint.
     fn drop_attachment(&mut self, why: &str) {
         if let Some(attachment) = self.attachment.take() {

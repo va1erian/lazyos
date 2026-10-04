@@ -3,9 +3,13 @@
 use super::*;
 
 impl Ext2 {
-    /// Give the host its pause between two units of work ([`BlockIo::pace`]).
+    /// Give the host its pause between two units of work ([`BlockIo::pace`]),
+    /// and let the caller's pause hook run: the kernel opens an interrupt
+    /// window here (issue #567) and, when the gate holder may sleep, breathes
+    /// (docs/performance-plan.md P5).
     pub(super) fn pace(&self) {
         self.io.pace();
+        self.pause_point();
     }
 
     /// Allocate a data block. A full volume with frees waiting for a commit

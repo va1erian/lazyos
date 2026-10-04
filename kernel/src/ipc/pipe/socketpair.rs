@@ -49,10 +49,12 @@ impl SocketPair {
     }
 
     /// Build a pair of small-ring pipes (an `AF_INET` socket's data path), or
-    /// `None` at the small-ring cap.
+    /// `None` at the small-ring cap. Side A is `netd`'s, side B the
+    /// application's: B's reads of `ab` and writes to `ba` ring the pump's
+    /// doorbell (`small.rs`).
     pub fn new_small(mode: Mode) -> Option<Arc<SocketPair>> {
-        let ab = Pipe::new_small(mode)?;
-        let ba = Pipe::new_small(mode)?;
+        let ab = Pipe::new_small(mode, small::BELL_ON_READ)?;
+        let ba = Pipe::new_small(mode, small::BELL_ON_WRITE)?;
         Some(Self::from_pipes(ab, ba))
     }
 
@@ -217,6 +219,12 @@ impl SocketPair {
     /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
     /// `epoll` interests: the counter changes whenever either direction's
     /// readiness could have changed (data, space, or a close).
+    /// The keyed-wakeup keys of both direction pipes (`task::pollwait`): a
+    /// pipe announces its events under its own address.
+    pub fn pipe_keys(&self) -> [u64; 2] {
+        [Arc::as_ptr(&self.ab) as u64, Arc::as_ptr(&self.ba) as u64]
+    }
+
     pub fn poll_gen(&self, side: Side, events: u16) -> (u16, u64) {
         let (read, write) = self.directions(side);
         let revents = read.poll(End::Read, events) | write.poll(End::Write, events);

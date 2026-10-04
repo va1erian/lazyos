@@ -21,8 +21,9 @@ use x86_64::PhysAddr;
 use super::msr;
 use crate::mem;
 
-/// Vector of the APIC timer: above the remapped PIC (32..48), below the
-/// syscall (0x80) and reschedule (0x81) gates.
+/// Vector of the APIC timer as the tick: above the remapped PIC (32..48),
+/// below the syscall (0x80) and reschedule (0x81) gates. As the deadline
+/// timer it uses the next vector (`event_timer::VECTOR`).
 pub const TIMER_VECTOR: u8 = 0x30;
 /// Spurious-interrupt vector; the low four bits must be set on old CPUs.
 pub const SPURIOUS_VECTOR: u8 = 0xFF;
@@ -209,6 +210,19 @@ pub fn start_periodic(count: u32) {
     write(TIMER_DIVIDE, DIVIDE_BY_16);
     write(LVT_TIMER, LVT_PERIODIC | u32::from(TIMER_VECTOR));
     write(TIMER_INITIAL, count.max(1));
+}
+
+/// Set the timer up as a one-shot on `vector`, unmasked and stopped: each
+/// [`set_initial_count`] then raises one interrupt when it counts down.
+pub fn start_oneshot(vector: u8) {
+    write(TIMER_DIVIDE, DIVIDE_BY_16);
+    write(TIMER_INITIAL, 0);
+    write(LVT_TIMER, u32::from(vector));
+}
+
+/// Start the timer counting down from `count` divided clocks (0 stops it).
+pub fn set_initial_count(count: u32) {
+    write(TIMER_INITIAL, count);
 }
 
 /// Mask or unmask the timer's interrupt; the count keeps running either way.
