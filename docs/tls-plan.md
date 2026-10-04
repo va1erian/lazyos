@@ -57,7 +57,7 @@ Related: [networking-plan.md](networking-plan.md),
 | musl's resolver | *(T1, built)* works through `/etc/resolv.conf`; `netfix` resolves a real name | `tools/abi/fixtures/src/netfix_names.rs` |
 | Socket options | *(T2, built)* `SO_RCVTIMEO`/`SO_SNDTIMEO` honoured on `AF_INET` sockets (read, write, `accept`, `connect`) | `kernel/src/process/linux/sockopt.rs`, `kernel/src/ipc/inet/timeout.rs` |
 | Sockets across threads | a thread gets its own descriptor table: a socket opened before `thread::spawn` is not visible in the new thread | same |
-| Throughput and latency | about 10 ms per control step (`connect`), at most 16 KiB per socket per direction per tick (about 1.6 MB/s) | same |
+| Throughput and latency | *(performance plan P4)* `netd` is woken by a kernel doorbell instead of its tick: a `connect` takes 0.5-1 ms on the local link; bulk TCP measures about 70 MB/s out and 130-190 MB/s in under WHPX (`tools/net/bulk.py`, `docs/perf/network.md`). Before P4 the table read "about 1.6 MB/s", a figure derived from the code; the first measurement found 50-60 MB/s under load and 10-13 ms per `connect` | `kernel/src/ipc/inet/bell.rs`, `user/src/bin/netd/inet/flow.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom` (seeded from `RDRAND` and timing) and native syscall 26 | `kernel/src/entropy.rs` |
 | Wall clock | RTC read once at boot plus PIT uptime; `clock_settime` with `CAP_SYS_TIME`; **no NTP**. A garbage RTC falls back to 2026-01-01 | `kernel/src/wallclock.rs` |
 | FPU/SIMD state | `FXSAVE`/`FXRSTOR` per task (x87 + SSE). **No `XSAVE`**, so AVX state is not preserved and `OSXSAVE` is off; AES-NI and `PCLMULQDQ` work (they use XMM registers) | `kernel/src/task/fpu.rs` |
@@ -143,7 +143,7 @@ TLS stack it links must be available under a GPLv2-compatible licence, and
 | **A. Library in each client** | The model of every mainstream OS; plaintext never leaves the process that owns it; a compromised client exposes only its own connections | Every client carries its own copy (a few hundred KiB) | **Chosen** |
 | B. A `tlsd` service clients hand sockets to | One copy of the code; could hold client certificates | One process sees every application's plaintext and parses every server's certificates: the worst place to have a bug. Needs sockets passed between tasks, which neither Messenger replies nor the shim support | Rejected for clients |
 | C. TLS in `netd` | | `netd` already parses hostile frames; adding certificates and every plaintext to it removes the split that justified it | Rejected |
-| D. Kernel TLS (kTLS) | Fast record layer | A record decryptor in ring 0, for a throughput we cannot use (1.6 MB/s link pump) | Rejected |
+| D. Kernel TLS (kTLS) | Fast record layer | A record decryptor in ring 0, for a throughput the link pump could not use (it was put at 1.6 MB/s then; P4 measures 70-190 MB/s, and the argument from privilege stands alone) | Rejected |
 
 `keyd` stays the home of *long-term secrets*. A TLS client has none (its
 session keys are ephemeral), so `keyd` is not on the client path. It is for
@@ -261,10 +261,11 @@ can use non-blocking sockets and `poll`, which work today.
 - **Entropy:** `getrandom` from the kernel CSPRNG is what rustls needs for
   nonces and key shares. Note it in the plan: if `RDRAND` is missing on a real
   machine, early-boot seeding is weaker; TLS clients start long after boot.
-- **Throughput:** 1.6 MB/s is plenty for pages and mail headers. A 10 MiB
-  download takes several seconds; acceptable.
-- **Latency:** a TLS 1.3 handshake is one round trip plus `connect`; the
-  tick-driven pump adds tens of milliseconds, invisible next to the WAN.
+- **Throughput:** the socket path is no longer the limit (P4 measures
+  70-190 MB/s of plain TCP); the record layer's own cost is.
+- **Latency:** a TLS 1.3 handshake is one round trip plus `connect`, which
+  costs under a millisecond on the local link since P4 (it was a tick or
+  more), invisible next to the WAN either way.
 - **Memory:** a static rustls + RustCrypto + ureq binary is about 1.7 MiB; record
   buffers are 16–32 KiB per connection.
 

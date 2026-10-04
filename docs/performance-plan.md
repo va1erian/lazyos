@@ -3,7 +3,11 @@
 Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
 (the kernel wake path) are built; their measurements, so far on the dev
 profile under WHPX, are in [`perf/report.md`](perf/report.md) and
-[`perf/history.md`](perf/history.md). P2 onward is not started.
+[`perf/history.md`](perf/history.md). P4 (network) steps 0-5 are built and
+measured in [`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the
+exit target is met under WHPX (Linux sockets about 70 MB/s out and 130-190
+MB/s in, `connect` 0.5-1 ms); steps 6 and 7 are not done. P2, P3 and P5
+onward are not started here.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -218,6 +222,19 @@ Verdict from the wire, as for all networking: a pcap-judged bulk transfer in
 Exit: at least 50 MB/s TCP in each direction on the Linux socket path under
 KVM or WHPX (from 1.6 MB/s); `connect` under 1 ms on a local link. Revise the
 target after the P0 baseline.
+
+Result (`tools/net/bulk.py`, [`perf/network.md`](perf/network.md); WHPX, dev
+profile): the baseline was not 1.6 MB/s but 49-53 MB/s out and 58-60 MB/s in
+(arriving frames woke `netd` far more often than its timer), with 10-13 ms
+per `connect`. The doorbell (step 1) took `connect` to 0.5-1 ms (the first
+one after a program starts 1-10 ms); the 256 KiB windows (step 3) took bulk
+TCP to 66-87 MB/s out and 132-191 MB/s in; steps 2, 4 and 5 removed copies,
+allocations, syscalls and a timer without a measurable change in throughput.
+Step 6 is not done: under bulk load the card already raises about one
+interrupt per 30 received frames and drops none, so `EVENT_IDX` has little to
+save, and QEMU's user network is not expected to offer checksum offload
+(unverified). Step 7 is not done. What limits the throughput now is unmeasured;
+the 10 ms clock still governs delayed ACKs and retransmission until P2.
 
 ### P5. Interrupts-off time and storage
 
