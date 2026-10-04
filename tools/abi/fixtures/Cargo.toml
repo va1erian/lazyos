@@ -99,3 +99,9 @@ path = "src/linuxapps.rs"
 [[bin]]
 name = "netfix"
 path = "src/netfix.rs"
+
+# Bulk TCP throughput against `tools/net/bulk.py`'s host server
+# (docs/performance-plan.md P4); embedded as `/system/bin/netbulk-linux`.
+[[bin]]
+name = "netbulk"
+path = "src/netbulk.rs"

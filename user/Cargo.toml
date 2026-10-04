@@ -407,6 +407,14 @@ path = "src/bin/nc.rs"
 test = false
 bench = false
 
+# Bulk TCP throughput over `os.lazy.net.socket.v1` (docs/performance-plan.md
+# P4), run by `tools/net/bulk.py`.
+[[bin]]
+name = "netbulk"
+path = "src/bin/netbulk.rs"
+test = false
+bench = false
+
 [[bin]]
 name = "nslookup"
 path = "src/bin/nslookup.rs"
