@@ -107,8 +107,10 @@ extern "C" {
 /// Does not advance the tick counter, acknowledge the PIC, or charge a CPU
 /// tick; deadline expiry and task selection run exactly as on a tick.
 pub fn yield_now() {
+    crate::perf::irqoff_pause();
     // SAFETY: `arch::idt::init` installs `yield_isr` at `YIELD_VECTOR`
     // (0x81). The gate saves a full interrupt frame and restores it with
     // `iretq`, so control returns here with every register intact.
     unsafe { x86_64::instructions::interrupts::software_interrupt::<0x81>() };
+    crate::perf::irqoff_resume();
 }

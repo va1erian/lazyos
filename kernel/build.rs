@@ -37,6 +37,16 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_desktop");
     }
 
+    // Latency instrumentation (docs/performance-plan.md P0): `LAZYOS_PERF=1`
+    // records wake, input and interrupts-off latencies and prints them as
+    // `PERF:` serial lines (`tools/perf/run.py` parses them). Off, every hook
+    // compiles to nothing.
+    println!("cargo:rerun-if-env-changed=LAZYOS_PERF");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_perf)");
+    if env::var_os("LAZYOS_PERF").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_perf");
+    }
+
     // Label-policy trace (issue #509): `LAZYOS_LABEL_TRACE=1` prints every
     // call a labelled (installed) app is refused, with the label, the
     // interface or name and the method, so a package's permissions can be

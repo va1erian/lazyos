@@ -37,6 +37,7 @@ mod limits;
 mod mem;
 mod mux;
 mod panic_screen;
+mod perf;
 mod process;
 mod quota;
 mod serial;

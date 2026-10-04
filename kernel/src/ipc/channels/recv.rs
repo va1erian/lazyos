@@ -2,6 +2,9 @@
 
 use super::*;
 
+mod waitset;
+pub use waitset::*;
+
 /// Receive the next message without blocking; `Ok(None)` means "try later".
 ///
 /// Delivery installs the message's transferred handles and buffers into the

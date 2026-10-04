@@ -80,8 +80,9 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
         Ok(args) => args,
         Err(code) => return report(result_ptr, code),
     };
-    // Flags are reserved, except the one `close_endpoint` knows.
-    let allowed = op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE;
+    // Flags are reserved, except the ones `close_endpoint` and `wait` know.
+    let allowed = (op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE)
+        || (op == OP_WAIT && args.flags & !channels::WAIT_DOORBELLS == 0);
     if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
     }
@@ -133,6 +134,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_LIST => op_registry(args, crate::ipc::registry::method::LIST),
         OP_AUTHORIZE_TOPIC => op_authorize_topic(args),
         OP_ACL_LOAD => aclop::op_acl_load(args),
+        OP_WAIT => op_wait(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -257,6 +259,24 @@ fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
                 .unwrap_or(0),
             message.buffers.len() as u64,
         ],
+        ..MsgResult::default()
+    })
+}
+
+fn op_wait(args: &MsgArgs) -> Result<MsgResult, i64> {
+    let count = args.parcel_len as usize;
+    if count > channels::MAX_WAIT_ENDPOINTS {
+        return Err(errno::EINVAL);
+    }
+    let bytes = copy_in(args.parcel_ptr, count * 8)?;
+    let mut handles = [0u64; channels::MAX_WAIT_ENDPOINTS];
+    for (handle, word) in handles.iter_mut().zip(bytes.as_chunks::<8>().0) {
+        *handle = u64::from_le_bytes(*word);
+    }
+    let ready = channels::wait_any(&handles[..count], args.flags, args.deadline_ticks())
+        .map_err(channel_errno)?;
+    Ok(MsgResult {
+        value: ready,
         ..MsgResult::default()
     })
 }

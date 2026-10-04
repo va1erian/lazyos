@@ -69,6 +69,9 @@ pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
             task.pass = task.pass.max(now);
+            let cur = CURRENT.load(Ordering::Relaxed);
+            crate::perf::on_wake(index, cur);
+            super::preempt::note_wake(&tasks, index, cur);
             return true;
         }
     }
@@ -116,8 +119,14 @@ pub fn wait_sleep(deadline: u64) -> WakeReason {
 /// this way). `enable_and_hlt` also closes the race between the check and
 /// the sleep.
 pub fn nap() {
+    crate::perf::irqoff_pause();
+    // An interrupt that stops this halt may run the device bottom half: a
+    // napping task holds no lock (P1.2, `preempt::interrupted_quiet_context`).
+    super::preempt::nap_begin();
     x86_64::instructions::interrupts::enable_and_hlt();
     x86_64::instructions::interrupts::disable();
+    super::preempt::nap_end();
+    crate::perf::irqoff_resume();
 }
 
 /// Call `ready` until it yields a value, [`nap`]ping between attempts, so

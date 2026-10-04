@@ -141,6 +141,14 @@ pub fn state(index: usize) -> Option<TaskState> {
     TASKS.lock()[index].as_ref().map(|task| task.state)
 }
 
+/// Force `index`'s state, without queueing it anywhere (the wake-rule tests
+/// stage a blocked or done current task this way).
+pub fn set_state(index: usize, state: TaskState) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.state = state;
+    }
+}
+
 /// Classify `fd` in another task's descriptor table, so a test can verify
 /// `fork` inheritance without switching `current()`.
 pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {

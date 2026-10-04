@@ -181,6 +181,13 @@ global_asm!(
 "#,
         entry_body!(""),
         r#"
+        /* Run a task the call woke if it outranks this one (P1.1). The
+           result rides on the stack; 15 pushed qwords plus this one leave
+           rsp 16-aligned for the call, and every other register is
+           reloaded from the stack below. */
+        push rax
+        call linux_syscall_return
+        pop rax
         pop r10
         pop r9
         pop r8
