@@ -323,9 +323,15 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     } else {
         border_color()
     };
-    // Body, then a one-design-pixel frame and the title separator.
+    // Body, then a one-design-pixel frame and the title separator. The
+    // content rectangle is left out: the app's pixels (or the placeholder)
+    // cover it below, so each of its pixels is written once.
     let line = px(1);
-    screen.fill(window, clip, window_bg());
+    let mut body = Region::new(window.intersect(clip));
+    body.subtract(surface.content());
+    for piece in body.rects() {
+        screen.fill(*piece, clip, window_bg());
+    }
     screen.fill(Rect::new(window.x, window.y, window.w, line), clip, border);
     screen.fill(
         Rect::new(window.x, window.y + window.h - line, window.w, line),

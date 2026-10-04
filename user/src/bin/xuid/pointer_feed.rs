@@ -60,6 +60,14 @@ fn event(kind: EventKind, a: i32, b: i32) -> Event {
     }
 }
 
+/// Whether `newer` makes `older` redundant: `older` only moved the pointer
+/// (no wheel) and `newer` holds the same buttons, so applying `newer` alone
+/// lands in the same state with the same edges (docs/performance-plan.md
+/// P3.4).
+pub(super) fn supersedes(older: &PointerState, newer: &PointerState) -> bool {
+    older.wheel == 0 && older.wheel_h == 0 && older.buttons == newer.buttons
+}
+
 /// The forwarded-button bits of a mask.
 pub(super) fn forwarded(buttons: u32) -> u32 {
     buttons & ((1 << BUTTONS) - 1)
@@ -156,6 +164,15 @@ pub(super) fn selftest_pointer_feed() -> &'static str {
         if got.len() != want.len() || got.iter().zip(want).any(|(e, w)| (e.kind, e.a) != *w) {
             return "XUID:POINTER:FAIL translate\n";
         }
+    }
+    // Coalescing: moves merge, a wheel or a button change never does.
+    let coalesce = supersedes(&state(1, 1, 0, 0), &state(9, 9, 0, 1))
+        && supersedes(&state(1, 1, 1, 0), &state(2, 2, 1, 0))
+        && !supersedes(&state(1, 1, 0, 1), &state(2, 2, 0, 0))
+        && !supersedes(&state(1, 1, 0, 0), &state(1, 1, 1, 0))
+        && !supersedes(&state(1, 1, 1, 0), &state(1, 1, 0, 0));
+    if !coalesce {
+        return "XUID:POINTER:FAIL coalesce\n";
     }
     "XUID:POINTER:PASS\n"
 }

@@ -160,6 +160,11 @@ impl Compositor {
             )
         };
         let before = self.focused;
+        // Whether a window paints above this one: only then does raising it
+        // change any pixel of it.
+        let covered = self.surfaces[index + 1..]
+            .iter()
+            .any(|surface| surface.is_window() && !surface.minimized);
         raise(&mut self.surfaces, id);
         self.focused = Some(id);
         if self.focused != before {
@@ -228,11 +233,11 @@ impl Compositor {
             }
             // Title-bar presses (and a right-click that cannot drag) are the
             // WM's; only the focus/raise repaint is needed.
-            self.repaint_full();
+            self.repaint_raised(id, before, covered);
             return;
         }
         // Content: focus, raise, and forward the press surface-relative.
-        self.repaint_full();
+        self.repaint_raised(id, before, covered);
         // This press goes to the surface, so its release must too: drop a
         // stale consumed bit left by a release the input queue dropped.
         self.consumed &= !button_bit;
@@ -245,6 +250,26 @@ impl Compositor {
             wire::METHOD_POINTERDOWN,
             body,
         );
+    }
+
+    /// Repaint what a press that raised and focused `id` changed
+    /// (docs/performance-plan.md P3.5): `id`'s window when something covered
+    /// it or its focus colours changed, and the window that lost focus
+    /// (its title bar and frame). A click on the focused top window repaints
+    /// nothing.
+    fn repaint_raised(&mut self, id: u64, before: Option<u64>, covered: bool) {
+        let raised = surface_by_id(&self.surfaces, id).map(|surface| surface.window());
+        if let Some(window) = raised.filter(|_| covered || before != Some(id)) {
+            self.repaint(window);
+        }
+        let lost = before
+            .filter(|old| *old != id)
+            .and_then(|old| surface_by_id(&self.surfaces, old))
+            .filter(|surface| !surface.minimized)
+            .map(|surface| surface.window());
+        if let Some(window) = lost {
+            self.repaint(window);
+        }
     }
 
     /// A pointer button went up.

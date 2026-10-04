@@ -218,6 +218,27 @@ impl Canvas {
         }
     }
 
+    /// Blend `color` over the pixels from `(x, y)` rightwards with one
+    /// coverage per pixel (0..=255). The span must be visible (callers clip
+    /// with [`Canvas::visible`] first); an invisible one draws nothing.
+    fn blend_span(&mut self, x: i32, y: i32, alphas: &[u8], color: Color) {
+        let stored = self.pixel(color);
+        let row = self.row_mut(x, y, alphas.len() as i32);
+        for (dst, &alpha) in row.as_chunks_mut::<4>().0.iter_mut().zip(alphas) {
+            match alpha {
+                0 => {}
+                0xff => *dst = stored,
+                _ => {
+                    let a = alpha as u32;
+                    for (d, s) in dst.iter_mut().zip(stored).take(3) {
+                        *d = ((s as u32 * a + *d as u32 * (255 - a) + 127) / 255) as u8;
+                    }
+                    dst[3] = 0xff;
+                }
+            }
+        }
+    }
+
     /// Blend `color` over one pixel with coverage `alpha` (0..=255).
     pub fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
         if alpha == 0 {
@@ -258,11 +279,14 @@ impl Canvas {
             let (glyph, coverage) = face.glyph(ch);
             let gx = (pen16 + 8) / 16 + glyph.left;
             let gy = baseline + glyph.top;
-            for row in 0..glyph.height as i32 {
-                for col in 0..glyph.width as i32 {
-                    let alpha = coverage[(row * glyph.width as i32 + col) as usize];
-                    self.blend_pixel(gx + col, gy + row, color, alpha, clip);
-                }
+            // Clip once per glyph, not once per pixel: a glyph outside the
+            // clip costs nothing, and the visible part is blended directly.
+            let (gw, gh) = (glyph.width as i32, glyph.height as i32);
+            let shown = self.visible(Rect::new(gx, gy, gw, gh), clip);
+            for py in shown.y..shown.y + shown.h {
+                let first = ((py - gy) * gw + (shown.x - gx)) as usize;
+                let alphas = coverage.get(first..first + shown.w as usize).unwrap_or(&[]);
+                self.blend_span(shown.x, py, alphas, color);
             }
             pen16 += glyph.advance_x16 as i32;
         }

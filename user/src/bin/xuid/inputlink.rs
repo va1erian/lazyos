@@ -16,12 +16,12 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
-use user::messenger::input::{ShellEvent, ShellLink};
+use user::messenger::input::{PointerState, ShellEvent, ShellLink};
 use user::messenger::{errno, Error};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::pointer_feed::MAX_EVENTS;
+use super::pointer_feed::{supersedes, MAX_EVENTS};
 
 /// Ticks (100 Hz) between attempts to reach `inputd`.
 const RETRY_TICKS: u64 = 100;
@@ -141,29 +141,44 @@ impl Compositor {
     }
 
     /// Apply queued `inputd` events. `false` when the link is dead.
+    ///
+    /// Pointer events are coalesced (docs/performance-plan.md P3.4): a state
+    /// that only moves the pointer is replaced by the next one when that
+    /// keeps the same buttons ([`supersedes`]), so a backlog that built up
+    /// while the compositor was busy costs one repaint, not one per event.
+    /// Button edges and wheel notches are never merged away.
     fn apply_input_events(&mut self) -> bool {
-        loop {
+        let mut pending: Option<PointerState> = None;
+        let alive = loop {
             if !self.held.is_empty() && self.held.room() < MAX_EVENTS {
                 // An animation filled the held queue: leave the rest queued
                 // in `inputd` until the main loop has handled it.
-                return true;
+                break true;
             }
             let Some(link) = self.input.link.as_mut() else {
-                return false;
+                break false;
             };
             match link.poll_event() {
+                Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
+                    match pending {
+                        Some(old) if !supersedes(&old, &state) => self.apply_pointer(&old),
+                        _ => {}
+                    }
+                    pending = Some(state);
+                }
                 Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
                 Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
-                Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
-                    self.apply_pointer(&state)
-                }
                 // Hotkeys, grants and the escape chord are not used yet: the
                 // compositor keeps its own hotkey table until they are.
                 Ok(Some(_)) => {}
-                Ok(None) => return true,
-                Err(_) => return false,
+                Ok(None) => break true,
+                Err(_) => break false,
             }
+        };
+        if let Some(state) = pending {
+            self.apply_pointer(&state);
         }
+        alive
     }
 
     /// During an animation frame: hold the pointer events `inputd` queued,
