@@ -13,7 +13,33 @@ use super::*;
 /// Returns the `rsp` to resume (the next task's saved context).
 #[no_mangle]
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
-    let tick = tick != 0;
+    let started = crate::perf::sched_enter();
+    ENTRIES.fetch_add(1, Ordering::Relaxed);
+    let rsp = decide(current_rsp, tick != 0);
+    crate::perf::sched_exit(started);
+    rsp
+}
+
+/// Scheduler entries since boot (ticks, parks and yields).
+static ENTRIES: AtomicU64 = AtomicU64::new(0);
+/// Entries that put a different task on the CPU.
+static SWITCHES: AtomicU64 = AtomicU64::new(0);
+
+/// Context switches since boot: scheduler entries that resumed a task other
+/// than the one they interrupted (the idle-desktop rate, P6/P7).
+#[allow(dead_code)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub fn context_switches() -> u64 {
+    SWITCHES.load(Ordering::Relaxed)
+}
+
+/// Scheduler entries since boot, switching or not.
+#[allow(dead_code)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub fn scheduler_entries() -> u64 {
+    ENTRIES.load(Ordering::Relaxed)
+}
+
+/// The body of [`schedule`].
+fn decide(current_rsp: u64, tick: bool) -> u64 {
     if tick && crate::arch::timer::stale_tick() {
         // An APIC tick accepted before line 0 was masked: no tick happened
         // for the kernel, exactly as a masked 8259 line delivers nothing.
@@ -97,6 +123,7 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     mark_finished(&tasks, cur);
     drop(tasks);
     signal::finish_sweep(&sweep_finished[..sweep_count]);
+    SWITCHES.fetch_add(1, Ordering::Relaxed);
     // The live x87/SSE registers are `cur`'s user state (the kernel is
     // soft-float): park them before `install` loads the next task's.
     fpu::save(cur);

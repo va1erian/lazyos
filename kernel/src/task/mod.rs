@@ -117,6 +117,8 @@ pub use memstate::*;
 pub use preempt::pending as resched_pending;
 pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
 pub use sched::*;
+#[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub use schedule::{context_switches, scheduler_entries};
 pub use schedule::expire_due;
 pub use spawn::*;
 pub use stats::*;

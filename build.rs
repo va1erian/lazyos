@@ -161,6 +161,11 @@ fn main() {
     let faultprobe = std::env::var_os("CARGO_BIN_FILE_USER_faultprobe")
         .expect("user faultprobe artifact not found");
     files.add_file(fhs::bin::FAULTPROBE, PathBuf::from(faultprobe));
+    // The cross-process Messenger benchmark (docs/performance-plan.md P6):
+    // `tools/perf/run.py` has the kernel start it; any shell can run it too.
+    let msgbench =
+        std::env::var_os("CARGO_BIN_FILE_USER_msgbench").expect("user msgbench artifact not found");
+    files.add_file(fhs::bin::MSGBENCH, PathBuf::from(msgbench));
     // The fabric observability tool (issue #70); boot it with
     // `LAZYOS_MESSENGERCTL=1`. Every program goes to its `fhs::bin` path, which
     // its spawners use byte for byte (ext2 is case-sensitive).

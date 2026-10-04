@@ -2,8 +2,8 @@
 
 One row per labelled `python tools/perf/run.py --label ...` run. Microseconds.
 
-| Label | Commit | Accel | irq_wake p50/p99/max | input_read p50/p99/max | input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 | sleep_1ms p50/p99/max |
-|---|---|---|---|---|---|---|---|---|
+| Label | Commit | Accel | irq_wake p50/p99/max | input_read p50/p99/max | input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 | sleep_1ms p50/p99/max | msg_rt p50/p99 | msg/s | sched p50/p99 | idle ctxsw/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | P0 baseline | `219f15fa+dirty` | whpx | 4549/11539/20278 (n=497) | 9951/20600/25503 (n=200) | 29906/58698/66589 (n=200) | 19.5/32550 (n=93182) | 2.2/2.8 (n=2000) | - |
 | P1.1 reschedule on wake | `9cf0db77+dirty` | whpx | 4665/10132/22950 (n=476) | 9861/19702/24894 (n=200) | 30404/57773/62893 (n=200) | 22.4/29483 (n=93244) | 2.3/2.7 (n=2000) | - |
 | P1.2 prompt device IRQs | `fd8fa6df+dirty` | whpx | 81.3/707/25562 (n=437) | 9344/31669/31947 (n=200) | 40188/83419/87888 (n=200) | 13.5/29100 (n=66585) | 4.8/5.2 (n=2000) | - |
@@ -12,3 +12,4 @@ One row per labelled `python tools/perf/run.py --label ...` run. Microseconds.
 | P1.5 exit hands CPU on (all of P1) | `8fa51ec1+dirty` | whpx | 145/7086/19753 (n=432) | 134/393/516 (n=200) | 280/545/661 (n=200) | 9.3/30883 (n=3604365) | 2.3/5.2 (n=2000) | - |
 | P2 baseline (P1 + sleep bench) | `b0fb61b3+dirty` | whpx | 60.5/3614/23148 (n=684) | 95.2/321/714 (n=200) | 129/355/763 (n=200) | 6.1/607987 (n=66224) | 0.7/0.7 (n=2000) | 10031/11460/11992 (n=200) |
 | P2 timer queue + APIC deadline timer | `a7bebbef` | whpx | 50.6/169/7477 (n=680) | 72.6/208/1282 (n=200) | 103/238/1301 (n=200) | 4.6/22652 (n=76157) | 0.6/0.9 (n=2000) | 1038/1889/2263 (n=200) |
+| P6 baseline | `bd0c5679+dirty` | whpx | 56.4/5266/26978 (n=668) | 85.7/183/240 (n=200) | 115/211/278 (n=200) | 15.7/476799 (n=332958) | 0.5/0.5 (n=2000) | 1033/1574/1778 (n=200) | 5.6/9.8 (n=20000) | 523198 | 1.9/38.6 (n=74165) | 414.0 |

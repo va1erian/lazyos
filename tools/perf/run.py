@@ -24,6 +24,13 @@ Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
     ipc_rt         in-kernel Messenger echo round trip (no context switch)
     sleep_1ms      a 1 ms sleep of the kernel task, request -> return
     present        the compositor's present syscall, start to return
+    sched          one scheduler entry (tick, park or yield), start to return
+    wake_run       any task-to-task wake -> the woken task runs
+    msg_rt         cross-process Messenger Ping round trip (msgbench, user rdtsc)
+
+Also reported: `msg_tput` (msgbench's one-way messages and calls per second)
+and `idle_ctxsw` (context switches and scheduler entries per second over a
+quiet window at the end of the run, no input and no network traffic).
 
 Exit status is non-zero when the image never reaches the desktop or a metric
 the run must produce (`irqoff`, `ipc_rt`, `input_read`, `sleep_1ms`) is missing.
@@ -52,13 +59,20 @@ from qemu_qmp import (  # noqa: E402
 REPORT_DIR = ROOT / "docs" / "perf"
 METRICS = (
     "irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms", "present",
+    "sched", "wake_run", "msg_rt",
 )
-REQUIRED = ("irqoff", "ipc_rt", "input_read", "sleep_1ms")
+REQUIRED = ("irqoff", "ipc_rt", "input_read", "sleep_1ms", "msg_rt", "sched")
 RE_METRIC = re.compile(
     r"PERF:(\w+):n=(\d+) p50_us=([\d.]+) p90_us=([\d.]+) p99_us=([\d.]+) "
     r"max_us=([\d.]+) mean_us=([\d.]+)"
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
+RE_TPUT = re.compile(r"PERF:msg_tput:msgs_per_s=(\d+) calls_per_s=(\d+)")
+RE_CTXSW = re.compile(r"PERF:ctxsw:tick=(\d+) switches=(\d+) entries=(\d+)")
+#: msgbench prints this once both of its lines are out.
+MSG_DONE = "MSGBENCH:DONE"
+#: Seconds of the quiet window the idle context-switch rate is taken over.
+IDLE_WINDOW_S = 8.0
 READY = ("XUID:UP:PASS", "INPUTD:READY")
 #: The kernel runs its IPC benchmark 15 s after boot and its sleep benchmark
 #: (about 1 to 2 s long) at 17 s; reports come every 2 s.
@@ -137,7 +151,25 @@ def parse(text: str) -> dict:
     worst = None
     for match in RE_WORST.finditer(text):
         worst = {"us": float(match.group(1)), "syscall": match.group(2)}
-    return {"metrics": metrics, "irqoff_worst": worst}
+    tput = None
+    for match in RE_TPUT.finditer(text):
+        tput = {"msgs_per_s": int(match.group(1)), "calls_per_s": int(match.group(2))}
+    return {"metrics": metrics, "irqoff_worst": worst, "msg_tput": tput}
+
+
+def idle_rate(window: str) -> dict | None:
+    """Context switches and scheduler entries per second between the first
+    and the last `PERF:ctxsw` line of `window` (the serial text of the quiet
+    window): 100 ticks per second."""
+    samples = [tuple(int(g) for g in m.groups()) for m in RE_CTXSW.finditer(window)]
+    if len(samples) < 2 or samples[-1][0] <= samples[0][0]:
+        return None
+    seconds = (samples[-1][0] - samples[0][0]) / 100.0
+    return {
+        "seconds": seconds,
+        "switches_per_s": round((samples[-1][1] - samples[0][1]) / seconds, 1),
+        "entries_per_s": round((samples[-1][2] - samples[0][2]) / seconds, 1),
+    }
 
 
 def git_commit() -> str:
@@ -187,6 +219,15 @@ def write_report(payload: dict) -> Path:
             f"| `{name}` | {row['n']} | {row['p50_us']:.1f} | {row['p90_us']:.1f} | "
             f"{row['p99_us']:.1f} | {row['max_us']:.1f} | {row['mean_us']:.1f} |"
         )
+    tput = payload.get("msg_tput")
+    if tput:
+        lines += ["", f"Messenger throughput (msgbench, one channel): {tput['msgs_per_s']} one-way "
+                  f"messages/s; {tput['calls_per_s']} synchronous calls/s."]
+    idle = payload.get("idle_ctxsw")
+    if idle:
+        lines += ["", f"Idle desktop: {idle['switches_per_s']} context switches/s, "
+                  f"{idle['entries_per_s']} scheduler entries/s (over {idle['seconds']:.1f} s "
+                  "with no input or network traffic)."]
     worst = payload.get("irqoff_worst")
     if worst:
         lines += ["", f"Worst interrupts-off syscall stretch: {worst['us']:.1f} µs in syscall `{worst['syscall']}` "
@@ -205,8 +246,9 @@ def append_history(payload: dict) -> None:
             "# Latency history", "",
             "One row per labelled `python tools/perf/run.py --label ...` run. Microseconds.", "",
             "| Label | Commit | Accel | irq_wake p50/p99/max | input_read p50/p99/max | "
-            "input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 | sleep_1ms p50/p99/max |",
-            "|---|---|---|---|---|---|---|---|---|",
+            "input_present p50/p99/max | irqoff p99/max | ipc_rt p50/p99 | sleep_1ms p50/p99/max | "
+            "msg_rt p50/p99 | msg/s | sched p50/p99 | idle ctxsw/s |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
         path.write_text("\n".join(header) + "\n", encoding="utf-8")
     metrics, meta = payload["metrics"], payload["meta"]
@@ -223,7 +265,11 @@ def append_history(payload: dict) -> None:
         f"{cell('input_read', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('input_present', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('irqoff', ('p99_us', 'max_us'))} | {cell('ipc_rt', ('p50_us', 'p99_us'))} | "
-        f"{cell('sleep_1ms', ('p50_us', 'p99_us', 'max_us'))} |"
+        f"{cell('sleep_1ms', ('p50_us', 'p99_us', 'max_us'))} | "
+        f"{cell('msg_rt', ('p50_us', 'p99_us'))} | "
+        f"{(payload.get('msg_tput') or {}).get('msgs_per_s', '-')} | "
+        f"{cell('sched', ('p50_us', 'p99_us'))} | "
+        f"{(payload.get('idle_ctxsw') or {}).get('switches_per_s', '-')} |"
     )
     with path.open("a", encoding="utf-8") as handle:
         handle.write(row + "\n")
@@ -276,6 +322,7 @@ def main() -> int:
     boot = time.time()
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     qmp = None
+    idle = None
     try:
         qmp = Qmp("127.0.0.1", port, timeout=30)
         if not wait_for(serial_log, proc, READY, args.boot_timeout):
@@ -290,12 +337,18 @@ def main() -> int:
         if not args.no_knock:
             knocker.start()
         time.sleep(max(5.0, SLEEP_BENCH_S + 4 - (time.time() - boot)))
+        if not wait_for(serial_log, proc, (MSG_DONE,), 120):
+            print("warning: msgbench did not finish", file=sys.stderr)
         print(f"moving the mouse: {args.moves} packets", flush=True)
         move_mouse(qmp, args.moves, args.pause)
         stop.set()
         if knocker.is_alive():
             knocker.join()
         time.sleep(REPORT_PERIOD_S * 2 + 1)
+        print(f"quiet window: {IDLE_WINDOW_S:.0f} s", flush=True)
+        quiet_from = len(read_serial(serial_log))
+        time.sleep(IDLE_WINDOW_S)
+        idle = idle_rate(read_serial(serial_log)[quiet_from:])
     finally:
         stop_qemu(proc, qmp)
 
@@ -312,6 +365,7 @@ def main() -> int:
             "pause_ms": int(args.pause * 1000),
         },
         **parsed,
+        "idle_ctxsw": idle,
     }
     report = write_report(payload)
     if args.label:
@@ -319,6 +373,8 @@ def main() -> int:
     for name in METRICS:
         row = parsed["metrics"].get(name)
         print(f"  {name:14} " + (json.dumps(row) if row else "no samples"))
+    print(f"  msg_tput       {json.dumps(parsed['msg_tput'])}")
+    print(f"  idle_ctxsw     {json.dumps(idle)}")
     print(f"report: {report.relative_to(ROOT)}")
     missing = [name for name in REQUIRED if name not in parsed["metrics"]]
     if missing:

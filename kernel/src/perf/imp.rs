@@ -13,6 +13,8 @@ static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
 static SLEEP_1MS: Samples = Samples::new();
 static PRESENT: Samples = Samples::new();
+static SCHED: Samples = Samples::new();
+static WAKE_RUN: Samples = Samples::new();
 
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
@@ -20,6 +22,8 @@ static CHAIN: AtomicU64 = AtomicU64::new(0);
 static LINE_TSC: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 /// The chain stamp a woken task carries until it runs.
 static WAKE_STAMP: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// When each task was last woken by another one (0: not waiting to run).
+static WOKEN_AT: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
 
 /// Oldest raw record not yet read by a consumer, and the oldest pointer
 /// record read but not yet presented.
@@ -69,6 +73,11 @@ pub fn lines_posting(raised: u16) {
 }
 
 pub fn on_wake(slot: usize, current: usize) {
+    if slot != current {
+        if let Some(stamp) = WOKEN_AT.get(slot) {
+            let _ = stamp.compare_exchange(0, rdtsc(), Ordering::Relaxed, Ordering::Relaxed);
+        }
+    }
     let chain = CHAIN.load(Ordering::Relaxed);
     if chain == 0 {
         return;
@@ -84,6 +93,12 @@ pub fn on_wake(slot: usize, current: usize) {
 }
 
 pub fn on_run(slot: usize) {
+    if let Some(woken) = WOKEN_AT.get(slot) {
+        let at = woken.swap(0, Ordering::Relaxed);
+        if at != 0 {
+            record(&WAKE_RUN, rdtsc().wrapping_sub(at));
+        }
+    }
     let Some(stamp) = WAKE_STAMP.get(slot) else {
         return;
     };
@@ -169,6 +184,10 @@ pub fn irqoff_resume() {
     }
 }
 
+pub fn sched_exit(started: u64) {
+    record(&SCHED, rdtsc().wrapping_sub(started));
+}
+
 fn record(samples: &Samples, cycles: u64) {
     if cycles <= MAX_PLAUSIBLE_CYCLES {
         samples.record(cycles);
@@ -185,6 +204,9 @@ static IPC_DONE: AtomicBool = AtomicBool::new(false);
 /// The sleep benchmark runs once, after the IPC one.
 const SLEEP_BENCH_TICK: u64 = 1700;
 static SLEEP_DONE: AtomicBool = AtomicBool::new(false);
+/// The cross-process benchmark starts once, after the sleep one.
+const MSG_BENCH_TICK: u64 = 1900;
+static MSG_DONE: AtomicBool = AtomicBool::new(false);
 static REPORTED_WORST: AtomicU64 = AtomicU64::new(0);
 
 pub fn service() {
@@ -199,6 +221,9 @@ pub fn service() {
     if now >= SLEEP_BENCH_TICK && !SLEEP_DONE.swap(true, Ordering::Relaxed) {
         super::sleepbench::run(|cycles| SLEEP_1MS.record(cycles));
     }
+    if now >= MSG_BENCH_TICK && !MSG_DONE.swap(true, Ordering::Relaxed) {
+        super::msgbench::start();
+    }
     let per_tick = crate::arch::clock::cycles_per_tick();
     for (name, samples) in [
         ("irq_wake", &IRQ_WAKE),
@@ -208,6 +233,8 @@ pub fn service() {
         ("ipc_rt", &IPC_RT),
         ("sleep_1ms", &SLEEP_1MS),
         ("present", &PRESENT),
+        ("sched", &SCHED),
+        ("wake_run", &WAKE_RUN),
     ] {
         if !samples.changed() {
             continue;
@@ -217,6 +244,11 @@ pub fn service() {
             print(name, &summary, per_tick);
         }
     }
+    line(format_args!(
+        "PERF:ctxsw:tick={now} switches={} entries={}\n",
+        task::context_switches(),
+        task::scheduler_entries()
+    ));
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);

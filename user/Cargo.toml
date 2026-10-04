@@ -415,6 +415,14 @@ path = "src/bin/netbulk.rs"
 test = false
 bench = false
 
+# The cross-process Messenger benchmark (docs/performance-plan.md P6),
+# run by `tools/perf/run.py` through the kernel in `LAZYOS_PERF=1` images.
+[[bin]]
+name = "msgbench"
+path = "src/bin/msgbench.rs"
+test = false
+bench = false
+
 [[bin]]
 name = "nslookup"
 path = "src/bin/nslookup.rs"
