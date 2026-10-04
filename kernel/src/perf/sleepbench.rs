@@ -9,10 +9,10 @@
 const ROUNDS: usize = 200;
 const WARMUP: usize = 5;
 
-/// Sleep for one millisecond the way a 1 ms timeout is honoured: one
-/// 100 Hz tick (`millis_to_ticks(1)`), the only resolution the kernel has.
+/// Sleep for one millisecond the way a 1 ms timeout is honoured: a
+/// monotonic-nanosecond deadline (P2), ended by the deadline timer.
 fn sleep_1ms() {
-    crate::task::idle(crate::task::ticks() + 1);
+    crate::task::idle_ns(crate::arch::clock::monotonic_ns() + 1_000_000);
 }
 
 /// Run the benchmark, handing each sleep's cycles to `record`.
