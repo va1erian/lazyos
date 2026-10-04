@@ -93,11 +93,14 @@ per-task thread pointer, restored on every context switch.
   waits, each zeroed frame (`alloc_zeroed_frame`), each page mapped or
   unmapped, page-table walks, user copies (64 KiB
   pieces), present blits and serial output.
-- A window is safe wherever it opens, whatever locks the syscall holds,
-  because the handlers it admits take none: IRQ0 goes to `window_tick`
-  (count the periods, EOI, collect i8042 bytes) instead of `schedule`
-  (`timer_isr` checks `IRQ_WINDOW_OPEN`), IRQ1/IRQ12 only collect bytes, and
-  the other lines only latch (`dev::irq`). Nothing switches tasks, so user
+- A window is safe wherever a poll point is reached, whatever locks the
+  syscall holds, because the handlers it admits take only one lock, the
+  i8042 FIFO's, which is held solely inside `ps2::service` with interrupts
+  off and never across a poll point: IRQ0 goes to `window_tick` (count the
+  periods, EOI, collect i8042 bytes) instead of `schedule` (`timer_isr`
+  checks `IRQ_WINDOW_OPEN`), IRQ1/IRQ12 only collect bytes, and the other
+  lines only latch (`dev::irq`, lock-free). Code holding the FIFO lock must
+  never reach a poll point. Nothing switches tasks, so user
   memory a syscall validated stays valid. Decoding, deadline expiry, CPU
   charging (`take_uncharged`) and task selection wait for the next ordinary
   tick.

@@ -149,6 +149,7 @@ fn install(slot: usize) -> u64 {
 /// timer callback. It also runs on voluntary entries: a deadline that passed
 /// while the CPU was busy is honoured at the next scheduling decision.
 pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: bool) {
+    charge_window_ticks(tasks, cur);
     if tick {
         charge_tick(tasks, cur);
     }
@@ -166,17 +167,31 @@ pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: 
 /// lands on a blocked task is idle time (`IDLE_TICKS`) instead. Voluntary
 /// entries consume no timer period and are not charged at all.
 pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
-    // Ticks taken inside interrupt windows could not lock the table: charge
-    // them to the task this tick finds running, normally the one whose
-    // syscall took them (a window never switches).
-    let ticks = 1 + crate::arch::irq_window::take_uncharged();
     match tasks[cur].as_mut() {
         Some(task) if !matches!(task.state, TaskState::Blocked { .. }) => {
             // Charge across ticks without a switch too, so `cpu_usage`
             // reports real per-task CPU time.
-            task.cpu_ticks = task.cpu_ticks.saturating_add(ticks);
+            task.cpu_ticks = task.cpu_ticks.saturating_add(1);
         }
         _ => {
+            super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Charge the ticks taken inside interrupt windows (`arch::irq_window`),
+/// which could not lock the table, to `cur`: windows open only in the running
+/// task's syscall and never switch, so every one since the last scheduler
+/// entry was `cur`'s, even if it has just blocked (a park is a voluntary
+/// entry right after the syscall's work).
+fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
+    let ticks = crate::arch::irq_window::take_uncharged();
+    if ticks == 0 {
+        return;
+    }
+    match tasks[cur].as_mut() {
+        Some(task) => task.cpu_ticks = task.cpu_ticks.saturating_add(ticks),
+        None => {
             super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
         }
     }

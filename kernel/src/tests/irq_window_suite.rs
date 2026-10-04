@@ -2,7 +2,8 @@
 //! accounting (`arch::irqoff`).
 //!
 //! Syscalls run with interrupts off; long ones now take pending interrupts at
-//! poll points, with handlers that take no lock while a window is open. These
+//! poll points, with handlers that take no lock the interrupted code may hold
+//! while a window is open (only the i8042 FIFO's, never held there). These
 //! tests drive the mechanism as a syscall would (a span open, `IF=0`, the PIT
 //! line unmasked) with the real timer: windows stay shut outside a syscall,
 //! ticks arrive through them on time and are counted exactly once, the
@@ -86,6 +87,9 @@ pub(in crate::tests) fn in_syscall<R>(nr: u64, f: impl FnOnce() -> R) -> (R, Lat
     irqoff::exit();
     pic::set_masked(0, saved_mask);
     irq_window::disarm();
+    // No scheduler runs in the suite to charge the window ticks: drop them,
+    // or the next test's scheduler entry would book them to its task.
+    let _ = irq_window::take_uncharged();
     let latency = Latency {
         worst_us: irqoff::max_native_us(nr),
         missed: clock::missed_ticks() - missed,
@@ -223,21 +227,23 @@ pub fn ticks_arrive_in_syscall() -> Result<(), String> {
     Ok(())
 }
 
-/// The handlers a window admits take no lock: windows opened while the task
-/// table, the console and the serial port are locked still take the timer
-/// (the `schedule` path, or a key decoded into a task's queue, would
-/// deadlock right here).
+/// The handlers a window admits take none of the locks the interrupted code
+/// may hold (only the i8042 FIFO's, which no poll point is ever reached
+/// under): windows opened while the task table, the console and the serial
+/// port are all locked still take the timer (the `schedule` path, a key
+/// decoded into a task's queue, or a log line would deadlock right here).
 pub fn handlers_take_no_lock() -> Result<(), String> {
     calibrated()?;
     kernel_task_only();
     let (taken, latency) = in_syscall(NR_A, || {
         task::harness::with_table_locked(|| {
             crate::console::with_framebuffer(|_| {
-                let before = task::ticks();
-                // Long enough for at least one period to come due.
-                spin_us(25_000, irq_window::poll_point);
-                crate::serial::try_print(format_args!(""));
-                task::ticks() - before
+                crate::serial::with_port_locked(|| {
+                    let before = task::ticks();
+                    // Long enough for at least one period to come due.
+                    spin_us(25_000, irq_window::poll_point);
+                    task::ticks() - before
+                })
             })
         })
     });
@@ -248,7 +254,7 @@ pub fn handlers_take_no_lock() -> Result<(), String> {
         taken
     );
     check!(
-        !crate::task::diag::table_locked() && !crate::console::locked(),
+        !crate::task::diag::table_locked() && !crate::console::locked() && !crate::serial::locked(),
         "a lock stayed held"
     );
     Ok(())

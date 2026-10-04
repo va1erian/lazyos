@@ -123,8 +123,9 @@ ISR that performs context switches.
   them.
 - A long syscall takes interrupts at poll points without giving up its locks
   (`arch::irq_window`, see [arch.md](arch.md)): while a window is open the
-  timer only counts and acknowledges (`window_tick`, not `schedule`), so no
-  handler admitted there takes a lock and nothing is switched. Scheduling
+  timer only counts and acknowledges (`window_tick`, not `schedule`), so the
+  only lock a handler admitted there takes is the i8042 FIFO's (never held
+  across a poll point), and nothing is switched. Scheduling
   latency is still the syscall's length; interrupt latency is bounded by the
   window period (1 ms) plus the work between two poll points.
 - A hang is diagnosed with an NMI (`arch::nmi`): QMP `inject-nmi` (sent by

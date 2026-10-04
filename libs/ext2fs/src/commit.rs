@@ -122,6 +122,7 @@ impl Ext2 {
             first = first.and(self.release_block(block));
         }
         for &(ino, is_dir) in &pending.inodes {
+            self.pace();
             first = first.and(self.release_inode(ino, is_dir));
         }
         first

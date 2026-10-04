@@ -8,8 +8,11 @@
 //! opens a window (`sti; nop; cli`) once [`WINDOW_DIV`]ths of a tick have passed
 //! since the last one, so pending interrupts are taken within that bound.
 //!
-//! What makes a window safe anywhere, whatever locks the syscall holds, is
-//! that the handlers it admits take **no lock** while it is open:
+//! What makes a window safe at any poll point, whatever locks the syscall
+//! holds, is that the handlers it admits take only one lock while it is open,
+//! the i8042 FIFO's, which is held solely inside `ps2::service` with
+//! interrupts off and so never across a poll point (code holding it must
+//! never reach one):
 //!
 //! * the timer only counts the tick and acknowledges the PIC
 //!   ([`window_tick`]; `task::switch` routes IRQ0 here instead of to
@@ -91,8 +94,9 @@ pub fn open() {
     // SAFETY: interrupts are enabled for exactly one instruction (`sti`
     // takes effect after the next one), so every pending interrupt is
     // delivered between the `nop` and the `cli`. While the flag above is
-    // set, every handler that can run here takes no lock (module docs), so
-    // it cannot deadlock against whatever the interrupted code holds, and
+    // set, the only lock a handler that can run here takes is the i8042
+    // FIFO's, never held at a poll point (module docs), so it cannot deadlock
+    // against whatever the interrupted code holds, and
     // none of them switches tasks, so this stack resumes right after. No
     // `nomem`: the flag stores above and below must stay on their side.
     unsafe { core::arch::asm!("sti", "nop", "cli", options(nostack)) };

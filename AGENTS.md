@@ -363,8 +363,9 @@ is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
 Syscalls run with interrupts off. Long kernel work calls
 `arch::irq_window::poll_point()` (the ext2 library through `BlockIo::pace`),
-which takes pending interrupts in a window whose handlers take no lock, so a
-window is safe under any lock but never switches tasks
+which takes pending interrupts in a window whose handlers take no lock but
+the i8042 FIFO's, so a window is safe under any other lock (never reach a
+poll point while holding that one) and never switches tasks
 ([`docs/architecture/arch.md`](docs/architecture/arch.md)). A new loop that
 can run long inside a syscall needs a poll point. Every boot logs each
 syscall's new worst interrupts-off stretch of 2 ms or more as

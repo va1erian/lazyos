@@ -156,7 +156,7 @@ fn write_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     if len > MAX_WRITE {
         return Err(failed(ENOSPC));
     }
-    let data = user_ptr::try_read_vec(data_ptr, len as usize).map_err(|_| failed(EFAULT))?;
+    let data = user_data(data_ptr, len)?;
     let id = Id::current();
     match fs::vfs_create(id, &path, FILE_MODE) {
         Ok(_) | Err(FsError::Exists) => {}
@@ -165,6 +165,15 @@ fn write_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     fs::vfs_truncate(id, &path, 0).map_err(|e| failed(errno_of(e)))?;
     let written = fs::vfs_write(id, &path, 0, &data).map_err(|e| failed(errno_of(e)))?;
     Ok(written as u64)
+}
+
+/// The caller's `len` bytes at `data_ptr`, copied in: `EFAULT` for a bad
+/// range, `ENOMEM` when the copy cannot be allocated.
+fn user_data(data_ptr: u64, len: u64) -> Result<alloc::vec::Vec<u8>, u64> {
+    user_ptr::try_read_vec(data_ptr, len as usize).map_err(|error| match error {
+        user_ptr::ReadVecError::Fault => failed(EFAULT),
+        user_ptr::ReadVecError::NoMemory => failed(ENOMEM),
+    })
 }
 
 /// Append the caller's bytes to the end of `path`, creating it when absent.
@@ -180,7 +189,7 @@ fn append_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     if len > MAX_WRITE {
         return Err(failed(ENOSPC));
     }
-    let data = user_ptr::try_read_vec(data_ptr, len as usize).map_err(|_| failed(EFAULT))?;
+    let data = user_data(data_ptr, len)?;
     let id = Id::current();
     let end = match fs::vfs_stat(id, &path) {
         Ok(meta) if meta.kind == FileKind::Dir => return Err(failed(EISDIR)),

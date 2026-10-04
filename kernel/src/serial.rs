@@ -129,6 +129,14 @@ pub fn locked() -> bool {
     SERIAL1.is_locked()
 }
 
+/// Test hook: run `f` with the port locked, as code in the middle of a log
+/// line would be (the interrupt-window suite). `f` must not print.
+#[cfg(lazyos_tests)]
+pub fn with_port_locked<R>(f: impl FnOnce() -> R) -> R {
+    let _port = SERIAL1.lock();
+    f()
+}
+
 /// Probe and initialise COM1, and log the verdict.
 pub fn init() {
     let present = probe_on(&mut Com1);

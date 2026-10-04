@@ -154,10 +154,22 @@ pub fn try_copy_to(addr: u64, src: &[u8]) -> Result<(), Fault> {
     Ok(())
 }
 
-/// Copy `len` bytes from `addr` into a new kernel buffer.
-pub fn try_read_vec(addr: u64, len: usize) -> Result<Vec<u8>, Fault> {
-    let source = try_bytes(addr, len)?;
-    let mut copy = Vec::with_capacity(len);
+/// Why [`try_read_vec`] produced no buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReadVecError {
+    /// The user range is not readable (`EFAULT`).
+    Fault,
+    /// The kernel could not allocate the copy (`ENOMEM`).
+    NoMemory,
+}
+
+/// Copy `len` bytes from `addr` into a new kernel buffer. `len` is the
+/// caller's, so the allocation is fallible rather than an abort.
+pub fn try_read_vec(addr: u64, len: usize) -> Result<Vec<u8>, ReadVecError> {
+    let source = try_bytes(addr, len).map_err(|_| ReadVecError::Fault)?;
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(len)
+        .map_err(|_| ReadVecError::NoMemory)?;
     for piece in source.chunks(COPY_PIECE) {
         crate::arch::irq_window::poll_point();
         copy.extend_from_slice(piece);

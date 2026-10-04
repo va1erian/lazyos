@@ -8,11 +8,18 @@
 //! is in; the per-syscall maximum is kept, and each new maximum of
 //! [`REPORT_US`] or more is logged as
 //! `IRQOFF:MAX abi=<native|linux> nr=<n> us=<n> over=<n> missed_ticks=<n>
-//! from=<file:line> to=<file:line>` (`over`: spans past the bound so far;
+//! dropped=<n> from=<file:line> to=<file:line>` (`over`: spans past the bound so far;
 //! `missed_ticks`: timer periods the clock had to catch up, `arch::clock`;
 //! `from`/`to`: where the span began and ended, so the stretch that lacks a
 //! poll point lies between those two lines). This generalises the i8042's
 //! `PS2:GAP` to every syscall; `irq_window` is what keeps the spans short.
+//!
+//! A report is queued when the span closes and written when the next span
+//! starts, where each byte the UART takes is a poll point again: writing it
+//! inside `close` (interrupts off, no span open) would itself be a long
+//! stretch at a real UART's baud rate. A report that finds the serial port
+//! busy stays queued for the next span; past [`QUEUE_LEN`] waiting ones the
+//! oldest is dropped and counted (`dropped=` on the next report).
 //!
 //! Under a hypervisor a span also contains any time the host did not run the
 //! vCPU, so a record in a trivial syscall on a loaded host is noise; a
@@ -22,7 +29,9 @@
 //! sections, interrupt handlers) are not charged here.
 
 use core::panic::Location;
-use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+
+use spin::Mutex;
 
 use crate::task::MAX_TASKS;
 
@@ -52,6 +61,27 @@ static SPAN_NR: AtomicU64 = AtomicU64::new(NONE);
 static SPAN_FROM: AtomicPtr<Site> = AtomicPtr::new(core::ptr::null_mut());
 /// Spans that reached [`REPORT_US`].
 static OVER: AtomicU64 = AtomicU64::new(0);
+
+/// Reports waiting for the next span.
+const QUEUE_LEN: usize = 8;
+
+/// One new maximum to log.
+#[derive(Clone, Copy)]
+struct Report {
+    tagged: u64,
+    us: u64,
+    over: u64,
+    missed: u64,
+    from: &'static Site,
+    to: &'static Site,
+}
+
+/// Queued reports, oldest first, and reports dropped from a full queue.
+/// Taken only with interrupts off and never while printing.
+static QUEUE: Mutex<([Option<Report>; QUEUE_LEN], u64)> = Mutex::new(([None; QUEUE_LEN], 0));
+/// Set while [`report_queued`] runs: a span its own printing starts must not
+/// report again.
+static REPORTING: AtomicBool = AtomicBool::new(false);
 
 /// The gate entered native syscall `nr`: its first span starts.
 #[track_caller]
@@ -114,6 +144,7 @@ fn start(tagged: u64, at: &'static Site) {
     let now = rdtsc();
     SPAN_START.store(now, Ordering::Relaxed);
     super::irq_window::restart(now);
+    report_queued();
 }
 
 fn record(tagged: u64, cycles: u64, from: *const Site, to: &'static Site) {
@@ -130,20 +161,66 @@ fn record(tagged: u64, cycles: u64, from: *const Site, to: &'static Site) {
     }
     slot.store(cycles, Ordering::Relaxed);
     if over_bound {
-        let (abi, nr) = split(tagged);
         // SAFETY: `SPAN_FROM` only ever holds null or a `&'static Location`.
         let from = unsafe { from.as_ref() }.unwrap_or(to);
-        // The serial lock may be held by the code this span ran; the record
-        // stays in the table either way.
-        let _ = crate::serial::try_print(format_args!(
-            "IRQOFF:MAX abi={abi} nr={nr} us={us} over={over} missed_ticks={} from={}:{} to={}:{}\n",
-            super::clock::missed_ticks(),
-            from.file(),
-            from.line(),
-            to.file(),
-            to.line(),
-        ));
+        let missed = super::clock::missed_ticks();
+        enqueue(Report {
+            tagged,
+            us,
+            over,
+            missed,
+            from,
+            to,
+        });
     }
+}
+
+/// Queue `report`, dropping (and counting) the oldest when full.
+fn enqueue(report: Report) {
+    let mut queue = QUEUE.lock();
+    let (slots, dropped) = &mut *queue;
+    if slots[QUEUE_LEN - 1].is_some() {
+        slots.rotate_left(1);
+        slots[QUEUE_LEN - 1] = None;
+        *dropped += 1;
+    }
+    if let Some(free) = slots.iter_mut().find(|slot| slot.is_none()) {
+        *free = Some(report);
+    }
+}
+
+/// Write the queued reports, oldest first, stopping (and keeping the rest)
+/// when the serial port is busy.
+fn report_queued() {
+    if REPORTING.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    loop {
+        let (next, dropped) = {
+            let queue = QUEUE.lock();
+            (queue.0[0], queue.1)
+        };
+        let Some(report) = next else { break };
+        let (abi, nr) = split(report.tagged);
+        let written = crate::serial::try_print(format_args!(
+            "IRQOFF:MAX abi={abi} nr={nr} us={} over={} missed_ticks={} dropped={dropped} from={}:{} to={}:{}\n",
+            report.us,
+            report.over,
+            report.missed,
+            report.from.file(),
+            report.from.line(),
+            report.to.file(),
+            report.to.line(),
+        ));
+        if !written {
+            break;
+        }
+        let mut queue = QUEUE.lock();
+        queue.0.rotate_left(1);
+        queue.0[QUEUE_LEN - 1] = None;
+        queue.1 = 0;
+    }
+    REPORTING.store(false, Ordering::Relaxed);
 }
 
 fn slot_of(tagged: u64) -> &'static AtomicU64 {
