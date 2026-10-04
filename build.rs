@@ -25,6 +25,8 @@ mod elf_trim;
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/lazyweb_embed.rs"]
+mod lazyweb_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]
@@ -381,6 +383,7 @@ fn main() {
     // The desktop shell (issue #157), on by default with the desktop profile.
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
+    println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
     // The desktop pictures LazyShell can draw behind the launchers.

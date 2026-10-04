@@ -136,6 +136,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "docs",
         "network",
         "nettools",
+        // LazyWeb, only with `LAZYOS_LAZYWEB=1` (`lazyweb_embed`).
+        "lazyweb",
     ];
     CORE.contains(&short_of(stem))
 }
