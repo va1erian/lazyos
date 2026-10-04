@@ -18,7 +18,13 @@ the Terminal's pty on readiness, and the P2-dependent frame pacing. P4
 [`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the exit target is
 met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
 `connect` 0.5-1 ms); steps 6 and 7 are not done. P2, P3 and P4 are merged on
-`perf/integration`. P5 onward is not started.
+`perf/integration`. P5 (storage) steps 1, 2, 3 and 5 are built on
+`perf/p5-storage` (measured in [`perf/disk.md`](perf/disk.md),
+`tools/perf/disk.py`): the worst interrupts-off stretch of a storage syscall
+went from 1.0-1.6 s (disk bench) and 483 ms (desktop package install) to
+about 1 ms; sequential read is 3.5-4x and exec 1.6-3x the baseline, short of
+the 5x target (see P5). Step 4 (page cache) is not done. P6 onward is not
+started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -278,6 +284,53 @@ the 10 ms clock still governs delayed ACKs and retransmission until P2.
 
 Exit: worst interrupts-off stretch under 1 ms during a package install (from
 50 to 120 ms); sequential read and exec time at least 5x the P0 baseline.
+
+**As built** (branch `perf/p5-storage`; details in
+`docs/architecture/block-devices.md`, `block-cache.md`, `filesystem.md`,
+`tasks.md` and `boot.md`; harness `python tools/perf/disk.py`, history in
+[`perf/disk.md`](perf/disk.md)):
+
+- Step 3 first (P5.1): ext2 open files and the loader hold the inode
+  (`ext2fs::FileHandle`: inode number plus an `i_generation` advanced on every
+  allocation, so a stale handle answers `ENOENT` and never reads a reused
+  inode) behind a VFS node (`fs/vfs/node.rs`); reads map blocks with a memo of
+  the last pointer table and move runs of contiguous blocks (up to 1 MiB) as
+  one transfer; read-ahead is 64 blocks within a window past the last miss;
+  files of 8 MiB or more stream past the cache.
+- Steps 1 and 2 (P5.2), as a lock audit allowed: every ext2 call reaches the
+  device holding only `YieldMutex`es (mount tables, the volume gate) and
+  spin locks reachable only through the gate, the same locks the USB block
+  provider already parks under. So the ext2 gate holder passes
+  `Wait::MaySleep` and parks; FAT, partition scans, boot mounts and the
+  suite's own task spin as before. The wait is a deadline, not the interrupt:
+  the legacy virtio-blk INTx line is shared with the NIC's user-space driver
+  (line 11 on QEMU's machine), so the driver polls the used ring at deadlines
+  (3/4 of the usual answer time, then 20-250 Âµs slices on the P2 one-shot
+  timer) with interrupts asked off. Up to 8 requests of 256 KiB are in
+  flight, DMA straight to and from the caller's buffers (no bounce copy);
+  a request stuck 10 s resets the device. Long CPU stretches breathe at most
+  every 50 Âµs (ext2 pieces and library pause points, loader chunks, staged
+  user copies); user bytes are staged before any breath.
+- Step 5 (P5.3): COM1 output goes through a 16 KiB ring, queued whole (order
+  and atomicity kept) and drained 16 bytes per status poll; program output
+  drains in 32-byte chunks with interrupts let in between.
+- Not done: step 4 (page cache, file-backed `mmap`, demand-paged shared
+  program text), an interrupt-driven virtio-blk, modern virtio.
+
+Measured (WHPX, dev profile, same-hour alternating runs of the disk bench,
+baseline then P5): sequential read 386-401 -> 1380-1655 MB/s (3.5-4x),
+BusyBox read 283-428 -> 576-860 MB/s, spawn+wait of `busybox true` mean
+4.2-5.7 -> 1.45-3.2 ms (median 2.2-4.4 -> 1.3-2.8), 64 MiB write 14-16 ->
+21-27 MB/s (the host's sparse image file is the limit), 400 small files
+566-610 -> 227-356 ms; worst interrupts-off stretch 0.98-1.23 s (a `write`)
+-> 0.8-1.4 ms (now `wait4`/`exit_group`; storage syscalls 0.4-0.75 ms).
+Desktop boot with the package install (`tools/perf/run.py`): 483 ms in
+native `fsync` -> every storage syscall 0.5-1.05 ms (the worst run had a
+1.05 ms `rename`); the remaining multi-millisecond stretches are IPC and
+display. What limits the rest: exec is dominated by process creation and
+teardown and by copying program text into fresh frames (step 4 would share
+it); reads by the polled completion (no interrupt) and copies through the
+kernel staging buffer; writes by the host.
 
 ### P6. Scheduler, IPC and memory cost
 
