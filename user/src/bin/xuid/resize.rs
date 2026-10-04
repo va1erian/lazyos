@@ -8,7 +8,7 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::geometry::{self, Edges};
-use super::layout::cursor_rect;
+use super::cursor::present_cursor_outside;
 use super::theme::{border, title_h};
 
 /// An in-progress interactive resize.
@@ -48,8 +48,8 @@ impl Compositor {
 
     /// Move the active resize to `new`: compose the old and new outline
     /// rectangles and draw the new wireframe, leaving the window itself at its
-    /// old geometry. `old` is where the pointer was, so its cursor is erased.
-    pub(super) fn resize_move(&mut self, old: (i32, i32), new: (i32, i32)) {
+    /// old geometry. The cursor overlay moves with the repaint.
+    pub(super) fn resize_move(&mut self, new: (i32, i32)) {
         let Some(active) = self.resize else {
             return;
         };
@@ -75,13 +75,13 @@ impl Compositor {
         }
         // The old outline must be erased and the new one drawn; one pixel of
         // slack covers the wireframe's thickness.
-        let damage = geometry::inflate(active.outline.union(rect), 1)
-            .union(cursor_rect(old))
-            .union(cursor_rect(new))
-            .intersect(self.full());
+        let damage = geometry::inflate(active.outline.union(rect), 1).intersect(self.full());
+        let lifted = self.cursor.lift(&mut self.screen);
         self.compose(damage);
         super::anim::outline(&mut self.screen, rect, damage);
+        let stamped = self.stamp_cursor();
         let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+        present_cursor_outside(lifted, stamped, damage);
     }
 
     /// Apply the active resize: adopt the outline rectangle, tell the client

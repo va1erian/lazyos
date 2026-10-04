@@ -136,6 +136,49 @@ impl Canvas {
         unsafe { core::slice::from_raw_parts_mut(self.base.add(at), w as usize * 4) }
     }
 
+    /// [`Canvas::row_mut`] for reading.
+    fn row(&self, x: i32, y: i32, w: i32) -> &[u8] {
+        if w <= 0 || x < 0 || y < 0 || y >= self.height || x.saturating_add(w) > self.width {
+            return &[];
+        }
+        let at = (y as usize * self.width as usize + x as usize) * 4;
+        // SAFETY: as in `row_mut`; `&self` keeps any writer away meanwhile.
+        unsafe { core::slice::from_raw_parts(self.base.add(at), w as usize * 4) }
+    }
+
+    /// Copy the pixels of `rect`, clipped to the canvas, into `out` row after
+    /// row, exactly as stored (no format conversion), and return the
+    /// rectangle copied. Rows that do not fit in `out` are not copied, so
+    /// the result is empty when `out` is too small for even one row.
+    pub fn save(&self, rect: Rect, out: &mut [u8]) -> Rect {
+        let full = Rect::new(0, 0, self.width, self.height);
+        let r = self.visible(rect, full);
+        let row_bytes = r.w.max(0) as usize * 4;
+        let rows = if row_bytes == 0 {
+            0
+        } else {
+            (out.len() / row_bytes).min(r.h.max(0) as usize)
+        };
+        for (index, chunk) in out.chunks_exact_mut(row_bytes.max(1)).take(rows).enumerate() {
+            chunk.copy_from_slice(self.row(r.x, r.y + index as i32, r.w));
+        }
+        Rect::new(r.x, r.y, r.w, rows as i32)
+    }
+
+    /// Put back what [`Canvas::save`] copied out of `rect` (the rectangle it
+    /// returned) from `saved`.
+    pub fn restore(&mut self, rect: Rect, saved: &[u8]) {
+        let full = Rect::new(0, 0, self.width, self.height);
+        if self.visible(rect, full) != rect || rect.is_empty() {
+            return;
+        }
+        let row_bytes = rect.w as usize * 4;
+        for (index, chunk) in saved.chunks_exact(row_bytes).take(rect.h as usize).enumerate() {
+            self.row_mut(rect.x, rect.y + index as i32, rect.w)
+                .copy_from_slice(chunk);
+        }
+    }
+
     /// Blend `color` over one pixel with coverage `alpha` (0..=255).
     pub fn blend_pixel(&mut self, x: i32, y: i32, color: Color, alpha: u8, clip: Rect) {
         if alpha == 0 {
@@ -379,69 +422,5 @@ fn cursor_masks(sy: usize) -> (u16, u16) {
     (outline, body)
 }
 
-/// The 5x7 bitmap font used for decorations and demo text.
-///
-/// Each glyph is five columns; in a column byte, bit `n` is row `n` with
-/// row zero at the top. Only the characters a window title or a demo label
-/// needs are defined; anything else is skipped.
-pub mod font {
-    /// Glyph height in pixels.
-    pub const H: i32 = 7;
-    /// Advance per character (five glyph columns plus one pixel gap).
-    pub const ADVANCE: i32 = 6;
-
-    /// The cursor sprite, one bit per pixel (MSB = leftmost).
-    pub const CURSOR: [u8; 8] = [0x80, 0xC0, 0xA0, 0x90, 0x88, 0x84, 0xFC, 0xC0];
-
-    /// Look up a glyph, upper-casing lower-case ASCII first.
-    pub fn glyph(ch: char) -> Option<&'static [u8; 5]> {
-        let ch = ch.to_ascii_uppercase();
-        Some(match ch {
-            ' ' => &[0x00, 0x00, 0x00, 0x00, 0x00],
-            '-' => &[0x00, 0x08, 0x08, 0x08, 0x00],
-            '.' => &[0x00, 0x00, 0x40, 0x00, 0x00],
-            ':' => &[0x00, 0x00, 0x24, 0x00, 0x00],
-            '/' => &[0x40, 0x30, 0x08, 0x06, 0x01],
-            '+' => &[0x00, 0x08, 0x1C, 0x08, 0x00],
-            '!' => &[0x00, 0x00, 0x5F, 0x00, 0x00],
-            '?' => &[0x02, 0x01, 0x51, 0x09, 0x06],
-            '0' => &[0x3E, 0x51, 0x49, 0x45, 0x3E],
-            '1' => &[0x00, 0x42, 0x7F, 0x40, 0x00],
-            '2' => &[0x42, 0x61, 0x51, 0x49, 0x46],
-            '3' => &[0x22, 0x41, 0x49, 0x49, 0x36],
-            '4' => &[0x18, 0x14, 0x12, 0x7F, 0x10],
-            '5' => &[0x27, 0x45, 0x45, 0x45, 0x39],
-            '6' => &[0x3C, 0x4A, 0x49, 0x49, 0x30],
-            '7' => &[0x01, 0x71, 0x09, 0x05, 0x03],
-            '8' => &[0x3E, 0x41, 0x49, 0x41, 0x3E],
-            '9' => &[0x0E, 0x49, 0x49, 0x29, 0x1E],
-            'A' => &[0x7E, 0x09, 0x09, 0x09, 0x7E],
-            'B' => &[0x7F, 0x49, 0x49, 0x49, 0x36],
-            'C' => &[0x3E, 0x41, 0x41, 0x41, 0x22],
-            'D' => &[0x7F, 0x41, 0x41, 0x41, 0x3E],
-            'E' => &[0x7F, 0x49, 0x49, 0x49, 0x41],
-            'F' => &[0x7F, 0x09, 0x09, 0x09, 0x01],
-            'G' => &[0x3E, 0x41, 0x49, 0x49, 0x7A],
-            'H' => &[0x7F, 0x08, 0x08, 0x08, 0x7F],
-            'I' => &[0x41, 0x41, 0x7F, 0x41, 0x41],
-            'J' => &[0x70, 0x70, 0x70, 0x7F, 0x0F],
-            'K' => &[0x7F, 0x08, 0x14, 0x22, 0x41],
-            'L' => &[0x7F, 0x40, 0x40, 0x40, 0x40],
-            'M' => &[0x7F, 0x02, 0x04, 0x02, 0x7F],
-            'N' => &[0x7F, 0x02, 0x04, 0x08, 0x7F],
-            'O' => &[0x3E, 0x41, 0x41, 0x41, 0x3E],
-            'P' => &[0x7F, 0x09, 0x09, 0x09, 0x06],
-            'Q' => &[0x3E, 0x41, 0x51, 0x61, 0x7E],
-            'R' => &[0x7F, 0x09, 0x19, 0x29, 0x46],
-            'S' => &[0x26, 0x49, 0x49, 0x49, 0x32],
-            'T' => &[0x01, 0x01, 0x7F, 0x01, 0x01],
-            'U' => &[0x3F, 0x40, 0x40, 0x40, 0x3F],
-            'V' => &[0x1F, 0x20, 0x40, 0x20, 0x1F],
-            'W' => &[0x7F, 0x20, 0x18, 0x20, 0x7F],
-            'X' => &[0x63, 0x14, 0x08, 0x14, 0x63],
-            'Y' => &[0x03, 0x04, 0x78, 0x04, 0x03],
-            'Z' => &[0x41, 0x61, 0x51, 0x49, 0x43],
-            _ => return None,
-        })
-    }
-}
+#[path = "font5x7.rs"]
+pub mod font;

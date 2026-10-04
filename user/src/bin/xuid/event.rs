@@ -7,7 +7,6 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::geometry;
-use super::layout::cursor_rect;
 use super::protocol::{Event, EventKind};
 use super::surface::Drag;
 use super::theme::{double_click_slop, resize_out, DOUBLE_CLICK_TICKS};
@@ -51,25 +50,27 @@ impl Compositor {
         // the window itself does not change until release.
         if self.resize.is_some() {
             self.pointer = new;
-            self.resize_move(old, new);
+            self.resize_move(new);
             return;
         }
-        let mut damage = cursor_rect(old).union(cursor_rect(new));
         self.pointer = new;
         if let Some(active) = self.drag {
             // A title-bar drag: place the window so the grabbed point stays
             // under the pointer (exact even if events were coalesced),
-            // keeping its title bar reachable in the work area.
-            damage = damage.union(self.move_dragged_window(active, new));
+            // keeping its title bar reachable in the work area. The repaint
+            // moves the cursor overlay with it.
+            let damage = self.move_dragged_window(active, new);
             // The matching press was consumed by the title bar, so the moves
             // stay in the compositor: the app never saw the grab.
             self.repaint(damage);
             return;
         }
+        // Everything else only moves the sprite: nothing is recomposed
+        // (`cursor.rs`), whoever gets the move.
+        self.move_cursor();
         // The desktop and panels see the pointer while it is over them; a
         // press on one keeps every move until release.
         if self.layer_move(new) {
-            self.repaint(damage);
             return;
         }
         // Moves are surface-relative like presses (issue #287); they go to the
@@ -85,7 +86,6 @@ impl Compositor {
                 body,
             );
         }
-        self.repaint(damage);
     }
 
     /// Move the title-bar-dragged window under `pointer`; returns the damage

@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 use user::sys;
 
 use super::compositor::Compositor;
-use super::layout::cursor_rect;
 use super::protocol::{decode_event, push_coalesced, Event, EventKind};
 
 /// Events the held queue can keep: one full drain of the kernel queue.
@@ -138,10 +137,8 @@ impl Compositor {
         while let Some(event) = self.held.pop() {
             self.handle_event(event);
         }
-        if let Some(drawn) = self.held.cursor.take() {
-            if drawn != self.pointer {
-                self.repaint(cursor_rect(drawn).union(cursor_rect(self.pointer)));
-            }
+        if self.held.cursor.take().is_some() {
+            self.move_cursor();
         }
     }
 }

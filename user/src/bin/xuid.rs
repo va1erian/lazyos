@@ -96,6 +96,8 @@ extern crate alloc;
 mod anim;
 #[path = "xuid/compositor.rs"]
 mod compositor;
+#[path = "xuid/cursor.rs"]
+mod cursor;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]
@@ -246,6 +248,7 @@ fn run() -> ! {
         reap::selftest_reap,
         pointer_feed::selftest_pointer_feed,
         held::selftest_held,
+        cursor::selftest_cursor,
         shellcalls::selftest_shell_calls,
     ] {
         sys::write_str(selftest());
