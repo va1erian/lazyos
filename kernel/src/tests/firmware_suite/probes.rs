@@ -344,6 +344,26 @@ pub fn com1_probe_cases() -> Result<(), String> {
     Ok(())
 }
 
+/// The transmit ring (P5): wraps and drains for room without losing order,
+/// honours a drain budget; and a program-sized mirror of several ring's
+/// worth, interleaved with kernel lines, reaches the port (the harness reads
+/// the lines after this one, so a lost or reordered byte breaks the run).
+pub fn com1_ring_cases() -> Result<(), String> {
+    serial::ring_selftest().map_err(String::from)?;
+    let mut text = Vec::new();
+    for line in 0..300 {
+        text.extend_from_slice(format!("SERIAL:mirror:{line:04}:{}\n", "x".repeat(40)).as_bytes());
+        if text.len() > 8192 {
+            serial::mirror(&text);
+            text.clear();
+            serial_println!("TEST:fw_com1_ring_cases:INFO:kernel line between mirrors");
+        }
+    }
+    serial::mirror(&text);
+    serial::flush();
+    Ok(())
+}
+
 /// `syslog(2)` (Linux 103, behind BusyBox `dmesg`): the size query, a read
 /// that returns the newest ring bytes ending with the line just logged, the
 /// refused and invalid actions, and a soak of interleaved logging and reads.

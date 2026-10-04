@@ -93,6 +93,10 @@ pub fn preempt_point() {
 pub fn exit_cpu() -> ! {
     loop {
         switch::yield_now();
+        // The halt below runs with interrupts on: it ends the syscall's
+        // interrupts-off stretch (the latency hooks would otherwise count the
+        // idle time of a CPU with nothing else to run as interrupts-off).
+        crate::perf::irqoff_pause();
         x86_64::instructions::interrupts::enable_and_hlt();
         x86_64::instructions::interrupts::disable();
     }

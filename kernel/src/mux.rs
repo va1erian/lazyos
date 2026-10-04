@@ -63,6 +63,8 @@ pub fn run() -> ! {
         without_interrupts(crate::fs::flusher::service);
         // `PERF:` latency lines (LAZYOS_PERF=1 images only).
         crate::perf::service();
+        // Serial output a preempted writer left queued (P5).
+        crate::serial::service();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.
