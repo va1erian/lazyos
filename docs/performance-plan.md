@@ -12,8 +12,10 @@ cursor overlay (P3.1), the chunked row-copy present with ops 7/8 (P3.2;
 write-combining through PAT already existed, bare metal only), pointer
 coalescing and damage-only click repaints (P3.4, P3.5), one-way `inputd`
 notes (P3.6), parked `xui-app` clients (P3.8) and the 200 Hz PS/2 rate
-(P3.9); not done: zero-copy scanout (P3.3), interrupt-driven `usbd` (P3.7),
-the Terminal's pty on readiness, and the P2-dependent frame pacing. P4
+(P3.9); the P3 follow-ups (`perf/p3b-display-input`) add interrupt-driven
+`usbd` (P3.7), the Terminal on pty readiness with row repaints, time-paced
+60 Hz animation frames and nanosecond client timers (P3.8), and WC for a
+switched mode's framebuffer; not done: zero-copy scanout (P3.3). P4
 (network) steps 0-5 are built and measured in
 [`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the exit target is
 met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
@@ -219,6 +221,28 @@ Then make what runs cheaper:
 
 Verification is visual as well as numeric: `qemu_session.py` scripts with
 screenshots, per `AGENTS.md`.
+
+**Follow-ups, as built** (WHPX, dev profile; same-hour A/B runs):
+
+- The fast-move tail (600 moves 4 ms apart, `input_present` p99 11.6 to
+  15.3 ms) was not the `PERF:` report: a switch/wake trace of the slow
+  samples showed `xuid` blocked for two ticks in a theme-topic `NextEvent`
+  call every 250 ms (`themefeed.rs`). It now polls (`EXPIRED_DEADLINE`):
+  p99 0.25 ms. The report does cost 3-14 ms of polled serial
+  (`PERF:report`), so it now waits for 200 ms of input quiet; no sample is
+  overlapped since (`PERF:input_present_rpt`).
+- The resize wireframe vanished under a client repaint (the Editor's caret):
+  `compose` now draws the live outline (also on the P1 base, not new).
+- Animations: 100 ms per phase whatever the frame rate, 60 Hz slots with
+  nanosecond sleeps. `xui-app` timers are monotonic nanoseconds; the wait set
+  takes `WAIT_DEADLINE_NS` and a descriptor doorbell `WAIT_FD`.
+- Terminal: parks on its pty master (`watch_fd`), repaints changed rows only.
+  Echo p50 50-71 ms -> 32-41 us; `cat` of 108 894 bytes 726-736 ms -> 99-104 ms
+  (`term_perf.json`, `TERM:PERF`).
+- `usbd` idles on the xHCI interrupt: `usb_input_present` (from the
+  interrupt, `tools/perf/run.py --usb`) p50 4.8 ms / p99 10.4 ms -> 0.28 /
+  0.64 ms. The USB exit target is met.
+- A mode switch's framebuffer gets a 4 KiB window and the boot WC policy.
 Exit: PS/2 mouse IRQ to cursor pixels p99 under 5 ms, and USB transfer event
 to cursor pixels p99 under 5 ms; a cursor move never triggers a full-screen
 present.
