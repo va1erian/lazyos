@@ -343,7 +343,9 @@ and the compatibility matrix; `doctor` explains common failures.
 
 USB boot media (BIOS and UEFI images from one build) and the minimal feature
 set for booting on a physical PC are planned in
-[`real-pc-boot-plan.md`](real-pc-boot-plan.md).
+[`real-pc-boot-plan.md`](real-pc-boot-plan.md). Updating an installed machine
+(signed A/B image updates with automatic fallback) is planned in
+[`update-plan.md`](update-plan.md).
 
 ---
 
