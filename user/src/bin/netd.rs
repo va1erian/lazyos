@@ -318,6 +318,13 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
             match wait::wait_any(&[server], doorbells, Some(tick + wait)) {
                 Ok(mask) => mask,
                 Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+                // The kernel refused the doorbell: another stack attached to
+                // the AF_INET table since. Stop serving it (the pump attaches
+                // again later, as after any loss) and look again.
+                Err(MsgError::Errno(code)) if code == -errno::ENOENT && doorbells != 0 => {
+                    netd.inet.lost(tick);
+                    0
+                }
                 Err(error) => return Err(fail(error)),
             }
         };

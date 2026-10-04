@@ -170,6 +170,15 @@ impl Inet {
         self.attached
     }
 
+    /// The kernel no longer counts this task as the pump's server (another
+    /// one attached): forget the sockets and try again later.
+    pub(super) fn lost(&mut self, tick: u64) {
+        sys::write_str("NETD:INET:LOST another task attached to the AF_INET table\n");
+        self.attached = false;
+        self.entries.clear();
+        self.next_attach = tick + ATTACH_RETRY_TICKS;
+    }
+
     fn entry(&mut self, id: u32, kind: Kind) -> &mut Entry {
         if let Some(at) = self.entries.iter().position(|e| e.id == id) {
             return &mut self.entries[at];
