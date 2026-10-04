@@ -59,6 +59,8 @@ fn run() -> messenger::Result<()> {
         now().0,
         api::INTERFACE
     ));
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     let mut state = State::new();
     let mut demo = demo::Demo::from_args();

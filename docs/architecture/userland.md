@@ -181,7 +181,12 @@ command.
 
 - *Manifest.* `MANIFEST` in `user/src/bin/init/state.rs` lists every service
   with its ELF, arguments, restart policy and dependencies; a row starts only
-  once all its dependencies are `running`. Boot order today: `messengerd`
+  once all its dependencies are ready: running, and, for the services that
+  announce it (`init/ready.rs`), having sent `init.Ready` once their name is
+  registered (`services::init::notify_ready`; one that never does counts as
+  ready 5 s after its start, `INIT:READY:LATE`). The desktop's autostart opens
+  the session as soon as every boot service is ready, with no fixed delay
+  (P7.3). Boot order today: `messengerd`
   (`Once`: the kernel's bootstrap channel can be claimed once per boot), then
   `keyd`, `confd`, `logd`, `healthd` (after `messengerd`), `timed` (after
   `messengerd` and `confd`), `inputd` (after `confd`), `accountsd` then

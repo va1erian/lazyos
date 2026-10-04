@@ -95,6 +95,8 @@ fn run() -> messenger::Result<()> {
         &[services::LOGD_INTERFACE, lifecycle::INTERFACE],
         0,
     )?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let mut log = Log::new(Journals::open(sys::clock()));
     let mut feeds = Feeds::new();
     // The health status last delivered to `healthd` (`None` until it is up).

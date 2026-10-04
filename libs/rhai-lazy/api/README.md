@@ -266,6 +266,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
+| `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |

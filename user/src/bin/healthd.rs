@@ -108,6 +108,8 @@ fn run() -> messenger::Result<()> {
         &[services::HEALTHD_INTERFACE, router::INTERFACE],
         0,
     )?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let mut broker = router::TopicBroker::new("os.lazy.health.sink");
     let mut rows: Vec<HealthRow> = Vec::new();
     let mut init: Option<Endpoint> = None;

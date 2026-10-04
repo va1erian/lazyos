@@ -85,6 +85,8 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(logind::NAME, &published, &[logind::INTERFACE], 0)?;
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     sys::write_str("logind: waiting for the accounts service\n");
     let mut accountsd: Option<Endpoint> = None;
     let mut bus: Option<router::Bus> = None;

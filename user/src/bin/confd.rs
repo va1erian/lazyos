@@ -181,6 +181,8 @@ fn run() -> messenger::Result<()> {
         .sink_mut()
         .report_health(if persistent { "ok" } else { "degraded" }, &detail);
     sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     // One receive buffer for the whole life of the service: the user bump
     // allocator never reclaims per-call buffers.

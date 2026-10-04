@@ -578,6 +578,11 @@
         "name": "Shutdown",
         "id": 1911669355,
         "oneway": false
+      },
+      {
+        "name": "Ready",
+        "id": 197800596,
+        "oneway": true
       }
     ],
     "topics": [

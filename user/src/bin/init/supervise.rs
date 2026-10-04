@@ -15,7 +15,8 @@ use super::state::{
     Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, STABLE_TICKS,
 };
 
-/// Start every `Pending` service whose dependencies are `Running`, repeating
+/// Start every `Pending` service whose dependencies are ready (`ready.rs`:
+/// running, and serving if they announce it), repeating
 /// until no more can start (a single pass suffices for an ordered manifest,
 /// but this is order-independent). Launched app rows are spawned by `launch`,
 /// never here (they have no dependencies).
@@ -31,7 +32,7 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
             let ready = deps.iter().all(|dep| {
                 services
                     .iter()
-                    .any(|service| service.name == *dep && service.phase == Phase::Running)
+                    .any(|service| service.name == *dep && super::ready::is_ready(service))
             });
             if ready {
                 spawn_service(services, index, broker);
@@ -77,6 +78,7 @@ pub(super) fn spawn_service(
         Some(pid) => {
             services[index].pid = pid;
             services[index].phase = Phase::Running;
+            services[index].ready = false;
             services[index].started_tick = sys::clock();
             services[index].last_status = None;
             sys::write_str(&format!(

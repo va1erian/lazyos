@@ -75,6 +75,8 @@ fn run() -> messenger::Result<()> {
     sys::write_str(services::SYSMOND_NAME);
     sys::write_str("\n");
     sys::write_str("SYSMOND:REGISTER:PASS\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     // The central broker connection appears when `messengerd` has finished
     // registering its name (it is the supervisor's first service, but the two

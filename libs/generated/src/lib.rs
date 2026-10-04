@@ -5329,6 +5329,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_STOP: u32 = 1266644741;
     /// `Shutdown` method id.
     pub const METHOD_SHUTDOWN: u32 = 1911669355;
+    /// `Ready` method id.
+    pub const METHOD_READY: u32 = 197800596;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]

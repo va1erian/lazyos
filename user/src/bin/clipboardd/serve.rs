@@ -16,6 +16,8 @@ pub(super) fn run() -> messenger::Result<()> {
     let mut clipboard = Clipboard::new(history);
     sys::write_str(&format!("CLIPBOARD:HISTORY:{history}\n"));
     sys::write_str("CLIPBOARD:READY\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     // The demo pair (if requested) starts right here, so its two ELF loads
     // complete before the supervisor's crash test files its short-deadline
     // health report; the evidence then runs while the rest of boot is settled.

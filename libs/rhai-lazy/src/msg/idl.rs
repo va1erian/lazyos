@@ -980,6 +980,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "accepted", ty: Ty::Bool }, Field { name: "phase", ty: Ty::String }],
                 transfers: &[],
             },
+            Method {
+                name: "Ready",
+                id: 197800596,
+                oneway: true,
+                doc: "A supervised service tells `init` it is serving (docs/performance-plan.md\nP7.3): its name is registered and requests are answered. Rows that\ndepend on it start only then, and the desktop's apps only once every\nboot service is ready. Only the running task of a manifest row counts;\nanything else is ignored.",
+                params: &[],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

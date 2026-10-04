@@ -22,18 +22,11 @@ pub(super) const SESSION_CAPS: u32 = 0;
 /// `CAP_SETUID` (kernel `ipc::credentials`): a supervisor holding it may
 /// launch into any session.
 pub(super) const CAP_SETUID: u32 = 1 << 6;
-/// Ticks after boot before the launch self-test first tries (100 Hz). The
-/// manifest's `Once` services (top) exit around here, freeing their slots.
-pub(super) const LAUNCH_SELFTEST_DELAY: u64 = 30;
-/// Ticks between launch self-test attempts while no slot is free.
+/// Ticks between launch self-test (and autostart) attempts while no task
+/// slot is free.
 pub(super) const LAUNCH_SELFTEST_RETRY: u64 = 25;
 /// Give up on the launch self-test after this many attempts.
 pub(super) const LAUNCH_SELFTEST_ATTEMPTS: u64 = 40;
-/// Ticks after boot before the first autostart app opens (`xuid` is up by
-/// then; an app that is early just waits in `Client::connect`).
-pub(super) const AUTOSTART_DELAY: u64 = 50;
-/// Ticks between two autostart launches.
-pub(super) const AUTOSTART_STAGGER: u64 = 40;
 /// Autostart retries per app while the task table is full.
 pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// Launched rows one session may hold reserved at once (issue #177). The

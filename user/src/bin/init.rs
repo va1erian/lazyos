@@ -91,6 +91,8 @@ mod launch;
 mod protocol;
 #[path = "init/provisioning.rs"]
 mod provisioning;
+#[path = "init/ready.rs"]
+mod ready;
 #[path = "init/selftest.rs"]
 mod selftest;
 #[path = "init/service.rs"]
@@ -202,6 +204,10 @@ fn run() -> messenger::Result<()> {
             if BOOT_EVIDENCE {
                 selftest.step(&mut services, &mut broker, now);
             }
+            // A service that never said it serves is taken as ready late.
+            if ready::expire(&mut services, now) {
+                start_ready(&mut services, &mut broker);
+            }
             // A home volume on a USB stick (`home`): once it is mounted, or
             // the bounded wait for it ends, start what was held for it.
             if home::step(&services, now) {
@@ -278,7 +284,8 @@ fn next_wake(
     let home = home::wake(now);
     let autostart = home::ready().then(|| autostart.next_due()).flatten();
     let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
-    [wake_deadline(services), home, autostart, selftest]
+    let late = ready::next_deadline(services);
+    [wake_deadline(services), home, autostart, selftest, late]
         .into_iter()
         .flatten()
         .min()
