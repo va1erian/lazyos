@@ -32,6 +32,8 @@ pub mod msg_op {
     pub const RESOLVE: u64 = 14;
     /// Snapshot the name table into the caller's buffer.
     pub const LIST: u64 = 16;
+    /// Park until one of several endpoints is ready (the P1 wait set).
+    pub const WAIT: u64 = 19;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
@@ -283,4 +285,24 @@ pub fn msg_reply(txn: u64, reply: &Parcel) -> Result<(), i64> {
         ..MsgArgs::default()
     };
     messenger_syscall(msg_op::REPLY, &args, &mut MsgResult::default())
+}
+
+/// Most endpoints one [`msg_wait_any`] may name (the kernel's limit).
+pub const WAIT_MAX_ENDPOINTS: usize = 8;
+
+/// Park until one of `handles` has a message (or a closed peer) or the
+/// absolute PIT `deadline` passes (docs/performance-plan.md P1.3, P3.8):
+/// the ready mask (bit `i` for `handles[i]`), or `-ETIMEDOUT`. Nothing is
+/// received. More than [`WAIT_MAX_ENDPOINTS`] handles is refused by the
+/// kernel (`-EINVAL`).
+pub fn msg_wait_any(handles: &[u64], deadline: u64) -> Result<u64, i64> {
+    let args = MsgArgs {
+        parcel_ptr: handles.as_ptr() as u64,
+        parcel_len: handles.len() as u64,
+        deadline,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    messenger_syscall(msg_op::WAIT, &args, &mut result)?;
+    Ok(result.value)
 }

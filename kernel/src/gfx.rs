@@ -3,6 +3,9 @@
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use core::ptr;
 
+mod blit;
+pub use blit::Layout;
+
 /// An RGB colour.
 #[derive(Clone, Copy, Debug)]
 pub struct Color {
@@ -201,7 +204,8 @@ impl Framebuffer {
     /// Blit a sub-rectangle of an RGBA image to the framebuffer.
     ///
     /// Copies `w * h` pixels from source `(sx, sy)` to destination `(dx, dy)`,
-    /// clamping against both the source and the framebuffer bounds.
+    /// clamping against both the source and the framebuffer bounds
+    /// ([`Self::blit_region`] with [`Layout::Rgba`]).
     #[allow(clippy::too_many_arguments)]
     pub fn blit_rgba_region(
         &mut self,
@@ -215,74 +219,15 @@ impl Framebuffer {
         w: usize,
         h: usize,
     ) {
-        let bpp = self.info.bytes_per_pixel;
-        let stride = self.info.stride;
-        let base = self.base as *mut u8;
-        let (fbw, fbh) = (self.width(), self.height());
-        // Resolved once: this loop runs for every pixel of every present,
-        // with interrupts off, so the common RGB/BGR modes get plain stores
-        // with no per-pixel format dispatch.
-        let packing = self.packing();
-
-        for row in 0..h {
-            let syy = sy + row;
-            let dyy = dy + row;
-            if syy >= src_h || dyy >= fbh {
-                break;
-            }
-            // Safety: syy is within the source image.
-            let src = &rgba[(syy * src_w + sx) * 4..];
-            // Safety: `dyy < fbh` was just checked, so this row is within the
-            // mapped framebuffer.
-            let drow = unsafe { base.add(dyy * stride * bpp) };
-            for col in 0..w {
-                let sxx = sx + col;
-                let dxx = dx + col;
-                if sxx >= src_w || dxx >= fbw {
-                    break;
-                }
-                let i = col * 4;
-                // Safety: `dxx < fbw` was just checked, so this pixel is
-                // within the mapped framebuffer row.
-                let p = unsafe { drow.add(dxx * bpp) };
-                let (r, g, b) = (src[i], src[i + 1], src[i + 2]);
-                match packing {
-                    Packing::Rgb4 | Packing::Bgr4 => {
-                        let pixel = if packing == Packing::Bgr4 {
-                            u32::from_le_bytes([b, g, r, 0xFF])
-                        } else {
-                            u32::from_le_bytes([r, g, b, 0xFF])
-                        };
-                        // SAFETY: `p` starts a whole 4-byte pixel inside the
-                        // framebuffer row (checked above); unaligned is fine.
-                        unsafe { p.cast::<u32>().write_unaligned(pixel) };
-                    }
-                    Packing::Rgb3 | Packing::Bgr3 => {
-                        let (c0, c2) = if packing == Packing::Bgr3 {
-                            (b, r)
-                        } else {
-                            (r, b)
-                        };
-                        // SAFETY: `p` starts a whole 3-byte pixel inside the
-                        // framebuffer row (checked above).
-                        unsafe {
-                            p.write(c0);
-                            p.add(1).write(g);
-                            p.add(2).write(c2);
-                        }
-                    }
-                    Packing::Other => {
-                        let pixel = self.encode(r, g, b);
-                        // SAFETY: `p` starts a whole `bpp`-byte pixel inside
-                        // the framebuffer row (checked above).
-                        unsafe { self.store(p, pixel) };
-                    }
-                }
-            }
-        }
+        self.blit_region(rgba, Layout::Rgba, src_w, src_h, sx, sy, dx, dy, w, h);
     }
 
-    /// How [`Self::blit_rgba_region`] packs a pixel, decided once per blit.
+    /// The 4-byte source layout this framebuffer stores as is, if any.
+    pub fn native_layout(&self) -> Option<Layout> {
+        Layout::native(self.info.pixel_format, self.info.bytes_per_pixel)
+    }
+
+    /// How [`Self::blit_region`] packs a pixel, decided once per blit.
     fn packing(&self) -> Packing {
         match (self.info.pixel_format, self.info.bytes_per_pixel) {
             (PixelFormat::Rgb, 3) => Packing::Rgb3,

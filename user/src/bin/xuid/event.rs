@@ -7,7 +7,6 @@ use user::sys;
 
 use super::compositor::Compositor;
 use super::geometry;
-use super::layout::cursor_rect;
 use super::protocol::{Event, EventKind};
 use super::surface::Drag;
 use super::theme::{double_click_slop, resize_out, DOUBLE_CLICK_TICKS};
@@ -51,25 +50,27 @@ impl Compositor {
         // the window itself does not change until release.
         if self.resize.is_some() {
             self.pointer = new;
-            self.resize_move(old, new);
+            self.resize_move(new);
             return;
         }
-        let mut damage = cursor_rect(old).union(cursor_rect(new));
         self.pointer = new;
         if let Some(active) = self.drag {
             // A title-bar drag: place the window so the grabbed point stays
             // under the pointer (exact even if events were coalesced),
-            // keeping its title bar reachable in the work area.
-            damage = damage.union(self.move_dragged_window(active, new));
+            // keeping its title bar reachable in the work area. The repaint
+            // moves the cursor overlay with it.
+            let damage = self.move_dragged_window(active, new);
             // The matching press was consumed by the title bar, so the moves
             // stay in the compositor: the app never saw the grab.
             self.repaint(damage);
             return;
         }
+        // Everything else only moves the sprite: nothing is recomposed
+        // (`cursor.rs`), whoever gets the move.
+        self.move_cursor();
         // The desktop and panels see the pointer while it is over them; a
         // press on one keeps every move until release.
         if self.layer_move(new) {
-            self.repaint(damage);
             return;
         }
         // Moves are surface-relative like presses (issue #287); they go to the
@@ -85,7 +86,6 @@ impl Compositor {
                 body,
             );
         }
-        self.repaint(damage);
     }
 
     /// Move the title-bar-dragged window under `pointer`; returns the damage
@@ -160,6 +160,11 @@ impl Compositor {
             )
         };
         let before = self.focused;
+        // Whether a window paints above this one: only then does raising it
+        // change any pixel of it.
+        let covered = self.surfaces[index + 1..]
+            .iter()
+            .any(|surface| surface.is_window() && !surface.minimized);
         raise(&mut self.surfaces, id);
         self.focused = Some(id);
         if self.focused != before {
@@ -228,11 +233,11 @@ impl Compositor {
             }
             // Title-bar presses (and a right-click that cannot drag) are the
             // WM's; only the focus/raise repaint is needed.
-            self.repaint_full();
+            self.repaint_raised(id, before, covered);
             return;
         }
         // Content: focus, raise, and forward the press surface-relative.
-        self.repaint_full();
+        self.repaint_raised(id, before, covered);
         // This press goes to the surface, so its release must too: drop a
         // stale consumed bit left by a release the input queue dropped.
         self.consumed &= !button_bit;
@@ -245,6 +250,26 @@ impl Compositor {
             wire::METHOD_POINTERDOWN,
             body,
         );
+    }
+
+    /// Repaint what a press that raised and focused `id` changed
+    /// (docs/performance-plan.md P3.5): `id`'s window when something covered
+    /// it or its focus colours changed, and the window that lost focus
+    /// (its title bar and frame). A click on the focused top window repaints
+    /// nothing.
+    fn repaint_raised(&mut self, id: u64, before: Option<u64>, covered: bool) {
+        let raised = surface_by_id(&self.surfaces, id).map(|surface| surface.window());
+        if let Some(window) = raised.filter(|_| covered || before != Some(id)) {
+            self.repaint(window);
+        }
+        let lost = before
+            .filter(|old| *old != id)
+            .and_then(|old| surface_by_id(&self.surfaces, old))
+            .filter(|surface| !surface.minimized)
+            .map(|surface| surface.window());
+        if let Some(window) = lost {
+            self.repaint(window);
+        }
     }
 
     /// A pointer button went up.

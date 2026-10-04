@@ -20,6 +20,9 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 | ApproveGrant | 7 | sync | `(session: U64, allow: Bool) -> ()` |
 | SetBounds | 8 | sync | `(width: U32, height: U32) -> ()` |
 | GetPointer | 9 | sync | `() -> (x: I32, y: I32, buttons: U32)` |
+| NoteFocus | 10 | oneway | `(surface: Option<U64>) -> ()` |
+| NoteSurface | 11 | oneway | `(surface: U64, owner: U64) -> ()` |
+| ForgetSurface | 12 | oneway | `(surface: U64) -> ()` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
 | GrantRequested | 21 | oneway | `(session: U64, kind: U32) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |

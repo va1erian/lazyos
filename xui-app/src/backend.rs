@@ -62,8 +62,10 @@ const DEFAULT_DPI: u32 = 96;
 const POLL_MILLIS: u64 = 5;
 /// Largest batch of kernel input records drained per poll.
 const INPUT_BATCH: usize = 64;
-/// Longest the client-mode event receive parks before the loop runs timers.
-const CLIENT_POLL_TICKS: u64 = 1;
+/// Longest a client-mode loop parks with no timer armed and no event
+/// (docs/performance-plan.md P3.8): only a safety net, since every event
+/// endpoint wakes the park and timers bound it.
+const CLIENT_IDLE_TICKS: u64 = 100;
 /// Receive buffer for one compositor event message.
 const CLIENT_INPUT_BYTES: usize = 4096;
 

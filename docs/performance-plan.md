@@ -3,11 +3,13 @@
 Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
 (the kernel wake path) are built; their measurements, so far on the dev
 profile under WHPX, are in [`perf/report.md`](perf/report.md) and
-[`perf/history.md`](perf/history.md). P2 (timekeeping) is built: nanosecond
-deadlines on a timer queue, a one-shot local APIC deadline timer beside the
-100 Hz PIT tick (not the 1000 Hz PIT step, and not yet with the APIC as the
-tick itself), exact Linux timeouts and a native nanosecond sleep; a 1 ms
-sleep went from 10.0 ms to 1.04 ms (p50, WHPX, dev profile). P3 onward is
+[`perf/history.md`](perf/history.md). P2 (timekeeping: nanosecond deadlines on
+a timer queue, a one-shot local APIC deadline timer beside the 100 Hz PIT tick,
+exact Linux timeouts and a native nanosecond sleep) and P3 (branch
+`perf/p3-cursor-display`: the cursor overlay, the chunked row-copy present with
+ops 7/8, pointer coalescing and damage-only click repaints, one-way `inputd`
+notes, parked `xui-app` clients and the 200 Hz PS/2 rate) are built. Their
+measurements are in [`perf/report.md`](perf/report.md). P4 onward is
 not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so

@@ -313,6 +313,9 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `approve_grant(session, allow)` | `ApproveGrant(session: U64, allow: Bool) -> ()` | Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so |
 | `set_bounds(width, height)` | `SetBounds(width: U32, height: U32) -> ()` | The screen size the cursor is clamped to (each side `1..=16384`, else |
 | `get_pointer()` | `GetPointer() -> (x: I32, y: I32, buttons: U32)` | The cursor position and held `buttons` (as in `PointerEvent`), to seed |
+| `note_focus(surface)` | `NoteFocus(surface: Option<U64>) -> () oneway` | One-way `SetFocus`: the compositor's main loop never waits on `inputd` |
+| `note_surface(surface, owner)` | `NoteSurface(surface: U64, owner: U64) -> () oneway` | One-way `RegisterSurface` (see `NoteFocus`). |
+| `forget_surface(surface)` | `ForgetSurface(surface: U64) -> () oneway` | One-way `UnregisterSurface` (see `NoteFocus`). |
 | `hotkey_fired(id)` | `HotkeyFired(id: U64) -> () oneway` | Shell event: a registered chord was pressed. |
 | `grant_requested(session, kind)` | `GrantRequested(session: U64, kind: U32) -> () oneway` | Shell event: a client asked for a grab (reserved; never sent yet). |
 | `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord was pressed (reserved). |

@@ -6,8 +6,8 @@
 use super::*;
 use crate::display::{damage_rows, op, INFO_WORDS};
 
-const EFAULT: i64 = 14;
-const PAGE: u64 = 4096;
+pub(super) const EFAULT: i64 = 14;
+pub(super) const PAGE: u64 = 4096;
 
 /// Turns user-pointer validation on for the guard's lifetime; the suite's
 /// other tests pass kernel buffers as "user" pointers, so it is off by
@@ -27,15 +27,15 @@ impl Drop for Strict {
 }
 
 /// A bound screen buffer; presents against it run with validation on.
-struct Screen {
-    width: usize,
-    height: usize,
-    va: u64,
+pub(super) struct Screen {
+    pub(super) width: usize,
+    pub(super) height: usize,
+    pub(super) va: u64,
     _strict: Strict,
 }
 
 impl Screen {
-    fn row_bytes(&self) -> u64 {
+    pub(super) fn row_bytes(&self) -> u64 {
         self.width as u64 * 4
     }
 
@@ -45,7 +45,7 @@ impl Screen {
     }
 
     /// Unmap one page of the buffer, as the owner's `munmap` would.
-    fn unmap_page(&self, page: u64) -> Result<(), String> {
+    pub(super) fn unmap_page(&self, page: u64) -> Result<(), String> {
         let cleared = crate::mem::unmap_range(crate::mem::kernel_table(), page, page + PAGE);
         check!(cleared == 1, "unmap_range cleared {cleared} pages");
         Ok(())
@@ -54,7 +54,7 @@ impl Screen {
 
 /// Bind the display on a fresh scratch task. The bind info block is a kernel
 /// stack buffer, so validation is only switched on once bind has returned.
-fn bind_screen() -> Result<Screen, String> {
+pub(super) fn bind_screen() -> Result<Screen, String> {
     crate::display::reset();
     scratch_task()?;
     let mut info = [0u64; INFO_WORDS];
@@ -69,7 +69,7 @@ fn bind_screen() -> Result<Screen, String> {
 }
 
 /// Unbind and return to the kernel task.
-fn unbind_screen() -> Result<(), String> {
+pub(super) fn unbind_screen() -> Result<(), String> {
     let code = process::dispatch_for_test(12, op::UNBIND, 0, 0);
     check!(code == 0, "unbind -> {code:#x}");
     task::harness::switch_current(task::KERNEL_TASK);
@@ -78,13 +78,13 @@ fn unbind_screen() -> Result<(), String> {
     Ok(())
 }
 
-fn present(x: usize, y: usize, w: usize, h: usize) -> u64 {
+pub(super) fn present(x: usize, y: usize, w: usize, h: usize) -> u64 {
     let packed = x as u64 | (y as u64) << 16 | (w as u64) << 32 | (h as u64) << 48;
     process::dispatch_for_test(12, op::PRESENT, packed, 0)
 }
 
 /// Write one RGBA pixel into the bound screen buffer.
-fn paint(screen: &Screen, x: usize, y: usize, rgb: (u8, u8, u8)) {
+pub(super) fn paint(screen: &Screen, x: usize, y: usize, rgb: (u8, u8, u8)) {
     let at = (y * screen.width + x) * 4;
     // SAFETY: `(x, y)` is on screen, so `at..at + 4` is inside the mapped
     // `width * height * 4`-byte screen buffer at `va`.
@@ -98,7 +98,7 @@ fn paint(screen: &Screen, x: usize, y: usize, rgb: (u8, u8, u8)) {
 }
 
 /// Whether the real framebuffer shows roughly `rgb` at `(x, y)`.
-fn shows(x: usize, y: usize, rgb: (u8, u8, u8)) -> Result<bool, String> {
+pub(super) fn shows(x: usize, y: usize, rgb: (u8, u8, u8)) -> Result<bool, String> {
     let color =
         crate::console::with_framebuffer(|fb| fb.read_pixel(x, y)).ok_or("no framebuffer")?;
     let near = |a: u8, b: u8| a.abs_diff(b) < 16;

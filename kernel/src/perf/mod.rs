@@ -10,6 +10,7 @@
 //! | `input_present` | the same publication, for pointer records | the compositor's next `present` syscall returns |
 //! | `irqoff` | a syscall enters (interrupts off) | it returns, parks, or naps (interrupts back on) |
 //! | `ipc_rt` | `begin_call` of an in-kernel echo | `await_reply` returns its reply (no context switch) |
+//! | `present` | the display owner's `present` syscall starts | it returns (breaths between chunks included) |
 //! | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns |
 //!
 //! Durations are TSC cycles, converted with the PIT calibration when printed.
@@ -109,11 +110,11 @@ pub fn input_read(_count: usize) {
     imp::input_read(_count);
 }
 
-/// The display owner's `present` returned.
+/// The display owner's `present`, begun at TSC `started`, returned.
 #[inline(always)]
-pub fn presented() {
+pub fn presented(_started: u64) {
     #[cfg(lazyos_perf)]
-    imp::presented();
+    imp::presented(_started);
 }
 
 /// A syscall entered with interrupts off (`nr` for the report).
