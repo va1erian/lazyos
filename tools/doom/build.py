@@ -133,6 +133,8 @@ def build_package(elf: Path) -> Path | None:
 
 
 def main() -> int:
+    """Parse arguments, build the engine and package, and print what was built;
+    return 1 only when `--require` is set and a wanted artifact is missing."""
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--debug", action="store_true", help="build the debug profile")

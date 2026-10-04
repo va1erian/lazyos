@@ -264,6 +264,8 @@ def build_core_packages() -> bool:
 
 
 def main() -> int:
+    """Parse arguments, resolve the xui dependency, build the apps and report
+    them as JSON; return the process exit code."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

@@ -209,6 +209,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse arguments, build the requested bins and copy them out; return the
+    process exit code (0 even when the toolchain is merely missing)."""
     args = parse_args(argv)
 
     if not MANIFEST.is_file():

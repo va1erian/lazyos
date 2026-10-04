@@ -27,6 +27,7 @@ LIB2 = "crates/xui-netsurf/netsurf-sys/vendor/libnsgif"
 
 
 def git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
+    """Run git and return its stripped stdout."""
     return subprocess.run(
         ["git", *args], cwd=cwd, check=check, capture_output=True, text=True
     ).stdout.strip()
@@ -34,6 +35,7 @@ def git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
 
 class GitCheckoutTests(unittest.TestCase):
     def setUp(self) -> None:
+        """A cargo `git/db` layout with one xui-shaped bare repo."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
@@ -46,8 +48,15 @@ class GitCheckoutTests(unittest.TestCase):
         self._saved_rev = git_checkout.XUI_REV
         self.addCleanup(setattr, git_checkout, "XUI_REV", self._saved_rev)
 
-    def _library(self, name: str, colon_file: bool) -> str:
-        """A local library repo with `src` and a colon-named test file."""
+    def _library(self, name: str) -> str:
+        """A local library repo with `src`, `include` and a `test` directory.
+
+        The real libraries name their test files with a colon, which Windows
+        cannot even index (git refuses an invalid path and `git add -A` would
+        silently make it an alternate data stream), so the fixture uses a plain
+        name under `test/`. What the helper must do — leave `test` out of every
+        submodule — is the same either way.
+        """
         repo = self.home / name
         repo.mkdir()
         git("init", "-q", str(repo))
@@ -56,20 +65,18 @@ class GitCheckoutTests(unittest.TestCase):
         (repo / "include").mkdir()
         (repo / "include" / "lib.h").write_text("")
         (repo / "test" / "afl").mkdir(parents=True)
-        (repo / "test" / "afl" / "id:1.bmp").write_text("")
-        if not colon_file:
-            (repo / "test" / "afl" / "plain.bmp").write_text("")
+        (repo / "test" / "afl" / "sample.bmp").write_text("")
         git("add", "-A", cwd=repo)
         git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x", cwd=repo)
         return git("rev-parse", "HEAD", cwd=repo)
 
     def _seed_db_with_xui_tree(self) -> None:
         """A commit with xui's shape (`crates/`, `Cargo.toml`) and two
-        submodules (both carrying colon-named test files)."""
+        submodules, each with a `test` directory to be left out."""
         lib1 = self.home / "libnsbmp-src"
         lib2 = self.home / "libnsgif-src"
-        self.libs[LIB1] = self._library("libnsbmp-src", colon_file=True)
-        self.libs[LIB2] = self._library("libnsgif-src", colon_file=True)
+        self.libs[LIB1] = self._library("libnsbmp-src")
+        self.libs[LIB2] = self._library("libnsgif-src")
 
         work = self.home / "xui-work"
         work.mkdir()
@@ -89,18 +96,23 @@ class GitCheckoutTests(unittest.TestCase):
         git_checkout.XUI_REV = self.rev
 
     def checkout(self) -> Path:
+        """Cargo's checkout directory for the fixture revision."""
         return self.git / "checkouts" / "xui-abc" / self.rev[:7]
 
     def test_db_for_points_at_the_bare_repo(self) -> None:
+        """The bare repo is found from the checkout path."""
         self.assertEqual(git_checkout._db_for(self.checkout()), self.db)
 
     def test_find_checkouts_matches_xui_by_shape(self) -> None:
+        """The fetched xui revision is discovered by its tree layout."""
         self.assertEqual(git_checkout.find_checkouts(self.git, self.rev), [self.checkout()])
 
     def test_find_checkouts_ignores_unknown_revision(self) -> None:
+        """A revision no bare repo holds yields nothing."""
         self.assertEqual(git_checkout.find_checkouts(self.git, "0" * 40), [])
 
     def test_find_checkouts_handles_two_url_spellings(self) -> None:
+        """Both cargo sources of the repository are found."""
         # A second bare repo, the `www.github.com` spelling cargo treats as a
         # different source but the same tree.
         second = self.git / "db" / "xui-www"
@@ -112,6 +124,7 @@ class GitCheckoutTests(unittest.TestCase):
         )
 
     def test_submodules_lists_both(self) -> None:
+        """Both `.gitmodules` entries are enumerated with their paths."""
         checkout = self.checkout()
         checkout.parent.mkdir(parents=True, exist_ok=True)
         git("clone", "--quiet", str(self.db), str(checkout))
@@ -121,10 +134,11 @@ class GitCheckoutTests(unittest.TestCase):
             [LIB1, LIB2],
         )
 
-    def test_seed_populates_every_submodule_without_the_colon_paths(self) -> None:
+    def test_seed_populates_every_submodule_without_the_test_paths(self) -> None:
+        """Seeding fills in every submodule and leaves out `test`."""
         if os.name != "nt":
-            # The colon file checks out fine elsewhere; the skip logic only
-            # matters on Windows, where the file cannot exist at all.
+            # The fixup is Windows-only; elsewhere cargo checks the submodules
+            # out itself.
             self.skipTest("Windows-only fixup")
         checkout = self.checkout()
         git_checkout.seed(checkout)
@@ -135,6 +149,7 @@ class GitCheckoutTests(unittest.TestCase):
             self.assertFalse((checkout / path / "test").exists())
 
     def test_seeded_checkout_is_not_reseeded(self) -> None:
+        """A second seed leaves an already-correct submodule alone."""
         if os.name != "nt":
             self.skipTest("Windows-only fixup")
         checkout = self.checkout()
@@ -142,6 +157,17 @@ class GitCheckoutTests(unittest.TestCase):
         before = sorted(p.name for p in (checkout / LIB1).iterdir())
         git_checkout.seed(checkout)
         self.assertEqual(before, sorted(p.name for p in (checkout / LIB1).iterdir()))
+
+    def test_a_stale_submodule_is_not_seeded_and_is_repaired(self) -> None:
+        """A corrupted submodule reads as unready and is re-materialised."""
+        if os.name != "nt":
+            self.skipTest("Windows-only fixup")
+        checkout = self.checkout()
+        git_checkout.seed(checkout)
+        (checkout / LIB1 / "src" / "lib.c").write_text("corrupted")
+        self.assertFalse(git_checkout.checkout_seeded(checkout))
+        git_checkout._checkout_submodule(checkout, LIB1, "unused")
+        self.assertTrue(git_checkout.checkout_seeded(checkout))
 
 
 if __name__ == "__main__":

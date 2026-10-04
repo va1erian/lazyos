@@ -68,7 +68,7 @@ def find_checkouts(git: Path, rev: str) -> list[Path]:
     """Every cargo checkout of the xui repository at ``rev``.
 
     Cargo keys its git sources by URL, and two spellings of the same repository
-    are two sources: `xui-app` and `doom` use ``https://github.com/vaerier/xui``
+    are two sources: `xui-app` and `doom` use ``https://github.com/va1erian/xui``
     while `lazyrad-os` patches in ``https://www.github.com/...``. Both need the
     submodule fixup, so return them all.
     """
@@ -103,18 +103,38 @@ def _db_is_xui(db: Path, rev: str) -> bool:
 
 
 def checkout_seeded(checkout: Path) -> bool:
-    """True when the checkout has the sources and every submodule populated."""
+    """True when the checkout has the sources and every submodule populated at
+    its pinned commit."""
     if not (checkout / ".cargo-ok").is_file():
         return False
     if not (checkout / "crates/xui-core/src").is_dir():
         return False
     for _name, path, _url in _submodules(checkout):
-        dest = checkout / path
-        if not (dest / ".git").exists():
-            return False
-        if not any(entry.name != ".git" for entry in dest.iterdir()):
+        if not _submodule_matches(checkout, path):
             return False
     return True
+
+
+def _submodule_matches(checkout: Path, path: str) -> bool:
+    """True when the submodule is populated and its non-`test` tree matches the
+    superproject's pinned gitlink (so a stale checkout is re-seeded)."""
+    dest = checkout / path
+    if not (dest / ".git").exists():
+        return False
+    if not any(entry.name != ".git" for entry in dest.iterdir()):
+        return False
+    sha = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", f":{path}"],
+        capture_output=True, text=True,
+    )
+    if sha.returncode != 0:
+        return False
+    pathspec = ["."] + [":!" + p for p in SKIP_PATHS]
+    diff = subprocess.run(
+        ["git", "-C", str(dest), "diff", "--quiet", sha.stdout.strip(), "--"] + pathspec,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return diff.returncode == 0
 
 
 def seed(checkout: Path) -> None:
@@ -181,9 +201,10 @@ def _submodule_url(checkout: Path, name: str, fallback: str) -> str:
 
 def _checkout_submodule(checkout: Path, path: str, url: str) -> None:
     """Check one submodule out at its pinned commit, skipping the colon-named
-    paths Windows cannot name. A submodule already populated is left alone."""
+    paths Windows cannot name. A submodule already at its pinned tree is left
+    alone; a stale or empty one is re-materialised."""
     dest = checkout / path
-    if (dest / ".git").exists() and any(e.name != ".git" for e in dest.iterdir()):
+    if _submodule_matches(checkout, path):
         return
     if dest.exists() and not (dest / ".git").exists():
         _rmtree(dest)
@@ -204,9 +225,11 @@ def _checkout_submodule(checkout: Path, path: str, url: str) -> None:
 
 
 def _rmtree(path: Path) -> None:
+    """Remove a tree, clearing the read-only bit git sets on the way."""
     import shutil
 
     def onerror(func, p, _exc):
+        """Retry a failed removal after clearing the read-only bit."""
         os.chmod(p, 0o700)
         func(p)
 
@@ -223,6 +246,7 @@ def resolve(manifest: Path, env: dict[str, str] | None = None) -> bool:
     needed.
     """
     def probe() -> subprocess.CompletedProcess:
+        """Run `cargo metadata` for the manifest, capturing its diagnostics."""
         return subprocess.run(
             ["cargo", "metadata", "--manifest-path", str(manifest),
              "--format-version", "1"],
@@ -274,6 +298,8 @@ def ensure_xui_checkout(rev: str = XUI_REV) -> bool:
 
 
 def main() -> int:
+    """Seed the xui checkouts; exit 0 when they are ready, 1 when cargo must
+    fetch the revision first."""
     if ensure_xui_checkout():
         print("xui checkout is ready")
         return 0
