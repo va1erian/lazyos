@@ -86,6 +86,16 @@ impl Ext2 {
         self.meta_of(handle.ino)
     }
 
+    /// [`Ext2::truncate`] through a handle.
+    pub fn truncate_handle(&self, handle: FileHandle, size: u64) -> Result<(), Ext2Error> {
+        let _guard = self.lock.lock();
+        if self.read_only {
+            return Err(Ext2Error::ReadOnly);
+        }
+        self.handle_inode(handle)?;
+        self.truncate_inode(handle.ino(), size)
+    }
+
     /// The inode behind `handle` while it is still the file the handle
     /// opened: freed (no links), reused (another generation) or no longer a
     /// regular file is [`Ext2Error::NotFound`].

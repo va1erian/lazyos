@@ -21,6 +21,22 @@ pub fn forget_task(slot: usize) {
     // A task that died parked in `recv` or `await_reply` is still on the
     // Messenger queue: its wait loop will never remove it.
     MESSENGER.forget(slot);
+    // The same for every doorbell and wait queue a dead task may have been
+    // parked on: its wait loop never ran to withdraw the registration, and the
+    // slot may be reused. Long-lived per-slot state (the `WAIT_FD` watcher
+    // count, poll interests) would otherwise leak, and a stale entry could
+    // spuriously wake the slot's next owner.
+    forget_fd_watcher(slot);
+    crate::task::pollwait::forget_task(slot);
+    crate::input::bus::disarm_doorbell(slot);
+    crate::display::disarm_key_doorbell(slot);
+    crate::ipc::inet::bell::disarm(slot);
+    crate::task::childbell::disarm(slot);
+    crate::task::wait::POLL.forget(slot);
+    crate::task::wait::SLEEP.forget(slot);
+    crate::task::wait::TERMINAL.forget(slot);
+    crate::task::wait::CHILD_EXIT.forget(slot);
+    crate::task::wait::SLOT.forget(slot);
 }
 
 /// Close one endpoint: drop its handle, mark the side closed, and fail every

@@ -93,6 +93,12 @@ pub fn fd_watchers() -> usize {
     FD_WATCHING.load(Ordering::Relaxed)
 }
 
+/// Forget a dead task's descriptor watch (task teardown): its wait loop never
+/// ran to clear the flag, and the slot may be reused.
+pub fn forget_fd_watcher(slot: usize) {
+    watch_fd(slot, false);
+}
+
 /// Whether `flags` uses only what [`wait_any`] knows: doorbells, the
 /// nanosecond flag, and a descriptor number with [`WAIT_FD`] (the syscall
 /// gate refuses anything else before the op runs).

@@ -72,6 +72,10 @@ fn run() -> Result<(), &'static str> {
         .map_err(|_| "cannot register os.lazy.input.v1")?;
     registry::register(api::SHELL_NAME, &published, &interfaces, 0)
         .map_err(|_| "cannot register os.lazy.input.shell.v1")?;
+    // Serving: the autostart waits for this before opening app windows, so an
+    // app's one-shot input session open cannot race the registration above
+    // (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     let mut hub = hub::Hub::new(config::default_layout());
     let mut config = config::Config::new();
     let trace = trace::Trace::from_args();

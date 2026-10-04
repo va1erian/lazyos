@@ -131,6 +131,12 @@ impl Filesystem for Ext2 {
         Ok(self.volume.truncate(path, size)?)
     }
 
+    fn truncate_node(&self, node: NodeId, size: u64) -> Result<(), FsError> {
+        let handle = handle_of(node)?;
+        let _gate = self.enter();
+        Ok(self.volume.truncate_handle(handle, size)?)
+    }
+
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
         let _gate = self.enter();
         let change = AttrChange {

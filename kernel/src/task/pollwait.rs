@@ -142,3 +142,11 @@ pub fn wants(slot: usize, key: u64) -> bool {
         .get(slot)
         .is_none_or(|interest| interest.wants(key))
 }
+
+/// Forget a dead task's recorded poll interest (task teardown): its wait loop
+/// never ran to reset it, and the slot may be reused.
+pub fn forget_task(slot: usize) {
+    if let Some(interest) = INTEREST.lock().get_mut(slot) {
+        *interest = Interest::NONE;
+    }
+}

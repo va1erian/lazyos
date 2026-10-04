@@ -72,7 +72,11 @@ RE_METRIC = re.compile(
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
 RE_TPUT = re.compile(r"PERF:msg_tput:msgs_per_s=(\d+) calls_per_s=(\d+)")
-RE_CTXSW = re.compile(r"PERF:wakeups:tick=(\d+) idle=\d+ switches=(\d+) entries=(\d+)")
+#: Per-task wake/run counters (P7): `PERF:sched:tick=<t> idle=<idle>
+#: <name>#<slot>=<wakes>/<runs> ...`; the idle rate sums the per-slot counters
+#: (kernel/src/perf/wakeups.rs, tools/perf/idle.py).
+RE_SCHED = re.compile(r"^PERF:sched:tick=(\d+) idle=(\d+)(.*)$")
+RE_SCHED_ENTRY = re.compile(r"(\S+)#(\d+)=(\d+)/(\d+)")
 #: msgbench prints this once both of its lines are out.
 MSG_DONE = "MSGBENCH:DONE"
 #: Seconds of the quiet window the idle context-switch rate is taken over.
@@ -174,16 +178,27 @@ def parse(text: str) -> dict:
 
 def idle_rate(window: str) -> dict | None:
     """Context switches and scheduler entries per second between the first
-    and the last `PERF:wakeups` line of `window` (the serial text of the quiet
-    window): 100 ticks per second."""
-    samples = [tuple(int(g) for g in m.groups()) for m in RE_CTXSW.finditer(window)]
+    and the last `PERF:sched` line of `window` (the serial text of the quiet
+    window): 100 ticks per second. Each line is per task slot, so the totals
+    are summed across slots; `switches` are runs (the scheduler switched to a
+    task) and `entries` are wakes (a task became runnable)."""
+    samples = []
+    for raw in window.splitlines():
+        match = RE_SCHED.match(raw.strip())
+        if not match:
+            continue
+        wakes = runs = 0
+        for _name, _slot, w, r in RE_SCHED_ENTRY.findall(match.group(3)):
+            wakes += int(w)
+            runs += int(r)
+        samples.append((int(match.group(1)), wakes, runs))
     if len(samples) < 2 or samples[-1][0] <= samples[0][0]:
         return None
     seconds = (samples[-1][0] - samples[0][0]) / 100.0
     return {
         "seconds": seconds,
-        "switches_per_s": round((samples[-1][1] - samples[0][1]) / seconds, 1),
-        "entries_per_s": round((samples[-1][2] - samples[0][2]) / seconds, 1),
+        "switches_per_s": round((samples[-1][2] - samples[0][2]) / seconds, 1),
+        "entries_per_s": round((samples[-1][1] - samples[0][1]) / seconds, 1),
     }
 
 

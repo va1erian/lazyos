@@ -184,17 +184,38 @@ impl OpenFile {
         Ok(written)
     }
 
+    /// Set the file's size. Through a node this acts on the inode directly, so
+    /// it still works after the name was taken by another file
+    /// ([`share_inode`] clears the path then); the mount table's cached
+    /// metadata of the path is refreshed afterwards, as a write by path does.
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
-        super::abi_truncate(Id::ROOT, &self.path(), size)
+        let Some(node) = &self.inode.node else {
+            return super::abi_truncate(Id::ROOT, &self.path(), size);
+        };
+        node.truncate(size)?;
+        let path = self.path();
+        if !path.is_empty() {
+            if let Ok(meta) = node.stat() {
+                super::nodes::abi_refresh(&path, meta);
+            }
+        }
+        Ok(())
     }
 
-    /// Flush the filesystem this file lives on (`fsync`).
+    /// Flush the filesystem this file lives on (`fsync`). Through a node, this
+    /// does not depend on the path still naming the file.
     pub fn flush(&self) -> Result<(), FsError> {
-        super::abi_flush(Id::ROOT, &self.path())
+        match &self.inode.node {
+            Some(node) => node.flush(),
+            None => super::abi_flush(Id::ROOT, &self.path()),
+        }
     }
 
     pub fn statfs(&self) -> Result<StatFs, FsError> {
-        super::abi_statfs(Id::ROOT, &self.path())
+        match &self.inode.node {
+            Some(node) => node.statfs(),
+            None => super::abi_statfs(Id::ROOT, &self.path()),
+        }
     }
 }
 

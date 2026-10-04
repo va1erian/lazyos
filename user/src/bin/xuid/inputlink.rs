@@ -75,6 +75,15 @@ impl Compositor {
         }
     }
 
+    /// [`Compositor::sync_input`] ignoring the retry backoff: a surface was
+    /// just created and the client's one-shot input `Open` arrives right after
+    /// the create reply, so `inputd` must be reachable *now* or the surface
+    /// (and the session) is never registered. Only the create path pays this.
+    pub(super) fn sync_input_now(&mut self) {
+        self.input.next_try = 0;
+        self.sync_input();
+    }
+
     /// Try to attach to `inputd`; whether a link now exists.
     fn connect_input(&mut self) -> bool {
         if sys::clock() < self.input.next_try {

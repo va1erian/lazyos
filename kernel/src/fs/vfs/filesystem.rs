@@ -52,6 +52,12 @@ pub trait Filesystem: Send + Sync {
         Err(FsError::NotSupported)
     }
 
+    /// [`Filesystem::truncate`] by node. The default answers
+    /// [`FsError::NotSupported`].
+    fn truncate_node(&self, _node: NodeId, _size: u64) -> Result<(), FsError> {
+        Err(FsError::NotSupported)
+    }
+
     /// Truncate (or zero-extend) a regular file to `size` bytes. Backends that
     /// do not implement it answer [`FsError::NotSupported`].
     fn truncate(&self, _path: &str, _size: u64) -> Result<(), FsError> {

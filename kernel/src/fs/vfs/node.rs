@@ -12,7 +12,7 @@
 
 use alloc::sync::Arc;
 
-use super::{FileKind, Filesystem, FsError, Id, Meta, Path, Vfs};
+use super::{FileKind, Filesystem, FsError, Id, Meta, Path, StatFs, Vfs};
 
 /// A file as its backend names it: an inode number and the generation that
 /// tells this file from a later one reusing the number.
@@ -50,6 +50,21 @@ impl Node {
 
     pub fn stat(&self) -> Result<Meta, FsError> {
         self.fs.stat_node(self.id)
+    }
+
+    pub fn truncate(&self, size: u64) -> Result<(), FsError> {
+        self.fs.truncate_node(self.id, size)
+    }
+
+    /// Flush the filesystem this file lives on (`fsync`), even after the file's
+    /// name was taken by another file ([`super::openfile`]).
+    pub fn flush(&self) -> Result<(), FsError> {
+        self.fs.flush()
+    }
+
+    /// Capacity of the filesystem this file lives on (`statfs`).
+    pub fn statfs(&self) -> Result<StatFs, FsError> {
+        self.fs.statfs()
     }
 }
 

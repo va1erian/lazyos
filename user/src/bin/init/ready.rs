@@ -24,6 +24,7 @@ const ANNOUNCES: &[&str] = &[
     "messengerd",
     "keyd",
     "confd",
+    "inputd",
     "timed",
     "accountsd",
     "logind",

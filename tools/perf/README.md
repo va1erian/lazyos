@@ -41,11 +41,11 @@ CI workflow runs it yet).
 
 `msgbench` (`user/src/bin/msgbench.rs`) also prints `msg_tput`: one-way
 messages per second (bursts of 32 sends closed by a call) and synchronous
-calls per second. The kernel prints `PERF:wakeups` (running totals of context
-switches and scheduler entries, and the per-task counters below) with every
-report; the run ends with an 8 s
+calls per second. The kernel prints `PERF:sched` (per-task running totals of
+wakes and runs, every 2 s, `kernel/src/perf/wakeups.rs`) with every report;
+the run ends with an 8 s
 quiet window (no input, no network traffic) over which the idle desktop's
-rate is taken (`idle_ctxsw`, the P7 exit metric).
+rate is taken (`idle_ctxsw`, the per-slot counters summed, the P7 exit metric).
 
 A report is several milliseconds of polled serial output (`report`, more
 under a hypervisor, where every byte is a VM exit), and the kernel task keeps
@@ -90,9 +90,9 @@ and the run) and writes `docs/perf/disk.json`. Labelled runs append to
 ## Idle wakeups (P7)
 
 `python tools/perf/idle.py` boots the desktop (`LAZYOS_DESKTOP=1
-LAZYOS_PERF=1`), touches nothing, and reads the kernel's `PERF:wakeups` lines
-(`kernel/src/perf/wakeups.rs`: the total switch count and cumulative
-per-slot wakes and switches, every 2 s) over a window after the boot has
+LAZYOS_PERF=1`), touches nothing, and reads the kernel's `PERF:sched` lines
+(`kernel/src/perf/wakeups.rs`: cumulative per-slot wakes and runs, every 2 s)
+over a window after the boot has
 settled. It prints, and writes to
 [`docs/perf/idle.md`](../../docs/perf/idle.md), the context switches and wakes
 per second of every task that had any; `--max-switches 10` fails above the P7
