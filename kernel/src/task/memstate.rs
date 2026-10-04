@@ -37,6 +37,11 @@ pub fn set_pml4(value: u64) {
             })
     });
     drop(tasks);
+    // A kill that reached the task while it loaded the new image must still
+    // end it: the old table's signal state is about to be dropped.
+    if let Some(old) = old.filter(|old| *old != value) {
+        signal::carry_kill(old, value);
+    }
     if let Some(old) = orphaned {
         // Guard against freeing whatever `CR3` currently points at (only
         // possible if `execve` were preempted between its switch and here).

@@ -447,6 +447,17 @@ fn dismiss() {
     msg::connect("os.lazy.display.v1").invoke("Dismiss", [])
 }
 
+/// `GetOutput() -> (width: U32, height: U32, scale: U32)`
+///
+/// The screen in physical pixels and the desktop's integer UI scale
+/// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
+/// interface stays in physical pixels; a scale-aware client draws at
+/// `scale` times its design size (an xui app runs at `96 * scale` DPI).
+/// The scale is fixed for the compositor's lifetime.
+fn get_output() {
+    msg::connect("os.lazy.display.v1").invoke("GetOutput", [])
+}
+
 // Not callable from a script (the request transfers a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 

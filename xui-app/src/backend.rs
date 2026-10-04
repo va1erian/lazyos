@@ -7,7 +7,8 @@
 //! * **Owner mode** ([`LazyOSBackend::new`], the M0-M2 milestones): the kernel
 //!   hands this task the whole framebuffer and its input stream, so [`run`]
 //!   polls syscall 12, routes input, re-renders on invalidation, and presents
-//!   through the grant. DPI is fixed at 96 and the window is the screen.
+//!   through the grant. The window is the screen, drawn at
+//!   `96 * uitheme::auto_scale(screen)` DPI (docs/hidpi-plan.md).
 //! * **Client mode** ([`LazyOSBackend::new_client`], issue #168): the app
 //!   resolves `xuid`, creates a surface through `os.lazy.display.v1`, attaches
 //!   double-buffered pixel slots, presents damage rectangles, and receives
@@ -25,6 +26,7 @@
 //!
 //! [`run`]: Backend::run
 
+mod backdrop;
 mod double_click;
 mod event_loop;
 mod focus;
@@ -47,7 +49,7 @@ use std::sync::Arc;
 use xui_canvas::{OffscreenBackend, Surface};
 use xui_core::backend::{Painter, ParentRef, WidgetId, WindowId};
 use xui_core::router::WidgetHost;
-use xui_core::{Color, Key, Modifiers, Rect};
+use xui_core::{Key, Modifiers, Rect};
 
 use crate::client_window::{ClientState, ClientWindow, SurfaceRole};
 use crate::display;
@@ -127,6 +129,11 @@ pub struct LazyOSBackend {
     /// to [`SurfaceRole::Window`] once used. Set with
     /// [`LazyOSBackend::set_next_role`].
     next_role: Cell<SurfaceRole>,
+    /// The desktop's integer UI scale (docs/hidpi-plan.md): `GetOutput` from
+    /// the compositor, or the automatic scale of the screen in owner mode.
+    /// Every window runs at `96 * scale` DPI; sizes the app states in pixels
+    /// (size hints, `window_size`) are design pixels, multiplied here.
+    scale: Cell<u32>,
     /// Source of the shared text shaper. `xui-canvas` keeps its cosmic-text
     /// shaper crate-private, but the headless backend hands out that same
     /// `Send + Sync` shaper (cloning shares one font system, built on first use
@@ -155,7 +162,10 @@ struct Window {
     /// rectangles of `surface`, accumulated. Presents copy from it.
     frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
-    background: Color,
+    /// The window's theme, for the background under every repaint.
+    theme: xui_core::Theme,
+    /// A picture drawn over the background, under every node (`backdrop`).
+    backdrop: Option<Rc<xui_core::image::Image>>,
     dpi: u32,
     width: i32,
     height: i32,
@@ -190,7 +200,12 @@ impl LazyOSBackend {
             let _ = sys::display_unbind();
             return Err(-ENOENT);
         }
-        Ok(Self::with_mode(Mode::Owner { display }))
+        let backend = Self::with_mode(Mode::Owner { display });
+        backend.set_scale(uitheme::auto_scale(
+            display.width as u32,
+            display.height as u32,
+        ));
+        Ok(backend)
     }
 
     /// Client mode: resolve the compositor ; the surface and its event
@@ -199,9 +214,30 @@ impl LazyOSBackend {
     pub fn new_client() -> Result<LazyOSBackend, i64> {
         xui_canvas::set_default_font(crate::font::BYTES.to_vec());
         let client = display::Client::connect()?;
-        Ok(Self::with_mode(Mode::Client(RefCell::new(
-            ClientState::new(client),
-        ))))
+        // A compositor that predates `GetOutput` draws at scale 1.
+        let scale = client.get_output().map_or(1, |output| output.scale);
+        let backend = Self::with_mode(Mode::Client(RefCell::new(ClientState::new(client))));
+        backend.set_scale(scale);
+        Ok(backend)
+    }
+
+    /// Fix the UI scale (clamped to what the desktop supports) and the
+    /// pixel thresholds that follow it.
+    fn set_scale(&self, scale: u32) {
+        let scale = scale.clamp(1, uitheme::MAX_SCALE);
+        self.scale.set(scale);
+        crate::hidpi::set_layout_scale(scale as i32);
+        *self.clicks.borrow_mut() = double_click::ClickTracker::scaled(scale as i32);
+    }
+
+    /// The desktop's integer UI scale (1 or 2).
+    pub fn scale(&self) -> u32 {
+        self.scale.get()
+    }
+
+    /// The DPI every window of this app runs at: `96 * scale`.
+    pub fn dpi(&self) -> u32 {
+        uitheme::dpi_for(self.scale.get())
     }
 
     /// A backend with the shared empty state and `mode`.
@@ -229,13 +265,15 @@ impl LazyOSBackend {
             on_first_frame: RefCell::new(None),
             size_hints: Cell::new(None),
             next_role: Cell::new(SurfaceRole::Window),
+            scale: Cell::new(1),
             shaper: OffscreenBackend::new(),
         }
     }
 
     /// Make every window this app opens resizable within the given content
     /// bounds (`min_w`/`min_h` at least, `max_w`/`max_h` at most; a `max` of 0
-    /// means the screen). Call it before `run_app`. Apps that never call it
+    /// means the screen), in design pixels: they are multiplied by the UI
+    /// scale. Call it before `run_app`. Apps that never call it
     /// keep the old fixed-size behaviour.
     pub fn set_size_hints(&self, min_w: u32, min_h: u32, max_w: u32, max_h: u32) {
         self.size_hints.set(Some((min_w, min_h, max_w, max_h)));
@@ -271,7 +309,8 @@ impl LazyOSBackend {
     }
 
     /// Ask the compositor to resize this app's window to `width` x `height`
-    /// content pixels (a compact/expanded toggle). The compositor clamps it to
+    /// content design pixels (a compact/expanded toggle; multiplied by the UI
+    /// scale like the size hints). The compositor clamps it to
     /// the size hints and answers with a `Configure`, which reaches the app as
     /// `Event::Resize`; a failure (no hints, old compositor, owner mode) is
     /// ignored because the window then simply keeps its size.
@@ -280,6 +319,7 @@ impl LazyOSBackend {
             return;
         };
         let client = state.borrow().client;
+        let (width, height) = (width * self.scale(), height * self.scale());
         for window in self.windows.borrow().values() {
             if let Some(surface) = &window.client {
                 let _ = client.request_size(surface.surface, width, height);
@@ -381,7 +421,8 @@ mod test_support {
                 surface: Surface::new(64, 64),
                 frame: Vec::new(),
                 sink: Some(sink),
-                background: xui_core::Theme::light().background,
+                theme: xui_core::Theme::light(),
+                backdrop: None,
                 dpi: DEFAULT_DPI,
                 width: 64,
                 height: 64,

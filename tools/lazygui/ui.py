@@ -11,7 +11,8 @@ from . import datavol, netopts
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
                       build_plan, format_plan, image_build, simple_config)
 from .runner import Runner, open_path
-from .simple import build_simple_tab, simple_choice
+from .scroll import scrollable
+from .simple import SIMPLE_EXTRAS, build_simple_tab, simple_choice
 from .variables import make_vars
 
 
@@ -41,9 +42,8 @@ class Launcher:
         if self.notebook.select() == str(self.tab_simple):
             profile, iface = simple_choice(self.v["simple_build"].get(),
                                            self.v["simple_iface"].get())
-            extras = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps")
             return simple_config(self._advanced_cfg(), profile, iface,
-                                 *(self.v[f"simple_{name}"].get() for name in extras))
+                                 *(self.v[f"simple_{name}"].get() for name in SIMPLE_EXTRAS))
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -61,6 +61,7 @@ class Launcher:
             "reset_os": self.v["reset_os"].get(),
             "memory": self.v["memory"].get().strip(),
             "limits": self.v["limits"].get().strip(),
+            "display_mode": self.v["display_mode"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
             "abi_time": self.v["abi_time"].get().strip(),
@@ -84,6 +85,7 @@ class Launcher:
             "xui_app": self.v["xui_app"].get(),
             "xui_autostart": self.v["xui_autostart"].get(),
             "lazyrad": self.v["lazyrad"].get(),
+            "usb_image": self.v["usb_image"].get(),
             "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
@@ -93,6 +95,7 @@ class Launcher:
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
+            "tls": self.v["tls"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -115,12 +118,14 @@ class Launcher:
         tab_adv = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_simple, text="Simple")
         self.notebook.add(tab_adv, text="Advanced")
-        build_simple_tab(self.tab_simple, self.v["simple_build"],
-                         self.v["simple_iface"], self.v["simple_lazyrad"],
-                         self.v["simple_shell"], self.v["simple_devices"],
-                         self.v["simple_doom"], self.v["simple_modplayer"],
-                         self.v["simple_net"], self._run, self.v["simple_linuxapps"])
-        self._build_left(self._scrollable(tab_adv))
+        build_simple_tab(scrollable(self.tab_simple), self.v["simple_build"],
+                         self.v["simple_iface"],
+                         self.v["simple_lazyrad"], self.v["simple_shell"],
+                         self.v["simple_devices"], self.v["simple_doom"],
+                         self.v["simple_modplayer"], self.v["simple_net"], self._run,
+                         self.v["simple_linuxapps"], self.v["simple_hidpi"],
+                         self.v["simple_tls"])
+        self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
     def _build_left(self, parent: ttk.Frame) -> None:
@@ -145,6 +150,7 @@ class Launcher:
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
+        self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
@@ -164,7 +170,7 @@ class Launcher:
                                                            expand=True, padx=6)
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
-                            self.v["net"], self.v["net_forwards"], self.v["net_restrict"])
+                            *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls")))
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],
@@ -204,6 +210,7 @@ class Launcher:
         self._field(g, "Output dir:", "out", 44, browse=self._browse_out)
         self._field(g, "QEMU args:", "extra", 44)
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
+        self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)
@@ -259,32 +266,6 @@ class Launcher:
         self.status.pack(side="right", padx=10)
 
     # -------------------------------------------------------------- helpers
-    def _scrollable(self, parent: ttk.Frame) -> ttk.Frame:
-        """Wrap ``parent`` in a vertically scrolling canvas; return the inner frame."""
-        canvas = tk.Canvas(parent, borderwidth=0, highlightthickness=0, width=470)
-        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        inner = ttk.Frame(canvas)
-        win = canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=vsb.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
-
-        def on_wheel(event: tk.Event) -> None:
-            """Scroll the canvas; X11 reports the wheel as Button-4/5."""
-            if event.num == 4:
-                canvas.yview_scroll(-1, "units")
-            elif event.num == 5:
-                canvas.yview_scroll(1, "units")
-            elif event.delta:
-                canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-
-        canvas.bind_all("<MouseWheel>", on_wheel)
-        canvas.bind_all("<Button-4>", on_wheel)
-        canvas.bind_all("<Button-5>", on_wheel)
-        return inner
-
     @staticmethod
     def _group(parent: ttk.Frame, title: str) -> ttk.LabelFrame:
         """A packed, full-width labeled group box."""

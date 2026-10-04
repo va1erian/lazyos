@@ -73,7 +73,7 @@ impl Backend for LazyOSBackend {
 
     fn open_window(&self, spec: &PlatformSpec) -> BackendResult<WindowId> {
         let id = WindowId::from_raw(Self::allocate(&self.next_window));
-        let dpi = DEFAULT_DPI;
+        let dpi = self.dpi();
         let width = spec.width.to_px(dpi).value().max(1) as u32;
         let height = spec.height.to_px(dpi).value().max(1) as u32;
         // A client opens one surface per window, so the Files explorer's
@@ -102,6 +102,10 @@ impl Backend for LazyOSBackend {
         if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =
             (hints, client.as_ref(), &self.mode)
         {
+            // Design pixels to screen pixels; a `max` of 0 stays "the screen".
+            let scale = self.scale();
+            let (min_w, min_h, max_w, max_h) =
+                (min_w * scale, min_h * scale, max_w * scale, max_h * scale);
             let _ =
                 state
                     .borrow()
@@ -114,7 +118,8 @@ impl Backend for LazyOSBackend {
                 surface: Surface::new(width, height),
                 frame: Vec::new(),
                 sink: None,
-                background: Theme::light().background,
+                theme: Theme::light(),
+                backdrop: None,
                 dpi,
                 width: width as i32,
                 height: height as i32,
@@ -393,7 +398,7 @@ impl Backend for LazyOSBackend {
             let Some(entry) = windows.get_mut(&window.raw()) else {
                 return;
             };
-            entry.background = theme.background;
+            entry.theme = *theme;
             Rect::new(0, 0, entry.width, entry.height)
         };
         // Only damaged pixels are repainted, and the background is under all

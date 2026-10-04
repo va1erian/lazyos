@@ -12,11 +12,13 @@
 //! home=LABEL=home          # or home=UUID=...
 //! root_flags=noexec        # comma list of ro, noexec, nosuid
 //! limit.heap_max=512M      # kernel limits: see `crate::limits`
+//! display.mode=2560x1440   # display mode and scale: see `crate::display::modecfg`
 //! ```
 //!
-//! `limit.*` lines belong to [`crate::limits`], which clamps and logs each
-//! one on its own: they are skipped here, so a bad limit can never cost the
-//! boot its root volume.
+//! `limit.*` lines belong to [`crate::limits`] and `display.*` lines to
+//! [`crate::display::modeset`], which log each one on its own: they are
+//! skipped here, so a bad limit or mode can never cost the boot its root
+//! volume.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -88,7 +90,11 @@ pub fn parse(text: &str) -> Result<BootCfg, CfgError> {
     let mut seen: Vec<&str> = Vec::new();
     for (number, line) in text.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with(crate::limits::PREFIX) {
+        if line.is_empty()
+            || line.starts_with('#')
+            || line.starts_with(crate::limits::PREFIX)
+            || line.starts_with(crate::display::modecfg::PREFIX)
+        {
             continue;
         }
         let (key, value) = line
@@ -164,6 +170,9 @@ pub fn load(boot: &dyn Filesystem) -> Option<BootCfg> {
         match boot.read(FILE_NAME, 0, &mut buf) {
             Ok(read) => {
                 if let Ok(text) = core::str::from_utf8(&buf[..read]) {
+                    // The mode first: a switch re-derives the screen-sized
+                    // limits, which the `limit.*` lines then override.
+                    crate::display::modeset::apply_config(text);
                     crate::limits::apply_config(text);
                 }
                 parse_bytes(&buf[..read])

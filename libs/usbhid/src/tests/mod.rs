@@ -8,6 +8,7 @@ use crate::desc::{config_total_len, parse_config, parse_device, Endpoint, Protoc
 use crate::Error;
 
 pub(crate) mod golden;
+mod hub;
 mod report;
 
 use golden::*;
@@ -48,7 +49,9 @@ fn qemu_keyboard_config() {
         Some(Endpoint {
             address: 0x81,
             max_packet: 8,
-            interval: 7
+            interval: 7,
+            attributes: 3,
+            ..Endpoint::default()
         })
     );
     assert_eq!(hid.endpoint.unwrap().number(), 1);

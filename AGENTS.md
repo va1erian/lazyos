@@ -147,6 +147,26 @@ The boot log prints the table (`limits: ...`). `task::MAX_TASKS` (256) stays a
 compile-time constant. The kernel image runs at `0xffff_8000_0000_0000`
 (`mem::layout`): symbolize with `addr2line -e <kernel> <rip - 0xffff800000000000>`.
 
+## HiDPI (a 720p desktop at 2x)
+
+`python tools/run_demo.py --desktop --hidpi` (GUI: *HiDPI* on the Simple tab,
+*Display mode* on the Advanced tab) builds with `LAZYOS_DISPLAY_MODE=2560x1440`:
+the kernel switches QEMU's std VGA to that mode after boot (`display.mode` in
+`lazyos.cfg`, `kernel/src/display/bochs.rs`; the BIOS bootloader stops at
+1280x720), and the desktop draws a 1280x720 layout natively at 2x. `xuid`
+picks the scale (`sys/ui/scale`: `auto`, `1`, `2`; auto is 2 from 2560x1440)
+and hands it to clients with `GetOutput`; xui apps run at `96 * scale` DPI.
+The wire stays in physical pixels. Code laid out in pixel constants uses
+`xui_app::hidpi` (`design_bounds`, `rect`, `design_rect`). Plan and status:
+[`docs/hidpi-plan.md`](docs/hidpi-plan.md).
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json
+python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expect-height 1440
+LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
+```
+
 ## Docs app and the C++ toolchain
 
 `xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
@@ -193,6 +213,35 @@ them in `/system/bin`. The ABI bench runs them (`tools/abi/run.py --only
 dash,lua,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
 drive them interactively (the desktop Terminal runs its shell on a pty, so
 `vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
+
+## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
+
+`nettls/` (a standalone workspace, like `rhai-host/`) builds one static-musl
+program that runs as `fetch`, `curl` or `wget` by its name: rustls with
+certificates verified against `/etc/ssl/certs/ca-certificates.crt` (the
+Mozilla roots, written by the image build), `ureq` for HTTP/1.1, and an
+in-tree pure-Rust crypto provider (`nettls/crypto`, MIT). Every linked crate
+must have a GPLv2-compatible licence (a NetSurf port will link this stack):
+`python tools/nettls/licenses.py` enforces it, so never add `ring`, `aws-lc`
+or an Apache-2.0-only crate. `-k`/`--no-check-certificate` do not exist. The
+plan and its decisions are [`docs/tls-plan.md`](docs/tls-plan.md).
+
+```bash
+python tools/run_demo.py --tls            # networking + curl/wget/fetch (then: curl https://...)
+python tools/nettls/build.py --require    # target/nettls/fetch.elf
+cargo test --manifest-path nettls/Cargo.toml --workspace
+python tools/nettls/test_host.py          # the host binary against Python ssl servers
+python tools/nettls/licenses.py           # GPLv2-compatible dependency tree
+python tools/net/tls_run.py               # build, boot, run every check against the harness servers, judge
+python tools/net/test_tls_pcap.py         # the wire judge fails when it should
+python tools/net/tls_run.py --live        # real sites with the Mozilla roots only (manual, needs internet)
+```
+
+`tls_run.py` (also `tools/net/run.py --tls`) builds a test image with a
+throwaway CA appended to the bundle (`LAZYOS_TLS_TEST_CA`) and `tls.test`
+mapped to the host (`LAZYOS_TLS_TEST_HOSTS`); never set those in a normal
+image. Behind an egress proxy that re-signs TLS, `--live --extra-ca PEM`
+trusts that proxy's CA too.
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
@@ -416,6 +465,9 @@ python tools/usb/run.py --ps2            # PS/2 and USB side by side
 python tools/usb/run.py --hotplug 200    # unplug/replug over QMP: nothing stuck, DMA bounded
 python tools/usb/run.py --tablet         # usb-tablet: report descriptor, absolute cursor
 python tools/usb/run.py --restart        # usbd crashes holding a key: released, restarted, re-enumerated
+python tools/usb/run.py --hub            # keyboard and mouse behind a usb-hub, then the hub unplugged
+python tools/usb/run.py --full-speed     # USB 1.1 devices on root ports
+python tools/usb/run.py --controllers 2  # two xHCI controllers, keyboard on the second
 python tools/usb/test_judge.py           # the judge fails when it should
 cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI rings (host)
 ```
@@ -423,6 +475,13 @@ cargo test -p usbhid -p xhci             # descriptor/report parsers and xHCI ri
 Under TCG the harness paces input (USB is polled; see the README): KVM runs are
 the verdict.
 
+USB sticks (`/home` on the boot stick, `docs/architecture/usb-storage.md`)
+have their own harness, `tools/storage/README.md`:
+
+```bash
+python tools/storage/run.py              # two boots: write /home/alice on the stick, power off, read it back; e2fsck
+python tools/storage/test_judge.py       # the judge fails when it should
+cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
 ## Networking in an interactive boot
 
 `python tools/run_demo.py --net` (the launcher: *Networking* on the Simple

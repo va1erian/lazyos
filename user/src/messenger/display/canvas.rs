@@ -59,6 +59,17 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
         Color { r, g, b }
     }
+
+    /// The colour `num/den` of the way from `self` to `other`.
+    pub fn lerp(self, other: Color, num: i32, den: i32) -> Color {
+        let den = den.max(1);
+        let one = |a: u8, b: u8| (a as i32 + (b as i32 - a as i32) * num / den) as u8;
+        Color::rgb(
+            one(self.r, other.r),
+            one(self.g, other.g),
+            one(self.b, other.b),
+        )
+    }
 }
 
 /// A software RGBA8 blitter over a mapped shared buffer.
@@ -186,6 +197,17 @@ impl Canvas {
         }
     }
 
+    /// Fill `rect` with a vertical gradient from `top` (its first row) to
+    /// `bottom` (its last), clipped to `clip`. Each row is one colour, so it
+    /// costs what [`Canvas::fill`] does.
+    pub fn fill_vgradient(&mut self, rect: Rect, clip: Rect, top: Color, bottom: Color) {
+        let r = self.visible(rect, clip);
+        for y in r.y..r.y + r.h {
+            let color = top.lerp(bottom, y - rect.y, rect.h - 1);
+            self.fill(Rect::new(r.x, y, r.w, 1), r, color);
+        }
+    }
+
     /// Invert the colour of every pixel of `rect` (clipped to `clip`): XOR
     /// with white, so the result contrasts with whatever was there. It is its
     /// own inverse, but overlapping inverted rectangles cancel where they
@@ -277,18 +299,26 @@ impl Canvas {
     /// plus one pixel of outline on every side) is composed per row from bit
     /// masks and written with a single clip.
     pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
+        self.cursor_scaled(x, y, 1, clip);
+    }
+
+    /// [`cursor`](Self::cursor) with every sprite pixel drawn as a
+    /// `scale x scale` block (HiDPI, docs/hidpi-plan.md), so the arrow keeps
+    /// its size on a 2x screen and stays crisp.
+    pub fn cursor_scaled(&mut self, x: i32, y: i32, scale: i32, clip: Rect) {
         const SIZE: i32 = 10;
+        let scale = scale.clamp(1, 4);
         // Saturate so an extreme pointer position cannot overflow; such a
         // sprite lies off the canvas and `visible` returns an empty rect.
-        let (ox, oy) = (x.saturating_sub(1), y.saturating_sub(1));
-        let r = self.visible(Rect::new(ox, oy, SIZE, SIZE), clip);
+        let (ox, oy) = (x.saturating_sub(scale), y.saturating_sub(scale));
+        let r = self.visible(Rect::new(ox, oy, SIZE * scale, SIZE * scale), clip);
         for py in r.y..r.y + r.h {
-            let sy = (py - oy) as usize;
+            let sy = ((py - oy) / scale) as usize;
             let (outline, body) = cursor_masks(sy);
-            let first = (r.x - ox) as usize;
+            let first = r.x - ox;
             let row = self.row_mut(r.x, py, r.w);
             for (i, dst) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                let bit = 1u16 << (first + i);
+                let bit = 1u16 << ((first + i as i32) / scale);
                 if body & bit != 0 {
                     dst.copy_from_slice(&[240, 240, 240, 0xff]);
                 } else if outline & bit != 0 {

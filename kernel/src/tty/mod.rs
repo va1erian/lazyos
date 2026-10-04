@@ -17,21 +17,26 @@ pub mod termios;
 pub use ldisc::{Foreground, Ldisc, Signal};
 pub use termios::{Termios, WinSize};
 
-/// Send `signal` to a pseudo-terminal's foreground group, if it has one and
-/// the group is still in the session that controls the terminal. The sender
-/// is the kernel (no credential check applies), which is why the group must
+/// Send `signal` to a pseudo-terminal's foreground group, if it has one:
+/// only to the group's tasks still in the session that controls the
+/// terminal ([`crate::task::signal::kill_terminal_group`]). The sender is
+/// the kernel (no credential check applies), which is why the group must
 /// have been set under the job-control rules and must still belong there.
 pub fn signal_foreground(foreground: Foreground, signal: u8) {
     let Foreground { group, session } = foreground;
-    if group == 0 || session == 0 || !crate::task::process::group_in_session(group, session) {
+    if group == 0 || session == 0 {
         return;
     }
-    let _ = crate::task::signal::kill(
-        crate::task::KERNEL_TASK,
-        -(group as i64),
-        signal,
-        crate::task::signal::SigInfo::kernel(),
-    );
+    signal_console(foreground, signal);
+}
+
+/// [`signal_foreground`] for a console window, whose session may be the
+/// kernel's own (0): the group's tasks in that session only.
+pub fn signal_console(foreground: Foreground, signal: u8) {
+    if foreground.group != 0 {
+        let _ =
+            crate::task::signal::kill_terminal_group(foreground.group, foreground.session, signal);
+    }
 }
 
 /// The Linux signal number for a discipline signal.

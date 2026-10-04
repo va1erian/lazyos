@@ -10,7 +10,7 @@ use super::geometry;
 use super::layout::cursor_rect;
 use super::protocol::{Event, EventKind};
 use super::surface::Drag;
-use super::theme::{DOUBLE_CLICK_SLOP, DOUBLE_CLICK_TICKS, RESIZE_OUT};
+use super::theme::{double_click_slop, resize_out, DOUBLE_CLICK_TICKS};
 use super::window::{contains, forward, raise, relative, surface_by_id};
 
 impl Compositor {
@@ -137,7 +137,7 @@ impl Compositor {
         let Some(index) = self.surfaces.iter().rposition(|surface| {
             surface.is_window()
                 && !surface.minimized
-                && contains(geometry::inflate(surface.window(), RESIZE_OUT), point)
+                && contains(geometry::inflate(surface.window(), resize_out()), point)
         }) else {
             // Outside every window: the desktop's, or nobody's.
             if !self.desktop_down(button) {
@@ -207,8 +207,8 @@ impl Compositor {
                 let double = self.last_title_click.is_some_and(|(click_id, tick, at)| {
                     click_id == id
                         && now.saturating_sub(tick) <= DOUBLE_CLICK_TICKS
-                        && (point.0 - at.0).abs() <= DOUBLE_CLICK_SLOP
-                        && (point.1 - at.1).abs() <= DOUBLE_CLICK_SLOP
+                        && (point.0 - at.0).abs() <= double_click_slop()
+                        && (point.1 - at.1).abs() <= double_click_slop()
                 });
                 if double && resizable {
                     self.last_title_click = None;

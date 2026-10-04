@@ -5,6 +5,7 @@
 //! place.
 
 use super::inet_core::*;
+use super::inet_timeouts::*;
 use super::*;
 use crate::ipc::inet::{self, Io};
 
@@ -336,6 +337,82 @@ pub fn inet_random_calls() -> Result<(), String> {
         );
     }
     inet_done("inet_random_calls")
+}
+
+/// `SO_RCVTIMEO`/`SO_SNDTIMEO` under load: 200 rounds of two TCP and two UDP
+/// sockets, each given hostile and valid timeouts, one blocking read per round
+/// that times out, one that a late peer ends, and a write that does not wait.
+/// Every socket, ring and descriptor comes back and the heap does not grow.
+pub fn inet_timeout_soak() -> Result<(), String> {
+    inet_fresh()?;
+    let mut rng = Rng(0x7135_0c4e_2026_0a11);
+    let mut baseline = 0;
+    let mut buf = [0u8; 64];
+    for round in 0..200u32 {
+        if round == 20 {
+            baseline = crate::mem::heap_stats().used;
+        }
+        let mut fds = Vec::new();
+        for n in 0..4 {
+            let fd = if n % 2 == 0 {
+                connected()?
+            } else {
+                let fd = socket(SOCK_DGRAM);
+                check!(fd < 16, "round {round}: udp socket {fd:#x}");
+                fd
+            };
+            for name in [SO_RCVTIMEO, SO_SNDTIMEO] {
+                let sec = rng.below(1 << 40) as i64 - (1 << 39);
+                let bad = 1_000_000 + rng.below(1 << 40) as i64;
+                let usec = if rng.below(2) == 0 { bad } else { -bad };
+                check!(
+                    set_timeo(fd, name, sec, usec) == neg(33),
+                    "round {round}: tv_usec {usec} accepted"
+                );
+                let ticks = 1 + rng.below(3) as i64;
+                check!(
+                    set_timeo(fd, name, 0, ticks * 10_000 - rng.below(10_000) as i64) == 0,
+                    "round {round}: set"
+                );
+                check!(
+                    get_timeo(fd, name) == (0, ticks * 10_000),
+                    "round {round}: round trip"
+                );
+            }
+            fds.push(fd);
+        }
+        // one silent read times out within its window
+        let fd = fds[rng.below(4) as usize];
+        let (sec, usec) = get_timeo(fd, SO_RCVTIMEO);
+        let want = (sec * 100 + usec / 10_000) as u64;
+        let (r, took) = timed(|| read_fd(fd, &mut buf));
+        check!(r == neg(11), "round {round}: silent read {r:#x}");
+        check!(
+            (want..=want + 15).contains(&took),
+            "round {round}: waited {took} ticks for {want}"
+        );
+        // one read with no timeout gets a late peer's bytes
+        let fd = fds[rng.below(4) as usize];
+        check!(set_timeo(fd, SO_RCVTIMEO, 0, 0) == 0, "round {round}: none");
+        later(ACT_DELIVER, fd, 1 + rng.below(3));
+        let r = read_fd(fd, &mut buf);
+        no_later();
+        check!(
+            r == LATE.len() as u64 && &buf[..LATE.len()] == LATE,
+            "round {round}: late read {r:#x}"
+        );
+        // a write with room does not wait
+        let (r, took) = timed(|| write_fd(fds[0], b"ok"));
+        check!(r == 2 && took <= 1, "round {round}: write {r:#x} {took}");
+        for fd in fds {
+            check!(close(fd) == 0, "round {round}: close");
+        }
+        fake_netd();
+        check!(inet::live_count() == 0, "round {round}: sockets left");
+    }
+    let grown = crate::mem::heap_stats().used.saturating_sub(baseline);
+    check!(grown < 64 * 1024, "the heap grew by {grown} bytes");
+    inet_done("inet_timeout_soak")
 }
 
 fn so_error_raw(fd: u64) -> u64 {

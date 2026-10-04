@@ -13,6 +13,7 @@ mod flags;
 mod layout;
 mod library_image;
 mod power_cycle;
+mod ramdisk_root;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mount_cfg_parses_every_key", config::parses_every_key),
@@ -56,6 +57,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         power_cycle::unclean_root_stays_flagged_until_checked,
     ),
     ("mount_root_power_cycle_soak", power_cycle::power_cycle_soak),
+    ("mount_ramdisk_root_wins", ramdisk_root::ramdisk_root_wins),
+    (
+        "mount_ramdisk_partition_names",
+        ramdisk_root::partition_names,
+    ),
+    (
+        "mount_ramdisk_bare_does_not_win",
+        ramdisk_root::bare_ramdisk_does_not_win,
+    ),
+    (
+        "mount_ramdisk_preference_soak",
+        ramdisk_root::soak_preference_is_deterministic,
+    ),
 ];
 
 /// A UUID whose bytes are `seed` repeated, with the matching text form.

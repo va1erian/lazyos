@@ -60,7 +60,7 @@ pub use sweep::{deliver_on_resume, finish_sweep, sweep};
 
 pub use harden::{die_with_segv, restore_frame};
 pub use native::{deliver_native, native_fatal_pending};
-pub use send::{kill, send_tid};
+pub use send::{kill, kill_terminal_group, send_tid};
 
 pub use consts::*;
 pub use control::*;
@@ -84,6 +84,12 @@ struct Signals {
     /// handler ran. Only the suspending task consumes it, so a sibling thread's
     /// unrelated syscall cannot end another thread's suspend.
     suspend_restore: Option<(usize, u64)>,
+    /// The exit status of a group exit in progress (a `SIGKILL`, or a fatal
+    /// default that one thread already acted on): Linux's
+    /// `signal->group_exit_code`. Threads parked inside the kernel when it
+    /// began finish with this status once they leave the kernel, whatever
+    /// signal they meet on the way out.
+    group_exit: Option<u64>,
 }
 
 impl Signals {
@@ -97,6 +103,7 @@ impl Signals {
             altstack: AltStack::DISABLED,
             on_altstack: false,
             suspend_restore: None,
+            group_exit: None,
         }
     }
 }
@@ -391,6 +398,51 @@ pub fn pending(slot: usize) -> u64 {
         return 0;
     };
     with_signals(pml4, |state| state.pending)
+}
+
+/// Whether `slot`'s process is being killed: `SIGKILL` is pending (a kill,
+/// or the group exit a fatal signal started). A task parked inside the kernel
+/// is not ended where it sleeps (it may hold a lock or a request slot); it is
+/// woken with [`WakeReason::Interrupted`] and dies on its way back to user
+/// mode. A kernel wait that would otherwise park again after such a wake
+/// checks this so the task gets there.
+pub fn killed(slot: usize) -> bool {
+    if slot == KERNEL_TASK {
+        return false;
+    }
+    let Some((pml4, _)) = slot_info(slot) else {
+        return false;
+    };
+    // A lookup, not `with_signals`: every wait asks, and must not create
+    // registry entries for processes that never used signals.
+    SIGNALS
+        .lock()
+        .iter()
+        .find(|state| state.pml4 == pml4)
+        .is_some_and(|state| state.pending & bit(SIGKILL) != 0)
+}
+
+/// `execve` replaced address space `old` with `new`: a kill that was pending
+/// for the old image (the task was parked loading the new one) carries over,
+/// so the new image dies on its first return to user mode instead of
+/// escaping the kill.
+pub fn carry_kill(old: u64, new: u64) {
+    let exit = {
+        let all = SIGNALS.lock();
+        let Some(state) = all
+            .iter()
+            .find(|state| state.pml4 == old && state.pending & bit(SIGKILL) != 0)
+        else {
+            return;
+        };
+        state.group_exit
+    };
+    with_signals(new, |state| {
+        state.pending |= bit(SIGKILL);
+        if state.group_exit.is_none() {
+            state.group_exit = exit;
+        }
+    });
 }
 
 /// The thread group id of a slot: Linux reports the leader's pid, and LazyOS

@@ -17,11 +17,16 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
         f"http://localhost:{qemu_net.NETTOOLS_PORT}); `none` = no forwards.")
 
 
-def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var) -> None:
-    """Populate the Networking group: the switch, the forwards, isolation."""
+def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=None) -> None:
+    """Populate the Networking group: the switch, the HTTPS tools, the
+    forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
                                  "Network and Net Tools apps on the desktop)",
                     variable=net_var).pack(anchor="w", padx=6)
+    if tls_var is not None:
+        ttk.Checkbutton(parent, text="HTTPS tools curl/wget/fetch (LAZYOS_TLS; run_demo --tls; "
+                                     "implies the stack)",
+                        variable=tls_var).pack(anchor="w", padx=6)
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
     ttk.Label(row, text="Port forwards:").pack(side="left")

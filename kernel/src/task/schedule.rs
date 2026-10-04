@@ -14,6 +14,11 @@ use super::*;
 #[no_mangle]
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     let tick = tick != 0;
+    if tick && crate::arch::timer::stale_tick() {
+        // An APIC tick accepted before line 0 was masked: no tick happened
+        // for the kernel, exactly as a masked 8259 line delivers nothing.
+        return current_rsp;
+    }
     // SAFETY: `current_rsp` is the frame the gate just saved: 15 registers,
     // then RIP and CS.
     let code_segment = unsafe { sys::frame_word(current_rsp, 16) };
@@ -23,9 +28,9 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
         // (issue #344); a normal entry is exactly one.
         let periods = crate::arch::clock::periods_since_last();
         crate::arch::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
-        // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the
-        // IRQ0 handler and the PIC has IRQ0 in service.
-        unsafe { crate::arch::pic::end_of_interrupt(0) };
+        // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the tick
+        // handler (PIT IRQ0 or the local APIC timer) and it is in service.
+        unsafe { crate::arch::timer::end_of_tick() };
         // Decode i8042 bytes a long syscall collected (`input::ps2`) even if
         // the controller has no IRQ1 pending for them any more. Before the
         // task table lock: the keyboard path takes it.

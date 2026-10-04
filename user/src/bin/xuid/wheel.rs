@@ -58,7 +58,7 @@ pub(super) fn selftest_wheel_routing() -> &'static str {
     use user::messenger::display::Rect;
 
     // Two overlapping windows: `1` below `2`. A window at (x, y) with a 10x10
-    // content is `10 + 2*BORDER` wide; probe its content and its title bar.
+    // content is `10 + 2*border()` wide; probe its content and its title bar.
     let mut below = test_surface(1, false, false);
     below.x = 0;
     below.y = 0;

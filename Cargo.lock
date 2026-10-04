@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "acpi"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -163,7 +170,9 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "ext2fs",
+ "fatfs",
  "fhs",
+ "webpki-root-certs",
 ]
 
 [[package]]
@@ -532,6 +541,7 @@ dependencies = [
 name = "kernel"
 version = "0.1.0"
 dependencies = [
+ "acpi",
  "bootloader_api",
  "confd",
  "ext2fs",
@@ -562,10 +572,12 @@ version = "0.1.0"
 dependencies = [
  "bootloader",
  "ext2fs",
+ "fatfs",
  "fhs",
  "kernel",
  "passwd",
  "user",
+ "webpki-root-certs",
 ]
 
 [[package]]
@@ -825,6 +837,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys",
 ]
+
+[[package]]
+name = "rustls-pki-types"
+version = "1.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
 
 [[package]]
 name = "rustversion"
@@ -1166,6 +1184,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "usbmsc"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "usbpolicy"
 version = "0.1.0"
 
@@ -1201,6 +1226,7 @@ dependencies = [
  "timezone",
  "uitheme",
  "usbhid",
+ "usbmsc",
  "usbpolicy",
  "virtio",
  "virtio-net",
@@ -1289,6 +1315,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

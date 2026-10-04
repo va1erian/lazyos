@@ -243,6 +243,12 @@ interface os.lazy.display.v1 {
     /// (on a window, the desktop or the bare background), so the shell closes
     /// any open popup panel such as the start menu.
     method Dismiss() -> () = 42 oneway;
+    /// The screen in physical pixels and the desktop's integer UI scale
+    /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
+    /// interface stays in physical pixels; a scale-aware client draws at
+    /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
+    /// The scale is fixed for the compositor's lifetime.
+    method GetOutput() -> (width: U32, height: U32, scale: U32) = 43;
 
     /// What a surface is. Numeric values are the wire values. A `Panel`
     /// (issue #157) is a shell-owned, chromeless surface painted above every

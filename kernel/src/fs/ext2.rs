@@ -22,24 +22,32 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use super::hidden;
 use super::vfs::FsError;
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
+use crate::task::relax::YieldMutex;
 
 mod cache;
 mod fsimpl;
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
+///
+/// `gate` serialises every call into the library. The library's own lock is
+/// a plain spin lock, and a call may park inside it waiting for a user-space
+/// block provider (a USB stick); both mount tables reach the same volume, so
+/// a second task must meet a lock that yields (`task::relax`) before it can
+/// reach the library's.
 pub struct Ext2 {
     volume: ext2fs::Ext2,
     /// The registry name of the device, for the log lines.
     device: &'static str,
+    gate: YieldMutex<()>,
 }
 
 impl Ext2 {
     /// Probe `device` for an ext2 superblock and mount it, reading and
     /// writing the device directly. Any malformed or unsupported image is
     /// refused with a friendly [`FsError`]; nothing here trusts the disk. The
-    /// tests that judge the device's bytes after every write use this; real
-    /// mounts go through [`Ext2::open_cached`].
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
+    /// tests that judge the device's bytes after every write use this, and so
+    /// does a volume on a user-space provider disk (`mounts::open_ext2`);
+    /// other mounts go through [`Ext2::open_cached`].
     pub fn open(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
         Ext2::mount(device, None)
     }
@@ -78,6 +86,7 @@ impl Ext2 {
         Ok(Ext2 {
             volume,
             device: device.name(),
+            gate: YieldMutex::new(()),
         })
     }
 
@@ -100,12 +109,14 @@ impl Ext2 {
     /// The superblock's free-block counter (the future `statfs` surface).
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_blocks(&self) -> Result<u32, FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.free_blocks()?)
     }
 
     /// The superblock's free-inode counter.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn free_inodes(&self) -> Result<u32, FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.free_inodes()?)
     }
 
@@ -113,6 +124,7 @@ impl Ext2 {
     /// to check directory bookkeeping (`.`/`..` links) after renames.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn link_count(&self, path: &str) -> Result<u16, FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.link_count(path)?)
     }
 
@@ -120,6 +132,7 @@ impl Ext2 {
     /// This is the diagnostic surface the tests use to see allocation reuse.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn mapped_block(&self, path: &str, index: u32) -> Result<u32, FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.mapped_block(path, index)?)
     }
 
@@ -127,6 +140,7 @@ impl Ext2 {
     /// This is the umount/fsync/shutdown surface.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the trait method is the caller
     pub fn flush(&self) -> Result<(), FsError> {
+        let _gate = self.gate.lock();
         Ok(self.volume.flush()?)
     }
 
@@ -141,6 +155,7 @@ impl Ext2 {
     /// volume; a file that cannot be reclaimed is reported and left for the
     /// next mount.
     pub fn reclaim_orphans(&self) -> usize {
+        let _gate = self.gate.lock();
         let report = self.volume.reclaim_orphans(hidden::PREFIX);
         if report.scan_truncated {
             serial_println!(

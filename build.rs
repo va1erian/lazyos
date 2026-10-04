@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/busybox_embed.rs"]
 mod busybox_embed;
+#[path = "build_support/ca_bundle.rs"]
+mod ca_bundle;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
 #[path = "build_support/docs_embed.rs"]
@@ -19,6 +21,8 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/hosts_embed.rs"]
+mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -39,6 +43,18 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/tls_embed.rs"]
+mod tls_embed;
+#[path = "build_support/usb_fat.rs"]
+mod usb_fat;
+#[path = "build_support/usb_image.rs"]
+mod usb_image;
+#[path = "build_support/usb_ramdisk.rs"]
+mod usb_ramdisk;
+#[path = "build_support/usb_stick.rs"]
+mod usb_stick;
+#[path = "build_support/wallpapers_embed.rs"]
+mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -87,6 +103,9 @@ fn main() {
     std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
     println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
     println!("cargo:rerun-if-changed=build_support/drivers.rs");
+    for usb in ["usb_fat", "usb_image", "usb_ramdisk", "usb_stick"] {
+        println!("cargo:rerun-if-changed=build_support/{usb}.rs");
+    }
 
     // `LAZYOS_OS_SIZE` sizes the OS volume (a change needs `LAZYOS_RESET_OS=1`);
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
@@ -116,10 +135,12 @@ fn main() {
     let bios_image = out_dir.join("bios.img");
     // The FAT `/boot` volume gets the kernel and `lazyos.cfg` only; every
     // other file goes to the OS file list.
-    let mut builder = bootloader::DiskImageBuilder::new(kernel);
+    let mut builder = bootloader::DiskImageBuilder::new(kernel.clone());
     builder.set_file_contents(
         String::from(fhs::boot::LAZYOS_CFG),
-        os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env()).into_bytes(),
+        (os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env())
+            + &os_image::display_cfg::from_env())
+            .into_bytes(),
     );
     let mut files = os_image::OsFiles::default();
     // Issue #5: `LAZYOS_RAMDISK=<path>` also loads a FAT image as the
@@ -362,6 +383,10 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
+    // The desktop pictures LazyShell can draw behind the launchers.
+    if shell {
+        wallpapers_embed::embed(&mut files);
+    }
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
@@ -392,6 +417,16 @@ fn main() {
     // The `rhai` scripting command (issue #319), found from `sh` in /system/bin.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
     rhai_embed::embed(&mut files, &manifest_dir);
+    // The resolver's host table and the TLS trust anchors, in every image
+    // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
+    // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
+    println!("cargo:rerun-if-changed=build_support/hosts_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/ca_bundle.rs");
+    println!("cargo:rerun-if-changed=build_support/tls_embed.rs");
+    hosts_embed::embed(&mut files);
+    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
+    ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
+    tls_embed::embed(&mut files, &manifest_dir);
     linuxapps_embed::embed(&mut files, &manifest_dir); // dash, lua, sqlite3, jq, rg
                                                        // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
@@ -414,6 +449,13 @@ fn main() {
     let bios = std::fs::read(&bios_image).expect("read the BIOS image");
     let accounts = os_layout::parse_passwd(&String::from_utf8_lossy(PASSWD));
     let dirs = os_layout::dirs(&accounts);
+    // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md): the same
+    // files on a RAM root, booted under UEFI or BIOS, plus a home partition.
+    if usb_image::enabled() {
+        let usb = manifest_dir.join("target").join("lazyos-usb.img");
+        usb_image::build(&kernel, &out_dir, &usb, &dirs, &files.files(), &accounts)
+            .unwrap_or_else(|error| panic!("USB image: {error}"));
+    }
     os_image::compose(
         &plan,
         &stable_image,

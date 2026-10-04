@@ -19,6 +19,13 @@ python tools/test/run.py --no-build
 
 # Custom image / output directory / timeout
 python tools/test/run.py --image target/lazyos.img --out shots/kernel-tests --timeout 900
+
+# The tick source on the APIC path (docs/real-pc-boot-plan.md H2): forced by
+# the build switch, or by detection on a machine with no PIT; extra QEMU
+# arguments pass through --extra-arg
+LAZYOS_TIMER=lapic python tools/test/run.py --accel none --machine q35
+python tools/test/run.py --accel none --machine pc,pit=off
+python tools/test/run.py --accel none --extra-arg=-no-hpet
 ```
 
 QEMU is discovered exactly like the screenshot tools (`--qemu`, then `PATH`,

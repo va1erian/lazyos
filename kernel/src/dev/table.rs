@@ -8,9 +8,13 @@
 
 use super::{DeviceId, DeviceInfo, TaskSlot};
 
-/// How many devices the table can hold. Enough for the QEMU q35/`i440fx`
-/// device set plus the platform seeds, with headroom.
-pub const MAX_DEVICES: usize = 32;
+/// How many devices the table can hold. A desktop chipset alone exposes 30 to
+/// 60 PCI functions (a Z890 board with a discrete GPU and a few bridges is
+/// well past 32), and a function that does not fit is never offered to a
+/// driver or listed to userspace, so the xHCI controller behind it would be
+/// lost. 128 covers real machines with room; overflow is still counted
+/// (`DEV:ENUM:FAIL`). Claim bitmasks are sized to match (`claims::ClaimMask`).
+pub const MAX_DEVICES: usize = 128;
 
 /// Device-core failures. The userspace `dev_*` syscall (D3) maps these to
 /// `errno`s; the kernel uses them directly.
@@ -118,6 +122,14 @@ impl DeviceTable {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Empty the table in place. A table is tens of KiB at [`MAX_DEVICES`],
+    /// too big for the suite to build afresh on its stack, so the kernel
+    /// tests reuse one static table and clear it between cases.
+    #[cfg(lazyos_tests)]
+    pub fn clear(&mut self) {
+        self.entries.iter_mut().for_each(|slot| *slot = None);
     }
 
     /// Number of devices that currently have an owner.

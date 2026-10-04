@@ -14,6 +14,11 @@
 
 use confd::Value;
 
+mod scale;
+mod wallpaper;
+pub use scale::*;
+pub use wallpaper::*;
+
 /// Prefix of every key; `system/confd/changed/sys/ui/#` follows changes.
 pub const PREFIX: &str = "sys/ui";
 pub const KEY_MODE: &str = "sys/ui/mode";
@@ -262,16 +267,18 @@ struct Base {
     overlay_text: u32,
 }
 
+/// Midnight (docs/xui-theme-proposals.md, B): the navy of xui's dark widget
+/// theme, so the chrome and the window contents read as one surface.
 const DARK: Base = Base {
-    background: rgb(18, 22, 36),
-    window_bg: rgb(30, 36, 54),
-    title: rgb(52, 60, 92),
+    background: rgb(18, 24, 49),
+    window_bg: rgb(35, 42, 64),
+    title: rgb(50, 59, 92),
     text: LIGHT_TEXT,
-    border: rgb(92, 106, 152),
+    border: rgb(59, 69, 102),
     empty: rgb(16, 18, 28),
-    taskbar: rgb(24, 28, 44),
-    entry: rgb(52, 60, 92),
-    entry_min: rgb(38, 44, 66),
+    taskbar: rgb(22, 27, 44),
+    entry: rgb(42, 49, 80),
+    entry_min: rgb(32, 38, 60),
     overlay_bg: rgb(20, 24, 38),
     overlay_border: rgb(122, 138, 196),
     overlay_text: rgb(220, 226, 240),
@@ -336,10 +343,10 @@ mod tests {
     #[test]
     fn default_dark_matches_the_original_palette() {
         let p = resolve(&Settings::default());
-        assert_eq!(p.background, rgb(18, 22, 36));
-        assert_eq!(p.title_bg, rgb(52, 60, 92));
+        assert_eq!(p.background, rgb(18, 24, 49));
+        assert_eq!(p.title_bg, rgb(50, 59, 92));
         assert_eq!(p.title_bg_focus, rgb(44, 112, 74));
-        assert_eq!(p.taskbar_bg, rgb(24, 28, 44));
+        assert_eq!(p.taskbar_bg, rgb(22, 27, 44));
         assert_eq!(p.taskbar_entry_focus, rgb(44, 112, 74));
     }
 

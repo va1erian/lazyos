@@ -21,6 +21,7 @@ use super::ctx::Ctx;
 use super::icons::IconCache;
 use super::taskbar::{self, BarApp};
 use super::theme::desktop_theme;
+use super::wallpaper::Wallpaper;
 use super::{heartbeat, link, menu, service};
 use crate::client_window::SurfaceRole;
 
@@ -51,6 +52,11 @@ pub struct DesktopApp {
     service: service::ShellService,
     /// The package icons decoded so far.
     images: IconCache,
+    wallpaper: Wallpaper,
+    /// The launcher column in screen pixels: where the labels sit.
+    labels: ShellRect,
+    /// Whether the launchers sit on something dark (the picture, else the mode).
+    dark: bool,
 }
 
 /// The launchers as an icon model.
@@ -124,7 +130,8 @@ fn icon_for(app: &str) -> Icon {
     }
 }
 
-/// The desktop window's spec: the whole screen.
+/// The desktop window's spec: the whole screen (in design pixels, like
+/// every shell size; the backend draws it at the UI scale).
 pub fn spec(ctx: &Ctx) -> PlatformSpec {
     let (w, h) = ctx.screen;
     PlatformSpec::new("LazyShell desktop").size(Dip(w as f32), Dip(h as f32))
@@ -138,7 +145,13 @@ impl DesktopApp {
         ui.set_theme(desktop_theme(&ctx.theme.borrow().palette(), dark));
         let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
         let right = ctx.screen.0 - ICONS_INSET;
-        let area = Rect::new(right - ICONS_W, ICONS_INSET, right, bottom);
+        let s = ctx.scale();
+        let area = Rect::new(
+            (right - ICONS_W) * s,
+            ICONS_INSET * s,
+            right * s,
+            bottom * s,
+        );
         let model = Launchers {
             entries: ctx.launchers.borrow().clone(),
             images: Vec::new(),
@@ -152,7 +165,8 @@ impl DesktopApp {
 
         open_bar(&ctx, ui);
         let (w, h) = ctx.screen;
-        if let Err(code) = ctx.client.set_work_area(0, 0, w, h - BAR_H) {
+        let work = ctx.to_screen(ShellRect::new(0, 0, w, h - BAR_H));
+        if let Err(code) = ctx.client.set_work_area(work.x, work.y, work.w, work.h) {
             ctx.note("workarea", || format!("SHELL:WORKAREA:FAIL err={}", -code));
         }
         ctx.bar_changed();
@@ -168,12 +182,15 @@ impl DesktopApp {
             beat: heartbeat::Heartbeat::new(),
             service: service::ShellService::default(),
             images: IconCache::default(),
+            wallpaper: Wallpaper::default(),
+            labels: ShellRect::new(area.left, area.top, area.width(), area.height()),
+            dark,
         }
     }
 
     /// Launch launcher `index`, zooming its window open from the tile the
     /// pointer double-clicked (the desktop is at the screen origin, so window
-    /// pixels are screen pixels).
+    /// pixels are screen pixels, in design pixels here).
     fn launch(&self, index: usize) {
         let Some(app) = self
             .ctx
@@ -185,6 +202,7 @@ impl DesktopApp {
             return;
         };
         let (x, y) = self.ctx.backend.pointer();
+        let (x, y) = self.ctx.to_design(x, y);
         let (w, h) = self.ctx.screen;
         let origin = (x >= 0 && y >= 0 && x < w && y < h).then(|| {
             ShellRect::new(
@@ -209,8 +227,7 @@ impl DesktopApp {
             self.ctx.repaint_bar();
         }
         if self.beat.theme(&self.ctx) {
-            let dark = self.ctx.theme.borrow().is_dark();
-            ui.set_theme(desktop_theme(&self.ctx.theme.borrow().palette(), dark));
+            self.retheme(ui);
             self.rebuild_icons();
             // A new clock format (Settings, Time & Date) changes the width
             // the clock reserves, so the entries move.
@@ -229,18 +246,33 @@ impl DesktopApp {
         self.beat.report_first_frame(&self.ctx, self.icons.len());
     }
 
+    /// Apply the settings just read: the picture (loaded when its path
+    /// changed), then the colours, with label ink that reads on the picture.
+    fn retheme(&mut self, ui: &Ui<DeskMsg>) {
+        let feed = self.ctx.theme.borrow();
+        let s = self.ctx.scale();
+        let screen = (self.ctx.screen.0 * s, self.ctx.screen.1 * s);
+        if self.wallpaper.sync(feed.wallpaper(), screen, self.labels) {
+            self.ctx
+                .backend
+                .set_backdrop(ui.window(), self.wallpaper.image());
+        }
+        self.dark = self.wallpaper.dark().unwrap_or(feed.is_dark());
+        ui.set_theme(desktop_theme(&feed.palette(), self.dark));
+    }
+
     fn rebuild_icons(&mut self) {
         let images = self
             .ctx
             .launcher_icons
             .borrow()
             .iter()
-            .map(|path| self.images.get(path))
+            .map(|path| self.images.get_scaled(path, self.ctx.scale()))
             .collect();
         self.icons.set_model(Launchers {
             entries: self.ctx.launchers.borrow().clone(),
             images,
-            dark: self.ctx.theme.borrow().is_dark(),
+            dark: self.dark,
         });
         self.icons.select(None);
     }
@@ -266,7 +298,7 @@ fn open_bar<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     let (w, _) = ctx.screen;
     ctx.backend.set_next_role(SurfaceRole::Panel {
         x: 0,
-        y: ctx.bar_y(),
+        y: ctx.bar_y() * ctx.scale(),
     });
     let spec = PlatformSpec::new("LazyShell taskbar").size(Dip(w as f32), Dip(BAR_H as f32));
     let built = Rc::clone(ctx);

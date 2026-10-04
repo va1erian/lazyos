@@ -44,6 +44,11 @@ pub const MMIO: u64 = 1 << 10;
 /// mapping, exactly as for [`MMIO`], and the parent keeps sharing the frames
 /// with its device.
 pub const DMA: u64 = 1 << 11;
+/// Page-level write-through (PAT index bit 0).
+pub const PWT: u64 = 1 << 3;
+/// Page-level cache disable (PAT index bit 1); with [`PWT`] the power-on PAT
+/// gives strong uncacheable.
+pub const PCD: u64 = 1 << 4;
 /// No-execute bit (requires `EFER.NXE`, which `mem::init` enables at boot).
 pub const NX: u64 = 1 << 63;
 

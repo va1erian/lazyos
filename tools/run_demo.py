@@ -25,6 +25,7 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
+    python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -55,10 +56,12 @@ from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
 from demo_builds import (  # noqa: E402
-    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_xui_apps,
+    build_doom, build_lazyrad, build_linuxapps, build_modplayer, build_rhai, build_tls,
+    build_xui_apps,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
@@ -204,6 +207,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     add_limit_option(parser)
+    add_display_options(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -279,16 +283,29 @@ def main(argv: list[str]) -> int:
                              "and a sound card: copy it to your home and install it with "
                              "`pkgctl install`, or open it in Files, then start ModPlayer "
                              "from the menu")
+    parser.add_argument("--usb-image", action="store_true",
+                        help="also write target/lazyos-usb.img, the image for a real PC's "
+                             "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
+                             "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--tls", action="store_true",
+                        help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
+                             "`wget` and `fetch` in /system/bin, one rustls program that "
+                             "verifies certificates against /etc/ssl/certs, built by "
+                             "tools/nettls/build.py (docs/tls-plan.md)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
                              "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
                              "`devices` to LAZYOS_XUI_AUTOSTART (default "
                              f"{DEVICES_AUTOSTART})")
+    parser.add_argument("--timer", choices=["pit", "lapic"],
+                        help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
+                             "local APIC timer even where the PIT ticks, the path a PC "
+                             "with a clock-gated PIT takes (docs/real-pc-boot-plan.md H2)")
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
@@ -304,6 +321,8 @@ def main(argv: list[str]) -> int:
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
     args.desktop = args.desktop or args.devices or args.doom or args.lazyrad
+    # HTTPS needs a network.
+    args.net = args.net or args.tls
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
@@ -313,6 +332,7 @@ def main(argv: list[str]) -> int:
     try:
         net_qemu, forwards = qemu_net.args_from_options(args)
         limits = build_limits(args.limit, args.no_build)
+        limits.update(build_display(args))
     except ValueError as error:
         parser.error(str(error))
 
@@ -359,6 +379,10 @@ def main(argv: list[str]) -> int:
             if not build_linuxapps():
                 return 1
             env["LAZYOS_LINUXAPPS"] = "1"
+        if args.tls:
+            if not build_tls():
+                return 1
+            env["LAZYOS_TLS"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
@@ -375,10 +399,19 @@ def main(argv: list[str]) -> int:
             needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
+        if args.usb_image:
+            # The stick must ship `usbd` and boot `init` to start it: the
+            # target PC may have no PS/2 port (the build refuses otherwise).
+            env["LAZYOS_USB_IMAGE"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
         if args.devices:
             if not build_xui_apps():
                 return 1
             env["LAZYOS_XUI_AUTOSTART"] = with_devices(env.get("LAZYOS_XUI_AUTOSTART"))
+        if args.timer:
+            env["LAZYOS_TIMER"] = args.timer
         if args.no_shell:
             env["LAZYOS_SHELL"] = "0"
         elif args.desktop and env.get("LAZYOS_SHELL") != "0" and not build_xui_shell():

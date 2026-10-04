@@ -22,6 +22,7 @@ pub mod display;
 pub mod fabric;
 pub mod font;
 pub mod format;
+pub mod hidpi;
 pub mod input;
 pub mod installer;
 pub mod launch;

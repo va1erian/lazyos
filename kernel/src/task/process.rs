@@ -121,11 +121,6 @@ pub fn group_session(group: usize) -> Option<usize> {
         .map(|task| task.sid)
 }
 
-/// Whether `group` is a live process group of session `sid`.
-pub fn group_in_session(group: usize, sid: usize) -> bool {
-    group_session(group) == Some(sid)
-}
-
 /// Whether session `sid` still has a live member: a terminal stays a
 /// session's controlling terminal only while the session exists.
 pub fn session_alive(sid: usize) -> bool {
@@ -195,6 +190,13 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     let Some(parent) = parent else {
         return false;
     };
+    after_finish(parent);
+    true
+}
+
+/// The side effects of a [`finish_locked`] that returned `parent`, run once
+/// the task table lock is dropped.
+pub(crate) fn after_finish(parent: usize) {
     // The dead task's pipe ends close now, so a reader that has not reaped it
     // yet still sees end-of-file.
     super::close_exited_fds();
@@ -206,7 +208,6 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
     // after dropping the task table, in queue-before-table order.
     signal::post_sigchld(parent);
     CHILD_EXIT.notify_all();
-    true
 }
 
 /// [`finish`] on a caller-held task table, returning the dead task's parent so

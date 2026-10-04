@@ -40,16 +40,17 @@ pub mod fallible;
 pub mod fat;
 pub mod flusher;
 pub mod hidden;
+pub mod late;
 pub(crate) mod mounts;
 pub mod openfile;
 pub mod overlay;
 pub mod ramfs;
 pub mod vfs;
 
+use crate::task::relax::YieldMutex;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
@@ -61,12 +62,16 @@ use vfs::{DirEntry, FsError, Id, Meta, MountFlags, Vfs};
 
 /// The native kernel VFS: mount table, caches, and whether the boot volume
 /// mounted. `None` until [`init`] runs.
-static FS: Mutex<Option<(Vfs, bool)>> = Mutex::new(None);
+///
+/// A [`YieldMutex`]: a task holds it while it waits for a user-space block
+/// provider (a USB stick under `/home`), and another task wanting the table
+/// meanwhile must give the CPU away rather than spin (`task::relax`).
+static FS: YieldMutex<Option<(Vfs, bool)>> = YieldMutex::new(None);
 
 /// The Linux ABI's mount table: a copy-up overlay over the boot volume at `/`
 /// (or a plain ramfs when no volume mounted) plus a ramfs at `/tmp`. Built by
 /// [`init`]; `None` until the boot volumes are mounted.
-static ABI_FS: Mutex<Option<Vfs>> = Mutex::new(None);
+static ABI_FS: YieldMutex<Option<Vfs>> = YieldMutex::new(None);
 
 /// Probe the block layer and build the mount tables ([`mounts`] explains the
 /// two layouts). Returns whether a root volume was found (the scratch ramfs
@@ -86,6 +91,7 @@ pub fn init() -> bool {
         native,
         abi,
         mounted,
+        ..
     } = mounts::build(&block::devices());
     *ABI_FS.lock() = Some(abi);
     *global = Some((native, mounted));

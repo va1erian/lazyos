@@ -52,7 +52,7 @@ Beyond `std` (see the Linux-ABI plan), a canvas `xui` app needs:
 | clock | `clock_gettime` (std plan) — for `Instant`, timers, repaint throttling |
 | randomness | `getrandom` (std plan) — `HashMap` seeds inside xui |
 | font file | a bundled TTF read through `std::fs` (LazyOS already vendors JetBrains Mono; `fontdb`/`cosmic-text` can be pointed at it) |
-| DPI | fixed 96 (the window's scale factor is 1.0; `DpiChanged` deferred) |
+| DPI | `96 * scale`: the desktop's integer scale from `GetOutput` ([hidpi-plan.md](hidpi-plan.md)); `DpiChanged` deferred |
 | resize | initially fixed size; a `Resize` event later |
 
 Design choice: **one implicit window per task.** LazyOS already gives each task a
@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "bb14ce9f25c0f3d613ed88a345eeabcc29f5281c"` (see
+the same `rev = "281dc178b9393cb937491a1c2805cafe0c45952e"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -247,7 +247,8 @@ session (focus routing, key-driven counter, drag, minimize/restore, close).
 checks the serial markers and pixels.
 
 **Remaining** (the M3 list; resize landed with #412, the backend turning
-`Configure` into a `Resize` event): DPI changes, zero-copy scanout, and
+`Configure` into a `Resize` event): DPI *changes* (a fixed 2x scale landed
+with [hidpi-plan.md](hidpi-plan.md)), zero-copy scanout, and
 `std::thread` workers via `proxy()`. The two protocol gaps found while writing
 the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
 `PointerMove`) were closed by the MIDL migration of `os.lazy.display.v1`

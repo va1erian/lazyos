@@ -22,11 +22,26 @@ pub(super) struct Armed {
     pub(super) info: SigInfo,
 }
 
+/// The next pending signal the mask lets through, with its disposition.
+/// `SIGKILL` cannot be blocked and goes first: nothing (a handler, a stop)
+/// may run ahead of a kill.
 pub(super) fn next_deliverable(pml4: u64) -> Option<(u8, Disposition)> {
     with_signals(pml4, |state| {
-        let ready = state.pending & !state.blocked;
-        lowest_signal(ready).map(|sig| (sig, state.actions[sig as usize]))
+        let ready = state.pending & !clean_mask(state.blocked);
+        let sig = if ready & bit(SIGKILL) != 0 {
+            Some(SIGKILL)
+        } else {
+            lowest_signal(ready)
+        };
+        sig.map(|sig| (sig, state.actions[sig as usize]))
     })
+}
+
+/// The status a task ending on fatal signal `sig` records: the group exit's
+/// when one is in progress (every thread of a killed process reports the
+/// same status), otherwise `128 + sig`.
+pub(super) fn fatal_status(pml4: u64, sig: u8) -> u64 {
+    with_signals(pml4, |state| state.group_exit.unwrap_or(128 + sig as u64))
 }
 
 pub(super) fn clear_pending(pml4: u64, sig: u8) {
@@ -217,8 +232,9 @@ pub(super) fn halt_forever() -> ! {
 
 /// Park the caller while its process is stopped, resuming on `SIGCONT`. Used
 /// when a delivery boundary meets a stop default. A `SIGKILL` while stopped
-/// marks the task `Done`; there is nothing to resume, so it halts like any
-/// other termination (the scheduler has already moved on).
+/// wakes the task, which returns here and dies on the pending kill; a task
+/// marked `Done` some other way (a fault) halts like any other termination
+/// (the scheduler has already moved on).
 pub(super) fn wait_continued() {
     loop {
         let state = {
@@ -277,8 +293,7 @@ pub(super) fn apply_action(
             if default_action(sig) == DefaultAction::Core {
                 serial_println!("signal: task {} core-dumped on signal {sig}", current());
             }
-            terminate_process(pml4, 128 + sig as u64);
-            halt_forever();
+            exit_group(pml4, 128 + sig as u64);
         }
         DefaultAction::Stop => {
             stop_process(pml4);
@@ -305,9 +320,6 @@ pub fn deliver_linux(result: u64) {
 /// original arguments (they are all callee-saved in the frame); without it
 /// the caller sees `EINTR`. Returns the value `rax` should hold now.
 pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
-    const EINTR: u64 = (-4i64) as u64;
-    /// `syscall` is two bytes (`0f 05`).
-    const SYSCALL_LEN: u64 = 2;
     let Some((slot, pml4)) = current_info() else {
         return result;
     };
@@ -323,7 +335,7 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     // The saved registers are read only once a handler needs a frame: a
     // pending signal whose action is to ignore it needs none.
     let mut regs: Option<UserRegs> = None;
-    let mut restart = restart.filter(|_| result == EINTR);
+    let mut restart = restart_plan(result, restart);
     while let Some((sig, disposition)) = next_deliverable(pml4) {
         if default_action(sig) == DefaultAction::Stop && disposition == Disposition::Default {
             stop_process(pml4);
@@ -335,12 +347,7 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
             continue;
         };
         let frame = regs.get_or_insert_with(|| saved_regs_from_stack(result));
-        if let Some(nr) = restart.take() {
-            if flags & SA_RESTART != 0 {
-                frame.rip -= SYSCALL_LEN;
-                frame.rax = nr;
-            }
-        }
+        rewind_for_restart(frame, flags, &mut restart);
         apply_action(pml4, slot, sig, disposition, frame);
     }
     if let Some(regs) = regs {
@@ -350,4 +357,26 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     // signal's action ignored it): the original mask comes back now.
     suspend_end_for(pml4, slot);
     result
+}
+
+/// The syscall a handler may restart: `restart` (the number of a call Linux
+/// restarts) only when the call was interrupted (`-EINTR`).
+pub fn restart_plan(result: u64, restart: Option<u64>) -> Option<u64> {
+    const EINTR: u64 = (-4i64) as u64;
+    restart.filter(|_| result == EINTR)
+}
+
+/// The first handler about to run decides the restart (`restart` is taken
+/// either way): with `SA_RESTART` its frame resumes at the `syscall`
+/// instruction (`rip - 2`) with the number back in `rax`, so the call is
+/// issued again; without it the frame keeps `-EINTR`.
+pub fn rewind_for_restart(frame: &mut UserRegs, flags: u64, restart: &mut Option<u64>) {
+    /// `syscall` is two bytes (`0f 05`).
+    const SYSCALL_LEN: u64 = 2;
+    if let Some(nr) = restart.take() {
+        if flags & SA_RESTART != 0 {
+            frame.rip -= SYSCALL_LEN;
+            frame.rax = nr;
+        }
+    }
 }

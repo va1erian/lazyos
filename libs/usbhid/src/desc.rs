@@ -1,6 +1,7 @@
 //! Standard USB descriptors (USB 2.0 ch. 9.6) and the HID class descriptor
 //! (HID 1.11 6.2.1), as far as `usbd` needs them: identify the device, then
-//! find a HID interface and its interrupt-IN endpoint.
+//! list every interface of a configuration with its endpoints (any class:
+//! `usbd` dispatches on the class code), and the HID view of the HID ones.
 //!
 //! A configuration descriptor is a chain of `(bLength, bDescriptorType, ...)`
 //! records `wTotalLength` bytes long. The walk trusts nothing: a zero or
@@ -19,10 +20,13 @@ pub mod kind {
     pub const ENDPOINT: u8 = 5;
     pub const HID: u8 = 0x21;
     pub const REPORT: u8 = 0x22;
+    pub const SS_ENDPOINT_COMPANION: u8 = 0x30;
 }
 
-/// Interface class codes.
+/// Class codes (device or interface).
 pub const CLASS_HID: u8 = 3;
+pub const CLASS_MASS_STORAGE: u8 = 8;
+pub const CLASS_HUB: u8 = 9;
 /// `bInterfaceSubClass` of a HID interface that supports the boot protocol.
 pub const SUBCLASS_BOOT: u8 = 1;
 
@@ -33,10 +37,14 @@ const INTERFACE_LEN: usize = 9;
 const ENDPOINT_LEN: usize = 7;
 /// A HID descriptor with one class descriptor entry (the report descriptor).
 const HID_LEN: usize = 9;
+const SS_COMPANION_LEN: usize = 6;
 
-/// HID interfaces one configuration may report; more are ignored (v1 binds
-/// one interface per device, `docs/usb-hid-plan.md` risk 8).
-pub const MAX_INTERFACES: usize = 8;
+/// Interfaces (alternate settings included) one configuration may report;
+/// more are ignored.
+pub const MAX_INTERFACES: usize = 16;
+/// Endpoints kept per interface; more are ignored (HID has one or two, a
+/// hub one, mass storage two or three).
+pub const MAX_ENDPOINTS: usize = 4;
 
 /// The boot protocol an interface declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,8 +79,17 @@ pub struct DeviceDescriptor {
     pub configurations: u8,
 }
 
-/// An endpoint of a HID interface.
+/// Endpoint transfer types (`bmAttributes` bits 0..=1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transfer {
+    Control,
+    Isochronous,
+    Bulk,
+    Interrupt,
+}
+
+/// An endpoint descriptor, with its SuperSpeed companion when one follows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Endpoint {
     /// `bEndpointAddress`: number in the low nibble, bit 7 set for IN.
     pub address: u8,
@@ -80,12 +97,72 @@ pub struct Endpoint {
     pub max_packet: u16,
     /// `bInterval`, in the encoding of the device's speed.
     pub interval: u8,
+    /// `bmAttributes`.
+    pub attributes: u8,
+    /// High-speed periodic: extra transactions per microframe
+    /// (`wMaxPacketSize` bits 11..=12, 0..=2).
+    pub extra: u8,
+    /// SuperSpeed companion `bMaxBurst` (0..=15), 0 without one.
+    pub max_burst: u8,
+    /// SuperSpeed companion `wBytesPerInterval` (periodic), 0 without one.
+    pub bytes_per_interval: u16,
 }
 
 impl Endpoint {
     /// The endpoint number (1..=15).
     pub fn number(&self) -> u8 {
         self.address & 0x0F
+    }
+
+    pub fn is_in(&self) -> bool {
+        self.address & 0x80 != 0
+    }
+
+    pub fn transfer(&self) -> Transfer {
+        match self.attributes & 0x3 {
+            0 => Transfer::Control,
+            1 => Transfer::Isochronous,
+            2 => Transfer::Bulk,
+            _ => Transfer::Interrupt,
+        }
+    }
+}
+
+/// One interface descriptor (one alternate setting) and its endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Interface {
+    pub number: u8,
+    pub alternate: u8,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+    /// The HID descriptor's report descriptor length (HID interfaces only).
+    pub report_len: u16,
+    endpoints: [Option<Endpoint>; MAX_ENDPOINTS],
+}
+
+impl Interface {
+    /// Its endpoints, in descriptor order (endpoint 0 is never listed).
+    pub fn endpoints(&self) -> impl Iterator<Item = &Endpoint> {
+        self.endpoints.iter().flatten()
+    }
+
+    /// The first endpoint of `transfer` type in direction `is_in`.
+    pub fn endpoint(&self, transfer: Transfer, is_in: bool) -> Option<Endpoint> {
+        self.endpoints()
+            .find(|e| e.transfer() == transfer && e.is_in() == is_in)
+            .copied()
+    }
+
+    /// This interface as HID sees it, when it is a HID interface.
+    pub fn hid(&self) -> Option<HidInterface> {
+        (self.class == CLASS_HID).then(|| HidInterface {
+            number: self.number,
+            alternate: self.alternate,
+            protocol: Protocol::from_byte(self.subclass, self.protocol),
+            report_len: self.report_len,
+            endpoint: self.endpoint(Transfer::Interrupt, true),
+        })
     }
 }
 
@@ -101,28 +178,39 @@ pub struct HidInterface {
     pub endpoint: Option<Endpoint>,
 }
 
-/// The HID interfaces of one configuration.
+/// One configuration: its value and every interface it holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// `bConfigurationValue`, the argument of `SET_CONFIGURATION`.
     pub value: u8,
     /// `wTotalLength`.
     pub total_len: u16,
-    interfaces: [Option<HidInterface>; MAX_INTERFACES],
+    interfaces: [Option<Interface>; MAX_INTERFACES],
 }
 
 impl Config {
-    /// Every HID interface found, in descriptor order.
-    pub fn hid_interfaces(&self) -> impl Iterator<Item = &HidInterface> {
+    /// Every interface (each alternate setting once), in descriptor order.
+    pub fn interfaces(&self) -> impl Iterator<Item = &Interface> {
         self.interfaces.iter().flatten()
     }
 
-    /// The first boot keyboard or mouse (alternate setting 0) with an
-    /// interrupt-IN endpoint: what v1 binds.
-    pub fn first_boot(&self) -> Option<HidInterface> {
+    /// Every HID interface found, in descriptor order.
+    pub fn hid_interfaces(&self) -> impl Iterator<Item = HidInterface> + '_ {
+        self.interfaces().filter_map(Interface::hid)
+    }
+
+    /// Every boot keyboard or mouse (alternate setting 0) with an
+    /// interrupt-IN endpoint: a composite device (a gaming keyboard with a
+    /// consumer-control interface, a receiver with a keyboard and a mouse)
+    /// may have its boot interface anywhere in the list.
+    pub fn boot_interfaces(&self) -> impl Iterator<Item = HidInterface> + '_ {
         self.hid_interfaces()
-            .find(|i| i.alternate == 0 && i.protocol != Protocol::None && i.endpoint.is_some())
-            .copied()
+            .filter(|i| i.alternate == 0 && i.protocol != Protocol::None && i.endpoint.is_some())
+    }
+
+    /// The first boot keyboard or mouse ([`Config::boot_interfaces`]).
+    pub fn first_boot(&self) -> Option<HidInterface> {
+        self.boot_interfaces().next()
     }
 
     /// The first HID interface (alternate setting 0) with an interrupt-IN
@@ -130,7 +218,6 @@ impl Config {
     pub fn first_hid(&self) -> Option<HidInterface> {
         self.hid_interfaces()
             .find(|i| i.alternate == 0 && i.endpoint.is_some())
-            .copied()
     }
 }
 
@@ -188,23 +275,26 @@ pub fn parse_config(bytes: &[u8]) -> Result<Config, Error> {
         interfaces: [None; MAX_INTERFACES],
     };
     let mut found = 0;
-    // Index into `interfaces` of the HID interface records attach to; `None`
-    // while inside a non-HID interface (or one past the table).
+    // Index into `interfaces` that records attach to; `None` past the table.
     let mut current: Option<usize> = None;
+    // The endpoint a SuperSpeed companion describes: (interface, slot).
+    let mut last_endpoint: Option<(usize, usize)> = None;
     let mut at = usize::from(chain[0]);
     while at < chain.len() {
         let record = record_at(chain, at)?;
         match record[1] {
             kind::INTERFACE => {
                 expect_len(record, INTERFACE_LEN)?;
-                current = None;
-                if record[5] == CLASS_HID && found < MAX_INTERFACES {
-                    config.interfaces[found] = Some(HidInterface {
+                (current, last_endpoint) = (None, None);
+                if found < MAX_INTERFACES {
+                    config.interfaces[found] = Some(Interface {
                         number: record[2],
                         alternate: record[3],
-                        protocol: Protocol::from_byte(record[6], record[7]),
+                        class: record[5],
+                        subclass: record[6],
+                        protocol: record[7],
                         report_len: 0,
-                        endpoint: None,
+                        endpoints: [None; MAX_ENDPOINTS],
                     });
                     current = Some(found);
                     found += 1;
@@ -212,23 +302,24 @@ pub fn parse_config(bytes: &[u8]) -> Result<Config, Error> {
             }
             kind::HID => {
                 expect_len(record, HID_LEN)?;
-                if let Some(hid) = current.and_then(|i| config.interfaces[i].as_mut()) {
-                    if record[6] == kind::REPORT {
-                        hid.report_len = u16_at(record, 7);
+                if let Some(interface) = current.and_then(|i| config.interfaces[i].as_mut()) {
+                    if interface.class == CLASS_HID && record[6] == kind::REPORT {
+                        interface.report_len = u16_at(record, 7);
                     }
                 }
             }
             kind::ENDPOINT => {
                 expect_len(record, ENDPOINT_LEN)?;
-                let interrupt_in = record[2] & 0x80 != 0 && record[3] & 0x03 == 3;
-                if let Some(hid) = current.and_then(|i| config.interfaces[i].as_mut()) {
-                    if interrupt_in && hid.endpoint.is_none() && record[2] & 0x0F != 0 {
-                        hid.endpoint = Some(Endpoint {
-                            address: record[2],
-                            max_packet: u16_at(record, 4) & 0x07FF,
-                            interval: record[6],
-                        });
-                    }
+                last_endpoint = current.and_then(|i| add_endpoint(&mut config, i, record));
+            }
+            kind::SS_ENDPOINT_COMPANION => {
+                expect_len(record, SS_COMPANION_LEN)?;
+                let endpoint = last_endpoint
+                    .take()
+                    .and_then(|(i, e)| config.interfaces[i].as_mut()?.endpoints[e].as_mut());
+                if let Some(endpoint) = endpoint {
+                    endpoint.max_burst = record[2].min(15);
+                    endpoint.bytes_per_interval = u16_at(record, 4);
                 }
             }
             _ => {}
@@ -236,6 +327,27 @@ pub fn parse_config(bytes: &[u8]) -> Result<Config, Error> {
         at += record.len();
     }
     Ok(config)
+}
+
+/// Record the endpoint descriptor `record` on interface `index`; returns
+/// where it went, `None` for endpoint 0 or a full interface.
+fn add_endpoint(config: &mut Config, index: usize, record: &[u8]) -> Option<(usize, usize)> {
+    let interface = config.interfaces[index].as_mut()?;
+    let slot = interface.endpoints.iter().position(Option::is_none)?;
+    if record[2] & 0x0F == 0 {
+        return None;
+    }
+    let size = u16_at(record, 4);
+    interface.endpoints[slot] = Some(Endpoint {
+        address: record[2],
+        max_packet: size & 0x07FF,
+        interval: record[6],
+        attributes: record[3],
+        extra: ((size >> 11) & 0x3).min(2) as u8,
+        max_burst: 0,
+        bytes_per_interval: 0,
+    });
+    Some((index, slot))
 }
 
 /// The record starting at `at`: its `bLength` must be at least 2 and fit.

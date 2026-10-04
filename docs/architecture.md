@@ -11,7 +11,8 @@ status. Design rationale is not repeated here; the plan docs own it:
 - [XUI plan](xui-plan.md) - userspace toolkit target.
 - [Shell plan](shell-plan.md) - S5 desktop shell (LazyShell) on XUI.
 - [rust-std](rust-std.md), [Dyon feasibility](dyon-feasibility.md),
-  [Wi-Fi exploration](wifi-plan.md) - supporting notes.
+  [Wi-Fi exploration](wifi-plan.md), [printing exploration](printing-plan.md) -
+  supporting notes.
 
 Path references are relative to the repository root. `path:line` references are
 used only where the line is a stable anchor.

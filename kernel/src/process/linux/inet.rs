@@ -6,7 +6,8 @@
 //! socket's path is a `SOCK_SEQPACKET` pair whose every message starts with
 //! the peer's address ([`DGRAM_HEADER`] bytes), so `sendto` prepends it and
 //! `recvfrom` strips it. Per-call `MSG_DONTWAIT` and `MSG_PEEK` are not
-//! honoured (the descriptor's own `O_NONBLOCK` is).
+//! honoured (the descriptor's own `O_NONBLOCK` is). Socket options, with the
+//! `SO_RCVTIMEO`/`SO_SNDTIMEO` the blocking calls honour, are `sockopt.rs`.
 
 use alloc::sync::Arc;
 
@@ -14,9 +15,10 @@ use crate::ipc::inet::{self, Addr, InetSock, Kind, State, DGRAM_HEADER, MAX_DGRA
 use crate::task::{self, Fd, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOPROTOOPT, ENOTSOCK};
+use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
-use super::io::{read_stream_opts, write_stream_opts};
+use super::io::{recv_stream, write_stream_opts};
+use super::scatter::{Received, Scatter};
 
 /// `AF_INET` and the sockaddr layout.
 pub(super) const AF_INET: u64 = 2;
@@ -32,20 +34,12 @@ const EDESTADDRREQ: u64 = 89;
 const ENFILE: u64 = 23;
 const ENOTCONN: u64 = 107;
 
-/// `getsockopt` option names handled.
-const SOL_SOCKET: u64 = 1;
-const SO_TYPE: u64 = 3;
-const SO_ERROR: u64 = 4;
-const SO_SNDBUF: u64 = 7;
-const SO_RCVBUF: u64 = 8;
-const SO_ACCEPTCONN: u64 = 30;
-
 fn code(error: i32) -> u64 {
     err(error as u64)
 }
 
 /// The inet socket behind `fd`, if it is one.
-fn inet_of(fd: u64) -> Result<Arc<InetSock>, u64> {
+pub(super) fn inet_of(fd: u64) -> Result<Arc<InetSock>, u64> {
     match task::fd_clone(fd as usize).as_ref() {
         Some(Fd::Inet { sock }) => Ok(Arc::clone(sock)),
         Some(Fd::Closed) | None => Err(err(EBADF)),
@@ -296,107 +290,80 @@ pub(super) fn sys_recvfrom(
     from: (u64, u64),
     opts: task::RecvOpts,
 ) -> u64 {
-    let (addr, addrlen) = from;
+    recv_into(fd, &Scatter::one(buf, len), from, opts).result
+}
+
+/// [`sys_recvfrom`] into any destination (`recvmsg`'s iovec).
+pub(super) fn recv_into(
+    fd: u64,
+    dest: &Scatter,
+    (addr, addrlen): (u64, u64),
+    opts: task::RecvOpts,
+) -> Received {
     let sock = match inet_of(fd) {
         Ok(sock) => sock,
-        Err(e) => return e,
+        Err(e) => return Received::of(e),
     };
     if sock.kind() == Kind::Stream {
         if sock.pair().is_none() {
-            return err(ENOTCONN);
+            return Received::of(err(ENOTCONN));
         }
-        let n = read_stream_opts(fd, buf, len, opts);
-        if addr != 0 && (n as i64) >= 0 {
+        let got = recv_stream(fd, dest, opts);
+        if addr != 0 && (got.result as i64) >= 0 {
             write_addr(addr, addrlen, sock.peer().unwrap_or(Addr::ANY));
         }
-        return n;
+        return got;
     }
-    recv_datagram(&sock, fd, (buf, len), (addr, addrlen), opts)
+    recv_datagram(&sock, fd, dest, (addr, addrlen), opts)
 }
 
+/// One datagram, whole: staged one byte past the destination (up to the
+/// largest datagram) so a longer one is reported truncated.
 fn recv_datagram(
     sock: &InetSock,
     fd: u64,
-    (buf, len): (u64, u64),
+    dest: &Scatter,
     (addr, addrlen): (u64, u64),
     opts: task::RecvOpts,
-) -> u64 {
+) -> Received {
     if let Err(e) = ensure_bound(sock) {
-        return e;
+        return Received::of(e);
     }
-    let want = (len as usize).min(MAX_DGRAM);
+    let len = usize::try_from(dest.len()).unwrap_or(usize::MAX);
+    let want = len.saturating_add(1).min(MAX_DGRAM);
     let mut message = alloc::vec![0u8; DGRAM_HEADER + want];
     let n = match task::fd_stream_recv(fd as usize, &mut message, opts) {
         Ok(n) => n,
-        Err(e) => return super::io::pipe_error(e),
+        Err(e) => return Received::of(super::io::pipe_error(e)),
     };
     if n < DGRAM_HEADER {
-        return err(EINVAL);
+        return Received::of(err(EINVAL));
     }
     let from = Addr {
         ip: [message[0], message[1], message[2], message[3]],
         port: u16::from_be_bytes([message[4], message[5]]),
     };
     let payload = &message[DGRAM_HEADER..n];
-    if user_ptr::try_copy_to(buf, payload).is_err() {
-        return err(EFAULT);
+    let kept = payload.len().min(len);
+    if let Err(code) = dest.copy_out(&payload[..kept]) {
+        return Received::of(code);
     }
     write_addr(addr, addrlen, from);
-    payload.len() as u64
+    Received {
+        result: kept as u64,
+        truncated: payload.len() > kept,
+    }
 }
 
 /// `read(2)` on an inet socket.
 pub(super) fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
+    if len == 0 {
+        return 0; // `read` of nothing takes no datagram (see `io::read_stream`)
+    }
     sys_recvfrom(fd, buf, len, (0, 0), task::RecvOpts::default())
 }
 
 /// `write(2)` on an inet socket.
 pub(super) fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
     sys_sendto(fd, buf, len, (0, 0), false)
-}
-
-/// `setsockopt(fd, level, name, value, len)`: the options programs set on a
-/// socket as a matter of course are accepted and have no effect (buffer
-/// sizes, keepalive, address reuse, `TCP_NODELAY`, timeouts); the value
-/// pointer is still validated.
-pub(super) fn sys_setsockopt(fd: u64, _level: u64, _name: u64, value: u64, len: u64) -> u64 {
-    if let Err(e) = inet_of(fd) {
-        return e;
-    }
-    if len > 0 && user_ptr::try_bytes(value, (len as usize).min(256)).is_err() {
-        return err(EFAULT);
-    }
-    0
-}
-
-/// `getsockopt(fd, level, name, value, lenptr)`.
-pub(super) fn sys_getsockopt(fd: u64, level: u64, name: u64, value: u64, lenptr: u64) -> u64 {
-    let sock = match inet_of(fd) {
-        Ok(sock) => sock,
-        Err(e) => return e,
-    };
-    if level != SOL_SOCKET {
-        return err(ENOPROTOOPT);
-    }
-    let answer: i32 = match name {
-        SO_ERROR => sock.take_error(),
-        SO_TYPE => match sock.kind() {
-            Kind::Stream => SOCK_STREAM as i32,
-            Kind::Dgram => SOCK_DGRAM as i32,
-        },
-        SO_RCVBUF | SO_SNDBUF => crate::ipc::pipe::SMALL_CAPACITY as i32,
-        SO_ACCEPTCONN => i32::from(sock.state() == State::Listening),
-        _ => 0,
-    };
-    let Ok(room) = user_ptr::try_read::<u32>(lenptr) else {
-        return err(EFAULT);
-    };
-    let bytes = answer.to_le_bytes();
-    let n = (room as usize).min(4);
-    if user_ptr::try_copy_to(value, &bytes[..n]).is_err()
-        || user_ptr::try_write::<u32>(lenptr, 4).is_err()
-    {
-        return err(EFAULT);
-    }
-    0
 }

@@ -24,6 +24,7 @@ mod reserved;
 mod sizing;
 mod soak;
 mod statx;
+mod stdio_reuse;
 mod times;
 mod vectored;
 
@@ -197,6 +198,15 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_fd_soak_inherited_redirects",
         inherit::soak_inherited_redirects,
+    ),
+    // A closed standard stream is the lowest free descriptor (`sh` jobs).
+    (
+        "linux_fd_forked_child_reopens_stdio_null",
+        stdio_reuse::forked_child_reopens_stdio_as_null,
+    ),
+    (
+        "linux_fd_soak_forked_null_stdio",
+        stdio_reuse::soak_forked_null_stdio,
     ),
 ];
 

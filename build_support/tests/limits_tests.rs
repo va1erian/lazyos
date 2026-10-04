@@ -56,3 +56,36 @@ fn boot_cfg_carries_the_limits_after_the_volumes() {
     );
     assert!(!boot_cfg([0x11; 16], &[]).contains("limit."));
 }
+
+#[test]
+fn display_mode_and_scale_lines() {
+    use crate::os_image::display_cfg;
+    for mode in ["2560x1440", "1280x720", "640x480", "3840X2160"] {
+        assert_eq!(display_cfg::validate_mode(mode), Ok(()), "{mode}");
+    }
+    for mode in [
+        "",
+        "2560",
+        "2560x",
+        "x1440",
+        "4000x2000",
+        "639x480",
+        "-1x5",
+        "2560x1440x2",
+        "99999999x1",
+    ] {
+        let error = display_cfg::validate_mode(mode).expect_err(mode);
+        assert!(error.contains("LAZYOS_DISPLAY_MODE"), "{error}");
+    }
+    for scale in ["auto", "1", "2"] {
+        assert_eq!(display_cfg::validate_scale(scale), Ok(()));
+    }
+    for scale in ["0", "3", "1.5", "AUTO "] {
+        assert!(display_cfg::validate_scale(scale).is_err(), "{scale}");
+    }
+    assert_eq!(display_cfg::lines(None, None), "");
+    assert_eq!(
+        display_cfg::lines(Some("2560x1440"), Some("2")),
+        "display.mode=2560x1440\ndisplay.scale=2\n"
+    );
+}

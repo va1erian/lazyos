@@ -208,7 +208,9 @@ pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
         // shutdown) must reach the syscall return, where the native gate ends
         // the task; parking again would keep it alive until `SIGKILL`. The
         // task never sees this error.
-        if reason == WakeReason::Interrupted && task::signal::native_fatal_pending(me).is_some() {
+        if reason == WakeReason::Interrupted
+            && (task::signal::killed(me) || task::signal::native_fatal_pending(me).is_some())
+        {
             return Err(Error::Canceled);
         }
     }

@@ -45,6 +45,10 @@ pub struct Tools {
     /// Bullets, numbers.
     pub lists: [Rc<ToggleButton<Msg>>; 2],
     pub wrap: Rc<ComboBox<Msg>>,
+    /// Page view (on) or draft view (off).
+    pub page_view: Rc<ToggleButton<Msg>>,
+    /// Opens the Page setup menu under itself.
+    pub page_setup: Rc<Button<Msg>>,
     /// The icon-only buttons' names, shown on hover.
     pub tips: Vec<Tooltip<Msg>>,
 }

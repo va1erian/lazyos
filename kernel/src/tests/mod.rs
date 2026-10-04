@@ -161,6 +161,7 @@ mod acl_suite;
 mod arch_suite;
 mod block_suite;
 mod boot_io_suite;
+mod boot_media_suite;
 mod boot_trace_suite;
 mod chmod_suite;
 mod confd_suite;
@@ -171,6 +172,7 @@ mod display_suite;
 mod exec_perm_suite;
 mod ext2_suite;
 mod fault_suite;
+mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
@@ -194,6 +196,7 @@ mod partition_suite;
 mod pipe_suite;
 mod power_suite;
 mod preempt_lock_suite;
+mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
@@ -209,6 +212,7 @@ mod string_io_suite;
 mod sysinfo_suite;
 mod task_suite;
 mod timed_suite;
+mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod virtio_suite;
@@ -253,10 +257,12 @@ const SUITE: &[&[(&str, Test)]] = &[
     partition_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,
+    boot_media_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,
     spurious_fault_suite::CASES,
     ramdisk_suite::CASES,
+    firmware_suite::CASES,
     dev_suite::CORE,
     dev_suite::CLASS_MAP,
     dev_suite::IRQ,
@@ -277,6 +283,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::DMA_LIFE,
     dev_suite::DMA_STRESS,
     dev_suite::STRESS,
+    dev_suite::CAPACITY,
     fs_suite::CASES,
     fsops_suite::CASES,
     power_suite::CASES,
@@ -286,6 +293,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
+    provider_suite::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,
@@ -297,6 +305,10 @@ const SUITE: &[&[(&str, Test)]] = &[
     sysinfo_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
+    // Runs the tick for ~15 s of real time: after the suites that step a
+    // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
+    // `task::ticks()` past their deadlines would expire early.
+    timer_suite::CASES,
     hardening_suite::CASES,
 ];
 

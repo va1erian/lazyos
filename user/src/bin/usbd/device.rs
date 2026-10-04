@@ -1,106 +1,79 @@
-//! One USB device on a root port: reset, address, read its descriptors,
-//! configure its HID interface and run the interrupt-IN pipe (xHCI 4.3,
-//! USB 2.0 9.1.2).
+//! One USB device, whatever its class: a slot, endpoint 0 and the pipes its
+//! interfaces asked for (xHCI 4.3, 4.6.5, 4.6.6; USB 2.0 9.1.2, 9.4).
+//!
+//! [`Device::enable`] addresses it at its [`Location`] (root port, or hub
+//! port with route string and transaction translator), reads its device and
+//! configuration descriptors, and leaves the rest to the class drivers
+//! (`class.rs`): they send their requests through [`Device::control_in`] /
+//! [`Device::control_out`], open pipes with [`Device::open_reports`] or
+//! [`Device::open_pipe`], and [`Device::configure`] gives every pipe to the
+//! controller in one Configure Endpoint.
 //!
 //! Everything the device returns is parsed from a copy with `libs/usbhid`;
-//! a device that answers nonsense is reported and left unconfigured.
+//! a device that answers nonsense is reported and left unconfigured. A
+//! request it stalls is survivable: endpoint 0 is reset and its ring skipped
+//! past the failed transfer, so the next request works.
 
-use alloc::collections::VecDeque;
 use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
-use usbhid::desc::{self, Config, DeviceDescriptor, HidInterface, Protocol};
-use usbhid::report::{self, Pointer};
+use usbhid::desc::{self, Config, DeviceDescriptor, Endpoint};
 use user::sys;
-use xhci::context::{EndpointContext, EndpointType, InputContext, SlotContext, INPUT_CONTEXTS};
-use xhci::regs::{self, portsc, Speed};
+use xhci::context::{EndpointContext, HubSlot, InputContext, INPUT_CONTEXTS};
+use xhci::regs::Speed;
 use xhci::ring::{ProducerRing, RawMem};
+use xhci::route::Location;
 use xhci::trb::{self, code, kind, request, SetupPacket, Trb};
 
-use super::hc::{nap, Hc};
+use super::hc::{sleep_ms, Hc};
 use super::mem::{Region, PAGE};
+use super::pipe::{Pipe, Report, Reports, MAX_REPORT, PIPE_BYTES};
 use super::Error;
 
-/// TRBs per transfer ring.
-const RING_TRBS: usize = 32;
-/// Layout of a device's region: input context (page 0), output context and
-/// both transfer rings (page 1), descriptor and report buffers (page 2).
+/// TRBs in endpoint 0's ring.
+const EP0_TRBS: usize = 32;
+/// Layout of a device's region. Page 0: the input context (up to 33 * 64
+/// bytes with 64-byte contexts) and endpoint 0's ring. Page 1: the output
+/// device context (up to 32 * 64 bytes) and the control data buffer. Page
+/// 2: one [`PIPE_BYTES`] window per pipe.
 const INPUT: usize = 0;
+const EP0_RING: usize = 3072;
 const OUTPUT: usize = PAGE;
-const EP0_RING: usize = 2 * PAGE - 2 * RING_TRBS * 16;
-const INT_RING: usize = 2 * PAGE - RING_TRBS * 16;
-const DATA: usize = 2 * PAGE;
-const DATA_BYTES: usize = 1024;
-const REPORT: usize = DATA + DATA_BYTES;
-const DEVICE_BYTES: usize = 3 * PAGE;
-/// Largest report this driver reads (boot reports are 8 bytes).
-pub(super) const MAX_REPORT: usize = 64;
-/// Interrupt-IN transfers kept queued, each into a report buffer of its own.
-/// With one transfer in flight a report cost a whole driver round trip (the
-/// next poll, then a doorbell), and QEMU's `usb-kbd` hands out one keycode
-/// per report, so fast typing overran its 16-entry queue (issue #480). With
-/// several queued the controller completes one per endpoint interval on its
-/// own and the driver drains them in batches.
-const REPORTS: usize = 8;
-const _: () = assert!(REPORT + REPORTS * MAX_REPORT <= DEVICE_BYTES);
-const _: () = assert!(REPORTS < RING_TRBS);
-/// Ticks a port reset may take.
-const RESET_TICKS: u64 = 100;
+const DATA: usize = PAGE + 2048;
+pub(super) const DATA_BYTES: usize = 1024;
+const PIPES: usize = 2 * PAGE;
+/// Pipes one device may open (one per interface it binds, two for bulk).
+pub(super) const MAX_PIPES: usize = 4;
+pub(super) const DEVICE_BYTES: usize = PIPES + MAX_PIPES * PIPE_BYTES;
+const _: () = assert!(INPUT + INPUT_CONTEXTS * 64 <= EP0_RING);
+const _: () = assert!(EP0_RING + EP0_TRBS * 16 <= OUTPUT);
+const _: () = assert!(OUTPUT + 32 * 64 <= DATA && DATA + DATA_BYTES <= PIPES);
+const _: () = assert!(DEVICE_BYTES <= 3 * PAGE);
+/// SET_ADDRESS recovery (USB 2.0 9.2.6.3 allows 2 ms; Linux waits 10).
+const SET_ADDRESS_RECOVERY_MS: u64 = 10;
 
-/// A configured HID device with its interrupt pipe running.
+/// An addressed device and the pipes its class drivers opened.
 pub(super) struct Device {
-    pub(super) port: u8,
     pub(super) slot: u8,
+    pub(super) at: Location,
     pub(super) descriptor: DeviceDescriptor,
-    pub(super) hid: HidInterface,
-    /// Report-protocol devices (a tablet): where X, Y, wheel and buttons are
-    /// in a report. `None` for boot keyboards and mice.
-    pub(super) layout: Option<Pointer>,
-    /// The interrupt endpoint's Device Context Index.
-    pub(super) dci: u8,
-    mem: Region,
+    /// `hc=` and the location, as the markers name the device.
+    pub(super) name: String,
+    pub(super) mem: Region,
     ep0: ProducerRing<RawMem>,
-    interrupt: ProducerRing<RawMem>,
-    report_len: u16,
-    /// The interrupt TRBs in flight, oldest first: the TRB's bus address and
-    /// the report buffer it fills.
-    in_flight: VecDeque<(u64, usize)>,
-    /// The buffer the next interrupt TRB fills (see [`Device::queue_reports`]).
-    next_buffer: usize,
-}
-
-/// Reset `port` if it is a USB 2 port (USB 3 ports enable themselves) and
-/// return its speed once enabled; `None` when nothing usable is attached.
-pub(super) fn reset_port(hc: &mut Hc, port: u8) -> Option<Speed> {
-    let status = hc.portsc(port);
-    if status & portsc::CCS == 0 {
-        return None;
-    }
-    let speed = Speed::of_port(status)?;
-    if matches!(speed, Speed::Low | Speed::Full | Speed::High) {
-        hc.set_portsc(port, portsc::set(status, portsc::PR));
-        let deadline = sys::clock() + RESET_TICKS;
-        while hc.portsc(port) & portsc::PRC == 0 {
-            if sys::clock() > deadline {
-                return None;
-            }
-            nap();
-        }
-    }
-    let status = hc.portsc(port);
-    hc.set_portsc(port, portsc::ack_changes(status));
-    if status & portsc::PED == 0 {
-        return None;
-    }
-    // The speed is only final after the reset.
-    Speed::of_port(status)
+    max_packet0: u16,
+    /// Interrupt-IN pipes `usbd` refills itself (HID, hub status).
+    reports: Vec<Reports>,
+    /// Endpoint contexts of every pipe, given to Configure Endpoint.
+    contexts: Vec<(u8, EndpointContext)>,
+    windows_used: usize,
 }
 
 impl Device {
-    /// Address the device on `port`, read and check its descriptors, and
-    /// configure its first boot HID interface. `Ok(None)` for a device that
-    /// is not a boot keyboard or mouse (reported, then left alone). Every
-    /// failure gives the slot and its memory back.
-    pub(super) fn attach(hc: &mut Hc, port: u8, speed: Speed) -> Result<Option<Device>, Error> {
+    /// Enable a slot for the device at `at`, address it and read its device
+    /// descriptor. Every failure gives the slot and its memory back.
+    pub(super) fn enable(hc: &mut Hc, at: Location) -> Result<Device, Error> {
         let slot = hc.command(trb::enable_slot())?.slot();
         if slot == 0 {
             return Err(Error::Completion(kind::ENABLE_SLOT, 0));
@@ -112,26 +85,11 @@ impl Device {
                 return Err(error);
             }
         };
-        let mut device = Device::new(port, slot, mem)?;
-        match device.bring_up(hc, speed) {
-            Ok(true) => Ok(Some(device)),
-            Ok(false) => {
-                device.release(hc);
-                Ok(None)
-            }
-            Err(error) => {
-                device.release(hc);
-                Err(error)
-            }
-        }
-    }
-
-    fn new(port: u8, slot: u8, mem: Region) -> Result<Device, Error> {
-        let ep0 = ProducerRing::new(mem.ring(EP0_RING, RING_TRBS)).map_err(Error::Xhci)?;
-        let interrupt = ProducerRing::new(mem.ring(INT_RING, RING_TRBS)).map_err(Error::Xhci)?;
-        Ok(Device {
-            port,
+        let ep0 = ProducerRing::new(mem.ring(EP0_RING, EP0_TRBS)).map_err(Error::Xhci)?;
+        let mut device = Device {
             slot,
+            at,
+            // Read for real by `read_device` before anyone looks.
             descriptor: DeviceDescriptor {
                 usb: 0,
                 class: 0,
@@ -142,93 +100,54 @@ impl Device {
                 product: 0,
                 configurations: 0,
             },
-            hid: HidInterface {
-                number: 0,
-                alternate: 0,
-                protocol: Protocol::None,
-                report_len: 0,
-                endpoint: None,
-            },
-            layout: None,
-            dci: 0,
+            name: format!("{}-{}", hc.index, at),
             mem,
             ep0,
-            interrupt,
-            report_len: 0,
-            in_flight: VecDeque::new(),
-            next_buffer: 0,
-        })
-    }
-
-    /// Address the device, read its descriptors and configure it; `false`
-    /// when it has no boot interface.
-    fn bring_up(&mut self, hc: &mut Hc, speed: Speed) -> Result<bool, Error> {
-        hc.set_device_context(self.slot, self.mem.bus(OUTPUT));
-        let max_packet0 = speed.default_max_packet0();
-        let dequeue = self.ep0.dequeue_pointer();
-        {
-            let mut input = input_context(&mut self.mem, hc.info.context_64)?;
-            input
-                .slot(&SlotContext {
-                    route: 0,
-                    speed,
-                    entries: 1,
-                    root_port: self.port,
-                })
-                .map_err(Error::Xhci)?;
-            input
-                .endpoint(1, &ep0_context(max_packet0, dequeue))
-                .map_err(Error::Xhci)?;
-        }
-        hc.command(trb::address_device(self.mem.bus(INPUT), self.slot, false))?;
-        self.read_descriptors(hc, speed)?;
-        let config = self.read_config(hc)?;
-        // A boot keyboard or mouse, else any HID interface whose report
-        // descriptor holds a pointer (a tablet has no boot protocol).
-        let Some(hid) = config.first_boot().or_else(|| config.first_hid()) else {
-            return Ok(false);
+            max_packet0: at.speed.default_max_packet0(),
+            reports: Vec::new(),
+            contexts: Vec::new(),
+            windows_used: 0,
         };
-        self.hid = hid;
-        self.configure(hc, &config, speed)?;
-        Ok(true)
-    }
-
-    /// Give the slot back: Disable Slot stops every endpoint and the
-    /// controller lets go of the contexts and rings, after which the memory
-    /// can serve the slot's next device. If the command fails the
-    /// controller may still own the memory, so it is never reused.
-    pub(super) fn release(self, hc: &mut Hc) {
-        let slot = self.slot;
-        match hc.command(trb::disable_slot(slot)) {
-            Ok(_) => {
-                hc.discard_slot(slot);
-                hc.set_device_context(slot, 0);
-                hc.give_region(slot, self.mem);
+        match device.address(hc).and_then(|()| device.read_device(hc)) {
+            Ok(()) => Ok(device),
+            Err(error) => {
+                device.release(hc);
+                Err(error)
             }
-            Err(error) => sys::write_str(&format!(
-                "USBD:SLOT:LEAK slot={slot} disable failed: {error}\n"
-            )),
         }
     }
 
-    /// The device descriptor, fixing endpoint 0's packet size first.
-    fn read_descriptors(&mut self, hc: &mut Hc, speed: Speed) -> Result<(), Error> {
+    /// Address Device: the slot context names the device's place in the
+    /// tree (route string, root port, transaction translator).
+    fn address(&mut self, hc: &mut Hc) -> Result<(), Error> {
+        hc.set_device_context(self.slot, self.mem.bus(OUTPUT));
+        let ep0 = EndpointContext::control(self.max_packet0, self.ep0.dequeue_pointer());
+        let slot = self.at.slot_context(1, None);
+        let mut input = self.input(hc)?;
+        input.slot(&slot).map_err(Error::Xhci)?;
+        input.endpoint(1, &ep0).map_err(Error::Xhci)?;
+        hc.command(trb::address_device(self.mem.bus(INPUT), self.slot, false))?;
+        sleep_ms(SET_ADDRESS_RECOVERY_MS);
+        Ok(())
+    }
+
+    /// The device descriptor, fixing endpoint 0's packet size first (full
+    /// speed devices may use 8, 16, 32 or 64; USB 3 encodes a power of two).
+    fn read_device(&mut self, hc: &mut Hc) -> Result<(), Error> {
         let mut head = [0u8; 8];
-        self.control_in(
-            hc,
-            request::get_descriptor(desc::kind::DEVICE, 0, 8),
-            &mut head,
-        )?;
-        let max_packet0 = match (speed, head[7]) {
-            // USB 3 encodes the size as a power of two.
-            (Speed::Super | Speed::SuperPlus, exponent) => 1u16 << exponent.min(9),
-            (_, size @ (8 | 16 | 32 | 64)) => u16::from(size),
+        let setup = request::get_descriptor(desc::kind::DEVICE, 0, 8);
+        self.control_in(hc, setup, &mut head)?;
+        let max_packet0 = match (self.at.speed, head[7]) {
+            (Speed::Super | Speed::SuperPlus, 9) => 512,
+            (Speed::Low, 8) => 8,
+            (Speed::Full | Speed::High, size @ (8 | 16 | 32 | 64)) => u16::from(size),
             _ => return Err(Error::Descriptor("bMaxPacketSize0")),
         };
-        if max_packet0 != speed.default_max_packet0() {
-            let mut input = input_context(&mut self.mem, hc.info.context_64)?;
+        if max_packet0 != self.max_packet0 {
+            let mut input = self.input(hc)?;
             input.ep0_max_packet(max_packet0).map_err(Error::Xhci)?;
             hc.command(trb::evaluate_context(self.mem.bus(INPUT), self.slot))?;
+            self.max_packet0 = max_packet0;
         }
         let mut bytes = [0u8; desc::DEVICE_LEN];
         let setup = request::get_descriptor(desc::kind::DEVICE, 0, desc::DEVICE_LEN as u16);
@@ -236,14 +155,14 @@ impl Device {
         self.descriptor = desc::parse_device(&bytes).map_err(|_| Error::Descriptor("device"))?;
         sys::write_str(&format!(
             "USBD:DESC:DEVICE port={} {}\n",
-            self.port,
+            self.name,
             hex(&bytes)
         ));
         Ok(())
     }
 
     /// The whole first configuration descriptor chain.
-    fn read_config(&mut self, hc: &mut Hc) -> Result<Config, Error> {
+    pub(super) fn read_config(&mut self, hc: &mut Hc) -> Result<Config, Error> {
         let mut header = [0u8; desc::CONFIG_LEN];
         let setup = request::get_descriptor(desc::kind::CONFIGURATION, 0, header.len() as u16);
         self.control_in(hc, setup, &mut header)?;
@@ -256,132 +175,143 @@ impl Device {
         self.control_in(hc, setup, chain)?;
         sys::write_str(&format!(
             "USBD:DESC:CONFIG port={} {}\n",
-            self.port,
+            self.name,
             hex(chain)
         ));
         desc::parse_config(chain).map_err(|_| Error::Descriptor("config chain"))
     }
 
-    /// SET_CONFIGURATION, the boot protocol (or, for a report-protocol
-    /// device, its report descriptor), then the interrupt endpoint.
-    fn configure(&mut self, hc: &mut Hc, config: &Config, speed: Speed) -> Result<(), Error> {
-        let endpoint = self.hid.endpoint.ok_or(Error::Descriptor("endpoint"))?;
-        self.control_out(hc, request::set_configuration(config.value))?;
-        if self.hid.protocol == Protocol::None {
-            // Report protocol is the default; SET_PROTOCOL is only for boot
-            // devices (QEMU's tablet stalls it).
-            self.layout = Some(self.read_report_layout(hc)?);
-        } else {
-            self.control_out(hc, request::set_protocol(self.hid.number, true))?;
+    /// An interrupt-IN pipe to `endpoint` whose reports `usbd` collects,
+    /// `depth` transfers deep. Returns its DCI.
+    pub(super) fn open_reports(&mut self, endpoint: &Endpoint, depth: usize) -> Result<u8, Error> {
+        let (pipe, window) = self.open_window(endpoint)?;
+        let dci = pipe.dci;
+        self.reports.push(Reports::new(pipe, window, depth));
+        Ok(dci)
+    }
+
+    /// A pipe to `endpoint` that the calling class drives itself (bulk):
+    /// it submits transfers into buffers of its own and gets the events of
+    /// its DCI from the dispatcher. Its context is configured with the rest.
+    /// Mass storage (`msc.rs`) uses it.
+    pub(super) fn open_pipe(&mut self, endpoint: &Endpoint) -> Result<Pipe, Error> {
+        self.open_window(endpoint).map(|(pipe, _)| pipe)
+    }
+
+    fn open_window(&mut self, endpoint: &Endpoint) -> Result<(Pipe, usize), Error> {
+        if self.windows_used == MAX_PIPES {
+            return Err(Error::Descriptor("too many endpoints"));
         }
-        if self.hid.protocol == Protocol::Keyboard {
-            // Report only on change. Mice may stall it, so only keyboards
-            // (which must support it) get it.
-            self.control_out(hc, request::set_idle(self.hid.number))?;
+        let window = PIPES + self.windows_used * PIPE_BYTES;
+        let pipe = Pipe::new(
+            self.mem.ring(window, super::pipe::PIPE_TRBS),
+            endpoint,
+            self.at.speed,
+        )?;
+        if self.contexts.iter().any(|&(dci, _)| dci == pipe.dci) {
+            return Err(Error::Descriptor("endpoint listed twice"));
         }
-        self.dci = regs::dci(endpoint.address);
-        self.report_len = endpoint.max_packet.clamp(1, MAX_REPORT as u16);
-        let dequeue = self.interrupt.dequeue_pointer();
-        {
-            let mut input = input_context(&mut self.mem, hc.info.context_64)?;
-            input
-                .slot(&SlotContext {
-                    route: 0,
-                    speed,
-                    entries: self.dci,
-                    root_port: self.port,
-                })
-                .map_err(Error::Xhci)?;
-            input
-                .endpoint(
-                    self.dci,
-                    &EndpointContext {
-                        kind: EndpointType::InterruptIn,
-                        max_packet: endpoint.max_packet,
-                        interval: regs::interrupt_interval(speed, endpoint.interval),
-                        dequeue,
-                        average_trb: self.report_len,
-                    },
-                )
-                .map_err(Error::Xhci)?;
+        self.windows_used += 1;
+        self.contexts.push((pipe.dci, pipe.context));
+        Ok((pipe, window))
+    }
+
+    /// Configure Endpoint with every pipe opened so far, declaring the
+    /// device a hub when `hub` is set; then start the report pipes.
+    pub(super) fn configure(&mut self, hc: &mut Hc, hub: Option<HubSlot>) -> Result<(), Error> {
+        let entries = self.contexts.iter().map(|&(dci, _)| dci).max().unwrap_or(1);
+        let slot = self.at.slot_context(entries, hub);
+        let contexts = self.contexts.clone();
+        let mut input = self.input(hc)?;
+        input.slot(&slot).map_err(Error::Xhci)?;
+        for (dci, context) in &contexts {
+            input.endpoint(*dci, context).map_err(Error::Xhci)?;
         }
         hc.command(trb::configure_endpoint(self.mem.bus(INPUT), self.slot))?;
-        self.queue_reports(hc)
-    }
-
-    /// The interface's report descriptor, parsed for a pointer.
-    fn read_report_layout(&mut self, hc: &mut Hc) -> Result<Pointer, Error> {
-        let len = usize::from(self.hid.report_len);
-        if len == 0 || len > DATA_BYTES {
-            return Err(Error::Descriptor("report descriptor length"));
-        }
-        let mut bytes = [0u8; DATA_BYTES];
-        let setup = request::get_report_descriptor(self.hid.number, len as u16);
-        self.control_in(hc, setup, &mut bytes[..len])?;
-        sys::write_str(&format!(
-            "USBD:DESC:REPORT port={} {}\n",
-            self.port,
-            hex(&bytes[..len])
-        ));
-        report::parse_pointer(&bytes[..len])
-            .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
-    }
-
-    /// Top the interrupt ring up to [`REPORTS`] transfers and ring once.
-    ///
-    /// Transfers complete in ring order and at most `REPORTS` are in flight,
-    /// so TRB `n` and TRB `n + REPORTS` share a buffer only after TRB `n`
-    /// completed and its report was read ([`Device::take_report`]).
-    pub(super) fn queue_reports(&mut self, hc: &mut Hc) -> Result<(), Error> {
-        let mut added = false;
-        while self.in_flight.len() < REPORTS {
-            let buffer = REPORT + self.next_buffer * MAX_REPORT;
-            let transfer = trb::interrupt_in(self.mem.bus(buffer), self.report_len);
-            let pointer = self
-                .interrupt
-                .enqueue(&[transfer], false)
-                .map_err(Error::Xhci)?;
-            self.in_flight.push_back((pointer, buffer));
-            self.next_buffer = (self.next_buffer + 1) % REPORTS;
-            added = true;
-        }
-        if added {
-            hc.doorbell(self.slot, self.dci);
+        for reports in &mut self.reports {
+            reports.refill(hc, &self.mem, self.slot)?;
         }
         Ok(())
     }
 
-    /// Whether `event` is this device's interrupt-IN completion.
-    pub(super) fn owns(&self, event: &Trb) -> bool {
-        event.kind() == kind::TRANSFER_EVENT
-            && event.slot() == self.slot
-            && event.endpoint() == self.dci
+    /// Whether `event` belongs to one of this device's report pipes.
+    pub(super) fn has_reports(&self, dci: u8) -> bool {
+        self.reports.iter().any(|r| r.dci() == dci)
     }
 
-    /// Take a completed report into `out`; returns its length, or `None` for
-    /// a failed transfer (the caller decides whether to give up on the device).
-    pub(super) fn take_report(&mut self, event: &Trb, out: &mut [u8; MAX_REPORT]) -> Option<usize> {
-        let (pointer, buffer) = self.in_flight.pop_front()?;
-        if event.parameter != pointer || self.interrupt.retire(pointer).is_err() {
-            return None;
+    /// Take a completed report of pipe `dci` into `out` and queue the next
+    /// transfer. A halted pipe is reset and restarted; one failing many
+    /// times in a row is reported as failed for the caller to give up on.
+    pub(super) fn take_report(
+        &mut self,
+        hc: &mut Hc,
+        event: &Trb,
+        out: &mut [u8; MAX_REPORT],
+    ) -> Report {
+        let Some(index) = self
+            .reports
+            .iter()
+            .position(|r| r.dci() == event.endpoint())
+        else {
+            return Report::Stale;
+        };
+        let report = self.reports[index].take(event, &self.mem, out);
+        if let Report::Failed(code) = report {
+            if self.reports[index].errors > 3 {
+                return report;
+            }
+            let dci = self.reports[index].dci();
+            let pointer = self.reports[index].pipe.abandon();
+            if self.recover(hc, dci, pointer).is_err() {
+                return report;
+            }
+            // A STALL is the device halting its endpoint: clear that too.
+            if code == code::STALL {
+                let address = (dci / 2) | (dci & 1) << 7;
+                let _ = self.control_out(hc, request::clear_endpoint_halt(address));
+            }
         }
-        if !matches!(event.completion_code(), code::SUCCESS | code::SHORT_PACKET) {
-            return None;
+        if self.reports[index]
+            .refill(hc, &self.mem, self.slot)
+            .is_err()
+        {
+            return Report::Failed(0);
         }
-        let residual = event.residual().min(u32::from(self.report_len)) as usize;
-        let len = usize::from(self.report_len) - residual;
-        self.mem.read(buffer, &mut out[..len]);
-        Some(len)
+        report
+    }
+
+    /// Give the slot back: Disable Slot stops every endpoint and the
+    /// controller lets go of the contexts and rings, after which the memory
+    /// can serve the slot's next device. If the command fails the
+    /// controller may still own the memory, so it is never reused.
+    pub(super) fn release(self, hc: &mut Hc) {
+        let slot = self.slot;
+        match hc.command(trb::disable_slot(slot)) {
+            Ok(_) => {
+                hc.discard(slot, 0);
+                hc.set_device_context(slot, 0);
+                hc.give_region(slot, self.mem);
+            }
+            Err(error) => sys::write_str(&format!(
+                "USBD:SLOT:LEAK slot={slot} disable failed: {error}\n"
+            )),
+        }
     }
 
     /// A control transfer with a device-to-host data stage into `out`.
-    fn control_in(&mut self, hc: &mut Hc, setup: SetupPacket, out: &mut [u8]) -> Result<(), Error> {
+    pub(super) fn control_in(
+        &mut self,
+        hc: &mut Hc,
+        setup: SetupPacket,
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        self.mem.clear(DATA, out.len().min(DATA_BYTES));
         self.control(hc, &setup)?;
         self.mem.read(DATA, out);
         Ok(())
     }
 
-    fn control_out(&mut self, hc: &mut Hc, setup: SetupPacket) -> Result<(), Error> {
+    pub(super) fn control_out(&mut self, hc: &mut Hc, setup: SetupPacket) -> Result<(), Error> {
         self.control(hc, &setup)
     }
 
@@ -396,34 +326,49 @@ impl Device {
             .map_err(Error::Xhci)?;
         hc.doorbell(self.slot, 1);
         let slot = self.slot;
-        let event =
-            hc.wait(|e| e.kind() == kind::TRANSFER_EVENT && e.slot() == slot && e.endpoint() == 1)?;
-        // A failure names the TRB that failed (possibly the data stage); the
-        // endpoint is then halted and this device is abandoned.
-        if event.parameter != status || event.completion_code() != code::SUCCESS {
-            return Err(Error::Completion(setup.request, event.completion_code()));
-        }
-        self.ep0.retire(status).map_err(Error::Xhci)
+        let waited =
+            hc.wait(|e| e.kind() == kind::TRANSFER_EVENT && e.slot() == slot && e.endpoint() == 1);
+        let failed = match waited {
+            Ok(event) if event.parameter == status && event.completion_code() == code::SUCCESS => {
+                return self.ep0.retire(status).map_err(Error::Xhci);
+            }
+            Ok(event) => Error::Completion(setup.request, event.completion_code()),
+            Err(error) => error,
+        };
+        // A stall (or a timeout) leaves endpoint 0 halted or busy with the
+        // rest of the transfer: reset it and skip what is left, so the next
+        // request starts clean.
+        let pointer = self.ep0.abandon();
+        self.recover(hc, 1, pointer)?;
+        Err(failed)
     }
-}
 
-/// Lay a fresh input context over the device region's first page.
-fn input_context(mem: &mut Region, context_64: bool) -> Result<InputContext<'_>, Error> {
-    let stride = if context_64 { 16 } else { 8 };
-    InputContext::new(mem.dwords(INPUT, INPUT_CONTEXTS * stride), context_64).map_err(Error::Xhci)
-}
+    /// Bring endpoint `dci` back after a failure: Reset Endpoint (a halted
+    /// one) or Stop Endpoint (one still running), then point it past
+    /// everything queued, and drop the stale events.
+    pub(super) fn recover(&mut self, hc: &mut Hc, dci: u8, pointer: u64) -> Result<(), Error> {
+        if let Err(Error::Completion(_, code::CONTEXT_STATE)) =
+            hc.command(trb::reset_endpoint(self.slot, dci))
+        {
+            // Not halted: stop it instead (an already stopped one fails
+            // the same way, which is fine).
+            let _ = hc.command(trb::stop_endpoint(self.slot, dci));
+        }
+        hc.command(trb::set_tr_dequeue(self.slot, dci, pointer))?;
+        hc.discard(self.slot, dci);
+        Ok(())
+    }
 
-fn ep0_context(max_packet: u16, dequeue: u64) -> EndpointContext {
-    EndpointContext {
-        kind: EndpointType::Control,
-        max_packet,
-        interval: 0,
-        dequeue,
-        average_trb: 8,
+    /// Lay a fresh input context over the device region's first page.
+    fn input(&mut self, hc: &Hc) -> Result<InputContext<'_>, Error> {
+        let context_64 = hc.info.context_64;
+        let stride = if context_64 { 16 } else { 8 };
+        InputContext::new(self.mem.dwords(INPUT, INPUT_CONTEXTS * stride), context_64)
+            .map_err(Error::Xhci)
     }
 }
 
 /// Lower-case hex of `bytes`, for the descriptor evidence lines.
-fn hex(bytes: &[u8]) -> alloc::string::String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

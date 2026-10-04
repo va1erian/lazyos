@@ -24,6 +24,11 @@ pub struct RawSerial;
 
 impl RawSerial {
     fn put(byte: u8) {
+        // No UART (the boot probe said so): every poll would read a floating
+        // bus and the byte would go nowhere.
+        if !crate::serial::present() {
+            return;
+        }
         for _ in 0..MAX_POLLS {
             // SAFETY: reading COM1's line status register has no side effect;
             // `serial::init` configured the port at boot.

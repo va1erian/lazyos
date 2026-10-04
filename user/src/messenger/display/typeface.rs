@@ -5,6 +5,8 @@
 //! coverage atlases; see `assets/fonts/` and the README credits. Unlike the 5x7
 //! [`font`](super::font) these have per-glyph advances and lower case.
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 /// Metrics and coverage location of one glyph (mirrors `font_atlas::Glyph`).
 pub struct Glyph {
     pub width: u32,
@@ -27,6 +29,16 @@ pub struct FaceData {
 
 include!(concat!(env!("OUT_DIR"), "/typeface_data.rs"));
 
+/// The UI scale the faces draw at (1 or 2; docs/hidpi-plan.md). Each scale
+/// has its own atlas rasterized at that size, so every metric below is
+/// already in physical pixels.
+static SCALE: AtomicU32 = AtomicU32::new(1);
+
+/// Draw every face at `scale` (clamped to the atlases built: 1 or 2).
+pub fn set_scale(scale: u32) {
+    SCALE.store(scale.clamp(1, 2), Ordering::Relaxed);
+}
+
 const FIRST: u32 = 0x20;
 /// Matches `font_atlas::LAST_CHAR`: the atlas covers ASCII and Latin-1.
 const LAST: u32 = 0xFF;
@@ -42,9 +54,11 @@ pub enum Face {
 
 impl Face {
     fn data(self) -> &'static FaceData {
-        match self {
-            Face::Sans => &SANS,
-            Face::Serif => &SERIF,
+        match (self, SCALE.load(Ordering::Relaxed)) {
+            (Face::Sans, 2) => &SANS_2X,
+            (Face::Serif, 2) => &SERIF_2X,
+            (Face::Sans, _) => &SANS_1X,
+            (Face::Serif, _) => &SERIF_1X,
         }
     }
 

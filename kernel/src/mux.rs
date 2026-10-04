@@ -26,10 +26,17 @@ const BORDER_FOCUS: Color = Color::rgb(120, 200, 140);
 const TEXT_COLOR: Color = Color::rgb(205, 210, 225);
 
 /// Run the multiplexer forever.
+///
+/// It paints the logical screen (`display::logical`), not the whole mode: on
+/// a 4K panel a mode-sized back buffer would be 31.6 MiB, twice the kernel
+/// heap. The back buffer only exists while the mux owns the screen; it is
+/// freed while a compositor is bound (the whole desktop session) and
+/// allocated again, fallibly, when the mux takes the screen back.
 pub fn run() -> ! {
-    let (fbw, fbh) =
-        console::with_framebuffer(|fb| (fb.width(), fb.height())).unwrap_or((1280, 720));
-    let mut back = RgbaBuffer::new(fbw, fbh);
+    let screen = crate::display::logical();
+    let (fbw, fbh) = (screen.width, screen.height);
+    console::clear_outside_logical();
+    let mut back: Option<RgbaBuffer> = None;
 
     let mut mouse_prev: Option<(i32, i32)> = None;
     // Whether a compositor owned the display on the previous iteration, so the
@@ -61,6 +68,7 @@ pub fn run() -> ! {
         // exited without unbinding, so this mux is always the fallback.
         if crate::display::bound() {
             yielded = true;
+            back = None;
             task::idle(task::ticks() + IDLE_TICKS);
             continue;
         }
@@ -69,16 +77,29 @@ pub fn run() -> ! {
             mouse_prev = None;
             task::NEEDS_REDRAW.store(true, Ordering::Relaxed);
         }
+        if back.is_none() {
+            back = RgbaBuffer::try_new(fbw, fbh);
+            if back.is_none() {
+                // The heap is too fragmented right now: nothing to paint with.
+                // Try again next frame rather than stopping the kernel task.
+                task::idle(task::ticks() + IDLE_TICKS);
+                continue;
+            }
+            task::NEEDS_REDRAW.store(true, Ordering::Relaxed);
+        }
+        let Some(back) = back.as_mut() else {
+            continue;
+        };
         if task::NEEDS_REDRAW.swap(false, Ordering::Relaxed) {
-            render(&mut back);
-            present(&back, 0, 0, fbw, fbh);
+            render(back);
+            present(back, 0, 0, fbw, fbh);
             // Redraw the cursor, which the presentation just covered.
             mouse_prev = None;
         }
         if let Some((x, y)) = crate::input::mouse::take_moved() {
             if let Some((px, py)) = mouse_prev {
                 present(
-                    &back,
+                    back,
                     px.max(0) as usize,
                     py.max(0) as usize,
                     cursor::WIDTH as usize,
@@ -186,15 +207,15 @@ fn draw_window(
     }
 }
 
-/// Present a rectangle of the back buffer to the live framebuffer.
+/// Present a rectangle of the back buffer to the logical screen.
 fn present(back: &RgbaBuffer, x: usize, y: usize, w: usize, h: usize) {
-    console::with_framebuffer(|fb| {
+    console::with_screen(|fb| {
         fb.blit_rgba_region(back.data(), back.width(), back.height(), x, y, x, y, w, h);
     });
 }
 
 fn draw_cursor(pos: (i32, i32)) {
-    console::with_framebuffer(|fb| cursor::draw(fb, pos.0, pos.1));
+    console::with_screen(|fb| cursor::draw(fb, pos.0, pos.1));
 }
 
 /// Run a closure with interrupts disabled (safe to take `task`'s lock).

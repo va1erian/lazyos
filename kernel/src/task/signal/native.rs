@@ -54,6 +54,5 @@ pub fn deliver_native() {
     let Some((pml4, _)) = slot_info(slot) else {
         return;
     };
-    terminate_process(pml4, 128 + sig as u64);
-    halt_forever();
+    exit_group(pml4, 128 + sig as u64);
 }

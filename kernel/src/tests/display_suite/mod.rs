@@ -40,6 +40,8 @@ mod bind_and_input;
 mod buffers;
 mod keys;
 mod large_screens;
+mod logical;
+mod modes;
 mod modifiers;
 mod present;
 mod slots;
@@ -49,6 +51,8 @@ pub(super) use bind_and_input::*;
 pub(super) use buffers::*;
 pub(super) use keys::*;
 pub(super) use large_screens::*;
+pub(super) use logical::*;
+pub(super) use modes::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
@@ -101,8 +105,27 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_wheel_reaches_compositor", wheel_reaches_compositor),
     ("display_plain_mouse_and_resync", plain_mouse_and_resync),
     ("display_wheel_soak_bounded_queue", wheel_soak_bounded_queue),
+    ("display_logical_bind_sizes", logical_bind_sizes),
+    (
+        "display_logical_present_offsets_and_clips",
+        logical_present_offsets_and_clips,
+    ),
     (
         "display_large_screens_fit_the_budgets",
         large_screens_fit_the_budgets,
+    ),
+    ("display_mode_config_parses", mode_config_parses),
+    (
+        "display_mode_config_refuses_hostile_lines",
+        mode_config_refuses_hostile_lines,
+    ),
+    ("display_mode_auto_scale_rule", mode_auto_scale_rule),
+    ("display_mode_adapter_checks", mode_adapter_checks),
+    ("display_mode_switch_roundtrip", mode_switch_roundtrip),
+    ("display_mode_switch_refusals", mode_switch_refusals),
+    ("display_mode_switch_soak", mode_switch_soak),
+    (
+        "display_mode_refused_switch_restores_registers",
+        mode_refused_switch_restores_registers,
     ),
 ];

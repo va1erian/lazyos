@@ -9,12 +9,14 @@ pub mod files;
 use xui_core::Dip;
 use xui_core::app::Ui;
 use xui_core::widget::DialogAction;
+use xui_rich_text::ViewMode;
 use xui_rich_text::edit::Command;
 use xui_rich_text::model::{BlockKind, CharStylePatch, Selection, Side, StyleSummary, Wrap};
 
 use crate::app::{Mark, Msg, Writer};
 use crate::names;
-use crate::ui::{BLOCKS, FAMILIES, SIZES, WRAPS};
+use crate::page::{Choice, Margins, Paper, pages_label};
+use crate::ui::{BLOCKS, FAMILIES, SIZES, WRAPS, page_menu};
 
 /// The window title: `LazyWriter: <name>`, with `*` before the name when the
 /// document is modified.
@@ -44,6 +46,46 @@ pub fn edited(app: &mut Writer, ui: &mut Ui<Msg>, words: usize) {
     app.dirty = true;
     app.status.set_text(2, &words_label(words));
     refresh_title(app, ui);
+    refresh_pages(app);
+}
+
+/// Shows the caret's page and the page count in the status bar.
+pub fn refresh_pages(app: &Writer) {
+    let (page, count) = app.editor.page_info();
+    app.status.set_text(3, &pages_label(page, count));
+}
+
+/// Switches between page view and draft view.
+pub fn page_view(app: &mut Writer, on: bool) {
+    app.editor
+        .set_view_mode(if on { ViewMode::Page } else { ViewMode::Draft });
+    app.editor.focus();
+    refresh_pages(app);
+}
+
+/// Shows the Page setup menu under its button, with the document's page
+/// checked.
+pub fn page_menu(app: &mut Writer, ui: &mut Ui<Msg>) {
+    let choice = app.editor.with_document(|d| Choice::of(d.page()));
+    page_menu::sync(&app.dialogs.page, choice);
+    let at = ui.bounds(app.tools.page_setup.id());
+    app.dialogs.page.show_context(at.left, at.bottom);
+}
+
+/// A Page setup entry was picked: change that part of the page, as one undo
+/// step. A page no choice describes starts from A4 with Normal margins in its
+/// own orientation.
+pub fn page_choice(app: &mut Writer, index: usize) {
+    let current = app.editor.with_document(|d| {
+        Choice::of(d.page()).unwrap_or(Choice {
+            paper: Paper::A4,
+            landscape: d.page().is_landscape(),
+            margins: Margins::Normal,
+        })
+    });
+    let next = page_menu::apply(index, current);
+    format(app, Command::SetPageSetup(next.page()));
+    refresh_pages(app);
 }
 
 /// The selection or its formatting changed: update the toolbar.
@@ -58,6 +100,7 @@ pub fn selection(app: &mut Writer, summary: StyleSummary) {
         Selection::Text { .. } => None,
     };
     app.tools.sync_wrap(image);
+    refresh_pages(app);
 }
 
 /// Runs an editor command from the toolbar and returns focus to the text.

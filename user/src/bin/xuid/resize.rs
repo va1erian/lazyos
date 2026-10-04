@@ -9,7 +9,7 @@ use user::sys;
 use super::compositor::Compositor;
 use super::geometry::{self, Edges};
 use super::layout::cursor_rect;
-use super::theme::{BORDER, TITLE_H};
+use super::theme::{border, title_h};
 
 /// An in-progress interactive resize.
 #[derive(Clone, Copy)]
@@ -99,8 +99,8 @@ impl Compositor {
             {
                 surface.x = active.outline.x;
                 surface.y = active.outline.y;
-                surface.w = active.outline.w - BORDER * 2;
-                surface.h = active.outline.h - TITLE_H - BORDER;
+                surface.w = active.outline.w - border() * 2;
+                surface.h = active.outline.h - title_h() - border();
                 let (id, events, width, height) =
                     (surface.id, surface.events, surface.w, surface.h);
                 self.send_configure(id, events, width, height, wire::WINDOW_STATE_NORMAL);

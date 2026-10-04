@@ -29,10 +29,12 @@ mod attr;
 mod creds;
 mod cwd;
 mod dents;
+mod dirstream;
 mod elf;
 mod epoll;
 mod errno;
 mod etcfs;
+mod etcmap;
 mod extra;
 mod fd;
 mod filerw;
@@ -97,9 +99,11 @@ pub fn load_errno_for_test(reason: &'static str) -> u64 {
 pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
     procfs::contents(path)
 }
+mod scatter;
 mod sendfile;
 mod sig;
 mod socket;
+mod sockopt;
 mod stat;
 mod statx;
 mod time;
@@ -284,6 +288,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         95 => pathops::sys_umask(a1),                   // umask(mask)
         96 => time::sys_gettimeofday(a1),               // gettimeofday(tv, tz)
         102 | 107 => creds::sys_getuid(),               // getuid/geteuid
+        103 => misc::sys_syslog(a1, a2, a3),            // syslog (dmesg)
         104 | 108 => creds::sys_getgid(),               // getgid/getegid
         105 => creds::sys_setuid(a1),                   // setuid
         106 => creds::sys_setgid(a1),                   // setgid
@@ -369,6 +374,12 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     let result = task::signal::deliver_linux_restartable(result, restart);
     crate::perf::syscall_exit();
     result
+}
+
+/// [`restartable`], for the console-read signal tests.
+#[cfg(lazyos_tests)]
+pub fn restartable_for_test(nr: u64) -> bool {
+    restartable(nr)
 }
 
 /// Whether an interrupted `nr` is re-issued after an `SA_RESTART` handler:

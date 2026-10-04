@@ -18,7 +18,8 @@ use super::errno::{
     ENOPROTOOPT, ENOTCONN, ENOTSOCK,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
-use super::io::{read_stream_opts, write_stream_opts};
+use super::io::write_stream_opts;
+use super::scatter::{Received, Scatter};
 
 /// `shutdown(2)` directions.
 const SHUT_RD: u64 = 0;
@@ -295,29 +296,29 @@ pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, to: (u64, u64), dont_wait:
     }
 }
 
-/// `recvfrom(fd, buf, len, flags, addr, addrlen)` once the flags are decoded.
-/// Source addresses do not exist for connected pairs (std passes null), so
-/// this is a stream read; a non-socket fd is `-ENOTSOCK`.
-pub(super) fn sys_recvfrom(
+/// `recvfrom`/`recvmsg` once the flags are decoded, into `dest` (one buffer
+/// or a `recvmsg` iovec), reporting a truncated message. Source addresses do
+/// not exist for connected pairs (std passes null), so this is a stream read;
+/// a non-socket fd is `-ENOTSOCK`.
+pub(super) fn recv_into(
     fd: u64,
-    buf: u64,
-    len: u64,
+    dest: &Scatter,
     from: (u64, u64),
     opts: task::RecvOpts,
-) -> u64 {
+) -> Received {
     if super::inet::is_inet(fd) {
-        return super::inet::sys_recvfrom(fd, buf, len, from, opts);
+        return super::inet::recv_into(fd, dest, from, opts);
     }
     match task::fd_kind(fd as usize) {
-        FdKind::Socket => read_stream_opts(fd, buf, len, opts),
-        _ => err(ENOTSOCK),
+        FdKind::Socket => super::io::recv_stream(fd, dest, opts),
+        _ => Received::of(err(ENOTSOCK)),
     }
 }
 
 /// `setsockopt` (54): only `AF_INET` sockets take options so far.
 pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::Inet => super::inet::sys_setsockopt(fd, level, name, value, len),
+        FdKind::Inet => super::sockopt::sys_setsockopt(fd, level, name, value, len),
         FdKind::Closed => err(EBADF),
         kind => err(no_option(kind)),
     }
@@ -326,7 +327,7 @@ pub(super) fn sys_setsockopt(fd: u64, level: u64, name: u64, value: u64, len: u6
 /// `getsockopt` (55): see [`sys_setsockopt`].
 pub(super) fn sys_getsockopt(fd: u64, level: u64, name: u64, value: u64, lenptr: u64) -> u64 {
     match task::fd_kind(fd as usize) {
-        FdKind::Inet => super::inet::sys_getsockopt(fd, level, name, value, lenptr),
+        FdKind::Inet => super::sockopt::sys_getsockopt(fd, level, name, value, lenptr),
         FdKind::Closed => err(EBADF),
         kind => err(no_option(kind)),
     }

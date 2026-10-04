@@ -27,6 +27,7 @@ def make_vars() -> dict:
         "data_path": s(value=DATA_IMAGE),
         "memory": s(value=DEFAULT_MEMORY),
         "limits": s(value=""),
+        "display_mode": s(value=""),
         "times": s(value="10,14,18"),
         "timeout": s(value="180"),
         "abi_time": s(value="8"),
@@ -53,6 +54,7 @@ def make_vars() -> dict:
         "xui_app": s(value="(none)"),
         "xui_autostart": s(value=""),
         "lazyrad": b(value=False),
+        "usb_image": b(value=False),
         # LazyShell on the desktop profile (issue #157); unchecked = LAZYOS_SHELL=0.
         "shell": b(value=True),
         "lazyrad_samples": s(value=""),
@@ -71,6 +73,10 @@ def make_vars() -> dict:
         "simple_net": b(value=False),
         "linuxapps": b(value=False),
         "simple_linuxapps": b(value=False),
+        # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
+        "tls": b(value=False),
+        "simple_tls": b(value=False),
+        "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),

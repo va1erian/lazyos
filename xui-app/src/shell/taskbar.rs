@@ -12,11 +12,12 @@ use lazyshell::taskbar::{entry_at, Action, START_BUTTON};
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, TextStyle};
-use xui_core::{Canvas, Control, Dip, MouseButton, Rect};
+use xui_core::{Canvas, Control, Dip, MouseButton, Rect, Rgba};
 
 use super::ctx::{BarHover, Ctx};
 use super::menu;
-use super::theme::color;
+use super::theme::{chrome_look, color, fill_bar};
+use xui_core::theme::look;
 
 /// Text size on the bar.
 const TEXT: Dip = Dip(12.0);
@@ -38,10 +39,80 @@ pub struct BarApp {
     root: Control<BarMsg>,
 }
 
-/// The clock's text style: readable on the bar whatever its colour.
+/// The clock's text style: readable on the bar whatever its colour, and
+/// secondary on the dark bar when dimming it still leaves it readable (a
+/// mid-tone taskbar override keeps the full-contrast ink).
 fn clock_style(ctx: &Ctx) -> TextStyle {
-    let palette = ctx.theme.borrow().palette();
-    TextStyle::new(color(uitheme::text_on(palette.taskbar_bg)), TEXT).middle()
+    let theme = ctx.theme.borrow();
+    let palette = theme.palette();
+    let ink = uitheme::text_on(palette.taskbar_bg);
+    let dimmed = uitheme::mix(ink, palette.taskbar_bg, 1, 4);
+    let ink = if theme.is_dark() && readable(dimmed, palette.taskbar_bg) {
+        dimmed
+    } else {
+        ink
+    };
+    TextStyle::new(color(ink), TEXT).middle()
+}
+
+/// Whether `ink` on `background` reaches the WCAG AA 4.5:1 text contrast.
+fn readable(ink: u32, background: u32) -> bool {
+    // 0.05 in relative luminance's 0..=65535 scale.
+    const FLARE: u64 = 3277;
+    let (a, b) = (
+        u64::from(uitheme::relative_luminance(ink)) + FLARE,
+        u64::from(uitheme::relative_luminance(background)) + FLARE,
+    );
+    a.max(b) * 10 >= a.min(b) * 45
+}
+
+/// The focused entry's pill colour on a dark bar: the accent halfway to the
+/// bar, so the pill reads as a tint of it.
+fn focus_tint(palette: &uitheme::Palette) -> u32 {
+    uitheme::mix(palette.taskbar_entry_focus, palette.taskbar_bg, 1, 2)
+}
+
+/// A dark bar's window entry (the Midnight mockup): no box at rest, a faint
+/// one on hover, and for the focused window an accent-tinted glossy pill
+/// with an accent underline.
+fn paint_entry(
+    canvas: &mut dyn Canvas,
+    area: Rect,
+    s: i32,
+    palette: &uitheme::Palette,
+    deco: &xui_core::Theme,
+    focused: bool,
+    hovered: bool,
+) {
+    if focused {
+        let tint = focus_tint(palette);
+        let radius = 6.0 * s as f32;
+        let edge = color(uitheme::mix(tint, 0xFF_FF_FF, 1, 8));
+        look::face(canvas, area, radius, color(tint), deco);
+        canvas.stroke_rounded_rect(area, radius, edge, s as f32);
+        let accent = uitheme::mix(palette.taskbar_entry_focus, 0xFF_FF_FF, 1, 3);
+        let line = Rect::new(
+            area.left + 6 * s,
+            area.bottom - 2 * s,
+            area.right - 6 * s,
+            area.bottom,
+        );
+        canvas.fill_rounded_rect(line, s as f32, color(accent));
+    } else if hovered {
+        canvas.fill_rect_rgba(area.shrink(s), Rgba::with_alpha(0xFF, 0xFF, 0xFF, 0x12));
+    }
+}
+
+/// A dark bar entry's text colour: readable on the focused pill's tint
+/// whatever the accent, dimmed when minimised.
+fn entry_ink(palette: &uitheme::Palette, focused: bool, minimized: bool) -> u32 {
+    if focused {
+        uitheme::text_on(focus_tint(palette))
+    } else if minimized {
+        uitheme::mix(palette.overlay_text, palette.taskbar_bg, 1, 2)
+    } else {
+        palette.overlay_text
+    }
 }
 
 /// Reserve the width of the widest line the current clock format produces,
@@ -50,7 +121,9 @@ fn clock_style(ctx: &Ctx) -> TextStyle {
 pub fn measure_clock<M: 'static>(ctx: &Ctx, ui: &Ui<M>) -> bool {
     let format = ctx.theme.borrow().clock_format();
     let widest = lazyshell::clock::widest(format);
+    // Measured in screen pixels, kept in design pixels like the bar layout.
     let width = ui.measure_text(widest, &clock_style(ctx), ui.dpi()).width;
+    let width = (width + ctx.scale() - 1) / ctx.scale();
     ctx.clock_w.replace(width) != width
 }
 
@@ -133,25 +206,38 @@ impl App for BarApp {
     fn update(&mut self, msg: BarMsg, ui: &mut Ui<BarMsg>) {
         match msg {
             BarMsg::Repaint => ui.invalidate(self.root.id()),
-            BarMsg::Move(x, y) => self.set_hover(ui, self.hover_at(x, y)),
+            // Pointer events are in screen pixels, the bar layout in
+            // design pixels.
+            BarMsg::Move(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.set_hover(ui, self.hover_at(x, y))
+            }
             BarMsg::Leave => self.set_hover(ui, None),
-            BarMsg::Press(x, y) => self.press(ui, x, y),
+            BarMsg::Press(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.press(ui, x, y)
+            }
         }
     }
 }
 
-/// A shell rectangle as an xui one.
-fn rect(r: ShellRect) -> Rect {
-    Rect::new(r.x, r.y, r.x + r.w, r.y + r.h)
+/// A design-pixel shell rectangle as an xui one at scale `s`.
+fn rect(r: ShellRect, s: i32) -> Rect {
+    Rect::new(r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s)
 }
 
-/// Paint the whole bar from the shared state.
+/// Paint the whole bar from the shared state. The layout is in design
+/// pixels; `s` turns every size into screen pixels (docs/hidpi-plan.md).
 fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     let palette = ctx.theme.borrow().palette();
+    let s = ctx.scale();
+    let mut deco = chrome_look(ctx.theme.borrow().is_dark());
+    deco.accent = color(palette.taskbar_entry_focus);
+    let fancy = look::decorated(&deco);
     let bounds = canvas.bounds();
-    canvas.clear(color(palette.taskbar_bg));
+    fill_bar(canvas, bounds, palette.taskbar_bg, &deco);
     canvas.fill_rect(
-        Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + 1),
+        Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + s),
         color(palette.overlay_border),
     );
     let hover = ctx.bar_hover.get();
@@ -162,11 +248,34 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     } else {
         palette.taskbar_entry
     };
-    canvas.fill_rounded_rect(rect(START_BUTTON), 4.0, color(start_fill));
+    if fancy {
+        // The mockup's start button: always the accent, glossy, with a halo.
+        let button = rect(START_BUTTON, s).shrink(2 * s);
+        look::halo(canvas, button, 6.0 * s as f32, &deco);
+        let fill = if menu_open || hover == Some(BarHover::Start) {
+            uitheme::mix(palette.taskbar_entry_focus, 0xFF_FF_FF, 1, 6)
+        } else {
+            palette.taskbar_entry_focus
+        };
+        look::face(canvas, button, 6.0 * s as f32, color(fill), &deco);
+    } else {
+        look::face(
+            canvas,
+            rect(START_BUTTON, s),
+            4.0 * s as f32,
+            color(start_fill),
+            &deco,
+        );
+    }
+    let start_fill = if fancy {
+        palette.taskbar_entry_focus
+    } else {
+        start_fill
+    };
     let start_ink = color(uitheme::text_on(start_fill));
     canvas.draw_text(
         "LazyOS",
-        rect(START_BUTTON),
+        rect(START_BUTTON, s),
         &TextStyle::new(start_ink, TEXT).middle().bold().centered(),
     );
 
@@ -188,21 +297,29 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         } else {
             palette.taskbar_entry
         };
-        let area = rect(*slot);
-        canvas.fill_rounded_rect(area, 3.0, color(fill));
-        if hover == Some(BarHover::Entry(index)) {
-            canvas.stroke_rounded_rect(area, 3.0, color(palette.overlay_border), 1.0);
-        }
-        // Readable on the entry whatever colour the user picked (#502).
-        let ink = if window.minimized {
-            uitheme::mix(uitheme::text_on(fill), fill, 1, 2)
+        let area = rect(*slot, s);
+        let is_focused = focused == Some(window.surface) && !window.minimized;
+        let hovered = hover == Some(BarHover::Entry(index));
+        let ink = if fancy {
+            paint_entry(canvas, area, s, &palette, &deco, is_focused, hovered);
+            entry_ink(&palette, is_focused, window.minimized)
         } else {
-            uitheme::text_on(fill)
+            let radius = 3.0 * s as f32;
+            look::face(canvas, area, radius, color(fill), &deco);
+            if hovered {
+                canvas.stroke_rounded_rect(area, radius, color(palette.overlay_border), s as f32);
+            }
+            // Readable on the entry whatever colour the user picked (#502).
+            if window.minimized {
+                uitheme::mix(uitheme::text_on(fill), fill, 1, 2)
+            } else {
+                uitheme::text_on(fill)
+            }
         };
         let label = Rect::new(
-            area.left + ENTRY_PAD,
+            area.left + ENTRY_PAD * s,
             area.top,
-            area.right - ENTRY_PAD,
+            area.right - ENTRY_PAD * s,
             area.bottom,
         );
         canvas.push_clip(label);
@@ -214,6 +331,6 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         canvas.pop_clip();
     }
 
-    let clock = rect(ctx.clock_rect());
+    let clock = rect(ctx.clock_rect(), s);
     canvas.draw_text(&ctx.clock.borrow(), clock, &clock_style(ctx).centered());
 }

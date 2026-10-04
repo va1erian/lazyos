@@ -200,12 +200,14 @@ fn clock_nanosleep(clock: u64, flags: u64, req: &[i64; 2], rem: &mut [i64; 2]) -
 
 mod affinity;
 mod brk_stack;
+mod console_sigchld;
 mod creds;
 mod epoll;
 mod fd_table;
 mod inet_calls;
 mod inet_core;
 mod inet_soak;
+mod inet_timeouts;
 mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
@@ -217,12 +219,14 @@ mod stat_miss;
 
 pub(super) use affinity::*;
 pub(super) use brk_stack::*;
+pub(super) use console_sigchld::*;
 pub(super) use creds::*;
 pub(super) use epoll::*;
 pub(super) use fd_table::*;
 pub(super) use inet_calls::*;
 pub(super) use inet_core::*;
 pub(super) use inet_soak::*;
+pub(super) use inet_timeouts::*;
 pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
@@ -233,6 +237,15 @@ pub(super) use shebang::*;
 pub(super) use stat_miss::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "linux_console_read_ignores_default_sigchld",
+        console_read_ignores_default_sigchld,
+    ),
+    (
+        "linux_console_read_sigchld_restart",
+        console_read_sigchld_restart,
+    ),
+    ("linux_console_read_sigchld_soak", console_read_sigchld_soak),
     ("linux_inet_requests_and_states", inet_requests_and_states),
     ("linux_inet_pump_moves_bytes", inet_pump_moves_bytes),
     (
@@ -269,6 +282,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("linux_inet_netd_restart", inet_netd_restart),
     ("linux_inet_random_calls", inet_random_calls),
+    ("linux_inet_timeout_options", inet_timeout_options),
+    ("linux_inet_recv_timeout", inet_recv_timeout),
+    ("linux_inet_udp_recv_timeout", inet_udp_recv_timeout),
+    ("linux_inet_zero_timeout_waits", inet_zero_timeout_waits),
+    (
+        "linux_inet_timeout_wait_interrupted",
+        inet_timeout_wait_interrupted,
+    ),
+    ("linux_inet_send_timeout", inet_send_timeout),
+    ("linux_inet_accept_timeout", inet_accept_timeout),
+    ("linux_inet_connect_timeout", inet_connect_timeout),
+    ("linux_inet_timeout_soak", inet_timeout_soak),
     (
         "linux_getuid_family_reports_credentials",
         getuid_family_reports_credentials,

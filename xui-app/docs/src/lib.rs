@@ -48,13 +48,14 @@ ul, ol { margin: 8px 0; padding-left: 28px; }
 li { margin: 3px 0; }
 hr { border: 0; border-top: 1px solid #d0d7de; margin: 16px 0; }";
 
-/// The colours [`CSS`] sets, for the desktop's dark mode (GitHub dark).
-const DARK_CSS: &str = "body { color: #e6edf3; background: #202020; }
-h1, h2, hr, pre, th, td { border-color: #3d444d; }
-a { color: #4493f8; }
-code { background: #343434; }
-pre, pre code, th { background: #2b2b2b; }
-blockquote { border-left-color: #3d444d; color: #9198a1; }";
+/// The colours [`CSS`] sets, for the desktop's dark mode (xui's Midnight:
+/// navy page, cards for code and table headers).
+const DARK_CSS: &str = "body { color: #e4e8f5; background: #232a40; }
+h1, h2, hr, pre, th, td { border-color: #3a4364; }
+a { color: #7fb4ff; }
+code { background: #2e3756; }
+pre, pre code, th { background: #2a3250; }
+blockquote { border-left-color: #4cbf82; color: #9aa3c2; }";
 
 /// `html` from [`page`], [`load_file`] or [`error_page`] in the desktop's
 /// mode: dark mode adds [`DARK_CSS`] after the page stylesheet.
@@ -172,7 +173,7 @@ mod tests {
     #[test]
     fn dark_mode_adds_its_stylesheet_before_the_body() {
         let html = themed(page("<body>text"), true);
-        assert!(html.contains("<style>body { color: #e6edf3;"));
+        assert!(html.contains("<style>body { color: #e4e8f5;"));
         assert_eq!(html.matches(DARK_CSS).count(), 1);
         assert!(html.find(DARK_CSS).unwrap() < html.find("<body>").unwrap());
         assert_eq!(themed(page("x"), false), page("x"));

@@ -12,6 +12,10 @@ use crate::ring::{erst_entry, EventRing, ProducerRing, TrbMem};
 use crate::trb::{self, kind, request, Trb, CHAIN, CYCLE, IDT, IOC};
 use crate::Error;
 
+mod bulk;
+mod extcap;
+mod route;
+
 /// A segment in ordinary memory at a pretend bus address.
 struct VecMem {
     trbs: Vec<Trb>,
@@ -305,22 +309,14 @@ fn input_context_layout() {
         let mut input = InputContext::new(&mut buffer, csz64).unwrap();
         input
             .slot(&SlotContext {
-                route: 0,
-                speed: Speed::High,
                 entries: 3,
-                root_port: 2,
+                ..SlotContext::root(Speed::High, 2)
             })
             .unwrap();
         input
             .endpoint(
                 3,
-                &EndpointContext {
-                    kind: EndpointType::InterruptIn,
-                    max_packet: 8,
-                    interval: 6,
-                    dequeue: 0x1234_5000 | 1,
-                    average_trb: 8,
-                },
+                &EndpointContext::interrupt(EndpointType::InterruptIn, 8, 0, 6, 0x1234_5000 | 1),
             )
             .unwrap();
         assert_eq!(input.added(), 0b1001, "slot and DCI 3");
@@ -346,12 +342,7 @@ fn input_context_layout() {
 fn input_context_refuses_bad_fields() {
     let mut buffer = vec![0u32; 33 * 8];
     let mut input = InputContext::new(&mut buffer, false).unwrap();
-    let slot = SlotContext {
-        route: 0,
-        speed: Speed::Full,
-        entries: 1,
-        root_port: 1,
-    };
+    let slot = SlotContext::root(Speed::Full, 1);
     assert!(input
         .slot(&SlotContext {
             root_port: 0,
@@ -365,13 +356,7 @@ fn input_context_refuses_bad_fields() {
             ..slot
         })
         .is_err());
-    let ep = EndpointContext {
-        kind: EndpointType::Control,
-        max_packet: 8,
-        interval: 0,
-        dequeue: 0x1000 | 1,
-        average_trb: 8,
-    };
+    let ep = EndpointContext::control(8, 0x1000 | 1);
     assert!(input.endpoint(0, &ep).is_err());
     assert!(input.endpoint(32, &ep).is_err());
     assert!(input
@@ -443,6 +428,8 @@ fn register_helpers() {
     assert_eq!(Speed::of_port(3 << 10 | portsc::CCS), Some(Speed::High));
     assert_eq!(Speed::of_port(0), None);
     assert_eq!(Speed::Low.default_max_packet0(), 8);
+    assert_eq!(Speed::Full.default_max_packet0(), 64);
+    assert_eq!(Speed::Super.default_max_packet0(), 512);
 }
 
 #[test]
@@ -459,4 +446,31 @@ fn portsc_writes_never_echo_dangerous_bits() {
     let ack = portsc::ack_changes(current);
     assert_eq!(ack & portsc::CHANGES, portsc::CSC | portsc::PRC);
     assert_eq!(ack & (portsc::PED | portsc::PR), 0);
+}
+
+#[test]
+fn abandon_skips_what_a_halted_endpoint_left() {
+    let mut ring = ProducerRing::new(VecMem::new(8, 0x4000)).unwrap();
+    let (trbs, count) = trb::control_transfer(&request::get_descriptor(1, 0, 18), 0x9000);
+    let last = ring.enqueue(&trbs[..count], true).unwrap();
+    assert_eq!(ring.abandon(), (0x4000 + 3 * 16) | 1, "next TRB, cycle 1");
+    assert_eq!(ring.in_flight(), 0);
+    assert_eq!(
+        ring.retire(last),
+        Err(Error::BadPointer),
+        "nothing in flight"
+    );
+    // Past the Link (slot 7) the cycle state flips.
+    ring.enqueue(&trbs[..count], true).unwrap();
+    ring.abandon();
+    ring.enqueue(&[trb::no_op_command()], false).unwrap();
+    assert_eq!(ring.abandon(), 0x4000);
+    assert_eq!(
+        trb::set_tr_dequeue(2, 3, 0x4000 | 1),
+        Trb {
+            parameter: 0x4001,
+            status: 0,
+            control: (kind::SET_TR_DEQUEUE as u32) << 10 | 2 << 24 | 3 << 16,
+        }
+    );
 }

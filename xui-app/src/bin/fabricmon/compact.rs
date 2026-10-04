@@ -2,6 +2,7 @@
 //! endpoints, queued messages, registry names). Sibling of `render.rs`, which
 //! keeps the full panel.
 
+use xui_core::theme::look;
 use xui_app::compact;
 use xui_app::dashboard as dash;
 use xui_core::{Canvas, Rect, Theme};
@@ -15,8 +16,8 @@ const ROW_H: i32 = 20;
 
 /// Paint the compact view of `state` over the whole client area.
 pub(super) fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
-    let bounds = canvas.bounds();
-    canvas.clear(theme.background);
+    let bounds = xui_app::hidpi::design_bounds(canvas);
+    look::paint_background(canvas, bounds, bounds, &theme);
     let title = Rect::new(
         bounds.left + 12,
         bounds.top,

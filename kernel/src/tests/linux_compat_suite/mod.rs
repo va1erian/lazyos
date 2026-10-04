@@ -8,6 +8,7 @@
 use super::*;
 
 mod ctty;
+mod etcmap;
 mod fdshare;
 mod files;
 mod futex;
@@ -19,6 +20,7 @@ mod termios;
 mod wait;
 
 use ctty::*;
+use etcmap::*;
 use fdshare::*;
 use files::*;
 use futex::*;
@@ -160,7 +162,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_peek_and_dontwait", msg_peek_and_dontwait),
     ("compat_msg_sendmsg_recvmsg", msg_sendmsg_recvmsg),
     ("compat_msg_bad_flags", msg_bad_flags),
+    ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
+    ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
     ("compat_select_and_ppoll", select_and_ppoll),
     ("compat_select_timeout_and_ebadf", select_timeout_and_ebadf),
     ("compat_select_soak", select_soak),
@@ -177,10 +181,23 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_proc_files", proc_files),
     ("compat_dup3_renameat2_faccessat", dup3_renameat2_faccessat),
     ("compat_files_soak", files_soak),
+    ("compat_etc_backed_files", etc_backed_files),
+    ("compat_etc_backed_files_missing", etc_backed_files_missing),
+    (
+        "compat_etc_backed_files_untrusted",
+        etc_backed_files_untrusted,
+    ),
+    ("compat_etc_backed_files_soak", etc_backed_files_soak),
+    ("compat_tls_client_names", tls_client_names),
     ("compat_termios_roundtrip", termios_roundtrip),
     ("compat_termios_canonical_line", termios_canonical_line),
     ("compat_termios_soak", termios_soak),
     ("compat_pty_slave_owner", pty_slave_owner),
     ("compat_ctty_job_control", ctty_job_control),
     ("compat_ctty_soak", ctty_soak),
+    (
+        "compat_terminal_signal_stays_in_session",
+        terminal_signal_stays_in_session,
+    ),
+    ("compat_terminal_signal_soak", terminal_signal_soak),
 ];

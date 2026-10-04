@@ -22,8 +22,9 @@ use crate::wizard::ChooseScreen;
 pub const MARGIN: i32 = 12;
 
 /// A rectangle from a left/top corner and a size.
-pub fn rect(x: i32, y: i32, width: i32, height: i32) -> Rect {
-    Rect::new(x, y, x + width, y + height)
+pub fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
+    // Design pixels, at the desktop's UI scale (docs/hidpi-plan.md).
+    xui_app::hidpi::rect(x, y, w, h)
 }
 
 /// Renders a widget-construction error as the friendly string the app logs.
@@ -56,7 +57,7 @@ pub enum View {
 
 /// Builds the view for `model`'s current screen at the window's client size.
 pub fn build(ui: &Ui<Msg>, model: &Model) -> Result<View, String> {
-    let bounds = ui.client_rect();
+    let bounds = xui_app::hidpi::design_rect(ui);
     // A window may briefly report an empty client rect; a floor keeps the
     // widgets' rectangles non-negative until the first resize rebuilds them.
     let width = bounds.width().max(360);

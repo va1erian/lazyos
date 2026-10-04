@@ -6,7 +6,7 @@ use user::messenger::display::Rect;
 
 use super::surface::Surface;
 use super::theme::{
-    BORDER, CASCADE_STEP, CASCADE_VISIBLE_W, ICON_H, ICON_W, PAD, TITLE_H, WINDOW_GAP,
+    border, cascade_step, cascade_visible_w, icon_h, icon_w, pad, title_h, window_gap,
 };
 
 /// Place a new window of content size `width`×`height` inside the work area
@@ -18,7 +18,7 @@ use super::theme::{
 /// real window rectangles, not from a surface count, so a cell freed by a
 /// closed window is reused and windows of different sizes cannot be covered.
 /// When every cell is taken, placement cascades from the top-left by
-/// [`CASCADE_STEP`] per window, keeping the whole window (and so its
+/// [`cascade_step()`] per window, keeping the whole window (and so its
 /// controls) inside the area when it fits, and only its title bar when it
 /// cannot.
 pub(super) fn place_window(
@@ -27,8 +27,8 @@ pub(super) fn place_window(
     width: i32,
     height: i32,
 ) -> (i32, i32) {
-    let win_w = width + BORDER * 2;
-    let win_h = height + TITLE_H + BORDER;
+    let win_w = width + border() * 2;
+    let win_h = height + title_h() + border();
     let others = || {
         surfaces
             .iter()
@@ -36,20 +36,20 @@ pub(super) fn place_window(
     };
     let place = |x: i32, y: i32| {
         (
-            area.x + clamp_on_screen(x, win_w, area.w, CASCADE_VISIBLE_W),
-            area.y + clamp_on_screen(y, win_h, area.h, TITLE_H + BORDER),
+            area.x + clamp_on_screen(x, win_w, area.w, cascade_visible_w()),
+            area.y + clamp_on_screen(y, win_h, area.h, title_h() + border()),
         )
     };
 
-    let step_x = win_w + WINDOW_GAP;
-    let step_y = win_h + WINDOW_GAP;
-    let columns = (((area.w - PAD * 2).max(0) + WINDOW_GAP) / step_x).max(1);
-    let rows = (((area.h - PAD * 2).max(0) + WINDOW_GAP) / step_y).max(1);
+    let step_x = win_w + window_gap();
+    let step_y = win_h + window_gap();
+    let columns = (((area.w - pad() * 2).max(0) + window_gap()) / step_x).max(1);
+    let rows = (((area.h - pad() * 2).max(0) + window_gap()) / step_y).max(1);
 
     for cell in 0..columns * rows {
         let (x, y) = place(
-            PAD + (cell % columns) * step_x,
-            PAD + (cell / columns) * step_y,
+            pad() + (cell % columns) * step_x,
+            pad() + (cell / columns) * step_y,
         );
         let candidate = Rect::new(x, y, win_w, win_h);
         if others().all(|surface| surface.window().intersect(candidate).is_empty()) {
@@ -60,9 +60,9 @@ pub(super) fn place_window(
     // Every cell is covered: cascade by how many windows are open, wrapping
     // once the offset would run off the area so it never sticks at one spot.
     let count = others().count() as i32;
-    let steps = ((area.w.min(area.h) - PAD * 2) / CASCADE_STEP).max(1);
-    let step = (count % steps + 1) * CASCADE_STEP;
-    place(PAD + step, PAD + step)
+    let steps = ((area.w.min(area.h) - pad() * 2) / cascade_step()).max(1);
+    let step = (count % steps + 1) * cascade_step();
+    place(pad() + step, pad() + step)
 }
 
 /// Clamp a window offset along one axis of size `extent` so the window stays
@@ -76,9 +76,11 @@ fn clamp_on_screen(origin: i32, extent: i32, room: i32, visible: i32) -> i32 {
     }
 }
 
-/// The 10x10 sprite rectangle the cursor occupies at `point`.
+/// The rectangle the cursor sprite (10x10 design pixels, drawn at the UI
+/// scale) occupies at `point`.
 pub(super) fn cursor_rect(point: (i32, i32)) -> Rect {
-    Rect::new(point.0 - 1, point.1 - 1, 11, 11)
+    let scale = super::theme::scale();
+    Rect::new(point.0 - scale, point.1 - scale, 11 * scale, 11 * scale)
 }
 
 /// Where surface `id` iconifies to: the taskbar entry the shell reported with
@@ -88,5 +90,5 @@ pub(super) fn icon_rect(surfaces: &[Surface], screen_h: i32, id: u64) -> Rect {
         .iter()
         .find(|surface| surface.id == id)
         .and_then(|surface| surface.icon)
-        .unwrap_or(Rect::new(4, screen_h - ICON_H - 4, ICON_W, ICON_H))
+        .unwrap_or(Rect::new(4, screen_h - icon_h() - 4, icon_w(), icon_h()))
 }

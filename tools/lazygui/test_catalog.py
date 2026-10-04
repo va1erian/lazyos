@@ -21,6 +21,7 @@ from lazygui.testplan import demo_argv, demo_config  # noqa: E402
 from lazygui.test_catalog_apps import (  # noqa: E402,F401
     DoomTests, LinuxAppsTests, ModPlayerTests,
 )
+from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 
 
 class HomeDiskPlanTests(unittest.TestCase):
@@ -413,6 +414,23 @@ class ResetTests(unittest.TestCase):
         succeeded, _ = datavol.reset(str(self.path), busy=True)
         self.assertFalse(succeeded)
         self.assertEqual(self.path.read_bytes(), b"precious")
+
+
+class UsbImageTests(unittest.TestCase):
+    """The launcher can also write the USB stick image (docs/usb-stick.md)."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_build_variable(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "usb_image": True})
+        self.assertEqual(env["LAZYOS_USB_IMAGE"], "1")
+        self.assertEqual(env["LAZYOS_USB"], "1")
+        self.assertEqual(env["LAZYOS_SERVICES"], "1")
+
+    def test_off_by_default(self) -> None:
+        self.assertNotIn("LAZYOS_USB_IMAGE", catalog.build_env({**self.base(), "desktop": True}))
 
 
 if __name__ == "__main__":

@@ -231,6 +231,10 @@ fn run() -> ! {
     sys::write_str(UP_MARKER);
     sys::write_str(WM_MARKER);
     sys::write_str(SHELL_MARKER);
+    // The self-tests probe fixed 1x pixel positions: run them at scale 1, then
+    // put the desktop's scale back (no client has connected yet).
+    let scale = theme::scale() as u32;
+    theme::set_scale(1);
     for selftest in [
         keys::selftest_key_encoding,
         title::selftest_titles,
@@ -246,6 +250,7 @@ fn run() -> ! {
     ] {
         sys::write_str(selftest());
     }
+    theme::set_scale(scale);
 
     loop {
         // Input an animation held comes before anything newer.

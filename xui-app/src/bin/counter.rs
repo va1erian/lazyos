@@ -82,15 +82,17 @@ fn main() {
         };
         let cx = seed.0.min((area.width() - 8).max(0));
         let cy = seed.1.min((area.height() - 8).max(0));
+        // The offsets are design pixels; the centre is already on screen.
+        let s = xui_app::hidpi::layout_scale();
         let label = Label::new(
             ui,
-            Rect::new(cx - 140, cy - 100, cx + 140, cy - 40),
+            Rect::new(cx - 140 * s, cy - 100 * s, cx + 140 * s, cy - 40 * s),
             "0 clicks",
         )
         .expect("label");
         let button = Button::new(
             ui,
-            Rect::new(cx - 100, cy - 32, cx + 100, cy + 32),
+            Rect::new(cx - 100 * s, cy - 32 * s, cx + 100 * s, cy + 32 * s),
             "Click me",
         )
         .expect("button")

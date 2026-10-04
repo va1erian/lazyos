@@ -203,8 +203,13 @@ pub fn scan_registers_partitions() -> Result<(), String> {
     disk.data.lock()[..SECTOR_SIZE]
         .copy_from_slice(&mbr(&[entry(0x01, 10, 20), entry(0x83, 100, 300)]));
     check!(block::register(disk).is_ok(), "registering the disk failed");
-    partition::scan_disk(disk);
+    let count = partition::scan_disk(disk);
+    check!(count == 2, "scan_disk reported {count} partitions");
     let first = block::device("pt-scan0p1").ok_or("pt-scan0p1 missing")?;
+    check!(
+        partition::scan_disk(first) == 0,
+        "a partition was scanned for a nested table"
+    );
     let second = block::device("pt-scan0p2").ok_or("pt-scan0p2 missing")?;
     check!(
         first.sector_count() == 20 && second.sector_count() == 300,
@@ -213,6 +218,30 @@ pub fn scan_registers_partitions() -> Result<(), String> {
     check!(
         block::device("pt-scan0p3").is_none(),
         "an unused entry registered"
+    );
+    Ok(())
+}
+
+/// A bare FAT image's boot sector ends in 0x55AA too; whatever its boot code
+/// holds at the table offset is not a partition table (the issue #5 ramdisk).
+pub fn fat_boot_record_is_not_a_table() -> Result<(), String> {
+    for (offset, kind) in [(54usize, &b"FAT12"[..]), (82, &b"FAT32"[..])] {
+        let mut sector = mbr(&[entry(0x83, 100, 300)]);
+        sector[..3].copy_from_slice(&[0xEB, 0x3C, 0x90]);
+        sector[offset..offset + kind.len()].copy_from_slice(kind);
+        let table = parse_mbr(&sector, DISK_SECTORS, "t");
+        check!(
+            used(&table).is_empty(),
+            "a {:?} boot record was read as a table",
+            core::str::from_utf8(kind)
+        );
+    }
+    // A jump with no FAT string (a boot sector's own code) stays a table.
+    let mut sector = mbr(&[entry(0x83, 100, 300)]);
+    sector[0] = 0xEB;
+    check!(
+        used(&parse_mbr(&sector, DISK_SECTORS, "t")) == [1],
+        "an MBR starting with a jump lost its table"
     );
     Ok(())
 }
@@ -279,5 +308,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         partition_io_is_bounded_and_offset,
     ),
     ("partition_scan_registers", scan_registers_partitions),
+    (
+        "partition_fat_vbr_not_a_table",
+        fat_boot_record_is_not_a_table,
+    ),
     ("partition_io_soak", partition_io_soak),
 ];

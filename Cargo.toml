@@ -57,6 +57,14 @@ members = [
     # xHCI registers, TRBs, contexts and ring state machines for `usbd`
     # (docs/usb-hid-plan.md U0): pure `no_std` logic with host tests.
     "libs/xhci",
+    # ACPI tables (RSDP, XSDT/RSDT, FADT, MADT, HPET) for the kernel's timer
+    # and power code (docs/real-pc-boot-plan.md H2): a pure `no_std` walker of
+    # hostile firmware tables, with golden QEMU dumps and seeded fuzz.
+    "libs/acpi",
+    # USB Mass Storage Bulk-Only Transport and SCSI for `usbd`
+    # (docs/architecture/usb-storage.md): pure `no_std` logic with host tests
+    # against a model device and fuzz entry points.
+    "libs/usbmsc",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
@@ -96,7 +104,7 @@ members = [
 # host-testable bindings crate and must not pull Rhai into the OS workspace.
 # `fuzz` holds the cargo-fuzz targets (libFuzzer, Linux CI only).
 # `lazyrad-os` is the same shape, built by `tools/lazyrad/build.py`.
-exclude = ["xui-app", "rhai-host", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
+exclude = ["xui-app", "rhai-host", "nettls", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
 resolver = "2"
 
 [build-dependencies]
@@ -110,12 +118,19 @@ bootloader = "0.11.17"
 # reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
 # a volume that stopped uncleanly (`Ext2::recover`).
 ext2fs = { path = "libs/ext2fs", features = ["check"] }
+# The USB stick image's FAT volumes (`build_support/usb_*.rs`); the same
+# version and features `bootloader` already pulls in.
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }
+# The TLS trust anchors written to `/system/etc/ssl/certs/ca-certificates.crt`
+# (docs/tls-plan.md §5.2): Mozilla's root program (CCADB), pinned exactly so
+# the root set changes only with a deliberate bump.
+webpki-root-certs = "=1.0.9"
 
 [profile.dev]
 panic = "abort"
@@ -125,6 +140,14 @@ opt-level = 2
 # rendering is orders of magnitude too slow for interactive use.
 [profile.dev.package."*"]
 opt-level = 3
+
+# The kernel and user programs are artifact build-dependencies of this crate,
+# so Cargo builds them, and the workspace libraries they link (ext2fs,
+# libmessenger, ...), with the `build-override` profile, which would otherwise
+# be opt-level 0 whatever `[profile.dev]` says. Unoptimised, `Vec<u8>` drop
+# and `resize` loop per byte and kernel stack frames run to 15 KiB.
+[profile.dev.build-override]
+opt-level = 2
 
 # User programs are embedded in the disk image, so keep them small and stripped
 # (a large ELF makes boot-time ATA reads painfully slow in QEMU).
@@ -138,6 +161,7 @@ opt-level = "s"
 # bootloader reads the whole file over slow BIOS disk calls at every boot.
 [profile.dev.package.kernel]
 debug = "line-tables-only"
+opt-level = 2
 
 [profile.release]
 panic = "abort"

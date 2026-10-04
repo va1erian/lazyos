@@ -9,6 +9,7 @@
 
 use super::*;
 
+mod capacity;
 mod class_map;
 mod fixture;
 mod irq;
@@ -32,6 +33,7 @@ mod sys_usb_policy;
 mod table_core;
 
 pub(super) const CORE: &[(&str, Test)] = table_core::CASES;
+pub(super) const CAPACITY: &[(&str, Test)] = capacity::CASES;
 pub(super) const CLASS_MAP: &[(&str, Test)] = class_map::CASES;
 pub(super) const IRQ: &[(&str, Test)] = irq::CASES;
 pub(super) const IRQ_EDGE: &[(&str, Test)] = irq_edge::CASES;

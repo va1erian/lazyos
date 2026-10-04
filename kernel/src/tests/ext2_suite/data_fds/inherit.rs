@@ -54,7 +54,7 @@ fn write_all(fd: u64, bytes: &[u8]) -> Result<(), String> {
 /// Run `body` as the forked task `child`, then return to `parent`. The child
 /// is native while it runs: a Linux task's syscall return would deliver
 /// signals from a kernel stack the harness never set up.
-fn as_child<T>(
+pub(super) fn as_child<T>(
     parent: usize,
     child: usize,
     body: impl FnOnce() -> Result<T, String>,
@@ -68,7 +68,7 @@ fn as_child<T>(
 }
 
 /// Bytes the heap and the slab allocator have handed out.
-fn live_bytes() -> usize {
+pub(super) fn live_bytes() -> usize {
     crate::mem::slab::stats().live_bytes + crate::mem::heap_stats().used
 }
 

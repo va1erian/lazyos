@@ -107,7 +107,7 @@ pub struct ConfdEditorApp {
 }
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    Rect::new(x, y, x + w, y + h)
+    crate::layout::rect(x, y, w, h)
 }
 
 /// Sets a widget's text only when it differs, so a focused field's caret is
@@ -121,6 +121,7 @@ fn set_text(widget: &impl HasText, text: &str) {
 impl ConfdEditorApp {
     /// Builds the window's widgets over `store`.
     pub fn build(ui: &mut Ui<Msg>, store: Rc<dyn ConfStore>) -> Result<ConfdEditorApp> {
+        crate::layout::set_dpi(ui.dpi());
         ui.on_close(|| Some(Msg::Close));
 
         let left = Panel::new(ui, rect(0, 0, LEFT_W, BODY_H))?;
