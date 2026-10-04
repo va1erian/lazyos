@@ -192,6 +192,8 @@ pub fn fast_present_layout_ops() -> Result<(), String> {
         );
     }
     unbind_screen()?;
+    // Its validation guard must end before the next bind (a kernel buffer).
+    drop(screen);
     task::harness::switch_current(task::KERNEL_TASK);
     let refused = process::dispatch_for_test(12, op::SET_LAYOUT, layout::BGRA, 0);
     check!(refused == failed(1), "non-owner set layout -> {refused:#x}");
@@ -291,6 +293,7 @@ pub fn fast_present_chunks_revalidate() -> Result<(), String> {
     check!(code == failed(EFAULT), "unmapped mid-present -> {code:#x}");
     check!(shows(4, 0, (0xF0, 0x80, 0x10))?, "first chunk not shown");
     unbind_screen()?;
+    drop(screen);
 
     let screen = bind_screen()?;
     let row = chunk_rows(screen.width) + 1;
