@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "generated": "2026-10-04T02:32:30Z",
+    "commit": "bd0c5679",
+    "accel": "whpx",
+    "settle_s": 30.0
+  },
+  "result": {
+    "window_s": 30.01,
+    "idle_fraction": 0.9930023325558147,
+    "switches_per_s": 401.23292235921355,
+    "wakes_per_s": 518.5604798400533,
+    "tasks": [
+      {
+        "slot": 10,
+        "name": "logd",
+        "wakes_per_s": 202.8657114295235,
+        "switches_per_s": 104.36521159613461,
+        "wakes": 6088,
+        "switches": 3132
+      },
+      {
+        "slot": 3,
+        "name": "messengerd",
+        "wakes_per_s": 64.27857380873041,
+        "switches_per_s": 64.27857380873041,
+        "wakes": 1929,
+        "switches": 1929
+      },
+      {
+        "slot": 0,
+        "name": "kernel",
+        "wakes_per_s": 49.75008330556481,
+        "switches_per_s": 49.75008330556481,
+        "wakes": 1493,
+        "switches": 1493
+      },
+      {
+        "slot": 1,
+        "name": "init",
+        "wakes_per_s": 41.35288237254248,
+        "switches_per_s": 41.31956014661779,
+        "wakes": 1241,
+        "switches": 1240
+      },
+      {
+        "slot": 11,
+        "name": "healthd",
+        "wakes_per_s": 39.95334888370543,
+        "switches_per_s": 39.92002665778074,
+        "wakes": 1199,
+        "switches": 1198
+      },
+      {
+        "slot": 15,
+        "name": "lazyshell",
+        "wakes_per_s": 37.6541152949017,
+        "switches_per_s": 37.68743752082639,
+        "wakes": 1130,
+        "switches": 1131
+      },
+      {
+        "slot": 17,
+        "name": "sysmond",
+        "wakes_per_s": 20.393202265911363,
+        "switches_per_s": 20.35988003998667,
+        "wakes": 612,
+        "switches": 611
+      },
+      {
+        "slot": 2,
+        "name": "xuid",
+        "wakes_per_s": 31.222925691436185,
+        "switches_per_s": 12.495834721759413,
+        "wakes": 937,
+        "switches": 375
+      },
+      {
+        "slot": 18,
+        "name": "terminal",
+        "wakes_per_s": 10.729756747750749,
+        "switches_per_s": 10.696434521826058,
+        "wakes": 322,
+        "switches": 321
+      },
+      {
+        "slot": 6,
+        "name": "timed",
+        "wakes_per_s": 10.529823392202598,
+        "switches_per_s": 10.529823392202598,
+        "wakes": 316,
+        "switches": 316
+      },
+      {
+        "slot": 5,
+        "name": "confd",
+        "wakes_per_s": 4.831722759080306,
+        "switches_per_s": 4.831722759080306,
+        "wakes": 145,
+        "switches": 145
+      },
+      {
+        "slot": 7,
+        "name": "inputd",
+        "wakes_per_s": 3.9986671109630123,
+        "switches_per_s": 3.9986671109630123,
+        "wakes": 120,
+        "switches": 120
+      },
+      {
+        "slot": 16,
+        "name": "audiod",
+        "wakes_per_s": 0.9996667777407531,
+        "switches_per_s": 0.9996667777407531,
+        "wakes": 30,
+        "switches": 30
+      }
+    ]
+  }
+}

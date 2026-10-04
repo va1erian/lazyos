@@ -69,6 +69,7 @@ pub fn lines_posting(raised: u16) {
 }
 
 pub fn on_wake(slot: usize, current: usize) {
+    super::wakeups::woke(slot);
     let chain = CHAIN.load(Ordering::Relaxed);
     if chain == 0 {
         return;
@@ -84,6 +85,7 @@ pub fn on_wake(slot: usize, current: usize) {
 }
 
 pub fn on_run(slot: usize) {
+    super::wakeups::ran(slot);
     let Some(stamp) = WAKE_STAMP.get(slot) else {
         return;
     };
@@ -217,6 +219,7 @@ pub fn service() {
             print(name, &summary, per_tick);
         }
     }
+    super::wakeups::report(now);
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);
@@ -242,7 +245,7 @@ fn print(name: &str, summary: &Summary, per_tick: u64) {
 
 /// Print with interrupts off: an interrupt handler that prints uses
 /// `try_print`, and must find the port free rather than held by this task.
-fn line(args: core::fmt::Arguments) {
+pub(super) fn line(args: core::fmt::Arguments) {
     x86_64::instructions::interrupts::without_interrupts(|| crate::serial::_print(args));
 }
 

@@ -38,3 +38,13 @@ controller), disk read and exec time. TCP throughput has a harness of its
 own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
 [`docs/perf/network.md`](../../docs/perf/network.md)), because its verdict is
 what crossed the wire, not a kernel histogram.
+
+## Idle wakeups (P7)
+
+`python tools/perf/idle.py` boots the desktop (`LAZYOS_DESKTOP=1
+LAZYOS_PERF=1`), touches nothing, and reads the kernel's `PERF:sched` lines
+(`kernel/src/perf/wakeups.rs`: cumulative per-slot wakes and switches, every
+2 s) over a window after the boot has settled. It prints, and writes to
+[`docs/perf/idle.md`](../../docs/perf/idle.md), the context switches and wakes
+per second of every task that had any; `--max-switches 10` fails above the P7
+exit target. Use `--no-build` to re-measure the current image.

@@ -21,7 +21,9 @@
 //! PERF:<metric>:n=<count> p50_us=<f> p90_us=<f> p99_us=<f> max_us=<f> mean_us=<f>
 //! ```
 //!
-//! `tools/perf/run.py` parses the last line of each metric.
+//! `tools/perf/run.py` parses the last line of each metric. Every report also
+//! prints the per-task wake and switch counters (`PERF:sched`, [`wakeups`]),
+//! which `tools/perf/idle.py` turns into an idle desktop's rates.
 //!
 //! Wake attribution: an interrupt sets the *chain stamp* (its TSC) for as long
 //! as its handler runs, and the device bottom half sets it to the raising
@@ -38,6 +40,8 @@ mod imp;
 mod ipcbench;
 #[cfg(lazyos_perf)]
 mod sleepbench;
+#[cfg(lazyos_perf)]
+mod wakeups;
 
 /// Read the time-stamp counter.
 #[inline(always)]
