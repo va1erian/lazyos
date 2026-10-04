@@ -20,12 +20,13 @@
 //! Requests of up to [`SMALL_MAX`] bytes (alignment included) are served from
 //! per-size-class slabs (`mem::slab`'s classes, P6.4): a free-list pop and
 //! push under one short lock, instead of a first-fit walk of a list that
-//! fragments under churn. The slabs are whole frames from the frame
-//! allocator, reached through the physical-memory map, so a pointer outside
-//! [`HEAP_START`]'s span is a slab slot; frames stay with their class once
-//! carved, like the list's high-water mark. Their bytes count against the
-//! heap ceiling and in [`stats`], so the heap's accounting covers both
-//! halves. When no frame is left the request falls back to the list.
+//! fragments under churn. A slab is one page-aligned page taken from the
+//! list itself (growing the heap like any allocation), so the heap's span,
+//! ceiling and frame use are exactly what they were; a page stays with its
+//! class once carved, like the list's high-water mark. Every request a class
+//! fits is served by its class, so `dealloc` finds the class from the layout
+//! (the `GlobalAlloc` contract hands back the allocation's own). [`stats`]
+//! counts a slab page's free slots as free, not used.
 //!
 //! # Interrupts
 //!
@@ -37,7 +38,8 @@
 //! permanent hang. Masking interrupts for the few hundred cycles an
 //! allocation holds the lock makes a preempted holder impossible on this
 //! single CPU. Growth runs inside the same masked section but with the heap
-//! lock released, taking only the frame allocator's lock.
+//! lock released, taking only the frame allocator's lock. Lock order: the
+//! slab lock, then the list's (a class takes its page from the list).
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -69,9 +71,14 @@ struct IrqSafeHeap(LockedHeap);
 unsafe impl GlobalAlloc for IrqSafeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if let Some(class) = small_class(layout) {
-            if let Some(ptr) = guarded(|| small_alloc(class)) {
-                return ptr as *mut u8;
-            }
+            return guarded(|| loop {
+                if let Some(slot) = small_alloc(class) {
+                    return slot as *mut u8;
+                }
+                if !grow(SLAB_PAGE) {
+                    return core::ptr::null_mut();
+                }
+            });
         }
         guarded(|| loop {
             if let Ok(ptr) = self.0.lock().allocate_first_fit(layout) {
@@ -84,13 +91,9 @@ unsafe impl GlobalAlloc for IrqSafeHeap {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if !in_list(ptr) {
-            // Only `small_alloc` hands out pointers outside the list's span,
-            // and only for a layout `small_class` accepts: the same layout
-            // comes back here (the `GlobalAlloc` contract).
-            if let Some(class) = small_class(layout) {
-                guarded(|| small_free(class, ptr as usize));
-            }
+        // Every layout a class fits was served by that class.
+        if let Some(class) = small_class(layout) {
+            guarded(|| small_free(class, ptr as usize));
             return;
         }
         if let Some(ptr) = core::ptr::NonNull::new(ptr) {
@@ -119,32 +122,35 @@ fn small_class(layout: Layout) -> Option<usize> {
         .position(|&size| need <= size)
 }
 
-/// Whether `ptr` lies in the linked-list heap's span.
-fn in_list(ptr: *mut u8) -> bool {
-    (HEAP_START..HEAP_START + HEAP_SPAN).contains(&(ptr as u64))
+/// The list allocation one slab page is.
+const SLAB_PAGE: Layout = match Layout::from_size_align(PAGE as usize, PAGE as usize) {
+    Ok(layout) => layout,
+    Err(_) => panic!("a page is a valid layout"),
+};
+
+/// Bytes of the pages carved into the heap's slabs.
+fn small_pages_bytes(classes: &[Class; SMALL_CLASSES]) -> usize {
+    classes.iter().map(|class| class.slabs).sum::<usize>() * PAGE as usize
 }
 
-/// Bytes of frames carved into the heap's slabs.
-fn small_frames_bytes(classes: &[Class; SMALL_CLASSES]) -> u64 {
-    classes.iter().map(|class| class.slabs as u64).sum::<u64>() * PAGE
-}
-
-/// Pop a slot of `class`, carving a new frame when the class is empty and
-/// the ceiling allows; `None` sends the request to the list.
+/// Pop a slot of `class`, carving a page from the list when the class is
+/// empty; `None` when the list has no page left (the caller grows it).
 fn small_alloc(class: usize) -> Option<usize> {
     let mut classes = SMALL.lock();
-    if let Some(slot) = classes[class].pop() {
-        classes[class].live += 1;
-        return Some(slot);
-    }
-    let ceiling = crate::limits::heap_max().min(HEAP_SPAN);
-    let committed = MAPPED.load(Ordering::Relaxed) + small_frames_bytes(&classes);
-    if committed + PAGE > ceiling || !classes[class].grow(class) {
-        return None;
+    if classes[class].pop_free().is_none() {
+        let page = ALLOCATOR.0.lock().allocate_first_fit(SLAB_PAGE).ok()?;
+        classes[class].carve(page.as_ptr() as usize, class);
     }
     let slot = classes[class].pop()?;
     classes[class].live += 1;
     Some(slot)
+}
+
+/// Test hook: slots handed out per small class.
+#[cfg(lazyos_tests)]
+pub fn small_live() -> [usize; SMALL_CLASSES] {
+    let classes = SMALL.lock();
+    core::array::from_fn(|class| classes[class].live)
 }
 
 /// Push a slot back onto `class`.
@@ -154,7 +160,7 @@ fn small_free(class: usize, slot: usize) {
     classes[class].push(slot);
 }
 
-/// `(frame bytes, bytes handed out)` of the heap's slabs.
+/// `(page bytes, bytes handed out)` of the heap's slabs.
 fn small_usage() -> (usize, usize) {
     let classes = SMALL.lock();
     let used = classes
@@ -162,7 +168,7 @@ fn small_usage() -> (usize, usize) {
         .zip(CLASSES)
         .map(|(class, size)| class.live * size)
         .sum();
-    (small_frames_bytes(&classes) as usize, used)
+    (small_pages_bytes(&classes), used)
 }
 
 /// Run one heap critical section with interrupts off.
@@ -229,9 +235,7 @@ pub unsafe fn init(size: u64) {
 /// Runs with interrupts off and the heap lock released.
 fn grow(layout: Layout) -> bool {
     let mapped = MAPPED.load(Ordering::Relaxed);
-    let ceiling = crate::limits::heap_max()
-        .min(HEAP_SPAN)
-        .saturating_sub(small_usage().0 as u64);
+    let ceiling = crate::limits::heap_max().min(HEAP_SPAN);
     // The allocator needs the payload, alignment slack and a hole header.
     let need = (layout.size() as u64)
         .saturating_add(layout.align() as u64)
@@ -279,16 +283,17 @@ pub struct HeapStats {
     pub grow_failures: u64,
 }
 
-/// Snapshot the heap's counters without allocating: the list and the small
-/// object slabs together.
+/// Snapshot the heap's counters without allocating. A slab page is one
+/// list allocation; only its handed-out slots count as used.
 pub fn stats() -> HeapStats {
     guarded(|| {
-        let (slab_total, slab_used) = small_usage();
+        let (slab_pages, slab_used) = small_usage();
         let heap = ALLOCATOR.0.lock();
+        let used = heap.used() - slab_pages + slab_used;
         HeapStats {
-            total: heap.size() + slab_total,
-            used: heap.used() + slab_used,
-            free: heap.free() + (slab_total - slab_used),
+            total: heap.size(),
+            used,
+            free: heap.size() - used,
             max: crate::limits::heap_max().min(HEAP_SPAN) as usize,
             growths: GROWTHS.load(Ordering::Relaxed),
             grow_failures: GROW_FAILURES.load(Ordering::Relaxed),

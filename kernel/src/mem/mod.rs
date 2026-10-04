@@ -55,6 +55,8 @@ pub fn usable_ram() -> u64 {
 
 #[cfg(lazyos_tests)]
 pub use heap::harness as heap_harness;
+#[cfg(lazyos_tests)]
+pub use heap::small_live as heap_small_live;
 pub use heap::{locked as heap_locked, HeapStats};
 
 /// Snapshot of the kernel heap's counters; see [`HeapStats`]. The system-stats

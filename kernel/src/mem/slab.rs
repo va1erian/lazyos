@@ -175,6 +175,21 @@ impl Class {
         }
     }
 
+    /// The free-list head without taking it, or `None` when the class has no
+    /// free slot.
+    pub(super) fn pop_free(&self) -> Option<usize> {
+        (self.free != 0).then_some(self.free)
+    }
+
+    /// Thread the slots of the page at `base` (page aligned, owned by the
+    /// caller from now on by this class) into the free list.
+    pub(super) fn carve(&mut self, base: usize, class: usize) {
+        for offset in (0..FRAME_SIZE).step_by(CLASSES[class]) {
+            self.push(base + offset);
+        }
+        self.slabs += 1;
+    }
+
     /// Pop the free-list head.
     pub(super) fn pop(&mut self) -> Option<usize> {
         if self.free == 0 {
@@ -202,11 +217,7 @@ impl Class {
         let Some(phys) = super::alloc_frame() else {
             return false;
         };
-        let base = super::phys_to_virt(phys).as_u64() as usize;
-        for offset in (0..FRAME_SIZE).step_by(CLASSES[class]) {
-            self.push(base + offset);
-        }
-        self.slabs += 1;
+        self.carve(super::phys_to_virt(phys).as_u64() as usize, class);
         true
     }
 }

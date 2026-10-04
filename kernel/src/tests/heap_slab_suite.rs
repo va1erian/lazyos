@@ -5,24 +5,27 @@ use alloc::alloc::{alloc as raw_alloc, dealloc as raw_dealloc};
 use alloc::boxed::Box;
 use core::alloc::Layout;
 
-/// Whether `ptr` lies in the linked-list heap's span (else a slab slot).
-fn in_list(ptr: *const u8) -> bool {
-    (mem::HEAP_START..mem::HEAP_START + (1 << 39)).contains(&(ptr as u64))
-}
-
-/// Allocations of up to 2 KiB come from the slabs (outside the list's span),
-/// larger ones from the list; every one is aligned as asked and reads back
+/// Allocations of up to 2 KiB come from the slab classes (the 64-byte class
+/// counts 1000 more live slots for 1000 48-byte boxes), larger ones from the
+/// list (no class changes); every one is aligned as asked and reads back
 /// intact, and the heap's statistics count both and return to where they
 /// were.
 pub fn small_objects_use_slabs() -> Result<(), String> {
     let before = mem::heap_stats();
+    let live_before = mem::heap_small_live();
     let mut small: Vec<Box<[u8; 48]>> = Vec::with_capacity(1000);
     for index in 0..1000usize {
         small.push(Box::new([index as u8; 48]));
     }
+    let mut expected = live_before;
+    expected[1] += 1000;
+    check!(
+        mem::heap_small_live() == expected,
+        "slab classes hold {:?} live slots, expected {expected:?}",
+        mem::heap_small_live()
+    );
     for (index, block) in small.iter().enumerate() {
         let ptr = block.as_ptr();
-        check!(!in_list(ptr), "a 48-byte box came from the list at {ptr:p}");
         check!(
             ptr as usize % 64 == 0,
             "a 48-byte box at {ptr:p} is not slot-aligned"
@@ -33,7 +36,10 @@ pub fn small_objects_use_slabs() -> Result<(), String> {
         );
     }
     let big: Vec<u8> = vec![0x5a; 8192];
-    check!(in_list(big.as_ptr()), "an 8 KiB block left the list");
+    check!(
+        mem::heap_small_live() == expected,
+        "an 8 KiB block was taken from a slab class"
+    );
     let during = mem::heap_stats();
     check!(
         during.used >= before.used + 1000 * 64 + 8192,
@@ -54,8 +60,8 @@ pub fn small_objects_use_slabs() -> Result<(), String> {
         let ptr = unsafe { raw_alloc(layout) };
         check!(!ptr.is_null(), "{size}/{align} refused");
         check!(
-            ptr as usize % align == 0 && !in_list(ptr),
-            "{size}/{align} at {ptr:p}: misaligned or not a slab slot"
+            ptr as usize % align == 0,
+            "{size}/{align} at {ptr:p}: misaligned"
         );
         // SAFETY: `ptr` is a live allocation of `layout`.
         unsafe {
@@ -67,7 +73,7 @@ pub fn small_objects_use_slabs() -> Result<(), String> {
     drop(big);
     let after = mem::heap_stats();
     check!(
-        after.used == before.used,
+        after.used == before.used && mem::heap_small_live() == live_before,
         "{} bytes in use after, {} before",
         after.used,
         before.used
