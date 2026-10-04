@@ -111,7 +111,10 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual(manifest["mime"], [{"type": "application/x-lazywriter",
                                              "verbs": ["open", "edit"]}])
         self.assertEqual(manifest["permissions"]["interfaces"],
-                         ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.clipboard.v1"])
+                         ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.clipboard.v1",
+                          "os.lazy.confd.v1"])
+        # Printing (docs/xui-writer.md): IPP to the printer, the address in confd.
+        self.assertEqual(manifest["permissions"]["network"], ["outbound"])
         for size in (16, 32, 128):
             self.assertTrue((core_packages.SOURCES / "writer" / "icons" / f"app-{size}.png").is_file())
 
