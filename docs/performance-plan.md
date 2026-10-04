@@ -3,7 +3,14 @@
 Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
 (the kernel wake path) are built; their measurements, so far on the dev
 profile under WHPX, are in [`perf/report.md`](perf/report.md) and
-[`perf/history.md`](perf/history.md). P2 onward is not started.
+[`perf/history.md`](perf/history.md). P3 (branch `perf/p3-cursor-display`)
+has the cursor overlay (P3.1), the chunked row-copy present with ops 7/8
+(P3.2; write-combining through PAT already existed, bare metal only), pointer
+coalescing and damage-only click repaints (P3.4, P3.5), one-way `inputd`
+notes (P3.6), parked `xui-app` clients (P3.8) and the 200 Hz PS/2 rate
+(P3.9); not done: zero-copy scanout (P3.3), interrupt-driven `usbd` (P3.7),
+the Terminal's pty on readiness, and the P2-dependent frame pacing. P4 onward is
+not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not

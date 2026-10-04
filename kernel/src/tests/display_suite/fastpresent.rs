@@ -286,6 +286,7 @@ pub fn fast_present_chunks_revalidate() -> Result<(), String> {
     let page = (screen.va + last_row as u64 * screen.row_bytes()) & !(PAGE - 1);
     HOLE.store(page, Ordering::Relaxed);
     paint(&screen, 4, 0, (0xF0, 0x80, 0x10));
+    let _ = present_hooks::take_breaths();
     present_hooks::set_hook(Some(unmap_hole_at_first_breath));
     let code = present(0, 0, screen.width, screen.height);
     present_hooks::set_hook(None);
@@ -298,6 +299,8 @@ pub fn fast_present_chunks_revalidate() -> Result<(), String> {
     let screen = bind_screen()?;
     let row = chunk_rows(screen.width) + 1;
     paint(&screen, 6, row, (0x12, 0x34, 0x56));
+    // Breaths are numbered from the last take: restart the count.
+    let _ = present_hooks::take_breaths();
     present_hooks::set_hook(Some(unbind_at_first_breath));
     let code = present(0, 0, screen.width, screen.height);
     present_hooks::set_hook(None);
