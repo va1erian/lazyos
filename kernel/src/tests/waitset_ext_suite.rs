@@ -104,6 +104,16 @@ pub fn fd_ready_masks() -> Result<(), String> {
             == Err(ChannelError::BadParcel),
         "descriptor bits without WAIT_FD were accepted"
     );
+    // The syscall gate's filter agrees with what `wait_any` takes.
+    let known = channels::wait_flags_known;
+    check!(
+        known(flags) && known(WAIT_DEADLINE_NS) && known(channels::WAIT_RAW_INPUT),
+        "the gate refuses flags wait_any takes"
+    );
+    check!(
+        !known(7 << WAIT_FD_SHIFT) && !known(1 << 30),
+        "the gate takes flags wait_any refuses"
+    );
     check!(
         channels::fd_watchers() == 0,
         "{} descriptor watchers left",

@@ -87,6 +87,15 @@ pub fn fd_watchers() -> usize {
     FD_WATCHING.load(Ordering::Relaxed)
 }
 
+/// Whether `flags` uses only what [`wait_any`] knows: doorbells, the
+/// nanosecond flag, and a descriptor number with [`WAIT_FD`] (the syscall
+/// gate refuses anything else before the op runs).
+pub fn wait_flags_known(flags: u64) -> bool {
+    let low = flags & ((1 << WAIT_FD_SHIFT) - 1);
+    let fd = flags >> WAIT_FD_SHIFT;
+    low & !(WAIT_DOORBELLS | WAIT_DEADLINE_NS) == 0 && (fd == 0 || low & WAIT_FD != 0)
+}
+
 /// Park until one of `handles` has a message (or its peer closed), or until
 /// one of the doorbells in `flags` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`],
 /// [`WAIT_INET`], [`WAIT_FD`]) rings, or until `deadline` passes (absolute
