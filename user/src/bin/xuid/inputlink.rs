@@ -21,7 +21,7 @@ use user::messenger::{errno, Error};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::pointer_feed::{supersedes, MAX_EVENTS};
+use super::pointer_feed::{forwarded, supersedes, MAX_EVENTS};
 
 /// Ticks (100 Hz) between attempts to reach `inputd`.
 const RETRY_TICKS: u64 = 100;
@@ -149,6 +149,8 @@ impl Compositor {
     /// Button edges and wheel notches are never merged away.
     fn apply_input_events(&mut self) -> bool {
         let mut pending: Option<PointerState> = None;
+        // The forwarded buttons held before `pending`.
+        let mut before = self.input.buttons;
         let alive = loop {
             if !self.held.is_empty() && self.held.room() < MAX_EVENTS {
                 // An animation filled the held queue: leave the rest queued
@@ -160,9 +162,11 @@ impl Compositor {
             };
             match link.poll_event() {
                 Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
-                    match pending {
-                        Some(old) if !supersedes(&old, &state) => self.apply_pointer(&old),
-                        _ => {}
+                    if let Some(old) = pending {
+                        if !supersedes(before, &old, &state) {
+                            self.apply_pointer(&old);
+                            before = forwarded(old.buttons);
+                        }
                     }
                     pending = Some(state);
                 }
