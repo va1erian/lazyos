@@ -70,9 +70,11 @@ KNOCK_PERIOD_S = 0.05
 
 def build_image() -> Path:
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NET="1", LAZYOS_PERF="1")
-    if not (ROOT / "target" / "xui" / "xui-shell.elf").is_file():
-        print("building xui apps: python tools/xui/build.py", flush=True)
-        subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT, check=True)
+    # Always: the image embeds target/xui/*.elf as they are, so building them
+    # only when missing measured stale apps after an xui-app change. Cargo
+    # makes an unchanged rebuild cheap.
+    print("building xui apps: python tools/xui/build.py", flush=True)
+    subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT, check=True)
     print("building: LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1 cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
