@@ -46,6 +46,10 @@ jobs:
           # skip cleanly and the device core must work without an IDE drive.
           - name: q35-virtio
             args: "--machine q35 --virtio-disk --nic"
+          # A scratch NVMe disk for the NVMe request-path tests (nvme_suite,
+          # docs/nvme-install-plan.md N1).
+          - name: nvme
+            args: "--machine q35 --nvme"
     steps:
       - uses: actions/checkout@v4
 
@@ -78,4 +82,37 @@ jobs:
           path: |
             docs/test/**
             shots/kernel-tests/**
+          if-no-files-found: warn
+
+  # The dev image on QEMU's NVMe controller and nothing else: firmware boots
+  # from it, the kernel attaches nvme0 and mounts / from nvme0p3
+  # (docs/nvme-install-plan.md N1). Default build, judged on serial markers.
+  nvme-boot:
+    name: nvme-boot (bios)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/qemu
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      - name: Build the dev image
+        run: cargo build
+
+      - name: Boot from NVMe and judge it
+        run: >
+          python tools/boot/run.py --no-build --image target/lazyos.img
+          --media nvme --firmware bios --root nvme0p3
+          --ready "Hello from ring 3!" --serial-only --settle 0
+          --out shots/nvme-boot
+
+      - name: Upload the boot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvme-boot
+          path: shots/nvme-boot/**
           if-no-files-found: warn

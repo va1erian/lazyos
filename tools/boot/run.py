@@ -10,6 +10,8 @@ the serial markers and the pixels (``judge.py``):
     python tools/boot/run.py --firmware bios              # SeaBIOS, USB stick only
     python tools/boot/run.py --firmware uefi --media ide  # the stick as an IDE disk
     python tools/boot/run.py --media virtio --no-build    # legacy virtio-blk
+    python tools/boot/run.py --image target/lazyos.img --root nvme0p3 \\
+        --media nvme --firmware bios                      # the dev image on NVMe
     python tools/boot/run.py --image target/lazyos.img --root 'virtio0p3|ata0p3' \\
         --media virtio --firmware bios                    # the dev image, same judge
 
@@ -21,6 +23,11 @@ requires ``usbd`` to bind the keyboard (``USBD:HID:KBD``): the target PC may
 have no PS/2 port. ``usbd`` claims the controller once it starts, which is
 fine: the kernel never touches the stick. The drive is opened with ``snapshot=on``
 unless ``--persist``, so a run never changes the image.
+
+``--media nvme`` attaches the image to QEMU's NVMe controller as the only
+disk (docs/nvme-install-plan.md N1); with the dev image and ``--root nvme0p3``
+the kernel must mount its root from the NVMe disk. ``--serial-only`` judges a
+non-desktop build by its serial markers alone.
 
 Writes ``<out>/serial.log``, ``<out>/screen.png`` and ``<out>/report.json``
 (markers, the seconds from QEMU start to the kernel, the root and the
@@ -85,6 +92,11 @@ def media_args(media: str, image: Path, persist: bool) -> list[str]:
                 "-device", "usb-storage,bus=xhci.0,drive=stick,removable=on,bootindex=0"]
     if media == "ide":
         return ["-drive", drive, "-device", "ide-hd,drive=stick,bus=ide.0,bootindex=0"]
+    if media == "nvme":
+        # QEMU's NVMe controller (1b36:0010), the target PC's internal disk
+        # (docs/nvme-install-plan.md N1). SeaBIOS and OVMF both boot from it.
+        return ["-drive", drive,
+                "-device", "nvme,serial=lazyos-nvme0,drive=stick,bootindex=0"]
     return ["-drive", drive,
             "-device", "virtio-blk-pci,drive=stick,disable-modern=on,bootindex=0"]
 
@@ -125,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--firmware", choices=["uefi", "bios"], default="uefi")
-    parser.add_argument("--media", choices=["usb", "ide", "virtio"], default="usb")
+    parser.add_argument("--media", choices=["usb", "ide", "virtio", "nvme"], default="usb")
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos-usb.img"))
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--out", help="output directory (default shots/boot/<firmware>-<media>)")
@@ -143,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qemu", default=None)
     parser.add_argument("--ovmf-code", default=None)
     parser.add_argument("--ovmf-vars", default=None)
+    parser.add_argument("--serial-only", action="store_true",
+                        help="judge the serial markers only: no USB keyboard and no "
+                             "desktop pixels required (a non-desktop image)")
     parser.add_argument("--extra-arg", action="append", default=[],
                         help="extra QEMU argument (repeatable)")
     args = parser.parse_args(argv)
@@ -189,11 +204,13 @@ def main(argv: list[str] | None = None) -> int:
         print("qemu stderr:", stderr.strip(), file=sys.stderr)
 
     log = serial.read_text(errors="replace") if serial.exists() else ""
-    failures = judge.judge_serial(log, args.firmware, args.root, ready)
+    failures = judge.judge_serial(log, args.firmware, args.root, ready,
+                                  usb_input=not args.serial_only)
     stats: dict = {"error": "no screenshot"}
     if shot.exists():
         _, stats, _ = pngstats.analyse_file(str(shot), None, None, None, None, None)
-    failures += judge.judge_pixels(stats)
+    if not args.serial_only:
+        failures += judge.judge_pixels(stats)
     report = {
         "firmware": args.firmware,
         "media": args.media,
