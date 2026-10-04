@@ -302,6 +302,9 @@ def main() -> int:
     parser.add_argument("--label", help="append this run to docs/perf/history.md under this label")
     parser.add_argument("--no-knock", action="store_true",
                         help="no host traffic (no device interrupts; isolates the input path)")
+    parser.add_argument("--max-msg-rt-p50-us", type=float, default=None,
+                        help="fail when msgbench's median round trip exceeds this (docs/messenger.md "
+                             "sets 10); only enforced under kvm or whpx, TCG numbers are informative")
     args = parser.parse_args()
 
     image = Path(args.image) if args.no_build else build_image()
@@ -380,6 +383,22 @@ def main() -> int:
     if missing:
         print(f"FAIL: no samples for {', '.join(missing)}", file=sys.stderr)
         return 1
+    return gate(args.max_msg_rt_p50_us, accel, parsed["metrics"].get("msg_rt"))
+
+
+def gate(limit: float | None, accel: str, msg_rt: dict | None) -> int:
+    """The P6 regression gate: msgbench's median round trip under `limit`
+    microseconds, judged only with hardware acceleration."""
+    if limit is None:
+        return 0
+    if accel not in ("kvm", "whpx"):
+        print(f"gate: msg_rt not judged under {accel} (informative only)")
+        return 0
+    p50 = msg_rt["p50_us"] if msg_rt else None
+    if p50 is None or p50 > limit:
+        print(f"FAIL: msg_rt p50 {p50} us is over the {limit} us gate", file=sys.stderr)
+        return 1
+    print(f"gate: msg_rt p50 {p50} us is within {limit} us")
     return 0
 
 

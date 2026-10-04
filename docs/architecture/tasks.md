@@ -9,6 +9,9 @@ ISR that performs context switches.
 |---|---|
 | `kernel/src/task/mod.rs` (+ `sched`, `spawn`, `lifecycle`, `waiting`, `console`, `fdtable`, `fdtypes`, `fdops`, `fdio`, `memstate`, `stats`) | `Task`, task table, scheduler, spawn APIs, terminals, fds (split by responsibility into the submodules) |
 | `kernel/src/task/switch.rs` | `timer_isr` naked stub (IDT vector 32) |
+| `kernel/src/task/runq.rs` | per-class run queues and the finished-task mask (P6.1) |
+| `kernel/src/task/preempt.rs` | reschedule on wake, the same-class rule, charging by use, the minimum slice, direct handoff (P1.1, P6.2) |
+| `kernel/src/task/pollwait.rs` | keyed `poll`/`select` wakeups (P6.5); futexes hash their waiters (`process/linux/futex_queue.rs`, 64 buckets) |
 | `kernel/src/arch/idt.rs` | installs the timer gate; `TICKS` counter |
 | `kernel/src/tests/task_suite/`, `kernel/src/tests/sched_suite.rs` | scheduler/task test hooks (`task::harness`) |
 
@@ -52,8 +55,26 @@ ISR that performs context switches.
 | Selection | highest class with a `Runnable` task, then smallest virtual `pass` |
 | Renormalize | subtract the minimum pass once it passes `PASS_CEILING = 1<<40` |
 
-- Ties break round-robin after the current slot. Spawn/wake uses `virtual_now` so
-  a newly runnable task does not claim catch-up quanta.
+- Ties break round-robin after the current slot. A spawned task starts at
+  `virtual_now`; a waking one rejoins no further behind it than one of its
+  own strides (`sched::rejoin`), so it never claims catch-up quanta but a
+  task that mostly sleeps is the next pick when it wakes (P6.2).
+- Charging (P6.2): a selection charges a whole stride; a task that leaves
+  the CPU early (parked, or preempted by a wake) gets back the unused part of
+  that quantum, keeping at least a tenth (`preempt::refund`,
+  `MIN_CHARGE_DIV`). CPU-bound tasks pay full strides as before.
+- Run queues (P6.1, `task/runq.rs`): one slot mask per class of the
+  `Runnable` tasks and one of the `Done` tasks, synced under the table lock
+  at every state, class, insertion and removal change. Selection,
+  `virtual_now`, the reclaim flagging, `wait4`'s reap and the signal sweep
+  visit only those slots, so a scheduler entry costs the runnable count, not
+  256; renormalization scans the table only when a charged pass reaches the
+  ceiling. Test builds compare the masks with a full scan at every entry and
+  panic on a difference (`runq_suite` also checks the pick against the old
+  full scan over 20000 random transitions).
+- The signal sweep first collects the address spaces with a deliverable
+  signal (one pass over the registry, creating no entries) and does nothing
+  when there are none; resume-time delivery checks the same first.
 - Starvation bound: within a class a peer is selected at most
   `ceil(stride_i/stride_j)+1` times; worst case < 2100 ticks (~21 s at 100 Hz
   with 63 peers; it was < 500 ticks at 16 slots).
@@ -112,11 +133,27 @@ ISR that performs context switches.
 - A wake (`wake_task_with`) raises `need_resched` (`task/preempt.rs`) when
   the woken task should run before the next tick: the current task is blocked
   or done (the CPU is idle; the resumed parked task halts in its wait loop,
-  there is no idle task), or the woken task is in a strictly higher class.
-  Same-class wakes wait for a tick, so the stride scheduler still shares the
-  CPU. `preempt_point` yields on the flag at the end of every device
-  interrupt (keyboard, mouse, PIC line stubs) and every syscall (native gate,
-  Linux `syscall` stub); every selection clears it.
+  there is no idle task), the woken task is in a strictly higher class, or
+  (P6.2) it is in the same class and deserves the CPU: the next selection
+  would pick it. `preempt_point` yields on the flag at the end of every
+  device interrupt (keyboard, mouse, PIC line stubs, the deadline timer) and
+  every syscall (native gate, Linux `syscall` stub); every selection clears
+  it.
+- Minimum slice (P6.2): a selected task keeps the CPU against same-class
+  wakes for 1 ms (`MIN_SLICE_NS`); a deserving wake inside it is deferred to
+  its end, armed on the deadline timer. This guarantees progress (a task
+  resumed with an interrupt pending used to be preempted before running an
+  instruction, forever: `dev_irq_prompt_storm_slow_claimant` hung) and bounds
+  same-class wake preemptions to one per millisecond of CPU; with the tenth
+  minimum charge, a waker can preempt a CPU-bound peer at most ten times per
+  peer quantum. `preempt_wake_suite::same_class` runs a 5 kHz waker against
+  two hogs of its class: the waker completes about 320 sleeps/s instead of 50,
+  the switch rate stays near 660/s, the hogs split evenly.
+- Direct handoff (P6.2): a Messenger call that wakes its callee, and a reply
+  that wakes its caller, record that task with `task::hand_off`; when the
+  recording task parks next, the scheduler runs the partner directly
+  (`preempt::take_handoff`) unless a higher class is runnable. The partner is
+  charged its stride like any selection.
 - `exit`, `exit_group`, signal termination and a fatal user fault end in
   `task::exit_cpu`, which yields at once instead of halting until a tick.
 - `task::nap` marks the current task as napping (per task, so a task switched
@@ -196,6 +233,19 @@ ISR that performs context switches.
   (`hang_registers.txt`). `tools/screenshot/boot_stress.py` boots an image
   many times to measure a hang rate.
 
+**Poll waiters** (P6.5, `task/pollwait.rs`)
+
+- `poll`, `select` and `epoll_wait` all park on `wait::POLL`. A `poll` or
+  `select` scan records the objects it looked at (`task::poll_scan_begin`,
+  then `fd_poll` notes each descriptor's `Fd::poll_keys`: a pipe, a socket's
+  two pipes, a pseudo-terminal) and parks with `wait_poll_keyed_ns`; pipe and
+  pseudo-terminal events wake only the waiters interested in that object
+  (`notify_poll_key`). A scan that met any other kind, or more than 16 keys,
+  is woken by everything, as is `epoll_wait` (it records nothing), and the
+  other objects still notify everyone (`notify_poll`). `poll_keys_suite`
+  checks the rules and a 200000-event soak.
+
 **Status.** Working: preemptive RR-with-priorities demo, native/Linux spawn,
-fork/threads, CPU accounting (`cpu_usage`), per-task fds. Not yet: SMP, per-CPU
-run queues, Linux nice mapping.
+fork/threads, CPU accounting (`cpu_usage`), per-task fds, per-class run
+queues. Not yet: SMP, per-CPU run queues, Linux nice mapping, keyed wakeups
+for eventfds, sockets, listeners and `epoll`.

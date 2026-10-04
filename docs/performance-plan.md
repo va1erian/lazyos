@@ -18,7 +18,13 @@ the Terminal's pty on readiness, and the P2-dependent frame pacing. P4
 [`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the exit target is
 met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
 `connect` 0.5-1 ms); steps 6 and 7 are not done. P2, P3 and P4 are merged on
-`perf/integration`. P5 onward is not started.
+`perf/integration`. P6 (scheduler, IPC and memory cost) is built on
+`perf/p6-sched-ipc`: run queues, same-class wake preemption with a bounded
+minimum slice, direct handoff, one-copy parcels with indexed channels, slab
+small allocations, keyed poll wakeups and a hashed futex table, and COW
+without the zero-then-copy; a cross-process Messenger round trip is 4-5 µs
+at the median (WHPX, dev profile), see "As built" under P6. P5 and P7 are
+in progress elsewhere.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -298,6 +304,46 @@ Exit: worst interrupts-off stretch under 1 ms during a package install (from
 
 Exit: Messenger round trip p50 under 10 µs (the target `docs/messenger.md`
 already sets), with the benchmark gated in CI.
+
+**As built** (branch `perf/p6-sched-ipc`; details in
+`docs/architecture/tasks.md`, `ipc-core.md`, `allocators.md`):
+
+0. Measurement: `msgbench` (`user/src/bin/msgbench.rs`) is a real two-process
+   benchmark (`PERF:msg_rt`, `PERF:msg_tput`), and the kernel reports
+   `PERF:sched` (one scheduler entry), `PERF:wake_run` (any task-to-task wake
+   until the woken task runs) and `PERF:ctxsw` (switch and entry totals; the
+   harness takes an idle-desktop rate over an 8 s quiet window).
+1. Run queues per class and a finished-task mask (`task/runq.rs`); the signal
+   sweep first finds the processes with a deliverable signal and does nothing
+   when there are none.
+2. Same-class wake preemption when the woken task would be the next pick,
+   bounded by charging by use (a task leaving early is refunded down to a
+   tenth of a quantum) and a 1 ms minimum slice (a deserving wake inside it
+   is deferred on the deadline timer); sleepers rejoin at most one stride
+   behind. Direct handoff from a call to its callee and a reply to its caller.
+3. Parcels: one copy in, validated in place (`libmessenger::ParcelView`),
+   queued as is, one copy out; channels and transactions indexed by slot.
+4. `GlobalAlloc` serves requests up to 2 KiB from slab classes whose pages
+   come from the list heap.
+5. `poll`/`select` record the pipes and pseudo-terminals they scan; those
+   objects' events wake only interested waiters (other kinds and `epoll`
+   still wake everyone). The futex table is 64 hashed buckets.
+6. COW faults and `mprotect` privatization keep the frame when its refcount
+   is 1 and copy into an unzeroed frame otherwise.
+
+Measured (WHPX, dev profile, one desktop run each; `docs/perf/history.md`):
+`msg_rt` p50 5.6 -> 4.1-4.8 µs, p99 9.8 -> 6.7-6.9 µs; one-way throughput
+523k -> 0.8-1.0 M messages/s; `sched` p50 1.9 -> 1.0 µs, p99 38.6 ->
+32-34 µs. The remaining round trip is two syscalls and two context switches
+(CR3 reloads, no PCID). The scheduler entry's p90-p99 tail is not attributed
+(selection now visits only runnable tasks; the tick path with its PS/2
+service and device bottom half is the likely part). `sleep_1ms` p99 moved between
+1.6 and 2.2 ms across runs (2 samples of 200; not attributed: the same runs
+show interrupts-off stretches of 25 ms and more, P5).
+Not done: a CI workflow for the `msg_rt` gate (`tools/perf/run.py
+--max-msg-rt-p50-us 10` is the gate; nothing runs it in CI), keyed wakeups for
+eventfds, sockets, listeners and `epoll`, PCID, global
+kernel pages, fault-around, the vDSO clock.
 
 ### P7. Userspace sweep
 

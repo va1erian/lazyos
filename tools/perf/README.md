@@ -31,6 +31,10 @@ syscall number of the longest interrupts-off stretch.
 | `wake_run` | any task wakes another (not only an interrupt) | the woken task is put on the CPU | everything the boot and the run do |
 | `msg_rt` | `msgbench` enters a `Ping` call (user `rdtsc`) | the call returns with the server's reply | 20000 round trips between two user processes, once, 19 s after boot |
 
+`--max-msg-rt-p50-us 10` turns the run into the P6 regression gate: it fails
+when msgbench's median round trip is over 10 µs, under KVM or WHPX only (no
+CI workflow runs it yet).
+
 `msgbench` (`user/src/bin/msgbench.rs`) also prints `msg_tput`: one-way
 messages per second (bursts of 32 sends closed by a call) and synchronous
 calls per second. The kernel prints `PERF:ctxsw` (running totals of context
