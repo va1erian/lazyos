@@ -74,6 +74,9 @@ const PLACEHOLDER_MAC: [u8; 6] = [0x02, 0x4C, 0x5A, 0x00, 0x00, 0x01];
 const IDLE_TICKS: u64 = 100;
 /// Ticks the demo waits for an address before starting its clients anyway.
 const DEMO_ADDRESS_TICKS: u64 = 2000;
+/// Longest park while a `demo=1` client runs: its exit sends no message, so
+/// the loop looks for it this often to start the next one without a gap.
+const DEMO_REAP_TICKS: u64 = 2;
 
 /// The clients `demo=1` runs, one after another. See `netctl.rs`, `ping.rs`,
 /// `nslookup.rs` and `nc.rs`. The socket clients talk to the harness's echo
@@ -299,6 +302,9 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         }
         if netd.stack.socket_open_count() > 0 {
             wait = wait.min(next_sweep.saturating_sub(tick));
+        }
+        if demo_child.is_some() {
+            wait = wait.min(DEMO_REAP_TICKS);
         }
         if inet_moved {
             wait = 0;

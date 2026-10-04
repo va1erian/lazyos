@@ -85,6 +85,10 @@ const CARD_NAME: &str = "virtio-net0";
 /// completions interrupt. The timeout only paces the link poll, the
 /// client's keep-alive and the configuration refresh.
 const IDLE_TICKS: u64 = 20;
+/// Park while a `demo=1` evidence client runs: a child's exit sends no
+/// message, so the loop looks for it this often to reap it and start the
+/// next one without a gap (the harness's sequence keeps its old pace).
+const DEMO_REAP_TICKS: u64 = 2;
 
 struct Args {
     /// Run the ARP self-test and then the evidence clients.
@@ -256,7 +260,11 @@ fn serve(
     // bump region are never reclaimed).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let park = if irq { IDLE_TICKS } else { poll_ticks };
+        let park = match (irq, next_demo < DEMO_CLIENTS.len() || demo_child.is_some()) {
+            (true, false) => IDLE_TICKS,
+            (true, true) => DEMO_REAP_TICKS,
+            (false, _) => poll_ticks,
+        };
         match server.recv_with(&mut buffer, Some(sys::clock() + park)) {
             Ok(message) if Card::is_interrupt(&message) => service.card.handle_interrupt(),
             Ok(message) => {
