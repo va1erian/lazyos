@@ -56,7 +56,7 @@ mod sweep;
 mod types;
 
 pub use fault::{deliver_exception, deliver_fault, Exception};
-pub use sweep::{deliver_on_resume, finish_sweep, sweep};
+pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
 
 pub use harden::{die_with_segv, restore_frame};
 pub use native::{deliver_native, native_fatal_pending};

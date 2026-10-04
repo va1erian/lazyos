@@ -121,6 +121,23 @@ fn has_deliverable(pml4: u64) -> bool {
         .is_some_and(|state| state.pending & !clean_mask(state.blocked) != 0)
 }
 
+/// Whether a wait that `slot` was woken from with `Interrupted` must end and
+/// return to the syscall boundary rather than park again: its process is
+/// being killed, a native task has a default-fatal signal pending, or a Linux
+/// task has any signal its mask lets through (delivered, or acted on, at the
+/// syscall return, as Linux interrupts a blocking call). Without it a task
+/// parked in a long wait (an idle desktop client, P7) keeps a `SIGTERM`, and
+/// even the `SIGKILL` that follows it, waiting until its own deadline.
+pub fn wait_interrupted(slot: usize) -> bool {
+    if super::killed(slot) || super::native_fatal_pending(slot).is_some() {
+        return true;
+    }
+    let Some((pml4, kind)) = super::slot_info(slot) else {
+        return false;
+    };
+    kind == super::Kind::Linux && has_deliverable(pml4)
+}
+
 /// Deliver to the task the scheduler is about to resume, whose address space
 /// is installed. Returns the termination when delivery ended the task (a
 /// frame that cannot be built), which the caller must honour by picking

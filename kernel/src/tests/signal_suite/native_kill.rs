@@ -170,7 +170,8 @@ fn native_child() -> Result<usize, String> {
 
 /// A native task's pending `SIGTERM` is fatal at its next syscall return
 /// (docs/shutdown.md): the gate's decision names it, signals that do nothing
-/// are consumed on the way, and a Linux task is left to its own path.
+/// are consumed on the way, and a Linux task's handled signal is left to its
+/// own path.
 pub fn native_sigterm_fatal_at_syscall_return() -> Result<(), String> {
     fresh()?;
     reset_creds();
@@ -206,12 +207,31 @@ pub fn native_sigterm_fatal_at_syscall_return() -> Result<(), String> {
         signal::native_fatal_pending(child) == Some(signal::SIGTERM),
         "a pending SIGTERM was not fatal for a native task"
     );
-    // The same signal on a Linux task is its own syscall return's business.
+    // A Linux program's native (`int 0x80`) calls end it the same way when
+    // the signal has no handler (the desktop's xui apps on a shutdown)...
     task::harness::set_kind(child, task::Kind::Linux);
     check!(
-        signal::native_fatal_pending(child).is_none(),
-        "the native path claimed a Linux task's signal"
+        signal::native_fatal_pending(child) == Some(signal::SIGTERM),
+        "a default SIGTERM was not fatal at a Linux task's native return"
     );
+    // ...and leave a signal with a handler to the Linux syscall return.
+    signal::set_action(
+        child,
+        signal::SIGTERM,
+        Disposition::Handler {
+            handler: 0x0040_0100,
+            flags: 0,
+            restorer: 0x0040_0200,
+            mask: 0,
+        },
+    )
+    .map_err(|error| format!("set_action: {error:?}"))?;
+    check!(
+        signal::native_fatal_pending(child).is_none(),
+        "the native path claimed a Linux task's handled signal"
+    );
+    signal::set_action(child, signal::SIGTERM, Disposition::Default)
+        .map_err(|error| format!("set_action: {error:?}"))?;
     task::harness::set_kind(child, task::Kind::Native);
     // What `deliver_native` does with the answer (without halting the suite).
     let pml4 = task::harness::pml4(child).ok_or("no pml4")?;

@@ -579,8 +579,14 @@ one-tick receive per window (docs/performance-plan.md P3.8). Timers run on the
 monotonic nanosecond clock (`WAIT_DEADLINE_NS`), so a 16 ms timer fires every
 16 ms, not at the tick after it, and keeps its cadence without bursting after
 a stall. `LazyOSBackend::watch_fd` adds one Linux descriptor to the park
-(`WAIT_FD`); the primary window hears it become readable as a `Timer` event
-with id `FD_TIMER`.
+(`WAIT_FD`), `watch_endpoint` adds endpoints the app serves or follows (the
+shell's `os.lazy.shell` endpoint, its compositor link, topic doorbells from
+`platform::topicwatch`), and `wake_at` a one-shot deadline; the primary
+window hears any of them as a `Timer` event with id `FD_TIMER`
+(`backend/watch.rs`). A message posted to a window (`Backend::wake`) runs one
+more pass before the loop parks. With nothing due the park lasts up to 10 s,
+a safety net only. LazyShell has no repeating timer: it wakes for those
+sources and when its clock text next changes (docs/performance-plan.md P7).
 
 **Retitling a window (`SetTitle`, method 29)**
 

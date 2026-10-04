@@ -134,6 +134,9 @@ impl LazyOSBackend {
                 self.reap_closed(&handles[..count], mask);
             }
             Err(code) if code == -sys::errno::ETIMEDOUT => {}
+            // A signal ended the wait: it is delivered on the way back to
+            // user mode (a `SIGTERM` ends the app there); otherwise wait again.
+            Err(code) if code == -sys::errno::ECANCELED || code == -sys::errno::EINTR => {}
             // Never spin on a refused wait (a descriptor that went away is
             // dropped, so the next park waits on the endpoints alone).
             Err(_) => {

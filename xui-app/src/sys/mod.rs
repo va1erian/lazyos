@@ -70,6 +70,10 @@ pub mod errno {
     pub const EPIPE: i64 = 32;
     /// A deadline fired.
     pub const ETIMEDOUT: i64 = 110;
+    /// A signal interrupted the call.
+    pub const EINTR: i64 = 4;
+    /// A wait ended for a signal (the kernel's `Canceled`).
+    pub const ECANCELED: i64 = 125;
 }
 /// System-stats op codes, mirroring `kernel/src/sysinfo.rs::op`.
 pub mod system_stats_op {

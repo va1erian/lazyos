@@ -160,8 +160,12 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
         if reason == WakeReason::TimedOut {
             return Err(Error::TimedOut);
         }
-        // As in `recv`: a fatal signal must reach the syscall return.
-        if reason == WakeReason::Interrupted && task::signal::native_fatal_pending(me).is_some() {
+        // As in `recv`: a fatal signal, a kill, and for a Linux task any
+        // deliverable signal must reach the syscall return (`-ECANCELED`,
+        // the caller waits again after its handler). Parking again kept an
+        // idle client's `SIGTERM`, and the `SIGKILL` after it, until the
+        // wait's own deadline.
+        if reason == WakeReason::Interrupted && task::signal::wait_interrupted(me) {
             return Err(Error::Canceled);
         }
     }
