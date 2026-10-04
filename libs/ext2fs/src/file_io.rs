@@ -86,7 +86,7 @@ impl Ext2 {
             // A fresh block is written from zeros, so a short write can never
             // expose stale bytes from the block's previous owner.
             tmp[inner..inner + chunk].copy_from_slice(&data[done..done + chunk]);
-            if let Err(error) = self.write_block(u64::from(block), &tmp[..size_usize]) {
+            if let Err(error) = self.write_data_block(u64::from(block), &tmp[..size_usize]) {
                 failure = Some(error);
                 break;
             }

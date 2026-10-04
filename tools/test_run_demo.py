@@ -272,6 +272,15 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
 
+    def test_journal_sets_the_build_switch(self) -> None:
+        code, _ = self.run_main("--journal")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_JOURNAL"), "1")
+        code, _ = self.run_main("--journal", "8192")
+        self.assertEqual(self.builds[-1].get("LAZYOS_JOURNAL"), "8192")
+        self.run_main()
+        self.assertNotIn("LAZYOS_JOURNAL", self.builds[-1])
+
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")

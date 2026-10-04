@@ -254,6 +254,46 @@ fn open_cached(io: FileIo) -> Result<Ext2, String> {
     Ext2::open_cached(Box::new(io), now, config).map_err(|e| volume_error("open", e))
 }
 
+/// Journal blocks of `LAZYOS_JOURNAL=1`: 16 MiB at the default 4 KiB blocks.
+pub const DEFAULT_JOURNAL_BLOCKS: u32 = 4096;
+
+/// What `LAZYOS_JOURNAL` asks for: unset, empty or `0` is no journal, `1` the
+/// default size, any larger number that many blocks (at least
+/// [`ext2fs::MIN_JOURNAL_BLOCKS`]).
+pub fn journal_blocks(text: Option<&str>) -> Result<Option<u32>, String> {
+    let text = text.unwrap_or("").trim();
+    let blocks: u32 = match text {
+        "" | "0" => return Ok(None),
+        "1" => DEFAULT_JOURNAL_BLOCKS,
+        other => other
+            .parse()
+            .map_err(|_| format!("LAZYOS_JOURNAL={other:?} is not a block count"))?,
+    };
+    if blocks < ext2fs::MIN_JOURNAL_BLOCKS {
+        return Err(format!(
+            "LAZYOS_JOURNAL={blocks}: a journal needs at least {} blocks",
+            ext2fs::MIN_JOURNAL_BLOCKS
+        ));
+    }
+    Ok(Some(blocks))
+}
+
+/// Give `volume` the journal [`journal_blocks`] asked for, when it has none.
+/// A volume that has one keeps it whatever its size: resizing is not supported.
+pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> {
+    match blocks {
+        Some(blocks) if !volume.has_journal() => volume
+            .add_journal(blocks)
+            .map_err(|e| volume_error("add the journal", e)),
+        _ => Ok(()),
+    }
+}
+
+/// `LAZYOS_JOURNAL` from the environment.
+fn journal_request() -> Result<Option<u32>, String> {
+    journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
+}
+
 /// Write the file list into `volume` and return the manifest it placed.
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
@@ -391,6 +431,7 @@ fn create(
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
     let volume = open_cached(io)?;
+    ensure_journal(&volume, journal_request()?)?;
     write_volume(&volume, None, dirs, files, now())?;
     Ok(())
 }
@@ -434,6 +475,7 @@ fn update(
     // `recover` commits its orphan reclaim through the cache before the
     // checker reads the raw volume.
     os_recover::recover(&mut volume, settings.update_damaged)?;
+    ensure_journal(&volume, journal_request()?)?;
     write_head(&mut file, head, old_end)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
     Ok(())

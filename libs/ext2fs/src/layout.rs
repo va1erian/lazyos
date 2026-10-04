@@ -47,6 +47,12 @@ pub(super) const FEATURE_INCOMPAT_FILETYPE: u32 = 0x0002;
 /// do not need the backups) and large files (the size high bits).
 pub(super) const FEATURE_RO_SPARSE_SUPER: u32 = 0x0001;
 pub(super) const FEATURE_RO_LARGE_FILE: u32 = 0x0002;
+/// Compat feature: the volume has a journal (`s_journal_inum` names its inode).
+pub(super) const FEATURE_COMPAT_HAS_JOURNAL: u32 = 0x0004;
+/// Incompat feature: the journal holds committed work the next mount replays.
+pub(super) const FEATURE_INCOMPAT_RECOVER: u32 = 0x0004;
+/// The inode ext2/3/4 give an internal journal.
+pub(super) const JOURNAL_INO: u32 = 8;
 
 // Superblock byte offsets within the 1024-byte superblock.
 pub(super) const SB_INODES_COUNT: usize = 0x00;
@@ -63,10 +69,18 @@ pub(super) const SB_STATE: usize = 0x3A;
 pub(super) const SB_REV_LEVEL: usize = 0x4C;
 pub(super) const SB_FIRST_INO: usize = 0x54;
 pub(super) const SB_INODE_SIZE: usize = 0x58;
+pub(super) const SB_FEATURE_COMPAT: usize = 0x5C;
 pub(super) const SB_FEATURE_INCOMPAT: usize = 0x60;
 pub(super) const SB_FEATURE_RO_COMPAT: usize = 0x64;
 pub(super) const SB_UUID: usize = 0x68;
 pub(super) const SB_VOLUME_NAME: usize = 0x78;
+/// `s_journal_uuid` (external journals, unsupported), `s_journal_inum`,
+/// `s_journal_dev`, and the backup of the journal inode's block map.
+pub(super) const SB_JOURNAL_UUID: usize = 0xD0;
+pub(super) const SB_JOURNAL_INUM: usize = 0xE0;
+pub(super) const SB_JOURNAL_DEV: usize = 0xE4;
+pub(super) const SB_JNL_BACKUP_TYPE: usize = 0xFD;
+pub(super) const SB_JNL_BLOCKS: usize = 0x10C;
 
 /// `i_flags` bit: the directory carries an htree index (`EXT2_INDEX_FL`).
 pub(super) const INDEX_FL: u32 = 0x1000;

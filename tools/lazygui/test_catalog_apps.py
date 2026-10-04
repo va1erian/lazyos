@@ -211,3 +211,28 @@ class TlsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JournalTests(unittest.TestCase):
+    """An ext2 journal on the OS volume (LAZYOS_JOURNAL=1) from the Advanced
+    tab and run_demo."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_build_variable(self) -> None:
+        for desktop in (False, True):
+            env = catalog.build_env({**self.base(), "desktop": desktop, "journal": True})
+            self.assertEqual(env["LAZYOS_JOURNAL"], "1")
+            self.assertNotIn("LAZYOS_JOURNAL",
+                             catalog.build_env({**self.base(), "desktop": desktop}))
+
+    def test_simple_mode_leaves_it_off(self) -> None:
+        for iface in ("CLI", "Desktop"):
+            self.assertFalse(catalog.simple_config(demo_config(), "dev", iface)["journal"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--journal", demo_argv(journal=True, skip_build=False))
+        self.assertNotIn("--journal", demo_argv(skip_build=False))
+        self.assertNotIn("--journal", demo_argv(journal=True, skip_build=True))

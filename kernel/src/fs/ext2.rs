@@ -80,6 +80,9 @@ impl Ext2 {
                 device.name()
             );
         }
+        if volume.journal_recovered() {
+            serial_println!("ext2: {} replayed its journal", device.name());
+        }
         if volume.had_errors_at_mount() {
             serial_println!("ext2: {} has recorded filesystem errors", device.name());
         }

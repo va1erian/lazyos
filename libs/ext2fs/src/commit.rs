@@ -103,14 +103,30 @@ impl Ext2 {
     /// Commit with the volume lock held: write back, apply the deferred
     /// frees, write those back, flush the device. Does not touch `s_state`.
     pub(super) fn commit_locked(&self) -> Result<(), Ext2Error> {
-        self.write_back()?;
-        let pending = core::mem::take(&mut *self.pending.lock());
-        if !pending.is_empty() {
-            let applied = self.apply(&pending);
+        // A journaled commit is atomic, so the detach and the free may share
+        // one transaction: the first writeback exists only for plain ext2.
+        let journaled = self.journal_active();
+        if !journaled {
             self.write_back()?;
-            applied?;
         }
+        let pending = core::mem::take(&mut *self.pending.lock());
+        let applied = if pending.is_empty() {
+            Ok(())
+        } else {
+            self.apply(&pending)
+        };
+        if journaled || !pending.is_empty() {
+            self.write_back()?;
+        }
+        applied?;
         self.io.flush().map_err(io_error)
+    }
+
+    /// Whether commits of this mount go through a journal.
+    pub(super) fn journal_active(&self) -> bool {
+        self.cache
+            .as_ref()
+            .is_some_and(|cache| cache.lock().has_journal())
     }
 
     /// Return every pending free to its bitmap. One bad entry (a double free
@@ -136,8 +152,13 @@ impl Ext2 {
     /// lose the file under both names), and the old name before the link count
     /// drops. Those operations call this between the steps; uncached, every
     /// write is already in order and this does nothing.
+    ///
+    /// A journaled volume needs none: the operation's changes are in the one
+    /// transaction the next commit logs, which a crash replays whole or not
+    /// at all, so every order this promises holds trivially (a rename is
+    /// atomic, not merely "under at least one name").
     pub(super) fn barrier(&self) -> Result<(), Ext2Error> {
-        if self.cache.is_none() {
+        if self.cache.is_none() || self.journal_active() {
             return Ok(());
         }
         self.write_back()?;

@@ -96,6 +96,7 @@ class Launcher:
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
             "tls": self.v["tls"].get(),
+            "journal": self.v["journal"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -152,6 +153,7 @@ class Launcher:
                     "modplayer")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
+        self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

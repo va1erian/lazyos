@@ -124,7 +124,11 @@ truncates are rare next to writes. Uncached, `barrier` does nothing.
 
 ## Crash semantics
 
-ext2 has no journal, so this is what a power cut can leave, and what the
+(A volume with a journal, [`journal.md`](journal.md), skips all of this: its
+commits are atomic transactions replayed at mount. The rest of this section is
+the semantics of a volume without one.)
+
+ext2 has no journal here, so this is what a power cut can leave, and what the
 repair after it does ([below](#recovery-what-is-repaired-and-how)). The
 volume's `s_state` is marked dirty, durably, before the first change of a
 session reaches the cache (unchanged: "dirty first"), and is only marked clean

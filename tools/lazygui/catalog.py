@@ -222,6 +222,9 @@ def build_env(cfg: dict) -> dict[str, str]:
         # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
         # /system/bin; HTTPS needs the network stack above.
         env["LAZYOS_TLS"] = "1"
+    if cfg.get("journal"):
+        # An ext2 journal on the OS volume (added in place to an old image).
+        env["LAZYOS_JOURNAL"] = "1"
     return env
 
 
@@ -319,6 +322,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "net_restrict": False,
         "linuxapps": linuxapps,
         "tls": tls,
+        "journal": False,
         "display_mode": HIDPI_MODE if hidpi else "",
     })
     return cfg
@@ -378,6 +382,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("tls") and not cfg["skip_build"]:
             # run_demo builds the HTTPS tools and sets LAZYOS_TLS itself.
             argv.append("--tls")
+        if cfg.get("journal") and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_JOURNAL itself.
+            argv.append("--journal")
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

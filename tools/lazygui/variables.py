@@ -76,6 +76,8 @@ def make_vars() -> dict:
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         "simple_tls": b(value=False),
+        # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
+        "journal": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

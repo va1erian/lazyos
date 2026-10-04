@@ -435,3 +435,42 @@ fn a_built_image_is_consistent() {
         "build-placed files at the root: {at_root:?}"
     );
 }
+
+#[test]
+fn journal_requests_parse() {
+    use crate::os_image::{journal_blocks, DEFAULT_JOURNAL_BLOCKS};
+    assert_eq!(journal_blocks(None), Ok(None));
+    assert_eq!(journal_blocks(Some("")), Ok(None));
+    assert_eq!(journal_blocks(Some("0")), Ok(None));
+    assert_eq!(journal_blocks(Some("1")), Ok(Some(DEFAULT_JOURNAL_BLOCKS)));
+    assert_eq!(journal_blocks(Some(" 8192 ")), Ok(Some(8192)));
+    assert!(journal_blocks(Some("2")).is_err());
+    assert!(journal_blocks(Some("lots")).is_err());
+}
+
+#[test]
+fn an_image_gets_a_journal_in_place_and_updates_through_it() {
+    use crate::os_image::ensure_journal;
+    let dir = Scratch::new();
+    build(&dir, &first_files(), &settings()).unwrap();
+    let volume = open_rw(&dir.image());
+    assert!(!volume.has_journal());
+    ensure_journal(&volume, None).unwrap();
+    assert!(!volume.has_journal(), "no request, no journal");
+    ensure_journal(&volume, Some(128)).unwrap();
+    drop(volume);
+    assert_fsck_clean(&dir.image());
+    assert!(open_rw(&dir.image()).has_journal());
+
+    // The next rebuild is an in-place update through the journal.
+    let mut files = first_files();
+    files.push(file("/NEW.ELF", b"new", 0o755));
+    let planned = build(&dir, &files, &settings()).unwrap();
+    assert!(matches!(planned.action, Action::Update { .. }));
+    assert_fsck_clean(&dir.image());
+    let volume = open_rw(&dir.image());
+    assert!(volume.has_journal());
+    assert_eq!(volume.read_file("/NEW.ELF").unwrap(), b"new");
+    // An existing journal is kept as it is.
+    ensure_journal(&volume, Some(256)).unwrap();
+}
