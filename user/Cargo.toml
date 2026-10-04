@@ -70,6 +70,9 @@ framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }
 ftpwire = { path = "../libs/ftpwire" }
+# The user-space filesystem protocol (syscall 35), its serve loop and the
+# in-memory tree `memfuse` serves (docs/smb-plan.md F1).
+fused = { path = "../libs/fused" }
 # Keymaps, modifier/lock state and key repeat for `inputd` (docs/input-plan.md).
 inputmap = { path = "../libs/inputmap" }
 # The application package manager `pkgd` (docs/packages.md): the `.lzp` reader,
@@ -258,6 +261,14 @@ bench = false
 [[bin]]
 name = "top"
 path = "src/bin/top.rs"
+test = false
+bench = false
+
+# `memfuse` (docs/smb-plan.md F1): an in-memory filesystem served from user
+# space at `/mnt/<name>` through syscall 35, the FUSE mechanism's proof.
+[[bin]]
+name = "memfuse"
+path = "src/bin/memfuse.rs"
 test = false
 bench = false
 

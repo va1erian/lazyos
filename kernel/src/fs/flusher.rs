@@ -25,6 +25,9 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// Write back every mount when due. Cheap when it is not.
 pub fn service() {
+    // Dead user-space filesystems leave the mount tables here, never
+    // waiting for a busy table either.
+    super::fuse::reap();
     let now = crate::task::ticks();
     if now < NEXT.load(Ordering::Relaxed) {
         return;

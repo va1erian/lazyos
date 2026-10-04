@@ -133,6 +133,9 @@ pub enum FsError {
     NoSpace,
     NameTooLong,
     NotSupported,
+    /// The backing store failed or stopped answering (a user-space
+    /// filesystem whose daemon died or timed out): `EIO`.
+    Io,
 }
 
 impl FsError {
@@ -151,6 +154,7 @@ impl FsError {
             FsError::NoSpace => "no space left on device",
             FsError::NameTooLong => "file name too long",
             FsError::NotSupported => "operation not supported",
+            FsError::Io => "input/output error",
         }
     }
 }

@@ -89,6 +89,9 @@ const NATIVE: &[&str] = &[
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
     // [reason]` asks `init` for an orderly stop.
     fhs::bin::POWERCTL,
+    // The in-memory user-space filesystem (docs/smb-plan.md F1): `memfuse
+    // [-r] [-s MiB] [name]` serves `/mnt/<name>`, usually run with `&`.
+    fhs::bin::MEMFUSE,
 ];
 
 /// Names that differ from the file: `(name typed at the prompt, program,

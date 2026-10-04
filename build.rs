@@ -328,6 +328,13 @@ fn main() {
         }
     }
 
+    // The in-memory user-space filesystem (docs/smb-plan.md F1): `memfuse`
+    // mounts at `/mnt/<name>` through syscall 35 and is how the FUSE
+    // mechanism is shown and judged (`tools/fuse/run.py`) on every image.
+    let memfuse =
+        std::env::var_os("CARGO_BIN_FILE_USER_memfuse").expect("user memfuse artifact not found");
+    files.add_file(fhs::bin::MEMFUSE, PathBuf::from(memfuse));
+
     // The display protocol demo (issue #113): `LAZYOS_XUID=1` embeds the
     // userspace compositor and its demo app. Both are gated out of the default
     // demo image so its size and boot stay identical.

@@ -118,6 +118,8 @@ programs! {
     POWERCTL = "powerctl";
     /// `ping`.
     PING = "ping";
+    /// `memfuse`, the in-memory user-space filesystem (docs/smb-plan.md F1).
+    MEMFUSE = "memfuse";
     /// `nc`.
     NC = "nc";
     /// `nslookup`.
