@@ -127,7 +127,7 @@ pub fn fd_ready_masks() -> Result<(), String> {
 pub fn ns_deadline() -> Result<(), String> {
     let rig = rig(1)?;
     RAW.store(WAIT_DEADLINE_NS, Ordering::Relaxed);
-    let mut worst = 0;
+    let mut took_all = Vec::new();
     for _ in 0..20 {
         let before = WAITS.load(Ordering::Relaxed);
         let start = monotonic_ns();
@@ -138,13 +138,23 @@ pub fn ns_deadline() -> Result<(), String> {
         check!(mask == TIMED_OUT, "an idle 2 ms wait returned {mask:#x}");
         let took = RETURNED_NS.load(Ordering::Relaxed).saturating_sub(start);
         check!(took >= 2_000_000, "a 2 ms wait ended after {took} ns");
-        worst = worst.max(took);
+        took_all.push(took);
     }
-    // Generous for a loaded TCG host, yet below the tick the old rounding
-    // would have cost.
+    took_all.sort_unstable();
+    let (median, worst) = (took_all[took_all.len() / 2], took_all[took_all.len() - 1]);
+    // Read as ticks, a nanosecond deadline would be centuries away and the
+    // wait would never return (`await_return` gives up at 100 ms). How close
+    // it lands follows `deadline_sleep_accuracy`: within a tick everywhere
+    // (TCG on a loaded host may miss the one-shot), and at the deadline
+    // timer's precision under hardware acceleration.
     check!(
-        worst < 9_000_000,
-        "a 2 ms wait took {worst} ns (the 10 ms tick?)"
+        worst <= 2_000_000 + task::NS_PER_TICK,
+        "a 2 ms wait took {worst} ns"
+    );
+    let strict = super::deadline_suite::accelerated() && crate::arch::event_timer::available();
+    check!(
+        !strict || median <= 2_200_000,
+        "2 ms waits took {median} ns (median) under acceleration (the 10 ms tick?)"
     );
     DEADLINE.store(monotonic_ns() + 1_000_000_000, Ordering::Relaxed);
     let before = WAITS.load(Ordering::Relaxed);
@@ -152,7 +162,7 @@ pub fn ns_deadline() -> Result<(), String> {
     channels::send(rig.senders[0], &parcel_bytes()?).map_err(|e| format!("{e:?}"))?;
     let mask = rig.finish_wait(before)?;
     check!(mask == 1, "a send to a ns-deadline wait gave {mask:#x}");
-    serial_println!("TEST:ipc_waitset_ns_deadline:INFO:worst_2ms_wait_ns={worst}");
+    serial_println!("TEST:ipc_waitset_ns_deadline:INFO:2ms_wait_ns median={median} worst={worst}");
     rig.teardown()
 }
 

@@ -89,7 +89,7 @@ fn hypervisor() -> Option<[u8; 12]> {
 /// Whether QEMU runs this guest with hardware acceleration (WHPX reports
 /// Hyper-V's signature, KVM its own); TCG reports none or `TCGTCGTCGTCG`.
 /// Timing bounds are only enforced where virtual time is real time.
-fn accelerated() -> bool {
+pub(super) fn accelerated() -> bool {
     matches!(
         hypervisor().as_ref().map(|s| &s[..]),
         Some(b"Microsoft Hv") | Some(b"KVMKVMKVM\0\0\0")
