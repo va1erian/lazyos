@@ -136,7 +136,15 @@ fn handle(
             path().map(Target::Path)
         }
     };
-    let with_attr = |attr: Attr| (Reply { attr, ..Reply::default() }, 0);
+    let with_attr = |attr: Attr| {
+        (
+            Reply {
+                attr,
+                ..Reply::default()
+            },
+            0,
+        )
+    };
     let counted = |count: usize| {
         (
             Reply {
@@ -218,7 +226,9 @@ fn readdir(
     let (mut at, mut count) = (0, 0u64);
     // A name the wire cannot carry is left out, before indexing, so the
     // kernel's next index still lands on the entry after the last one sent.
-    let valid = entries.iter().filter(|entry| payload::valid_name(&entry.name));
+    let valid = entries
+        .iter()
+        .filter(|entry| payload::valid_name(&entry.name));
     for entry in valid.skip(start) {
         match payload::encode_dirent(&mut out[..room], at, entry.ino, entry.dir, &entry.name) {
             Some(next) => at = next,

@@ -50,7 +50,10 @@ fn parse() -> Result<Options, String> {
             "-r" => opts.flags |= FLAG_RO,
             "-s" => {
                 let mib = args.next().and_then(|v| v.parse::<usize>().ok());
-                opts.capacity = mib.filter(|m| (1..=MAX_MIB).contains(m)).ok_or_else(usage)? << 20;
+                opts.capacity = mib
+                    .filter(|m| (1..=MAX_MIB).contains(m))
+                    .ok_or_else(usage)?
+                    << 20;
             }
             name if !name.starts_with('-') => opts.name = String::from(name),
             _ => return Err(usage()),

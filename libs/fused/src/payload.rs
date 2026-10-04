@@ -93,8 +93,9 @@ pub fn decode_dirents(bytes: &[u8], count: usize) -> Option<Vec<DirEnt>> {
 fn put_words(words: &[u64], out: &mut [u8]) -> Option<usize> {
     let len = words.len() * 8;
     let out = out.get_mut(..len)?;
-    for (chunk, word) in out.chunks_exact_mut(8).zip(words) {
-        chunk.copy_from_slice(&word.to_le_bytes());
+    let (chunks, _) = out.as_chunks_mut::<8>();
+    for (chunk, word) in chunks.iter_mut().zip(words) {
+        *chunk = word.to_le_bytes();
     }
     Some(len)
 }
@@ -104,8 +105,9 @@ fn get_words<const N: usize>(bytes: &[u8]) -> Option<[u64; N]> {
         return None;
     }
     let mut words = [0u64; N];
-    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
-        *word = u64::from_le_bytes(chunk.try_into().ok()?);
+    let (chunks, _) = bytes.as_chunks::<8>();
+    for (word, chunk) in words.iter_mut().zip(chunks) {
+        *word = u64::from_le_bytes(*chunk);
     }
     Some(words)
 }

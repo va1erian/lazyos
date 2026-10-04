@@ -7,7 +7,10 @@
 //! is taken for it, a reply's data length is checked against the request's
 //! room, and data moves only through the slot's bounce buffer ([`super`]).
 
-use fused::wire::{sys_op, Reply, Request, FLAGS_ALL, FLAG_NOEXEC, FLAG_RO, MAX_MOUNT_NAME, REPLY_WORDS, REQUEST_WORDS};
+use fused::wire::{
+    sys_op, Reply, Request, FLAGS_ALL, FLAG_NOEXEC, FLAG_RO, MAX_MOUNT_NAME, REPLY_WORDS,
+    REQUEST_WORDS,
+};
 
 use super::FuseError;
 use crate::fs::vfs::MountFlags;

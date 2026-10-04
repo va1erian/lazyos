@@ -200,7 +200,9 @@ impl Request {
     /// Bytes of payload this request carries, `None` when its lengths are
     /// out of range (a daemon must refuse such a request).
     pub fn payload_len(&self) -> Option<usize> {
-        let path = usize::try_from(self.path_len).ok().filter(|&n| n <= MAX_PATH)?;
+        let path = usize::try_from(self.path_len)
+            .ok()
+            .filter(|&n| n <= MAX_PATH)?;
         let data = match self.operation()? {
             op if op.sends_data() => usize::try_from(self.len).ok().filter(|&n| n <= MAX_DATA)?,
             _ => 0,

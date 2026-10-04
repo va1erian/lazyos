@@ -186,7 +186,14 @@ impl MemFs {
         Ok(())
     }
 
-    fn insert(&mut self, path: &str, mode: u16, uid: u32, gid: u32, body: Body) -> Result<Attr, Errno> {
+    fn insert(
+        &mut self,
+        path: &str,
+        mode: u16,
+        uid: u32,
+        gid: u32,
+        body: Body,
+    ) -> Result<Attr, Errno> {
         let (dir, name) = self.parent(path)?;
         if self.entries_mut(dir).contains_key(name) {
             return Err(errno::EEXIST);
@@ -241,7 +248,9 @@ impl FuseFs for MemFs {
     fn read(&mut self, target: Target, offset: u64, out: &mut [u8]) -> Result<usize, Errno> {
         let ino = self.resolve(target)?;
         let data = self.file_mut(ino)?;
-        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(data.len());
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(data.len());
         let count = out.len().min(data.len() - start);
         out[..count].copy_from_slice(&data[start..start + count]);
         Ok(count)
@@ -338,7 +347,10 @@ impl FuseFs for MemFs {
         }
         let (from_dir, from_name) = self.parent(from)?;
         let (to_dir, to_name) = self.parent(to)?;
-        let ino = *self.entries_mut(from_dir).get(from_name).ok_or(errno::ENOENT)?;
+        let ino = *self
+            .entries_mut(from_dir)
+            .get(from_name)
+            .ok_or(errno::ENOENT)?;
         if from == to {
             return Ok(());
         }

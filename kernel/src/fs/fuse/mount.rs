@@ -59,36 +59,36 @@ pub fn register(owner: usize, name: &str, flags: MountFlags) -> Result<usize, Fu
     Ok(slot.index)
 }
 
-/// Take a free slot for `owner`.
+/// Take a free slot for `owner`, initialized whole under the one lock
+/// acquisition that marks it registered: a slot is never seen registered
+/// but not yet alive (which [`reap`] would take for a dead provider and
+/// free under the new owner).
 fn claim(owner: usize, name: &str) -> Result<&'static Slot, FuseError> {
-    let slot = SLOTS
+    SLOTS
         .iter()
         .find(|slot| {
             let mut state = slot.state.lock();
             if state.registered {
                 return false;
             }
-            // Claimed before the lock drops: two registrations never share.
+            if state.bounce.len() != MAX_PAYLOAD {
+                state.bounce.resize(MAX_PAYLOAD, 0);
+            }
+            state.owner = owner;
+            state.name = String::from(name);
+            state.alive = true;
+            state.mounted = false;
+            state.busy = false;
+            state.phase = Phase::Idle;
+            state.timeouts = 0;
+            state.stats = Stats::default();
+            state.epoch += 1;
+            // Tags carry the slot, so one provider's tag never matches another's.
+            state.next_tag = (slot.index as u64) << 56;
             state.registered = true;
             true
         })
-        .ok_or(FuseError::Full)?;
-    let mut state = slot.state.lock();
-    if state.bounce.len() != MAX_PAYLOAD {
-        state.bounce.resize(MAX_PAYLOAD, 0);
-    }
-    state.owner = owner;
-    state.name = String::from(name);
-    state.alive = true;
-    state.mounted = false;
-    state.busy = false;
-    state.phase = Phase::Idle;
-    state.timeouts = 0;
-    state.stats = Stats::default();
-    state.epoch += 1;
-    // Tags carry the slot, so one provider's tag never matches another's.
-    state.next_tag = (slot.index as u64) << 56;
-    Ok(slot)
+        .ok_or(FuseError::Full)
 }
 
 /// Mount `fs` at `point` in the native and the Linux ABI tables, or in
@@ -126,7 +126,10 @@ fn unmount_slot(slot: &Slot, wait: bool) -> bool {
         let (native, abi) = if wait {
             (crate::fs::with(unmount), crate::fs::abi_with(unmount))
         } else {
-            (crate::fs::try_with(unmount), crate::fs::try_abi_with(unmount))
+            (
+                crate::fs::try_with(unmount),
+                crate::fs::try_abi_with(unmount),
+            )
         };
         // A busy table is retried; one that does not exist has nothing to
         // unmount only when waiting told us so (`with` answers `None`).

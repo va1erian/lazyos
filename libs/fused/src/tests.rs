@@ -199,7 +199,10 @@ fn statfs_and_setattr_records() {
     let len = change.encode(&mut buf).unwrap();
     assert_eq!(SetAttrRecord::decode(&buf[..len]), Some(change));
     buf[0] = 0x80;
-    assert!(SetAttrRecord::decode(&buf[..len]).is_none(), "unknown mask bits");
+    assert!(
+        SetAttrRecord::decode(&buf[..len]).is_none(),
+        "unknown mask bits"
+    );
 }
 
 #[test]
@@ -250,7 +253,11 @@ fn serve_a_whole_session() {
     rename.len = 11;
     let (reply, _) = ask(&mut fs, rename, b"notes.txtd/moved.txt");
     assert_eq!(reply.status, 0);
-    let (reply, _) = ask(&mut fs, path_request(7, Op::Lookup, "notes.txt"), b"notes.txt");
+    let (reply, _) = ask(
+        &mut fs,
+        path_request(7, Op::Lookup, "notes.txt"),
+        b"notes.txt",
+    );
     assert_eq!(reply.status, errno::ENOENT);
     // The node handle followed the rename.
     tail.op = Op::Lookup as u64 | FLAG_NODE;
@@ -271,11 +278,21 @@ fn serve_a_whole_session() {
     let (reply, data) = ask(&mut fs, path_request(9, Op::StatFs, ""), b"");
     let figures = StatFsRecord::decode(&data).unwrap();
     assert_eq!((reply.status, figures.magic), (0, MAGIC));
-    assert_eq!(ask(&mut fs, path_request(10, Op::Rmdir, "d"), b"d").0.status, errno::ENOTEMPTY);
+    assert_eq!(
+        ask(&mut fs, path_request(10, Op::Rmdir, "d"), b"d")
+            .0
+            .status,
+        errno::ENOTEMPTY
+    );
     let unlink = path_request(11, Op::Unlink, "d/moved.txt");
     assert_eq!(ask(&mut fs, unlink, b"d/moved.txt").0.status, 0);
     assert_eq!(ask(&mut fs, tail, b"").0.status, errno::ESTALE);
-    assert_eq!(ask(&mut fs, path_request(12, Op::Rmdir, "d"), b"d").0.status, 0);
+    assert_eq!(
+        ask(&mut fs, path_request(12, Op::Rmdir, "d"), b"d")
+            .0
+            .status,
+        0
+    );
     assert_eq!(fs.used(), 0);
     assert_eq!(fs.node_count(), 1);
 }
@@ -284,10 +301,32 @@ fn serve_a_whole_session() {
 fn hostile_requests_never_reach_the_tree() {
     let mut fs = tree();
     let cases: Vec<(Request, Vec<u8>, u64)> = vec![
-        (Request { op: 0, ..Request::default() }, vec![], errno::ENOSYS),
-        (Request { op: 0xFFFF, ..Request::default() }, vec![], errno::ENOSYS),
-        (path_request(1, Op::Lookup, "../etc"), b"../etc".to_vec(), errno::EINVAL),
-        (path_request(1, Op::Lookup, "/abs"), b"/abs".to_vec(), errno::EINVAL),
+        (
+            Request {
+                op: 0,
+                ..Request::default()
+            },
+            vec![],
+            errno::ENOSYS,
+        ),
+        (
+            Request {
+                op: 0xFFFF,
+                ..Request::default()
+            },
+            vec![],
+            errno::ENOSYS,
+        ),
+        (
+            path_request(1, Op::Lookup, "../etc"),
+            b"../etc".to_vec(),
+            errno::EINVAL,
+        ),
+        (
+            path_request(1, Op::Lookup, "/abs"),
+            b"/abs".to_vec(),
+            errno::EINVAL,
+        ),
         (
             Request {
                 op: Op::Create as u64 | FLAG_NODE,
@@ -347,10 +386,19 @@ fn capacity_and_node_limits() {
     let mut fs = MemFs::new(10_000, 3, 0, 0, clock);
     fs.create("a", 0o644, 0, 0).unwrap();
     assert_eq!(fs.write(Target::Path("a"), 0, &[1; 10_000]), Ok(10_000));
-    assert_eq!(fs.write(Target::Path("a"), 10_000, &[1]), Err(errno::ENOSPC));
-    assert_eq!(fs.write(Target::Path("a"), u64::MAX, &[1]), Err(errno::EINVAL));
+    assert_eq!(
+        fs.write(Target::Path("a"), 10_000, &[1]),
+        Err(errno::ENOSPC)
+    );
+    assert_eq!(
+        fs.write(Target::Path("a"), u64::MAX, &[1]),
+        Err(errno::EINVAL)
+    );
     assert_eq!(fs.truncate(Target::Path("a"), u64::MAX), Err(errno::ENOSPC));
-    assert_eq!(fs.write(Target::Path("a"), 1 << 40, &[1]), Err(errno::ENOSPC));
+    assert_eq!(
+        fs.write(Target::Path("a"), 1 << 40, &[1]),
+        Err(errno::ENOSPC)
+    );
     fs.truncate(Target::Path("a"), 10).unwrap();
     assert_eq!(fs.used(), 10);
     fs.mkdir("d", 0o755, 0, 0).unwrap();
@@ -434,14 +482,20 @@ fn seeded_garbage_never_panics() {
             request.path_len = rng.next() % 9000;
         }
         let mut payload = path.as_bytes().to_vec();
-        payload.resize(payload.len() + (rng.next() % 300) as usize, rng.next() as u8);
+        payload.resize(
+            payload.len() + (rng.next() % 300) as usize,
+            rng.next() as u8,
+        );
         let mut script = Script::default();
         script.queue.push_back((request, payload));
         serve_one(&mut fs, &mut script, &mut Buffers::new()).unwrap();
         let (reply, data) = &script.replies[0];
         assert!(data.len() <= MAX_DATA);
         if reply.status == 0 && request.operation() == Some(Op::ReadDir) {
-            assert!(decode_dirents(data, reply.count as usize).is_some(), "seed {seed:#x}");
+            assert!(
+                decode_dirents(data, reply.count as usize).is_some(),
+                "seed {seed:#x}"
+            );
         }
     }
 }

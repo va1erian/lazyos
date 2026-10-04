@@ -73,7 +73,13 @@ impl FuseFs {
     }
 
     /// A request answered by a node's attributes.
-    fn attr_call(&self, op: Op, target: Target, request: Request, data: &[u8]) -> Result<Meta, FsError> {
+    fn attr_call(
+        &self,
+        op: Op,
+        target: Target,
+        request: Request,
+        data: &[u8],
+    ) -> Result<Meta, FsError> {
         let (reply, _) = self.call(op, target, request, data, &mut [])?;
         meta_of(&reply.attr)
     }
@@ -133,7 +139,8 @@ impl FuseFs {
             offset: size,
             ..Request::default()
         };
-        self.call(Op::Truncate, target, request, &[], &mut []).map(|_| ())
+        self.call(Op::Truncate, target, request, &[], &mut [])
+            .map(|_| ())
     }
 
     /// A create or mkdir.
@@ -145,7 +152,11 @@ impl FuseFs {
             ..Request::default()
         };
         let meta = self.attr_call(op, Target::Path(path), request, &[])?;
-        let want = if op == Op::Mkdir { FileKind::Dir } else { FileKind::File };
+        let want = if op == Op::Mkdir {
+            FileKind::Dir
+        } else {
+            FileKind::File
+        };
         if meta.kind != want {
             return Err(FsError::Io);
         }
@@ -177,7 +188,13 @@ impl Filesystem for FuseFs {
 
     /// The node is the `(ino, generation)` the daemon reports for the file.
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
-        let (reply, _) = self.call(Op::Lookup, Target::Path(path), Request::default(), &[], &mut [])?;
+        let (reply, _) = self.call(
+            Op::Lookup,
+            Target::Path(path),
+            Request::default(),
+            &[],
+            &mut [],
+        )?;
         let meta = meta_of(&reply.attr)?;
         if meta.kind != FileKind::File {
             return Err(FsError::IsDir);
@@ -212,7 +229,12 @@ impl Filesystem for FuseFs {
         let record = setattr_record(attr);
         let mut bytes = [0u8; payload::SETATTR_LEN];
         let len = record.encode(&mut bytes).ok_or(FsError::Invalid)?;
-        self.attr_call(Op::SetAttr, Target::Path(path), Request::default(), &bytes[..len])
+        self.attr_call(
+            Op::SetAttr,
+            Target::Path(path),
+            Request::default(),
+            &bytes[..len],
+        )
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -248,7 +270,13 @@ impl Filesystem for FuseFs {
 
     fn statfs(&self) -> Result<StatFs, FsError> {
         let mut out = [0u8; payload::STATFS_LEN];
-        let (_, len) = self.call(Op::StatFs, Target::Path(""), Request::default(), &[], &mut out)?;
+        let (_, len) = self.call(
+            Op::StatFs,
+            Target::Path(""),
+            Request::default(),
+            &[],
+            &mut out,
+        )?;
         let figures = StatFsRecord::decode(&out[..len]).ok_or(FsError::Io)?;
         Ok(StatFs {
             magic: figures.magic as u32,
@@ -270,10 +298,15 @@ impl Filesystem for FuseFs {
                 len: MAX_DATA as u64,
                 ..Request::default()
             };
-            let (reply, len) = self.call(Op::ReadDir, Target::Path(path), request, &[], &mut out)?;
+            let (reply, len) =
+                self.call(Op::ReadDir, Target::Path(path), request, &[], &mut out)?;
             let count = usize::try_from(reply.count).map_err(|_| FsError::Io)?;
             if count == 0 {
-                return if len == 0 { Ok(entries) } else { Err(FsError::Io) };
+                return if len == 0 {
+                    Ok(entries)
+                } else {
+                    Err(FsError::Io)
+                };
             }
             if entries.len() + count > MAX_DIR_ENTRIES {
                 return Err(FsError::Io);
@@ -282,7 +315,11 @@ impl Filesystem for FuseFs {
             entries.extend(batch.into_iter().map(|entry| DirEntry {
                 name: entry.name,
                 ino: entry.ino,
-                kind: if entry.dir { FileKind::Dir } else { FileKind::File },
+                kind: if entry.dir {
+                    FileKind::Dir
+                } else {
+                    FileKind::File
+                },
             }));
         }
     }

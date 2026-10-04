@@ -197,7 +197,10 @@ fn serve(index: usize) {
         Mode::FaultData => {
             let reply = answer(0, 4);
             let refused = fuse::reply(index, fake.owner, &reply, &mut |_| Err(FuseError::Fault));
-            assert!(refused == Err(FuseError::Fault), "faulting data: {refused:?}");
+            assert!(
+                refused == Err(FuseError::Fault),
+                "faulting data: {refused:?}"
+            );
         }
         Mode::Normal | Mode::Lie(_) => {
             let lie = match fake.mode {

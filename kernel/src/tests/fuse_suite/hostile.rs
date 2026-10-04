@@ -30,11 +30,18 @@ pub fn error_statuses() -> Result<(), String> {
             (u64::MAX, FsError::Io),
         ] {
             mode(Mode::Status(code));
-            expect(vfsapi::abi_stat(ROOT, "/mnt/t/x"), want, &alloc::format!("errno {code}"))?;
+            expect(
+                vfsapi::abi_stat(ROOT, "/mnt/t/x"),
+                want,
+                &alloc::format!("errno {code}"),
+            )?;
         }
         // An error is an answer: the provider lives on.
         mode(Mode::Normal);
-        check!(vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(), "the daemon did not recover");
+        check!(
+            vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(),
+            "the daemon did not recover"
+        );
         Ok(())
     })
 }
@@ -44,20 +51,46 @@ pub fn silent_daemon_dies() -> Result<(), String> {
         check!(vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(), "first lookup");
         mode(Mode::Silent);
         // `/mnt/t/a` is not cached: each stat is a request that times out.
-        expect(vfsapi::abi_stat(ROOT, "/mnt/t/a"), FsError::Io, "first timeout")?;
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t/a"),
+            FsError::Io,
+            "first timeout",
+        )?;
         let (stats, alive) = fuse::stats(index).ok_or("no stats")?;
         check!(alive && stats.timeouts == 1, "after one timeout: {stats:?}");
-        expect(vfsapi::abi_stat(ROOT, "/mnt/t/b"), FsError::Io, "second timeout")?;
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t/b"),
+            FsError::Io,
+            "second timeout",
+        )?;
         let (stats, alive) = fuse::stats(index).ok_or("no stats")?;
-        check!(!alive && stats.timeouts == 2, "after two timeouts: {stats:?} alive={alive}");
+        check!(
+            !alive && stats.timeouts == 2,
+            "after two timeouts: {stats:?} alive={alive}"
+        );
         // Dead: the next call fails without a request.
         let served = with_fake(|f| f.served);
-        expect(vfsapi::abi_stat(ROOT, "/mnt/t/c"), FsError::Io, "a dead provider")?;
-        check!(with_fake(|f| f.served) == served, "a dead provider was asked");
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t/c"),
+            FsError::Io,
+            "a dead provider",
+        )?;
+        check!(
+            with_fake(|f| f.served) == served,
+            "a dead provider was asked"
+        );
         // The flusher's reap takes it out of both tables.
         fuse::reap();
-        expect(vfsapi::abi_stat(ROOT, "/mnt/t"), FsError::NotFound, "ABI after reap")?;
-        expect(vfsapi::vfs_stat(ROOT, "/mnt/t"), FsError::NotFound, "native after reap")?;
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t"),
+            FsError::NotFound,
+            "ABI after reap",
+        )?;
+        expect(
+            vfsapi::vfs_stat(ROOT, "/mnt/t"),
+            FsError::NotFound,
+            "native after reap",
+        )?;
         check!(fuse::stats(index).is_none(), "the slot was not freed");
         Ok(())
     })
@@ -71,17 +104,28 @@ pub fn death_mid_request() -> Result<(), String> {
             .ok_or("no node")?;
         mode(Mode::DieAfterTake);
         let mut buf = [0x5Au8; 8];
-        expect(node.read(0, &mut buf), FsError::Io, "read as the daemon dies")?;
+        expect(
+            node.read(0, &mut buf),
+            FsError::Io,
+            "read as the daemon dies",
+        )?;
         check!(buf == [0x5A; 8], "a failed read changed the buffer");
-        check!(fuse::stats(index).map(|(_, alive)| alive) == Some(false), "still alive");
+        check!(
+            fuse::stats(index).map(|(_, alive)| alive) == Some(false),
+            "still alive"
+        );
         // A re-registration of the name replaces the dead mount at once.
         let owner = with_fake(|f| f.owner);
-        let again = fuse::register(owner, "t", MountFlags::default()).map_err(|e| format!("{e:?}"))?;
+        let again =
+            fuse::register(owner, "t", MountFlags::default()).map_err(|e| format!("{e:?}"))?;
         with_fake(|f| {
             f.index = again;
             f.mode = Mode::Normal;
         });
-        check!(vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(), "the new provider answers");
+        check!(
+            vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(),
+            "the new provider answers"
+        );
         Ok(())
     })
 }
@@ -89,16 +133,26 @@ pub fn death_mid_request() -> Result<(), String> {
 pub fn stale_reply() -> Result<(), String> {
     run(Mode::Normal, |index| {
         mode(Mode::WrongTag);
-        expect(vfsapi::abi_stat(ROOT, "/mnt/t/x"), FsError::Io, "a wrong tag")?;
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t/x"),
+            FsError::Io,
+            "a wrong tag",
+        )?;
         let (stats, alive) = fuse::stats(index).ok_or("no stats")?;
-        check!(alive && stats.stale == 1 && stats.timeouts == 1, "{stats:?}");
+        check!(
+            alive && stats.stale == 1 && stats.timeouts == 1,
+            "{stats:?}"
+        );
         // A reply with nothing in flight is stale too.
         let owner = with_fake(|f| f.owner);
         let late = fuse::reply(index, owner, &Reply::default(), &mut |_| Ok(()));
         check!(late == Err(FuseError::Stale), "a late reply: {late:?}");
         // Another task cannot answer for the provider.
         let other = fuse::reply(index, owner + 1, &Reply::default(), &mut |_| Ok(()));
-        check!(other == Err(FuseError::NotOwner), "another task replied: {other:?}");
+        check!(
+            other == Err(FuseError::NotOwner),
+            "another task replied: {other:?}"
+        );
         mode(Mode::Normal);
         check!(vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(), "recovery");
         Ok(())
@@ -128,9 +182,15 @@ pub fn faulting_reply_data() -> Result<(), String> {
         check!(got == Err(FsError::Io), "faulting reply data: {got:?}");
         check!(buf == [0x3C; 4], "the caller's buffer changed");
         let (stats, alive) = fuse::stats(index).ok_or("no stats")?;
-        check!(alive && stats.timeouts == 0, "after a faulting reply: {stats:?}");
+        check!(
+            alive && stats.timeouts == 0,
+            "after a faulting reply: {stats:?}"
+        );
         mode(Mode::Normal);
-        check!(vfsapi::abi_read_at(ROOT, "/mnt/t/f", 0, &mut buf) == Ok(4), "recovery");
+        check!(
+            vfsapi::abi_read_at(ROOT, "/mnt/t/f", 0, &mut buf) == Ok(4),
+            "recovery"
+        );
         Ok(())
     })
 }
@@ -160,7 +220,11 @@ pub fn lying_replies() -> Result<(), String> {
             "a read count above its data",
         )?;
         mode(Mode::Lie(Lie::Dirents));
-        expect(vfsapi::abi_readdir(ROOT, "/mnt/t"), FsError::Io, "garbage entries")?;
+        expect(
+            vfsapi::abi_readdir(ROOT, "/mnt/t"),
+            FsError::Io,
+            "garbage entries",
+        )?;
         mode(Mode::Normal);
         check!(vfsapi::abi_readdir(ROOT, "/mnt/t").is_ok(), "recovery");
         Ok(())
@@ -170,7 +234,11 @@ pub fn lying_replies() -> Result<(), String> {
 pub fn endless_directory() -> Result<(), String> {
     run(Mode::Normal, |_| {
         mode(Mode::Lie(Lie::EndlessDir));
-        expect(vfsapi::abi_readdir(ROOT, "/mnt/t"), FsError::Io, "a listing that never ends")?;
+        expect(
+            vfsapi::abi_readdir(ROOT, "/mnt/t"),
+            FsError::Io,
+            "a listing that never ends",
+        )?;
         let asked = with_fake(|f| f.served);
         check!(
             asked as usize <= fuse::MAX_DIR_ENTRIES / 5000 + 2,

@@ -62,7 +62,9 @@ use fused::wire::{Reply, Request};
 use super::vfs::FsError;
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
-pub use backend::{FuseFs, MAX_DIR_ENTRIES};
+pub use backend::FuseFs;
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the suite's bound check
+pub use backend::MAX_DIR_ENTRIES;
 pub use mount::{reap, register, teardown_task, unregister};
 
 /// How many daemons can be mounted at once.
