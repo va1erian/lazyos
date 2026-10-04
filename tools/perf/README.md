@@ -28,9 +28,24 @@ syscall number of the longest interrupts-off stretch.
 | `ipc_rt` | in-kernel `begin_call` | `await_reply` returns (no context switch) | 2000 echoes, once, 15 s after boot |
 | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns | 200 sleeps, once, 17 s after boot |
 | `present` | the display owner's `present` syscall starts | it returns, breaths between chunks included (P3.2) | every frame the compositor shows during the run |
+| `sched` | a scheduler entry (tick, park, yield) | it returns the stack to resume | everything the boot and the run do |
+| `wake_run` | any task wakes another (not only an interrupt) | the woken task is put on the CPU | everything the boot and the run do |
+| `msg_rt` | `msgbench` enters a `Ping` call (user `rdtsc`) | the call returns with the server's reply | 20000 round trips between two user processes, once, 19 s after boot |
 | `report` | the kernel starts printing a report | it finished | every report |
 | `input_present_rpt` | an `input_present` sample | the same, booked only when a report ran inside it | the moves |
 | `usb_input_present` | the xHCI interrupt the kernel posted to `usbd` before it published a pointer record | the compositor's next `present` returns | `--usb`: the same moves through a `usb-mouse` |
+
+`--max-msg-rt-p50-us 10` turns the run into the P6 regression gate: it fails
+when msgbench's median round trip is over 10 µs, under KVM or WHPX only (no
+CI workflow runs it yet).
+
+`msgbench` (`user/src/bin/msgbench.rs`) also prints `msg_tput`: one-way
+messages per second (bursts of 32 sends closed by a call) and synchronous
+calls per second. The kernel prints `PERF:wakeups` (running totals of context
+switches and scheduler entries, and the per-task counters below) with every
+report; the run ends with an 8 s
+quiet window (no input, no network traffic) over which the idle desktop's
+rate is taken (`idle_ctxsw`, the P7 exit metric).
 
 A report is several milliseconds of polled serial output (`report`, more
 under a hypervisor, where every byte is a VM exit), and the kernel task keeps
@@ -47,8 +62,7 @@ the sample, never lengthen it.
 it includes `usbd`'s own delay: the bottom half notes the interrupt it posts
 to each claimant (`perf::irq_posted`) and a source's next publish consumes it
 (`perf::source_publishing`). Disk read and exec time have their own
-harness, `disk.py` (below). TCP throughput has a harness of its
-own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
+harness, `disk.py` (below). TCP throughput has a harness of its own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
 [`docs/perf/network.md`](../../docs/perf/network.md)), because its verdict is
 what crossed the wire, not a kernel histogram.
 
@@ -72,3 +86,14 @@ lines; the runner adds the kernel's `PERF:irqoff` histogram and
 `PERF:irqoff_worst` (the longest interrupts-off syscall stretch of the boot
 and the run) and writes `docs/perf/disk.json`. Labelled runs append to
 [`docs/perf/disk.md`](../../docs/perf/disk.md).
+
+## Idle wakeups (P7)
+
+`python tools/perf/idle.py` boots the desktop (`LAZYOS_DESKTOP=1
+LAZYOS_PERF=1`), touches nothing, and reads the kernel's `PERF:wakeups` lines
+(`kernel/src/perf/wakeups.rs`: the total switch count and cumulative
+per-slot wakes and switches, every 2 s) over a window after the boot has
+settled. It prints, and writes to
+[`docs/perf/idle.md`](../../docs/perf/idle.md), the context switches and wakes
+per second of every task that had any; `--max-switches 10` fails above the P7
+exit target. Use `--no-build` to re-measure the current image.

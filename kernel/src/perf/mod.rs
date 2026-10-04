@@ -12,6 +12,14 @@
 //! | `ipc_rt` | `begin_call` of an in-kernel echo | `await_reply` returns its reply (no context switch) |
 //! | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns |
 //! | `present` | the display owner's `present` syscall starts | it returns (breaths between chunks included) |
+//! | `sched` | a scheduler entry (tick, park or yield) | it returns the stack to resume (selection, bookkeeping, the switch) |
+//! | `wake_run` | a task wakes another one (any cause) | the woken task is put on the CPU |
+//!
+//! `PERF:ctxsw:tick=<t> switches=<n> entries=<n>` gives the running totals of
+//! context switches and scheduler entries, so a harness can take a rate over
+//! any window. `/system/bin/msgbench` (started once, 19 s after boot) prints
+//! `PERF:msg_rt` (a cross-process `Ping` round trip, user `rdtsc` around the
+//! call) and `PERF:msg_tput` itself, in the same format.
 //!
 //! Durations are TSC cycles, converted with the PIT calibration when printed.
 //! [`report`] runs from the kernel task and prints one line per metric that
@@ -38,6 +46,8 @@ mod hist;
 mod imp;
 #[cfg(lazyos_perf)]
 mod ipcbench;
+#[cfg(lazyos_perf)]
+mod msgbench;
 #[cfg(lazyos_perf)]
 mod sleepbench;
 
@@ -170,6 +180,22 @@ pub fn irqoff_pause() {
 pub fn irqoff_resume() {
     #[cfg(lazyos_perf)]
     imp::irqoff_resume();
+}
+
+/// A scheduler entry starts: its TSC, for [`sched_exit`] (0 when unmeasured).
+#[inline(always)]
+pub fn sched_enter() -> u64 {
+    #[cfg(lazyos_perf)]
+    return rdtsc();
+    #[cfg(not(lazyos_perf))]
+    0
+}
+
+/// The scheduler entry begun at `started` returns.
+#[inline(always)]
+pub fn sched_exit(_started: u64) {
+    #[cfg(lazyos_perf)]
+    imp::sched_exit(_started);
 }
 
 /// Print every metric that changed (kernel task, periodically).

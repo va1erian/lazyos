@@ -9,7 +9,7 @@ buffers with fences. Spec: [messenger.md](../messenger.md) sections 4-10.
 | Path | Role |
 |---|---|
 | `kernel/src/ipc/handles.rs` | Per-process handle tables and rights (issue #64) |
-| `kernel/src/ipc/channels.rs` (+ `channels/*.rs`) | Endpoints, inboxes, transactions (issue #66); types, helpers, close, recv, stats, txn timeouts in submodules |
+| `kernel/src/ipc/channels.rs` (+ `channels/*.rs`) | Endpoints, inboxes, transactions (issue #66); the call half (`call.rs`), the indexed registry (`registry.rs`), types, helpers, close, recv, stats, txn timeouts in submodules |
 | `kernel/src/ipc/shared.rs` (+ `shared/{types,registry,fences}.rs`) | Shared buffers, mappings, fences (issue #67) |
 | `libs/messenger/src/lib.rs` | Parcel codec shared by kernel and userspace (issue #65) |
 
@@ -37,6 +37,24 @@ userspace never names another task's handles.
 - One channel has two endpoints; an endpoint's `object_id` packs
   `(channel_id << 1) | side`. API: `create`, `send`, `begin_call`/`await_reply`/
   `call`, `reply`, `cancel`, `close_endpoint`, `try_recv`/`recv`, `stats`.
+- **Registry and ids** (P6.3, `channels/registry.rs`): channels live in a
+  fixed table of `MAX_CHANNELS` slots. A channel id is a never-repeating
+  sequence number above the slot index (low 6 bits), and a transaction id
+  carries its channel's slot the same way, so finding a channel or a
+  transaction is one index and one comparison; a stale id never matches a
+  reused slot. Endpoint waiter lists are slot bitsets (no allocation).
+- **One copy per direction** (P6.3): the syscall layer copies a parcel in
+  once (`read_parcel`), validates it in place (`libmessenger::ParcelView`, the
+  same checks as `Parcel::decode`, which is built on it) and hands the buffer
+  to `call_owned`/`begin_call_owned`/`send_owned`/`reply_owned`, which queue it
+  as is; the receiver's `recv` and the caller's `await_reply` copy it out of
+  that same buffer. The slice entry points (`call`, `send`, `reply`, ...) copy
+  once for kernel callers. The 64-byte argument block is read onto the stack,
+  `copy_in` walks each page once and `copy_out` keeps the translations of its
+  range check for up to 16 pages.
+- **Handoff** (P6.2): a call that wakes a callee parked in `recv`, and a reply
+  that wakes its caller, hand the CPU to that task when the current one parks
+  (`task::hand_off`; see [tasks.md](tasks.md)).
 - Transactions carry a global `txn_id`, a deadline and the state machine
   `Pending`/`Replied`/`TimedOut`/`Canceled`/`PeerDied`; replies match by id and
   may arrive out of order. A synchronous call on the same pair is `Deadlock`
@@ -108,6 +126,17 @@ userspace never names another task's handles.
 **Invariants.** `CHANNELS`/`REGISTRY` locks are released before wait-queue
 notifications; waiter parks run with interrupts disabled, so no reply can slip
 in between registration and the first wait.
+
+- A task that dies parked on `MESSENGER` (in `recv` or `await_reply`) is
+  dropped from the queue by task teardown (`forget_task`, `WaitQueue::forget`).
+
+**Performance** (WHPX, dev profile; `tools/perf/run.py`, `msgbench`): a
+cross-process `Ping` round trip between two user processes is 4 to 5 µs at
+the median (5.6 µs before P6) and one channel carries about 0.8 to 1 million
+one-way messages per second (523k before). The in-kernel echo (`ipc_rt`, no
+switch) is 0.3 to 0.5 µs; the rest of a round trip is two syscalls and two
+context switches. Tests: `ipc_channel_suite::indexed` (slot reuse, a million
+calls with exact quota and heap accounting, callers ended mid-call).
 
 **Status.** Working: handle rights, transactions with deadlines/cancel, handle
 move and buffer share, fences. Open: reply-borne transfers, per-connection

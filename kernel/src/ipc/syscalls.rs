@@ -45,7 +45,7 @@ use alloc::vec::Vec;
 use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::PhysAddr;
 
-use libmessenger::{Header, Parcel, MAX_PARCEL_BYTES, VERSION};
+use libmessenger::{Header, Parcel, ParcelView, MAX_PARCEL_BYTES, VERSION};
 
 use crate::ipc::handles::HandleKind;
 use crate::ipc::{channels, credentials, handles, registry, topics};
@@ -74,7 +74,7 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
         // carries the failure.
         return negative(errno::EFAULT);
     }
-    let args = match copy_in(args_ptr, ARGS_SIZE)
+    let args = match copy_in_array::<ARGS_SIZE>(args_ptr)
         .and_then(|bytes| MsgArgs::from_bytes(&bytes).ok_or(errno::EINVAL))
     {
         Ok(args) => args,
@@ -139,7 +139,9 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
     }
 }
 
-/// Read a request parcel, bounded by the wire limit before any copying.
+/// Read a request parcel, bounded by the wire limit before any copying. This
+/// is the parcel's one copy into the kernel: the same buffer is validated in
+/// place, queued and handed to the receiver (P6.3).
 fn read_parcel(args: &MsgArgs) -> Result<Vec<u8>, i64> {
     if args.parcel_len == 0 || args.parcel_len > MAX_PARCEL_BYTES as u64 {
         return Err(errno::E2BIG);
@@ -147,14 +149,15 @@ fn read_parcel(args: &MsgArgs) -> Result<Vec<u8>, i64> {
     copy_in(args.parcel_ptr, args.parcel_len as usize)
 }
 
-/// Decode a parcel at the kernel boundary; malformed bytes are `EINVAL`.
-fn decode_parcel(bytes: &[u8]) -> Result<Parcel, i64> {
-    Parcel::decode(bytes).map_err(|_| errno::EINVAL)
+/// Validate a parcel at the kernel boundary, in place; malformed bytes are
+/// `EINVAL`.
+fn decode_parcel(bytes: &[u8]) -> Result<ParcelView<'_>, i64> {
+    ParcelView::parse(bytes).map_err(|_| errno::EINVAL)
 }
 
 /// Enforce the ACL for an outbound call or one-way send: the header is the
 /// only source of `(interface_id, method)`, and `authorize` audits the verdict.
-fn authorize_parcel(parcel: &Parcel) -> Result<(), i64> {
+fn authorize_parcel(parcel: &ParcelView<'_>) -> Result<(), i64> {
     let decision = crate::ipc::authorize(
         task::current(),
         parcel.header.interface_id,
@@ -187,13 +190,9 @@ fn op_call(args: &MsgArgs) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
     authorize_parcel(&parcel)?;
-    let reply = channels::call(
-        args.handle,
-        parcel.header.method,
-        &bytes,
-        args.deadline_ticks(),
-    )
-    .map_err(channel_errno)?;
+    let method = parcel.header.method;
+    let reply = channels::call_owned(args.handle, method, bytes, args.deadline_ticks())
+        .map_err(channel_errno)?;
     write_reply(args, &reply)
 }
 
@@ -201,13 +200,9 @@ fn op_call_begin(args: &MsgArgs) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
     authorize_parcel(&parcel)?;
-    let txn_id = channels::begin_call(
-        args.handle,
-        parcel.header.method,
-        &bytes,
-        args.deadline_ticks(),
-    )
-    .map_err(channel_errno)?;
+    let method = parcel.header.method;
+    let txn_id = channels::begin_call_owned(args.handle, method, bytes, args.deadline_ticks())
+        .map_err(channel_errno)?;
     Ok(MsgResult {
         value: txn_id,
         ..MsgResult::default()
@@ -221,7 +216,7 @@ fn op_call_await(args: &MsgArgs) -> Result<MsgResult, i64> {
 
 fn op_reply(args: &MsgArgs) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
-    channels::reply(args.txn_id, &bytes).map_err(channel_errno)?;
+    channels::reply_owned(args.txn_id, bytes).map_err(channel_errno)?;
     Ok(MsgResult::default())
 }
 
@@ -229,7 +224,7 @@ fn op_send(args: &MsgArgs) -> Result<MsgResult, i64> {
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
     authorize_parcel(&parcel)?;
-    channels::send(args.handle, &bytes).map_err(channel_errno)?;
+    channels::send_owned(args.handle, bytes).map_err(channel_errno)?;
     Ok(MsgResult::default())
 }
 
@@ -365,7 +360,7 @@ fn op_authorize_topic(args: &MsgArgs) -> Result<MsgResult, i64> {
     let target = registry_target(args.txn_id)?;
     let bytes = read_parcel(args)?;
     let parcel = decode_parcel(&bytes)?;
-    let request = topics::decode_request(&parcel.body).map_err(|_| errno::EINVAL)?;
+    let request = topics::decode_request(parcel.body()).map_err(|_| errno::EINVAL)?;
     let segments =
         topics::authorize(target, request.mode, &request.name, request.txn).map_err(|error| {
             match error {

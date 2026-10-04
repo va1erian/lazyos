@@ -519,7 +519,11 @@ same ACL model. No protocol change at the parcel level.
 | Trace overhead when disabled | < 1% |
 | Handle create/destroy | > 1M/s |
 
-Benchmarks run in CI with regression gates.
+The first two rows are measured by `/system/bin/msgbench` (two user
+processes, `PERF:msg_rt` and `PERF:msg_tput`) through `tools/perf/run.py`:
+4 to 5 us median and 0.8 to 1 million one-way messages per second under WHPX
+on the dev profile (docs/performance-plan.md P6). No CI workflow runs the
+benchmark or gates on it yet; the other rows have no benchmark.
 
 ---
 

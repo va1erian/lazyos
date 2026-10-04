@@ -13,19 +13,13 @@ pub(super) fn split_object_id(object: u64) -> (u64, usize) {
 }
 
 /// Find a channel in the registry, or report a stale handle.
-pub(super) fn find_channel(channels: &mut [Channel], id: u64) -> Result<&mut Channel, Error> {
-    channels
-        .iter_mut()
-        .find(|channel| channel.id == id)
-        .ok_or(Error::InvalidHandle)
+pub(super) fn find_channel(channels: &mut Registry, id: u64) -> Result<&mut Channel, Error> {
+    channels.get_mut(id).ok_or(Error::InvalidHandle)
 }
 
 /// Find a channel in the registry without mutating it.
-pub(super) fn find_channel_ref(channels: &[Channel], id: u64) -> Result<&Channel, Error> {
-    channels
-        .iter()
-        .find(|channel| channel.id == id)
-        .ok_or(Error::InvalidHandle)
+pub(super) fn find_channel_ref(channels: &Registry, id: u64) -> Result<&Channel, Error> {
+    channels.get(id).ok_or(Error::InvalidHandle)
 }
 
 /// Borrow the meter for `slot`, creating it on first use.
@@ -54,13 +48,15 @@ pub(super) fn release_pending(channel: &mut Channel, caller: usize) {
     }
 }
 
-/// Validate a parcel at the kernel boundary. Decoding is the attack surface;
-/// this never panics and rejects anything over the wire limits.
-pub(super) fn validate_parcel(bytes: &[u8]) -> Result<Parcel, Error> {
+/// Validate a parcel at the kernel boundary, in place (P6.3: the bytes are
+/// queued as they arrived, nothing is decoded into copies). Parsing is the
+/// attack surface; this never panics and rejects anything over the wire
+/// limits.
+pub(super) fn validate_parcel(bytes: &[u8]) -> Result<ParcelView<'_>, Error> {
     if bytes.len() > libmessenger::MAX_PARCEL_BYTES {
         return Err(Error::BadParcel);
     }
-    Parcel::decode(bytes).map_err(|_| Error::BadParcel)
+    ParcelView::parse(bytes).map_err(|_| Error::BadParcel)
 }
 
 /// Resolve a parcel's `handles` and `buffers` against the sending task's
@@ -68,16 +64,16 @@ pub(super) fn validate_parcel(bytes: &[u8]) -> Result<Parcel, Error> {
 /// taken here: [`retain_transfers`] runs once the message is accepted for
 /// queueing, so a refused send changes nothing.
 pub(super) fn resolve_transfers(
-    parcel: &Parcel,
+    parcel: &ParcelView<'_>,
 ) -> Result<(Vec<Transfer>, Vec<BufferTransfer>), Error> {
-    if parcel.handles.len() > libmessenger::MAX_HANDLES
-        || parcel.buffers.len() > libmessenger::MAX_BUFFERS
+    if parcel.handle_count() > libmessenger::MAX_HANDLES
+        || parcel.buffer_count() > libmessenger::MAX_BUFFERS
     {
         return Err(Error::BadParcel);
     }
-    let mut transfers = Vec::with_capacity(parcel.handles.len());
-    for (index, &local) in parcel.handles.iter().enumerate() {
-        if parcel.handles[..index].contains(&local) {
+    let mut transfers = Vec::with_capacity(parcel.handle_count());
+    for (index, local) in parcel.handles().enumerate() {
+        if parcel.handles().take(index).any(|earlier| earlier == local) {
             // One handle, one move: a duplicate entry would install two
             // receiver handles from a single reference.
             return Err(Error::BadTransfer);
@@ -92,8 +88,8 @@ pub(super) fn resolve_transfers(
             object_id: entry.object_id,
         });
     }
-    let mut buffers = Vec::with_capacity(parcel.buffers.len());
-    for descriptor in &parcel.buffers {
+    let mut buffers = Vec::with_capacity(parcel.buffer_count());
+    for descriptor in parcel.buffers() {
         let entry = handles::get(descriptor.handle).map_err(from_handles)?;
         if entry.kind != HandleKind::Buffer {
             return Err(Error::WrongKind);

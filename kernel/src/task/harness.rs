@@ -94,6 +94,7 @@ pub fn reset() {
             task.class = PriorityClass::Interactive;
             task.weight = PriorityClass::Interactive.default_weight();
         }
+        super::runq::sync_all(&tasks);
         removed
     };
     // Dropping removed tasks closes their pipe ends, which may notify a
@@ -151,6 +152,7 @@ pub fn set_state(index: usize, state: TaskState) {
             super::waiting::set_timer(index, deadline);
         }
     }
+    super::runq::sync(&tasks, index);
 }
 
 /// Classify `fd` in another task's descriptor table, so a test can verify
@@ -200,6 +202,70 @@ pub fn next_runnable() -> usize {
     super::pick_next(&tasks, super::current())
 }
 
+/// Task `index`'s stride pass (virtual time).
+pub fn pass(index: usize) -> Option<u64> {
+    TASKS.lock()[index].as_ref().map(|task| task.pass)
+}
+
+/// Stage the current task as having used up its minimum slice (P6.2), so a
+/// deserving same-class wake preempts it at once.
+pub fn expire_slice() {
+    super::preempt::set_selected(super::current(), 0);
+}
+
+/// Stage the current task as just selected: a deserving same-class wake is
+/// deferred to the end of its minimum slice.
+pub fn fresh_slice() {
+    let end = crate::arch::clock::monotonic_ns() + super::preempt::MIN_SLICE_NS;
+    super::preempt::set_selected(super::current(), end);
+}
+
+/// Whether a same-class preemption is deferred to the end of a slice.
+pub fn deferred_pending() -> bool {
+    super::preempt::deferred().is_some()
+}
+
+/// Set task `index`'s stride pass (the wake-rule tests stage who deserves
+/// the CPU this way).
+pub fn set_pass(index: usize, pass: u64) {
+    if let Some(task) = TASKS.lock()[index].as_mut() {
+        task.pass = pass;
+    }
+}
+
+/// Compare the run queues with a full scan of the table; panics on the first
+/// difference (`runq::verify`).
+pub fn verify_runq() {
+    super::runq::verify(&TASKS.lock());
+}
+
+/// The pick of the full-table scan the run queues replaced (P6.1): highest
+/// class first, then the smallest pass, ties in round-robin order after the
+/// current task. The suite checks `next_runnable` against it.
+pub fn reference_pick() -> usize {
+    let tasks = TASKS.lock();
+    let cur = super::current();
+    for class in PriorityClass::ALL.iter().rev() {
+        let mut best: Option<(usize, u64)> = None;
+        for step in 1..=super::MAX_TASKS {
+            let slot = (cur + step) % super::MAX_TASKS;
+            let Some(task) = tasks[slot].as_ref() else {
+                continue;
+            };
+            if task.state != TaskState::Runnable || task.class != *class {
+                continue;
+            }
+            if best.is_none_or(|(_, pass)| task.pass < pass) {
+                best = Some((slot, task.pass));
+            }
+        }
+        if let Some((slot, _)) = best {
+            return slot;
+        }
+    }
+    cur
+}
+
 /// Run one scheduling decision exactly as a timer tick would, without a
 /// context switch: charge the current task a CPU tick, run the stride
 /// selection, point `current()` at the winner, and return it. Tests use
@@ -211,11 +277,7 @@ pub fn simulate_tick() -> usize {
     // Same flagging the real tick does (issue #133): finished parentless
     // tasks are handed to `reclaim_pending`, the current one only when the
     // tick actually switches away from it.
-    for slot in 1..super::MAX_TASKS {
-        if slot != cur {
-            super::mark_finished(&tasks, slot);
-        }
-    }
+    super::schedule::flag_finished(&tasks, cur);
     let next = select_next(&mut tasks, cur);
     if next != cur {
         super::mark_finished(&tasks, cur);

@@ -47,11 +47,13 @@ fn write_remaining(ptr: u64, deadline: u64, unit: u64) {
 /// the park.
 fn wait_ready(deadline: Option<u64>, mut scan: impl FnMut() -> u64) -> u64 {
     loop {
+        // Record what this scan looks at: only those objects' events wake it.
+        task::poll_scan_begin();
         let ready = scan();
         if ready != 0 || deadline.is_some_and(|due| due <= now_ns()) {
             return ready;
         }
-        match task::wait_poll_ns(deadline) {
+        match task::wait_poll_keyed_ns(deadline) {
             WakeReason::Woken => {}
             WakeReason::TimedOut => return scan(),
             WakeReason::Interrupted => return err(EINTR),

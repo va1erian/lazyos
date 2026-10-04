@@ -178,6 +178,7 @@ mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
+mod heap_slab_suite;
 mod heap_suite;
 mod input_bus_suite;
 mod ipc_channel_suite;
@@ -196,6 +197,7 @@ mod native_exec_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
+mod poll_keys_suite;
 mod power_suite;
 mod preempt_lock_suite;
 mod preempt_wake_suite;
@@ -203,6 +205,7 @@ mod provider_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
+mod runq_suite;
 mod sched_suite;
 mod service_suite;
 mod signal_suite;
@@ -227,6 +230,7 @@ mod wallclock_suite;
 const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
+    heap_slab_suite::CASES,
     limits_suite::CASES,
     arch_suite::CASES,
     preempt_lock_suite::CASES,
@@ -238,7 +242,9 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    runq_suite::CASES,
     preempt_wake_suite::CASES,
+    poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,

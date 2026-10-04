@@ -8,12 +8,18 @@
 //!
 //! Every waiter is one entry with a bitset (`FUTEX_WAIT_BITSET`); a plain wait
 //! uses all ones. A wake removes the entry and marks the task runnable, a
-//! requeue rewrites the entry's key, and a waiter that returns for any other
-//! reason (timeout, signal) removes its own entry by slot. So an entry can
-//! never outlive its wait, whatever queue it was moved to.
+//! requeue moves the entry to its new key, and a waiter that returns for any
+//! other reason (timeout, signal) removes its own entry by slot. So an entry
+//! can never outlive its wait, whatever queue it was moved to.
 //!
-//! Lock order: the table lock is taken before the task table (`block_task` and
-//! `wake_task_with` lock it inside), never after.
+//! The table is hashed (P6.5): [`BUCKETS`] lists, each with its own lock,
+//! chosen by a hash of the key, so a wake or a wait walks only the waiters
+//! that share its bucket instead of every futex waiter in the system. All the
+//! waiters of one key are in one bucket, oldest first, so the wake order of
+//! a key stays FIFO.
+//!
+//! Lock order: a bucket lock is taken before the task table (`block_task` and
+//! `wake_task_with` lock it inside), never after, and never two at once.
 
 use alloc::vec::Vec;
 
@@ -45,8 +51,19 @@ struct Waiter {
     bitset: u32,
 }
 
-/// Every parked futex waiter, oldest first (wake order is FIFO).
-static WAITERS: Mutex<Vec<Waiter>> = Mutex::new(Vec::new());
+/// Number of hash buckets.
+const BUCKETS: usize = 64;
+
+/// The parked futex waiters, by bucket, oldest first in each.
+static WAITERS: [Mutex<Vec<Waiter>>; BUCKETS] = [const { Mutex::new(Vec::new()) }; BUCKETS];
+
+/// The bucket holding `key`'s waiters.
+fn bucket(key: Key) -> &'static Mutex<Vec<Waiter>> {
+    // Futex words are 4-byte aligned and address spaces 4 KiB aligned: mix
+    // the meaningful bits so neighbouring words spread over the buckets.
+    let mixed = (key.addr >> 2) ^ (key.space >> 12).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    &WAITERS[(mixed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 58) as usize % BUCKETS]
+}
 
 /// Park the calling task on `key` until a wake that matches `bitset`, the
 /// `deadline` (monotonic ns), or a signal. The caller has already checked the word, with
@@ -54,7 +71,7 @@ static WAITERS: Mutex<Vec<Waiter>> = Mutex::new(Vec::new());
 pub(super) fn wait(key: Key, bitset: u32, deadline: Option<u64>) -> WakeReason {
     let slot = task::current();
     {
-        let mut waiters = WAITERS.lock();
+        let mut waiters = bucket(key).lock();
         waiters.push(Waiter { key, slot, bitset });
         task::block_task(slot, WaitKind::Futex, deadline);
     }
@@ -69,9 +86,13 @@ pub(super) fn wait(key: Key, bitset: u32, deadline: Option<u64>) -> WakeReason {
     }
 }
 
-/// Drop every entry of `slot` (its wait ended).
+/// Drop every entry of `slot` (its wait ended). A requeue may have moved it
+/// to another bucket, so every bucket is checked: this is the timeout and
+/// signal path, not the wake path.
 fn remove_slot(slot: usize) {
-    WAITERS.lock().retain(|waiter| waiter.slot != slot);
+    for waiters in &WAITERS {
+        waiters.lock().retain(|waiter| waiter.slot != slot);
+    }
 }
 
 /// Wake up to `count` waiters on `key` whose bitset meets `bitset`. Returns
@@ -80,7 +101,7 @@ fn remove_slot(slot: usize) {
 /// Linux does not count a waiter that was already leaving.
 pub(super) fn wake(key: Key, bitset: u32, count: usize) -> usize {
     let mut woken = 0;
-    let mut waiters = WAITERS.lock();
+    let mut waiters = bucket(key).lock();
     let mut index = 0;
     while index < waiters.len() && woken < count {
         let waiter = &waiters[index];
@@ -101,31 +122,38 @@ pub(super) fn wake(key: Key, bitset: u32, count: usize) -> usize {
 /// the remaining ones to `to`. Returns `(woken, moved)`.
 pub(super) fn requeue(from: Key, to: Key, wake_count: usize, move_count: usize) -> (usize, usize) {
     let woken = wake(from, u32::MAX, wake_count);
-    let mut moved = 0;
-    let mut waiters = WAITERS.lock();
-    for waiter in waiters.iter_mut() {
-        if moved == move_count {
-            break;
-        }
-        if waiter.key == from {
-            waiter.key = to;
-            moved += 1;
+    // Take the movers out of `from`'s bucket (oldest first), then append
+    // them to `to`'s: one bucket lock at a time.
+    let mut movers: Vec<Waiter> = Vec::new();
+    {
+        let mut waiters = bucket(from).lock();
+        let mut index = 0;
+        while index < waiters.len() && movers.len() < move_count {
+            if waiters[index].key == from {
+                let mut waiter = waiters.remove(index);
+                waiter.key = to;
+                movers.push(waiter);
+            } else {
+                index += 1;
+            }
         }
     }
+    let moved = movers.len();
+    bucket(to).lock().extend(movers);
     (woken, moved)
 }
 
 /// How many waiters are parked on `key` (tests and diagnostics).
 #[allow(dead_code)]
 pub(super) fn waiting_on(key: Key) -> usize {
-    WAITERS.lock().iter().filter(|w| w.key == key).count()
+    bucket(key).lock().iter().filter(|w| w.key == key).count()
 }
 
 /// Test hook: register `slot` as a waiter on `key` and block it, without the
 /// calling task yielding (the harness runs every "waiter" from one task).
 #[cfg(lazyos_tests)]
 pub(super) fn park_for_test(slot: usize, key: Key, bitset: u32) {
-    let mut waiters = WAITERS.lock();
+    let mut waiters = bucket(key).lock();
     waiters.push(Waiter { key, slot, bitset });
     task::block_task(slot, WaitKind::Futex, None);
 }
@@ -140,5 +168,15 @@ pub(super) fn forget_for_test(slot: usize) {
 /// never returns to zero).
 #[cfg(lazyos_tests)]
 pub(super) fn total_for_test() -> usize {
-    WAITERS.lock().len()
+    WAITERS.iter().map(|waiters| waiters.lock().len()).sum()
+}
+
+/// Test hook: how many buckets hold at least one waiter (the hash spreads
+/// distinct words).
+#[cfg(lazyos_tests)]
+pub(super) fn buckets_in_use_for_test() -> usize {
+    WAITERS
+        .iter()
+        .filter(|waiters| !waiters.lock().is_empty())
+        .count()
 }

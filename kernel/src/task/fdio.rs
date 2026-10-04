@@ -133,6 +133,7 @@ pub fn fd_poll(fd: usize, events: u16) -> Option<u16> {
     // stdin's readiness comes from the input queue; `input_available` is the
     // one predicate for it (no table lock held here, so it can take its own).
     if fd_kind(fd) == FdKind::Terminal {
+        super::pollwait::note(None);
         let mut revents = events & pipe::POLLOUT;
         if events & pipe::POLLIN != 0 && consoletty::console_readable() {
             revents |= pipe::POLLIN;
@@ -140,6 +141,7 @@ pub fn fd_poll(fd: usize, events: u16) -> Option<u16> {
         return Some(revents);
     }
     let target = fd_clone(fd)?;
+    super::pollwait::note(target.poll_keys());
     Some(target.poll(events))
 }
 

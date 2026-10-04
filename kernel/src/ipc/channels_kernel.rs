@@ -66,6 +66,6 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
     // `enqueue` names the *sending* side and delivers to its peer, so name the
     // opposite side of the inbox we want to fill.
     let receivers = enqueue(channel_id, (side & 1) ^ 1, queued)?;
-    wake(&receivers);
+    wake(receivers.iter());
     Ok(())
 }

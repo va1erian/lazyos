@@ -327,6 +327,11 @@ pub mod test_hooks {
         queue::total_for_test()
     }
 
+    /// Buckets of the hashed waiter table holding at least one waiter.
+    pub fn buckets_in_use() -> usize {
+        queue::buckets_in_use_for_test()
+    }
+
     /// `(apply(old), compare(old))` for an encoded `FUTEX_WAKE_OP` word.
     pub fn wake_op(word: u32, old: u32) -> Option<(u32, bool)> {
         WakeOp::decode(word).map(|op| (op.apply(old), op.compare(old)))

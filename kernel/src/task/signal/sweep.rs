@@ -46,6 +46,10 @@ const NO_FINISH: SweepFinish = SweepFinish {
 /// table in place and returns the terminations (with their length) for
 /// post-processing after the lock is dropped.
 ///
+/// Only runnable tasks of a process with a deliverable signal are visited
+/// (P6.1): one pass over the signal registry finds those processes, and
+/// nothing else runs when none has one, which is nearly every entry.
+///
 /// # Safety
 /// `tasks` must be the live task table; each `Task::rsp` must point at an
 /// interrupt frame (the scheduler stores exactly that).
@@ -55,13 +59,66 @@ pub unsafe fn sweep(
 ) -> ([SweepFinish; MAX_TASKS], usize) {
     let mut finished = [NO_FINISH; MAX_TASKS];
     let mut finished_len = 0;
-    for slot in 1..MAX_TASKS {
+    let ready = deliverable_spaces();
+    if ready.is_empty() {
+        return (finished, finished_len);
+    }
+    for slot in crate::task::runq::runnable_any().iter() {
+        let in_ready = slot != KERNEL_TASK
+            && tasks[slot]
+                .as_ref()
+                .is_some_and(|task| ready.contains(task.pml4));
+        if !in_ready {
+            continue;
+        }
         if let Some(finish) = sweep_slot(tasks, slot, active_pml4) {
             finished[finished_len] = finish;
             finished_len += 1;
         }
     }
     (finished, finished_len)
+}
+
+/// Address spaces with a signal their mask lets through, collected without
+/// allocating (scheduler context) or creating registry entries.
+struct Spaces {
+    pml4s: [u64; MAX_TASKS],
+    len: usize,
+}
+
+impl Spaces {
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn contains(&self, pml4: u64) -> bool {
+        self.pml4s[..self.len].contains(&pml4)
+    }
+}
+
+/// One pass over the registry: the processes [`sweep_slot`] has work for.
+fn deliverable_spaces() -> Spaces {
+    let mut spaces = Spaces {
+        pml4s: [0; MAX_TASKS],
+        len: 0,
+    };
+    for state in SIGNALS.lock().iter() {
+        if state.pending & !clean_mask(state.blocked) != 0 && spaces.len < MAX_TASKS {
+            spaces.pml4s[spaces.len] = state.pml4;
+            spaces.len += 1;
+        }
+    }
+    spaces
+}
+
+/// Whether `pml4` has a signal its mask lets through (a lookup: it never
+/// creates the registry entry `with_signals` would).
+fn has_deliverable(pml4: u64) -> bool {
+    SIGNALS
+        .lock()
+        .iter()
+        .find(|state| state.pml4 == pml4)
+        .is_some_and(|state| state.pending & !clean_mask(state.blocked) != 0)
 }
 
 /// Deliver to the task the scheduler is about to resume, whose address space
@@ -74,6 +131,11 @@ pub fn deliver_on_resume(slot: usize) -> Option<SweepFinish> {
     }
     let active = crate::mem::kernel_table().as_u64();
     let mut tasks = TASKS.lock();
+    // Nearly every switch: nothing pending, so skip the frame inspection.
+    let pml4 = tasks[slot].as_ref()?.pml4;
+    if !has_deliverable(pml4) {
+        return None;
+    }
     // SAFETY: `tasks` is the live table and the scheduler stores an interrupt
     // frame in every `Task::rsp`.
     unsafe { sweep_slot(&mut tasks, slot, active) }
@@ -119,6 +181,7 @@ unsafe fn sweep_slot(
                         deadline: None,
                     };
                     task.wake_reason = None;
+                    crate::task::runq::sync(tasks, slot);
                     return None;
                 }
                 DefaultAction::Term | DefaultAction::Core => {

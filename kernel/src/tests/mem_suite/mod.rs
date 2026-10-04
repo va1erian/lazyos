@@ -27,6 +27,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("mem_cow_clone_copies_on_write", cow_clone_copies_on_write),
     ("mem_soak_cow_fork_churn", soak_cow_fork_churn),
+    ("mem_cow_sole_owner_keeps_frame", cow_sole_owner_keeps_frame),
     ("mem_vma_split_merge_protect", vma_split_merge_protect),
     ("mem_demand_zero_and_munmap", demand_zero_and_munmap),
     ("mem_vma_cow_mprotect", vma_cow_mprotect),

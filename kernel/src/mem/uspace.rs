@@ -247,10 +247,22 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return false;
     }
-    let Some(frame) = alloc_zeroed_frame() else {
+    let shared = PhysAddr::new(old & PTE_ADDR);
+    // The other sharers already took their copies (or exited): this mapping
+    // is the frame's only reference, so it becomes writable in place, with
+    // no frame allocated and nothing copied (P6.6).
+    if super::frame_refcount(shared) == 1 {
+        // Safety: `entry` is the same present leaf read above; nothing else
+        // can have unmapped it in between (single-threaded fault handling).
+        unsafe { *entry = (old & !COW_BIT) | PTE_WRITABLE };
+        x86_64::instructions::tlb::flush(VirtAddr::new(va));
+        return true;
+    }
+    // Every byte of the new frame is overwritten by the copy: no zeroing.
+    let Some(frame) = super::alloc_frame() else {
         return false;
     };
-    copy_frame(PhysAddr::new(old & PTE_ADDR), frame);
+    copy_frame(shared, frame);
     // Safety: `entry` is the same present leaf read above; nothing else can
     // have unmapped it in between (single-threaded fault handling).
     unsafe { *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE };
@@ -336,14 +348,20 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
             // Safety: `entry` was just returned as a present leaf in this table.
             let old = unsafe { *entry };
             if old & PTE_USER != 0 {
-                let new = if old & COW_BIT != 0 {
+                let shared = PhysAddr::new(old & PTE_ADDR);
+                let new = if old & COW_BIT != 0 && super::frame_refcount(shared) == 1 {
+                    // Copy-on-write, but nobody else holds the frame any
+                    // more: it is already private (P6.6).
+                    old & !(PTE_WRITABLE | COW_BIT | PTE_NX)
+                } else if old & COW_BIT != 0 {
                     // The page is shared read-only: copy it before changing the
                     // protection, so this address space gets a private frame.
-                    let Some(frame) = alloc_zeroed_frame() else {
+                    // The copy overwrites every byte: no zeroing.
+                    let Some(frame) = super::alloc_frame() else {
                         return false;
                     };
-                    copy_frame(PhysAddr::new(old & PTE_ADDR), frame);
-                    free_frame(PhysAddr::new(old & PTE_ADDR));
+                    copy_frame(shared, frame);
+                    free_frame(shared);
                     frame.as_u64() | (old & !PTE_ADDR & !(PTE_WRITABLE | COW_BIT | PTE_NX))
                 } else {
                     old

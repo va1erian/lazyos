@@ -59,11 +59,13 @@ pub(super) fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
         Some(millis_deadline(timeout))
     };
     loop {
+        // Record what this scan looks at: only those objects' events wake it.
+        task::poll_scan_begin();
         let ready = scan_poll(fds, nfds);
         if ready > 0 {
             return ready;
         }
-        match task::wait_poll_ns(deadline) {
+        match task::wait_poll_keyed_ns(deadline) {
             WakeReason::Woken => {} // input arrived: rescan
             WakeReason::TimedOut => return 0,
             WakeReason::Interrupted => return err(EINTR),

@@ -95,7 +95,9 @@ pub mod kthread;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;
+pub mod pollwait;
 mod preempt;
+mod runq;
 mod sched;
 mod schedule;
 pub mod slotmask;
@@ -113,11 +115,16 @@ pub use fdtypes::*;
 pub use lifecycle::*;
 pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;
+pub use pollwait::{
+    notify_poll_key, scan_begin as poll_scan_begin, wait_keyed_ns as wait_poll_keyed_ns,
+};
 #[allow(unused_imports)] // test hook
 pub use preempt::pending as resched_pending;
-pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
+pub use preempt::{exit_cpu, hand_off, interrupted_quiet_context, preempt_point};
 pub use sched::*;
 pub use schedule::expire_due;
+#[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub use schedule::{context_switches, scheduler_entries};
 pub use spawn::*;
 pub use stats::*;
 pub use waiting::*;

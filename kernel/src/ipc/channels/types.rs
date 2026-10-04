@@ -171,6 +171,39 @@ pub(super) struct Transaction {
     pub(super) reply: Vec<u8>,
 }
 
+/// Task slots parked in `recv` on one endpoint, as a bitset: registering,
+/// taking the set for a wake and unregistering never allocate (P6.3).
+#[derive(Clone, Copy, Default)]
+pub(super) struct WaiterSet([u64; crate::task::slotmask::WORDS]);
+
+impl WaiterSet {
+    pub(super) fn insert(&mut self, slot: usize) {
+        if let Some(word) = self.0.get_mut(slot / 64) {
+            *word |= 1 << (slot % 64);
+        }
+    }
+
+    pub(super) fn remove(&mut self, slot: usize) {
+        if let Some(word) = self.0.get_mut(slot / 64) {
+            *word &= !(1 << (slot % 64));
+        }
+    }
+
+    /// Every registered slot, leaving the set empty.
+    pub(super) fn take(&mut self) -> WaiterSet {
+        core::mem::take(self)
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.0.iter().map(|word| word.count_ones() as usize).sum()
+    }
+
+    /// The registered slots, ascending.
+    pub(super) fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..crate::task::MAX_TASKS).filter(|slot| self.0[slot / 64] & (1 << (slot % 64)) != 0)
+    }
+}
+
 /// One side of a channel: a bounded inbox that messages are delivered into.
 #[derive(Default)]
 pub(super) struct Endpoint {
@@ -182,7 +215,7 @@ pub(super) struct Endpoint {
     /// park registers under the registry lock, a wake takes the whole list,
     /// and a waiter that returns (message, timeout, error) unregisters, so
     /// the list only ever holds tasks currently inside `recv`.
-    pub(super) waiters: Vec<usize>,
+    pub(super) waiters: WaiterSet,
     /// Poll transactions (see [`POLL_DEADLINE`]) this side has received and
     /// not yet finished serving: the receiver's next `recv` on this side
     /// ends any that are still unanswered with `TimedOut`.

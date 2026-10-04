@@ -8,7 +8,8 @@ use super::*;
 /// [`wait::WaitQueue`], which also records a wake reason and a deadline.
 #[allow(dead_code)]
 pub fn set_blocked(blocked: bool) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[current()].as_mut() {
         if task.state == TaskState::Done {
             return;
         }
@@ -22,6 +23,7 @@ pub fn set_blocked(blocked: bool) {
         };
         task.wake_reason = None;
     }
+    runq::sync(&tasks, current());
 }
 
 /// Whether the current task is parked on a wait queue.
@@ -57,6 +59,7 @@ pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
             set_timer(index, deadline);
         }
     }
+    runq::sync(&tasks, index);
 }
 
 /// Queue (or, for `None`, cancel) `index`'s deadline. Call with `TASKS`
@@ -76,7 +79,7 @@ pub(super) fn set_timer(index: usize, deadline: Option<u64>) {
 /// left untouched so the scheduler never resurrects it).
 pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
     let mut tasks = TASKS.lock();
-    // A task that slept while its peers ran rejoins at the current virtual
+    // A task that slept while its peers ran rejoins near the current virtual
     // time instead of being handed a burst of catch-up quanta (issue #58).
     let now = virtual_now(&tasks);
     if let Some(task) = tasks[index].as_mut() {
@@ -86,10 +89,13 @@ pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
             }
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
-            task.pass = task.pass.max(now);
+            rejoin(task, now);
+            runq::sync(&tasks, index);
             let cur = CURRENT.load(Ordering::Relaxed);
             crate::perf::on_wake(index, cur);
-            super::preempt::note_wake(&tasks, index, cur);
+            if super::preempt::note_wake(&tasks, index, cur) {
+                super::sched::rearm_event_timer();
+            }
             return true;
         }
     }
@@ -113,8 +119,11 @@ pub fn wait_terminal() -> WakeReason {
 /// `deadline` (`arch::clock::monotonic_ns`) passes. The queue is advisory:
 /// the caller rescans its descriptors and parks again if nothing it watches
 /// changed.
+///
+/// This waiter recorded no interest, so any poll event wakes it
+/// (`pollwait`); `poll` and `select` use [`super::wait_poll_keyed_ns`].
 pub fn wait_poll_ns(deadline: Option<u64>) -> WakeReason {
-    wait::POLL.wait_ns(current(), deadline)
+    super::pollwait::wait_any_ns(deadline)
 }
 
 /// Wake every `poll` waiter (pipe data, space, EOF, or `-EPIPE`). Pipe code and

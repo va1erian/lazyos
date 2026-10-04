@@ -171,6 +171,34 @@ impl WaitQueue {
         wake_task_with(task, WakeReason::Woken)
     }
 
+    /// Wake every waiter `wanted` accepts (keyed wakeups, `task::pollwait`).
+    /// Returns how many moved to `Runnable`. `wanted` runs with the queue
+    /// locked: it may take only locks that never wrap this queue's.
+    pub fn notify_matching(&self, wanted: impl Fn(usize) -> bool) -> usize {
+        let mut state = self.state.lock();
+        let mut woken = 0;
+        let mut index = 0;
+        while index < state.waiters.len() {
+            let task = state.waiters[index];
+            if wanted(task) {
+                state.waiters.remove(index);
+                if wake_task_with(task, WakeReason::Woken) {
+                    woken += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+        woken
+    }
+
+    /// Drop every entry for `task` without waking it: the teardown of a task
+    /// that died parked here (its wait loop never ran to remove itself), so
+    /// the queue does not keep, and later wake, a slot that may be reused.
+    pub fn forget(&self, task: usize) {
+        self.state.lock().waiters.retain(|&waiter| waiter != task);
+    }
+
     /// Whether `task` is enqueued here (test and diagnostics hook).
     #[allow(dead_code)]
     pub fn contains(&self, task: usize) -> bool {
