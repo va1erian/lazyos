@@ -42,8 +42,8 @@ impl Backend for LazyOSBackend {
                 break;
             }
             if self.is_client() {
-                // Each client window's event receive already parked this task
-                // for up to one tick; no extra sleep.
+                // Park until an event reaches any window or a timer is due.
+                self.park_client();
                 continue;
             }
             sys::sleep_millis(POLL_MILLIS);
