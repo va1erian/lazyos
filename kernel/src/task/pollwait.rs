@@ -121,6 +121,10 @@ pub fn notify_poll_key(key: u64) {
             .get(slot)
             .is_none_or(|interest| interest.wants(key))
     });
+    // A Messenger wait set parked on a descriptor (`WAIT_FD`, the desktop
+    // Terminal on its pty master) records no keys: every pipe or pty event
+    // reaches it, as every unkeyed `notify_poll` does.
+    crate::ipc::channels::wake_fd_watchers();
 }
 
 /// Test hook: record `keys` in the current task's interest, as `fd_poll`
