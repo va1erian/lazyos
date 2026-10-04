@@ -54,9 +54,10 @@ impl Compositor {
         }
     }
 
-    /// Compose the scene inside `damage`, without the cursor and without a
-    /// present, so a caller can draw over the composed frame (the window-zoom
-    /// wireframe) and present once. Call it only while the cursor overlay is
+    /// Compose the scene inside `damage` (with the resize wireframe while an
+    /// edge resize is live), without the cursor and without a present, so a
+    /// caller can draw over the composed frame (the window-zoom wireframe)
+    /// and present once. Call it only while the cursor overlay is
     /// lifted (`cursor.rs`): it overwrites what the sprite covers.
     pub(super) fn compose(&mut self, damage: Rect) {
         let damage = damage.intersect(self.full());
@@ -150,6 +151,13 @@ impl Compositor {
         }
         if let Some(tab) = self.alt_tab.as_ref() {
             draw_alt_tab(screen, surfaces, tab, damage);
+        }
+        // An edge resize's wireframe belongs to the scene while it lasts:
+        // any repaint under it (the client redrawing its caret, a panel
+        // changing) must draw it again, or the outline vanishes there. Every
+        // pixel of `damage` was just written, so the XOR lands on clean ones.
+        if let Some(drag) = self.resize {
+            super::anim::outline(screen, drag.outline, damage);
         }
         // The shutting-down screen covers everything (the cursor overlay
         // stays hidden meanwhile, `Compositor::cursor_target`).

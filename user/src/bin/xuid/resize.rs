@@ -77,8 +77,8 @@ impl Compositor {
         // slack covers the wireframe's thickness.
         let damage = geometry::inflate(active.outline.union(rect), 1).intersect(self.full());
         let lifted = self.cursor.lift(&mut self.screen);
+        // `compose` draws the new outline (`drag.outline`, set above).
         self.compose(damage);
-        super::anim::outline(&mut self.screen, rect, damage);
         let stamped = self.stamp_cursor();
         let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
         present_cursor_outside(lifted, stamped, damage);
