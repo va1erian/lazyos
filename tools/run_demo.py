@@ -202,6 +202,8 @@ def main(argv: list[str]) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
+    parser.add_argument("--build-only", action="store_true",
+                        help="build the image(s) and exit without booting QEMU")
     parser.add_argument("--release", action="store_true",
                         help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
@@ -334,6 +336,8 @@ def main(argv: list[str]) -> int:
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
         parser.error("--reset-home conflicts with --no-home-disk")
+    if args.build_only and args.no_build:
+        parser.error("--build-only conflicts with --no-build")
     if args.reset_os and args.no_build:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
@@ -432,6 +436,8 @@ def main(argv: list[str]) -> int:
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
+        if args.build_only:
+            return 0
 
     image = Path(args.image)
     if not image.is_file():
