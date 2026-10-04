@@ -87,8 +87,10 @@ per-task thread pointer, restored on every context switch.
 
 - Both gates run their syscall with interrupts off. Long kernel loops call
   `irq_window::poll_point()`, which opens a window (`sti; nop; cli`) once a
-  tenth of a tick (1 ms) has passed since the last one, so a pending interrupt
-  waits at most about that long whatever the syscall does. Poll points sit in
+  tenth of a tick (1 ms) has passed since the last one. On paths that reach
+  poll points often enough, a pending interrupt therefore waits about 1 ms
+  plus the work between two of them; a stretch without a poll point can last
+  longer, and `irqoff` reports it (below). Poll points sit in
   the ext2 library's per-block loops (`BlockIo::pace`), the block drivers'
   waits, each zeroed frame (`alloc_zeroed_frame`), each page mapped or
   unmapped, page-table walks, user copies (64 KiB
