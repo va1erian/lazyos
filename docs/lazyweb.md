@@ -81,3 +81,22 @@ address bar, and judges the browser's serial markers (`WEB:UP:PASS`,
 `WEB:LOAD:<url>`, `WEB:TITLE:<title>`, never `WEB:FAIL:<reason>`), the requests
 the host's servers saw (Host headers, SNI, every picture: PNG, JPEG, GIF) and
 the screenshots. Details: [tools/web/README.md](../tools/web/README.md).
+
+### Timing a load
+
+The browser prints a timing line for every fetch and every navigation on its
+standard output (the harness sends it to the serial console):
+
+```text
+WEB:FETCH:538ms 200 total=754 dns=44 tcp=44 tls=182 wait=408 body=73 347868B https://github.com/va1erian/lazyos
+WEB:TIME:1995ms:nav     (and :done, :fail)
+```
+
+`WEB:FETCH` starts with when the fetch began, in milliseconds since the
+browser started. Then come its status (`FAIL` when there was no response) and
+the time of each step in milliseconds: the name lookup, the TCP connect, the
+TLS handshake, the wait for the response headers and the body. A step that
+did not happen shows `-`: `tls` on `http:`, or `dns` after a failed lookup.
+Name lookups are cached for a minute, so later fetches from the same host show
+`dns=0`. `WEB:TIME` marks when a navigation started, finished or failed, on
+the same clock.
