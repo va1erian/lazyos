@@ -182,9 +182,12 @@ to power the display audio well.
   LazyOS cannot evaluate without an AML interpreter) or from a per-model
   table such as Linux `intel_idle` keeps. So: K0 records the box's CPUID
   leaf 5 and the hints its `_CST` names (read once from a Linux live stick);
-  the first cut uses only a hint validated on this box (wakes on the next
-  tick and on device interrupts, timekeeping unchanged), falling back to
-  `hlt`; deeper states join a small N150 table only after the same check.
+  entry arms `MONITOR` on a per-CPU wake line before ordinary `MWAIT`, or
+  uses monitorless `MWAIT` only when `CPUID.05H:ECX[3]` reports it; the
+  first cut uses only a hint validated on this box (wakes on the next tick
+  and on device interrupts, timekeeping unchanged), falling back to `hlt`
+  when the hint or an entry path is missing; deeper states join a small N150
+  table only after the same check.
   Measured win needs a power meter; *inferred* to matter for a 6 W part
   that idles most of the day.
 - **Hardware watchdog (PCH iTCO).** The update work
