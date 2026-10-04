@@ -20,15 +20,17 @@ that panics on this hardware or a desktop that never comes up must all end
 with the machine running release N again, on its own, with the user's
 settings, apps and files intact.
 
-**In (v1):** the OS itself (kernel, `/boot/lazyos.cfg`, `/system`,
-`/docs/os`), shipped as a signed bundle; installing it from a file (a USB
+**In (v1):** the OS itself (the kernel and `/system`, docs included),
+shipped as a signed bundle; installing it from a file (a USB
 stick, `/home`, a download) and from an HTTPS release feed; automatic
 fallback when a new release fails to boot; a manual rollback; `updatectl`
 and a Settings page.
 
 **Out (v1):** delta updates (full images are about 40 MiB compressed),
 updating the boot shim itself (rare, done by reinstalling), firmware
-(BIOS/UEFI capsule) updates, Secure Boot, and app updates, which `pkgd`
+(BIOS/UEFI capsule) updates, Secure Boot, the ESP's `lazyos.cfg` (it names
+only the state and home volumes and the limits, which a release does not
+change; the slot comes from the control block), and app updates, which `pkgd`
 already owns (core apps follow the image; see "After the switch").
 
 ## What exists, what is missing
@@ -103,7 +105,9 @@ already owns (core apps follow the image; see "After the switch").
    - the active slot with `successful` boots;
    - the active slot without `successful` and `tries_left > 0` boots after
      `tries_left -= 1` is written;
-   - otherwise the other slot becomes active, if it is `successful`;
+   - otherwise the other slot becomes active, if it is `successful`, and the
+     shim writes the new `active` and a `fell_back` flag before loading that
+     slot's kernel, so the kernel and `updated` see the slot that really runs;
    - neither bootable: the shim says so on screen and loads the ESP kernel
      (and any USB stick carrying LazyOS still works as a rescue medium).
    The kernel reads the block at boot to learn which slot it runs from,
@@ -175,8 +179,10 @@ from the stick; see "Sources".
   because fallback and rollback keep the state volume. Rule: a release may add
   confd keys and must keep reading old ones for one release; a migration that
   rewrites keys first copies `/conf` to `/conf/.pre-<release>/`, and a
-  rollback restores it. `updated` refuses to roll back past a release that
-  changed the store without such a copy.
+  rollback restores it. Automatic fallback restores it too: when the
+  control block says the shim fell back, `init` runs the restore before it
+  starts `confd`, so release N never reads N+1's format. `updated` refuses to
+  roll back past a release that changed the store without such a copy.
 - **Logs** record every step in `/logs/update.log` (source, release, digests,
   slot, verdict), and `updatectl status` shows the last attempt and why it
   failed, in the "denials are explained" spirit of the security model.
@@ -203,7 +209,7 @@ out as above), because a broken updater is found in CI, not on the mini PC.
 |---|---|---|
 | **U0** Layout | With the NVMe install (#564): its GPT reader and layout, state moved from slot A to the `state` partition, the build writing the slot volume and the state volume separately, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot, `/docs/os` moved to `/system/docs`; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
 | **U1** Bundles | `libs/lzupdate` (manifest schema with `deny_unknown_fields`, container via `lazypkg`'s reader, Ed25519 verify), `tools/update/build.py` (images from `target/`, manifest, sign with a key file), `cargo build` writes `target/lazyos-<rel>.lzu` when `LAZYOS_UPDATE_KEY` is set; CI attaches unsigned bundles to every run and signed ones to tags | `cargo test -p lzupdate`: wrong key, flipped byte in each image, manifest with an unknown field, downgrade, wrong hardware profile, oversize entry, zip64; fuzz entry on the manifest and container; `test_build.py` cross-checks host and guest rules |
-| **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI` (control block, ext2 read of the slot's kernel, fallback to the ESP kernel), kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged; corrupt `lazyboot` entirely, the ESP kernel still boots |
+| **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI` (control block, ext2 read of the slot's kernel, fallback to the ESP kernel), kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged, `UPDATE:SLOT:a`, `/system` mounted from `lazyos-a`, and a `/conf` key written by the failing B restored to A's value; corrupt `lazyboot` entirely, the ESP kernel still boots |
 | **U3** `updated` and `updatectl` | the service, the `os.lazy.update.v1` IDL, the kernel partition grant, install from a file, mark-good from health, rollback, `/logs/update.log` | harness: install bundle N+1 from `/home`, reboot, `UPDATE:GOOD b`, `/system` is N+1, `/apps` core packages upgraded, settings kept; power off QEMU mid-write, reboot, still on N and `updatectl status` explains; `updatectl rollback` returns to N; security suite: an unlabelled app cannot reach `os.lazy.update.v1` and no process but `updated` can open a slot partition |
 | **U4** Network and UI | feed client in `updated` (rustls, the system CA bundle, the feed's TLS pinned to GitHub's hosts), channels `stable` and `dev`, daily check, a Settings "Updates" page (check, release notes, install, restart, rollback, last result), `tools/update/push.py` | harness with a local HTTPS server under the test CA (as `tools/net/tls_run.py`): update found, downloaded, installed, booted; truncated download, wrong digest, expired feed are refused and explained; screenshot of the Settings page read |
 | **U5** Later | delta bundles (per-block, against the inactive slot's known release), background download, automatic install at a chosen hour, conf snapshots generalised, slot-aware recovery menu in the shim | as each lands |
