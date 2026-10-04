@@ -57,6 +57,10 @@ BINS = {
 ALL = "all"
 #: Builds the core packages from the built programs.
 CORE_PACKAGES = ROOT / "tools" / "xui" / "core_packages.py"
+#: The Windows git-checkout fixup for the pinned xui dependency (its NetSurf
+#: submodules name files with a colon).
+sys.path.insert(0, str(ROOT / "tools" / "xui"))
+import git_checkout  # noqa: E402
 
 
 def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -135,6 +139,17 @@ def build_env(
     return env
 
 
+def resolve_deps() -> bool:
+    """Make the pinned xui git dependency resolvable (Windows checkout fixup).
+
+    `lazyrad-os` pulls xui through two URL spellings (its own deps and the
+    ``[patch]`` section), and both have NetSurf submodules whose files Windows
+    cannot name; ``git_checkout.resolve`` seeds every xui checkout and retries.
+    A no-op where it is not needed.
+    """
+    return git_checkout.resolve(MANIFEST, env=build_env())
+
+
 def no_linker(stderr: str) -> bool:
     """True when cargo failed only because no linker could be run.
 
@@ -194,6 +209,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse arguments, build the requested bins and copy them out; return the
+    process exit code (0 even when the toolchain is merely missing)."""
     args = parse_args(argv)
 
     if not MANIFEST.is_file():
@@ -207,6 +224,11 @@ def main(argv: list[str] | None = None) -> int:
     if not ensure_target():
         print(json.dumps(built))
         return 0
+
+    if not resolve_deps():
+        print("error: cannot resolve the xui dependency", file=sys.stderr)
+        print(json.dumps(built))
+        return 1
 
     bins = select_bins(args.bin)
     profile_name = profile(args.debug)

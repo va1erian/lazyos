@@ -55,7 +55,7 @@ impl Ext2 {
         let mut failure = None;
         while done < data.len() {
             if done > 0 && (done / size_usize).is_multiple_of(16) {
-                self.pause_point();
+                self.pace();
             }
             let position = offset + done as u64;
             let index = self.block_index(position)?;

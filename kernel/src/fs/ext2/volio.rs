@@ -137,6 +137,13 @@ impl ext2fs::BlockIo for SharedIo {
     fn is_writable(&self) -> bool {
         BlockDevice::is_writable(self.0.device)
     }
+
+    /// Every unit of work the library paces itself by is a poll point for an
+    /// interrupt window (`arch::irq_window`): a file syscall may do thousands
+    /// of block operations with interrupts off (issue #567).
+    fn pace(&self) {
+        crate::arch::irq_window::poll_point();
+    }
 }
 
 /// The gate's type, named once.
@@ -179,5 +186,10 @@ impl ext2fs::BlockIo for &'static dyn BlockDevice {
 
     fn is_writable(&self) -> bool {
         BlockDevice::is_writable(*self)
+    }
+
+    /// See [`SharedIo`]'s `pace`: the bare device opens the same window.
+    fn pace(&self) {
+        crate::arch::irq_window::poll_point();
     }
 }

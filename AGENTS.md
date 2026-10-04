@@ -176,6 +176,17 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
+On Windows the pinned `va1erian/xui` cannot be checked out as cargo ships it:
+the NetSurf submodule `libnsbmp` (and its siblings) names AFL test cases with a
+colon, which NTFS rejects
+(`cannot checkout to invalid path 'test/afl-bmp/id:000023,...bmp'`).
+`tools/xui/git_checkout.py` checks every submodule out without those test paths
+and marks the checkout usable; the xui, LazyRAD and Doom build scripts run it
+via `git_checkout.resolve` and retry. Both cargo `xui` sources are seeded (the
+`github.com` one `xui-app`/`doom` use and the `www.github.com` one
+`lazyrad-os`'s `[patch]` uses). `python tools/xui/test_git_checkout.py` tests
+it. Nothing needs doing by hand.
+
 ## LazyWriter (word processor)
 
 `writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
@@ -398,6 +409,23 @@ non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
+## Interrupt latency
+
+Syscalls run with interrupts off. Long kernel work calls
+`arch::irq_window::poll_point()` (the ext2 library through `BlockIo::pace`),
+which takes pending interrupts in a window whose handlers take no lock but
+the i8042 FIFO's, so a window is safe under any other lock (never reach a
+poll point while holding that one) and never switches tasks
+([`docs/architecture/arch.md`](docs/architecture/arch.md)). A new loop that
+can run long inside a syscall needs a poll point. Every boot logs each
+syscall's new worst interrupts-off stretch of 2 ms or more as
+`IRQOFF:MAX ... from=<file:line> to=<file:line>`; the missing poll point lies
+between the two lines. Under WHPX/KVM a loaded host inflates those numbers;
+for numbers free of host noise run the session under TCG with
+`--accel tcg --extra-arg=-icount --extra-arg=shift=0,sleep=off` (scale the
+script's timeouts up). Tests: `LAZYOS_TEST_FILTER=irq python tools/test/run.py
+--accel none`.
 
 ## ext2 library
 

@@ -11,6 +11,8 @@ pub mod gdt;
 pub mod idt;
 pub mod io;
 pub mod irq_stubs;
+pub mod irq_window;
+pub mod irqoff;
 pub mod kernel_fault_report;
 pub mod lapic;
 pub mod linux;

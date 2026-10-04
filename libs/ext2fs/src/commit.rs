@@ -122,7 +122,7 @@ impl Ext2 {
         for (index, &block) in pending.blocks.iter().enumerate() {
             first = first.and(self.release_block(block));
             if index % PAUSE_EVERY == PAUSE_EVERY - 1 {
-                self.pause_point();
+                self.pace();
             }
         }
         for &(ino, is_dir) in &pending.inodes {

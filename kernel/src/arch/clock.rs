@@ -1,10 +1,12 @@
 //! Tick catch-up (issue #344).
 //!
 //! Syscalls run with interrupts off and the 8259 holds a single pending IRQ0,
-//! so every PIT period that elapses inside a long syscall is lost and `TICKS`
-//! falls behind wall time. The TSC keeps counting, so each real timer entry
-//! asks [`periods_since_last`] how many periods passed since the previous one
-//! and advances `TICKS` by that many instead of by one.
+//! so a PIT period that elapses in a stretch without an interrupt window
+//! (`arch::irq_window`) is lost and `TICKS` would fall behind wall time. The
+//! TSC keeps counting, so each real timer entry (window ticks included) asks
+//! [`periods_since_last`] how many periods passed since the previous one and
+//! advances `TICKS` by that many instead of by one; [`missed_ticks`] counts
+//! the periods caught up this way, which windows keep at zero.
 //!
 //! The TSC is calibrated once before IRQs are enabled: against PIT channel 2
 //! when the PIT is the tick, or by `arch::timer` with the local APIC timer's
@@ -33,6 +35,9 @@ const CALIBRATION_SPINS: u32 = 50_000_000;
 static CYCLES_PER_TICK: AtomicU64 = AtomicU64::new(0);
 /// TSC at the previous timer entry.
 static LAST_TSC: AtomicU64 = AtomicU64::new(0);
+/// Periods caught up beyond one per entry since boot: ticks the CPU missed
+/// because interrupts were off for longer than a period.
+static MISSED: AtomicU64 = AtomicU64::new(0);
 
 #[inline]
 fn rdtsc() -> u64 {
@@ -113,7 +118,15 @@ pub fn periods_since_last() -> u64 {
     let last = LAST_TSC.load(Ordering::Relaxed);
     let (periods, stamp) = advance(last, now, CYCLES_PER_TICK.load(Ordering::Relaxed));
     LAST_TSC.store(stamp, Ordering::Relaxed);
+    if periods > 1 {
+        MISSED.fetch_add(periods - 1, Ordering::Relaxed);
+    }
     periods
+}
+
+/// Timer periods missed (caught up rather than taken) since boot.
+pub fn missed_ticks() -> u64 {
+    MISSED.load(Ordering::Relaxed)
 }
 
 /// Calibrated cycles per timer period (0 when calibration failed).

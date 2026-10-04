@@ -438,7 +438,13 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     // decode what was collected, including bytes gathered while interrupts
     // were off (`input::ps2`).
     crate::perf::irq_entry();
-    crate::input::ps2::on_irq();
+    // Inside an interrupt window only collect: decoding takes locks the
+    // interrupted code may hold (`arch::irq_window`).
+    if super::irq_window::is_open() {
+        crate::input::ps2::service();
+    } else {
+        crate::input::ps2::on_irq();
+    }
     // Safety: we are in the IRQ1 handler.
     unsafe { pic::end_of_interrupt(1) };
     crate::perf::irq_exit();
@@ -449,7 +455,13 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
 extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
     // The same intake as IRQ1: one FIFO keeps both ports' bytes in order.
     crate::perf::irq_entry();
-    crate::input::ps2::on_irq();
+    // Inside an interrupt window only collect: decoding takes locks the
+    // interrupted code may hold (`arch::irq_window`).
+    if super::irq_window::is_open() {
+        crate::input::ps2::service();
+    } else {
+        crate::input::ps2::on_irq();
+    }
     // Safety: we are in the IRQ12 handler.
     unsafe { pic::end_of_interrupt(12) };
     crate::perf::irq_exit();

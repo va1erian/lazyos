@@ -78,6 +78,14 @@ pub trait BlockIo: Send + Sync {
     /// Whether [`BlockIo::write_sectors`] can succeed. A volume on a device
     /// that cannot be written mounts read-only.
     fn is_writable(&self) -> bool;
+
+    /// Called between units of work in a long operation: each block a read,
+    /// write, truncate or directory scan touches, each pending free a commit
+    /// applies, each request a writeback sends. A host that runs the library
+    /// with interrupts off (the kernel's syscalls) takes them here, so no
+    /// operation keeps them off for long whatever its size. Must not call
+    /// back into the volume. Does nothing by default.
+    fn pace(&self) {}
 }
 
 /// A zero-filled `Vec` of exactly `len` bytes, or [`Ext2Error::NoSpace`]. File

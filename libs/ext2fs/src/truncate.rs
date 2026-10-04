@@ -206,6 +206,7 @@ impl Ext2 {
     /// and a corrupt pointer ends in [`Ext2::free_block`]'s bounds and
     /// double-free checks. Returns how many blocks were freed.
     fn free_tree(&self, block: u32, depth: usize) -> Result<u32, Ext2Error> {
+        self.pace();
         let mut freed = 0;
         if depth > 0 {
             for child in self.read_table(block)? {
@@ -214,7 +215,7 @@ impl Ext2 {
                 }
             }
             // A table's worth of frees (up to 1024 blocks) between pauses.
-            self.pause_point();
+            self.pace();
         }
         self.free_block(block)?;
         Ok(freed + 1)

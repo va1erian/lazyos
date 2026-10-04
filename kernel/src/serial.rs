@@ -90,6 +90,15 @@ static AT_LINE_START: AtomicBool = AtomicBool::new(true);
 struct Stamped<'a>(&'a mut tx::Tx);
 
 impl Stamped<'_> {
+    /// One byte to the UART, a poll point first (`arch::irq_window`): at the
+    /// port's 38400 baud a byte takes about 260 µs on hardware (and a VM exit
+    /// per port access under a hypervisor), all with interrupts off, so a
+    /// line or even a timestamp prefix must not go out in one stretch.
+    fn send(&mut self, byte: u8) {
+        crate::arch::irq_window::poll_point();
+        self.0.push(byte);
+    }
+
     fn put(&mut self, byte: u8) {
         if TIMESTAMPS && AT_LINE_START.swap(false, Ordering::Relaxed) {
             let ms = crate::task::ticks() * 10;
@@ -104,9 +113,9 @@ impl Stamped<'_> {
                     break;
                 }
             }
-            self.0.push(b'[');
+            self.send(b'[');
             for i in (0..len).rev() {
-                self.0.push(digits[i]);
+                self.send(digits[i]);
             }
             let frac = ms % 1000;
             for b in [
@@ -117,13 +126,13 @@ impl Stamped<'_> {
                 b']',
                 b' ',
             ] {
-                self.0.push(b);
+                self.send(b);
             }
         }
         if byte == b'\n' {
             AT_LINE_START.store(true, Ordering::Relaxed);
         }
-        self.0.push(byte);
+        self.send(byte);
     }
 }
 
@@ -137,6 +146,14 @@ impl fmt::Write for Stamped<'_> {
 /// Whether the port lock is held right now (the NMI hang report, issue #382).
 pub fn locked() -> bool {
     SERIAL1.is_locked()
+}
+
+/// Test hook: run `f` with the port locked, as code in the middle of a log
+/// line would be (the interrupt-window suite). `f` must not print.
+#[cfg(lazyos_tests)]
+pub fn with_port_locked<R>(f: impl FnOnce() -> R) -> R {
+    let _port = SERIAL1.lock();
+    f()
 }
 
 /// Probe and initialise COM1, and log the verdict.

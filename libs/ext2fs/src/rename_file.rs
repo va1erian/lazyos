@@ -147,6 +147,7 @@ impl Ext2 {
         let size = self.block_size as usize;
         let file_type = if self.has_file_type { FT_REGULAR } else { 0 };
         for block in self.dir_blocks(dir)? {
+            self.pace();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;
