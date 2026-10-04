@@ -190,7 +190,8 @@ pub fn ready_masks() -> Result<(), String> {
         "an empty set was accepted"
     );
     check!(
-        channels::wait_any(&receivers[1..2], 4, None) == Err(ChannelError::BadParcel),
+        channels::wait_any(&receivers[1..2], channels::WAIT_DOORBELLS + 1, None)
+            == Err(ChannelError::BadParcel),
         "an unknown doorbell was accepted"
     );
     check!(
