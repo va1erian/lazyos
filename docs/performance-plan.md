@@ -10,8 +10,8 @@ every latency and throughput figure below is **derived from the code, not
 measured**. Stage P0 exists to replace them with measurements before anything
 else is changed.
 
-Building the kernel optimized (release profile, LTO, no debug assertions) is
-being done separately and is not a work item here. All baselines in P0 must be
+Building the kernel optimized (release profile, LTO, no debug assertions)
+was done separately (#553) and is not a work item here. All baselines in P0 must be
 taken on that optimized build, so P0 depends on it.
 
 ## 1. The core problem
