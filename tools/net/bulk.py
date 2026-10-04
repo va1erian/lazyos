@@ -20,6 +20,7 @@
     python tools/net/bulk.py --bytes 33554432 --rounds 2
     python tools/net/bulk.py --no-build --accel none
     python tools/net/bulk.py --pcap               # also judge the capture (slower: QEMU writes every frame)
+    python tools/net/bulk.py --no-build --image target/base.img   # A/B: an image copied from an earlier build
 
 Exit status is non-zero on any failure; logs go to `shots/bulk`.
 """
@@ -91,7 +92,7 @@ def script(args) -> list[dict]:
 def run_session(args, out: Path) -> tuple[bool, str]:
     session = out / "session.json"
     session.write_text(json.dumps(script(args), indent=1))
-    command = [PY, str(ROOT / "tools" / "screenshot" / "qemu_session.py"), "--image", str(IMAGE),
+    command = [PY, str(ROOT / "tools" / "screenshot" / "qemu_session.py"), "--image", str(args.image),
                "--out", str(out), "--script", str(session), "--accel", args.accel,
                "--net", "--net-forward", "none", "--fail-on", "PANIC", "--fail-on", "EXCEPTION"]
     if args.pcap:
@@ -140,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default="shots/bulk")
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--image", type=Path, default=IMAGE,
+                        help="boot this image (with --no-build): a copy of an earlier build, for A/B runs")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--qemu")
     parser.add_argument("--memory")

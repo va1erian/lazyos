@@ -1,13 +1,42 @@
 //! The byte-moving half of the `AF_INET` pump: streams, datagrams and the
 //! flush of a closing socket. See the parent module for the whole picture.
+//!
+//! **Streams drain in place** (docs/performance-plan.md P4.2). The stack's
+//! receive queue is written straight into the kernel ring, and the kernel
+//! ring is read straight into the stack's free send space
+//! (`Stack::socket_recv_with` / `socket_send_with`), so nothing is staged,
+//! nothing is allocated, and bytes leave one side only when the other took
+//! them. Each direction loops until one side is exhausted or the socket's
+//! [`BUDGET`] for the pass is spent; a pass that moved bytes is followed by
+//! another at once (`Inet::pump`), so the budget only orders the sockets,
+//! it never stalls one.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
-use netstack::{Kind, SockAddr, SockError, Stack};
+use netstack::{Kind, Received, SockAddr, SockError, Stack};
 use user::sys::{self, InetIo};
 
-use super::{net_errno, Entry, Inet, CHUNK, CLOSE_LINGER_MS, FRAME};
+use super::{net_errno, Inet, CLOSE_LINGER_MS, FRAME};
+
+/// Most bytes one stream moves per direction per pass, so a bulk transfer
+/// cannot hold the others off for long.
+const BUDGET: usize = 256 * 1024;
+
+/// Read the application's bytes into `buf` (the stack's free space); `end`
+/// is set when it will send no more.
+fn from_app(id: u32, buf: &mut [u8], end: &mut bool) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    match sys::inet_read(id, buf) {
+        Ok(InetIo::Data(n)) => n,
+        Ok(InetIo::End) => {
+            *end = true;
+            0
+        }
+        _ => 0,
+    }
+}
 
 impl Inet {
     /// Move stream bytes both ways for the entry at `at`.
@@ -16,14 +45,21 @@ impl Inet {
         let (id, owner) = (entry.id, entry.owner());
         let Some(sid) = entry.stack else { return };
         // network to application
-        if entry.rx.is_empty() && !entry.net_end {
-            match stack.socket_recv(sid, owner, CHUNK) {
-                Ok(Some(data)) if data.is_empty() => entry.net_end = true,
-                Ok(Some(data)) => {
-                    self.stats.from_stack += data.len() as u64;
-                    entry.rx = data;
+        let mut moved = 0;
+        while !entry.net_end && moved < BUDGET {
+            let received = stack.socket_recv_with(sid, owner, BUDGET - moved, |data| {
+                match sys::inet_write(id, data) {
+                    Ok(InetIo::Data(n)) => n,
+                    // The application closed its side: what still arrives is
+                    // dropped, as the kernel would for a closed socket.
+                    Ok(InetIo::End) => data.len(),
+                    _ => 0,
                 }
-                Ok(None) => {}
+            });
+            match received {
+                Ok(Received::Data(0)) | Ok(Received::Empty) => break,
+                Ok(Received::Data(n)) => moved += n,
+                Ok(Received::End) => entry.net_end = true,
                 Err(e) => {
                     let _ = sys::inet_error(id, net_errno(e));
                     entry.net_end = true;
@@ -31,49 +67,34 @@ impl Inet {
                 }
             }
         }
-        if !entry.rx.is_empty() {
-            match sys::inet_write(id, &entry.rx) {
-                Ok(InetIo::Data(n)) => {
-                    self.stats.to_app += n as u64;
-                    entry.rx.drain(..n);
-                }
-                Ok(InetIo::End) => entry.rx.clear(),
-                _ => {}
-            }
-        }
-        if entry.net_end && entry.rx.is_empty() && !entry.net_end_told {
+        self.stats.from_stack += moved as u64;
+        self.stats.to_app += moved as u64;
+        if entry.net_end && !entry.net_end_told {
             let _ = sys::inet_eof(id);
             entry.net_end_told = true;
         }
         // application to network
-        if entry.tx.is_empty() && !entry.app_end {
-            let mut buf = vec![0u8; CHUNK];
-            match sys::inet_read(id, &mut buf) {
-                Ok(InetIo::Data(n)) => {
-                    self.stats.from_app += n as u64;
-                    buf.truncate(n);
-                    entry.tx = buf;
-                }
-                Ok(InetIo::End) => entry.app_end = true,
-                _ => {}
-            }
-        }
-        if !entry.tx.is_empty() {
-            match stack.socket_send(sid, owner, &entry.tx) {
-                Ok(n) => {
-                    self.stats.to_stack += n as u64;
-                    entry.tx.drain(..n);
-                }
-                Err(SockError::WouldBlock) => {}
+        let mut moved = 0;
+        while !entry.app_end && moved < BUDGET {
+            let mut end = false;
+            let sent = stack.socket_send_with(sid, owner, BUDGET - moved, |buf| {
+                from_app(id, buf, &mut end)
+            });
+            entry.app_end |= end;
+            match sent {
+                Ok(0) | Err(SockError::WouldBlock) => break,
+                Ok(n) => moved += n,
                 Err(e) => {
                     let _ = sys::inet_error(id, net_errno(e));
-                    entry.tx.clear();
                     entry.net_end = true;
                     entry.net_end_told = true;
+                    break;
                 }
             }
         }
-        if entry.tx.is_empty() && entry.app_end && !entry.shut {
+        self.stats.from_app += moved as u64;
+        self.stats.to_stack += moved as u64;
+        if entry.app_end && !entry.shut {
             let _ = stack.socket_shutdown(sid, owner, false, true);
             entry.shut = true;
         }
@@ -97,15 +118,18 @@ impl Inet {
         if !entry.rx.is_empty() {
             match sys::inet_write(id, &entry.rx) {
                 // A message is delivered whole or not at all.
-                Ok(InetIo::Data(_)) | Ok(InetIo::End) => entry.rx.clear(),
+                Ok(InetIo::Data(_)) | Ok(InetIo::End) => {
+                    self.stats.to_app += entry.rx.len() as u64;
+                    entry.rx.clear();
+                }
                 _ => {}
             }
         }
         if entry.tx.is_empty() {
-            let mut buf = vec![0u8; FRAME + 2];
-            if let Ok(InetIo::Data(n)) = sys::inet_read(id, &mut buf) {
-                buf.truncate(n);
-                entry.tx = buf;
+            let buf = &mut self.scratch[..FRAME + 2];
+            if let Ok(InetIo::Data(n)) = sys::inet_read(id, buf) {
+                self.stats.from_app += n as u64;
+                entry.tx = buf[..n].to_vec();
             }
         }
         if !entry.tx.is_empty() {
@@ -144,45 +168,36 @@ impl Inet {
             let _ = sys::inet_close_ack(id);
             return true;
         };
-        let mut drained = entry.tx.is_empty();
-        if entry.kind == Kind::Stream && entry.phase_is_flushable() {
-            if !entry.tx.is_empty() {
-                if let Ok(n) = stack.socket_send(sid, owner, &entry.tx) {
-                    entry.tx.drain(..n);
-                }
-                drained = entry.tx.is_empty();
-            }
-            while drained && !entry.app_end {
-                let mut buf = vec![0u8; CHUNK];
-                match sys::inet_read(id, &mut buf) {
-                    Ok(InetIo::Data(n)) => {
-                        buf.truncate(n);
-                        entry.tx = buf;
-                        if let Ok(sent) = stack.socket_send(sid, owner, &entry.tx) {
-                            entry.tx.drain(..sent);
+        if entry.kind == Kind::Stream {
+            // The application's last bytes, straight into the stack, until
+            // its end of stream; a stack that cannot take more (reset, shut)
+            // ends the flush.
+            while !entry.app_end {
+                let mut end = false;
+                let sent =
+                    stack.socket_send_with(sid, owner, BUDGET, |buf| from_app(id, buf, &mut end));
+                entry.app_end |= end;
+                match sent {
+                    Ok(n) if n > 0 => self.stats.to_stack += n as u64,
+                    Ok(_) => break,
+                    // Full, or never connected: a connection still being
+                    // made has nothing to flush and is simply closed.
+                    Err(SockError::WouldBlock) => {
+                        if stack.socket_connect_status(sid, owner) != Ok(true) {
+                            entry.app_end = true;
                         }
-                        drained = entry.tx.is_empty();
+                        break;
                     }
-                    Ok(InetIo::End) => entry.app_end = true,
-                    _ => break,
+                    Err(_) => entry.app_end = true,
                 }
             }
-            drained = drained && entry.tx.is_empty();
         }
-        let done = (drained && (entry.app_end || entry.kind == Kind::Datagram))
-            || now_ms - since > CLOSE_LINGER_MS;
-        if !done {
+        let flushed = entry.tx.is_empty() && (entry.app_end || entry.kind == Kind::Datagram);
+        if !flushed && now_ms - since <= CLOSE_LINGER_MS {
             return false;
         }
         let _ = stack.socket_close(sid, owner, now_ms);
         let _ = sys::inet_close_ack(id);
         true
-    }
-}
-
-impl Entry {
-    /// Whether the stack socket can still take the application's last bytes.
-    fn phase_is_flushable(&self) -> bool {
-        self.stack.is_some()
     }
 }

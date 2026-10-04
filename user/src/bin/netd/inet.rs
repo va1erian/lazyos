@@ -10,8 +10,8 @@
 //! 1. fetches the requests the kernel queued (bind, connect, listen, close)
 //!    and carries them out against the stack;
 //! 2. moves bytes both ways between each socket's kernel data path and its
-//!    stack socket, a chunk at a time, never waiting: a full buffer on either
-//!    side just means "next pass";
+//!    stack socket, in place and until one side is exhausted (`flow.rs`),
+//!    never waiting: a full buffer on either side just means "next pass";
 //! 3. notices what the network did (a connection finished, arrived, ended or
 //!    failed) and tells the kernel.
 //!
@@ -33,8 +33,6 @@ mod flow;
 
 /// Stack owners of kernel sockets: far above any Messenger owner id.
 pub(super) const OWNER_BASE: u64 = 1 << 40;
-/// Bytes moved per read or write.
-const CHUNK: usize = 16 * 1024;
 /// Largest datagram message: a 6-byte address header and 1472 bytes.
 const FRAME: usize = 6 + 1472;
 /// Requests handled per pass, so a flood cannot hold the loop.
@@ -66,10 +64,11 @@ struct Entry {
     kind: Kind,
     stack: Option<u32>,
     phase: Phase,
-    /// Bytes read from the application, not yet taken by the stack (a stream
-    /// chunk, or one datagram message).
+    /// A datagram message read from the application, not yet taken by the
+    /// stack (streams move in place and hold nothing here).
     tx: Vec<u8>,
-    /// Bytes read from the stack, not yet taken by the application.
+    /// A datagram message read from the stack, not yet taken by the
+    /// application.
     rx: Vec<u8>,
     /// The application finished sending.
     app_end: bool,
@@ -128,6 +127,8 @@ pub(super) struct Inet {
     attached: bool,
     next_attach: u64,
     pub(super) stats: InetStats,
+    /// One datagram message read from the kernel, reused every pass.
+    scratch: Vec<u8>,
 }
 
 /// `local` and `peer` in the kernel's address-block form.
@@ -159,6 +160,7 @@ impl Inet {
             attached: false,
             next_attach: 0,
             stats: InetStats::default(),
+            scratch: alloc::vec![0u8; FRAME + 2],
         }
     }
 
