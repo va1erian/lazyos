@@ -60,6 +60,7 @@ pub enum Io {
 pub fn attach(slot: usize) {
     super::reset();
     TABLE.lock().netd = Some(slot);
+    super::bell::set_owner(Some(slot));
 }
 
 /// Whether `slot` is the attached `netd`.

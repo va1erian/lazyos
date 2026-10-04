@@ -48,6 +48,8 @@ NAMES = [
     "linuxapps",
     # Needs a network: run by `tools/net/run.py --netd`, not by the ABI bench.
     "netfix",
+    # Bulk TCP throughput: run by `tools/net/bulk.py`.
+    "netbulk",
 ]
 
 

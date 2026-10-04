@@ -190,7 +190,8 @@ pub fn ready_masks() -> Result<(), String> {
         "an empty set was accepted"
     );
     check!(
-        channels::wait_any(&receivers[1..2], 4, None) == Err(ChannelError::BadParcel),
+        channels::wait_any(&receivers[1..2], channels::WAIT_DOORBELLS + 1, None)
+            == Err(ChannelError::BadParcel),
         "an unknown doorbell was accepted"
     );
     check!(
@@ -395,10 +396,71 @@ pub fn wait_any_soak() -> Result<(), String> {
     rig.teardown()
 }
 
+/// The `AF_INET` pump's doorbell (P4.1): a request queued by an application
+/// wakes the attached `netd` parked on it (alone and beside an endpoint),
+/// a ring while nobody waits is kept for the next wait, the bell is disarmed
+/// afterwards, and only the attached task may arm it.
+pub fn inet_doorbell() -> Result<(), String> {
+    use crate::ipc::inet::{self, bell, Addr, Kind};
+    let rig = rig(1)?;
+    inet::reset();
+    inet::attach(rig.thread);
+    RAW.store(channels::WAIT_INET, Ordering::Relaxed);
+    let peer = Addr {
+        ip: [10, 0, 2, 2],
+        port: 7,
+    };
+    for (count, label) in [(0usize, "bell only"), (1, "bell and an endpoint")] {
+        COUNT.store(count, Ordering::Relaxed);
+        let sock = inet::create(Kind::Stream).ok_or("no socket")?;
+        let before = WAITS.load(Ordering::Relaxed);
+        rig.start_wait()?;
+        check!(
+            bell::armed(),
+            "{label}: the parked netd did not arm the bell"
+        );
+        sock.begin_connect(peer)
+            .map_err(|e| format!("connect: {e}"))?;
+        let mask = rig.finish_wait(before)?;
+        check!(
+            mask == channels::INET_READY,
+            "{label}: connect gave {mask:#x}"
+        );
+        check!(!bell::armed(), "{label}: the bell stayed armed");
+        // The close request rings while nobody waits: the next wait returns
+        // at once.
+        drop(sock);
+        let before = WAITS.load(Ordering::Relaxed);
+        GATE.notify_one();
+        task::preempt_point();
+        check!(
+            WAITS.load(Ordering::Relaxed) == before + 1
+                && LAST.load(Ordering::Relaxed) == channels::INET_READY,
+            "{label}: a pending ring did not satisfy the next wait"
+        );
+        while inet::next_request().is_some() {}
+    }
+    check!(
+        bell::arm(task::KERNEL_TASK).is_err(),
+        "a task that is not the attached netd armed the bell"
+    );
+    check!(
+        channels::wait_any(&[], channels::WAIT_INET, None) == Err(ChannelError::WrongKind),
+        "the bell was accepted from a task that is not netd"
+    );
+    inet::reset();
+    check!(
+        bell::arm(rig.thread).is_err(),
+        "a detached netd armed the bell"
+    );
+    rig.teardown()
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_waitset_ready_masks", ready_masks),
     ("ipc_waitset_wakes_on_any", wakes_on_any),
     ("ipc_waitset_raw_input_doorbell", raw_input_doorbell),
     ("ipc_waitset_display_key_doorbell", display_key_doorbell),
+    ("ipc_waitset_inet_doorbell", inet_doorbell),
     ("ipc_waitset_soak", wait_any_soak),
 ];

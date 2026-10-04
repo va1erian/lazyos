@@ -25,18 +25,24 @@ pub const MAX_WAIT_ENDPOINTS: usize = 8;
 pub const WAIT_RAW_INPUT: u64 = 1;
 /// Doorbell: a key event in the display input queue (the compositor).
 pub const WAIT_DISPLAY_KEYS: u64 = 2;
+/// Doorbell: an application acted on an `AF_INET` socket (the attached
+/// `netd` only; `ipc::inet::bell`, docs/performance-plan.md P4.1).
+pub const WAIT_INET: u64 = 4;
 /// Every doorbell [`wait_any`] knows.
-pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS;
+pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET;
 /// Bit of the ready mask that means "the raw input bus has records".
 pub const RAW_INPUT_READY: u64 = 1 << 63;
 /// Bit of the ready mask that means "the display input queue has events".
 pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
+/// Bit of the ready mask that means "the `AF_INET` pump has work".
+pub const INET_READY: u64 = 1 << 61;
 
 /// Park until one of `handles` has a message (or its peer closed), or until
-/// one of the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`]) rings,
+/// one of the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`],
+/// [`WAIT_INET`]) rings,
 /// or until `deadline` (absolute ticks) passes. Returns the ready mask: bit
-/// `i` for `handles[i]`, [`RAW_INPUT_READY`] and [`DISPLAY_INPUT_READY`] for
-/// the doorbells.
+/// `i` for `handles[i]`, [`RAW_INPUT_READY`], [`DISPLAY_INPUT_READY`] and
+/// [`INET_READY`] for the doorbells.
 ///
 /// Errors: `BadParcel` for an empty or oversized set or an unknown doorbell,
 /// the handle errors of `recv` for a bad handle, `WrongKind` for a doorbell
@@ -118,6 +124,13 @@ fn arm_doorbells(doorbells: u64, me: usize) -> Result<u64, Error> {
             Err(()) => return Err(Error::WrongKind),
         }
     }
+    if doorbells & WAIT_INET != 0 {
+        match crate::ipc::inet::bell::arm(me) {
+            Ok(true) => ready |= INET_READY,
+            Ok(false) => {}
+            Err(()) => return Err(Error::WrongKind),
+        }
+    }
     Ok(ready)
 }
 
@@ -131,6 +144,9 @@ fn unregister(ends: &[(u64, usize)], me: usize, doorbells: u64) {
     }
     if doorbells & WAIT_DISPLAY_KEYS != 0 {
         crate::display::disarm_key_doorbell(me);
+    }
+    if doorbells & WAIT_INET != 0 {
+        crate::ipc::inet::bell::disarm(me);
     }
 }
 

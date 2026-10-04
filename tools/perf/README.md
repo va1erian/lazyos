@@ -34,4 +34,7 @@ the sample, never lengthen it.
 
 Not measured yet: USB input to present (the start stamp belongs at the xHCI
 transfer event, which the kernel cannot see while `usbd` polls the
-controller), TCP throughput, disk read and exec time.
+controller), disk read and exec time. TCP throughput has a harness of its
+own, `python tools/net/bulk.py` (`tools/net/README.md`, results in
+[`docs/perf/network.md`](../../docs/perf/network.md)), because its verdict is
+what crossed the wire, not a kernel histogram.

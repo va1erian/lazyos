@@ -102,9 +102,10 @@ pub const OP_ACL_LOAD: u64 = 18;
 /// at most `channels::MAX_WAIT_ENDPOINTS`), `deadline` as for `recv`, and
 /// `flags` may hold the doorbells `channels::WAIT_RAW_INPUT` (the caller's
 /// raw input ring, syscall 25) and `channels::WAIT_DISPLAY_KEYS` (a key in
-/// the display owner's input queue); a doorbell the caller may not use is
+/// the display owner's input queue) and `channels::WAIT_INET` (the `AF_INET`
+/// pump's doorbell, the attached `netd` only); a doorbell the caller may not use is
 /// `-ENOENT`. Nothing is received; `value` is the ready mask (bit `i` for
-/// handle `i`, `channels::RAW_INPUT_READY` / `DISPLAY_INPUT_READY` for the
+/// handle `i`, `channels::RAW_INPUT_READY` / `DISPLAY_INPUT_READY` / `INET_READY` for the
 /// doorbells). A kernel ABI op, not a Messenger interface: no parcel crosses
 /// it, so there is nothing for MIDL to describe.
 pub const OP_WAIT: u64 = 19;

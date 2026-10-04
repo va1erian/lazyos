@@ -49,10 +49,12 @@ impl SocketPair {
     }
 
     /// Build a pair of small-ring pipes (an `AF_INET` socket's data path), or
-    /// `None` at the small-ring cap.
+    /// `None` at the small-ring cap. Side A is `netd`'s, side B the
+    /// application's: B's reads of `ab` and writes to `ba` ring the pump's
+    /// doorbell (`small.rs`).
     pub fn new_small(mode: Mode) -> Option<Arc<SocketPair>> {
-        let ab = Pipe::new_small(mode)?;
-        let ba = Pipe::new_small(mode)?;
+        let ab = Pipe::new_small(mode, small::BELL_ON_READ)?;
+        let ba = Pipe::new_small(mode, small::BELL_ON_WRITE)?;
         Some(Self::from_pipes(ab, ba))
     }
 

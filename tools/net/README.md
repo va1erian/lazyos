@@ -193,6 +193,28 @@ streaming both ways), `-n` no trailing newline, `-w secs` idle limit (default 3)
 `-g bytes` send a deterministic stream, `-x` expect an echo of what was sent (with
 `-l`, be an echo server) and decide the verdict on it.
 
+## Bulk throughput (performance plan P4)
+
+```bash
+python tools/net/bulk.py                                  # build, 16 MiB each way on both paths, judge, report
+python tools/net/bulk.py --no-build --bytes 33554432 --rounds 3
+python tools/net/bulk.py --no-build --pcap                # also reassemble every stream from the capture
+```
+
+Builds the Linux fixtures (`netbulk-linux`) and a console image with the stack
+(`LAZYOS_CLI=1 LAZYOS_NETD=1`), runs `bulkpeers.BulkServer` on 127.0.0.1:47810
+and types `netbulk` (native, `os.lazy.net.socket.v1`) and
+`/system/bin/netbulk-linux` (the kernel's `AF_INET` shim) into the shell. Each
+round is a `PUT` (the guest sends, the server checks every byte) and a `GET`
+(the server sends, the guest checks every byte). The stream is little-endian
+64-bit words `j * 0x9E3779B97F4A7C15 + seed`, so a lost, duplicated or reordered
+byte is caught at its offset. The verdict needs every guest marker
+(`NETBULK:<path>:<PUT|GET>:PASS`), the server's record of each transfer, and,
+with `--pcap`, each stream reassembled from the capture equal to the expected
+one. MB/s (the host's timing and the guest's) and the Linux client's `connect`
+time are printed and written to `shots/bulk/bulk.json`; the history is
+[`docs/perf/network.md`](../../docs/perf/network.md).
+
 ## Stage T3: HTTPS (`curl`, `wget`, `fetch`)
 
 `python tools/net/tls_run.py` (or `run.py --tls`) is the TLS harness of

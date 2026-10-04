@@ -16,13 +16,19 @@ pub const MAX_ENDPOINTS: usize = 8;
 pub const WAIT_RAW_INPUT: u64 = 1;
 /// Doorbell: a key reached the display input queue (the display owner only).
 pub const WAIT_DISPLAY_KEYS: u64 = 2;
+/// Doorbell: an application acted on an `AF_INET` socket (the attached
+/// `netd` only, docs/performance-plan.md P4.1).
+pub const WAIT_INET: u64 = 4;
 /// Bit of the ready mask that means "the raw input ring holds records".
 pub const RAW_INPUT_READY: u64 = 1 << 63;
 /// Bit of the ready mask that means "the display input queue has events".
 pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
+/// Bit of the ready mask that means "the `AF_INET` pump has work".
+pub const INET_READY: u64 = 1 << 61;
 
 /// Park until one of `endpoints` has a message or a closed peer, or one of
-/// the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`]) rings, or
+/// the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`], [`WAIT_INET`])
+/// rings, or
 /// `deadline` (absolute ticks; `None` waits forever) passes. Returns the
 /// ready mask: bit `i` for `endpoints[i]`, [`RAW_INPUT_READY`] and
 /// [`DISPLAY_INPUT_READY`] for the doorbells. A deadline that passes first is
