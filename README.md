@@ -48,6 +48,7 @@ Where to read next:
 - [`docs/platform-plan.md`](docs/platform-plan.md): current baseline, the staged roadmap (S0-S9) and where each stage stands.
 - [`docs/architecture.md`](docs/architecture.md): terse per-subsystem reference (boot, memory, tasks, filesystem, IPC, processes, display).
 - [`docs/messenger.md`](docs/messenger.md), [`docs/security-model.md`](docs/security-model.md), [`docs/linux-abi-plan.md`](docs/linux-abi-plan.md), [`docs/xui-plan.md`](docs/xui-plan.md).
+- [`docs/lazyweb.md`](docs/lazyweb.md) (the browser), [`docs/tls-plan.md`](docs/tls-plan.md) (HTTPS), [`docs/performance-plan.md`](docs/performance-plan.md) (latency and responsiveness), [`docs/hidpi-plan.md`](docs/hidpi-plan.md) (2x desktop).
 
 ## Prerequisites
 
