@@ -71,22 +71,39 @@ what the stick already proved, plus a GPT reader and an installer.
    filling the rest). The bytes that boot the mini PC are the bytes CI booted
    under OVMF on an emulated NVMe, instead of a file-by-file copy that only
    the real machine ever runs.
-5. **Leave room for updates, decide nothing about them.** The layout reserves
-   a second root slot and room on the ESP for a second kernel, so the update
-   exploration can choose A/B slots without repartitioning; if it chooses
-   in-place updates the second slot is simply never used (4 GiB out of a
-   typical 256-512 GB SSD).
+5. **The layout is the update mechanism's, from day one.** The update
+   exploration (`docs/update-plan.md`, drafted in parallel) proposes
+   image-based A/B slots: per slot a small FAT boot partition and an ext2
+   system partition mounted read-only at `/system`, one persistent ext2
+   state volume at `/` (`/apps`, `/conf`, `/logs`), and a raw `lazyboot`
+   partition recording the active slot. The installer writes that layout even
+   while only slot A is used, so a first update never repartitions a disk
+   that holds someone's home.
 
 ## Disk layout
 
-GPT, 1 MiB aligned, sizes for a 256 GB or larger SSD:
+GPT, 1 MiB aligned, sizes for a 256 GB or larger SSD. Partitions marked
+*update* follow the update plan's proposal and change with it:
 
-| # | Type GUID | Size | Format, label | Content |
+| # | Type | Size | Format, label | Content |
 |---|---|---|---|---|
-| 1 | ESP `C12A7328-...` | 256 MiB | FAT16, `LAZYOS` | `EFI/BOOT/BOOTX64.EFI`, `kernel-x86_64`, `lazyos.cfg` (`root=UUID=<p2>`, `home=UUID=<p4>`), room for a second kernel |
-| 2 | Linux fs `0FC63DAF-...` | 4 GiB | ext2, `lazyos-a` | the OS volume: the same directories and files as `target/lazyos.img`'s |
-| 3 | Linux fs | 4 GiB | empty | root slot B, reserved for the update mechanism |
-| 4 | Linux fs | the rest | ext2, `home` | `/home` |
+| 1 | ESP `C12A7328-...` | 64 MiB | FAT32 or FAT16, `LAZYESP` | `EFI/BOOT/BOOTX64.EFI`: the update plan's boot shim (a forked `bootloader` UEFI stage) that reads `lazyboot` and loads the kernel from `boot_a` or `boot_b` |
+| 2 | *update* raw | 1 MiB | `lazyboot` | slot state: active slot, tries left, good flags (two checksummed copies) |
+| 3 | *update* | 64 MiB | FAT16, `boot_a` | `kernel-x86_64`, `lazyos.cfg` (`root=UUID=<state>`, `home=UUID=<home>`, the slot's system volume) |
+| 4 | *update* Linux fs | 2 GiB | ext2, `system_a` | `/system`, `/docs/os`, read-only |
+| 5 | *update* | 64 MiB | FAT16, `boot_b` | empty until the first update |
+| 6 | *update* Linux fs | 2 GiB | `system_b` | empty until the first update |
+| 7 | Linux fs `0FC63DAF-...` | 8 GiB | ext2, `lazystate` | `/`: `/apps`, `/conf`, `/logs`, `/data` |
+| 8 | Linux fs | the rest | ext2, `home` | `/home` |
+
+**Before the update plan lands** (no boot shim, no state/system split yet),
+N2 writes the same table but uses only partitions 1, 3, 7 and 8: the ESP
+holds the plain `bootloader` UEFI stage, which loads `kernel-x86_64` from its
+own partition, so the kernel and `lazyos.cfg` sit on the ESP (formatted
+FAT16, since the kernel reads FAT12/16 only, risk 2) and the whole OS volume
+of today, `/system` included, is partition 7. Moving `/system` to
+`system_a` and the kernel to `boot_a` is then a rewrite of partitions that
+already exist, with `/home` and the state volume untouched.
 
 `home=` names a UUID and the label is not `lazyhome`: the stick names its
 home `LABEL=lazyhome` and searches every disk for it, so with N1 a stick
@@ -95,14 +112,15 @@ installed machine booted with the stick plugged in could pick the stick's.
 The stick build should move to `home=UUID=` too (one line in
 `usb_ramdisk.rs`).
 
-Boot chain:
+Boot chain (with the update plan's shim; before it, the ESP's loader loads
+the kernel from the ESP itself):
 
 ```
- UEFI firmware ─► nvme ESP: \EFI\BOOT\BOOTX64.EFI (bootloader UEFI stage)
-                   └─ loads kernel-x86_64 from the same partition (no ramdisk)
- kernel: PCI ─► nvme0 attached (N1) ─► GPT: nvme0p1..p4 (N2)
-         ─► FAT nvme0p1 carries lazyos.cfg ─► / = ext2 nvme0p2 (rw)
-         ─► /boot = nvme0p1 (ro), /home = nvme0p4 ─► init ─► desktop
+ UEFI firmware ─► ESP: \EFI\BOOT\BOOTX64.EFI (boot shim)
+                   └─ reads lazyboot, loads kernel-x86_64 from boot_a (no ramdisk)
+ kernel: PCI ─► nvme0 attached (N1) ─► GPT: nvme0p1..p8 (N2)
+         ─► FAT boot_a carries lazyos.cfg ─► / = ext2 lazystate (rw)
+         ─► /system = system_a (ro), /boot = boot_a (ro), /home ─► init ─► desktop
 ```
 
 ## Phases
@@ -116,9 +134,9 @@ Each is shippable alone and testable in QEMU, which has an NVMe controller
 |---|---|---|
 | **N0** Recon on the real box | Boot the existing stick on the N150 and record its `hwreport` in a compatibility row: the NVMe controller (PCI id, `CAP.MQES`, `MDTS`, LBA format), firmware boot menu key, whether Secure Boot can be turned off, whether the desktop and USB input come up. No code. Shared with the driver-package exploration, which needs the same inventory | a photo and the `hwreport` text |
 | **N1** Kernel NVMe driver | `kernel/src/block/nvme.rs` (+ `nvme/` submodules under 500 lines each): match class `01:08:02`, map BAR0 with `map_mmio`, enable bus mastering, controller reset (`CC.EN=0`, wait `CSTS.RDY=0` bounded by `CAP.TO`), admin queue (`AQA/ASQ/ACQ`), Identify controller and namespace 1, one I/O completion and submission queue (Create I/O CQ/SQ, polled, phase bit), Read/Write with PRP1 and a PRP list for up to 64 KiB (capped by `MDTS`), Flush when the controller reports a volatile write cache, normal shutdown notification (`CC.SHN`, wait `CSTS.SHST`) from the power path after the filesystem sync. Doorbell stride from `CAP.DSTRD`. Every wait bounded; a controller that times out or reports `CSTS.CFS` is detached and logged, never hangs boot. Only 512-byte LBA formats are served (the block layer is 512 everywhere); a 4 KiB-formatted namespace is refused with a log line naming it. Registered in the device-core driver table after virtio, never displacing an earlier boot device | `nvme_suite`: identify parsing and a refused 4 KiB format against a fake register file (host-testable core in a pure module, seeded fuzz for the identify and completion parsers); in QEMU: read/write/flush round trips, every PRP shape (1 page, 2 pages, a list, an unaligned buffer), a 64 KiB vectored ext2 writeback, a soak of random reads and writes checked against a shadow copy, a controller that never becomes ready. `tools/boot/run.py --media nvme` |
-| **N2** GPT and the NVMe image | `block/gpt.rs`: header at LBA 1 (signature, revision, header size, CRC32, `my_lba`), entry array CRC, backup header at the last LBA when the primary fails, entries bounded and non-overlapping, known types registered as `<disk>p<n>`; the MBR path unchanged for MBR disks. `build_support/nvme_image.rs` behind `LAZYOS_NVME_IMAGE=1`: writes `target/lazyos-nvme.img` in the layout above from the same kernel and OS file list, with the `bootloader` UEFI application copied as `usb_image.rs` does and the ESP formatted FAT16 | `partition_suite` grows GPT cases: a valid table, a bad primary with a good backup, both bad, a CRC mismatch, an entry past the disk, overlapping entries, 128 entries, a hybrid MBR. `cargo test -p build-support-tests nvme` checks the layout with the ext2 checker and `fsck.fat -n`. `tools/boot/run.py --firmware uefi --media nvme`: OVMF with the image on `-device nvme` and nothing else; `FS:ROOT:nvme0p2` required, the desktop judged by `pngstats.py`. A persistence run modelled on `persist.py`: a file written to `/conf` and `/home`, poweroff, second boot reads both, `e2fsck -fn` on p2 and p4 |
-| **N3** The installer | A `lazyinstall` command on the stick, run as an admin from the Terminal. It lists non-removable disks only (never the boot stick, never a disk with a mounted volume), shows model, serial and size, asks twice (the second time the user types the model back, like `write_stick.py`), streams the NVMe image from a fourth partition of the stick (`lazyinst`, written by the stick build when `LAZYOS_NVME_IMAGE=1`) to the disk, verifies it by reading back and comparing SHA-256, writes the backup GPT header at the disk's end, grows entry 4 to fill the disk and formats it with `ext2fs::format`, and offers to copy the stick's `/home` across. Raw disk writes need a new kernel interface: a `CAP_BLOCK_RAW` grant that only `lazyinstall` is started with, refused on any device with a mounted volume or a partition of one, every write bounds-checked against the device | QEMU: the stick on `usb-storage` plus an empty `-device nvme` disk; a scripted session runs `lazyinstall`, then the VM reboots from the NVMe disk alone and must reach the desktop with the copied home. Refusal paths: the stick itself, a disk with a mounted volume, a wrong typed model, a disk smaller than the image |
-| **N4** Living on the disk | Firmware notes for the N150 (boot order, Secure Boot off, Fast Boot off) in a `docs/nvme-install.md` user guide; an on-screen warning when `/` mounted unclean, and a rescue path: boot the stick, which mounts nothing from the NVMe disk (its `lazyos.cfg` names its own UUIDs), and run an `ext2check` built from the host's offline repair (`build_support/os_recover.rs`) against `nvme0p2`/`p4`. Measured: boot time to desktop from NVMe, sustained write throughput, and what an unexpected power cut costs (at most the flusher's 5 s, by design) | the persistence harness with a hard `quit` from QEMU's monitor instead of a poweroff, repeated: the next boot must mount, report unclean, and `ext2check` must leave a clean volume |
+| **N2** GPT and the NVMe image | `block/gpt.rs`: header at LBA 1 (signature, revision, header size, CRC32, `my_lba`), entry array CRC, backup header at the last LBA when the primary fails, entries bounded and non-overlapping, known types registered as `<disk>p<n>`; the MBR path unchanged for MBR disks. `build_support/nvme_image.rs` behind `LAZYOS_NVME_IMAGE=1`: writes `target/lazyos-nvme.img` in the layout above from the same kernel and OS file list, with the `bootloader` UEFI application copied as `usb_image.rs` does and the ESP formatted FAT16 (partitions 2 to 6 written empty until the update plan uses them) | `partition_suite` grows GPT cases: a valid table, a bad primary with a good backup, both bad, a CRC mismatch, an entry past the disk, overlapping entries, 128 entries, a hybrid MBR. `cargo test -p build-support-tests nvme` checks the layout with the ext2 checker and `fsck.fat -n`. `tools/boot/run.py --firmware uefi --media nvme`: OVMF with the image on `-device nvme` and nothing else; `FS:ROOT:nvme0p7` required, the desktop judged by `pngstats.py`. A persistence run modelled on `persist.py`: a file written to `/conf` and `/home`, poweroff, second boot reads both, `e2fsck -fn` on partitions 7 and 8 |
+| **N3** The installer | A `lazyinstall` command on the stick, run as an admin from the Terminal. It lists non-removable disks only (never the boot stick, never a disk with a mounted volume), shows model, serial and size, asks twice (the second time the user types the model back, like `write_stick.py`), streams the NVMe image from a fourth partition of the stick (`lazyinst`, written by the stick build when `LAZYOS_NVME_IMAGE=1`) to the disk, verifies it by reading back and comparing SHA-256, writes the backup GPT header at the disk's end, grows entry 8 (home) to fill the disk and formats it with `ext2fs::format`, and offers to copy the stick's `/home` across. Raw disk writes need a new kernel interface, shared with the update plan's updater (which writes whole partition images to the inactive slot): a `CAP_BLOCK_RAW` grant naming the devices or partitions it covers, given by `init` only to `lazyinstall` (the whole disk) and the updater (the inactive slot's partitions), refused on any device with a mounted volume or a partition of one, every write bounds-checked against the device | QEMU: the stick on `usb-storage` plus an empty `-device nvme` disk; a scripted session runs `lazyinstall`, then the VM reboots from the NVMe disk alone and must reach the desktop with the copied home. Refusal paths: the stick itself, a disk with a mounted volume, a wrong typed model, a disk smaller than the image |
+| **N4** Living on the disk | Firmware notes for the N150 (boot order, Secure Boot off, Fast Boot off) in a `docs/nvme-install.md` user guide; an on-screen warning when `/` mounted unclean, and a rescue path: boot the stick, which mounts nothing from the NVMe disk (its `lazyos.cfg` names its own UUIDs), and run an `ext2check` built from the host's offline repair (`build_support/os_recover.rs`) against `nvme0p7`/`p8`. Measured: boot time to desktop from NVMe, sustained write throughput, and what an unexpected power cut costs (at most the flusher's 5 s, by design) | the persistence harness with a hard `quit` from QEMU's monitor instead of a poweroff, repeated: the next boot must mount, report unclean, and `ext2check` must leave a clean volume |
 | **N5** Graphical installer (later) | An "Install LazyOS on this PC" flow in the desktop, on top of `lazyinstall`'s logic (the Installer app today installs packages; a separate app is fine), showing the disk, the layout and progress | screenshots of each step in QEMU, read |
 
 **Suggested order:** N0 now (one evening with the stick). N1 is the critical
@@ -142,23 +160,21 @@ picks it at build time, as `LAZYOS_USB_HOME_SIZE` does for the stick).
 
 ## Dependencies on the sibling explorations
 
-- **Update mechanism.** This plan fixes the partition layout (an ESP with room
-  for two kernels, root slots A and B, a separate home) and that `lazyos.cfg`
-  on the ESP picks the root by UUID. Whether an update writes slot B and flips
-  `root=`, or rewrites slot A in place, is that exploration's call; so is
-  where `/conf`, `/apps` and `/logs` live if slots alternate (today they sit
-  on the OS volume, F4). The installer streams whatever image the build
-  produces, so an update format that is also an image (a root volume and a
-  kernel) would let both share code. Note that the kernel cannot write FAT,
-  so an update that changes the ESP needs either a FAT writer or a kernel and
-  `lazyos.cfg` that live somewhere else.
-- **N150 driver package.** NVMe is listed here because the install cannot
-  exist without it and block drivers are kernel drivers; if the driver
-  package also plans an NVMe driver, one of them should own it. The install
-  needs nothing else from that package: the GOP framebuffer, the LAPIC
-  timer and USB input already work on real PCs. Networking (Intel I226-V or
-  Realtek RTL8125 on most N150 boxes, inferred) matters for updates, not for
-  the install.
+- **Update mechanism.** This plan adopts its proposed layout (above) and
+  needs from it the boot shim and the state/system split; until they land the
+  install uses partitions 1, 3, 7 and 8 only. It gives it the NVMe driver and
+  `CAP_BLOCK_RAW`, which the updater uses to write the inactive slot. Both
+  write partition images, so the installer and the updater can share the
+  streaming and verification code. Because slots are whole partition images,
+  neither needs a FAT writer in the kernel.
+- **N150 driver package.** That exploration owns the shared driver
+  infrastructure (MSI through the LAPIC, PCIe ECAM from the ACPI MCFG table)
+  and AHCI as the fallback for SATA M.2 boxes; this plan owns the NVMe
+  controller driver (N1), polled first, moving to MSI once that lands. The
+  install needs nothing else from that package: the GOP framebuffer, the
+  LAPIC timer and USB input already work on real PCs. Networking (Intel
+  I226-V or Realtek RTL8125 on most N150 boxes, inferred) matters for
+  updates, not for the install.
 
 ## Risks and open questions
 
@@ -166,12 +182,14 @@ picks it at build time, as `LAZYOS_USB_HOME_SIZE` does for the stick).
    LBAs almost always; a 4 KiB-only namespace is refused in v1, and serving it
    means teaching the block layer a sector size other than 512. N0 reads it.
    Reformatting a namespace (Format NVM) is destructive and stays out.
-2. **FAT16 ESP.** The UEFI specification names FAT32 for system partitions;
-   EDK2-derived firmware (AMI Aptio included) reads FAT12/16/32 on any disk,
-   and the stick's FAT partition already boots that way, but a fixed-disk FAT16
-   ESP is unproven on the N150. If the firmware refuses it, the choice is FAT32
-   read support in the kernel (#248) or a tiny FAT12 `LAZYBOOT` partition
-   holding only `lazyos.cfg`, as the stick's ramdisk does.
+2. **A FAT16 ESP before the boot shim.** The kernel reads FAT12/16 only, so
+   while `lazyos.cfg` sits on the ESP the ESP must be FAT16. The UEFI
+   specification names FAT32 for system partitions; EDK2-derived firmware
+   (AMI Aptio included) reads FAT12/16/32 on any disk, and the stick's FAT
+   partition already boots that way, but a fixed-disk FAT16 ESP is unproven
+   on the N150. With the shim, `lazyos.cfg` moves to `boot_a` and the ESP can
+   be FAT32. Until then, if the firmware refuses FAT16, the fallback is FAT32
+   read support in the kernel (#248).
 3. **No boot entry is written.** The `bootloader` UEFI stage exits boot
    services, so LazyOS cannot add an NVRAM boot entry; it relies on the
    firmware listing the disk's `\EFI\BOOT\BOOTX64.EFI` as "UEFI OS". The user
