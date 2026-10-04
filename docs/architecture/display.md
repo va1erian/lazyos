@@ -84,7 +84,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   std VGA (Bochs DISPI, PCI `1234:1111`, `display/bochs.rs`) while
   `fs::init` reads the boot volume, before anything binds: the mode is
   checked against the adapter's maximum and VRAM and read back, the linear
-  framebuffer is BAR0 through the physical map, and the console, the grant
+  framebuffer (BAR0) gets its own 4 KiB-page window beside the boot
+  framebuffer (`mem/fbwindow.rs`; the physical map's large pages could never
+  be write-combining) with the boot's WC policy applied (`wc::apply_policy`:
+  bare metal only), and the console, the grant
   geometry, the derived limits and the mouse bounds move to it
   (`display/modeset.rs`). A requested mode is the logical screen whole: the
   1920x1080 cap of `display/logical.rs` applies only to a mode firmware chose.

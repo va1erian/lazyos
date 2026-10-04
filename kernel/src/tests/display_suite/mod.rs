@@ -46,6 +46,7 @@ mod modes;
 mod modifiers;
 mod present;
 mod slots;
+mod wcswitch;
 mod wheel;
 
 pub(super) use bind_and_input::*;
@@ -58,6 +59,7 @@ pub(super) use modes::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
+pub(super) use wcswitch::*;
 pub(super) use wheel::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -147,6 +149,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_mode_switch_roundtrip", mode_switch_roundtrip),
     ("display_mode_switch_refusals", mode_switch_refusals),
     ("display_mode_switch_soak", mode_switch_soak),
+    (
+        "display_mode_switch_write_combining",
+        mode_switch_write_combining,
+    ),
     (
         "display_mode_refused_switch_restores_registers",
         mode_refused_switch_restores_registers,
