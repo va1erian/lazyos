@@ -73,6 +73,7 @@ impl BlockCache {
     fn write_all(&mut self, io: &dyn BlockIo, order: &[Entry]) -> Result<(), IoError> {
         let mut start = 0;
         while start < order.len() {
+            io.pace();
             let end = self.run_end_by_block(order, start);
             self.write_run(io, &order[start..end])?;
             start = end;

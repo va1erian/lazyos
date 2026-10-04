@@ -246,7 +246,8 @@ impl Ext2 {
 fn wrap(index: usize, sb: &JournalSb) -> usize {
     let max = sb.maxlen as usize;
     if index >= max {
-        index - max + sb.first as usize
+        // `first < maxlen` (checked at parse), so the span is never zero.
+        sb.first as usize + (index - sb.first as usize) % (max - sb.first as usize)
     } else {
         index
     }

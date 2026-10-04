@@ -182,6 +182,7 @@ pub(crate) fn write_log(
 ) -> Result<(), IoError> {
     let mut at = 0;
     while at < bufs.len() {
+        io.pace();
         let mut end = at + 1;
         while end < bufs.len()
             && end - at < max_run

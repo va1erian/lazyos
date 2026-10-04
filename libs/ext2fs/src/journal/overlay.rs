@@ -65,6 +65,10 @@ impl BlockIo for Overlay {
         Ok(())
     }
 
+    fn pace(&self) {
+        self.inner.pace();
+    }
+
     fn is_writable(&self) -> bool {
         false
     }

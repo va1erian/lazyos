@@ -21,6 +21,7 @@ pub(crate) fn settings() -> Settings {
         os_size: SIZE,
         reset: false,
         update_damaged: false,
+        journal: None,
     }
 }
 

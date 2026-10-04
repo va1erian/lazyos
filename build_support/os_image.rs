@@ -158,6 +158,9 @@ pub struct Settings {
     /// refused to repair instead of failing the build. Its allocator may then
     /// hand a block a user file still uses to an updated file.
     pub update_damaged: bool,
+    /// `LAZYOS_JOURNAL`: give the volume a journal of this many blocks (see
+    /// [`journal_blocks`]); `None` leaves the volume as it is.
+    pub journal: Option<u32>,
 }
 
 pub(crate) const RESET_HINT: &str = "set LAZYOS_RESET_OS=1 to recreate the OS volume";
@@ -289,11 +292,6 @@ pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> 
     }
 }
 
-/// `LAZYOS_JOURNAL` from the environment.
-fn journal_request() -> Result<Option<u32>, String> {
-    journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
-}
-
 /// Write the file list into `volume` and return the manifest it placed.
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
@@ -393,7 +391,16 @@ pub fn compose(
                     .and_then(|n| n.to_str())
                     .unwrap_or("lazyos.img")
             ));
-            let result = create(&temp, &head, plan.uuid, total, sectors, dirs, files);
+            let result = create(
+                &temp,
+                &head,
+                plan.uuid,
+                total,
+                sectors,
+                settings.journal,
+                dirs,
+                files,
+            );
             if let Err(error) = result {
                 let _ = std::fs::remove_file(&temp);
                 return Err(error);
@@ -415,6 +422,7 @@ fn create(
     uuid: [u8; 16],
     total: u64,
     sectors: u64,
+    journal: Option<u32>,
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
@@ -431,7 +439,7 @@ fn create(
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
     let volume = open_cached(io)?;
-    ensure_journal(&volume, journal_request()?)?;
+    ensure_journal(&volume, journal)?;
     write_volume(&volume, None, dirs, files, now())?;
     Ok(())
 }
@@ -475,7 +483,7 @@ fn update(
     // `recover` commits its orphan reclaim through the cache before the
     // checker reads the raw volume.
     os_recover::recover(&mut volume, settings.update_damaged)?;
-    ensure_journal(&volume, journal_request()?)?;
+    ensure_journal(&volume, settings.journal)?;
     write_head(&mut file, head, old_end)?;
     write_volume(&volume, Some(old), dirs, files, now())?;
     Ok(())

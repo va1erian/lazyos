@@ -124,6 +124,8 @@ fn main() {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
             Err(_) => os_disk::DEFAULT_OS_SIZE,
         },
+        journal: os_image::journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
+            .unwrap_or_else(|error| panic!("{error}")),
         reset: std::env::var_os("LAZYOS_RESET_OS").as_deref() == Some(std::ffi::OsStr::new("1")),
     };
     let stable_image = manifest_dir.join("target").join("lazyos.img");

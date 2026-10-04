@@ -273,6 +273,11 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYRAD"), "1")
 
     def test_journal_sets_the_build_switch(self) -> None:
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LAZYOS_JOURNAL", None)
+            self._journal_switch()
+
+    def _journal_switch(self) -> None:
         code, _ = self.run_main("--journal")
         self.assertEqual(code, 0)
         self.assertEqual(self.builds[-1].get("LAZYOS_JOURNAL"), "1")

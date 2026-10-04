@@ -364,3 +364,35 @@ fn a_read_only_mount_shows_the_committed_state_and_writes_nothing() {
     }
     assert!(replayed_views > 0, "no cut exercised a pending log");
 }
+
+#[test]
+fn a_log_that_runs_past_its_end_wraps_inside_the_journal() {
+    // first = 100 and start = 120 in a 128-block log, with a descriptor whose
+    // tags carry the walk past the end more than once: the position must wrap
+    // inside [first, maxlen), never index past the journal.
+    let io = journaled(1 << 20, 1024);
+    let fs = open_cached(&io, 32);
+    let journal = fs.load_journal().unwrap();
+    drop(fs);
+    let block = |index: usize| journal.blocks[index] as usize * 1024;
+    io.with_bytes(|bytes| {
+        let sb = block(0);
+        let sequence = u32::from_be_bytes(bytes[sb + 0x18..sb + 0x1C].try_into().unwrap());
+        bytes[sb + 0x14..sb + 0x18].copy_from_slice(&100u32.to_be_bytes());
+        bytes[sb + 0x1C..sb + 0x20].copy_from_slice(&120u32.to_be_bytes());
+        let at = block(120);
+        bytes[at..at + 4].copy_from_slice(&0xC03B_3998u32.to_be_bytes());
+        bytes[at + 4..at + 8].copy_from_slice(&1u32.to_be_bytes());
+        bytes[at + 8..at + 12].copy_from_slice(&sequence.to_be_bytes());
+        // 40 tags (8 bytes, same-UUID after the first, which skips 16).
+        let mut tag = at + 12;
+        for index in 0..40u32 {
+            bytes[tag..tag + 4].copy_from_slice(&(1000 + index).to_be_bytes());
+            let flags: u16 = if index == 0 { 0 } else { 2 } | if index == 39 { 8 } else { 0 };
+            bytes[tag + 6..tag + 8].copy_from_slice(&flags.to_be_bytes());
+            tag += 8 + if index == 0 { 16 } else { 0 };
+        }
+    });
+    // Refused or replayed (nothing committed): either way, no panic.
+    let _ = Ext2::open(Box::new(io.clone()), clock);
+}

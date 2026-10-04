@@ -85,8 +85,9 @@ and still ends clean).
 3. the log is emptied, then `RECOVER` is cleared and the volume marked valid
    (the log restored a state the driver committed), each step flushed.
    [`Ext2::journal_recovered`] reports that a replay happened;
-4. a device that cannot be written is refused (`NotSupported`) when a replay is
-   needed: showing the volume without it would show stale metadata.
+4. a device that cannot be written is mounted read-only over an in-memory
+   overlay (`journal/overlay.rs`): the replay lands in the overlay, so reads
+   show the committed state and the device is never written.
 
 While a cached journaled volume is dirty it carries `RECOVER` and a cleared
 valid bit (the existing "dirty first" rule); a clean sync clears both.
@@ -121,7 +122,7 @@ Host (`cargo test -p ext2fs journal`, `libs/ext2fs/src/tests/journal.rs`):
 - `a_block_that_looks_like_the_journal_magic_is_escaped`,
   `a_hostile_log_is_refused_or_ignored_never_a_panic` (noise and plausible
   headers in the log), `a_failing_disk_never_leaves_a_volume_that_needs_more_than_a_replay`
-  (the disk dies after every n-th sector), `a_journaled_volume_on_a_read_only_device_with_a_pending_log_is_refused`,
+  (the disk dies after every n-th sector), `a_read_only_mount_shows_the_committed_state_and_writes_nothing`,
   creation and refusal cases, round trips, and the tiny-cache case.
 - Build support (`cargo test -p build-support-tests journal`): the
   `LAZYOS_JOURNAL` parser, and an image that gets a journal in place and then
