@@ -86,6 +86,9 @@ const NATIVE: &[&str] = &[
     fhs::bin::NETBULK,
     // The FTP client (N4): `ftp <host>[:port] [cmd ; cmd ...]`.
     fhs::bin::FTP,
+    // An FTP server as a directory (docs/smb-plan.md): `ftpfuse <host>[:port]
+    // [user=NAME] [pass=SECRET] [name=NAME] &` serves `/mnt/<name>`.
+    fhs::bin::FTPFUSE,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
     // [reason]` asks `init` for an orderly stop.
     fhs::bin::POWERCTL,

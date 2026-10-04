@@ -14,12 +14,16 @@
 //!   validated, not obeyed.
 //! * [`command`]: a request line, refusing an argument that could carry a
 //!   second command (CR, LF, NUL) or is absurdly long.
+//! * [`listing`]: `MLSD` and Unix `LIST` directory listings, parsed so that
+//!   no entry name can leave the listed directory.
 //! * [`crc32`]: the checksum the tool prints for a transfer, so the harness can
 //!   compare bytes it never saw.
 
 #![no_std]
 
 extern crate alloc;
+
+pub mod listing;
 
 use alloc::string::String;
 use alloc::vec::Vec;

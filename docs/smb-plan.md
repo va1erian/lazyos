@@ -198,8 +198,20 @@ without it refuses `REGISTER` with `ENOENT`.
 | `user/src/sys/fuse.rs` | The syscall wrapper: `Mount`, a `Provider` over syscall 35 |
 | `libs/smbwire/` | The SMB2 + NTLMv2 protocol (no I/O); host-tested and fuzzed (§4.2) |
 | `user/src/bin/memfuse.rs` | A toy in-memory filesystem daemon that proves the mechanism with **no network at all** (stage F1); on every image |
+| `user/src/bin/ftpfuse.rs` | A proof of concept of a **network** filesystem daemon: an FTP server at `/mnt/<name>`, over `netsock` and `libs/ftpwire`, sharing the `ftp` client's session code (`LAZYOS_NETD=1` images) |
 | `user/src/bin/smbfuse.rs` | The SMB daemon: implements `FuseFs` over `smbwire` and `netsock` (§4.4) |
 | `user/src/bin/smb.rs` | The direct command for tests and diagnostics (§4.5) |
+
+**`ftpfuse`, the network PoC.** It has the shape `smbfuse` will have (a
+daemon owning a remote session, a metadata cache, reconnects) and shows what
+the mechanism leaves to a daemon when the protocol is not a filesystem. FTP
+has no random-access write, so a write at the end of a file is an `APPE` (a
+sequential `cp` or `>>` costs one upload per 64 KiB request) and any other
+write fetches the file whole, patches it and `STOR`s it back (files up to
+32 MiB); reads fetch a file whole on first use. Listings (`MLSD`, or Unix
+`LIST`) are believed for 3 s. Known limits, acceptable for a PoC and not for
+SMB: a connection lost mid-`APPE` is retried once and could duplicate the
+chunk, and the VFS cache above it has the expiry gap of §3.1.
 
 ### 3.3 What we deliberately do **not** put in the kernel
 
@@ -430,6 +442,7 @@ harness needs no host privilege; the live run uses the usual **445**.
 | Host unit | `libs/smbwire`: framing (length bounds, compound `NextCommand`), header encode/decode, every command, NTLMv2 vectors from `MS-NLMP`, signing vectors, hostile/truncated/oversized frames, a seeded fuzz entry; `libs/fused` against a scripted provider (built) | `cargo test -p smbwire -p fused` |
 | Kernel | `fuse_suite`: the real path with `memfs` served by `serve_one`, both tables, nodes across renames, in-place open files, a 3000-entry directory, read-only mounts, unmount/remount epochs; hostile daemons (error statuses, silence, death mid-request, stale and oversized replies, faulting data, lying attributes and listings); the syscall gate and hostile buffers; a soak (1500 write/read rounds, 200 mount generations) | `LAZYOS_TEST_FILTER=fuse python tools/test/run.py --accel none` |
 | Mechanism e2e | `tools/fuse/run.py`: start `memfuse`, `cp` a file in and out and `cmp` it, rename, append, remove, `statfs`, kill the daemon and remount | built |
+| Network daemon PoC | `tools/fuse/ftp_run.py` (`--list` for servers without `MLSD`): `ftpfuse` against a host FTP server (`tools/fuse/ftpserver.py`, checked by `test_ftpserver.py` against `ftplib`); list, read, `md5sum`, `cp` in, `>>`, an in-place `dd` patch, `mkdir`/`mv`/`rm`/`rmdir`, judged from the server's directory | built |
 | SMB e2e | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share mounts; `ls` equals the server's directory; `cp` out hashes equal to the server's; `cp` in equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
 | Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes | in `run.py` |
 | Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned accepted only when signing is optional and not requested) | `tools/smb/` pcap judge + `test_judge.py` (the judge must fail when it should) |

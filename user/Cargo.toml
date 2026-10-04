@@ -448,6 +448,14 @@ path = "src/bin/ftp.rs"
 test = false
 bench = false
 
+# `ftpfuse` (docs/smb-plan.md): an FTP server mounted at `/mnt/<name>` through
+# the FUSE mechanism, a proof of concept of a network filesystem daemon.
+[[bin]]
+name = "ftpfuse"
+path = "src/bin/ftpfuse.rs"
+test = false
+bench = false
+
 # `beep` (docs/driver-plan.md D6) is the smallest `os.lazy.audio.v1` client: it
 # plays a sine tone through the mixer. `audiod` spawns it under `demo=1`; the
 # on-disk name is `BEEP.ELF`.

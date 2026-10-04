@@ -86,6 +86,9 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         add(sink, fhs::bin::NSLOOKUP, "nslookup");
         // `ftp`, the passive-mode client (stage N4).
         add(sink, fhs::bin::FTP, "ftp");
+        // `ftpfuse`, the same server mounted as a directory under `/mnt`
+        // (docs/smb-plan.md: a network filesystem on the FUSE mechanism).
+        add(sink, fhs::bin::FTPFUSE, "ftpfuse");
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
