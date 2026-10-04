@@ -39,22 +39,32 @@ impl Wake for FlagWaker {
     }
 }
 
+/// How long [`block_on`] and [`Executor::run`] park when a poll left work
+/// pending and nothing asked to be woken: there is no reactor to wake them,
+/// so they look again after this rather than spinning the CPU (P7.4).
+const IDLE_PARK_NS: u64 = 1_000_000;
+
 /// Run one future to completion on the current task.
 ///
 /// This is the whole executor: poll, and on `Pending` poll again. The leaf
 /// futures in this module never return `Pending` (they park the task in the
-/// kernel), so the loop makes progress without a scheduler; a composed future
-/// that yields is re-polled immediately, which is the documented trade-off
-/// described in the module docs.
+/// kernel), so the loop makes progress without a scheduler. A composed
+/// future that yields (wakes itself, then returns `Pending`) is re-polled at
+/// once; one that returns `Pending` without a wake is waiting on something no
+/// waker reports, so the task parks [`IDLE_PARK_NS`] before looking again
+/// instead of spinning.
 pub fn block_on<F: Future>(future: F) -> F::Output {
     let flag = FlagWaker::new();
-    let waker = Waker::from(flag);
+    let waker = Waker::from(flag.clone());
     let mut context = Context::from_waker(&waker);
     let mut future = core::pin::pin!(future);
     loop {
         match Future::poll(future.as_mut(), &mut context) {
             Poll::Ready(output) => return output,
-            Poll::Pending => core::hint::spin_loop(),
+            Poll::Pending if flag.take() => {}
+            Poll::Pending => {
+                crate::sys::sleep_ns(IDLE_PARK_NS);
+            }
         }
     }
 }
@@ -97,6 +107,12 @@ impl Executor {
     /// Poll every job once, removing the ones that completed. Returns how many
     /// jobs resolved during this pass.
     pub fn poll_ready(&mut self) -> usize {
+        self.pass().0
+    }
+
+    /// One pass: how many jobs resolved, and whether any asked to be polled
+    /// again (woke its waker).
+    fn pass(&mut self) -> (usize, bool) {
         let flag = FlagWaker::new();
         let waker = Waker::from(flag.clone());
         let mut context = Context::from_waker(&waker);
@@ -111,14 +127,17 @@ impl Executor {
                 Poll::Pending => index += 1,
             }
         }
-        let _ = flag.take();
-        completed
+        (completed, flag.take())
     }
 
-    /// Poll the queue until every job has completed.
+    /// Poll the queue until every job has completed. A pass that finished
+    /// nothing and woke nothing parks before the next (see [`block_on`]).
     pub fn run(&mut self) {
         while !self.tasks.is_empty() {
-            self.poll_ready();
+            let (completed, woken) = self.pass();
+            if completed == 0 && !woken && !self.tasks.is_empty() {
+                crate::sys::sleep_ns(IDLE_PARK_NS);
+            }
         }
     }
 }

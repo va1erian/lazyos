@@ -53,3 +53,14 @@ pub fn sleep_until_ns(deadline: u64) -> bool {
 pub fn sleep_ns(ns: u64) -> bool {
     sleep_until_ns(monotonic_ns().saturating_add(ns))
 }
+
+/// One PIT tick (100 Hz) in nanoseconds.
+pub const TICK_NS: u64 = 10_000_000;
+
+/// Nap one tick's worth (10 ms) in a deadline-bounded retry or poll loop
+/// (P7.4). The loops used to park in the native child-exit `wait` with a
+/// one-tick deadline, which reaps any child that happens to exit; this is a
+/// plain sleep.
+pub fn nap() {
+    sleep_ns(TICK_NS);
+}

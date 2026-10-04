@@ -379,14 +379,9 @@ fn error_code(parcel: &Parcel) -> Option<i64> {
     topics_client::error_field(parcel).ok().flatten()
 }
 
-/// Sleep one PIT tick by parking on a private channel pair with an expired
-/// deadline (userspace has no sleep syscall). The pair is closed again, so no
-/// channel leaks.
+/// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
+/// this used to park on a throwaway channel pair, since userspace had no
+/// sleep call).
 fn park_tick() {
-    if let Ok((probe, peer)) = create_pair() {
-        let mut scratch = [0u8; 16];
-        let _ = probe.recv_into(&mut scratch, Some(EXPIRED_DEADLINE));
-        let _ = probe.close();
-        let _ = peer.close();
-    }
+    crate::sys::nap();
 }

@@ -19,9 +19,9 @@ pub(super) const GATEWAY_IP: [u8; 4] = [10, 0, 2, 2];
 const ARP_TIMEOUT_TICKS: u64 = 400;
 const ARP_RESEND_TICKS: u64 = 50;
 
-/// Sleep one PIT tick (`wait` doubles as a timer when there is no child).
+/// Sleep one PIT tick ([`sys::nap`]).
 pub(super) fn nap() {
-    let _ = sys::wait(sys::clock() + 1);
+    sys::nap();
 }
 
 /// Prefix a Messenger failure with what was being attempted.
