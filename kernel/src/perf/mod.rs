@@ -10,6 +10,7 @@
 //! | `input_present` | the same publication, for pointer records | the compositor's next `present` syscall returns |
 //! | `irqoff` | a syscall enters (interrupts off) | it returns, parks, or naps (interrupts back on) |
 //! | `ipc_rt` | `begin_call` of an in-kernel echo | `await_reply` returns its reply (no context switch) |
+//! | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns |
 //!
 //! Durations are TSC cycles, converted with the PIT calibration when printed.
 //! [`report`] runs from the kernel task and prints one line per metric that
@@ -34,6 +35,8 @@ mod hist;
 mod imp;
 #[cfg(lazyos_perf)]
 mod ipcbench;
+#[cfg(lazyos_perf)]
+mod sleepbench;
 
 /// Read the time-stamp counter.
 #[inline(always)]
