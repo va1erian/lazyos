@@ -18,9 +18,10 @@ use crate::user_ptr;
 use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
 
 /// Most bytes one `read` stages in kernel memory. A short read is legal, so a
-/// larger request is served in pieces; this keeps the heap use (and the time
-/// spent with interrupts off) per call bounded.
-const READ_CHUNK: usize = 64 * 1024;
+/// larger request is served in pieces; this keeps the heap use per call
+/// bounded. 1 MiB lets a large sequential read reach the filesystem as runs
+/// long enough to skip the block cache (`ext2fs` `cache/range.rs`).
+const READ_CHUNK: usize = 1 << 20;
 
 /// Most bytes one `write` hands to the filesystem. Writes need no staging (the
 /// user buffer is read in place), so this only bounds the time per call.

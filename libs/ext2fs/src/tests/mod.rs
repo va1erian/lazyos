@@ -15,6 +15,7 @@ mod bench;
 mod cache_crash;
 mod cache_ops;
 mod format_tests;
+mod handles;
 mod malformed;
 mod ops;
 mod ops_state;

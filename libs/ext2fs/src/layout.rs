@@ -89,6 +89,7 @@ pub(super) const INO_LINKS: usize = 0x1A;
 pub(super) const INO_BLOCKS: usize = 0x1C;
 pub(super) const INO_FLAGS: usize = 0x20;
 pub(super) const INO_BLOCK: usize = 0x28;
+pub(super) const INO_GENERATION: usize = 0x64;
 pub(super) const INO_DIR_ACL: usize = 0x6C;
 
 // Group descriptor byte offsets (32 bytes each in the descriptor table).

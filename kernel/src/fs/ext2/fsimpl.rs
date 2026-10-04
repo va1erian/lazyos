@@ -4,17 +4,19 @@
 
 use alloc::vec::Vec;
 
-use ext2fs::{AttrChange, FsStats, InodeMeta, Owner};
+use ext2fs::{AttrChange, FileHandle, FsStats, InodeMeta, Owner};
 
 use super::{hidden, Ext2};
-use crate::fs::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs, Times};
+use crate::fs::vfs::{
+    DirEntry, FileKind, Filesystem, FsError, Id, Meta, NodeId, SetAttr, StatFs, Times,
+};
 
 /// Bytes one library read or write moves before the next piece. A syscall
-/// runs with interrupts off, and a 1 MiB write into the block cache takes
-/// about 40 ms of CPU, long enough for the keyboard controller's queue to
-/// overflow (`input::ps2`); between pieces the controller is drained, so the
-/// stretch without input servicing stays near 2 ms whatever the size.
-const PIECE: usize = 64 * 1024;
+/// runs with interrupts off; between pieces the keyboard controller is
+/// drained (`input::ps2`), so the stretch without input servicing stays
+/// bounded whatever the size. 256 KiB is long enough for a run read to skip
+/// the cache (`ext2fs` `cache/range.rs`) and about 0.4 ms of copying.
+const PIECE: usize = 256 * 1024;
 
 impl Filesystem for Ext2 {
     fn name(&self) -> &'static str {
@@ -58,6 +60,55 @@ impl Filesystem for Ext2 {
             }
         }
         Ok(done)
+    }
+
+    fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
+        let _gate = self.gate.lock();
+        let handle = self.volume.open_file(path)?;
+        Ok(Some(NodeId {
+            ino: u64::from(handle.ino()),
+            generation: handle.generation(),
+        }))
+    }
+
+    fn read_node(&self, node: NodeId, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let handle = handle_of(node)?;
+        let _gate = self.gate.lock();
+        let mut done = 0;
+        for piece in buf.chunks_mut(PIECE) {
+            crate::input::ps2::service();
+            let read = self
+                .volume
+                .read_handle(handle, offset + done as u64, piece)?;
+            done += read;
+            if read < piece.len() {
+                break;
+            }
+        }
+        Ok(done)
+    }
+
+    fn write_node(&self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        let handle = handle_of(node)?;
+        let _gate = self.gate.lock();
+        let mut done = 0;
+        for piece in data.chunks(PIECE) {
+            crate::input::ps2::service();
+            let written = self
+                .volume
+                .write_handle(handle, offset + done as u64, piece)?;
+            done += written;
+            if written < piece.len() {
+                break;
+            }
+        }
+        Ok(done)
+    }
+
+    fn stat_node(&self, node: NodeId) -> Result<Meta, FsError> {
+        let handle = handle_of(node)?;
+        let _gate = self.gate.lock();
+        Ok(meta(self.volume.handle_meta(handle)?))
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
@@ -154,6 +205,13 @@ impl Filesystem for Ext2 {
             })
             .collect())
     }
+}
+
+/// The library handle a node names; an inode number past 32 bits names
+/// nothing on ext2.
+fn handle_of(node: NodeId) -> Result<FileHandle, FsError> {
+    let ino = u32::try_from(node.ino).map_err(|_| FsError::NotFound)?;
+    Ok(FileHandle::from_parts(ino, node.generation))
 }
 
 fn owner_of(owner: Id) -> Owner {

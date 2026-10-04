@@ -1,8 +1,10 @@
 //! A write-back block cache between the driver and its [`BlockIo`].
 //!
 //! Each cached filesystem block owns one page from the host's
-//! [`CacheMemory`]. Reads are served from the cache (a miss that continues the
-//! previous one reads ahead in one request); writes only dirty the page. Dirty
+//! [`CacheMemory`]. Reads are served from the cache: a miss reads the blocks
+//! the caller wants in one request, plus read-ahead when it continues the
+//! previous miss, and a long run of uncached blocks wanted whole goes straight
+//! to the caller's buffer instead ([`range`]). Writes only dirty the page. Dirty
 //! blocks reach the disk in one *writeback* ([`BlockCache::flush`]): every
 //! dirty block, in the crash-safe phase order of [`roles`], each phase sorted
 //! by block number and coalesced into requests of up to `max_request` bytes.
@@ -26,6 +28,7 @@ use crate::{BlockIo, IoError, SECTOR_SIZE};
 
 mod flush;
 pub mod memory;
+mod range;
 pub mod roles;
 
 use memory::{CacheConfig, CacheMemory, CachePage};
@@ -36,8 +39,10 @@ use roles::Roles;
 pub struct CacheStats {
     pub hits: u64,
     pub misses: u64,
-    /// Blocks brought in by read-ahead beyond the one asked for.
+    /// Blocks brought in by read-ahead beyond the ones asked for.
     pub readahead: u64,
+    /// Blocks read straight into a caller's buffer, past the cache.
+    pub bypassed: u64,
     /// Full writebacks, and the requests and blocks they wrote.
     pub writebacks: u64,
     pub write_requests: u64,
@@ -145,7 +150,7 @@ impl BlockCache {
             return Ok(());
         }
         self.stats.misses += 1;
-        let index = self.fill(io, block)?;
+        let index = self.fill(io, block, 1)?;
         buf.copy_from_slice(&page(&self.slots[index])[..self.block_size]);
         Ok(())
     }
@@ -203,20 +208,24 @@ impl BlockCache {
         released
     }
 
-    /// Read `block` (and, when the read continues the last miss, the uncached
-    /// blocks after it) in one request. Returns the slot holding `block`.
-    fn fill(&mut self, io: &dyn BlockIo, block: u64) -> Result<usize, IoError> {
+    /// Read `block` and the `wanted - 1` blocks after it (fewer when one is
+    /// already cached or memory is short), plus read-ahead when the read
+    /// continues the last miss, in one request. Returns the slot holding
+    /// `block`; the others are in the map.
+    fn fill(&mut self, io: &dyn BlockIo, block: u64, wanted: usize) -> Result<usize, IoError> {
         let mut taken = alloc::vec![self.take_slot(io, true)?];
-        if self.last_miss.is_some_and(|last| last + 1 == block) {
-            let end = (block + 1 + self.readahead as u64).min(self.blocks_count);
-            for next in block + 1..end {
-                if taken.len() >= self.max_run || self.map.contains_key(&next) {
-                    break;
-                }
-                match self.take_slot(io, false) {
-                    Ok(index) => taken.push(index),
-                    Err(_) => break, // read-ahead never forces a writeback
-                }
+        let sequential = self
+            .last_miss
+            .is_some_and(|last| block > last && block - last <= self.readahead as u64);
+        let ahead = if sequential { self.readahead } else { 0 };
+        let end = (block + (wanted.max(1) + ahead) as u64).min(self.blocks_count);
+        for next in block + 1..end {
+            if taken.len() >= self.max_run || self.map.contains_key(&next) {
+                break;
+            }
+            match self.take_slot(io, false) {
+                Ok(index) => taken.push(index),
+                Err(_) => break, // read-ahead never forces a writeback
             }
         }
         let result = {
@@ -232,10 +241,10 @@ impl BlockCache {
             let at = block + offset as u64;
             let slot = &mut self.slots[index];
             slot.block = Some(at);
-            slot.referenced = offset == 0;
+            slot.referenced = offset < wanted;
             self.map.insert(at, index);
         }
-        self.stats.readahead += taken.len() as u64 - 1;
+        self.stats.readahead += taken.len().saturating_sub(wanted.max(1)) as u64;
         self.last_miss = Some(block + taken.len() as u64 - 1);
         Ok(taken[0])
     }
