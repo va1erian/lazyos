@@ -31,6 +31,8 @@
 //! was halted in its own wait loop) counts as running at once.
 
 #[cfg(lazyos_perf)]
+mod bysys;
+#[cfg(lazyos_perf)]
 mod hist;
 #[cfg(lazyos_perf)]
 mod imp;

@@ -11,13 +11,15 @@ with read-ahead on sequential misses.
 | Path | Role |
 |---|---|
 | `libs/ext2fs/src/cache/mod.rs` | `BlockCache`: slots, CLOCK eviction of clean blocks, read-ahead, dirty limit |
+| `libs/ext2fs/src/cache/range.rs` | run reads: cached blocks copied, uncached stretches in one request, large files past the cache |
+| `libs/ext2fs/src/read_run.rs` | `read_data`: the block map with a pointer-table memo, runs of contiguous blocks |
 | `libs/ext2fs/src/cache/flush.rs` | writeback: dirty blocks sorted by (phase, block), runs coalesced into vectored requests |
 | `libs/ext2fs/src/cache/roles.rs` | the five writeback phases and the metadata map read at mount |
 | `libs/ext2fs/src/cache/memory.rs` | `CacheMemory`/`CachePage` (where pages come from), `CacheConfig`, `HeapMemory` |
 | `libs/ext2fs/src/commit.rs` | commits, deferred frees, write-back error reporting, `writeback()` |
 | `kernel/src/fs/ext2/cache.rs` | frames as cache pages, the size knob, the kernel `writeback` |
 | `kernel/src/fs/flusher.rs` | the periodic flusher (every 5 s) and the memory-pressure hook |
-| `kernel/src/block/virtio.rs`, `virtio/gather.rs` | vectored requests: a segment list through the 64 KiB bounce region |
+| `kernel/src/block/virtio.rs`, `virtio/plan.rs` | vectored requests: a segment list as page pieces the device reads and writes directly, 256 KiB per request |
 | `kernel/src/block/stats.rs` | per-device request counters (`block: virtio0 reads N ... writes M ...`) |
 
 ## Why, and why in the ext2 driver
@@ -55,16 +57,24 @@ small; an ext2 volume on ATA mounts read-only and uses the cache for reads).
   time (`0` mounts uncached; touch `kernel/src/main.rs` after changing it). The
   cache takes no new frames while fewer than 1/16 of all frames are free.
   Host build: 64 MiB of heap.
-- **Reads** hit the cache; a miss that continues the previous miss reads up to
-  16 following uncached blocks in the same request.
+- **Reads** (docs/performance-plan.md P5) come in runs: `read_data` maps the
+  file's blocks with a memo of the last pointer table (one table read per
+  1024 blocks instead of one per block) and hands each run of physically
+  consecutive blocks (up to 1 MiB) to `read_range`. Cached blocks, dirty ones
+  included, are copied from their pages. An uncached stretch is read in one
+  request into cache pages (the blocks wanted, plus up to 64 blocks of
+  read-ahead when the miss lands within 64 blocks past the previous one), or,
+  for a file of 8 MiB or more and a stretch of at least 64 blocks wanted
+  whole, straight into the caller's buffer (`bypassed` in the counters): a
+  block that is not cached is current on the disk, so this is exact, and
+  streaming a large file neither evicts the working set nor pays a copy.
 - **Writes** copy into the page and mark it dirty. A block the driver just
   allocated is installed as a zeroed *fresh* page (no I/O) instead of being
   zeroed on disk.
 - **Eviction** is CLOCK over clean blocks. A dirty block is never dropped.
 - **Writeback** writes *every* dirty block, phase by phase, each phase sorted
-  by block number and cut into runs of consecutive blocks of at most 64 KiB
-  (the virtio bounce region; 1 MiB on the host), each run one vectored
-  request. It runs on a commit, when `dirty_limit` (half the cache) blocks are
+  by block number and cut into runs of consecutive blocks of at most 256 KiB
+  (1 MiB on the host), each run one vectored request. It runs on a commit, when `dirty_limit` (half the cache) blocks are
   dirty, and when a page is needed and every page is dirty. Nothing else ever
   writes, which is what makes the phase order hold for every byte on disk.
 - **Commit** (`commit.rs`): writeback, then the deferred frees go back to their

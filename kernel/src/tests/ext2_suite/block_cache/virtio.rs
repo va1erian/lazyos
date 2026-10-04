@@ -33,12 +33,13 @@ fn byte_at(offset: usize, salt: u8) -> u8 {
     (offset.wrapping_mul(0x9E37_79B1) >> 13) as u8 ^ salt
 }
 
-/// Segment lengths (in sectors) that straddle the 64 KiB request boundary in
-/// every way: 4 KiB pages, odd runs, and one segment longer than a request.
+/// Segment lengths (in sectors) that straddle pages and sectors in every
+/// way: 4 KiB pages, odd runs, and one segment longer than 64 KiB.
 const SEGMENTS: [usize; 9] = [8, 3, 8, 8, 1, 130, 8, 5, 8];
 
 /// Vectored writes and reads move one byte range, whatever the segmentation,
-/// in as few requests as the bounce region allows.
+/// in as few requests as the request size allows (the pieces of these
+/// segments fit one request's descriptors).
 pub fn scatter_gather() -> Result<(), String> {
     let Some(disk) = scratch("bcache_virtio_scatter_gather") else {
         return Ok(());
@@ -59,7 +60,7 @@ pub fn scatter_gather() -> Result<(), String> {
         if let (Some(before), Some(stats)) = (before, disk.stats()) {
             let requests = stats.snapshot().writes - before.writes;
             check!(
-                requests == total.div_ceil(64 * 1024) as u64,
+                requests == total.div_ceil(crate::block::virtio::MAX_REQUEST_BYTES) as u64,
                 "{total} bytes took {requests} write requests"
             );
         }

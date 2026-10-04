@@ -185,6 +185,19 @@ ISR that performs context switches.
   (`enable_and_hlt` then `cli`) and `task::poll_until` do this; native
   `read_char`, redirected stdin, a stopped task and `WaitQueue::wait` use
   them.
+- Storage and long syscalls (docs/performance-plan.md P5): a syscall may
+  give the CPU away while it holds only locks whose contenders yield
+  (`task::relax::YieldMutex`, and spin locks reached only through one). Block
+  requests from the ext2 volume gate park on deadlines instead of
+  busy-waiting (`block::iowait`), and long CPU stretches *breathe*
+  (`iowait::breathe`: interrupts in for one instruction, the device bottom
+  half, the preemption point; at most every 50 µs): between ext2 pieces and
+  at the library's pause points, between loader chunks, between staged user
+  copies and between serial-mirror chunks. Whatever such a syscall read from
+  user memory before a breath is copied first: another thread may unmap the
+  buffer meanwhile. `exit_cpu` closes the interrupts-off stretch before its
+  halt, so the latency hooks do not count an idle CPU. `perf` prints the
+  worst stretch per syscall number (`PERF:irqoff_by_syscall`).
 - A hang is diagnosed with an NMI (`arch::nmi`): QMP `inject-nmi` (sent by
   `qemu_session.py` on a timed-out gate, or the monitor's `nmi`) prints
   `HANG:` lines through a lock-free UART writer: the interrupted context, the

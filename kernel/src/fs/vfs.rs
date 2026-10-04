@@ -49,6 +49,7 @@ mod filesystem;
 mod flags;
 mod meta;
 mod mountops;
+mod node;
 mod path;
 mod setattr;
 
@@ -58,6 +59,7 @@ use cache::Dentry;
 pub use filesystem::Filesystem;
 pub use flags::MountFlags;
 pub use meta::*;
+pub use node::{Node, NodeId};
 pub use path::Path;
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the rules, for unit tests
 pub use setattr::authorize;

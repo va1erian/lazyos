@@ -375,6 +375,11 @@ pub fn start() {
     SCHEDULING.store(true, Ordering::Relaxed);
 }
 
+/// Whether [`start`] ran: tasks switch, so a task may park.
+pub fn scheduling() -> bool {
+    SCHEDULING.load(Ordering::Relaxed)
+}
+
 /// The task currently on the CPU.
 pub fn current() -> usize {
     CURRENT.load(Ordering::Relaxed)

@@ -64,6 +64,7 @@ impl Ext2 {
         let blocks = self.dir_blocks(&inode)?;
         let size = self.block_size as usize;
         for block in blocks {
+            self.pause_point();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;
@@ -100,6 +101,7 @@ impl Ext2 {
         let blocks = self.dir_blocks(&inode)?;
         let size = self.block_size as usize;
         for block in blocks {
+            self.pause_point();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;
@@ -159,6 +161,7 @@ impl Ext2 {
         let file_type = if self.has_file_type { file_type } else { 0 };
         let blocks = self.dir_blocks(dir)?;
         for block in blocks {
+            self.pause_point();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;
@@ -252,6 +255,7 @@ impl Ext2 {
         let size = self.block_size as usize;
         let blocks = self.dir_blocks(dir)?;
         for block in blocks {
+            self.pause_point();
             let mut buf = [0u8; MAX_BLOCK_SIZE];
             self.read_block(u64::from(block), &mut buf[..size])?;
             let mut offset = 0usize;

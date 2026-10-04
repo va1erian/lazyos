@@ -207,6 +207,8 @@ impl Ext2 {
                     freed += self.free_tree(child, depth - 1)?;
                 }
             }
+            // A table's worth of frees (up to 1024 blocks) between pauses.
+            self.pause_point();
         }
         self.free_block(block)?;
         Ok(freed + 1)

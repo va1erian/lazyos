@@ -133,9 +133,12 @@ fn write_terminal(ptr: u64, len: u64) -> u64 {
         return err(EFAULT);
     };
     task::write_output(bytes);
-    crate::serial::write_bytes(bytes);
     // Answer a cursor-position report request (busybox line editing asks for it).
-    if bytes.windows(4).any(|w| w == b"\x1b[6n") {
+    let asks_position = bytes.windows(4).any(|w| w == b"\x1b[6n");
+    // Last use of the user slice: the mirror may let interrupts in (and
+    // other threads run) once it has queued the bytes.
+    crate::serial::mirror(bytes);
+    if asks_position {
         task::inject_input(b"\x1b[1;1R");
     }
     len

@@ -197,7 +197,7 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
         return u64::MAX;
     };
     task::write_output(bytes);
-    crate::serial::write_bytes(bytes);
+    crate::serial::mirror(bytes);
     len
 }
 

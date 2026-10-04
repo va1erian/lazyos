@@ -21,6 +21,14 @@ and ring-3 programs, packs them into an MBR disk (a FAT `/boot` plus an ext2 OS 
 **Boot order** (`kernel/src/main.rs`)
 
 1. `serial::init` (COM1 logging); framebuffer from `BootInfo`, else halt.
+   COM1 output goes through a 16 KiB ring (`serial/tx.rs`, P5): a write is
+   queued whole, so no other writer's bytes land inside it and everything
+   keeps the order it was queued in, and drained 16 bytes per line-status
+   poll (the 16550's transmit FIFO), one VM exit a byte instead of two. A
+   program's terminal output drains in 32-byte chunks with interrupts let in
+   between; a kernel line drains as many bytes as it queued; the kernel
+   task's loop drains what a preempted writer left, and power-off, reboot and
+   a panic flush the ring first.
 2. `console::init`, `display::init` (records geometry for the #113 grant).
 3. `boot_media::record` prints `BOOT:MEDIA:<uefi|bios|unknown>`, read from the
    memory map (the UEFI stage reports firmware types as `UnknownUefi`, the BIOS
