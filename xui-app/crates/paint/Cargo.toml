@@ -19,10 +19,10 @@ path = "src/lib.rs"
 fs = []
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "73fe3113d3fcdd8fdf1a26244760c611028621c0" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c7cd6d0838be293063f887ed9d8043fbe6143e4f" }
 
 [dev-dependencies]
 # Offscreen rendering for the crate's snapshot tests.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "73fe3113d3fcdd8fdf1a26244760c611028621c0", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c7cd6d0838be293063f887ed9d8043fbe6143e4f", default-features = false }
 # The resizable offscreen backend the window-resize tests drive.
 xui-app-testkit = { path = "../testkit" }
