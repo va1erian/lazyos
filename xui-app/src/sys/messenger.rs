@@ -292,14 +292,14 @@ pub fn msg_reply(txn: u64, reply: &Parcel) -> Result<(), i64> {
 pub const WAIT_MAX_ENDPOINTS: usize = 8;
 /// Wait flag: the Linux descriptor in bits 32..63 of the flags is readable
 /// (the kernel's `channels::WAIT_FD`).
-pub const WAIT_FD: u64 = 8;
+pub const WAIT_FD: u64 = 16;
 /// Where [`WAIT_FD`]'s descriptor sits in the flags.
 pub const WAIT_FD_SHIFT: u32 = 32;
 /// Wait flag: the deadline is monotonic nanoseconds ([`super::monotonic_ns`]),
 /// not PIT ticks.
-pub const WAIT_DEADLINE_NS: u64 = 1 << 16;
+pub const WAIT_DEADLINE_NS: u64 = 1 << 24;
 /// Ready-mask bit: the [`WAIT_FD`] descriptor is readable or hung up.
-pub const FD_READY: u64 = 1 << 60;
+pub const FD_READY: u64 = 1 << 59;
 
 /// Park until one of `handles` has a message (or a closed peer) or the
 /// absolute PIT `deadline` passes (docs/performance-plan.md P1.3, P3.8):

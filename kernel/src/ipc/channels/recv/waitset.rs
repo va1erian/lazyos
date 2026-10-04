@@ -44,11 +44,11 @@ pub const WAIT_DISPLAY_KEYS: u64 = 2;
 pub const WAIT_INET: u64 = 4;
 /// Doorbell: the Linux descriptor in bits 32..63 of the flags is readable
 /// (or hung up).
-pub const WAIT_FD: u64 = 8;
+pub const WAIT_FD: u64 = 16;
 /// Every doorbell [`wait_any`] knows.
 pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_FD;
 /// Flag: the deadline is absolute monotonic nanoseconds, not PIT ticks.
-pub const WAIT_DEADLINE_NS: u64 = 1 << 16;
+pub const WAIT_DEADLINE_NS: u64 = 1 << 24;
 /// Where [`WAIT_FD`]'s descriptor sits in the flags.
 pub const WAIT_FD_SHIFT: u32 = 32;
 /// Bit of the ready mask that means "the raw input bus has records".
@@ -58,7 +58,7 @@ pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
 /// Bit of the ready mask that means "the `AF_INET` pump has work".
 pub const INET_READY: u64 = 1 << 61;
 /// Bit of the ready mask that means "the [`WAIT_FD`] descriptor is readable".
-pub const FD_READY: u64 = 1 << 60;
+pub const FD_READY: u64 = 1 << 59;
 
 /// Tasks parked in [`wait_any`] on a descriptor ([`WAIT_FD`]).
 static FD_WATCHERS: [AtomicBool; task::MAX_TASKS] =

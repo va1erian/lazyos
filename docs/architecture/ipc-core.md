@@ -55,9 +55,9 @@ userspace never names another task's handles.
   delivery, a peer close or an input publication wakes it through
   `MESSENGER`. `inputd` and `xuid` use it instead of short-deadline polling
   (docs/performance-plan.md P1.3, P1.4). The flags also take `WAIT_DEADLINE_NS`
-  (bit 16: the deadline is monotonic nanoseconds, not ticks; `xui-app` timers
-  and frames) and `WAIT_FD` (8) with one of the caller's Linux descriptors in
-  bits 32..63, ready (`FD_READY`, bit 60) when `poll` would report `POLLIN` or
+  (bit 24: the deadline is monotonic nanoseconds, not ticks; `xui-app` timers
+  and frames) and `WAIT_FD` (16) with one of the caller's Linux descriptors in
+  bits 32..63, ready (`FD_READY`, bit 59) when `poll` would report `POLLIN` or
   a hang-up. Descriptors have no waiter list, so a watcher is flagged and
   `task::notify_poll`, the wake every pipe, pty and socket already rings for
   `poll`, also wakes the flagged tasks parked in a wait set
