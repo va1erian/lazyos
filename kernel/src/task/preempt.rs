@@ -19,13 +19,14 @@
 //! A selection charges a whole stride (one quantum of virtual time). A task
 //! that leaves the CPU early, because a wake preempted it or because it
 //! parked, gets back the part of that quantum it did not use ([`refund`]),
-//! but never below a quarter of it ([`MIN_CHARGE_DIV`]). So a task that
-//! sleeps most of the time stays behind its CPU-bound peers and its wakes
-//! deserve the CPU, while each of its runs still costs at least a quarter
-//! quantum: per quantum of virtual time its peers consume, a waker can take
-//! the CPU at most four times. That is the bound that keeps a stream of
-//! same-class wakes from becoming a stream of switches: at most four wake
-//! preemptions per waker per peer quantum (10 ms), measured by
+//! but never below a tenth of it ([`MIN_CHARGE_DIV`], 1 ms of the 10 ms
+//! quantum). So a task that sleeps most of the time stays behind its
+//! CPU-bound peers and its wakes deserve the CPU, while each of its runs
+//! still costs at least a tenth of a quantum: per quantum of virtual time its
+//! peers consume, a waker can take the CPU at most ten times. Together with
+//! the minimum slice below (one same-class wake preemption per millisecond
+//! of CPU at most) that is the bound that keeps a stream of same-class wakes
+//! from becoming a stream of switches, measured by
 //! `preempt_wake_suite::same_class` (a 5 kHz waker against two CPU hogs).
 //! CPU-bound tasks are charged full strides exactly as before, so their
 //! shares, and the stride scheduler's fairness bound between them, are
@@ -34,7 +35,7 @@
 //! # The minimum slice
 //!
 //! A selected task keeps the CPU against same-class wakes for at least
-//! [`MIN_SLICE_NS`] (the same quarter quantum it is charged at least). A
+//! [`MIN_SLICE_NS`] (the same tenth of a quantum it is charged at least). A
 //! deserving wake that comes sooner is deferred ([`DEFERRED`]): the deadline
 //! timer is armed for the end of the slice and the preemption happens there
 //! (or at any earlier preemption point after it), unless a selection made in
@@ -229,11 +230,11 @@ pub(super) fn open_charge(cur: usize) -> Option<u64> {
 
 /// The least share of a quantum a selection costs, as a divisor: a run is
 /// charged at least `stride / MIN_CHARGE_DIV` however short it was.
-pub(super) const MIN_CHARGE_DIV: u64 = 4;
+pub(super) const MIN_CHARGE_DIV: u64 = 10;
 
 /// `slot` left the CPU before its quantum ran out (a wake preempted it, or it
 /// parked): give back the unused share of the stride it was charged at its
-/// selection, keeping at least a quarter quantum (see the module docs).
+/// selection, keeping at least a tenth of a quantum (see the module docs).
 /// `charged_at` is the slot's [`open_charge`].
 pub(super) fn refund(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, charged_at: u64) {
     let used = crate::arch::clock::monotonic_ns()

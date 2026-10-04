@@ -116,7 +116,7 @@ pub(super) fn min_pass(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
 /// can never bank catch-up quanta (issue #58), but it keeps up to one
 /// quantum of lag, so a task that mostly sleeps is the next pick when it
 /// wakes and its wake may preempt a CPU-bound peer of its class (P6.2); its
-/// runs then cost it at least a quarter stride each (`preempt::refund`),
+/// runs then cost it at least a tenth of a stride each (`preempt::refund`),
 /// which bounds how often that can happen.
 pub(super) fn rejoin(task: &mut Task, now: u64) {
     task.pass = task.pass.max(now.saturating_sub(stride(task.weight)));
