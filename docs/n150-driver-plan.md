@@ -113,7 +113,11 @@ The NVMe controller driver is part of the NVMe-install work
 ([nvme-install-plan.md](nvme-install-plan.md), PR #564, phase N1: polled, one
 queue pair, 512-byte LBAs): the root volume must be readable before `init`,
 so it is an in-kernel block driver (driver-plan D1). It moves to MSI once K1
-lands. This plan links to N1 rather than duplicating it and only adds:
+lands. Because N1 serves 512-byte LBAs only, the box is listed as
+NVMe-compatible only once its namespace's active LBA format is recorded in
+its compat row and is 512 bytes (some drives ship formatted 4096): N1 can log
+it at probe, and until then `nvme id-ns -H` from a Linux live stick shows it.
+This plan links to N1 rather than duplicating it and only adds:
 
 - **AHCI** for a box whose M.2 or 2.5" bay holds a SATA disk. In-kernel for
   the same reason, ports polled, NCQ optional. QEMU models it (`ich9-ahci`),
@@ -172,11 +176,17 @@ to power the display audio well.
   clears the status bit and posts an event `init` turns into its existing
   shutdown path. Without it, the only clean shutdown is from the desktop or a
   shell.
-- **MWAIT idle.** The idle loop is `hlt`. Using `mwait` with the deepest
-  C-state hint CPUID leaf 5 advertises (an `intel_idle`-style table is not
-  needed for a first cut) lets the package reach deeper C-states. Measured
-  win needs a power meter; *inferred* to matter for a 6 W part that idles
-  most of the day.
+- **MWAIT idle.** The idle loop is `hlt`. CPUID leaf 5 only counts
+  processor-specific MWAIT sub-states; which ones the platform actually
+  exposes, and their wake latencies, come from firmware (ACPI `_CST`, which
+  LazyOS cannot evaluate without an AML interpreter) or from a per-model
+  table such as Linux `intel_idle` keeps. So: K0 records the box's CPUID
+  leaf 5 and the hints its `_CST` names (read once from a Linux live stick);
+  the first cut uses only a hint validated on this box (wakes on the next
+  tick and on device interrupts, timekeeping unchanged), falling back to
+  `hlt`; deeper states join a small N150 table only after the same check.
+  Measured win needs a power meter; *inferred* to matter for a 6 W part
+  that idles most of the day.
 - **Hardware watchdog (PCH iTCO).** The update work
   ([update-plan.md](update-plan.md), on its own branch) wants a hung trial
   boot of a new release to reboot by itself and fall back to the previous
@@ -227,7 +237,7 @@ tests, `python tools/test/run.py --accel none`, files under 500 lines).
 
 | Stage | Deliverable | Verified by |
 |---|---|---|
-| **K0** Survey (same as the install plan's N0) | Boot `lazyos-usb.img` on the box; record `devctl`, `dmesg` and the `HW:*` lines; open `docs/compat/hardware.md` with the first row | photos and the copied text; decides K2's chip family |
+| **K0** Survey (same as the install plan's N0) | Boot `lazyos-usb.img` on the box; record `devctl`, `dmesg` and the `HW:*` lines; from a Linux live stick, the NVMe namespace's active LBA format, CPUID leaf 5 and the `_CST` hints; open `docs/compat/hardware.md` with the first row | photos and the copied text; decides K2's chip family, NVMe compatibility with N1, and the K4 idle hint |
 | **K1** MSI + `devd` | `Irq::Msi`, MSI vectors and LAPIC EOI, kernel-programmed MSI capability; `devd` with a static manifest moving `netdrv` and `sndd` to device-matched starts | QEMU q35: virtio-net and virtio-snd on MSI (`DEV:MSI:PASS`), storm and teardown tests as for INTx; `devd` starts nothing on a machine without the device |
 | **K2** Ethernet | `libs/<chip>` + `netdrv-<chip>` for the surveyed NIC; `nicdrv` engine split over a ring trait | host tests with a fake device; on the box: DHCP, `ping`, HTTPS fetch, a 1 GiB transfer without loss |
 | **K3** HDA | `libs/hda` + `sndd-hda`, generic codec parser | QEMU `intel-hda` WAV test like `tools/sound/run.py`; on the box: tone on the headphone jack |
