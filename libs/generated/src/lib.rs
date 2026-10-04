@@ -6082,6 +6082,12 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_SETBOUNDS: u32 = 8;
     /// `GetPointer` method id.
     pub const METHOD_GETPOINTER: u32 = 9;
+    /// `NoteFocus` method id.
+    pub const METHOD_NOTEFOCUS: u32 = 10;
+    /// `NoteSurface` method id.
+    pub const METHOD_NOTESURFACE: u32 = 11;
+    /// `ForgetSurface` method id.
+    pub const METHOD_FORGETSURFACE: u32 = 12;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -6382,6 +6388,102 @@ pub mod os_lazy_input_shell_v1 {
                     out.buttons = field.as_u32()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
+    /// (docs/performance-plan.md P3.6). Requests from one sender are handled
+    /// in the order sent, on the same endpoint as the clients' `Open`, so a
+    /// surface noted before the compositor answers `CreateSurface` is known
+    /// by the time its client opens a session. Refused calls are dropped.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteFocusArgs {
+        pub surface: core::option::Option<u64>,
+    }
+
+    pub fn encode_note_focus_args(value: &NoteFocusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.surface {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_focus_args(body: &[u8]) -> Result<NoteFocusArgs, Error> {
+        let mut out = NoteFocusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.surface = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.surface = Some(item.as_u64()?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way `RegisterSurface` (see `NoteFocus`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteSurfaceArgs {
+        pub surface: u64,
+        pub owner: u64,
+    }
+
+    pub fn encode_note_surface_args(value: &NoteSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u64(2, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_surface_args(body: &[u8]) -> Result<NoteSurfaceArgs, Error> {
+        let mut out = NoteSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.owner = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way `UnregisterSurface` (see `NoteFocus`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ForgetSurfaceArgs {
+        pub surface: u64,
+    }
+
+    pub fn encode_forget_surface_args(value: &ForgetSurfaceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_forget_surface_args(body: &[u8]) -> Result<ForgetSurfaceArgs, Error> {
+        let mut out = ForgetSurfaceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.surface = field.as_u64()?;
             }
         }
         Ok(out)

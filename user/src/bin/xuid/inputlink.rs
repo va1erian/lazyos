@@ -196,19 +196,24 @@ impl Compositor {
         }
     }
 
-    /// Register new surfaces, forget destroyed ones and report focus.
-    /// `false` when `inputd` is gone. A call that merely timed out (a busy
-    /// first boot can keep `inputd` from answering for a while) is not a dead
-    /// link: it stays undone and is retried on the next pass, since dropping
-    /// the link would flip every window to legacy keys and back, and the
-    /// keys typed across that switch went to whichever side had just let go.
+    /// Register new surfaces, forget destroyed ones and report focus, as
+    /// one-way notes (docs/performance-plan.md P3.6): the compositor never
+    /// waits on `inputd` here, where a two-way call could stall the cursor
+    /// for up to its 200 ms timeout. `inputd` handles one sender's requests
+    /// in order on the endpoint the clients' `Open` also arrives on, so a
+    /// surface noted when it is created is known before its client can open
+    /// a session. `false` when `inputd` is gone. A note that found the queue
+    /// full is not a dead link: it stays undone and is retried on the next
+    /// pass, since dropping the link would flip every window to legacy keys
+    /// and back, and the keys typed across that switch went to whichever
+    /// side had just let go.
     fn push_input_state(&mut self) -> bool {
         let Some(link) = self.input.link.as_ref() else {
             return false;
         };
         for surface in self.surfaces.iter().filter(|s| s.is_window()) {
             if !self.input.registered.contains(&surface.id) {
-                match settled(link.register_surface(surface.id, surface.owner)) {
+                match sent(link.note_surface(surface.id, surface.owner)) {
                     Some(true) => {
                         self.input.registered.insert(surface.id);
                     }
@@ -225,7 +230,7 @@ impl Compositor {
             .filter(|id| !self.surfaces.iter().any(|s| s.id == *id))
             .collect();
         for id in gone {
-            match settled(link.unregister_surface(id)) {
+            match sent(link.forget_surface(id)) {
                 Some(true) => {
                     self.input.registered.remove(&id);
                 }
@@ -234,7 +239,7 @@ impl Compositor {
             }
         }
         if self.input.told_focus != Some(self.focused) {
-            match settled(link.set_focus(self.focused)) {
+            match sent(link.note_focus(self.focused)) {
                 Some(true) => self.input.told_focus = Some(self.focused),
                 Some(false) => {}
                 None => return false,
@@ -261,12 +266,12 @@ impl Compositor {
     }
 }
 
-/// How a link call ended: `Some(true)` done, `Some(false)` timed out (retry
-/// later, the link is fine), `None` the link is dead.
-fn settled(result: Result<(), Error>) -> Option<bool> {
+/// How a one-way note went: `Some(true)` queued, `Some(false)` the queue
+/// was full (retry later, the link is fine), `None` the link is dead.
+fn sent(result: Result<(), Error>) -> Option<bool> {
     match result {
         Ok(()) => Some(true),
-        Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Some(false),
+        Err(Error::Errno(code)) if code == -errno::EAGAIN => Some(false),
         Err(_) => None,
     }
 }

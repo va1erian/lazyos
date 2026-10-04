@@ -194,6 +194,37 @@ impl ShellLink {
         self.call(&request(SHELL_INTERFACE, method, body, Vec::new()))
     }
 
+    /// Send a one-way shell request: never waits on `inputd`
+    /// (docs/performance-plan.md P3.6). `Err` only when it could not be
+    /// queued (a full queue is retried later; a dead peer drops the link).
+    fn shell_note(&self, method: u32, body: Vec<u8>) -> Result<()> {
+        self.input
+            .send(&request(SHELL_INTERFACE, method, body, Vec::new()))
+    }
+
+    /// One-way [`ShellLink::register_surface`].
+    pub fn note_surface(&self, surface: u64, owner: u64) -> Result<()> {
+        let body =
+            shell_wire::encode_note_surface_args(&shell_wire::NoteSurfaceArgs { surface, owner })
+                .map_err(Error::Parcel)?;
+        self.shell_note(shell_wire::METHOD_NOTESURFACE, body)
+    }
+
+    /// One-way [`ShellLink::unregister_surface`].
+    pub fn forget_surface(&self, surface: u64) -> Result<()> {
+        let body =
+            shell_wire::encode_forget_surface_args(&shell_wire::ForgetSurfaceArgs { surface })
+                .map_err(Error::Parcel)?;
+        self.shell_note(shell_wire::METHOD_FORGETSURFACE, body)
+    }
+
+    /// One-way [`ShellLink::set_focus`].
+    pub fn note_focus(&self, surface: Option<u64>) -> Result<()> {
+        let body = shell_wire::encode_note_focus_args(&shell_wire::NoteFocusArgs { surface })
+            .map_err(Error::Parcel)?;
+        self.shell_note(shell_wire::METHOD_NOTEFOCUS, body)
+    }
+
     /// Declare that task slot `owner` created `surface`.
     pub fn register_surface(&self, surface: u64, owner: u64) -> Result<()> {
         let body = shell_wire::encode_register_surface_args(&shell_wire::RegisterSurfaceArgs {
