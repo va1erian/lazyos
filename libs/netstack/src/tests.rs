@@ -12,6 +12,7 @@ mod dns;
 mod ping;
 mod sockets;
 mod sockets_stress;
+mod stream_io;
 
 pub(super) fn dhcp_lan() -> Lan {
     let mut lan = Lan::new(&Mode::Dhcp);

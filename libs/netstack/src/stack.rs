@@ -83,6 +83,7 @@ mod dns;
 mod observe;
 mod ping;
 mod sockets;
+mod stream_io;
 mod tcp;
 mod udp;
 
@@ -92,8 +93,10 @@ use ping::{icmp_socket, Pending};
 pub use ping::{PingError, PingOutcome, PingResult};
 pub use sockets::{ready, Kind, SockAddr, SockError, SocketCounters, Sockets};
 pub use sockets::{
-    EPHEMERAL_FIRST, MAX_BACKLOG, MAX_CHUNK, MAX_CLOSING, MAX_PER_OWNER, MAX_SOCKETS, UDP_PAYLOAD,
+    EPHEMERAL_FIRST, MAX_BACKLOG, MAX_CHUNK, MAX_CLOSING, MAX_PER_OWNER, MAX_SOCKETS, TCP_BUFFER,
+    UDP_PAYLOAD,
 };
+pub use stream_io::Received;
 
 pub struct Stack {
     device: RingDevice,

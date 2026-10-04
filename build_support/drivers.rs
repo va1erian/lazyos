@@ -27,11 +27,18 @@ fn add(sink: &mut dyn Sink, path: &str, bin: &str) {
 /// The `netfix` fixture: `LAZYOS_NETFIX`, or the one `tools/abi/build.py` left
 /// in `target/abi/fixtures`.
 fn netfix() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("LAZYOS_NETFIX").map(PathBuf::from) {
+    fixture("LAZYOS_NETFIX", "netfix")
+}
+
+/// A Linux fixture: the file `variable` names, or the one `tools/abi/build.py`
+/// left in `target/abi/fixtures/<name>.elf`.
+fn fixture(variable: &str, name: &str) -> Option<PathBuf> {
+    println!("cargo:rerun-if-env-changed={variable}");
+    if let Some(path) = std::env::var_os(variable).map(PathBuf::from) {
         return path.is_file().then_some(path);
     }
     let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR")?);
-    let path = root.join("target/abi/fixtures/netfix.elf");
+    let path = root.join(format!("target/abi/fixtures/{name}.elf"));
     path.is_file().then_some(path)
 }
 
@@ -82,10 +89,17 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
-        println!("cargo:rerun-if-env-changed=LAZYOS_NETFIX");
         if let Some(path) = netfix() {
             println!("cargo:rerun-if-changed={}", path.display());
             sink.add_file(fhs::bin::NETFIX, path);
+        }
+        // Bulk TCP throughput (docs/performance-plan.md P4,
+        // `tools/net/bulk.py`): the native client always, its Linux twin when
+        // the fixtures were built.
+        add(sink, fhs::bin::NETBULK, "netbulk");
+        if let Some(path) = fixture("LAZYOS_NETBULK", "netbulk") {
+            println!("cargo:rerun-if-changed={}", path.display());
+            sink.add_file(fhs::bin::NETBULK_LINUX, path);
         }
     }
 }

@@ -13,8 +13,12 @@ write-combining through PAT already existed, bare metal only), pointer
 coalescing and damage-only click repaints (P3.4, P3.5), one-way `inputd`
 notes (P3.6), parked `xui-app` clients (P3.8) and the 200 Hz PS/2 rate
 (P3.9); not done: zero-copy scanout (P3.3), interrupt-driven `usbd` (P3.7),
-the Terminal's pty on readiness, and the P2-dependent frame pacing. P2 and P3
-are merged on `perf/integration`. P5 onward is not started.
+the Terminal's pty on readiness, and the P2-dependent frame pacing. P4
+(network) steps 0-5 are built and measured in
+[`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the exit target is
+met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
+`connect` 0.5-1 ms); steps 6 and 7 are not done. P2, P3 and P4 are merged on
+`perf/integration`. P5 onward is not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -243,6 +247,19 @@ Verdict from the wire, as for all networking: a pcap-judged bulk transfer in
 Exit: at least 50 MB/s TCP in each direction on the Linux socket path under
 KVM or WHPX (from 1.6 MB/s); `connect` under 1 ms on a local link. Revise the
 target after the P0 baseline.
+
+Result (`tools/net/bulk.py`, [`perf/network.md`](perf/network.md); WHPX, dev
+profile): the baseline was not 1.6 MB/s but 49-53 MB/s out and 58-60 MB/s in
+(arriving frames woke `netd` far more often than its timer), with 10-13 ms
+per `connect`. The doorbell (step 1) took `connect` to 0.5-1 ms (the first
+one after a program starts 1-10 ms); the 256 KiB windows (step 3) took bulk
+TCP to 66-87 MB/s out and 132-191 MB/s in; steps 2, 4 and 5 removed copies,
+allocations, syscalls and a timer without a measurable change in throughput.
+Step 6 is not done: under bulk load the card already raises about one
+interrupt per 30 received frames and drops none, so `EVENT_IDX` has little to
+save, and QEMU's user network is not expected to offer checksum offload
+(unverified). Step 7 is not done. What limits the throughput now is unmeasured;
+the 10 ms clock still governs delayed ACKs and retransmission until P2.
 
 ### P5. Interrupts-off time and storage
 

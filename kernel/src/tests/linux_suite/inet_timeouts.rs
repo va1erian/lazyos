@@ -365,7 +365,7 @@ fn fill_ring(fd: u64) -> Result<usize, String> {
     check!(task::fd_set_status(fd as usize, true), "O_NONBLOCK");
     let chunk = [0x5au8; 4096];
     let mut total = 0usize;
-    for _ in 0..64 {
+    for _ in 0..=crate::ipc::pipe::SMALL_CAPACITY / chunk.len() {
         let r = write_fd(fd, &chunk);
         if r == neg(11) {
             check!(task::fd_set_status(fd as usize, false), "blocking again");

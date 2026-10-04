@@ -290,7 +290,7 @@ impl Stack {
     }
 
     /// What every stream I/O call checks first.
-    fn stream_io_check(state: &super::sockets::StreamState) -> Result<(), SockError> {
+    pub(super) fn stream_io_check(state: &super::sockets::StreamState) -> Result<(), SockError> {
         if state.reset {
             return Err(SockError::Reset);
         }

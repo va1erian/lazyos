@@ -78,10 +78,17 @@ const SETTLE_TICKS: u32 = 30;
 /// The card name in the link topic (`system/net/{nic}/link`).
 const CARD_NAME: &str = "virtio-net0";
 
-/// Longest park in the serve loop, interrupts armed, nothing attached.
+/// Longest park in the serve loop with interrupts armed. Nothing needs a
+/// timer then (docs/performance-plan.md P4.5): a received frame or a
+/// finished transmit raises the line, the client's frames come with a kick,
+/// and the transmit pump only stops early on a full device ring, whose
+/// completions interrupt. The timeout only paces the link poll, the
+/// client's keep-alive and the configuration refresh.
 const IDLE_TICKS: u64 = 20;
-/// Park while a client is attached and interrupts are armed.
-const ATTACHED_TICKS: u64 = 2;
+/// Park while a `demo=1` evidence client runs: a child's exit sends no
+/// message, so the loop looks for it this often to reap it and start the
+/// next one without a gap (the harness's sequence keeps its old pace).
+const DEMO_REAP_TICKS: u64 = 2;
 
 struct Args {
     /// Run the ARP self-test and then the evidence clients.
@@ -253,9 +260,9 @@ fn serve(
     // bump region are never reclaimed).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let park = match (irq, service.busy()) {
-            (true, true) => ATTACHED_TICKS,
+        let park = match (irq, next_demo < DEMO_CLIENTS.len() || demo_child.is_some()) {
             (true, false) => IDLE_TICKS,
+            (true, true) => DEMO_REAP_TICKS,
             (false, _) => poll_ticks,
         };
         match server.recv_with(&mut buffer, Some(sys::clock() + park)) {
