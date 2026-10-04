@@ -332,8 +332,8 @@ impl Backend for LazyOSBackend {
         self.damage_node(id);
     }
 
-    fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
-        self.damage_node(id);
+    fn invalidate_rect(&self, id: WidgetId, rect: Rect) {
+        self.damage_node_rect(id, rect);
     }
 
     fn set_painter(&self, id: WidgetId, painter: Painter) {

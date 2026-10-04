@@ -123,6 +123,9 @@ pub struct LazyOSBackend {
     /// became readable since the primary window last heard of it.
     watched_fd: Cell<Option<i32>>,
     fd_ready: Cell<bool>,
+    /// The window rectangle being repainted while painters run
+    /// ([`LazyOSBackend::paint_damage`]).
+    paint_damage: Cell<Option<Rect>>,
     /// Frames presented so far.
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
@@ -275,6 +278,7 @@ impl LazyOSBackend {
             next_timer: Cell::new(1),
             watched_fd: Cell::new(None),
             fd_ready: Cell::new(false),
+            paint_damage: Cell::new(None),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
             size_hints: Cell::new(None),
