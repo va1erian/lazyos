@@ -27,6 +27,15 @@ syscall number of the longest interrupts-off stretch.
 | `ipc_rt` | in-kernel `begin_call` | `await_reply` returns (no context switch) | 2000 echoes, once, 15 s after boot |
 | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns | 200 sleeps, once, 17 s after boot |
 | `present` | the display owner's `present` syscall starts | it returns, breaths between chunks included (P3.2) | every frame the compositor shows during the run |
+| `report` | the kernel starts printing a report | it finished | every report |
+| `input_present_rpt` | an `input_present` sample | the same, booked only when a report ran inside it | the moves |
+
+A report is several milliseconds of polled serial output (`report`, more
+under a hypervisor, where every byte is a VM exit), and the kernel task keeps
+the CPU while it prints. So a report that falls due during input waits until
+input has been quiet for 200 ms (at most 10 s): the harness must not land in
+the latencies it measures. `input_present_rpt` counts the samples a report
+still overlapped; it should stay empty.
 
 `input_present` takes the first `present` after `inputd` read the record as
 the one that moved the cursor; an unrelated repaint in between would shorten

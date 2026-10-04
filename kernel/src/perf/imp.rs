@@ -13,6 +13,12 @@ static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
 static SLEEP_1MS: Samples = Samples::new();
 static PRESENT: Samples = Samples::new();
+/// How long one report took to print, and the `input_present` samples whose
+/// interval contained a report: what the harness itself costs the input path.
+static REPORT: Samples = Samples::new();
+static INPUT_PRESENT_RPT: Samples = Samples::new();
+/// TSC at the end of the last report (0: none yet).
+static LAST_REPORT_END: AtomicU64 = AtomicU64::new(0);
 
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
@@ -94,6 +100,7 @@ pub fn on_run(slot: usize) {
 }
 
 pub fn input_published(pointer: bool) {
+    LAST_INPUT_TICK.store(task::ticks(), Ordering::Relaxed);
     let now = rdtsc();
     let _ = INPUT_PENDING.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
     if pointer {
@@ -119,7 +126,11 @@ pub fn presented(started: u64) {
     record(&PRESENT, rdtsc().wrapping_sub(started));
     let pointer = POINTER_READ.swap(0, Ordering::Relaxed);
     if pointer != 0 {
-        record(&INPUT_PRESENT, rdtsc().wrapping_sub(pointer));
+        let cycles = rdtsc().wrapping_sub(pointer);
+        record(&INPUT_PRESENT, cycles);
+        if LAST_REPORT_END.load(Ordering::Relaxed) > pointer {
+            record(&INPUT_PRESENT_RPT, cycles);
+        }
     }
 }
 
@@ -187,19 +198,40 @@ const SLEEP_BENCH_TICK: u64 = 1700;
 static SLEEP_DONE: AtomicBool = AtomicBool::new(false);
 static REPORTED_WORST: AtomicU64 = AtomicU64::new(0);
 
+/// A report waits until input has been quiet this long (ticks)...
+const QUIET_TICKS: u64 = 20;
+/// ...but never longer than this past its due time (ticks).
+const MAX_DEFER_TICKS: u64 = 1000;
+/// Tick of the newest raw input record.
+static LAST_INPUT_TICK: AtomicU64 = AtomicU64::new(0);
+
+/// Whether the report due at `due` should wait: printing it takes several
+/// milliseconds of polled serial output (`PERF:report`), during which the
+/// kernel task keeps the CPU, so a report in the middle of an input burst
+/// lands in the very latencies it reports (`PERF:input_present_rpt`).
+fn defer_report(now: u64, due: u64) -> bool {
+    let quiet = now.saturating_sub(LAST_INPUT_TICK.load(Ordering::Relaxed)) >= QUIET_TICKS;
+    !quiet && now < due + MAX_DEFER_TICKS
+}
+
 pub fn service() {
     let now = task::ticks();
-    if now < NEXT_REPORT.load(Ordering::Relaxed) {
+    let due = NEXT_REPORT.load(Ordering::Relaxed);
+    if now < due {
         return;
     }
-    NEXT_REPORT.store(now + REPORT_TICKS, Ordering::Relaxed);
     if now >= IPC_BENCH_TICK && !IPC_DONE.swap(true, Ordering::Relaxed) {
         super::ipcbench::run(|cycles| IPC_RT.record(cycles));
     }
     if now >= SLEEP_BENCH_TICK && !SLEEP_DONE.swap(true, Ordering::Relaxed) {
         super::sleepbench::run(|cycles| SLEEP_1MS.record(cycles));
     }
+    if due != 0 && defer_report(now, due) {
+        return;
+    }
+    NEXT_REPORT.store(now + REPORT_TICKS, Ordering::Relaxed);
     let per_tick = crate::arch::clock::cycles_per_tick();
+    let started = rdtsc();
     for (name, samples) in [
         ("irq_wake", &IRQ_WAKE),
         ("input_read", &INPUT_READ),
@@ -208,6 +240,8 @@ pub fn service() {
         ("ipc_rt", &IPC_RT),
         ("sleep_1ms", &SLEEP_1MS),
         ("present", &PRESENT),
+        ("report", &REPORT),
+        ("input_present_rpt", &INPUT_PRESENT_RPT),
     ] {
         if !samples.changed() {
             continue;
@@ -225,6 +259,9 @@ pub fn service() {
             Micros(cycles_to_ns(worst, per_tick))
         ));
     }
+    let end = rdtsc();
+    REPORT.record(end.wrapping_sub(started));
+    LAST_REPORT_END.store(end, Ordering::Relaxed);
 }
 
 fn print(name: &str, summary: &Summary, per_tick: u64) {

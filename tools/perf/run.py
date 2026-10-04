@@ -52,6 +52,7 @@ from qemu_qmp import (  # noqa: E402
 REPORT_DIR = ROOT / "docs" / "perf"
 METRICS = (
     "irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms", "present",
+    "report", "input_present_rpt",
 )
 REQUIRED = ("irqoff", "ipc_rt", "input_read", "sleep_1ms")
 RE_METRIC = re.compile(
