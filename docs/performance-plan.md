@@ -22,7 +22,7 @@ met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
 `perf/p6-sched-ipc`: run queues, same-class wake preemption with a bounded
 minimum slice, direct handoff, one-copy parcels with indexed channels, slab
 small allocations, keyed poll wakeups and a hashed futex table, and COW
-without the zero-then-copy; a cross-process Messenger round trip is 4-5 µs
+without the zero-then-copy; a cross-process Messenger round trip is 4-6 µs
 at the median (WHPX, dev profile), see "As built" under P6. P5 and P7 are
 in progress elsewhere.
 
@@ -332,13 +332,13 @@ already sets), with the benchmark gated in CI.
    is 1 and copy into an unzeroed frame otherwise.
 
 Measured (WHPX, dev profile, one desktop run each; `docs/perf/history.md`):
-`msg_rt` p50 5.6 -> 4.1-4.8 µs, p99 9.8 -> 6.7-6.9 µs; one-way throughput
-523k -> 0.8-1.0 M messages/s; `sched` p50 1.9 -> 1.0 µs, p99 38.6 ->
+`msg_rt` p50 5.6 -> 4.1-5.7 µs, p99 9.8 -> 6.7-8.9 µs; one-way throughput
+523k -> 0.81-1.0 M messages/s; `sched` p50 1.9 -> 1.0 µs, p99 38.6 ->
 32-34 µs. The remaining round trip is two syscalls and two context switches
 (CR3 reloads, no PCID). The scheduler entry's p90-p99 tail is not attributed
 (selection now visits only runnable tasks; the tick path with its PS/2
 service and device bottom half is the likely part). `sleep_1ms` p99 moved between
-1.6 and 2.2 ms across runs (2 samples of 200; not attributed: the same runs
+1.5 and 2.2 ms across runs (1.57 ms at the baseline; 2 samples of 200, not attributed: the same runs
 show interrupts-off stretches of 25 ms and more, P5).
 Not done: a CI workflow for the `msg_rt` gate (`tools/perf/run.py
 --max-msg-rt-p50-us 10` is the gate; nothing runs it in CI), keyed wakeups for
