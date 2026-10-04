@@ -218,6 +218,12 @@ fn run() -> messenger::Result<()> {
                 start_ready(&mut services, &mut broker);
             }
         }
+        // A shutdown accepted in this pass starts stepping in the next one:
+        // the park in between lets the requester run and see its reply before
+        // `init` signals the apps, the requester (LazyShell) among them. A
+        // same-class wake does not preempt, so stepping at once would stop it
+        // with the reply unread.
+        let stepping = shutdown.is_some();
         serve_pending(
             &mut Supervisor {
                 services: &mut services,
@@ -229,7 +235,7 @@ fn run() -> messenger::Result<()> {
             &server,
             &mut buffer,
         )?;
-        if let Some(running) = &mut shutdown {
+        if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
         }
     }
