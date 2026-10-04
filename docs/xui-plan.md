@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "5e1a003c97386180ff67ae7b4adf207421995c50"` (see
+the same `rev = "910f057d363ee15897515cf64a9078ba6db2d4d0"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter

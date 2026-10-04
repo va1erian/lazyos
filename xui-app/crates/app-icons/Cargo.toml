@@ -6,8 +6,8 @@ publish = false
 description = "Renders every packaged app's icons/app-{16,32,128}.png from the xui icon sets (host tool)"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "5e1a003c97386180ff67ae7b4adf207421995c50" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "910f057d363ee15897515cf64a9078ba6db2d4d0" }
 # The same rev and features as the desktop's launchers, so a package icon and
 # the shell's built-in fallback are the same picture.
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "5e1a003c97386180ff67ae7b4adf207421995c50" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "5e1a003c97386180ff67ae7b4adf207421995c50", default-features = false }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "910f057d363ee15897515cf64a9078ba6db2d4d0" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "910f057d363ee15897515cf64a9078ba6db2d4d0", default-features = false }
