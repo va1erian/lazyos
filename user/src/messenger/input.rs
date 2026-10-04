@@ -173,9 +173,12 @@ impl ShellLink {
         Ok(link)
     }
 
-    /// Release both endpoints (a failed connect, or shutting down).
+    /// Release both endpoints (a failed connect, or shutting down). The
+    /// `inputd` handle came from name resolution, which hands every client
+    /// the same side of `inputd`'s channel: it is released, never closed,
+    /// or `inputd`'s own endpoint would report a closed peer forever.
     pub fn close(&self) {
-        let _ = self.input.close();
+        let _ = self.input.release();
         let _ = self.events.close();
     }
 
