@@ -39,6 +39,12 @@ target directory.
 registration, natural-width alignment, borrowed pixels, ``OffscreenBackend``) is
 used without ``winit``/``softbuffer``/``glutin``/``glow``/``arboard``/``xui-gpu``.
 No vendored copy or ``[patch]`` is involved.
+
+On Windows the pinned revision cannot be checked out as cargo ships it: its
+NetSurf submodule ``libnsbmp`` names AFL test cases with a colon, which NTFS
+rejects. ``tools/xui/git_checkout.py`` fetches the revision, then checks the
+submodule out without those test paths and marks the checkout usable, so cargo
+stops retrying the broken clone; ``resolve_deps`` drives that and retries.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import git_checkout  # noqa: E402
 import zig  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -124,6 +131,31 @@ def ensure_target() -> bool:
     if added.returncode != 0:
         print(f"warning: cannot add {TARGET}: {added.stderr.strip()}", file=sys.stderr)
         return False
+    return True
+
+
+def resolve_deps() -> bool:
+    """Make the pinned xui git dependency resolvable (Windows checkout fixup).
+
+    ``xui``'s NetSurf submodules ship files Windows cannot name, so cargo's
+    first resolve fails on a fresh machine. Cargo fetches the revision before it
+    checks the submodules out, so try it once, then seed the checkout without
+    the offending files and retry. A no-op where it is not needed.
+    """
+    probe = run(
+        ["cargo", "metadata", "--manifest-path", str(APP / "Cargo.toml"),
+         "--format-version", "1"],
+        env=build_env(),
+    )
+    if probe.returncode == 0:
+        return True
+    if os.name != "nt":
+        print(probe.stderr.strip(), file=sys.stderr)
+        return False
+    if not git_checkout.ensure_xui_checkout():
+        print(probe.stderr.strip(), file=sys.stderr)
+        return False
+    print("xui: seeded the git checkout for Windows", file=sys.stderr)
     return True
 
 
@@ -263,6 +295,11 @@ def main() -> int:
     if not ensure_target():
         print(json.dumps(built))
         return 0
+
+    if not resolve_deps():
+        print("error: cannot resolve the xui dependency", file=sys.stderr)
+        print(json.dumps(built))
+        return 1
 
     profile = "debug" if args.debug else "release"
     command = [

@@ -176,6 +176,14 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
+On Windows the pinned `va1erian/xui` cannot be checked out as cargo ships it:
+the NetSurf submodule `libnsbmp` names AFL test cases with a colon, which NTFS
+rejects (`cannot checkout to invalid path 'test/afl-bmp/id:000023,...bmp'`).
+`python tools/xui/build.py` runs `tools/xui/git_checkout.py`, which checks the
+submodule out without those test paths and marks the checkout usable, then
+retries; `python tools/xui/test_git_checkout.py` tests it. Nothing needs doing
+by hand.
+
 ## LazyWriter (word processor)
 
 `writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
