@@ -15,6 +15,18 @@
 //! (`new_user_table`), so pages added later are visible in every address
 //! space at once; [`HEAP_SPAN`] is one PML4 entry precisely so this holds.
 //!
+//! # Small objects
+//!
+//! Requests of up to [`SMALL_MAX`] bytes (alignment included) are served from
+//! per-size-class slabs (`mem::slab`'s classes, P6.4): a free-list pop and
+//! push under one short lock, instead of a first-fit walk of a list that
+//! fragments under churn. The slabs are whole frames from the frame
+//! allocator, reached through the physical-memory map, so a pointer outside
+//! [`HEAP_START`]'s span is a slab slot; frames stay with their class once
+//! carved, like the list's high-water mark. Their bytes count against the
+//! heap ceiling and in [`stats`], so the heap's accounting covers both
+//! halves. When no frame is left the request falls back to the list.
+//!
 //! # Interrupts
 //!
 //! The heap lock is only ever held with interrupts off (issue #382). The
@@ -31,7 +43,10 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use linked_list_allocator::LockedHeap;
+use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
+
+use super::slab::{Class, CLASSES};
 
 /// Virtual base of the kernel heap: PML4 entry 384, in the kernel half and
 /// outside the range the bootloader places its own mappings in
@@ -53,6 +68,11 @@ struct IrqSafeHeap(LockedHeap);
 // mapped, exclusively owned memory directly above the heap's current top.
 unsafe impl GlobalAlloc for IrqSafeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if let Some(class) = small_class(layout) {
+            if let Some(ptr) = guarded(|| small_alloc(class)) {
+                return ptr as *mut u8;
+            }
+        }
         guarded(|| loop {
             if let Ok(ptr) = self.0.lock().allocate_first_fit(layout) {
                 return ptr.as_ptr();
@@ -64,12 +84,85 @@ unsafe impl GlobalAlloc for IrqSafeHeap {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if !in_list(ptr) {
+            // Only `small_alloc` hands out pointers outside the list's span,
+            // and only for a layout `small_class` accepts: the same layout
+            // comes back here (the `GlobalAlloc` contract).
+            if let Some(class) = small_class(layout) {
+                guarded(|| small_free(class, ptr as usize));
+            }
+            return;
+        }
         if let Some(ptr) = core::ptr::NonNull::new(ptr) {
             // SAFETY: forwarded with the caller's contract unchanged: `ptr`
             // came from `alloc` with this `layout`.
             guarded(|| unsafe { self.0.lock().deallocate(ptr, layout) });
         }
     }
+}
+
+/// Largest request (size or alignment) the slab classes serve.
+pub const SMALL_MAX: usize = 2048;
+/// The slab classes the heap uses: [`CLASSES`] up to [`SMALL_MAX`].
+const SMALL_CLASSES: usize = 7;
+const _: () = assert!(CLASSES[SMALL_CLASSES - 1] == SMALL_MAX);
+
+/// The heap's own slab classes (not `mem::slab`'s typed-object ones).
+static SMALL: Mutex<[Class; SMALL_CLASSES]> = Mutex::new([const { Class::new() }; SMALL_CLASSES]);
+
+/// The slab class for `layout`: the smallest class holding its size and its
+/// alignment (slots are aligned to their size inside page-aligned slabs).
+fn small_class(layout: Layout) -> Option<usize> {
+    let need = layout.size().max(layout.align()).max(1);
+    CLASSES[..SMALL_CLASSES]
+        .iter()
+        .position(|&size| need <= size)
+}
+
+/// Whether `ptr` lies in the linked-list heap's span.
+fn in_list(ptr: *mut u8) -> bool {
+    (HEAP_START..HEAP_START + HEAP_SPAN).contains(&(ptr as u64))
+}
+
+/// Bytes of frames carved into the heap's slabs.
+fn small_frames_bytes(classes: &[Class; SMALL_CLASSES]) -> u64 {
+    classes.iter().map(|class| class.slabs as u64).sum::<u64>() * PAGE
+}
+
+/// Pop a slot of `class`, carving a new frame when the class is empty and
+/// the ceiling allows; `None` sends the request to the list.
+fn small_alloc(class: usize) -> Option<usize> {
+    let mut classes = SMALL.lock();
+    if let Some(slot) = classes[class].pop() {
+        classes[class].live += 1;
+        return Some(slot);
+    }
+    let ceiling = crate::limits::heap_max().min(HEAP_SPAN);
+    let committed = MAPPED.load(Ordering::Relaxed) + small_frames_bytes(&classes);
+    if committed + PAGE > ceiling || !classes[class].grow(class) {
+        return None;
+    }
+    let slot = classes[class].pop()?;
+    classes[class].live += 1;
+    Some(slot)
+}
+
+/// Push a slot back onto `class`.
+fn small_free(class: usize, slot: usize) {
+    let mut classes = SMALL.lock();
+    classes[class].live = classes[class].live.saturating_sub(1);
+    classes[class].push(slot);
+}
+
+/// `(frame bytes, bytes handed out)` of the heap's slabs.
+fn small_usage() -> (usize, usize) {
+    let classes = SMALL.lock();
+    let used = classes
+        .iter()
+        .zip(CLASSES)
+        .map(|(class, size)| class.live * size)
+        .sum();
+    (small_frames_bytes(&classes) as usize, used)
 }
 
 /// Run one heap critical section with interrupts off.
@@ -136,7 +229,9 @@ pub unsafe fn init(size: u64) {
 /// Runs with interrupts off and the heap lock released.
 fn grow(layout: Layout) -> bool {
     let mapped = MAPPED.load(Ordering::Relaxed);
-    let ceiling = crate::limits::heap_max().min(HEAP_SPAN);
+    let ceiling = crate::limits::heap_max()
+        .min(HEAP_SPAN)
+        .saturating_sub(small_usage().0 as u64);
     // The allocator needs the payload, alignment slack and a hole header.
     let need = (layout.size() as u64)
         .saturating_add(layout.align() as u64)
@@ -184,14 +279,16 @@ pub struct HeapStats {
     pub grow_failures: u64,
 }
 
-/// Snapshot the heap's counters without allocating.
+/// Snapshot the heap's counters without allocating: the list and the small
+/// object slabs together.
 pub fn stats() -> HeapStats {
     guarded(|| {
+        let (slab_total, slab_used) = small_usage();
         let heap = ALLOCATOR.0.lock();
         HeapStats {
-            total: heap.size(),
-            used: heap.used(),
-            free: heap.free(),
+            total: heap.size() + slab_total,
+            used: heap.used() + slab_used,
+            free: heap.free() + (slab_total - slab_used),
             max: crate::limits::heap_max().min(HEAP_SPAN) as usize,
             growths: GROWTHS.load(Ordering::Relaxed),
             grow_failures: GROW_FAILURES.load(Ordering::Relaxed),

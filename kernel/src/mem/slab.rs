@@ -144,15 +144,19 @@ pub struct OwnerStats {
 /// The free list is intrusive: a free slot's first word holds the virtual
 /// address of the next free slot (`0` ends the list). That is why a slot is
 /// never smaller than a pointer; the smallest class is 32 B.
-struct Class {
+///
+/// The kernel heap's small-object front (`heap`, P6.4) keeps its own set of
+/// these, apart from the typed-object slabs below, so neither perturbs the
+/// other's accounting.
+pub(super) struct Class {
     /// Virtual address of the free-list head, `0` when the list is empty.
     free: usize,
     /// Slots handed out and not returned.
-    live: usize,
+    pub(super) live: usize,
     /// High-water mark of [`Class::live`].
     peak: usize,
     /// Frames carved into this class.
-    slabs: usize,
+    pub(super) slabs: usize,
     /// Cumulative allocations.
     allocations: usize,
     /// Cumulative frees.
@@ -160,7 +164,7 @@ struct Class {
 }
 
 impl Class {
-    const fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Class {
             free: 0,
             live: 0,
@@ -172,7 +176,7 @@ impl Class {
     }
 
     /// Pop the free-list head.
-    fn pop(&mut self) -> Option<usize> {
+    pub(super) fn pop(&mut self) -> Option<usize> {
         if self.free == 0 {
             return None;
         }
@@ -184,7 +188,7 @@ impl Class {
     }
 
     /// Push `slot` onto the free-list head.
-    fn push(&mut self, slot: usize) {
+    pub(super) fn push(&mut self, slot: usize) {
         // Safety: the caller owns `slot` and only hands back slots of this
         // class, so overwriting its first word with the link is sound.
         unsafe { (slot as *mut usize).write_unaligned(self.free) };
@@ -194,7 +198,7 @@ impl Class {
     /// Carve one fresh frame into slots of `class` and link them all into the
     /// free list. Returns false when the frame allocator is out of memory, in
     /// which case the class is left untouched.
-    fn grow(&mut self, class: usize) -> bool {
+    pub(super) fn grow(&mut self, class: usize) -> bool {
         let Some(phys) = super::alloc_frame() else {
             return false;
         };

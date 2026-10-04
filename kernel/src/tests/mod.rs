@@ -177,6 +177,7 @@ mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod hardening_suite;
+mod heap_slab_suite;
 mod heap_suite;
 mod input_bus_suite;
 mod ipc_channel_suite;
@@ -226,6 +227,7 @@ mod wallclock_suite;
 const SUITE: &[&[(&str, Test)]] = &[
     mem_suite::CASES,
     heap_suite::CASES,
+    heap_slab_suite::CASES,
     limits_suite::CASES,
     arch_suite::CASES,
     preempt_lock_suite::CASES,
