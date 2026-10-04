@@ -107,11 +107,15 @@ Everything below is generic: it knows nothing about SMB or the network.
 | Kernel tests | Correctness + soak for the new syscall and backend (hostile paths, bad handles, provider death mid-op, fd/lifecycle, thousands of ops) | AGENTS.md requires it for any kernel component |
 
 **Data plane.** The first cut uses a per-provider **64 KiB bounce buffer**, the
-same bound as the block provider (`MAX_REQUEST_BYTES`): the kernel copies the
-caller's buffer into the request and copies the reply back. One copy each way,
-no pinning, no mapping, and the daemon never sees caller memory. A shared,
-fenced buffer (as the NIC rings and audio streams use) removes the copy later
-and is a pure optimisation — it changes no interface.
+same bound as the block provider (`MAX_REQUEST_BYTES`). Each request carries at
+most 64 KiB: a larger `read` or `write` is split into sequential chunks, and the
+backend advances the file offset and the buffer position by the bytes each chunk
+completed. It stops on a short chunk and returns the accumulated count; if a
+chunk fails it returns that error, though earlier write chunks may already have
+reached the server. The kernel copies each chunk into or out of the request: one
+copy each way, no pinning, no mapping, and the daemon never sees caller memory.
+A shared, fenced buffer (as the NIC rings and audio streams use) removes the
+copies later and is a pure optimisation — it changes no interface.
 
 **Requests and replies.** A request is `(op, handle, path, offset, len, flags)`
 plus the bounce payload; a reply is `(result/errno, len, attributes)` plus the
@@ -124,9 +128,12 @@ same rule `libs/ftpwire` applies to server replies.
 the request and **parks the caller** (as the block provider parks a `read`),
 with a real deadline; when the daemon replies, the task wakes and the operation
 returns. The 5-second `fs::flusher` must **never block**
-(`kernel/src/fs/flusher.rs`), so `Filesystem::flush`/`writeback` on a FUSE mount
-must be a non-blocking no-op or a best-effort post: the daemon owns durability,
-exactly as `usbd` does for a block provider.
+(`kernel/src/fs/flusher.rs`), so periodic `Filesystem::writeback` on a FUSE mount
+is a non-blocking no-op or a best-effort post. `Filesystem::flush`, by contrast,
+**is** the durability point: an explicit `flush` (and the `fsync` that reaches
+it) parks its caller until the daemon has completed the SMB `FLUSH` and
+acknowledged the data, so a success can never precede durability. The daemon
+owns durability; the flusher never waits.
 
 **Authority.** Registering a provider and mounting are privileged edges: a
 capability (like `CAP_BLOCK_PROVIDER`) plus a service uid allow it, and the
@@ -192,12 +199,14 @@ bytes a mount would send.
 1. `TcpStream::connect((server IP, 445), CONNECT_MS)`.
 2. **NEGOTIATE** — dialects `[0x0210, 0x0202]`, `SecurityMode` = signing enabled
    (and required only if `--sign-required`), a random `ClientGuid`, capabilities
-   0. The response may carry an empty security buffer or a server `GSS` token
-   (NTLMSSP type 1/2); the client does not send its own token here. A dialect
-   below 2.0.2 or an encryption-required server is a clean failure.
+   0. The response may carry an empty security buffer or a server `GSS`/SPNEGO
+   token; the client does not send its own token here. A dialect below 2.0.2 or
+   an encryption-required server is a clean failure.
 3. **SESSION_SETUP** twice:
-   - send NTLMSSP **type 1** (`NEGOTIATE_MESSAGE`) built from the server's
-     flags, `NTLMSSP_NEGOTIATE_KEY_EXCH` **clear**;
+   - send NTLMSSP **type 1** (`NEGOTIATE_MESSAGE`), `NTLMSSP_NEGOTIATE_KEY_EXCH`
+     **clear**. Its flags come from the server's NTLM flags when the `NEGOTIATE`
+     security buffer supplied them, and otherwise from the client's own
+     supported capabilities — the type 1 message always has defined flags;
    - the server replies `STATUS_MORE_PROCESSING_REQUIRED` with a **type 2**
      (`CHALLENGE_MESSAGE`): the 8-byte server challenge and the target-info
      `AvPairs`. Read the NTLM domain from `MsvAvNbDomainName`, unless `-W` set
@@ -208,6 +217,13 @@ bytes a mount would send.
 5. **CREATE / READ / WRITE / CLOSE**, **QUERY_DIRECTORY**, **QUERY_INFO**,
    **SET_INFO**.
 6. **TREE_DISCONNECT**, **LOGOFF**.
+
+`libs/smbwire` carries a minimal SPNEGO codec so both server-initiated and
+client-initiated exchanges work: a `GSS`/SPNEGO wrapper received in `NEGOTIATE`
+or `SESSION_SETUP` is unwrapped to its NTLMSSP token, and the client wraps its
+type 1/3 replies in a SPNEGO `NegTokenInit`/`NegTokenResp` when the server's
+token was wrapped, or sends them raw when it was not. Both modes are tested, so
+a compliant Samba that expects SPNEGO is not rejected.
 
 ### 4.4 The daemon: FUSE operations onto SMB2
 
@@ -220,7 +236,7 @@ bytes a mount would send.
 | `unlink` / `rmdir` | `SET_INFO` (disposition delete), then `CLOSE` |
 | `rename` | `SET_INFO` (FileRenameInformation) |
 | `truncate` / `setattr` | `SET_INFO` (end-of-file and basic info) |
-| `flush` | `FLUSH` (best-effort, never blocking the kernel flusher) |
+| `flush` | `FLUSH`, parking the explicit caller until acknowledged |
 | `statfs` | `QUERY_INFO` (FileFsFullSizeInformation) |
 
 The daemon holds the SMB session, its handles and its metadata cache. A
@@ -231,16 +247,20 @@ for a mismatch is rejected.
 ### 4.5 The `smb` command
 
 ```
-smb [--sign] [--sign-required] [-p PORT] [-W DOMAIN] [-d DIAG] -U user[%pass] //server/share [cmd ...]
-smb -L //server -U user[%pass]                 # list shares (F4)
+smb [--sign] [--sign-required] [-p PORT] [-W DOMAIN] [-d DIAG] -U user //server/share [cmd ...]
+smb -L //server -U user                        # list shares (F4)
 ```
 
-Commands: `ls [path]`, `cd`, `pwd`, `get REMOTE [LOCAL|-|!]`, `put LOCAL
-[REMOTE|-g N]`, `mkdir`, `rm`, `rmdir`. `get f -` writes to stdout, `get f !`
-checksums, `put -g N` generates a stream, mirroring `ftp`'s conventions. Native
-programs have no general file-write syscall, which is exactly why the plan's
-real transfer path is the **mount** (`cp` through the directory); the command
-exists to run the protocol without the kernel and to feed the harness sink.
+The password is never an argument (a `%pass` form does not exist): it comes from
+the prompt or, for headless runs, `LAZYOS_SMB_PASSWORD` (§6). Commands:
+`ls [path]`, `cd`, `pwd`, `get REMOTE [-|!]`, `put [LOCAL|-g N] [REMOTE]`,
+`mkdir`, `rm`, `rmdir`. `get f -` writes to stdout, `get f !` checksums, `put
+-g N` generates a stream, mirroring `ftp`'s conventions. Native programs have no
+general file-**write** syscall, so the direct command does not create local
+files: `get` only streams to stdout or checksums, and `put` only uploads a local
+file it can read (`sys::read_file`) or a generated stream. Real transfer in both
+directions is the **mount** (`cp` through the directory); the command exists to
+run the protocol without FUSE and to feed the harness sink.
 Serial markers: `SMB:DIALECT 0x0210`, `SMB:LOGON user=… domain=…`,
 `SMB:TREE share=…`, `SMB:LIST n=…`, `SMB:GET name bytes=N crc=…`, `SMB:PUT …`,
 `SMB:PASS|FAIL reason=…` — markers say when, they are never the verdict.
@@ -353,7 +373,8 @@ network variable.
 
 **Harness peer.** A scripted SMB2 server on the host loopback, reachable from
 the guest at `10.0.2.2:PORT` with no QEMU forward (slirp maps the gateway to
-host loopback): **`impacket`'s `smbserver.py`** (Python, MIT; `-username`/
+host loopback): **`impacket`'s `smbserver.py`** (Python, modified Apache
+Software License; `-username`/
 `-password`, a share directory, a request log) first, then **real Samba in
 Docker/WSL** with a pinned `smb.conf` for interop, and the developer's own
 **`chatonnas`** for `--live`. Use a **high host port** (e.g. 1445) so the
