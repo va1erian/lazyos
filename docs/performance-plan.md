@@ -18,7 +18,15 @@ the Terminal's pty on readiness, and the P2-dependent frame pacing. P4
 [`perf/network.md`](perf/network.md) (`tools/net/bulk.py`): the exit target is
 met under WHPX (Linux sockets about 70 MB/s out and 130-190 MB/s in,
 `connect` 0.5-1 ms); steps 6 and 7 are not done. P2, P3 and P4 are merged on
-`perf/integration`. P5 onward is not started.
+`perf/integration`. P7 (userspace sweep) is built on `perf/p7-userspace`,
+measured by `tools/perf/idle.py` ([`perf/idle.md`](perf/idle.md)): an idle
+desktop went from 401 to 70 context switches a second (WHPX, dev profile),
+`init` and the services park on events (a child-exit doorbell, topic
+doorbells), dependencies wait for `init.Ready`, and the desktop's apps open
+on readiness (Terminal up 1.87 s to 0.86 s after QEMU start). The exit
+target (under 10) is not met: about 50 of the 70 are LazyShell, `xuid` and
+the Terminal (P3's area), the rest is listed in the P7 section. P5 and P6 are
+not started here.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -314,6 +322,39 @@ already sets), with the benchmark gated in CI.
   investigate enabling SSE2 for native user programs.
 
 Exit: an idle desktop makes fewer than 10 context switches per second.
+
+**Built** (`perf/p7-userspace`; `python tools/perf/idle.py`, WHPX, dev
+profile, 30 s window after 30 s of boot):
+
+| Step | What changed | Idle switches/s |
+|---|---|---:|
+| 0 | Baseline; per-task counters (`kernel/src/perf/wakeups.rs`, `PERF:sched`) | 401 |
+| 1 | `init` parks on its endpoint and a child-exit doorbell (`WAIT_CHILD`, `task/childbell.rs`) | 363 |
+| 2 | Topic doorbells (`topics.Bell`); `logd`, `healthd`, `timed`, `sysmond`, `confd`, `clipboardd`, `logind` park on events | 119 |
+| 3 | `init.Ready`: dependencies and the autostart wait for readiness, no fixed delays | 119 |
+| 4 | `park_tick` and one-tick naps sleep (`sys::nap`); `block_on` parks; `call` stops zero-filling 16 KiB | 119 |
+| - | The kernel task parks 250 ms instead of 20 ms while a compositor is bound | 70 |
+
+What is left at idle (switches/s): LazyShell 25, `xuid` 12.5, the Terminal
+11 (P3 territory: the shell's heartbeat and theme timers, the Terminal's pty
+timer), `messengerd` 5.5 and `confd` 4.8 (answering `xuid`'s 25-tick theme
+watch poll and the shell's 3 s theme re-read and 10 s launcher refresh; both
+could park on a topic bell now), the kernel task 4, `inputd` 4, `init` 1.6
+(the shell's `ListApps`), `audiod` 1 (its card retry and keepalive timer),
+`sysmond` 0.6 (its 5 s publish), `timed` 0.4, `logd` 0.1 (the denial
+fallback: the audit ring has no wake source, see below).
+
+Not done in this stage: the Terminal's pty on readiness; a wake source for
+fabric denials (the audit ring is written under locks a wake may not take,
+so `logd` samples it on every wake and every 10 s); `audiod` without its
+1 s timer; the extra `authorize_topic` syscall per publish. Native user
+programs stay at `opt-level = "s"`: `opt-level = 2` measured slower to boot,
+9% larger, and no better on `input_present` (`perf/boot-time.md`). SSE2 for
+native user programs is feasible but not done: `x86_64-unknown-none` is a
+soft-float target, and turning `soft-float` off per package is being phased
+out by rustc (rust-lang/rust#162235), so it needs its own target spec built
+with `-Zbuild-std` and a second artifact target; the kernel already saves
+FXSAVE state per task.
 
 ### Later: SMP
 

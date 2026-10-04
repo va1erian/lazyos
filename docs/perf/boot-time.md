@@ -52,6 +52,38 @@ before the kernel runs, so under WHPX it coincides with `kernel_entered`.
 Remaining WHPX floor: ~0.5 s is QEMU start, BIOS, and the bootloader; the rest
 is ELF loading/spawn (0.13 s) and xuid's first composite (0.12 s).
 
+## The full desktop: readiness instead of fixed delays (P7.3)
+
+On the `LAZYOS_DESKTOP=1` image the desktop is not up at `XUID:UP:PASS`:
+`init` opens LazyShell and the Terminal later. The bench times them too
+(`shell_ready` = `SHELL:UP:PASS`, `terminal_ready` = `TERM:UP:PASS`):
+
+```bash
+LAZYOS_DESKTOP=1 cargo build
+python tools/bench/boot_time.py --image target/lazyos.img --accel whpx --runs 5 \
+    --no-clients --need shell_ready,terminal_ready
+```
+
+| Time to (WHPX, dev profile, median of 5) | before | after |
+|---|---:|---:|
+| compositor up (`XUID:UP:PASS`) | 0.53 s | 0.40 s |
+| LazyShell up | 1.27 s | 0.87 s |
+| Terminal up | 1.87 s | 0.86 s |
+
+Before, `init` opened the shell 50 ticks after it started and the Terminal 40
+ticks after that, and a service's dependents started when it was spawned.
+Now services announce `init.Ready`, dependents wait for it, and the autostart
+opens every built-in app as soon as all boot services are ready
+(`user/src/bin/init/ready.rs`, `autostart.rs`). The compositor row differs by
+host noise only (nothing before it changed); compare the gaps: compositor to
+shell went from 0.74 s to 0.47 s, shell to Terminal from 0.60 s to 0.
+
+Building the native user programs at `opt-level = 2` instead of `"s"` was
+measured on the same host in the same hour (7 runs each): LazyShell up 0.91 s
+against 0.84 s, the programs 9% larger (5.47 to 5.96 MB; `xuid` 398 to 439
+KiB), and `tools/perf/run.py`'s `input_present` p50 111 µs against 117 µs,
+within noise. Not a win, so `user` stays at `"s"`.
+
 ## Tried and dropped
 
 - `strip = "debuginfo"` for the kernel package: works, but loses line tables
