@@ -54,6 +54,35 @@ impl LazyOSBackend {
         }
     }
 
+    /// Mark `rect` of `id` for repaint: node-relative, as on Win32, and
+    /// clipped to the node. Owner mode repaints the whole screen anyway.
+    pub(super) fn damage_node_rect(&self, id: WidgetId, rect: Rect) {
+        self.dirty.store(true, Ordering::Relaxed);
+        if !self.is_client() {
+            return;
+        }
+        let Some((window, bounds)) = self.absolute_damage(id) else {
+            return;
+        };
+        let moved = rect.offset(bounds.left, bounds.top);
+        let clipped = Rect::new(
+            moved.left.max(bounds.left),
+            moved.top.max(bounds.top),
+            moved.right.min(bounds.right),
+            moved.bottom.min(bounds.bottom),
+        );
+        if !clipped.is_empty() {
+            self.add_damage(window, clipped);
+        }
+    }
+
+    /// While painters run, the window rectangle being repainted: only its
+    /// pixels reach the frame, so a painter may skip what lies outside it
+    /// (the Terminal draws only the rows inside it). `None` outside a paint.
+    pub fn paint_damage(&self) -> Option<Rect> {
+        self.paint_damage.get()
+    }
+
     pub(super) fn with_node<R>(&self, id: WidgetId, f: impl FnOnce(&mut Node) -> R) -> Option<R> {
         self.nodes
             .borrow_mut()

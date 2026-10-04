@@ -11,6 +11,7 @@ pub mod pte;
 mod reclaim;
 mod regions;
 pub use reclaim::reclaim_empty_tables;
+pub mod fbwindow;
 pub mod slab;
 mod table_guard;
 pub mod untouched;

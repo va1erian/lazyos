@@ -129,7 +129,7 @@ pub fn mode_adapter_checks() -> Result<(), String> {
 
 /// Switch to `width x height`, then prove the whole framebuffer is live:
 /// write and read back both far corners and check every geometry consumer.
-fn switch_and_probe(width: u32, height: u32) -> Result<(), String> {
+pub(super) fn switch_and_probe(width: u32, height: u32) -> Result<(), String> {
     crate::display::modeset::switch_to(width, height)
         .map_err(|e| format!("{width}x{height}: {e}"))?;
     let size = crate::display::size();
@@ -169,7 +169,9 @@ fn switch_and_probe(width: u32, height: u32) -> Result<(), String> {
 
 /// The boot geometry to restore after a test, and a run of `body` that
 /// always restores it (mode, limits, console scale).
-fn with_boot_mode(body: impl FnOnce((u32, u32)) -> Result<(), String>) -> Result<(), String> {
+pub(super) fn with_boot_mode(
+    body: impl FnOnce((u32, u32)) -> Result<(), String>,
+) -> Result<(), String> {
     let (width, height, ..) = crate::display::geometry_for_test();
     let boot = (width as u32, height as u32);
     let scale = crate::console::scale();

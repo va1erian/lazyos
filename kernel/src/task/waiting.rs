@@ -121,6 +121,8 @@ pub fn wait_poll_ns(deadline: Option<u64>) -> WakeReason {
 /// the input paths call this; wakeups are advisory.
 pub fn notify_poll() {
     wait::POLL.notify_all();
+    // The same event for a Messenger wait set parked on a descriptor.
+    crate::ipc::channels::wake_fd_watchers();
 }
 
 /// Park the current task until `deadline` (absolute PIT ticks) passes.

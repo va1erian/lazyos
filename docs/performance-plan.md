@@ -5,13 +5,15 @@ Status: draft, 2026-10-03. P0 (the harness, `tools/perf/run.py`) and P1
 profile under WHPX, are in [`perf/report.md`](perf/report.md) and
 [`perf/history.md`](perf/history.md). P2 (timekeeping: nanosecond deadlines on
 a timer queue, a one-shot local APIC deadline timer beside the 100 Hz PIT tick,
-exact Linux timeouts and a native nanosecond sleep), P3 (branch
-`perf/p3-cursor-display`: the cursor overlay, the chunked row-copy present with
-ops 7/8, pointer coalescing and damage-only click repaints, one-way `inputd`
-notes, parked `xui-app` clients and the 200 Hz PS/2 rate) and P4 (network: the
-`netd` doorbell, the in-place pump and 256 KiB TCP windows, measured in
-[`perf/network.md`](perf/network.md) with `tools/net/bulk.py`) are built. P5
-onward is not started.
+exact Linux timeouts and a native nanosecond sleep), P3 (the cursor overlay,
+the chunked row-copy present with ops 7/8, pointer coalescing and damage-only
+click repaints, one-way `inputd` notes, parked `xui-app` clients and the 200 Hz
+PS/2 rate), its follow-ups (`perf/p3b-display-input`: interrupt-driven `usbd`,
+the Terminal on pty readiness with row repaints, time-paced 60 Hz animation
+frames, nanosecond client timers and WC for a switched mode's framebuffer) and
+P4 (network: the `netd` doorbell, the in-place pump and 256 KiB TCP windows,
+measured in [`perf/network.md`](perf/network.md) with `tools/net/bulk.py`) are
+built. P5 onward is not started.
 
 This plan covers the whole system, kernel first. It comes from a code audit, so
 every latency and throughput figure below is **derived from the code, not
@@ -212,6 +214,28 @@ Then make what runs cheaper:
 
 Verification is visual as well as numeric: `qemu_session.py` scripts with
 screenshots, per `AGENTS.md`.
+
+**Follow-ups, as built** (WHPX, dev profile; same-hour A/B runs):
+
+- The fast-move tail (600 moves 4 ms apart, `input_present` p99 11.6 to
+  15.3 ms) was not the `PERF:` report: a switch/wake trace of the slow
+  samples showed `xuid` blocked for two ticks in a theme-topic `NextEvent`
+  call every 250 ms (`themefeed.rs`). It now polls (`EXPIRED_DEADLINE`):
+  p99 0.25 ms. The report does cost 3-14 ms of polled serial
+  (`PERF:report`), so it now waits for 200 ms of input quiet; no sample is
+  overlapped since (`PERF:input_present_rpt`).
+- The resize wireframe vanished under a client repaint (the Editor's caret):
+  `compose` now draws the live outline (also on the P1 base, not new).
+- Animations: 100 ms per phase whatever the frame rate, 60 Hz slots with
+  nanosecond sleeps. `xui-app` timers are monotonic nanoseconds; the wait set
+  takes `WAIT_DEADLINE_NS` and a descriptor doorbell `WAIT_FD`.
+- Terminal: parks on its pty master (`watch_fd`), repaints changed rows only.
+  Echo p50 50-71 ms -> 32-41 us; `cat` of 108 894 bytes 726-736 ms -> 99-104 ms
+  (`term_perf.json`, `TERM:PERF`).
+- `usbd` idles on the xHCI interrupt: `usb_input_present` (from the
+  interrupt, `tools/perf/run.py --usb`) p50 4.8 ms / p99 10.4 ms -> 0.28 /
+  0.64 ms. The USB exit target is met.
+- A mode switch's framebuffer gets a 4 KiB window and the boot WC policy.
 Exit: PS/2 mouse IRQ to cursor pixels p99 under 5 ms, and USB transfer event
 to cursor pixels p99 under 5 ms; a cursor move never triggers a full-screen
 present.

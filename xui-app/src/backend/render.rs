@@ -84,9 +84,11 @@ impl LazyOSBackend {
         };
         // In creation order a container paints before the widgets in it, so
         // the widgets draw on it instead of filling their own background.
+        self.paint_damage.set(Some(damage));
         for (bounds, painter) in paints {
             surface.with_canvas_over_parents(bounds, dpi, |canvas| painter(canvas));
         }
+        self.paint_damage.set(None);
         // Put the real surface back and fold the damage into the frame; a
         // painter that closed this window leaves no entry, so both drop.
         let mut windows = self.windows.borrow_mut();

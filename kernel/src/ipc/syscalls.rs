@@ -82,7 +82,7 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
     };
     // Flags are reserved, except the ones `close_endpoint` and `wait` know.
     let allowed = (op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE)
-        || (op == OP_WAIT && args.flags & !channels::WAIT_DOORBELLS == 0);
+        || (op == OP_WAIT && channels::wait_flags_known(args.flags));
     if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
     }

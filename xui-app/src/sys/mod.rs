@@ -29,8 +29,8 @@ pub use display::{
 };
 pub use messenger::{
     messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_register, msg_reply,
-    msg_resolve, msg_send, msg_wait_any, MsgArgs, MsgResult, REGISTRY_TARGET_SELF,
-    WAIT_MAX_ENDPOINTS,
+    msg_resolve, msg_send, msg_wait_any, msg_wait_any_ns, MsgArgs, MsgResult, FD_READY,
+    REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT, WAIT_MAX_ENDPOINTS,
 };
 
 use core::arch::asm;
@@ -103,6 +103,15 @@ fn native(nr: u64, a1: u64, a2: u64, a3: u64) -> i64 {
 /// The PIT tick counter (100 Hz). `0` before the first tick.
 pub fn clock_ticks() -> u64 {
     native(SYS_CLOCK, 0, 0, 0) as u64
+}
+
+/// `mono_time(op, a1)`: the native monotonic clock (P2.4).
+pub const SYS_MONO_TIME: u64 = 34;
+
+/// Nanoseconds since boot on the kernel's monotonic clock, the one
+/// [`msg_wait_any_ns`] deadlines are in.
+pub fn monotonic_ns() -> u64 {
+    native(SYS_MONO_TIME, 0, 0, 0) as u64
 }
 
 /// One read-only device inspection op (syscall 23, `devinspect::op`): the row

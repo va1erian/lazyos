@@ -10,8 +10,8 @@
 //! | `input_present` | the same publication, for pointer records | the compositor's next `present` syscall returns |
 //! | `irqoff` | a syscall enters (interrupts off) | it returns, parks, or naps (interrupts back on) |
 //! | `ipc_rt` | `begin_call` of an in-kernel echo | `await_reply` returns its reply (no context switch) |
-//! | `present` | the display owner's `present` syscall starts | it returns (breaths between chunks included) |
 //! | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns |
+//! | `present` | the display owner's `present` syscall starts | it returns (breaths between chunks included) |
 //!
 //! Durations are TSC cycles, converted with the PIT calibration when printed.
 //! [`report`] runs from the kernel task and prints one line per metric that
@@ -101,6 +101,31 @@ pub fn on_run(_slot: usize) {
 pub fn input_published(_pointer: bool) {
     #[cfg(lazyos_perf)]
     imp::input_published(_pointer);
+}
+
+/// The bottom half posts an interrupt to claimant task `owner`: remember
+/// the interrupt's time for that task's next input publish.
+#[inline(always)]
+pub fn irq_posted(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::irq_posted(_owner);
+}
+
+/// A userspace input source (`usbd`, task `owner`) starts publishing a
+/// batch: its pointer records are stamped with the device interrupt that
+/// last woke it (the xHCI interrupt), not with the publish, so
+/// `usb_input_present` includes the driver's own delay.
+#[inline(always)]
+pub fn source_publishing(_owner: usize) {
+    #[cfg(lazyos_perf)]
+    imp::source_publishing(_owner);
+}
+
+/// The batch [`source_publishing`] opened is done.
+#[inline(always)]
+pub fn source_published() {
+    #[cfg(lazyos_perf)]
+    imp::source_published();
 }
 
 /// A raw-bus consumer drained `count` records.

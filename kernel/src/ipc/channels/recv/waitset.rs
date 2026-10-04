@@ -16,6 +16,20 @@
 //! wait queue. Any delivery, peer close or input publication wakes it through
 //! that queue. All of this runs with interrupts off (syscall context) on one
 //! CPU, so nothing can slip in between the checks and the park.
+//!
+//! Two flags widen the wait (P3 follow-ups). [`WAIT_DEADLINE_NS`] makes the
+//! deadline absolute `arch::clock::monotonic_ns` instead of 100 Hz ticks, so
+//! a 60 Hz frame or a client timer is not rounded to the tick. [`WAIT_FD`]
+//! adds one of the caller's Linux descriptors (its number in the high half
+//! of the flags) that counts as ready when `poll` would report `POLLIN` or a
+//! hang-up: the desktop Terminal parks on its pty master beside its
+//! compositor endpoints. Descriptor readiness has no per-object waiter list,
+//! so a watching task is flagged in [`FD_WATCHERS`] and every `notify_poll`
+//! (the advisory wake that pipes, ptys and sockets already ring for `poll`)
+//! also wakes the flagged tasks parked here ([`wake_fd_watchers`]); the woken
+//! wait rescans, exactly as `poll` does.
+
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::*;
 
@@ -28,31 +42,84 @@ pub const WAIT_DISPLAY_KEYS: u64 = 2;
 /// Doorbell: an application acted on an `AF_INET` socket (the attached
 /// `netd` only; `ipc::inet::bell`, docs/performance-plan.md P4.1).
 pub const WAIT_INET: u64 = 4;
+/// Doorbell: the Linux descriptor in bits 32..63 of the flags is readable
+/// (or hung up).
+pub const WAIT_FD: u64 = 16;
 /// Every doorbell [`wait_any`] knows.
-pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET;
+pub const WAIT_DOORBELLS: u64 = WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_FD;
+/// Flag: the deadline is absolute monotonic nanoseconds, not PIT ticks.
+pub const WAIT_DEADLINE_NS: u64 = 1 << 24;
+/// Where [`WAIT_FD`]'s descriptor sits in the flags.
+pub const WAIT_FD_SHIFT: u32 = 32;
 /// Bit of the ready mask that means "the raw input bus has records".
 pub const RAW_INPUT_READY: u64 = 1 << 63;
 /// Bit of the ready mask that means "the display input queue has events".
 pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
 /// Bit of the ready mask that means "the `AF_INET` pump has work".
 pub const INET_READY: u64 = 1 << 61;
+/// Bit of the ready mask that means "the [`WAIT_FD`] descriptor is readable".
+pub const FD_READY: u64 = 1 << 59;
+
+/// Tasks parked in [`wait_any`] on a descriptor ([`WAIT_FD`]).
+static FD_WATCHERS: [AtomicBool; task::MAX_TASKS] =
+    [const { AtomicBool::new(false) }; task::MAX_TASKS];
+/// How many [`FD_WATCHERS`] are set, so a `notify_poll` with nobody watching
+/// (the common case) costs one load.
+static FD_WATCHING: AtomicUsize = AtomicUsize::new(0);
+
+/// Flag or unflag `slot` as watching a descriptor, keeping the count.
+fn watch_fd(slot: usize, on: bool) {
+    if let Some(flag) = FD_WATCHERS.get(slot) {
+        if flag.swap(on, Ordering::Relaxed) != on {
+            if on {
+                FD_WATCHING.fetch_add(1, Ordering::Relaxed);
+            } else {
+                FD_WATCHING.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+/// How many tasks are parked on a descriptor (test hook: a leak shows up as
+/// a count that never returns to zero).
+#[allow(dead_code)]
+pub fn fd_watchers() -> usize {
+    FD_WATCHING.load(Ordering::Relaxed)
+}
+
+/// Whether `flags` uses only what [`wait_any`] knows: doorbells, the
+/// nanosecond flag, and a descriptor number with [`WAIT_FD`] (the syscall
+/// gate refuses anything else before the op runs).
+pub fn wait_flags_known(flags: u64) -> bool {
+    let low = flags & ((1 << WAIT_FD_SHIFT) - 1);
+    let fd = flags >> WAIT_FD_SHIFT;
+    low & !(WAIT_DOORBELLS | WAIT_DEADLINE_NS) == 0 && (fd == 0 || low & WAIT_FD != 0)
+}
 
 /// Park until one of `handles` has a message (or its peer closed), or until
-/// one of the `doorbells` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`],
-/// [`WAIT_INET`]) rings,
-/// or until `deadline` (absolute ticks) passes. Returns the ready mask: bit
-/// `i` for `handles[i]`, [`RAW_INPUT_READY`], [`DISPLAY_INPUT_READY`] and
-/// [`INET_READY`] for the doorbells.
+/// one of the doorbells in `flags` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`],
+/// [`WAIT_INET`], [`WAIT_FD`]) rings, or until `deadline` passes (absolute
+/// ticks, or monotonic nanoseconds with [`WAIT_DEADLINE_NS`]). Returns the
+/// ready mask: bit `i` for `handles[i]`, [`RAW_INPUT_READY`],
+/// [`DISPLAY_INPUT_READY`], [`INET_READY`] and [`FD_READY`] for the doorbells.
 ///
-/// Errors: `BadParcel` for an empty or oversized set or an unknown doorbell,
-/// the handle errors of `recv` for a bad handle, `WrongKind` for a doorbell
-/// the caller may not ring (no raw ring; not the display owner), `TimedOut`,
-/// and `Canceled` when a fatal signal must end the task.
-pub fn wait_any(handles: &[u64], doorbells: u64, deadline: Option<u64>) -> Result<u64, Error> {
+/// Errors: `BadParcel` for an empty or oversized set, an unknown flag, or a
+/// descriptor number without [`WAIT_FD`]; the handle errors of `recv` for a
+/// bad handle; `WrongKind` for a doorbell the caller may not ring (no raw
+/// ring; not the display owner; no such descriptor), `TimedOut`, and
+/// `Canceled` when a fatal signal must end the task.
+pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u64, Error> {
+    let fd = flags >> WAIT_FD_SHIFT;
+    let low = flags & ((1 << WAIT_FD_SHIFT) - 1);
+    let in_ns = low & WAIT_DEADLINE_NS != 0;
+    let doorbells = low & !WAIT_DEADLINE_NS;
     let empty = handles.is_empty() && doorbells == 0;
-    if handles.len() > MAX_WAIT_ENDPOINTS || empty || doorbells & !WAIT_DOORBELLS != 0 {
+    let stray_fd = fd != 0 && doorbells & WAIT_FD == 0;
+    if handles.len() > MAX_WAIT_ENDPOINTS || empty || doorbells & !WAIT_DOORBELLS != 0 || stray_fd {
         return Err(Error::BadParcel);
     }
+    // `fd` came from 32 bits, so it fits a `usize` on this 64-bit kernel.
+    let fd = (doorbells & WAIT_FD != 0).then_some(fd as usize);
     let mut ends = [(0u64, 0usize); MAX_WAIT_ENDPOINTS];
     for (end, &handle) in ends.iter_mut().zip(handles) {
         *end = endpoint_of(handle, rights::CALL)?;
@@ -61,7 +128,7 @@ pub fn wait_any(handles: &[u64], doorbells: u64, deadline: Option<u64>) -> Resul
     let me = task::current();
     loop {
         let mut ready = ready_or_register(ends, me);
-        match arm_doorbells(doorbells, me) {
+        match arm_doorbells(doorbells, fd, me) {
             Ok(rung) => ready |= rung,
             Err(error) => {
                 unregister(ends, me, doorbells);
@@ -72,7 +139,11 @@ pub fn wait_any(handles: &[u64], doorbells: u64, deadline: Option<u64>) -> Resul
             unregister(ends, me, doorbells);
             return Ok(ready);
         }
-        let reason = MESSENGER.wait(me, deadline);
+        let reason = if in_ns {
+            MESSENGER.wait_ns(me, deadline)
+        } else {
+            MESSENGER.wait(me, deadline)
+        };
         unregister(ends, me, doorbells);
         if reason == WakeReason::TimedOut {
             return Err(Error::TimedOut);
@@ -108,8 +179,19 @@ fn ready_or_register(ends: &[(u64, usize)], me: usize) -> u64 {
 
 /// Arm each requested doorbell; the ready bits of those already ringing
 /// (nothing is armed for them).
-fn arm_doorbells(doorbells: u64, me: usize) -> Result<u64, Error> {
+fn arm_doorbells(doorbells: u64, fd: Option<usize>, me: usize) -> Result<u64, Error> {
     let mut ready = 0;
+    if let Some(fd) = fd {
+        // Flag first, then look: a `notify_poll` between the two finds the
+        // flag; one before it is covered by the look itself.
+        watch_fd(me, true);
+        let interesting = crate::ipc::pipe::POLLIN;
+        match task::fd_poll(fd, interesting) {
+            Some(0) => {}
+            Some(_) => ready |= FD_READY,
+            None => return Err(Error::WrongKind),
+        }
+    }
     if doorbells & WAIT_RAW_INPUT != 0 {
         match crate::input::bus::arm_doorbell(me) {
             Ok(true) => ready |= RAW_INPUT_READY,
@@ -147,6 +229,25 @@ fn unregister(ends: &[(u64, usize)], me: usize, doorbells: u64) {
     }
     if doorbells & WAIT_INET != 0 {
         crate::ipc::inet::bell::disarm(me);
+    }
+    if doorbells & WAIT_FD != 0 {
+        watch_fd(me, false);
+    }
+}
+
+/// Wake every task parked in [`wait_any`] on a descriptor: called by
+/// `task::notify_poll`, so anything that can make a descriptor readable
+/// (pipe and pty writes, hang-ups, socket data) reaches it as it reaches
+/// `poll`. Advisory, like that queue: the woken wait rescans and parks again
+/// if its descriptor is still not ready.
+pub fn wake_fd_watchers() {
+    if FD_WATCHING.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    for (slot, flag) in FD_WATCHERS.iter().enumerate() {
+        if flag.load(Ordering::Relaxed) {
+            MESSENGER.notify_task(slot);
+        }
     }
 }
 

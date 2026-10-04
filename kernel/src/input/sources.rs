@@ -202,6 +202,7 @@ pub fn publish(id: u64, owner: usize, records: &[Record]) -> Result<Published, E
             return Err(Error::BadId);
         };
         refill(source, task::ticks());
+        crate::perf::source_publishing(owner);
         for record in records {
             if !permitted(source.class, record) {
                 outcome.rejected += 1;
@@ -216,6 +217,7 @@ pub fn publish(id: u64, owner: usize, records: &[Record]) -> Result<Published, E
             bus::publish(device_of(index), record.kind, record.code, record.value);
             outcome.accepted += 1;
         }
+        crate::perf::source_published();
         table.rejected += outcome.rejected as u64;
         table.throttled += outcome.throttled as u64;
         Ok(outcome)
