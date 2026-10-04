@@ -6,6 +6,7 @@
 
 mod dialogs;
 pub mod page_menu;
+pub mod print_bar;
 mod tools;
 
 use std::cell::Cell;
@@ -36,11 +37,12 @@ const FORMAT_HEIGHT: Dip = Dip(34.0);
 const ICON_WIDTH: Dip = Dip(32.0);
 
 /// The toolbar's commands, in the order of its items.
-const COMMANDS: [fn() -> Msg; 12] = [
+const COMMANDS: [fn() -> Msg; 13] = [
     || Msg::New,
     || Msg::Open,
     || Msg::Save,
     || Msg::Export,
+    || Msg::Print,
     || Msg::Undo,
     || Msg::Redo,
     || Msg::Cut,
@@ -84,6 +86,7 @@ fn command_toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
         .item_with_text(Lucide::FolderOpen, "Open (Ctrl+O)", "Open")
         .item_with_text(Lucide::Save, "Save (Ctrl+S)", "Save")
         .item_with_text(Lucide::Download, "Export as Markdown (Ctrl+E)", "Export")
+        .item_with_text(Lucide::Printer, "Print (Ctrl+P)", "Print")
         .separator()
         .item_with_text(Lucide::Undo2, "Undo (Ctrl+Z)", "Undo")
         .item_with_text(Lucide::Redo2, "Redo (Ctrl+Y)", "Redo")
@@ -198,9 +201,11 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         &["Untitled", "Saved", "0 words", "Page 1 of 1"],
     )?);
     let dialogs = dialogs::build(ui, &host)?;
+    let print_bar = print_bar::PrintBar::build(ui)?;
 
     let dialog_open = Rc::new(Cell::new(false));
     ui.on_close(|| Some(Msg::Quit));
+    ui.on_timer(|_| Some(Msg::PrintTick));
     {
         let dialog_open = Rc::clone(&dialog_open);
         ui.on_key(move |key, modifiers| shortcut(key, modifiers, &dialog_open));
@@ -240,6 +245,7 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
                 .fixed(FORMAT_HEIGHT),
         )
         .child(widget(EditorPane(Rc::clone(&editor))).fill(1))
+        .child(print_bar.row().fixed(FORMAT_HEIGHT))
         .child(&status);
     let mounted = ui.mount(root)?;
     editor.focus();
@@ -249,6 +255,8 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         tools,
         status,
         dialogs,
+        print_bar,
+        printing: None,
         host,
         path: None,
         dirty: false,

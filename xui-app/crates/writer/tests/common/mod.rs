@@ -2,6 +2,8 @@
 //! folder, the whole LazyWriter window rendered offscreen, and a watchdog.
 #![allow(dead_code)]
 
+pub mod printer;
+
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -11,7 +13,7 @@ use std::time::Duration;
 
 use xui_canvas::snapshot::{Snapshot, Stage, render_with};
 use xui_core::backend::BackendError;
-use xui_core::widget::{StatusBar, ToggleButton};
+use xui_core::widget::{Edit, Label, StatusBar, ToggleButton};
 use xui_core::{Dip, Image, Theme};
 use xui_rich_text::RichTextEditor;
 use xui_writer::{Host, Msg};
@@ -91,6 +93,8 @@ pub struct Rig {
     pub status: Rc<StatusBar<Msg>>,
     pub bold: Rc<ToggleButton<Msg>>,
     pub dialog_open: Rc<Cell<bool>>,
+    pub print_printer: Rc<Edit<Msg>>,
+    pub print_status: Rc<Label<Msg>>,
 }
 
 impl Rig {
@@ -134,6 +138,8 @@ pub fn render(
                 status: Rc::clone(&app.status),
                 bold: Rc::clone(&app.tools.marks[0]),
                 dialog_open: Rc::clone(&app.dialog_open),
+                print_printer: Rc::clone(&app.print_bar.printer),
+                print_status: Rc::clone(&app.print_bar.status),
             });
             Ok::<_, BackendError>(app)
         },

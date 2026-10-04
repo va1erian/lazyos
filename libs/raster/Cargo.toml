@@ -1,0 +1,19 @@
+[package]
+name = "raster"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "PWG Raster (PWG 5102.4) encoder and test decoder for printing: pure no_std + alloc"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "raster"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/pwgraster.rs`).
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

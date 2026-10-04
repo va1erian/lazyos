@@ -131,6 +131,32 @@ switches to draft view (one continuous column) and back.
   `os.lazy.writer`. LazyWriter does not register for `text/plain` or
   `text/markdown`: those stay with the Editor and Docs.
 
+## Printing
+
+`Ctrl+P` or the toolbar's Print opens a bar above the status bar: printer
+address, copies (1 to 99), pages (`all`, or `1-3, 5`), colour or grey, and
+draft, normal or high quality. Paper and orientation come from Page setup.
+The design and the printer's capabilities are in
+[printing-plan.md](printing-plan.md).
+
+* **Address.** `host`, `host:port` or an `ipp://` URI (port 631 and
+  `/ipp/print` by default); `ipps://` is refused until TLS exists. A
+  successful print remembers it in `confd` at `user/<uid>/writer/printer`.
+  The package declares `network = ["outbound"]` and `os.lazy.confd.v1`.
+* **Rendering.** `RichTextEditor::printout(300)` (xui-rich-text's
+  `Printout`) lays the document out at the printer's resolution. Each page is
+  painted in 256-row bands into an offscreen surface on the UI thread, one
+  page per 50 ms timer tick, and encoded as PWG Raster (`libs/raster`,
+  `sgray_8` or `srgb_8`). A landscape page is painted in strips and rotated,
+  since the printer takes portrait sheets only.
+* **Sending.** A worker thread asks the printer for its ink levels, streams
+  one `Print-Job` (`libs/ipp`, a chunked HTTP `POST` over `TcpStream`) as
+  pages arrive (at most three queued), then asks for the job's state every
+  2 s until it ends. Close during a job cancels it (`Cancel-Job` once the
+  printer has it). The status line shows the printer's words and ink, for
+  example `Printed (ink: tri-color 90%, black 50%)`.
+* **Markers.** `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>`.
+
 ## Fonts
 
 Three families, registered by `xui_app::font::register_writer()`: **Sans**
@@ -151,8 +177,10 @@ at 8 KiB; pasting from another app inserts plain text.
 
 ## Known limits
 
-* No printing, headers, footers or page numbers on the page; no IME or bidi
+* No headers, footers or page numbers on the page; no IME or bidi
   (outside `xui-rich-text`'s scope so far).
+* Printing is plain IPP over the network only: no printer discovery, no
+  `ipps://`, no USB printers, and no spooler, so a job ends if LazyWriter quits.
 * No import of Markdown, HTML, RTF or Word documents; Markdown is export only.
 * The clipboard between apps is plain text, at most 8 KiB.
 * A path containing a space cannot be opened from Files or `pkgctl open` (a
@@ -218,6 +246,15 @@ LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writer_light --timeout 300 \
     --script tools/screenshot/examples/xui_writer_light.json \
     --fail-on "WRITER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+```
+
+Printing has its own harness, which builds an image with `netd`, runs a
+fake printer on the host and judges the page it receives
+([printing-plan.md §7](printing-plan.md#7-testing-without-a-printer)):
+
+```bash
+python tools/print/run.py      # PASS: one A4 page printed; see shots/print/page-1.png
+cargo test -p ipp -p raster --features ipp/std
 ```
 
 The `xui` CI workflow runs both sessions ("Capture LazyWriter" and "Capture

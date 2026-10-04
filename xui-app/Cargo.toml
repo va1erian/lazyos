@@ -32,11 +32,11 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "b345b1565b74d45783b0de877516fd96d3c33964" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "b345b1565b74d45783b0de877516fd96d3c33964", default-features = false }
 # The rich-text widget LazyWriter edits with (issue #533), with its native JSON
 # format (`serde`). Same revision as `xui-core`, so one `xui_core` links.
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab", features = ["serde"] }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "b345b1565b74d45783b0de877516fd96d3c33964", features = ["serde"] }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -90,7 +90,7 @@ deskmenu = { path = "../libs/deskmenu" }
 # would silently replace with DHCP.
 netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab" }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "b345b1565b74d45783b0de877516fd96d3c33964" }
 
 [[bin]]
 name = "xui-m0"

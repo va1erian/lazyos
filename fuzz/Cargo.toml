@@ -27,6 +27,8 @@ usbhid = { path = "../libs/usbhid", features = ["fuzz"] }
 usbmsc = { path = "../libs/usbmsc", features = ["fuzz"] }
 ext2fs = { path = "../libs/ext2fs", features = ["fuzz"] }
 acpi = { path = "../libs/acpi", features = ["fuzz"] }
+ipp = { path = "../libs/ipp", features = ["fuzz"] }
+raster = { path = "../libs/raster", features = ["fuzz"] }
 
 [workspace]
 
@@ -138,6 +140,20 @@ bench = false
 [[bin]]
 name = "mscsession"
 path = "fuzz_targets/mscsession.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipp"
+path = "fuzz_targets/ipp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pwgraster"
+path = "fuzz_targets/pwgraster.rs"
 test = false
 doc = false
 bench = false

@@ -50,7 +50,7 @@ from pathlib import Path
 
 # One xui revision for every crate the apps build (`xui-app/Cargo.toml`, docs,
 # web, LazyWriter, LazyRAD). Keep in step with those manifests.
-XUI_REV = "c7cd6d0838be293063f887ed9d8043fbe6143e4f"
+XUI_REV = "b345b1565b74d45783b0de877516fd96d3c33964"
 XUI_URL = "https://github.com/va1erian/xui"
 # The directory whose files Windows cannot name must be left out of every
 # submodule (NetSurf's libraries carry AFL corpora with `:`-names).

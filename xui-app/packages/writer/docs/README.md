@@ -23,6 +23,11 @@ double-click, or from the start menu under **Office**.
 * **Page break** (`Ctrl+Enter`, or the toolbar's Page break): the rest of the
   paragraph starts a new page. Backspace at the start of that page removes
   the break.
+* **Print** (`Ctrl+P`, or the toolbar's Print): type the printer's network
+  address (for example `192.168.1.89`), pick copies, pages (`1-3, 5`),
+  colour or grey and quality, then Print. Works with network printers that
+  speak IPP Everywhere or AirPrint, such as the HP DeskJet 3700. The address
+  is remembered after a successful print. Close cancels a job in progress.
 
 ## Shortcuts
 
@@ -33,6 +38,7 @@ double-click, or from the start menu under **Office**.
 | `Ctrl+S` | Save |
 | `Ctrl+Shift+S` | Save as |
 | `Ctrl+E` | Export to Markdown |
+| `Ctrl+P` | Print |
 | `Ctrl+Q` | Quit |
 | `Ctrl+B`, `Ctrl+I`, `Ctrl+U` | Bold, italic, underline |
 | `Ctrl+Z`, `Ctrl+Y` | Undo, redo |
@@ -59,7 +65,9 @@ document first.
 
 * A file whose path contains a space cannot be opened from Files or by
   `pkgctl open`; open it from LazyWriter's Open dialog instead.
-* There is no printing, and no headers, footers or page numbers on the page.
+* There are no headers, footers or page numbers on the page.
+* Printers are found by address only, over the network; USB printers are not
+  supported.
 * Copying keeps the formatting only inside LazyWriter. Other apps receive
   plain text, at most 8 KiB of it.
 * Documents larger than 32 MiB, picture files larger than 16 MiB and

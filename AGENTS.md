@@ -195,6 +195,9 @@ editor: `.lzw` documents, Markdown export, pictures; see
 `tools/screenshot/examples/xui_writer.json` (format, save, export, reopen; markers
 `WRITER:UP|SAVE|EXPORT|OPEN:PASS`, build with `LAZYOS_XUI_AUTOSTART=writer`)
 and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`).
+Printing (`Ctrl+P`, `libs/ipp`, `libs/raster`, docs/printing-plan.md):
+`python tools/print/run.py` builds, boots, prints to a fake IPP printer on the
+host and judges the PWG Raster page it gets (`WRITER:PRINT:PASS:<pages>`).
 
 ## Doom (an installable `.lzp` package)
 

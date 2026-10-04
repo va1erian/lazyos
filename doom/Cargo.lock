@@ -308,6 +308,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipp"
+version = "0.1.0"
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -479,6 +483,10 @@ name = "rangemap"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
+
+[[package]]
+name = "raster"
+version = "0.1.0"
 
 [[package]]
 name = "read-fonts"
@@ -880,7 +888,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab#ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab"
+source = "git+https://github.com/va1erian/xui?rev=b345b1565b74d45783b0de877516fd96d3c33964#b345b1565b74d45783b0de877516fd96d3c33964"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -907,7 +915,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab#ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab"
+source = "git+https://github.com/va1erian/xui?rev=b345b1565b74d45783b0de877516fd96d3c33964#b345b1565b74d45783b0de877516fd96d3c33964"
 dependencies = [
  "png",
  "zune-jpeg",
@@ -924,7 +932,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab#ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab"
+source = "git+https://github.com/va1erian/xui?rev=b345b1565b74d45783b0de877516fd96d3c33964#b345b1565b74d45783b0de877516fd96d3c33964"
 dependencies = [
  "xui-core",
 ]
@@ -939,7 +947,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab#ae93b9d11a3860d1982aed4e49d9f703aa0fa6ab"
+source = "git+https://github.com/va1erian/xui?rev=b345b1565b74d45783b0de877516fd96d3c33964#b345b1565b74d45783b0de877516fd96d3c33964"
 dependencies = [
  "serde",
  "serde_json",
@@ -963,6 +971,9 @@ dependencies = [
 name = "xui-writer"
 version = "0.1.0"
 dependencies = [
+ "ipp",
+ "raster",
+ "xui-canvas",
  "xui-core",
  "xui-rich-text",
 ]

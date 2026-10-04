@@ -5,6 +5,7 @@
 //! [`files`].
 
 pub mod files;
+pub mod print;
 
 use xui_core::Dip;
 use xui_core::app::Ui;
