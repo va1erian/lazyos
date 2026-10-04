@@ -106,6 +106,8 @@ fn small_mqes_shrinks_the_queues() {
         1024,
         Behavior {
             mqes: Some(3),
+            mdts: 1,
+            defer_io: true,
             ..Behavior::default()
         },
     );
@@ -113,7 +115,8 @@ fn small_mqes_shrinks_the_queues() {
     let buffer = Buffer::new(&model, 0x20_0000, 0, 32 * 1024);
     buffer.fill(&model, &pattern(32 * 1024, 9));
     let translate = translate_all(&[&buffer]);
-    // Many commands through a four-entry queue: the phase bit wraps.
+    // Four 8 KiB commands per transfer through a four-entry queue: at most
+    // three are outstanding, and the phase bit wraps.
     for round in 0..10u64 {
         controller
             .transfer(

@@ -336,10 +336,13 @@ impl Controller {
         let mut slots: [Option<Inflight>; MAX_INFLIGHT] = [None; MAX_INFLIGHT];
         let mut result = Ok(());
         let mut strays = 0usize;
+        // Fewer commands outstanding than the queue holds, so neither queue
+        // fills (a small MQES can make the queue shallower than the slots).
+        let limit = MAX_INFLIGHT.min(usize::from(self.io.depth) - 1);
         loop {
             // Submit what fits.
             while result.is_ok() && submitted < total {
-                let Some(slot) = slots.iter().position(Option::is_none) else {
+                let Some(slot) = slots[..limit].iter().position(Option::is_none) else {
                     break;
                 };
                 let plan = match prp::plan(segments, cursor, self.max_command, block, translate) {

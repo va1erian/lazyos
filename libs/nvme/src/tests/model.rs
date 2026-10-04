@@ -53,6 +53,8 @@ struct Cq {
     base: u64,
     depth: u16,
     tail: u16,
+    /// The head the host last reported through its doorbell.
+    head: u16,
     phase: bool,
 }
 
@@ -203,6 +205,7 @@ impl State {
                     base: self.acq,
                     depth: cq_depth,
                     tail: 0,
+                    head: 0,
                     phase: true,
                 }),
                 None,
@@ -227,8 +230,10 @@ impl State {
         let qid = index / 2;
         if index % 2 == 1 {
             // Completion head: just check it names a slot of the queue.
-            let cq = self.cqs[qid].expect("head doorbell of a missing CQ");
+            let mut cq = self.cqs[qid].expect("head doorbell of a missing CQ");
             assert!(value < u32::from(cq.depth), "CQ head past the queue");
+            cq.head = value as u16;
+            self.cqs[qid] = Some(cq);
             return;
         }
         let mut sq = self.sqs[qid].expect("tail doorbell of a missing SQ");
@@ -258,6 +263,12 @@ impl State {
         let sq = self.sqs[usize::from(sqid)].expect("completion for a missing SQ");
         let cqid = usize::from(sq.cqid);
         let mut cq = self.cqs[cqid].expect("SQ bound to a missing CQ");
+        // A real controller never posts into a full queue; the host must
+        // keep fewer commands outstanding than the queue holds.
+        assert!(
+            (cq.tail + 1) % cq.depth != cq.head,
+            "completion queue {cqid} overflowed"
+        );
         let entry = Completion {
             result,
             sq_head: sq.head,
@@ -309,6 +320,7 @@ impl State {
                     base: command.prp1,
                     depth,
                     tail: 0,
+                    head: 0,
                     phase: true,
                 });
                 ((0, 0), 0)

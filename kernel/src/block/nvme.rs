@@ -33,7 +33,7 @@
 mod bounce;
 mod hw;
 
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use alloc::vec::Vec;
 use nvme::{Controller, Op, Pages, Platform, MAX_INFLIGHT};
@@ -74,6 +74,9 @@ struct Live {
 
 /// One driven controller: its DMA memory and the registry-facing device.
 struct Slot {
+    /// Held from the start of a bring-up until it fails, or for good once
+    /// a controller is attached.
+    claimed: AtomicBool,
     pages: [Page; PAGES],
     device: NvmeDisk,
 }
@@ -91,6 +94,7 @@ pub struct NvmeDisk {
 impl Slot {
     const fn new(index: usize) -> Slot {
         Slot {
+            claimed: AtomicBool::new(false),
             pages: [const { Page::new() }; PAGES],
             device: NvmeDisk {
                 index,
@@ -105,8 +109,6 @@ impl Slot {
 }
 
 static SLOTS: [Slot; MAX_NVME] = [Slot::new(0), Slot::new(1)];
-/// Slots handed out so far.
-static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 /// Bring up the controller at `function` (class 01:08:02) with BAR0 at
 /// `bar` (`len` bytes), and return its block device. `None` (with a log
@@ -116,15 +118,35 @@ pub fn attach_function(
     bar: u64,
     len: u64,
 ) -> Option<&'static dyn BlockDevice> {
-    let index = NEXT.fetch_add(1, Ordering::Relaxed);
-    let Some(slot) = SLOTS.get(index) else {
+    let Some(slot) = SLOTS.iter().find(|slot| {
+        slot.claimed
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+    }) else {
         serial_println!(
             "nvme: more than {MAX_NVME} controllers; {:?} ignored",
             function.address
         );
         return None;
     };
-    let name = NAMES[index];
+    let attached = bring_up(slot, function, bar, len);
+    if attached.is_none() {
+        // A failed controller may still be enabled: stop its DMA before the
+        // slot's pages go to the next one.
+        pci::clear_command(function.address, pci::COMMAND_BUS_MASTER);
+        slot.claimed.store(false, Ordering::Release);
+    }
+    attached
+}
+
+/// [`attach_function`] once `slot` is claimed.
+fn bring_up(
+    slot: &'static Slot,
+    function: pci::Function,
+    bar: u64,
+    len: u64,
+) -> Option<&'static dyn BlockDevice> {
+    let name = NAMES[slot.device.index];
     if len < MIN_BAR {
         serial_println!("{name}: BAR0 of {len:#x} bytes is too small");
         return None;
@@ -209,10 +231,7 @@ pub fn attach_function(
 /// Send every live controller the normal shutdown notification, after the
 /// filesystems synced, so it writes its cache back before power goes.
 pub fn shutdown_all() {
-    for slot in SLOTS
-        .iter()
-        .take(NEXT.load(Ordering::Relaxed).min(MAX_NVME))
-    {
+    for slot in &SLOTS {
         let device = &slot.device;
         let mut guard = device.state.lock();
         let Some(live) = guard.as_mut() else {

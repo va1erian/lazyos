@@ -60,11 +60,18 @@ impl QueuePair {
 
     /// The entry at the head, if the controller has written it.
     pub fn peek(&self, platform: &dyn Platform) -> Option<Completion> {
-        let mut raw = [0u8; CQE_BYTES];
-        platform.read_mem(self.cq + u64::from(self.head) * CQE_BYTES as u64, &mut raw);
-        let entry = Completion::decode(&raw);
-        // Fields are read after the phase bit says the entry is complete.
+        let at = self.cq + u64::from(self.head) * CQE_BYTES as u64;
+        // The phase bit first: the rest of the entry is only meaningful once
+        // it says the controller finished writing.
+        let mut status = [0u8; 1];
+        platform.read_mem(at + 14, &mut status);
+        if (status[0] & 1 != 0) != self.phase {
+            return None;
+        }
         core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+        let mut raw = [0u8; CQE_BYTES];
+        platform.read_mem(at, &mut raw);
+        let entry = Completion::decode(&raw);
         (entry.phase == self.phase).then_some(entry)
     }
 
