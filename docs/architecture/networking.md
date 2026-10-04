@@ -301,9 +301,12 @@ attach, an unknown rx mode, a wrong ring id), checks the frame-length policy
 through the counters, runs an intruder task that must be refused on the owner's
 ring, corrupts its own transmit ring (the driver must drop the client, count it
 and accept a new one), and finishes by asking the driver a question. The soak
-compares the fabric snapshot's handle, endpoint, shared-buffer and mapping totals
-before and after 40 cycles: any growth fails it, as does a driver ring error or
-a transmit slot that did not come back.
+compares the handles, shared buffers and buffer bytes of `nicctl` and `netdrv`
+(the fabric snapshot's per-task counts) before and after 40 cycles: any change
+fails it, as does a driver ring error or a transmit slot that did not come
+back. System-wide totals are not judged, since the rest of the system keeps
+starting things meanwhile (`init` restarting a service or launching one, `pkgd`);
+`NICCTL:SOAK:OTHERS` prints them and every other task whose handles moved.
 
 | Layer | What | Run |
 |---|---|---|
