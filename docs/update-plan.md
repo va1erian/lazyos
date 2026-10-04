@@ -142,7 +142,7 @@ The layout is owned by [`nvme-install-plan.md`](nvme-install-plan.md)
 The ESP keeps a fallback kernel and `lazyos.cfg`. Until U0 and U2 land, the
 install boots the ESP kernel with slot A as its whole OS volume, and the
 partitions for slot B, `lazyboot` and `state` stay empty, so nothing is
-repartitioned later. Size changes are agreed in that plan, not here.
+repartitioned later. The table lives there; this plan decides what partitions 2 to 5 hold, and any change to them is made here first and then mirrored there.
 
 If updates have to come before the slot split, the interim is reinstalling
 from the stick; see "Sources".
