@@ -291,7 +291,11 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   damage, repaint paints each layer only where no opaque layer above it (window,
   panel, Alt+Tab panel) lies, so hidden windows cost nothing (#360).
 - **Input during animations.** The minimize/restore/maximize/open zooms
-  (`xuid/anim.rs`) are a short blocking loop of frames. Each frame reads the
+  (`xuid/anim.rs`) are a short blocking loop of frames, paced by time: each
+  phase takes 100 ms for the leading outline (the two trailing ones lag
+  10 ms each), frames are slotted at 60 Hz with nanosecond sleeps
+  (`sys::sleep_until_ns`), and a frame that overruns its slot makes the next
+  one further along rather than the animation longer. Each frame reads the
   pending input itself (the kernel display queue, and `inputd`'s
   `PointerEvent`s while it owns the pointer) into a preallocated queue on the
   `Compositor` (`xuid/held.rs`): nothing is dropped or reordered, the main loop
@@ -326,7 +330,9 @@ restore, between close and minimize) and interactive resize edges.
 - **Outline resize.** A press on an edge consumes the press and starts a
   `ResizeDrag`; moving the pointer composes the old and new outline rectangles
   and draws a wireframe (`xuid/anim.rs::outline`) without re-rendering the
-  window. On release the new geometry is adopted and the client gets a one-way
+  window. The live outline is part of the scene: `compose` XORs it onto every
+  repaint inside it, so a client redrawing under it (a blinking caret) does
+  not erase it. On release the new geometry is adopted and the client gets a one-way
   `Configure(width, height, Normal)` (method 33) plus a shell `Resized` event.
   `Escape` cancels and erases the outline; a destroyed surface clears the drag.
   Resize and title-bar drag are mutually exclusive and neither starts during a
@@ -566,9 +572,12 @@ is what exercises the legacy path.
 Between passes an `xui-app` client parks once on every window's event and
 input-session endpoint (the P1 wait set, `xui-app/src/backend/event_loop.rs`
 `park_client`) until a message arrives or its next timer is due, instead of a
-one-tick receive per window (docs/performance-plan.md P3.8). The Terminal
-still reads its pty on a 100 ms timer: a pty is not an endpoint the wait set
-can name.
+one-tick receive per window (docs/performance-plan.md P3.8). Timers run on the
+monotonic nanosecond clock (`WAIT_DEADLINE_NS`), so a 16 ms timer fires every
+16 ms, not at the tick after it, and keeps its cadence without bursting after
+a stall. `LazyOSBackend::watch_fd` adds one Linux descriptor to the park
+(`WAIT_FD`); the primary window hears it become readable as a `Timer` event
+with id `FD_TIMER`.
 
 **Retitling a window (`SetTitle`, method 29)**
 

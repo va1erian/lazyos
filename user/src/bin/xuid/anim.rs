@@ -3,7 +3,13 @@
 //! the window itself is not drawn. Every move is two-stepped: the window
 //! shrinks to an icon-sized rectangle centred on it, which then travels to the
 //! target. The compositor is single-threaded, so the animation is a short
-//! blocking loop of a few frames, well under a quarter second per step.
+//! blocking loop, well under a quarter second per step.
+//!
+//! The motion is a function of time, not of frames: each phase lasts
+//! [`PHASE_NS`] whatever the frame rate, and frames are paced at 60 Hz on
+//! the monotonic clock ([`FRAME_NS`], nanosecond sleeps). A frame that takes
+//! longer than its slot (a 2x screen, a busy machine) makes the next one
+//! later and further along, never the whole animation longer.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -16,12 +22,16 @@ use super::layout::icon_rect;
 use super::region::Region;
 use super::theme::px;
 
-/// Frames per phase (one PIT tick, 10 ms, each).
-const STEPS: i32 = 10;
+/// How long the leading outline takes from one rectangle to the other.
+const PHASE_NS: u64 = 100_000_000;
+/// One frame at 60 Hz.
+const FRAME_NS: u64 = 16_666_667;
 /// Outlines drawn per frame: the leading rectangle and two trailing ones.
 const TRAIL: i32 = 3;
-/// How far (in steps) each trailing outline lags the previous one.
-const TRAIL_LAG: i32 = 1;
+/// How far each trailing outline lags the previous one.
+const TRAIL_LAG_NS: u64 = 10_000_000;
+/// Full scale of an outline's progress along the move ([`lerp`]).
+const FULL: i32 = 1024;
 /// Outline thickness in pixels. Outlines are drawn inverted (XOR), so they
 /// show on any background.
 const LINE: i32 = 2;
@@ -58,47 +68,70 @@ impl Compositor {
         // the window's area, which a 2x screen quadruples (docs/hidpi-plan.md).
         let mut previous = [Rect::new(0, 0, 0, 0); STRIPS];
         previous[0] = from.intersect(full);
-        for step in 1..=STEPS + TRAIL_LAG * (TRAIL - 1) {
-            let deadline = sys::clock() + 1;
+        let start = sys::monotonic_ns();
+        let total = PHASE_NS + TRAIL_LAG_NS * (TRAIL as u64 - 1);
+        let mut frame = 1u64;
+        loop {
+            // This frame shows the motion at its own presentation time, and
+            // the last one shows every outline at `to`.
+            let shown_at = (frame * FRAME_NS).min(total);
             self.hold_pending_input();
             let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
             for (index, slot) in rects.iter_mut().enumerate() {
-                let at = (step - index as i32 * TRAIL_LAG).clamp(0, STEPS);
-                if at > 0 {
+                if let Some(at) = progress(shown_at, index as u64) {
                     *slot = lerp(from, to, at);
                 }
             }
             let strips = trail_strips(&rects, full);
-            // Clean pixels first everywhere this frame touches: XOR needs them,
-            // so the cursor overlay is lifted while the frame is drawn.
-            let lifted = self.cursor.lift(&mut self.screen);
-            for damage in previous.iter().chain(&strips) {
-                if !damage.is_empty() {
-                    self.compose(*damage);
-                }
-            }
-            // Overlapping outlines (equal ones as the eased motion settles, but
-            // also distinct ones that share an edge) would cancel under XOR,
-            // so the trail is drawn as disjoint pieces, each pixel inverted once.
-            // Every piece lies inside this frame's strips, recomposed above.
-            let mut pieces = [Rect::new(0, 0, 0, 0); MAX_PIECES];
-            let count = trail_pieces(&rects, &mut pieces);
-            for piece in &pieces[..count] {
-                self.screen.invert(*piece, full);
-            }
-            // The cursor stays above the outlines, at the newest pointer.
-            let stamped = self.stamp_cursor();
-            for shown in previous.iter().chain(&strips) {
-                if !shown.is_empty() {
-                    let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
-                }
-            }
-            present_cursor(lifted, stamped);
+            self.draw_frame(&previous, &strips, &rects);
             previous = strips;
-            // Pace the frames: `wait` with no children just sleeps to the
-            // deadline.
-            let _ = sys::wait(deadline);
+            // Pace to the frame's slot; a late frame skips the slots it
+            // missed instead of slowing the motion down.
+            let _ = sys::sleep_until_ns(start + shown_at);
+            if shown_at >= total {
+                break;
+            }
+            let elapsed = sys::monotonic_ns().saturating_sub(start);
+            frame = (frame + 1).max(elapsed / FRAME_NS + 1);
         }
+    }
+
+    /// Draw one animation frame: recompose what the last frame drew
+    /// (`previous`) and what this one covers (`strips`), XOR the trail
+    /// `rects` onto the clean pixels, put the cursor back on top and present
+    /// it all.
+    fn draw_frame(
+        &mut self,
+        previous: &[Rect; STRIPS],
+        strips: &[Rect; STRIPS],
+        rects: &[Rect; TRAIL as usize],
+    ) {
+        let full = self.full();
+        // Clean pixels first everywhere this frame touches: XOR needs them,
+        // so the cursor overlay is lifted while the frame is drawn.
+        let lifted = self.cursor.lift(&mut self.screen);
+        for damage in previous.iter().chain(strips) {
+            if !damage.is_empty() {
+                self.compose(*damage);
+            }
+        }
+        // Overlapping outlines (equal ones as the eased motion settles, but
+        // also distinct ones that share an edge) would cancel under XOR,
+        // so the trail is drawn as disjoint pieces, each pixel inverted once.
+        // Every piece lies inside this frame's strips, recomposed above.
+        let mut pieces = [Rect::new(0, 0, 0, 0); MAX_PIECES];
+        let count = trail_pieces(rects, &mut pieces);
+        for piece in &pieces[..count] {
+            self.screen.invert(*piece, full);
+        }
+        // The cursor stays above the outlines, at the newest pointer.
+        let stamped = self.stamp_cursor();
+        for shown in previous.iter().chain(strips) {
+            if !shown.is_empty() {
+                let _ = sys::display_present(shown.x, shown.y, shown.w, shown.h);
+            }
+        }
+        present_cursor(lifted, stamped);
     }
 
     /// Iconify in two phases: the window shrinks in place to a taskbar-entry
@@ -190,12 +223,19 @@ fn small_rect(window: Rect, w: i32, h: i32, bounds: Rect) -> Rect {
     super::geometry::clamp_into(small, bounds)
 }
 
-/// The rectangle `at`/[`STEPS`] of the way from `from` to `to`, eased out so
+/// How far along the move trail outline `index` is `elapsed` nanoseconds
+/// in, out of [`FULL`]; `None` before it has started (nothing drawn).
+fn progress(elapsed: u64, index: u64) -> Option<i32> {
+    let own = elapsed.checked_sub(index * TRAIL_LAG_NS).filter(|t| *t > 0)?;
+    Some((own.min(PHASE_NS) * FULL as u64 / PHASE_NS) as i32)
+}
+
+/// The rectangle `at`/[`FULL`] of the way from `from` to `to`, eased out so
 /// the motion starts fast and settles like the classic zoom.
 fn lerp(from: Rect, to: Rect, at: i32) -> Rect {
-    let t = at * 256 / STEPS;
-    let eased = 256 - (256 - t) * (256 - t) / 256;
-    let mix = |a: i32, b: i32| a + (b - a) * eased / 256;
+    let t = at.clamp(0, FULL);
+    let eased = FULL - (FULL - t) * (FULL - t) / FULL;
+    let mix = |a: i32, b: i32| a + (b - a) * eased / FULL;
     Rect::new(
         mix(from.x, to.x),
         mix(from.y, to.y),
@@ -276,10 +316,16 @@ pub(super) fn outline(screen: &mut Canvas, rect: Rect, clip: Rect) {
 pub(super) fn selftest_anim() -> &'static str {
     let from = Rect::new(10, 20, 200, 100);
     let to = Rect::new(300, 200, 400, 300);
-    let ends = lerp(from, to, STEPS) == to;
+    let ends = lerp(from, to, FULL) == to && lerp(from, to, 0) == from;
     // The eased motion starts past the linear midpoint.
-    let mid = lerp(from, to, STEPS / 2);
+    let mid = lerp(from, to, FULL / 2);
     let eased = mid.x > (from.x + to.x) / 2 && mid.w > (from.w + to.w) / 2;
+    // Time drives it: the trail starts staggered and ends together.
+    let total = PHASE_NS + TRAIL_LAG_NS * (TRAIL as u64 - 1);
+    let timed = progress(0, 0).is_none()
+        && progress(TRAIL_LAG_NS / 2, 1).is_none()
+        && progress(PHASE_NS / 2, 0) == Some(FULL / 2)
+        && (0..TRAIL as u64).all(|index| progress(total, index) == Some(FULL));
 
     // The icon-sized middle rectangle is centred on the window and clamped.
     let bounds = Rect::new(0, 0, 800, 600);
@@ -345,6 +391,7 @@ pub(super) fn selftest_anim() -> &'static str {
 
     if ends
         && eased
+        && timed
         && centred
         && clamped
         && disjoint

@@ -412,13 +412,12 @@ impl Backend for LazyOSBackend {
     fn set_timer(&self, window: WindowId, millis: u32) -> TimerId {
         let id = self.next_timer.get();
         self.next_timer.set(id + 1);
-        let millis = (millis as u64).max(1);
-        let deadline = sys::clock_ticks().saturating_add(millis.div_ceil(10));
+        let period_ns = (millis as u64).max(1) * 1_000_000;
         self.timers.borrow_mut().push(Timer {
             id,
             window: window.raw(),
-            millis,
-            deadline,
+            period_ns,
+            deadline_ns: sys::monotonic_ns().saturating_add(period_ns),
         });
         TimerId(id)
     }

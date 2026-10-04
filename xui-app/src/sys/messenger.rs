@@ -57,7 +57,8 @@ pub struct MsgArgs {
     pub buf_cap: u64,
     /// Absolute PIT deadline; 0 waits forever.
     pub deadline: u64,
-    /// Reserved; must be zero.
+    /// Op flags (the wait op's doorbells, [`WAIT_FD`], [`WAIT_DEADLINE_NS`]);
+    /// zero for every other op.
     pub flags: u64,
 }
 
@@ -289,6 +290,16 @@ pub fn msg_reply(txn: u64, reply: &Parcel) -> Result<(), i64> {
 
 /// Most endpoints one [`msg_wait_any`] may name (the kernel's limit).
 pub const WAIT_MAX_ENDPOINTS: usize = 8;
+/// Wait flag: the Linux descriptor in bits 32..63 of the flags is readable
+/// (the kernel's `channels::WAIT_FD`).
+pub const WAIT_FD: u64 = 8;
+/// Where [`WAIT_FD`]'s descriptor sits in the flags.
+pub const WAIT_FD_SHIFT: u32 = 32;
+/// Wait flag: the deadline is monotonic nanoseconds ([`super::monotonic_ns`]),
+/// not PIT ticks.
+pub const WAIT_DEADLINE_NS: u64 = 1 << 16;
+/// Ready-mask bit: the [`WAIT_FD`] descriptor is readable or hung up.
+pub const FD_READY: u64 = 1 << 60;
 
 /// Park until one of `handles` has a message (or a closed peer) or the
 /// absolute PIT `deadline` passes (docs/performance-plan.md P1.3, P3.8):
@@ -300,6 +311,22 @@ pub fn msg_wait_any(handles: &[u64], deadline: u64) -> Result<u64, i64> {
         parcel_ptr: handles.as_ptr() as u64,
         parcel_len: handles.len() as u64,
         deadline,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    messenger_syscall(msg_op::WAIT, &args, &mut result)?;
+    Ok(result.value)
+}
+
+/// [`msg_wait_any`] with wait `flags` ([`WAIT_FD`] and its descriptor) and
+/// an absolute [`super::monotonic_ns`] deadline, so a timer is not rounded
+/// to the 10 ms tick. `handles` may be empty when a descriptor is watched.
+pub fn msg_wait_any_ns(handles: &[u64], flags: u64, deadline_ns: u64) -> Result<u64, i64> {
+    let args = MsgArgs {
+        parcel_ptr: handles.as_ptr() as u64,
+        parcel_len: handles.len() as u64,
+        deadline: deadline_ns.max(1),
+        flags: flags | WAIT_DEADLINE_NS,
         ..MsgArgs::default()
     };
     let mut result = MsgResult::default();
