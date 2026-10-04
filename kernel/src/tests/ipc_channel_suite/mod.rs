@@ -94,12 +94,14 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
 }
 
 mod echo_and_calls;
+mod indexed;
 mod poll;
 mod release;
 mod resilience;
 mod targeted_wake;
 
 pub(super) use echo_and_calls::*;
+pub(super) use indexed::*;
 pub(super) use poll::*;
 pub(super) use release::*;
 pub(super) use resilience::*;
@@ -167,4 +169,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
         self_call_stays_runnable,
     ),
     ("ipc_channel_self_call_soak", self_call_soak),
+    ("ipc_channel_index_reuse_soak", index_reuse_soak),
+    (
+        "ipc_channel_million_calls_quota_exact",
+        million_calls_quota_exact,
+    ),
+    (
+        "ipc_channel_caller_dies_mid_call_soak",
+        caller_dies_mid_call_soak,
+    ),
 ];

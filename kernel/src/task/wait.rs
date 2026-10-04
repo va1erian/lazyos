@@ -171,6 +171,13 @@ impl WaitQueue {
         wake_task_with(task, WakeReason::Woken)
     }
 
+    /// Drop every entry for `task` without waking it: the teardown of a task
+    /// that died parked here (its wait loop never ran to remove itself), so
+    /// the queue does not keep, and later wake, a slot that may be reused.
+    pub fn forget(&self, task: usize) {
+        self.state.lock().waiters.retain(|&waiter| waiter != task);
+    }
+
     /// Whether `task` is enqueued here (test and diagnostics hook).
     #[allow(dead_code)]
     pub fn contains(&self, task: usize) -> bool {

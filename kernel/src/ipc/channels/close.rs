@@ -14,9 +14,13 @@ pub fn forget_task(slot: usize) {
         // A task that died parked in `recv` never unregistered itself; the
         // slot may be reused, so drop the stale entry.
         for endpoint in channel.endpoints.iter_mut() {
-            endpoint.waiters.retain(|&waiter| waiter != slot);
+            endpoint.waiters.remove(slot);
         }
     }
+    drop(channels);
+    // A task that died parked in `recv` or `await_reply` is still on the
+    // Messenger queue: its wait loop will never remove it.
+    MESSENGER.forget(slot);
 }
 
 /// Close one endpoint: drop its handle, mark the side closed, and fail every
@@ -62,13 +66,12 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
     let mut woken: Vec<usize> = Vec::new();
     {
         let mut channels = CHANNELS.lock();
-        if let Some(index) = channels.iter().position(|channel| channel.id == channel_id) {
-            let channel = &mut channels[index];
+        if let Some(channel) = channels.get_mut(channel_id) {
             channel.endpoints[side].closed = true;
             // The surviving side's receivers must observe `PeerDied`, and any
             // other holder parked on the closed side must stop waiting.
             for endpoint in channel.endpoints.iter_mut() {
-                woken.append(&mut endpoint.waiters);
+                woken.extend(endpoint.waiters.take().iter());
             }
             // Anything still queued for the dead side will never be received;
             // release the buffer references those messages hold.
@@ -111,9 +114,9 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
             }
         }
         if remove {
-            channels.retain(|channel| channel.id != channel_id);
+            channels.remove(channel_id);
         }
     }
-    wake(&woken);
+    wake(woken);
     Ok(())
 }
