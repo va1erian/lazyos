@@ -167,6 +167,7 @@ mod chmod_suite;
 mod confd_suite;
 mod credentials_suite;
 mod crypto_suite;
+mod deadline_suite;
 mod dev_suite;
 mod display_suite;
 mod exec_perm_suite;
@@ -236,6 +237,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     loader_suite::CASES,
     sched_suite::CASES,
     preempt_wake_suite::CASES,
+    deadline_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,
     ipc_suite::CASES,

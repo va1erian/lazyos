@@ -49,7 +49,7 @@ struct Waiter {
 static WAITERS: Mutex<Vec<Waiter>> = Mutex::new(Vec::new());
 
 /// Park the calling task on `key` until a wake that matches `bitset`, the
-/// tick `deadline`, or a signal. The caller has already checked the word, with
+/// `deadline` (monotonic ns), or a signal. The caller has already checked the word, with
 /// interrupts off, so no wake can run between that check and this park.
 pub(super) fn wait(key: Key, bitset: u32, deadline: Option<u64>) -> WakeReason {
     let slot = task::current();

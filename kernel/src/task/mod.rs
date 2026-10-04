@@ -101,6 +101,7 @@ mod schedule;
 pub mod slotmask;
 mod spawn;
 mod stats;
+pub mod timerq;
 mod waiting;
 
 pub use console::*;
@@ -116,6 +117,7 @@ pub use memstate::*;
 pub use preempt::pending as resched_pending;
 pub use preempt::{exit_cpu, interrupted_quiet_context, preempt_point};
 pub use sched::*;
+pub use schedule::expire_due;
 pub use spawn::*;
 pub use stats::*;
 pub use waiting::*;
@@ -229,8 +231,9 @@ pub enum WakeReason {
 pub enum TaskState {
     /// Eligible for the scheduler.
     Runnable,
-    /// Parked on a wait queue until woken or until `deadline` (absolute PIT
-    /// ticks, 100 Hz) passes. `None` means no timeout.
+    /// Parked on a wait queue until woken or until `deadline` (absolute
+    /// `arch::clock::monotonic_ns`, P2.1) passes. `None` means no timeout.
+    /// A deadline is also queued on `timerq::TIMERS` (`block_task`).
     Blocked {
         wait: WaitKind,
         deadline: Option<u64>,
@@ -398,9 +401,21 @@ pub fn free_slots() -> usize {
         .count()
 }
 
-/// The PIT tick counter (100 Hz). Wait deadlines are absolute tick values.
+/// The PIT tick counter (100 Hz). Tick-based wait APIs take absolute
+/// values of it; [`ticks_to_ns`] is what they mean on the timer queue.
 pub fn ticks() -> u64 {
     crate::arch::idt::TICKS.load(Ordering::Relaxed)
+}
+
+/// Nanoseconds per tick of [`ticks`] (100 Hz).
+pub const NS_PER_TICK: u64 = 10_000_000;
+
+/// A tick deadline as a monotonic-nanosecond deadline (saturating). Tick
+/// `t` begins at `t * 10 ms` of `arch::clock::monotonic_ns`, which reads
+/// `ticks() * 10 ms` plus less than one period, so the deadline passes on
+/// exactly the tick it always did.
+pub const fn ticks_to_ns(ticks: u64) -> u64 {
+    ticks.saturating_mul(NS_PER_TICK)
 }
 
 /// Timer ticks that found the CPU idle: the current task was parked in its

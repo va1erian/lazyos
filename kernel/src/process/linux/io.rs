@@ -12,7 +12,7 @@ use crate::user_ptr;
 use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
 use super::filerw::{read_file_bytes, write_file};
 use super::scatter::{Received, Scatter};
-use super::time::millis_to_ticks;
+use super::time::millis_deadline;
 use super::vfsfd;
 
 /// Bytes staged per `read`/`write` call through a pipe. A short transfer is
@@ -36,14 +36,14 @@ pub(super) fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
     let deadline = if (timeout as i64) < 0 {
         None
     } else {
-        Some(task::ticks() + millis_to_ticks(timeout))
+        Some(millis_deadline(timeout))
     };
     loop {
         let ready = scan_poll(fds, nfds);
         if ready > 0 {
             return ready;
         }
-        match task::wait_poll(deadline) {
+        match task::wait_poll_ns(deadline) {
             WakeReason::Woken => {} // input arrived: rescan
             WakeReason::TimedOut => return 0,
             WakeReason::Interrupted => return err(EINTR),

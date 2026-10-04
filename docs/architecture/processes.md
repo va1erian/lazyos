@@ -81,6 +81,7 @@ syscall shim.
 | 30 | `read_at(path, request)` | read up to `len` bytes of a file at `offset` into `buf`, where `request` points at three `u64`s `[buf, len, offset]`; at most 1 MiB per call, 0 at the end of the file (`process/fsops.rs`). Unlike syscall 3 it never loads the whole file into the kernel heap, so `pkgd` streams packages of any size with it (`user::files::read_large`) |
 | 31 | `spawnv(req)` | the argv-vector spawn (fs F3): path, `argv`, `envp`, personality and credential stamp in one request block; see below (`process/spawnv.rs`) |
 | 32 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
+| 34 | `mono_time(op, a1)` | the monotonic clock in nanoseconds: `now` (op 0) returns `arch::clock::monotonic_ns`, `sleep_until` (op 1) parks until that clock reaches `a1` and returns 0, or 1 when a signal ended it; open to every task, unknown op `-EINVAL` (`process/timesys.rs`; `sys::monotonic_ns`, `sys::sleep_ns`; docs/performance-plan.md P2) |
 
 - `spawnv` opens the ELF on the OS volume (`/system/bin/<name>`) and the
   loader streams it into the child (below), names the task after the file's basename and leaks one interned `&'static str`
