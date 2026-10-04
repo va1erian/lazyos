@@ -38,7 +38,7 @@ already owns (core apps follow the image; see "After the switch").
 | Separation of OS and state | `/system`, `/docs/os` and `/boot` are written only by image updates; `/apps`, `/conf`, `/logs` survive them; `/home` is its own volume (`filesystem-plan.md`) | the same split on **separate volumes**, so the OS can be replaced as a whole while state stays put |
 | Image update | the host build rewrites `/boot`, `/system`, `/docs/os` of `target/lazyos.img` offline, keeping state; `pkgd` upgrades core packages at the next boot after an image update (`libs/pkgstore/src/provision.rs`) | the same, done by the running system, atomically |
 | Boot path | `bootloader` 0.11.17 UEFI stage (`\EFI\BOOT\BOOTX64.EFI`) loads `kernel-x86_64`, `ramdisk` and `boot.json` by fixed names from **its own partition**; no menu, no fallback, no UEFI runtime services handed to the kernel | a choice between two installed releases, with boot counting |
-| Partitions | MBR only; `kernel/src/block/partition.rs` refuses GPT | GPT (the N150's factory disk is already GPT, and A/B needs more than four partitions) |
+| Partitions | MBR only; `kernel/src/block/partition.rs` refuses GPT | GPT, planned by the NVMe install (#564, N2); this plan adds two partitions to its layout |
 | Disk writes | ATA read-only; virtio-blk read/write; USB mass storage through `usbd` | an NVMe driver with writes (NVMe install effort) |
 | FAT | read-only FAT12/16 in the kernel; FAT32 refused (#248) | nothing for the OS slots (written as whole images); FAT32 read for the "update from any USB stick" source |
 | Integrity | SHA-256 (`libs/crypto`); core package index pins digests; `nettls-crypto` carries `ed25519-dalek` | a signature check on the bundle manifest |
@@ -62,43 +62,54 @@ already owns (core apps follow the image; see "After the switch").
 
 ## Key decisions
 
-1. **A/B slots, written as whole partition images.** A slot is a FAT boot
-   partition (`kernel-x86_64`, `lazyos.cfg`) and an ext2 system partition
-   (`/system`, `/docs/os`). The build already produces both images; the
-   updater writes them block for block to the inactive slot and reads them
-   back against the manifest's digests. The kernel never needs to write FAT
-   or replace ext2 files, and an interrupted write damages only the slot that
-   is not running.
-2. **The OS volume becomes read-only; state moves to its own volume.** `/` is
-   a persistent ext2 **state** volume holding `/apps`, `/conf`, `/logs` (and
-   `/home`, or `/home` stays its own partition as on the stick); the active
-   slot's system partition is mounted at `/system` (and `/docs/os`)
-   `ro,nosuid`. `lazyos.cfg` gains a `system=UUID=...` key next to `root=`
-   and `home=`. This is the F-series split taken one step further, and it
-   makes "the OS cannot be modified at runtime" true by construction.
+1. **A/B slots, each one ext2 image.** The NVMe install
+   ([`nvme-install-plan.md`](nvme-install-plan.md), #564) already reserves two
+   4 GiB root slots. A slot here holds the whole OS and nothing else: the
+   kernel at `boot/kernel-x86_64`, then `bin/`, `etc/`, `share/`,
+   `packages/` and `docs/` (what `/system` and `/docs/os` hold today). The
+   build already writes such an ext2 volume with `libs/ext2fs`; the updater
+   writes it block for block to the inactive slot and reads it back against
+   the manifest's digest. The kernel never needs to write FAT or replace ext2
+   files, and an interrupted write damages only the slot that is not running.
+2. **The slot is read-only; state moves to its own volume.** `/` is a
+   persistent ext2 **state** volume holding `/apps`, `/conf`, `/logs`; the
+   active slot is mounted at `/system` `ro,nosuid` (`/docs/os` becomes
+   `/system/docs`, one `libs/fhs` constant); `/home` stays its own volume.
+   This is the F-series split taken one step further, and it makes "the OS
+   cannot be modified at runtime" true by construction. With in-place
+   updates the state could have stayed on the root volume; with alternating
+   slots it cannot, because slot B would start without A's settings and apps.
 3. **A boot shim chooses the slot.** The ESP's `BOOTX64.EFI` is a fork of the
    `bootloader` 0.11.17 UEFI stage (one file, `uefi/src/main.rs`) that,
    before loading anything, reads the **boot control block** from a 1 MiB raw
    `lazyboot` partition through UEFI `BlockIO`, picks a slot, writes the
    decremented try counter back (firmware storage is writable before
-   `ExitBootServices`), and loads `kernel-x86_64` from that slot's FAT
-   partition instead of its own. Everything after the handoff is unchanged
-   `bootloader` code. UEFI `BootNext`/`BootOrder` would avoid the fork but
-   needs UEFI runtime services in the kernel, which `bootloader` 0.11 does not
-   pass on, and vendor firmware honours `BootNext` unevenly.
+   `ExitBootServices`), and reads `boot/kernel-x86_64` out of that slot's
+   ext2 volume with `libs/ext2fs` (already `no_std`, read path only) over
+   `BlockIO`, instead of loading `kernel-x86_64` from its own partition.
+   Everything after that is unchanged `bootloader` code. With no valid
+   control block it loads the ESP's own `kernel-x86_64` exactly as #564's
+   install does today, so a machine installed before updates exist still
+   boots, and the ESP kernel stays the last-resort path. UEFI
+   `BootNext`/`BootOrder` would avoid the fork but needs UEFI runtime
+   services in the kernel, which `bootloader` 0.11 does not pass on, and
+   vendor firmware honours `BootNext` unevenly.
 4. **Boot control block** (`libs/bootctl`, pure `no_std`, shared by the shim,
    the kernel and the host tools): magic, version, `active` slot, and per
-   slot `{release, tries_left, successful}`, CRC-32 over the whole; stored
-   twice (LBA 0 and LBA 1 of `lazyboot`) with a sequence number, written one
-   copy at a time, the newer valid copy wins. Rules, applied by the shim:
+   slot `{partition GUID, release, tries_left, successful}`, CRC-32 over the
+   whole; stored twice (LBA 0 and LBA 1 of `lazyboot`) with a sequence
+   number, written one copy at a time, the newer valid copy wins. Rules,
+   applied by the shim:
    - the active slot with `successful` boots;
    - the active slot without `successful` and `tries_left > 0` boots after
      `tries_left -= 1` is written;
    - otherwise the other slot becomes active, if it is `successful`;
-   - neither bootable: the shim says so on screen and boots the stick-style
-     recovery path (any USB stick carrying LazyOS still works).
-   The kernel reads the block at boot to learn which slot it is (and so which
-   FAT volume is `/boot`) and logs `UPDATE:SLOT:<a|b> TRY:<n>`.
+   - neither bootable: the shim says so on screen and loads the ESP kernel
+     (and any USB stick carrying LazyOS still works as a rescue medium).
+   The kernel reads the block at boot to learn which slot it runs from,
+   mounts that partition at `/system` (overriding a `system=` line in the
+   ESP's `lazyos.cfg`, which keeps `root=` for the state volume, `home=` and
+   the limits) and logs `UPDATE:SLOT:<a|b> TRY:<n>`.
 5. **"Good" means the session came up.** `updated` marks the running slot
    `successful` (and stops counting) once `healthd`'s summary is `ok` and the
    session has run for 60 s; until then a panic or a hang costs one try. Trial
@@ -106,58 +117,56 @@ already owns (core apps follow the image; see "After the switch").
    (driver package) covers hangs. Three tries by default.
 6. **A signed bundle, trust carried by the image.** A `.lzu` file is a zip
    (the `lazypkg` container rules: no zip64, deflate or stored, path checks)
-   holding `manifest.toml`, `boot.img` and `system.img`. The manifest names
-   the release, the channel, the minimum release it may be installed over,
-   the hardware profile, and the size and SHA-256 of each image;
+   holding `manifest.toml` and `system.img` (the slot volume, kernel
+   included). The manifest names the release, the channel, the minimum
+   release it may be installed over, the hardware profile, and the image's
+   size and SHA-256;
    `manifest.sig` is an Ed25519 signature of the manifest's bytes. Trusted
    keys live in `/system/etc/update/keys/`, so a release can rotate them for
    the next one. The updater checks the signature before reading anything
    else and refuses a release older than the running one unless asked
    (`updatectl install --allow-downgrade`).
 7. **`updated` is a service with one narrow capability.** It holds write
-   access to exactly two partitions, the inactive slot's, plus the
-   `lazyboot` block, granted by the kernel by partition GUID; it serves
+   access to exactly the inactive slot's partition and the `lazyboot`
+   partition, granted by the kernel by partition GUID; it serves
    `os.lazy.update.v1` (check, download, install, status, mark-good,
    rollback) to `updatectl` and the Settings app, under policy like every
    other privileged action. Nothing else can write a slot.
 
 ## Disk layout (NVMe, GPT)
 
-Agreed with the NVMe install effort; slot B can stay empty until the first
-update, but its partitions exist from day one so no repartitioning is ever
-needed.
+The layout of #564 with two partitions added before home, which stays last
+so the installer can grow it to the end of the disk. Slot B stays empty until
+the first update, but every partition exists from day one so no
+repartitioning is ever needed.
 
-| # | Name | Type | Size | Content |
+| # | Name | Format | Size | Content |
 |---|---|---|---|---|
-| 1 | `ESP` | EFI System | 64 MiB | `\EFI\BOOT\BOOTX64.EFI` (the boot shim) |
-| 2 | `lazyboot` | raw | 1 MiB | boot control block, two copies |
-| 3 | `boot_a` | FAT16 | 64 MiB | `kernel-x86_64`, `lazyos.cfg` (`root=`, `system=`, `home=`) |
-| 4 | `boot_b` | FAT16 | 64 MiB | same, slot B |
-| 5 | `system_a` | ext2 | 2 GiB | `/system`, `/docs/os` (38 MiB today) |
-| 6 | `system_b` | ext2 | 2 GiB | same, slot B |
-| 7 | `state` | ext2 | 8 GiB | `/` with `/apps`, `/conf`, `/logs` |
-| 8 | `lazyhome` | ext2 | rest | `/home` |
+| 1 | ESP | FAT16 | 256 MiB | `\EFI\BOOT\BOOTX64.EFI` (the boot shim), `kernel-x86_64` (fallback), `lazyos.cfg` (`root=` the state volume, `home=`) |
+| 2 | `lazyos-a` | ext2 | 4 GiB | slot A: `boot/kernel-x86_64`, `bin/`, `etc/`, `share/`, `packages/`, `docs/` (about 40 MiB today) |
+| 3 | `lazyos-b` | ext2 | 4 GiB | slot B, same shape, empty until the first update |
+| 4 | `lazyboot` | raw | 1 MiB | boot control block, two copies (**added**) |
+| 5 | `state` | ext2 | 8 GiB | `/` with `/apps`, `/conf`, `/logs` (**added**) |
+| 6 | `home` | ext2 | the rest | `/home` |
 
-If the NVMe kernel driver lands after this plan, the same design works with a
-RAM root: the slot's FAT partition carries `ramdisk` next to the kernel, as on
-the stick, and the system partitions are unused. Only `/home` and state then
-need the NVMe driver.
+If updates have to come before the slot split (state still on slot A), the
+interim is #564 as is plus reinstalling from the stick; see "Sources".
 
 ## Architecture
 
 ```
  release CI (or a dev host)
-   build ─► boot.img + system.img ─► manifest.toml ─► sign (Ed25519) ─► lazyos-<rel>.lzu
+   build ─► system.img (slot volume) ─► manifest.toml ─► sign (Ed25519) ─► lazyos-<rel>.lzu
             └─► feed.json on GitHub Releases (channel ─► latest release, URL, size)
 
  updated (on the machine)
    source: feed over HTTPS │ file on /home │ USB stick ─► verify manifest.sig
-   ─► stream boot.img and system.img into the inactive slot's partitions
+   ─► stream system.img into the inactive slot's partition
    ─► read back, compare SHA-256 ─► bootctl: other slot active, successful=0, tries=3
    ─► ask to restart
 
- boot shim (ESP)        reads lazyboot ─► picks slot ─► tries-1 ─► loads boot_<x>/kernel
- kernel                 reads lazyboot ─► /boot = boot_<x>, /system = system_<x>, / = state
+ boot shim (ESP)        reads lazyboot ─► picks slot ─► tries-1 ─► kernel from lazyos-<x>/boot
+ kernel                 reads lazyboot ─► / = state, /system = lazyos-<x> (ro), /boot = ESP (ro)
  init, healthd          session up ─► health ok for 60 s ─► updated: mark successful
  pkgd                   core packages differ from /apps ─► upgrades them (exists)
  failure                panic (reboot in 10 s) │ hang (watchdog) ─► tries run out ─► previous slot
@@ -197,9 +206,9 @@ out as above), because a broken updater is found in CI, not on the mini PC.
 
 | Phase | Deliverable | Tests and evidence |
 |---|---|---|
-| **U0** Layout | With the NVMe install: GPT parsing in `partition.rs`, the eight-partition layout written by the installer with slot B empty, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
+| **U0** Layout | With the NVMe install (#564): its GPT reader, the six-partition layout above written by the installer with slot B empty, the build writing the slot volume and the state volume separately, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot, `/docs/os` moved to `/system/docs`; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
 | **U1** Bundles | `libs/lzupdate` (manifest schema with `deny_unknown_fields`, container via `lazypkg`'s reader, Ed25519 verify), `tools/update/build.py` (images from `target/`, manifest, sign with a key file), `cargo build` writes `target/lazyos-<rel>.lzu` when `LAZYOS_UPDATE_KEY` is set; CI attaches unsigned bundles to every run and signed ones to tags | `cargo test -p lzupdate`: wrong key, flipped byte in each image, manifest with an unknown field, downgrade, wrong hardware profile, oversize entry, zip64; fuzz entry on the manifest and container; `test_build.py` cross-checks host and guest rules |
-| **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI`, kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged; corrupt `lazyboot` entirely, A still boots |
+| **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI` (control block, ext2 read of the slot's kernel, fallback to the ESP kernel), kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged; corrupt `lazyboot` entirely, the ESP kernel still boots |
 | **U3** `updated` and `updatectl` | the service, the `os.lazy.update.v1` IDL, the kernel partition grant, install from a file, mark-good from health, rollback, `/logs/update.log` | harness: install bundle N+1 from `/home`, reboot, `UPDATE:GOOD b`, `/system` is N+1, `/apps` core packages upgraded, settings kept; power off QEMU mid-write, reboot, still on N and `updatectl status` explains; `updatectl rollback` returns to N; security suite: an unlabelled app cannot reach `os.lazy.update.v1` and no process but `updated` can open a slot partition |
 | **U4** Network and UI | feed client in `updated` (rustls, the system CA bundle, the feed's TLS pinned to GitHub's hosts), channels `stable` and `dev`, daily check, a Settings "Updates" page (check, release notes, install, restart, rollback, last result), `tools/update/push.py` | harness with a local HTTPS server under the test CA (as `tools/net/tls_run.py`): update found, downloaded, installed, booted; truncated download, wrong digest, expired feed are refused and explained; screenshot of the Settings page read |
 | **U5** Later | delta bundles (per-block, against the inactive slot's known release), background download, automatic install at a chosen hour, conf snapshots generalised, slot-aware recovery menu in the shim | as each lands |
@@ -208,7 +217,7 @@ out as above), because a broken updater is found in CI, not on the mini PC.
 
 Order of what has to exist before the machine can update itself:
 
-1. NVMe install with the U0 layout (or the RAM-root variant): reinstalling
+1. NVMe install (#564) with the U0 layout: reinstalling
    from the stick is the update path at this point.
 2. U1 + U2 + U3: updates from a file on `/home` or an ext2 stick, with
    fallback. No NIC needed.
@@ -221,8 +230,10 @@ Order of what has to exist before the machine can update itself:
 - **Who signs releases?** A key held only on the developer's machine (sign
   locally, upload by hand) or a GitHub Actions secret (every tag signed by
   CI). The second is convenient and makes the CI account the root of trust.
-- **Ship `/docs/os` in the slot or on state?** In the slot keeps docs
-  matching the release; it costs nothing at these sizes. Proposed: slot.
+- **Where does state live?** This plan adds a `state` partition. The
+  alternative is keeping `/apps`, `/conf`, `/logs` on the home volume, which
+  saves a partition but mixes system state with user files on a volume users
+  are told is theirs. Proposed: a separate partition.
 - **Does the boot shim ever update?** v1 says no: changing `BOOTX64.EFI` is a
   reinstall. If it must, write `BOOTX64.EFI.new` beside it and let the shim
   of N+1, once marked good, rename it through UEFI file protocol on the next
