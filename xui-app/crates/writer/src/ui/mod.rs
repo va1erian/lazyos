@@ -13,27 +13,24 @@ use std::rc::Rc;
 
 use xui_core::Dip;
 use xui_core::app::Ui;
-use xui_core::arrange::{LayoutExt, column, row, spacer, widget};
+use xui_core::arrange::{Handle, LayoutExt, build as build_with, column, status_bar};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
-use xui_core::layout::Insets;
-use xui_core::widget::{Lucide, Placeable, StatusBar, ToggleButton, Toolbar, Tooltip};
-use xui_rich_text::model::{Align, ListKind};
+use xui_core::layout::Constraints;
+use xui_core::widget::{Lucide, Placeable, Toolbar};
 use xui_rich_text::{RichTextEditor, ViewMode};
 
-use crate::app::{Mark, Msg, Writer, shortcut};
+use crate::app::{Msg, Writer, shortcut};
 use crate::files::word_count;
 use crate::host::Host;
 
+use tools::ToolHandles;
 pub use tools::{
     ALIGNS, BLOCK_ICONS, BLOCKS, DEFAULT_SIZE, FAMILIES, SIZES, Tools, WRAPS, family_index,
 };
-use tools::{picker, push, toggle};
 
 const TOOLBAR_HEIGHT: Dip = Dip(36.0);
 const FORMAT_HEIGHT: Dip = Dip(34.0);
-/// The width of an icon-only button in the formatting row.
-const ICON_WIDTH: Dip = Dip(32.0);
 
 /// The toolbar's commands, in the order of its items.
 const COMMANDS: [fn() -> Msg; 12] = [
@@ -59,7 +56,7 @@ impl Placeable<Msg> for ToolbarPane {
         self.0.id()
     }
 
-    fn natural_size(&self, _ui: &Ui<Msg>, _dpi: u32) -> Size {
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 }
@@ -72,131 +69,63 @@ impl Placeable<Msg> for EditorPane {
         self.0.id()
     }
 
-    fn natural_size(&self, _ui: &Ui<Msg>, _dpi: u32) -> Size {
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 }
 
 /// The command toolbar: files, history, clipboard, insert.
-fn command_toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
-    Ok(Toolbar::empty(ui, Rect::default())?
-        .item_with_text(Lucide::FilePlus, "New (Ctrl+N)", "New")
-        .item_with_text(Lucide::FolderOpen, "Open (Ctrl+O)", "Open")
-        .item_with_text(Lucide::Save, "Save (Ctrl+S)", "Save")
-        .item_with_text(Lucide::Download, "Export as Markdown (Ctrl+E)", "Export")
-        .separator()
-        .item_with_text(Lucide::Undo2, "Undo (Ctrl+Z)", "Undo")
-        .item_with_text(Lucide::Redo2, "Redo (Ctrl+Y)", "Redo")
-        .separator()
-        .item_with_text(Lucide::Scissors, "Cut (Ctrl+X)", "Cut")
-        .item_with_text(Lucide::Copy, "Copy (Ctrl+C)", "Copy")
-        .item_with_text(Lucide::ClipboardPaste, "Paste (Ctrl+V)", "Paste")
-        .separator()
-        .item_with_text(Lucide::Image, "Insert image", "Image")
-        .item_with_text(Lucide::Link, "Link the selection", "Link")
-        .item_with_text(
-            Lucide::SeparatorHorizontal,
-            "Page break (Ctrl+Enter)",
-            "Page break",
-        )
-        .on_click(|index| COMMANDS.get(index).map(|msg| msg())))
+fn command_toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
+    Ok(ToolbarPane(
+        Toolbar::empty(ui, Rect::default())?
+            .item_with_text(Lucide::FilePlus, "New (Ctrl+N)", "New")
+            .item_with_text(Lucide::FolderOpen, "Open (Ctrl+O)", "Open")
+            .item_with_text(Lucide::Save, "Save (Ctrl+S)", "Save")
+            .item_with_text(Lucide::Download, "Export as Markdown (Ctrl+E)", "Export")
+            .separator()
+            .item_with_text(Lucide::Undo2, "Undo (Ctrl+Z)", "Undo")
+            .item_with_text(Lucide::Redo2, "Redo (Ctrl+Y)", "Redo")
+            .separator()
+            .item_with_text(Lucide::Scissors, "Cut (Ctrl+X)", "Cut")
+            .item_with_text(Lucide::Copy, "Copy (Ctrl+C)", "Copy")
+            .item_with_text(Lucide::ClipboardPaste, "Paste (Ctrl+V)", "Paste")
+            .separator()
+            .item_with_text(Lucide::Image, "Insert image", "Image")
+            .item_with_text(Lucide::Link, "Link the selection", "Link")
+            .item_with_text(
+                Lucide::SeparatorHorizontal,
+                "Page break (Ctrl+Enter)",
+                "Page break",
+            )
+            .on_click(|index| COMMANDS.get(index).map(|msg| msg())),
+    ))
 }
 
-/// The formatting row's controls.
-fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 2])> {
-    let block = picker(ui, &BLOCKS, Msg::Block)?;
-    for (index, icon) in BLOCK_ICONS.into_iter().enumerate() {
-        block.set_item_icon(index, Some(icon.into()));
-    }
-    let family = picker(ui, &FAMILIES, Msg::Family)?;
-    let size_labels: Vec<String> = SIZES.iter().map(|s| format!("{s}")).collect();
-    let size_refs: Vec<&str> = size_labels.iter().map(String::as_str).collect();
-    let size = picker(ui, &size_refs, Msg::Size)?;
-    size.select(DEFAULT_SIZE);
-    let wrap = picker(ui, &WRAPS, Msg::Wrap)?;
-    wrap.set_enabled(false);
-
-    let mut tips = Vec::new();
-    let t = &mut tips;
-    let marks = [
-        toggle(ui, t, (Lucide::Bold, "Bold (Ctrl+B)"), || {
-            Msg::Toggle(Mark::Bold)
-        })?,
-        toggle(ui, t, (Lucide::Italic, "Italic (Ctrl+I)"), || {
-            Msg::Toggle(Mark::Italic)
-        })?,
-        toggle(ui, t, (Lucide::Underline, "Underline (Ctrl+U)"), || {
-            Msg::Toggle(Mark::Underline)
-        })?,
-        toggle(ui, t, (Lucide::Strikethrough, "Strikethrough"), || {
-            Msg::Toggle(Mark::Strike)
-        })?,
-    ];
-    let aligns = [
-        toggle(ui, t, (Lucide::TextAlignStart, "Align left"), || {
-            Msg::Align(Align::Left)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignCenter, "Centre"), || {
-            Msg::Align(Align::Center)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignEnd, "Align right"), || {
-            Msg::Align(Align::Right)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignJustify, "Justify"), || {
-            Msg::Align(Align::Justify)
-        })?,
-    ];
-    let lists = [
-        toggle(ui, t, (Lucide::List, "Bulleted list"), || {
-            Msg::List(ListKind::Bullet)
-        })?,
-        toggle(ui, t, (Lucide::ListOrdered, "Numbered list"), || {
-            Msg::List(ListKind::Numbered)
-        })?,
-    ];
-    let indent = push(ui, t, (Lucide::IndentIncrease, "Indent"), || Msg::Indent)?;
-    let outdent = push(ui, t, (Lucide::IndentDecrease, "Outdent"), || Msg::Outdent)?;
-    let page_view = Rc::new(
-        ToggleButton::auto(ui, "")?
-            .icon(Lucide::BookOpen)
-            .on_toggle(|on| Some(Msg::PageView(on))),
-    );
-    page_view.set_checked(true);
-    t.push(Tooltip::attach(ui, page_view.id(), "Page view")?);
-    let page_setup = Rc::new(push(ui, t, (Lucide::Ruler, "Page setup"), || {
-        Msg::PageSetup
-    })?);
-    let tools = Tools {
-        block,
-        family,
-        size,
-        marks,
-        aligns,
-        lists,
-        wrap,
-        page_view,
-        page_setup,
-        tips,
-    };
-    Ok((tools, [indent, outdent]))
+/// The editor, in page view, wired to its messages.
+fn new_editor(ui: &Ui<Msg>) -> Result<EditorPane> {
+    let editor = RichTextEditor::new(ui, Rect::default())?
+        .on_change(|doc| Some(Msg::Edited(word_count(doc))))
+        .on_selection(|summary| Some(Msg::Selection(summary.clone())))
+        .on_link(|url| Some(Msg::LinkClicked(url.to_owned())))
+        .view_mode(ViewMode::Page);
+    Ok(EditorPane(Rc::new(editor)))
 }
 
 /// Builds the app's widgets, wires the window's keys and close button, and
 /// mounts the layout.
 pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
-    let editor = Rc::new(
-        RichTextEditor::new(ui, Rect::default())?
-            .on_change(|doc| Some(Msg::Edited(word_count(doc))))
-            .on_selection(|summary| Some(Msg::Selection(summary.clone())))
-            .on_link(|url| Some(Msg::LinkClicked(url.to_owned())))
-            .view_mode(ViewMode::Page),
-    );
-    let commands = command_toolbar(ui)?;
-    let (tools, [indent, outdent]) = format_tools(ui)?;
-    let status = Rc::new(StatusBar::auto(
-        ui,
-        &["Untitled", "Saved", "0 words", "Page 1 of 1"],
-    )?);
+    let tools = ToolHandles::default();
+    let editor = Handle::new();
+    let status = Handle::new();
+    let mounted = ui.mount(column().children((
+        build_with(command_toolbar).height(TOOLBAR_HEIGHT),
+        tools.row().fixed(FORMAT_HEIGHT),
+        build_with(new_editor).bind(&editor).fill(1),
+        status_bar(&["Untitled", "Saved", "0 words", "Page 1 of 1"]).bind(&status),
+    )))?;
+    let editor = Rc::clone(&editor.get().0);
+    let tools = tools.tools();
+    let status = status.get();
     let dialogs = dialogs::build(ui, &host)?;
 
     let dialog_open = Rc::new(Cell::new(false));
@@ -206,42 +135,6 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         ui.on_key(move |key, modifiers| shortcut(key, modifiers, &dialog_open));
     }
 
-    let gap = Dip(6.0);
-    let t = &tools;
-    let root = column()
-        .child(widget(ToolbarPane(commands)).height(TOOLBAR_HEIGHT))
-        .child(
-            row()
-                .spacing(Dip(4.0))
-                .margins(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .child((&t.block).width(Dip(120.0)))
-                .child((&t.family).width(Dip(96.0)))
-                .child((&t.size).width(Dip(64.0)))
-                .child(spacer().width(gap))
-                .child((&t.marks[0]).width(ICON_WIDTH))
-                .child((&t.marks[1]).width(ICON_WIDTH))
-                .child((&t.marks[2]).width(ICON_WIDTH))
-                .child((&t.marks[3]).width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.aligns[0]).width(ICON_WIDTH))
-                .child((&t.aligns[1]).width(ICON_WIDTH))
-                .child((&t.aligns[2]).width(ICON_WIDTH))
-                .child((&t.aligns[3]).width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.lists[0]).width(ICON_WIDTH))
-                .child((&t.lists[1]).width(ICON_WIDTH))
-                .child(indent.width(ICON_WIDTH))
-                .child(outdent.width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.wrap).width(Dip(120.0)))
-                .child(spacer())
-                .child((&t.page_view).width(ICON_WIDTH))
-                .child((&t.page_setup).width(ICON_WIDTH))
-                .fixed(FORMAT_HEIGHT),
-        )
-        .child(widget(EditorPane(Rc::clone(&editor))).fill(1))
-        .child(&status);
-    let mounted = ui.mount(root)?;
     editor.focus();
 
     let app = Writer {

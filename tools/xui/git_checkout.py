@@ -44,12 +44,13 @@ Run it through the build scripts (``tools/xui/build.py``,
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-# One xui revision for every crate the apps build (`xui-app/Cargo.toml`, docs,
-# web, LazyWriter, LazyRAD). Keep in step with those manifests.
+# The revision `main` seeds when run by hand. A build seeds the revision its
+# manifest pins (`pinned_rev`), so a bump needs no edit here.
 XUI_REV = "c7cd6d0838be293063f887ed9d8043fbe6143e4f"
 XUI_URL = "https://github.com/va1erian/xui"
 # The directory whose files Windows cannot name must be left out of every
@@ -137,16 +138,16 @@ def _submodule_matches(checkout: Path, path: str) -> bool:
     return diff.returncode == 0
 
 
-def seed(checkout: Path) -> None:
-    """Materialise the pinned xui sources and every submodule in an existing
-    cargo git checkout."""
+def seed(checkout: Path, rev: str | None = None) -> None:
+    """Materialise the xui sources at ``rev`` (default ``XUI_REV``) and every
+    submodule in an existing cargo git checkout."""
     checkout.parent.mkdir(parents=True, exist_ok=True)
     if not (checkout / ".git").exists():
         if checkout.exists():
             _rmtree(checkout)
         subprocess.run(["git", "clone", "--quiet", str(_db_for(checkout)), str(checkout)], check=True)
     run = ["git", "-C", str(checkout)]
-    subprocess.run(run + ["checkout", "--quiet", "--force", XUI_REV], check=True)
+    subprocess.run(run + ["checkout", "--quiet", "--force", rev or XUI_REV], check=True)
     for name, path, url in _submodules(checkout):
         # `update = none` would make cargo skip the submodule on its next resolve.
         subprocess.run(run + ["config", "--unset-all", f"submodule.{name}.update"],
@@ -259,7 +260,7 @@ def resolve(manifest: Path, env: dict[str, str] | None = None) -> bool:
     if os.name != "nt":
         print(first.stderr.strip(), file=sys.stderr)
         return False
-    if not ensure_xui_checkout():
+    if not ensure_xui_checkout(pinned_rev(manifest)):
         print(first.stderr.strip(), file=sys.stderr)
         return False
     second = probe()
@@ -270,7 +271,18 @@ def resolve(manifest: Path, env: dict[str, str] | None = None) -> bool:
     return True
 
 
-def ensure_xui_checkout(rev: str = XUI_REV) -> bool:
+def pinned_rev(manifest: Path) -> str:
+    """The xui revision ``manifest`` pins: the ``rev`` of its first
+    ``va1erian/xui`` git dependency (or ``[patch]``), else ``XUI_REV``."""
+    pattern = re.compile(r'github\.com/va1erian/xui".*?rev\s*=\s*"([0-9a-f]{40})"')
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        found = pattern.search(line)
+        if found:
+            return found.group(1)
+    return XUI_REV
+
+
+def ensure_xui_checkout(rev: str | None = None) -> bool:
     """Make cargo's checkouts of the xui repository usable on Windows. Returns
     True if all are usable (or the fix is not needed on this host)."""
     if os.name != "nt":
@@ -279,6 +291,7 @@ def ensure_xui_checkout(rev: str = XUI_REV) -> bool:
     # Cargo fetches the revision itself when it resolves the dependency; once it
     # has, its bare repos are here and the checkouts can be seeded. At least one
     # URL spelling of the repository must be present for the fix to matter.
+    rev = rev or XUI_REV
     checkouts = find_checkouts(git, rev)
     if not checkouts:
         return False
@@ -287,7 +300,7 @@ def ensure_xui_checkout(rev: str = XUI_REV) -> bool:
         if checkout_seeded(checkout):
             continue
         try:
-            seed(checkout)
+            seed(checkout, rev)
         except subprocess.CalledProcessError as error:
             print(f"warning: could not seed the xui checkout {checkout}: {error}",
                   file=sys.stderr)

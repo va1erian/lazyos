@@ -170,5 +170,35 @@ class GitCheckoutTests(unittest.TestCase):
         self.assertTrue(git_checkout.checkout_seeded(checkout))
 
 
+class PinnedRevTests(unittest.TestCase):
+    def manifest(self, text: str) -> Path:
+        """`text` written as a throwaway Cargo.toml."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "Cargo.toml"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_the_manifest_pin_wins_over_the_default(self) -> None:
+        """A bump in the manifest is seeded with no edit to this tool."""
+        rev = "a" * 40
+        path = self.manifest(
+            'serde = "1"\n'
+            f'xui-core = {{ git = "https://github.com/va1erian/xui", rev = "{rev}" }}\n'
+        )
+        self.assertEqual(git_checkout.pinned_rev(path), rev)
+
+    def test_a_patch_spelling_is_found_and_no_pin_falls_back(self) -> None:
+        rev = "b" * 40
+        patched = self.manifest(
+            '[patch."https://www.github.com/va1erian/xui"]\n'
+            f'xui-core = {{ git = "https://www.github.com/va1erian/xui", rev = "{rev}" }}\n'
+        )
+        self.assertEqual(git_checkout.pinned_rev(patched), rev)
+        self.assertEqual(
+            git_checkout.pinned_rev(self.manifest('serde = "1"\n')), git_checkout.XUI_REV
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

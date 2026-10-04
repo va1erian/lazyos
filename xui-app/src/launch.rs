@@ -6,6 +6,11 @@
 //! `xuid` desktop session the compositor already holds the display grant, so
 //! the same binaries must take the client path instead.
 
+use std::rc::Rc;
+
+use xui_core::app::{App, Ui};
+use xui_core::backend::Backend;
+
 use crate::backend::LazyOSBackend;
 
 /// The argument `init`'s app registry passes to a desktop app.
@@ -36,6 +41,43 @@ impl LazyOSBackend {
             let (width, height) = self.screen();
             let scale = self.scale() as i32;
             (width / scale, height / scale)
+        }
+    }
+}
+
+/// Runs a desktop app: connects (owner or client mode), opens a window titled
+/// `title` at `windowed` design pixels (the whole screen as display owner) in
+/// the desktop's theme, builds the app with `make`, runs it, releases the
+/// display and exits the process.
+///
+/// Failures are reported on the serial console as `<marker>:BIND:FAIL:<errno>`
+/// (no display) and `<marker>:RUN:FAIL:<error>` (the window or a widget could
+/// not be built); the process exits 0 after a clean quit, 1 otherwise. `make`
+/// gets the backend for app-specific evidence (`on_first_frame`) and requests
+/// (`request_size`).
+pub fn run<A, F>(marker: &str, title: &str, windowed: (i32, i32), make: F) -> !
+where
+    A: App,
+    F: FnOnce(&mut Ui<A::Msg>, &Rc<LazyOSBackend>) -> xui_core::backend::Result<A>,
+{
+    let backend = match LazyOSBackend::connect() {
+        Ok(backend) => Rc::new(backend),
+        Err(code) => {
+            println!("{marker}:BIND:FAIL:{code}");
+            std::process::exit(1);
+        }
+    };
+    let (width, height) = backend.window_size(windowed);
+    let outcome = xui_core::app(title)
+        .size(width, height)
+        .backend(Rc::clone(&backend) as Rc<dyn Backend>)
+        .run(|ui| make(ui, &backend));
+    backend.unbind();
+    match outcome {
+        Ok(()) => std::process::exit(0),
+        Err(error) => {
+            println!("{marker}:RUN:FAIL:{error}");
+            std::process::exit(1);
         }
     }
 }

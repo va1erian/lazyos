@@ -20,6 +20,12 @@ use super::zorder::family;
 use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
+    /// The desktop's mode and accent, so every app window opens in the
+    /// desktop's theme without asking for it.
+    fn system_theme(&self) -> Option<Theme> {
+        self.desktop_theme()
+    }
+
     fn run(&self) -> i32 {
         let Some(primary) = self.primary.get() else {
             return 1;
