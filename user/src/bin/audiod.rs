@@ -86,6 +86,8 @@ fn run(demo: bool) -> Result<(), MsgError> {
         0,
     )?;
     sys::write_str(&format!("AUDIOD:READY name={}\n", api::NAME));
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
 
     let mut server = Server::new();
     let mut demo = Demo::new(demo);

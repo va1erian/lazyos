@@ -11,6 +11,7 @@ pub mod pte;
 mod reclaim;
 mod regions;
 pub use reclaim::reclaim_empty_tables;
+pub mod fbwindow;
 pub mod slab;
 mod table_guard;
 pub mod untouched;
@@ -55,6 +56,8 @@ pub fn usable_ram() -> u64 {
 
 #[cfg(lazyos_tests)]
 pub use heap::harness as heap_harness;
+#[cfg(lazyos_tests)]
+pub use heap::small_live as heap_small_live;
 pub use heap::{locked as heap_locked, HeapStats};
 
 /// Snapshot of the kernel heap's counters; see [`HeapStats`]. The system-stats

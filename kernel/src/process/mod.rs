@@ -131,6 +131,7 @@ pub mod power;
 pub mod randsys;
 mod spawn;
 pub mod spawnv;
+pub mod timesys;
 pub mod wallsys;
 
 use credio::{read_cred, write_cred};
@@ -196,7 +197,7 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
         return u64::MAX;
     };
     task::write_output(bytes);
-    crate::serial::write_bytes(bytes);
+    crate::serial::mirror(bytes);
     len
 }
 
@@ -318,11 +319,8 @@ fn sys_sbrk(increment: u64) -> u64 {
 fn exit(code: u32) -> ! {
     serial_println!("user: task exited with status {code}");
     task::finish_current(code as u64);
-    // Wait for the scheduler to switch to another task.
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
+    // Hand the CPU on now rather than at the next tick (P1.5).
+    task::exit_cpu()
 }
 
 /// syscall 7: wait for a child exit and reap it.

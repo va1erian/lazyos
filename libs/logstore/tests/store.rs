@@ -95,10 +95,13 @@ fn appends_are_buffered_then_flushed() {
             .unwrap();
     }
     assert_eq!(store.persisted(), 0);
+    // A service that parks between events wakes exactly when `tick` flushes.
+    assert_eq!(store.flush_due(), Some(FLUSH_TICKS));
     store.tick(FLUSH_TICKS - 1).unwrap();
     assert_eq!(store.persisted(), 0);
     store.tick(FLUSH_TICKS).unwrap();
     assert_eq!(store.persisted(), FLUSH_RECORDS - 1);
+    assert_eq!(store.flush_due(), None, "nothing buffered, nothing due");
     for seq in 0..FLUSH_RECORDS {
         store
             .append(100 + seq, 200, "system/health/confd", "status=ok")

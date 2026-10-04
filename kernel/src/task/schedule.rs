@@ -13,12 +13,42 @@ use super::*;
 /// Returns the `rsp` to resume (the next task's saved context).
 #[no_mangle]
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
-    let tick = tick != 0;
+    let started = crate::perf::sched_enter();
+    ENTRIES.fetch_add(1, Ordering::Relaxed);
+    let rsp = decide(current_rsp, tick != 0);
+    crate::perf::sched_exit(started);
+    rsp
+}
+
+/// Scheduler entries since boot (ticks, parks and yields).
+static ENTRIES: AtomicU64 = AtomicU64::new(0);
+/// Entries that put a different task on the CPU.
+static SWITCHES: AtomicU64 = AtomicU64::new(0);
+
+/// Context switches since boot: scheduler entries that resumed a task other
+/// than the one they interrupted (the idle-desktop rate, P6/P7).
+#[allow(dead_code)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub fn context_switches() -> u64 {
+    SWITCHES.load(Ordering::Relaxed)
+}
+
+/// Scheduler entries since boot, switching or not.
+#[allow(dead_code)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
+pub fn scheduler_entries() -> u64 {
+    ENTRIES.load(Ordering::Relaxed)
+}
+
+/// The body of [`schedule`].
+fn decide(current_rsp: u64, tick: bool) -> u64 {
     if tick && crate::arch::timer::stale_tick() {
         // An APIC tick accepted before line 0 was masked: no tick happened
         // for the kernel, exactly as a masked 8259 line delivers nothing.
         return current_rsp;
     }
+    // SAFETY: `current_rsp` is the frame the gate just saved: 15 registers,
+    // then RIP and CS.
+    let code_segment = unsafe { sys::frame_word(current_rsp, 16) };
+    let quiet = preempt::interrupted_quiet_context(code_segment);
     if tick {
         // Periods lost to interrupts-off stretches are caught up here
         // (issue #344); a normal entry is exactly one.
@@ -32,10 +62,16 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
         // task table lock: the keyboard path takes it.
         crate::input::ps2::service();
         crate::input::ps2::dispatch();
+        // Device interrupts raised while this tick's target held a lock wait
+        // no longer than one tick that lands in user code or a nap (P1.2).
+        if quiet {
+            crate::dev::intx::service_in_interrupt();
+        }
     }
 
     #[cfg(lazyos_tests)]
     harness::note_entry_flags();
+    let preempted = preempt::take_preempting() && !tick;
     let cur = CURRENT.load(Ordering::Relaxed);
     if tick {
         diag::note_tick(cur, current_rsp);
@@ -46,6 +82,8 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
     }
+    #[cfg(lazyos_tests)]
+    runq::verify(&tasks);
     on_entry(&mut tasks, cur, tick);
 
     // Apply pending signals at the boundary back to user mode: a term/core
@@ -65,18 +103,33 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     // address space would otherwise leak (issue #133). The interrupted task is
     // left for the tick that switches away from it; `reclaim_pending` frees
     // the flagged slots from task context.
-    for slot in 1..MAX_TASKS {
-        if slot != cur {
-            mark_finished(&tasks, slot);
-        }
-    }
+    flag_finished(&tasks, cur);
 
     // Pick the highest class with a runnable task, then the fairest member
     // within it. A task that is blocked or done is never selected.
     // `select_next` falls back to `cur` when nothing is runnable at all;
     // resuming `cur` there just re-enters its wait loop instead of stalling
-    // the CPU.
-    let next = select_next(&mut tasks, cur);
+    // the CPU. A task parking right after a Messenger call or reply runs
+    // its partner instead (P6.2, `preempt::hand_off`).
+    let charged_at = preempt::open_charge(cur);
+    let next = match preempt::take_handoff(&tasks, cur) {
+        Some(partner) => {
+            preempt::clear();
+            charge(&mut tasks, partner);
+            partner
+        }
+        None => select_next(&mut tasks, cur),
+    };
+    // `cur` leaves the CPU mid-quantum, preempted by a wake or parked: it
+    // pays for what it used (P6.2, `preempt::refund`).
+    let parked = tasks[cur]
+        .as_ref()
+        .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }));
+    if let Some(at) = charged_at {
+        if next != cur && (parked || (preempted && runnable(&tasks, cur))) {
+            preempt::refund(&mut tasks, cur, at);
+        }
+    }
     if next == cur {
         drop(tasks);
         signal::finish_sweep(&sweep_finished[..sweep_count]);
@@ -88,10 +141,22 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
     mark_finished(&tasks, cur);
     drop(tasks);
     signal::finish_sweep(&sweep_finished[..sweep_count]);
+    SWITCHES.fetch_add(1, Ordering::Relaxed);
     // The live x87/SSE registers are `cur`'s user state (the kernel is
     // soft-float): park them before `install` loads the next task's.
     fpu::save(cur);
     resume(next, cur)
+}
+
+/// Flag every finished parentless task except `cur` for reclamation. Only
+/// finished tasks are visited (the run queues' done mask, P6.1); zombies a
+/// parent has yet to reap stay in it and are skipped by `mark_finished`.
+pub(super) fn flag_finished(tasks: &[Option<Task>; MAX_TASKS], cur: usize) {
+    for slot in runq::done().iter() {
+        if slot != cur && slot != KERNEL_TASK {
+            mark_finished(tasks, slot);
+        }
+    }
 }
 
 /// Install `next` and return the stack pointer to resume it with, delivering
@@ -128,6 +193,7 @@ fn install(slot: usize) -> u64 {
         (task.pml4, task.kstack_top, task.rsp, task.fs_base)
     };
     CURRENT.store(slot, Ordering::Relaxed);
+    crate::perf::on_run(slot);
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
     if kstack_top != 0 {
@@ -149,11 +215,18 @@ fn install(slot: usize) -> u64 {
 /// timer callback. It also runs on voluntary entries: a deadline that passed
 /// while the CPU was busy is honoured at the next scheduling decision.
 pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: bool) {
+    charge_window_ticks(tasks, cur);
     if tick {
         charge_tick(tasks, cur);
     }
-    let now = crate::arch::idt::TICKS.load(Ordering::Relaxed);
-    expire_deadlines(tasks, now);
+    expire_deadlines(tasks, crate::arch::clock::monotonic_ns());
+}
+
+/// Expire what is due now: the deadline timer's interrupt
+/// (`arch::event_timer`). Call with interrupts off and no lock held.
+pub fn expire_due() {
+    let mut tasks = TASKS.lock();
+    expire_deadlines(&mut tasks, crate::arch::clock::monotonic_ns());
 }
 
 /// Book one timer period to whoever consumed it: the current task when it
@@ -174,6 +247,24 @@ pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
         }
         _ => {
             super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Charge the ticks taken inside interrupt windows (`arch::irq_window`),
+/// which could not lock the table, to `cur`: windows open only in the running
+/// task's syscall and never switch, so every one since the last scheduler
+/// entry was `cur`'s, even if it has just blocked (a park is a voluntary
+/// entry right after the syscall's work).
+fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
+    let ticks = crate::arch::irq_window::take_uncharged();
+    if ticks == 0 {
+        return;
+    }
+    match tasks[cur].as_mut() {
+        Some(task) => task.cpu_ticks = task.cpu_ticks.saturating_add(ticks),
+        None => {
+            super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
         }
     }
 }

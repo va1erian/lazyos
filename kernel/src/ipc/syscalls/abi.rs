@@ -97,6 +97,20 @@ pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 /// number of rules now held by the label.
 pub const OP_ACL_LOAD: u64 = 18;
 
+/// Park until one of several endpoints is ready (docs/performance-plan.md
+/// P1.3, P1.4): `parcel_ptr` points at `parcel_len` endpoint handles (`u64`,
+/// at most `channels::MAX_WAIT_ENDPOINTS`), `deadline` as for `recv`, and
+/// `flags` may hold the doorbells `channels::WAIT_RAW_INPUT` (the caller's
+/// raw input ring, syscall 25) and `channels::WAIT_DISPLAY_KEYS` (a key in
+/// the display owner's input queue) and `channels::WAIT_INET` (the `AF_INET`
+/// pump's doorbell, the attached `netd` only) and `channels::WAIT_CHILD` (a
+/// child of the caller finished, any task; P7.1); a doorbell the caller may not use is
+/// `-ENOENT`. Nothing is received; `value` is the ready mask (bit `i` for
+/// handle `i`, `channels::RAW_INPUT_READY` / `DISPLAY_INPUT_READY` / `INET_READY` /
+/// `CHILD_READY` for the doorbells). A kernel ABI op, not a Messenger interface: no parcel crosses
+/// it, so there is nothing for MIDL to describe.
+pub const OP_WAIT: u64 = 19;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 

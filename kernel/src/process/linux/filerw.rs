@@ -11,6 +11,11 @@ use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM, ENOSPC, ESPIPE};
 use super::fd::fd_meta_get;
 use super::vfsfd;
 
+/// Most bytes one snapshot `write` stages and hands to the ABI VFS at a time,
+/// so the kernel-heap copy of a large `write` stays bounded (the VFS-backed
+/// path clamps identically, [`super::vfsfd::WRITE_MAX`]).
+const WRITE_CHUNK: usize = 1 << 20;
+
 /// Read from a snapshot descriptor into the user buffer at `ptr`.
 ///
 /// The bytes are staged in kernel memory, copied out through the validated
@@ -58,12 +63,11 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     let Some(path) = meta.path else {
         return err(EBADF);
     };
-    let Ok(bytes) = user_ptr::try_bytes(ptr, len as usize) else {
-        return err(EFAULT);
-    };
     let id = Id::current();
     let position = task::fd_offset(fd as usize).unwrap_or(0);
-    let offset = if meta.append {
+    // The base offset: EOF for an append, the explicit `pwrite` offset, or the
+    // descriptor position. Each piece lands just past the previous one.
+    let base = if meta.append {
         match crate::fs::abi_stat(id, &path) {
             Ok(stat) => stat.size,
             Err(error) => return fs_err(error),
@@ -71,26 +75,46 @@ pub(super) fn write_file(fd: u64, ptr: u64, len: u64, at: Option<u64>) -> u64 {
     } else {
         at.unwrap_or(position as u64)
     };
-    // Reserve the snapshot's room first: once the backing file has accepted
-    // the bytes, mirroring them must not run out of memory.
-    if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
-        return err(ENOMEM);
-    }
-    match crate::fs::abi_write(id, &path, offset, bytes) {
-        Ok(written) => {
-            let written_bytes = &bytes[..written];
-            // A positional write leaves the shared position alone.
-            let mirrored = match at {
-                Some(_) => task::fd_apply_pwrite(fd as usize, offset as usize, written_bytes),
-                None => task::fd_apply_write(fd as usize, offset as usize, written_bytes),
-            };
-            if !mirrored {
-                return err(ENOMEM);
-            }
-            written as u64
+    // Staged in pieces: the write may sleep, and the user buffer may be
+    // unmapped meanwhile (`vfsfd::stage`). Bounding the staged piece keeps the
+    // kernel-heap copy of one `write` from growing with its length; the
+    // VFS-backed path clamps the same way (`vfsfd::WRITE_MAX`).
+    let mut done = 0u64;
+    while done < len {
+        let piece = (len - done).min(WRITE_CHUNK as u64) as usize;
+        let Some(src) = ptr.checked_add(done) else {
+            return if done > 0 { done } else { err(EFAULT) };
+        };
+        let offset = base.saturating_add(done);
+        let bytes = match vfsfd::stage(src, piece) {
+            Ok(bytes) => bytes,
+            Err(code) => return if done > 0 { done } else { code },
+        };
+        // Reserve the snapshot's room first: once the backing file has
+        // accepted the bytes, mirroring them must not run out of memory.
+        if !task::prepare_fd_write(fd as usize, offset as usize, bytes.len()) {
+            return if done > 0 { done } else { err(ENOMEM) };
         }
-        Err(error) => fs_err(error),
+        match crate::fs::abi_write(id, &path, offset, &bytes) {
+            Ok(written) => {
+                let written_bytes = &bytes[..written];
+                // A positional write leaves the shared position alone.
+                let mirrored = match at {
+                    Some(_) => task::fd_apply_pwrite(fd as usize, offset as usize, written_bytes),
+                    None => task::fd_apply_write(fd as usize, offset as usize, written_bytes),
+                };
+                if !mirrored {
+                    return if done > 0 { done } else { err(ENOMEM) };
+                }
+                done += written as u64;
+                if written < bytes.len() {
+                    break; // a short write: report the bytes that landed
+                }
+            }
+            Err(error) => return if done > 0 { done } else { fs_err(error) },
+        }
     }
+    done
 }
 
 /// The node a device descriptor was opened as, if `fd` is one.

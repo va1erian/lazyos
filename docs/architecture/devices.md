@@ -19,7 +19,7 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)).
 | `kernel/src/dev/table.rs` | fixed `MAX_DEVICES = 32` table; `owner: Option<TaskSlot>` + `generation` |
 | `kernel/src/dev/driver.rs` | `Driver` trait (`matches` / `attach` / `detach`) and the static `DRIVERS` table |
 | `kernel/src/dev/irq.rs` | ISR-side `dispatch(line)` (lock-free), kernel `fn(line)` handlers, which lines are routable |
-| `kernel/src/dev/intx.rs` | Task-context bottom half and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
+| `kernel/src/dev/intx.rs` | The bottom half (task context, or the line's interrupt when it stopped lock-free code) and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
 | `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
@@ -71,8 +71,13 @@ so it takes no lock and allocates nothing: it recognises a spurious IRQ 7/15
 (in-service register), runs a kernel driver's `fn(line)` if one is registered,
 and otherwise masks the line, sets an atomic raised bit and sends a *specific*
 EOI (an unclaimed line is masked and counted, so it cannot storm). The bottom
-half, `intx::service`, runs from every native syscall entry and each mux frame:
-it posts one one-way message per armed claimant from the kernel identity
+half, `intx::service`, runs right after `dispatch` in the line's own stub when
+the interrupt stopped user code or a task inside `task::nap` (code that holds
+no lock: `task::interrupted_quiet_context`), and otherwise on the next native
+syscall entry, Linux syscall return, timer tick landing in such code, or mux
+frame (docs/performance-plan.md P1.2). Inside an interrupt a raise nobody can
+be told of keeps its line masked until a task-context pass, so a device nobody
+quiets cannot re-enter forever. The bottom half posts one one-way message per armed claimant from the kernel identity
 (`ipc::channels::post_from_kernel`, sender slot 0) and expires ack deadlines.
 The message is interface `os.kernel.dev`, method `irq`, body `u32` device id,
 `u32` irq index (0), `u32` claim generation. The shared-line contract (opt-in

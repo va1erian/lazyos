@@ -96,3 +96,50 @@ fn bench_small_tree_counts() {
     );
     assert!(cached.reads * 8 < direct.reads, "{cached:?} vs {direct:?}");
 }
+
+/// CPU cost of streaming one large file through the cache: what the kernel's
+/// sequential write and read paths spend outside the device. Prints MB/s.
+#[test]
+#[ignore = "benchmark: run with --release --ignored --nocapture"]
+fn bench_stream_64mb() {
+    let io = formatted(512 << 20, 4096);
+    let fs = open_cached(&io, 8192);
+    fs.create("/big", 0o644, crate::Owner { uid: 0, gid: 0 })
+        .unwrap();
+    let chunk = std::vec![0x5au8; 1 << 20];
+    let start = std::time::Instant::now();
+    for index in 0..64u64 {
+        let mut done = 0;
+        while done < chunk.len() {
+            done += fs
+                .write(
+                    "/big",
+                    index * (1 << 20) + done as u64,
+                    &chunk[done..(done + 65536).min(chunk.len())],
+                )
+                .unwrap();
+        }
+    }
+    let wrote = start.elapsed();
+    fs.flush().unwrap();
+    let flushed = start.elapsed();
+    let mut buf = std::vec![0u8; 1 << 20];
+    let start = std::time::Instant::now();
+    for index in 0..64u64 {
+        let mut done = 0;
+        while done < buf.len() {
+            let end = (done + 65536).min(buf.len());
+            done += fs
+                .read("/big", index * (1 << 20) + done as u64, &mut buf[done..end])
+                .unwrap();
+        }
+    }
+    let read = start.elapsed();
+    std::println!(
+        "write {:.1} MB/s (flush {} ms), read {:.1} MB/s; {:?}",
+        64.0 / wrote.as_secs_f64(),
+        (flushed - wrote).as_millis(),
+        64.0 / read.as_secs_f64(),
+        fs.cache_stats()
+    );
+}

@@ -8,6 +8,10 @@
 
 use alloc::vec::Vec;
 
+/// Cached blocks visited between two [`BlockIo::pace`] calls while ordering
+/// a writeback.
+const PACE_EVERY: usize = 256;
+
 use super::roles::Phase;
 use super::{page, BlockCache};
 use crate::{BlockIo, IoError};
@@ -22,27 +26,39 @@ impl BlockCache {
         if self.journal.is_some() {
             return self.flush_journaled(io);
         }
-        let mut order: Vec<(Phase, u64, usize)> = self
-            .map
-            .iter()
-            .filter(|&(_, &index)| self.slots[index].dirty)
-            .map(|(&block, &index)| {
-                (
-                    self.roles.phase(block, self.slots[index].fresh),
-                    block,
-                    index,
-                )
-            })
-            .collect();
-        order.sort_unstable();
+        let order = self.order(io);
         self.stats.writebacks += 1;
         let mut start = 0;
         while start < order.len() {
+            io.pace();
             let end = self.run_end(&order, start);
             self.write_run(io, &order[start..end])?;
             start = end;
         }
         Ok(())
+    }
+
+    /// The dirty blocks sorted by (phase, block). The map is already in block
+    /// order, so one pass into a bucket per phase sorts them: no comparison
+    /// sort over thousands of entries in one stretch, and the host gets a
+    /// pause every [`PACE_EVERY`] blocks ([`BlockIo::pace`]).
+    fn order(&self, io: &dyn BlockIo) -> Vec<(Phase, u64, usize)> {
+        let mut buckets: [Vec<(Phase, u64, usize)>; Phase::ALL.len()] = Default::default();
+        for (seen, (&block, &index)) in self.map.iter().enumerate() {
+            if seen % PACE_EVERY == 0 {
+                io.pace();
+            }
+            let slot = &self.slots[index];
+            if slot.dirty {
+                let phase = self.roles.phase(block, slot.fresh);
+                buckets[phase as usize].push((phase, block, index));
+            }
+        }
+        let mut order = Vec::with_capacity(self.dirty);
+        for bucket in &mut buckets {
+            order.append(bucket);
+        }
+        order
     }
 
     /// One past the last entry of the run starting at `start`: same phase,

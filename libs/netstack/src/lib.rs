@@ -40,5 +40,5 @@ pub use config::Mode;
 pub use device::{DeviceStats, RingDevice};
 pub use stack::{
     ready, valid_host_name, Counters, DhcpState, Kind, LookupOutcome, LookupResult, PingError,
-    PingOutcome, PingResult, ResolveError, SockAddr, SockError, Source, Stack, State,
+    PingOutcome, PingResult, Received, ResolveError, SockAddr, SockError, Source, Stack, State,
 };

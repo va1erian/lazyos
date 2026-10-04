@@ -9,14 +9,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 /// How many reports go to serial; later ones stay silent so a dying device
 /// cannot flood the log.
 const MAX_LOGS: u32 = 8;
-/// A request that spun this long still completed, but the timeout is close
-/// enough that the host is clearly stalling.
-pub const SLOW_SPINS: u64 = 1_000_000;
 /// Legacy virtio device-status register offset from the I/O BAR.
 const DEVICE_STATUS: u16 = 18;
 
-/// Report a failed or suspiciously slow request. `detail` is the status byte
-/// for a device error, or the spin count for a slow completion.
+/// Report a failed request. `detail` is the status byte for a device error.
 pub fn log(io: u16, write: bool, lba: u64, bytes: usize, what: &str, detail: u64) {
     static LOGGED: AtomicU32 = AtomicU32::new(0);
     if LOGGED.fetch_add(1, Ordering::Relaxed) >= MAX_LOGS {

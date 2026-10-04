@@ -8,7 +8,8 @@ use super::*;
 /// [`wait::WaitQueue`], which also records a wake reason and a deadline.
 #[allow(dead_code)]
 pub fn set_blocked(blocked: bool) {
-    if let Some(task) = TASKS.lock()[current()].as_mut() {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[current()].as_mut() {
         if task.state == TaskState::Done {
             return;
         }
@@ -22,6 +23,7 @@ pub fn set_blocked(blocked: bool) {
         };
         task.wake_reason = None;
     }
+    runq::sync(&tasks, current());
 }
 
 /// Whether the current task is parked on a wait queue.
@@ -43,15 +45,31 @@ pub fn wake_task(index: usize) -> bool {
     wake_task_with(index, WakeReason::Woken)
 }
 
-/// Mark task `index` blocked with a reason and an optional absolute deadline.
+/// Mark task `index` blocked with a reason and an optional absolute deadline
+/// (`arch::clock::monotonic_ns`), queueing the deadline on the timer queue.
 ///
 /// Callers park the task on a queue first and call this with interrupts
 /// disabled, so the timer ISR can never schedule a half-parked task.
 pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
-    if let Some(task) = TASKS.lock()[index].as_mut() {
+    let mut tasks = TASKS.lock();
+    if let Some(task) = tasks[index].as_mut() {
         if task.state != TaskState::Done {
             task.state = TaskState::Blocked { wait, deadline };
             task.wake_reason = None;
+            set_timer(index, deadline);
+        }
+    }
+    runq::sync(&tasks, index);
+}
+
+/// Queue (or, for `None`, cancel) `index`'s deadline. Call with `TASKS`
+/// held: the queue lock nests inside it (`timerq`).
+pub(super) fn set_timer(index: usize, deadline: Option<u64>) {
+    let mut timers = timerq::TIMERS.lock();
+    match deadline {
+        Some(deadline) => timers.arm(index, deadline),
+        None => {
+            timers.cancel(index);
         }
     }
 }
@@ -61,14 +79,23 @@ pub(crate) fn block_task(index: usize, wait: WaitKind, deadline: Option<u64>) {
 /// left untouched so the scheduler never resurrects it).
 pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
     let mut tasks = TASKS.lock();
-    // A task that slept while its peers ran rejoins at the current virtual
+    // A task that slept while its peers ran rejoins near the current virtual
     // time instead of being handed a burst of catch-up quanta (issue #58).
     let now = virtual_now(&tasks);
     if let Some(task) = tasks[index].as_mut() {
-        if matches!(task.state, TaskState::Blocked { .. }) {
+        if let TaskState::Blocked { deadline, .. } = task.state {
+            if deadline.is_some() {
+                timerq::TIMERS.lock().cancel(index);
+            }
             task.state = TaskState::Runnable;
             task.wake_reason = Some(reason);
-            task.pass = task.pass.max(now);
+            rejoin(task, now);
+            runq::sync(&tasks, index);
+            let cur = CURRENT.load(Ordering::Relaxed);
+            crate::perf::on_wake(index, cur);
+            if super::preempt::note_wake(&tasks, index, cur) {
+                super::sched::rearm_event_timer();
+            }
             return true;
         }
     }
@@ -89,21 +116,34 @@ pub fn wait_terminal() -> WakeReason {
 }
 
 /// Park the current task until terminal input or a pipe event arrives, or
-/// `deadline` passes. The queue is advisory: the caller rescans its descriptors
-/// and parks again if nothing it watches changed.
-pub fn wait_poll(deadline: Option<u64>) -> WakeReason {
-    wait::POLL.wait(current(), deadline)
+/// `deadline` (`arch::clock::monotonic_ns`) passes. The queue is advisory:
+/// the caller rescans its descriptors and parks again if nothing it watches
+/// changed.
+///
+/// This waiter recorded no interest, so any poll event wakes it
+/// (`pollwait`); `poll` and `select` use [`super::wait_poll_keyed_ns`].
+pub fn wait_poll_ns(deadline: Option<u64>) -> WakeReason {
+    super::pollwait::wait_any_ns(deadline)
 }
 
 /// Wake every `poll` waiter (pipe data, space, EOF, or `-EPIPE`). Pipe code and
 /// the input paths call this; wakeups are advisory.
 pub fn notify_poll() {
     wait::POLL.notify_all();
+    // The same event for a Messenger wait set parked on a descriptor.
+    crate::ipc::channels::wake_fd_watchers();
 }
 
 /// Park the current task until `deadline` (absolute PIT ticks) passes.
+#[allow(dead_code)] // the suites' tick-paced sleeps
 pub fn wait_sleep(deadline: u64) -> WakeReason {
-    wait::SLEEP.wait(current(), Some(deadline))
+    wait_sleep_ns(ticks_to_ns(deadline))
+}
+
+/// Park the current task until `deadline` (`arch::clock::monotonic_ns`)
+/// passes. Call with interrupts disabled (a syscall).
+pub fn wait_sleep_ns(deadline: u64) -> WakeReason {
+    wait::SLEEP.wait_ns(current(), Some(deadline))
 }
 
 /// Sleep until the next interrupt, then mask interrupts again.
@@ -116,8 +156,16 @@ pub fn wait_sleep(deadline: u64) -> WakeReason {
 /// this way). `enable_and_hlt` also closes the race between the check and
 /// the sleep.
 pub fn nap() {
+    crate::arch::irqoff::close();
+    crate::perf::irqoff_pause();
+    // An interrupt that stops this halt may run the device bottom half: a
+    // napping task holds no lock (P1.2, `preempt::interrupted_quiet_context`).
+    super::preempt::nap_begin();
     x86_64::instructions::interrupts::enable_and_hlt();
     x86_64::instructions::interrupts::disable();
+    super::preempt::nap_end();
+    crate::perf::irqoff_resume();
+    crate::arch::irqoff::resume();
 }
 
 /// Call `ready` until it yields a value, [`nap`]ping between attempts, so
@@ -140,8 +188,13 @@ pub fn poll_until<T>(mut ready: impl FnMut() -> Option<T>) -> T {
 /// frames is what bounds the mux's CPU share: an `Interactive` task that is
 /// only runnable one quantum in a handful cannot starve user work.
 pub fn idle(deadline: u64) -> WakeReason {
+    idle_ns(ticks_to_ns(deadline))
+}
+
+/// [`idle`] until `deadline` in `arch::clock::monotonic_ns`.
+pub fn idle_ns(deadline: u64) -> WakeReason {
     x86_64::instructions::interrupts::disable();
-    let reason = wait::SLEEP.wait(current(), Some(deadline));
+    let reason = wait::SLEEP.wait_ns(current(), Some(deadline));
     x86_64::instructions::interrupts::enable();
     reason
 }

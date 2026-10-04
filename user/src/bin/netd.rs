@@ -8,12 +8,13 @@
 //! process and never a compromise of the device. Under `init` it runs as the
 //! `_netd` user.
 //!
-//! **One wait.** The loop has a single blocking call: `recv` on the service
-//! endpoint with the deadline smoltcp's `poll_delay` gives. The NIC driver's
-//! `Notify` messages are posted into that same endpoint (the notify endpoint
-//! handed to it is a handle to this one), so client calls, NIC wake-ups and
-//! timers all come through one place. A `Ping` call is parked and answered
-//! when the result is in.
+//! **One wait.** The loop has a single blocking call: `wait_any` on the
+//! service endpoint and the kernel's `AF_INET` doorbell, with the deadline
+//! smoltcp's `poll_delay` gives. The NIC driver's `Notify` messages are
+//! posted into that same endpoint (the notify endpoint handed to it is a
+//! handle to this one), so client calls, NIC wake-ups, Linux programs'
+//! socket activity and timers all come through one place. A `Ping` call is
+//! parked and answered when the result is in.
 //!
 //! **State** lives on retained topics (`system/net/eth0/addr`,
 //! `system/events/network/up`); `confd` supplies the configuration under
@@ -37,7 +38,7 @@ use netstack::{RingDevice, Stack};
 use user::messenger::net::wire as nic_wire;
 use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api};
-use user::messenger::{self, errno, registry, services, Error as MsgError};
+use user::messenger::{self, errno, registry, services, wait, Error as MsgError};
 use user::sys;
 
 #[path = "netd/config.rs"]
@@ -71,10 +72,11 @@ const PLACEHOLDER_MAC: [u8; 6] = [0x02, 0x4C, 0x5A, 0x00, 0x00, 0x01];
 
 /// Longest park in the loop with nothing scheduled, ticks.
 const IDLE_TICKS: u64 = 100;
-/// Longest park while the kernel may have a Linux socket request for us, ticks.
-const INET_IDLE_TICKS: u64 = 5;
 /// Ticks the demo waits for an address before starting its clients anyway.
 const DEMO_ADDRESS_TICKS: u64 = 2000;
+/// Longest park while a `demo=1` client runs: its exit sends no message, so
+/// the loop looks for it this often to start the next one without a gap.
+const DEMO_REAP_TICKS: u64 = 2;
 
 /// The clients `demo=1` runs, one after another. See `netctl.rs`, `ping.rs`,
 /// `nslookup.rs` and `nc.rs`. The socket clients talk to the harness's echo
@@ -180,7 +182,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         api::INTERFACE
     ));
 
-    let now_ms = sys::clock() as i64 * 10;
+    let now_ms = sys::monotonic_ms() as i64;
     let stack = Stack::new(
         RingDevice::detached(1514),
         PLACEHOLDER_MAC,
@@ -204,7 +206,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
 
     loop {
         let tick = sys::clock();
-        let now_ms = tick as i64 * 10;
+        let now_ms = sys::monotonic_ms() as i64;
 
         // The NIC: rebuild the attachment when asked to, when the ring broke,
         // or when the driver went quiet; attach when it is time to.
@@ -251,7 +253,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         netd.finish_pings(&server);
         netd.finish_lookups(&server);
         netd.service_parked(&server, now_ms);
-        netd.inet.pump(&mut netd.stack, tick, now_ms);
+        let inet_moved = netd.inet.pump(&mut netd.stack, tick, now_ms);
         for (txn, parcel) in core::mem::take(&mut netd.outbox) {
             let _ = server.reply_or_drop(txn, &parcel);
         }
@@ -301,17 +303,41 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         if netd.stack.socket_open_count() > 0 {
             wait = wait.min(next_sweep.saturating_sub(tick));
         }
-        // The kernel never wakes this loop for a Linux program's socket, so
-        // look again soon: at once when there is work, otherwise now and then.
-        wait = wait.min(if netd.inet.busy() { 1 } else { INET_IDLE_TICKS });
-        let received = if pending || wait == 0 {
+        if demo_child.is_some() {
+            wait = wait.min(DEMO_REAP_TICKS);
+        }
+        if inet_moved {
+            wait = 0;
+        }
+        // Park on the endpoint and, once attached, the kernel's `AF_INET`
+        // doorbell (an application wrote, read, closed or asked for
+        // something), so neither a client nor a Linux socket waits for a
+        // timer (docs/performance-plan.md P4.1).
+        let doorbells = if netd.inet.attached() {
+            wait::WAIT_INET
+        } else {
+            0
+        };
+        let ready = if pending || wait == 0 {
+            1
+        } else {
+            match wait::wait_any(&[server], doorbells, Some(tick + wait)) {
+                Ok(mask) => mask,
+                Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => 0,
+                // The kernel refused the doorbell: another stack attached to
+                // the AF_INET table since. Stop serving it (the pump attaches
+                // again later, as after any loss) and look again.
+                Err(MsgError::Errno(code)) if code == -errno::ENOENT && doorbells != 0 => {
+                    netd.inet.lost(tick);
+                    0
+                }
+                Err(error) => return Err(fail(error)),
+            }
+        };
+        let received = if ready & 1 != 0 {
             server.poll_recv_with(&mut buffer)
         } else {
-            match server.recv_with(&mut buffer, Some(tick + wait)) {
-                Ok(message) => Ok(Some(message)),
-                Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
-                Err(error) => Err(error),
-            }
+            Ok(None)
         };
         let message = match received {
             Ok(message) => message,
@@ -345,7 +371,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
             }
             continue;
         }
-        let reply = netd.dispatch(&message, sys::clock() as i64 * 10);
+        let reply = netd.dispatch(&message, sys::monotonic_ms() as i64);
         // A one-way message has nobody to answer, and a parked call is
         // answered later.
         if let Some(txn) = message.txn {

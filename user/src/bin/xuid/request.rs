@@ -160,8 +160,9 @@ impl Compositor {
             self.repaint_full();
         }
         // Register the surface with `inputd` before the client learns its id,
-        // so the `Open` it sends next can find it.
-        self.sync_input();
+        // so the `Open` it sends next can find it. Ignore the connect backoff:
+        // this is the one moment the registration matters.
+        self.sync_input_now();
         typed_reply(
             message.method(),
             wire::encode_create_surface_reply(&wire::CreateSurfaceReply { surface: id }),

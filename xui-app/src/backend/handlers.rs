@@ -42,8 +42,8 @@ impl Backend for LazyOSBackend {
                 break;
             }
             if self.is_client() {
-                // Each client window's event receive already parked this task
-                // for up to one tick; no extra sleep.
+                // Park until an event reaches any window or a timer is due.
+                self.park_client();
                 continue;
             }
             sys::sleep_millis(POLL_MILLIS);
@@ -332,8 +332,8 @@ impl Backend for LazyOSBackend {
         self.damage_node(id);
     }
 
-    fn invalidate_rect(&self, id: WidgetId, _rect: Rect) {
-        self.damage_node(id);
+    fn invalidate_rect(&self, id: WidgetId, rect: Rect) {
+        self.damage_node_rect(id, rect);
     }
 
     fn set_painter(&self, id: WidgetId, painter: Painter) {
@@ -412,13 +412,12 @@ impl Backend for LazyOSBackend {
     fn set_timer(&self, window: WindowId, millis: u32) -> TimerId {
         let id = self.next_timer.get();
         self.next_timer.set(id + 1);
-        let millis = (millis as u64).max(1);
-        let deadline = sys::clock_ticks().saturating_add(millis.div_ceil(10));
+        let period_ns = (millis as u64).max(1) * 1_000_000;
         self.timers.borrow_mut().push(Timer {
             id,
             window: window.raw(),
-            millis,
-            deadline,
+            period_ns,
+            deadline_ns: sys::monotonic_ns().saturating_add(period_ns),
         });
         TimerId(id)
     }

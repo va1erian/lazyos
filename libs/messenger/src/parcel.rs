@@ -87,6 +87,33 @@ impl Parcel {
 
     /// Decode a parcel, validating every length and limit.
     pub fn decode(bytes: &[u8]) -> Result<Parcel, Error> {
+        let view = ParcelView::parse(bytes)?;
+        Ok(Parcel {
+            header: view.header,
+            body: view.body().to_vec(),
+            handles: view.handles().collect(),
+            buffers: view.buffers().collect(),
+        })
+    }
+}
+
+/// A validated parcel read in place: the header decoded, the body, handles
+/// and buffer descriptors left in the caller's bytes. [`ParcelView::parse`]
+/// applies exactly the checks of [`Parcel::decode`] (which is built on it)
+/// without copying or allocating, so a kernel can validate a parcel once at
+/// its boundary and keep the bytes as they arrived.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ParcelView<'a> {
+    pub header: Header,
+    bytes: &'a [u8],
+    body_len: usize,
+    handle_count: usize,
+    buffer_count: usize,
+}
+
+impl<'a> ParcelView<'a> {
+    /// Validate `bytes` as one complete parcel.
+    pub fn parse(bytes: &'a [u8]) -> Result<ParcelView<'a>, Error> {
         if bytes.len() < HEADER_SIZE {
             return Err(Error::Truncated);
         }
@@ -112,37 +139,56 @@ impl Parcel {
         if body_len > MAX_BODY_BYTES || handle_count > MAX_HANDLES || buffer_count > MAX_BUFFERS {
             return Err(Error::TooLarge);
         }
-
-        let handles_at = HEADER_SIZE + body_len;
-        let buffers_at = handles_at + handle_count * 8;
-        let end = buffers_at + buffer_count * BUFFER_DESC_SIZE;
+        let end = HEADER_SIZE + body_len + handle_count * 8 + buffer_count * BUFFER_DESC_SIZE;
         if end > bytes.len() {
             return Err(Error::Truncated);
         }
         if end != bytes.len() {
             return Err(Error::TrailingBytes);
         }
-
-        let body = bytes[HEADER_SIZE..handles_at].to_vec();
-        let mut handles = Vec::with_capacity(handle_count);
-        for i in 0..handle_count {
-            handles.push(read_u64(bytes, handles_at + i * 8)?);
-        }
-        let mut buffers = Vec::with_capacity(buffer_count);
-        for i in 0..buffer_count {
-            let at = buffers_at + i * BUFFER_DESC_SIZE;
-            buffers.push(BufferDesc {
-                handle: read_u64(bytes, at)?,
-                offset: read_u64(bytes, at + 8)?,
-                len: read_u64(bytes, at + 16)?,
-                flags: read_u32(bytes, at + 24)?,
-            });
-        }
-        Ok(Parcel {
+        Ok(ParcelView {
             header,
-            body,
-            handles,
-            buffers,
+            bytes,
+            body_len,
+            handle_count,
+            buffer_count,
+        })
+    }
+
+    /// The TLV body (not decoded).
+    pub fn body(&self) -> &'a [u8] {
+        &self.bytes[HEADER_SIZE..HEADER_SIZE + self.body_len]
+    }
+
+    /// Number of transferred handles.
+    pub fn handle_count(&self) -> usize {
+        self.handle_count
+    }
+
+    /// Number of shared-buffer descriptors.
+    pub fn buffer_count(&self) -> usize {
+        self.buffer_count
+    }
+
+    /// The transferred handle numbers, in order.
+    pub fn handles(&self) -> impl Iterator<Item = u64> + 'a {
+        let bytes = self.bytes;
+        let at = HEADER_SIZE + self.body_len;
+        (0..self.handle_count).map(move |i| read_u64(bytes, at + i * 8).unwrap_or(0))
+    }
+
+    /// The shared-buffer descriptors, in order.
+    pub fn buffers(&self) -> impl Iterator<Item = BufferDesc> + 'a {
+        let bytes = self.bytes;
+        let base = HEADER_SIZE + self.body_len + self.handle_count * 8;
+        (0..self.buffer_count).map(move |i| {
+            let at = base + i * BUFFER_DESC_SIZE;
+            BufferDesc {
+                handle: read_u64(bytes, at).unwrap_or(0),
+                offset: read_u64(bytes, at + 8).unwrap_or(0),
+                len: read_u64(bytes, at + 16).unwrap_or(0),
+                flags: read_u32(bytes, at + 24).unwrap_or(0),
+            }
         })
     }
 }

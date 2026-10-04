@@ -60,11 +60,14 @@ mod buffers;
 pub mod logical;
 pub mod modecfg;
 pub mod modeset;
+mod order;
 mod present;
+mod screen;
 
 pub use abi::*;
 #[cfg(lazyos_tests)]
-pub use present::damage_rows;
+pub use present::{chunk_rows, damage_rows, test_hooks as present_hooks};
+pub use screen::{init, init_requested};
 
 /// Sentinel for "no compositor bound".
 const NO_OWNER: usize = usize::MAX;
@@ -114,51 +117,6 @@ static GRANT: Mutex<Option<Grant>> = Mutex::new(None);
 /// "is a compositor bound?".
 static OWNER: AtomicUsize = AtomicUsize::new(NO_OWNER);
 static EVENTS: Mutex<VecDeque<Event>> = Mutex::new(VecDeque::new());
-
-/// Record the framebuffer geometry at boot (called from `kernel_main`, after
-/// the console owns the framebuffer), choose the logical screen and print
-/// the `HW:FB:<mode>-><logical>` verdict.
-pub fn init(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) {
-    let fitted = logical::fit(width, height);
-    *LOGICAL.lock() = fitted;
-    *SCREEN.lock() = Screen {
-        width: fitted.width as u64,
-        height: fitted.height as u64,
-        stride: stride as u64,
-        bytes_per_pixel: bytes_per_pixel as u64,
-    };
-    serial_println!(
-        "HW:FB:{}x{}->{}x{} at {},{} stride {} bpp {}",
-        width,
-        height,
-        fitted.width,
-        fitted.height,
-        fitted.x,
-        fitted.y,
-        stride,
-        bytes_per_pixel
-    );
-}
-
-/// Record a mode the user asked for (`display.mode`, [`modeset`]): unlike
-/// the firmware's choice in [`init`], it is exposed whole, never reduced to
-/// the logical cap. The switch already checked it against the adapter's
-/// video memory, and the limits are re-derived from it.
-pub fn init_requested(width: usize, height: usize, stride: usize, bytes_per_pixel: usize) {
-    *LOGICAL.lock() = logical::Logical {
-        x: 0,
-        y: 0,
-        width,
-        height,
-    };
-    *SCREEN.lock() = Screen {
-        width: width as u64,
-        height: height as u64,
-        stride: stride as u64,
-        bytes_per_pixel: bytes_per_pixel as u64,
-    };
-    serial_println!("HW:FB:{width}x{height}->{width}x{height} at 0,0 stride {stride} bpp {bytes_per_pixel} (display.mode)");
-}
 
 /// The logical screen: where the desktop lives inside the framebuffer.
 pub fn logical() -> logical::Logical {
@@ -227,10 +185,17 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::BIND => bind(a1),
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
-        op::PRESENT => present::present(a1),
+        op::PRESENT => {
+            let started = crate::perf::rdtsc();
+            let result = present::present(a1);
+            crate::perf::presented(started);
+            result
+        }
         op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
         op::MAP_BUFFER => buffers::map_buffer(a1, a2),
         op::CLOSE_BUFFER => buffers::close_buffer(a1),
+        op::SET_LAYOUT => order::set(a1),
+        op::NATIVE_LAYOUT => order::native(),
         _ => negative(errno::EINVAL),
     }
 }
@@ -272,6 +237,7 @@ fn bind(info_ptr: u64) -> u64 {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);
     EVENTS.lock().clear();
+    order::reset();
 
     let screen = *SCREEN.lock();
     if screen.width == 0 || screen.height == 0 {
@@ -407,7 +373,9 @@ pub fn push_event(event: Event) {
 }
 
 /// Queue a key press/release, translating the terminal key into a [`key`]
-/// code. Called from the keyboard IRQ when a compositor is bound.
+/// code. Called from the keyboard IRQ when a compositor is bound. Rings the
+/// compositor's key doorbell (P1.4); pointer events do not, because with
+/// `inputd` running the compositor takes the pointer from it instead.
 pub fn push_key(key: Key, down: bool) {
     let kind = if down { event::KEY_DOWN } else { event::KEY_UP };
     push_event(Event {
@@ -416,6 +384,34 @@ pub fn push_key(key: Key, down: bool) {
         b: 0,
         reserved: 0,
     });
+    let waiter = KEY_WAITER.swap(NO_OWNER, Ordering::AcqRel);
+    if waiter != NO_OWNER {
+        crate::ipc::channels::wake_parked(waiter);
+    }
+}
+
+/// The compositor while it waits for a key (`channels::wait_any`).
+static KEY_WAITER: AtomicUsize = AtomicUsize::new(NO_OWNER);
+
+/// Ring `me`'s doorbell on the next key, unless input is already queued.
+/// Returns whether input is waiting (nothing armed then); `Err` unless `me`
+/// owns the display.
+pub fn arm_key_doorbell(me: usize) -> Result<bool, ()> {
+    if OWNER.load(Ordering::Relaxed) != me || me == NO_OWNER {
+        return Err(());
+    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if !EVENTS.lock().is_empty() {
+            return Ok(true);
+        }
+        KEY_WAITER.store(me, Ordering::Release);
+        Ok(false)
+    })
+}
+
+/// Withdraw `me`'s key doorbell, if armed.
+pub fn disarm_key_doorbell(me: usize) {
+    let _ = KEY_WAITER.compare_exchange(me, NO_OWNER, Ordering::AcqRel, Ordering::Acquire);
 }
 
 /// Queue a pointer move.
@@ -497,7 +493,15 @@ fn key_code(key: Key) -> u32 {
 pub fn reset() {
     *GRANT.lock() = None;
     OWNER.store(NO_OWNER, Ordering::Relaxed);
+    KEY_WAITER.store(NO_OWNER, Ordering::Relaxed);
     EVENTS.lock().clear();
+    order::reset();
+}
+
+/// Test-harness hook: make `slot` the display owner without a bind.
+#[cfg(lazyos_tests)]
+pub fn set_owner_for_test(slot: usize) {
+    OWNER.store(slot, Ordering::Relaxed);
 }
 
 /// Test-harness hook: run `f` as if firmware had chosen a `width` x `height`

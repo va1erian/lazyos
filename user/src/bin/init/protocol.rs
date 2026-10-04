@@ -128,6 +128,13 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 let stopped = stop_app(services, broker, &request.app, &caller)?;
                 services::stop_reply(stopped)
             }
+            // A service says it serves: what waited for it may start.
+            services::init::METHOD_READY => {
+                if super::ready::observe(services, message) && !shutdown::stopping() {
+                    super::supervise::start_ready(services, broker);
+                }
+                Ok(Parcel::default())
+            }
             services::init::METHOD_SHUTDOWN => {
                 let request = services::init::wire::decode_shutdown_args(&message.parcel.body)
                     .map_err(messenger::Error::Parcel)?;

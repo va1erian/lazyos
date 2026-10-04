@@ -115,6 +115,7 @@ jobs:
           python -m pip install ziglang==0.16.0
           python tools/xui/test_zig.py
           python tools/xui/test_core_packages.py
+          python tools/xui/test_git_checkout.py
           python tools/screenshot/test_qmp_mouse.py
 
       - name: Build the app (static musl)
@@ -347,7 +348,7 @@ jobs:
             --timeout 300 --script tools/screenshot/examples/xuid_pointer_restart.json \
             --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
           grep -q "xuid: pointer back on the kernel stream" shots/pointer_restart/serial.log
-          grep -q "init: started inputd (pid 7, attempt 2)" shots/pointer_restart/serial.log
+          grep -qE "init: started inputd \\(pid [0-9]+, attempt 2\\)" shots/pointer_restart/serial.log
           test "$(grep -c "xuid: pointer from inputd" shots/pointer_restart/serial.log)" -ge 2
 
       # Issue #157: LazyShell, the desktop shell. The session captures the

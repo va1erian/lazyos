@@ -312,11 +312,21 @@ write through the orphan answers ENOENT).
 
 The overlay root and `/tmp` hand a Linux program a snapshot of the file; `/data`
 does not, because the copy would be bounded by the kernel heap and a second
-opener could not see the first one's writes. An `OpenFile` is a path, an offset
-and an access mode; `read`/`write`/`pread64`/`pwrite64`/`ftruncate`/`fsync` go to
-the VFS at that offset through the `abi_*` helpers (see
-[processes.md](processes.md) for the syscall side). Because the VFS names files
-by path, the registry of open files keeps each one meaning "the file I opened":
+opener could not see the first one's writes. An `OpenFile` is a path, a node,
+an offset and an access mode. The node (`vfs/node.rs`, docs/performance-plan.md
+P5) is the file as its filesystem names it, resolved once at `open`: on ext2 an
+inode number and its generation (`ext2fs::FileHandle`; the generation advances
+every time the inode is allocated, so a handle on a deleted file never reads the
+file that reuses its inode, and answers `ENOENT` instead). `read`, `write`,
+`pread64`, `pwrite64` and `fstat` go to the node, with no path walk, permission
+walk or mount lookup per call (a write refreshes the table's cached metadata of
+the path); `ftruncate` and `fsync` still go to the VFS through the `abi_*`
+helpers (see [processes.md](processes.md) for the syscall side), as does every
+call on a filesystem without nodes. The program loader opens its image the same
+way (`process::image::VfsFile`). Because the VFS names files by path, the
+registry of open files keeps each one meaning "the file I opened" (a name
+handed to another file behind the registry's back, by the native VFS, makes the
+old entry give the name up, so a new open gets the new file):
 
 - `rename` (`abi_rename`) retargets every open file at or under the old path, and
   first parks a file it is about to replace (restoring it if the rename fails);

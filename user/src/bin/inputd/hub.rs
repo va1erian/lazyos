@@ -187,20 +187,22 @@ impl Hub {
             return Err(Error::Errno(-errno::EACCES));
         }
         let body = &message.parcel.body;
+        // The one-way twins (`Note*`, `ForgetSurface`) decode the same
+        // records; their reply is simply never sent.
         match method {
-            shell_wire::METHOD_SETFOCUS => {
+            shell_wire::METHOD_SETFOCUS | shell_wire::METHOD_NOTEFOCUS => {
                 let args = shell_wire::decode_set_focus_args(body).map_err(Error::Parcel)?;
                 self.set_focus(args.surface);
                 Ok(Vec::new())
             }
-            shell_wire::METHOD_REGISTERSURFACE => {
+            shell_wire::METHOD_REGISTERSURFACE | shell_wire::METHOD_NOTESURFACE => {
                 let args = shell_wire::decode_register_surface_args(body).map_err(Error::Parcel)?;
                 self.router
                     .register_surface(args.surface, args.owner)
                     .map_err(route_error)?;
                 Ok(Vec::new())
             }
-            shell_wire::METHOD_UNREGISTERSURFACE => {
+            shell_wire::METHOD_UNREGISTERSURFACE | shell_wire::METHOD_FORGETSURFACE => {
                 let args =
                     shell_wire::decode_unregister_surface_args(body).map_err(Error::Parcel)?;
                 if let Some(session) = self.router.unregister_surface(args.surface) {
@@ -347,6 +349,11 @@ impl Hub {
         if self.delivery.send(session, method, body, &enter) == Reach::Gone {
             self.drop_session(session);
         }
+    }
+
+    /// Whether a client's backlog waits for room (the loop then retries soon).
+    pub(super) fn backlogged(&self) -> bool {
+        self.delivery.backlogged()
     }
 
     /// Hand every backlog what its client has room for now (once per pass of

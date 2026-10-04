@@ -97,6 +97,7 @@ class Launcher:
             "linuxapps": self.v["linuxapps"].get(),
             "tls": self.v["tls"].get(),
             "journal": self.v["journal"].get(),
+            "lazyweb": self.v["lazyweb"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -125,7 +126,7 @@ class Launcher:
                          self.v["simple_devices"], self.v["simple_doom"],
                          self.v["simple_modplayer"], self.v["simple_net"], self._run,
                          self.v["simple_linuxapps"], self.v["simple_hidpi"],
-                         self.v["simple_tls"])
+                         self.v["simple_tls"], self.v["simple_lazyweb"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -172,7 +173,8 @@ class Launcher:
                                                            expand=True, padx=6)
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
-                            *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls")))
+                            *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
+                                                    "lazyweb")))
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

@@ -3,6 +3,7 @@
 pub mod acpi_tables;
 pub mod clock;
 pub mod cpu;
+pub mod event_timer;
 pub mod fault;
 pub mod fault_report;
 pub mod fault_storm;
@@ -10,6 +11,8 @@ pub mod gdt;
 pub mod idt;
 pub mod io;
 pub mod irq_stubs;
+pub mod irq_window;
+pub mod irqoff;
 pub mod kernel_fault_report;
 pub mod lapic;
 pub mod linux;

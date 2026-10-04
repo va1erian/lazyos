@@ -15,12 +15,13 @@ pub(super) const QUEUE_BYTES: usize = MAX_USED_OFF + MAX_USED_BYTES;
 #[repr(C, align(4096))]
 pub(super) struct Queue(pub(super) UnsafeCell<[u8; QUEUE_BYTES]>);
 
-// Safety: every access goes through `VirtioBlk::state`, whose mutex is held
-// from the first descriptor write until the completion status is read.
+// Safety: the driver writes descriptors and rings only under
+// `VirtioBlk::state`'s lock; lock-free readers only read the device-written
+// used index (volatile).
 unsafe impl Sync for Queue {}
 
-/// The request header (16 bytes) plus the status byte. Kept on one page so
-/// both DMA targets are physically contiguous.
+/// One request's header (16 bytes) plus its status byte. A 64-byte aligned
+/// cell never crosses a page, so both DMA targets are physically contiguous.
 #[repr(C)]
 pub(super) struct Control {
     pub(super) header: [u8; 16],
@@ -30,7 +31,8 @@ pub(super) struct Control {
 #[repr(C, align(64))]
 pub(super) struct ControlCell(pub(super) UnsafeCell<Control>);
 
-// Safety: like `Queue`, only touched under the driver's mutex.
+// Safety: a control block is written only by the owner of its request slot
+// under the driver's lock, and read back under it after the device answered.
 unsafe impl Sync for ControlCell {}
 
 /// Write descriptor `index`.

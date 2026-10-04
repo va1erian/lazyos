@@ -39,9 +39,10 @@ const EINVAL: i64 = 22;
 const EPIPE: i64 = 32;
 const ENOSYS: i64 = 38;
 
-/// Most bytes one READ or WRITE moves (a full datagram message with its header
-/// is 1478 bytes; a stream chunk is the stack's buffer size).
-const MAX_IO: usize = 16 * 1024 + 8;
+/// Most bytes one READ or WRITE looks at (a full datagram message with its
+/// header is 1478 bytes; a stream moves at most a ring's worth anyway). Both
+/// work on the caller's memory in place, so this only bounds one call.
+const MAX_IO: usize = 4 << 20;
 /// Bytes of the address block.
 const ADDR_BLOCK: usize = 16;
 
@@ -111,12 +112,13 @@ fn read(id: u32, buf: u64, len: u64) -> u64 {
     if want == 0 {
         return fail(EINVAL);
     }
-    let mut data = alloc::vec![0u8; want];
-    match inet::net_read(id, &mut data) {
-        Ok(Io::Data(n)) => match user_ptr::try_copy_to(buf, &data[..n]) {
-            Ok(()) => n as u64,
-            Err(_) => fail(EFAULT),
-        },
+    // Straight into the caller's buffer: `net_read` never blocks, so the
+    // borrowed range cannot change under it.
+    let Ok(data) = user_ptr::try_bytes_mut(buf, want) else {
+        return fail(EFAULT);
+    };
+    match inet::net_read(id, data) {
+        Ok(Io::Data(n)) => n as u64,
         Ok(Io::Empty) => 0,
         Ok(Io::Eof | Io::Gone) => fail(EPIPE),
         Err(e) => fail(i64::from(e)),

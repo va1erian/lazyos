@@ -9,6 +9,11 @@
 //! signal stayed pending forever: `init`'s orderly shutdown (docs/shutdown.md)
 //! had to `SIGKILL` every service. Checking at the syscall return, as the
 //! Linux path does, ends it there.
+//!
+//! The same holds for a Linux program's native calls: the desktop's xui apps
+//! are static musl programs that reach Messenger through `int 0x80`, whose
+//! return never runs `deliver_linux`. A default-fatal signal (no handler) ends
+//! them here too; a signal with a handler is left to the Linux path.
 
 use super::*;
 
@@ -16,13 +21,11 @@ use super::*;
 /// task `slot`: the one its return to user mode must end it with. Pending
 /// signals whose action is to do nothing (ignored, or a default ignore or
 /// continue) are consumed on the way; a stop default is left for the
-/// scheduler. `None` for a Linux task, whose syscall return delivers through
-/// [`deliver_linux`].
+/// scheduler. For a Linux task the same holds for its native (`int 0x80`)
+/// calls: a handler stops the scan (it runs through [`deliver_linux`] on a
+/// Linux syscall's return), a default-fatal signal ends the task here.
 pub fn native_fatal_pending(slot: usize) -> Option<u8> {
-    let (pml4, kind) = slot_info(slot)?;
-    if kind == Kind::Linux {
-        return None;
-    }
+    let (pml4, _) = slot_info(slot)?;
     while let Some((sig, disposition)) = next_deliverable(pml4) {
         match (disposition, default_action(sig)) {
             (Disposition::Default, DefaultAction::Term | DefaultAction::Core) => {

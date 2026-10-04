@@ -18,6 +18,7 @@ impl Ext2 {
         check_owner(owner)?;
         let ino = self.alloc_inode(false)?;
         let mut inode = [0u8; INODE_CORE_SIZE];
+        put32(&mut inode, INO_GENERATION, self.next_generation(ino));
         put16(&mut inode, INO_MODE, S_IFREG | (mode & 0o7777));
         put16(&mut inode, INO_UID, owner.uid as u16);
         put16(&mut inode, INO_GID, owner.gid as u16);
@@ -87,6 +88,7 @@ impl Ext2 {
         }
 
         let mut inode = [0u8; INODE_CORE_SIZE];
+        put32(&mut inode, INO_GENERATION, self.next_generation(ino));
         put16(&mut inode, INO_MODE, S_IFDIR | (mode & 0o7777));
         put16(&mut inode, INO_UID, owner.uid as u16);
         put16(&mut inode, INO_GID, owner.gid as u16);

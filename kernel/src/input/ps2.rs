@@ -3,19 +3,21 @@
 //!
 //! The PS/2 keyboard behind the i8042 buffers only a handful of bytes (QEMU's
 //! queue is 16: four shifted characters) and silently discards what arrives
-//! while it is full. Syscalls run with interrupts off (`arch::clock`, issue
-//! #344), and on a fresh image's first boot `pkgd` installs the core packages
-//! with `write_file`/`append_file`/`fsync` calls that keep them off for 50 to
-//! 120 ms, so IRQ1 came too late and keys typed meanwhile were lost before the
-//! kernel ever saw them, with no trace anywhere.
+//! while it is full. Syscalls run with interrupts off, and on a fresh image's
+//! first boot `pkgd` installs the core packages with `write_file`,
+//! `append_file` and `fsync` calls that kept them off for 50 to 120 ms, so
+//! IRQ1 came too late and keys typed meanwhile were lost before the kernel
+//! ever saw them, with no trace anywhere. Long syscalls now take interrupts
+//! at poll points (`arch::irq_window`), at most about 2 ms apart.
 //!
-//! So the bytes are *collected* wherever the kernel can be busy for long —
-//! [`service`] is called from the block drivers' completion waits and the
-//! ext2 block I/O path as well as from IRQ1/IRQ12 and the timer tick — and
-//! *decoded* only in interrupt context ([`dispatch`]), exactly where the
+//! The bytes are *collected* ([`service`]) from IRQ1/IRQ12 and the timer tick,
+//! those taken inside an interrupt window included, and *decoded* only in
+//! interrupt context outside a window ([`dispatch`]), exactly where the
 //! keyboard and mouse drivers always ran, so no lock is ever taken from a new
-//! context. Collection preserves the controller's order and tags each byte
-//! with the port it came from.
+//! context: a window may interrupt code holding any lock, and collection
+//! takes only the FIFO's, which is never held with interrupts on. Collection
+//! preserves the controller's order and tags each byte with the port it came
+//! from.
 //!
 //! Loss is never silent: the FIFO holds [`FIFO_CAP`] bytes (a minute of fast
 //! typing with nothing decoding it); past that new bytes are counted, the next
@@ -203,9 +205,9 @@ pub fn service() {
     });
 }
 
-/// Decode everything collected. Interrupt context only (IRQ0, IRQ1, IRQ12):
-/// the keyboard and mouse drivers take locks that code running with
-/// interrupts off may hold.
+/// Decode everything collected. Interrupt context outside an interrupt
+/// window only (IRQ0, IRQ1, IRQ12): the keyboard and mouse drivers take locks
+/// that code running with interrupts off may hold.
 pub fn dispatch() {
     if !PENDING.swap(false, Ordering::AcqRel) && UNREPORTED.load(Ordering::Relaxed) == 0 {
         return;

@@ -37,6 +37,7 @@ mod limits;
 mod mem;
 mod mux;
 mod panic_screen;
+mod perf;
 mod process;
 mod quota;
 mod serial;
@@ -118,13 +119,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     boot_phase!("mem_ready");
     // Firmware usually leaves the framebuffer uncached: make it write-combining
     // (bare metal only, see `mem::wc::under_hypervisor`).
-    if mem::wc::under_hypervisor() {
-        serial_println!("HW:FB:WC:SKIPPED (hypervisor: the framebuffer is guest RAM)");
-    } else if let Some((fb_base, fb_len)) = console::framebuffer_span() {
-        match mem::wc::map_write_combining(fb_base, fb_len) {
-            Ok(pages) => serial_println!("HW:FB:WC:{pages} pages write-combining"),
-            Err(reason) => serial_println!("HW:FB:WC:SKIPPED ({reason})"),
-        }
+    if let Some((fb_base, fb_len)) = console::framebuffer_span() {
+        mem::wc::apply_policy(fb_base, fb_len);
     }
 
     // Device core (issue #239): enumerate platform + PCI devices, attach the
@@ -349,6 +345,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
+    crate::arch::irq_window::arm();
     x86_64::instructions::interrupts::enable();
 
     // The kernel task becomes the terminal multiplexer.
@@ -467,6 +464,7 @@ fn spawn_console_shell() {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     serial_println!("LazyOS PANIC: {}", info);
+    serial::flush();
     // A real PC has no serial port: put the reason and the boot log on screen.
     panic_screen::show("LazyOS stopped: kernel panic", format_args!("{}", info));
     halt();

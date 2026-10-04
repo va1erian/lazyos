@@ -6,8 +6,10 @@
 //! windowed front end instead. It opens a pseudo-terminal (`term/pty.rs`),
 //! starts `busybox sh -i` on its slave as the session's controlling terminal,
 //! writes keystrokes to the master and parses what the master reads into a
-//! character grid (a small VT100 subset, `term/grid.rs`). A poll timer drains
-//! the non-blocking master on the UI thread.
+//! character grid (a small VT100 subset, `term/grid.rs`). The event loop
+//! parks on the master beside the compositor endpoints (`watch_fd`), so the
+//! UI thread drains it the moment the shell writes, and repaints only the
+//! rows that changed (`term/view.rs`).
 //!
 //! The shell is a real, out-of-process BusyBox on a real tty: pipes,
 //! redirection and job control work as at a Linux terminal, `^C` is the line
@@ -33,11 +35,17 @@ use xui_core::{Canvas, Color, Control, Dip, Key, Rect, TextStyle};
 
 #[path = "term/grid.rs"]
 mod grid;
+#[path = "term/perf.rs"]
+mod perf;
 #[path = "term/pty.rs"]
 mod pty;
+#[path = "term/view.rs"]
+mod view;
 use grid::{is_prompt, Grid, COLS, ROWS};
+use perf::{PaintClock, Perf};
+use view::{first_row, intersect, overlaps, Layout, Shown};
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
@@ -52,9 +60,10 @@ const FONT: f32 = 15.0;
 const CELL_W: f32 = FONT * 0.6;
 const LINE_H: i32 = 20;
 const PAD: i32 = 10;
-/// How often the app drains the child's output. The drain only repaints when
+/// A safety-net drain: the pty wakes the loop itself (`watch_fd`), so this
+/// only matters if a wake were ever missed. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
-const POLL_MILLIS: u32 = 100;
+const FALLBACK_MILLIS: u32 = 1000;
 
 /// Background, text and cursor colours for the desktop's dark and light modes.
 struct Palette {
@@ -110,6 +119,13 @@ struct Terminal {
     last_cmd: Option<String>,
     awaiting_output: bool,
     root: Control<Msg>,
+    /// What is on screen, so a drain repaints only the rows that changed;
+    /// the painter's latest layout feeds it.
+    shown: Shown,
+    layout: Rc<Cell<Option<Layout>>>,
+    /// `TERM:PERF` evidence (`term/perf.rs`).
+    perf: Perf,
+    paint_clock: Rc<PaintClock>,
 }
 
 impl Terminal {
@@ -142,6 +158,7 @@ impl Terminal {
                 self.typed.clear();
                 self.send(b"\r");
                 if !line.is_empty() {
+                    self.perf.submitted(&self.paint_clock);
                     println!("TERM:CMD:{line}");
                     self.last_cmd = Some(line);
                     self.awaiting_output = true;
@@ -159,6 +176,7 @@ impl Terminal {
             c if c.is_control() => self.send(&[c as u8]),
             c => {
                 self.typed.push(c);
+                self.perf.sent_key();
                 self.send(c.to_string().as_bytes());
             }
         }
@@ -203,7 +221,16 @@ impl App for Terminal {
                             println!("TERM:OUT:{marker}");
                         }
                     }
-                    ui.invalidate(self.root.id());
+                    let changed = self.shown.update(&self.grid.borrow(), self.layout.get());
+                    if let Some(rect) = changed {
+                        ui.invalidate_rect(self.root.id(), rect);
+                    }
+                    let at_prompt = {
+                        let grid = self.grid.borrow();
+                        let row = grid.row_text(grid.row);
+                        !row.is_empty() && is_prompt(&row)
+                    };
+                    self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
                 }
                 if self.hung_up {
                     self.finish(ui);
@@ -270,6 +297,9 @@ fn main() {
     set_nonblocking(master.fd());
 
     let grid = Rc::new(RefCell::new(Grid::new()));
+    let paint_clock = Rc::new(PaintClock::default());
+    let layout = Rc::new(Cell::new(None));
+    backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
         let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
@@ -277,9 +307,14 @@ fn main() {
         {
             let grid = Rc::clone(&grid);
             let theme = ui.theme_handle();
+            let clock = Rc::clone(&paint_clock);
+            let layout = Rc::clone(&layout);
+            let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
                 let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
-                paint(canvas, palette, &grid.borrow())
+                let damage = backend.paint_damage();
+                let laid = clock.time(|| paint(canvas, palette, &grid.borrow(), damage));
+                layout.set(Some(laid));
             }));
         }
         root.on_events(|event| match event {
@@ -290,7 +325,7 @@ fn main() {
         root.focus();
         ui.on_close(|| Some(Msg::Close));
         ui.on_timer(|_| Some(Msg::Tick));
-        ui.set_timer(POLL_MILLIS);
+        ui.set_timer(FALLBACK_MILLIS);
         Terminal {
             child,
             master,
@@ -300,6 +335,10 @@ fn main() {
             last_cmd: None,
             awaiting_output: false,
             root,
+            shown: Shown::default(),
+            layout: Rc::clone(&layout),
+            perf: Perf::default(),
+            paint_clock: Rc::clone(&paint_clock),
         }
     });
 
@@ -339,25 +378,30 @@ fn key_sequence(key: Key) -> Option<&'static [u8]> {
     })
 }
 
-/// Paint the bottom of the grid that fits the window, with a block cursor.
+/// Paint the bottom of the grid that fits the window, with a block cursor:
+/// only the rows inside `damage` (window pixels; `None` paints them all),
+/// since only the damage reaches the window's frame. Returns the layout, so
+/// the next drain can turn changed rows into a rectangle.
 /// The metrics are design pixels, times the UI scale (`canvas.dpi() / 96`)
 /// on screen, so the cells grow with the text (docs/hidpi-plan.md).
-fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid) {
+fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid, damage: Option<Rect>) -> Layout {
     let bounds = canvas.bounds();
-    canvas.clear(palette.bg);
+    let damage = intersect(damage.unwrap_or(bounds), bounds);
+    canvas.fill_rect(damage, palette.bg);
     let scale = (canvas.dpi() / 96).max(1) as i32;
     let (pad, line_h, cell_w) = (PAD * scale, LINE_H * scale, CELL_W * scale as f32);
     let visible_cols = ((bounds.width() - 2 * pad) as f32 / cell_w) as usize;
     let visible = (((bounds.height() - 2 * pad) / line_h).max(1) as usize).min(ROWS);
-    // Show the top of the grid while it is not full, then scroll with the
-    // cursor so the newest line stays visible.
-    let first = if grid.row < visible {
-        0
-    } else {
-        (grid.row + 1 - visible).min(ROWS - visible)
-    };
+    let first = first_row(grid.row, visible);
     let last = (first + visible).min(ROWS);
+    let row_rect = |slot: usize| {
+        let top = bounds.top + pad + slot as i32 * line_h;
+        Rect::new(bounds.left, top, bounds.right, top + line_h)
+    };
     for (slot, line) in grid.cells[first..last].iter().enumerate() {
+        if !overlaps(row_rect(slot), damage) {
+            continue;
+        }
         let text: String = line[..visible_cols.min(COLS)].iter().collect();
         let top = bounds.top + pad + slot as i32 * line_h;
         let rect = Rect::new(bounds.left + pad, top, bounds.right - pad, top + line_h);
@@ -372,6 +416,15 @@ fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid) {
             left + cell_w as i32,
             top + line_h,
         );
-        canvas.fill_rect(rect, palette.cursor);
+        if overlaps(rect, damage) {
+            canvas.fill_rect(rect, palette.cursor);
+        }
+    }
+    Layout {
+        width: bounds.width(),
+        height: bounds.height(),
+        pad,
+        line_h,
+        visible,
     }
 }

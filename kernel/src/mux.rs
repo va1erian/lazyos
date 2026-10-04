@@ -18,6 +18,13 @@ const PAD: i32 = 8;
 /// repaint and cursor latency at or below 20 ms while leaving the rest of the
 /// window to user tasks (issue #58).
 const IDLE_TICKS: u64 = 2;
+/// Ticks the kernel task sleeps while a compositor owns the screen (P7):
+/// nothing is painted then, and what the loop still runs is either served
+/// elsewhere first (device interrupts on IRQ return and the tick, dead slots
+/// on every native syscall) or coarse (the 5 s filesystem flusher, the 30 s
+/// shutdown watchdog). Waking every 2 ticks for it was 50 wakeups a second
+/// on an idle desktop.
+const BOUND_IDLE_TICKS: u64 = 25;
 const BACKGROUND: Color = Color::rgb(10, 12, 20);
 const WINDOW_BG: Color = Color::rgb(16, 18, 30);
 const TITLE_BG: Color = Color::rgb(44, 50, 80);
@@ -53,17 +60,27 @@ pub fn run() -> ! {
         // An orderly shutdown that never reached `power` (docs/shutdown.md):
         // past the armed deadline the kernel forces the stop itself.
         crate::process::power::watchdog::service();
-        // Report each disk's request counters after a burst of I/O.
-        crate::block::stats::service();
-        // Write cached filesystem data back every few seconds.
-        crate::fs::flusher::service();
+        // Report each disk's request counters after a burst of I/O, and
+        // write cached filesystem data back every few seconds. Both take
+        // spin locks (the serial port, the VFS) that syscalls take with
+        // interrupts off: holding one here with interrupts on would let the
+        // timer, or a wake (P1.1), switch to a task that then spins on it
+        // forever with the timer masked (the #382 rule).
+        // Each runs as a kernel section, so a long writeback still takes
+        // interrupts at its poll points (`arch::irqoff`, `arch::irq_window`).
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::block::stats::service));
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::fs::flusher::service));
+        // `PERF:` latency lines (LAZYOS_PERF=1 images only).
+        crate::perf::service();
+        // Serial output a preempted writer left queued (P5).
+        crate::serial::service();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.
         if crate::display::bound() {
             yielded = true;
             back = None;
-            task::idle(task::ticks() + IDLE_TICKS);
+            task::idle(task::ticks() + BOUND_IDLE_TICKS);
             continue;
         }
         if yielded {

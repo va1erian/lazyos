@@ -78,6 +78,10 @@ def make_vars() -> dict:
         "simple_tls": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
+        # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
+        # desktop, networking and HTTPS).
+        "lazyweb": b(value=False),
+        "simple_lazyweb": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

@@ -68,7 +68,7 @@ fn registry_args<T>(
     decode: fn(&[u8]) -> Result<T, libmessenger::Error>,
 ) -> Result<T, i64> {
     let parcel = decode_parcel(bytes)?;
-    decode(&parcel.body).map_err(|_| errno::EINVAL)
+    decode(parcel.body()).map_err(|_| errno::EINVAL)
 }
 
 /// `OP_REGISTER`: publish the endpoint named by the request's `endpoint`

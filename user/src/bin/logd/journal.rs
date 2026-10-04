@@ -146,6 +146,11 @@ impl Journals {
         self.check(result);
     }
 
+    /// When [`Journals::tick`] has a flush to do.
+    pub(super) fn flush_due(&self) -> Option<u64> {
+        self.store.as_ref().and_then(Store::flush_due)
+    }
+
     /// Flush on the timer.
     pub(super) fn tick(&mut self, now: u64) {
         if let Some(store) = &mut self.store {
@@ -165,6 +170,15 @@ impl Journals {
     /// Records written to `/logs` this boot.
     pub(super) fn persisted(&self) -> u64 {
         self.persisted_before + self.store.as_ref().map_or(0, Store::persisted)
+    }
+
+    /// `healthd` status alone (no detail string to build).
+    pub(super) fn status(&self) -> &'static str {
+        if self.problem.is_some() {
+            "degraded"
+        } else {
+            "ok"
+        }
     }
 
     /// `healthd` status and detail.

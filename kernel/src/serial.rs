@@ -4,13 +4,26 @@
 //! with no serial port has instead. COM1 is probed once at boot (H1 of
 //! `docs/real-pc-boot-plan.md`): an absent port is never initialised or
 //! written, and the verdict is logged as `HW:COM1:PRESENT|ABSENT`.
+//!
+//! Output is queued in a ring and drained a transmit FIFO at a time
+//! ([`tx`]); a program's terminal output ([`mirror`]) drains in chunks with
+//! interrupts let in between.
+
+mod tx;
 
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 use uart_16550::SerialPort;
 
-static SERIAL1: Mutex<Option<SerialPort>> = Mutex::new(None);
+/// COM1, initialised, with its transmit ring.
+struct Port {
+    /// Owns the UART's configuration (set up by `init`).
+    _uart: SerialPort,
+    tx: tx::Tx,
+}
+
+static SERIAL1: Mutex<Option<Port>> = Mutex::new(None);
 /// Whether the COM1 probe found a UART (read lock-free by the NMI writer).
 static PRESENT: AtomicBool = AtomicBool::new(false);
 
@@ -72,11 +85,20 @@ const TIMESTAMPS: bool = cfg!(all(not(debug_assertions), not(lazyos_tests)));
 /// Whether the next byte written starts a new line (guarded by `SERIAL1`).
 static AT_LINE_START: AtomicBool = AtomicBool::new(true);
 
-/// Writes to the port, prefixing each line with `[secs.millis]` uptime from
-/// the 100 Hz PIT tick counter (0 until the timer starts).
-struct Stamped<'a>(&'a mut SerialPort);
+/// Queues for the port, prefixing each line with `[secs.millis]` uptime
+/// from the 100 Hz PIT tick counter (0 until the timer starts).
+struct Stamped<'a>(&'a mut tx::Tx);
 
 impl Stamped<'_> {
+    /// One byte to the UART, a poll point first (`arch::irq_window`): at the
+    /// port's 38400 baud a byte takes about 260 µs on hardware (and a VM exit
+    /// per port access under a hypervisor), all with interrupts off, so a
+    /// line or even a timestamp prefix must not go out in one stretch.
+    fn send(&mut self, byte: u8) {
+        crate::arch::irq_window::poll_point();
+        self.0.push(byte);
+    }
+
     fn put(&mut self, byte: u8) {
         if TIMESTAMPS && AT_LINE_START.swap(false, Ordering::Relaxed) {
             let ms = crate::task::ticks() * 10;
@@ -91,9 +113,9 @@ impl Stamped<'_> {
                     break;
                 }
             }
-            self.0.send(b'[');
+            self.send(b'[');
             for i in (0..len).rev() {
-                self.0.send(digits[i]);
+                self.send(digits[i]);
             }
             let frac = ms % 1000;
             for b in [
@@ -104,13 +126,13 @@ impl Stamped<'_> {
                 b']',
                 b' ',
             ] {
-                self.0.send(b);
+                self.send(b);
             }
         }
         if byte == b'\n' {
             AT_LINE_START.store(true, Ordering::Relaxed);
         }
-        self.0.send(byte);
+        self.send(byte);
     }
 }
 
@@ -126,6 +148,14 @@ pub fn locked() -> bool {
     SERIAL1.is_locked()
 }
 
+/// Test hook: run `f` with the port locked, as code in the middle of a log
+/// line would be (the interrupt-window suite). `f` must not print.
+#[cfg(lazyos_tests)]
+pub fn with_port_locked<R>(f: impl FnOnce() -> R) -> R {
+    let _port = SERIAL1.lock();
+    f()
+}
+
 /// Probe and initialise COM1, and log the verdict.
 pub fn init() {
     let present = probe_on(&mut Com1);
@@ -134,7 +164,10 @@ pub fn init() {
         // Safety: 0x3F8 is the standard COM1 base port, and a UART answers there.
         let mut port = unsafe { SerialPort::new(COM1) };
         port.init();
-        *SERIAL1.lock() = Some(port);
+        *SERIAL1.lock() = Some(Port {
+            _uart: port,
+            tx: tx::Tx::new(COM1),
+        });
     }
     crate::serial_println!("HW:COM1:{}", if present { "PRESENT" } else { "ABSENT" });
 }
@@ -145,7 +178,9 @@ pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     crate::klog::write_fmt(args);
     if let Some(port) = SERIAL1.lock().as_mut() {
-        let _ = Stamped(port).write_fmt(args);
+        let before = port.tx.queued();
+        let _ = Stamped(&mut port.tx).write_fmt(args);
+        port.drain_own(before);
     }
 }
 
@@ -156,7 +191,9 @@ pub fn try_print(args: fmt::Arguments) -> bool {
     use core::fmt::Write;
     if let Some(mut guard) = SERIAL1.try_lock() {
         if let Some(port) = guard.as_mut() {
-            let _ = Stamped(port).write_fmt(args);
+            let before = port.tx.queued();
+            let _ = Stamped(&mut port.tx).write_fmt(args);
+            port.drain_own(before);
         }
         return true;
     }
@@ -169,15 +206,98 @@ pub fn _write_str(s: &str) {
     use core::fmt::Write;
     crate::klog::write_fmt(format_args!("{s}"));
     if let Some(port) = SERIAL1.lock().as_mut() {
-        let _ = Stamped(port).write_str(s);
+        let before = port.tx.queued();
+        let _ = Stamped(&mut port.tx).write_str(s);
+        port.drain_own(before);
     }
 }
 
-/// Write raw bytes to the serial port (mirrors user-program output). Not
-/// copied into the boot log: program output would push the boot out of it.
+/// Write raw bytes to the serial port at once (terminal echo). Not copied
+/// into the boot log: program output would push the boot out of it.
 pub fn write_bytes(bytes: &[u8]) {
     if let Some(port) = SERIAL1.lock().as_mut() {
-        let mut out = Stamped(port);
-        bytes.iter().for_each(|&byte| out.put(byte));
+        let before = port.tx.queued();
+        queue(port, bytes);
+        port.drain_own(before);
     }
+}
+
+impl Port {
+    /// Drain as many bytes as the caller queued since `before` (plus a FIFO's
+    /// worth): all of them when nothing else waits, never someone else's
+    /// whole backlog with interrupts off.
+    fn drain_own(&mut self, before: usize) {
+        let own = self.tx.queued().wrapping_sub(before);
+        self.tx.drain(own + 16);
+    }
+}
+
+/// The kernel task's backstop: drain what a writer left queued (it was
+/// preempted between its chunks), a chunk at a time with interrupts let in
+/// between. Call with interrupts on.
+pub fn service() {
+    let mut budget = tx::SERVICE_BUDGET;
+    while budget > 0 {
+        let empty = x86_64::instructions::interrupts::without_interrupts(|| {
+            match SERIAL1.lock().as_mut() {
+                Some(port) => {
+                    port.tx.drain(tx::CHUNK);
+                    port.tx.is_empty()
+                }
+                None => true,
+            }
+        });
+        if empty {
+            return;
+        }
+        budget = budget.saturating_sub(tx::CHUNK);
+    }
+}
+
+/// The transmit ring's own checks (kernel test suite).
+#[cfg(lazyos_tests)]
+pub fn ring_selftest() -> Result<(), &'static str> {
+    tx::selftest()
+}
+
+/// Drain everything queued, whatever it costs: before the machine stops
+/// (power off, reboot, a panic), so the last lines are never lost.
+pub fn flush() {
+    if let Some(port) = SERIAL1.lock().as_mut() {
+        port.tx.drain(usize::MAX);
+    }
+}
+
+/// Mirror a program's terminal output (`write` to the terminal, `sendfile`).
+/// The bytes are queued whole first, so `bytes` may be user memory: it is
+/// read only here, before any window opens. Then the ring is drained in
+/// [`tx::CHUNK`]s, letting interrupts in between when the caller may sleep
+/// (a syscall that holds no lock; `block::iowait::breathe`). The write
+/// returns once everything queued before it is out, so output keeps its
+/// order with the kernel's own lines and nothing waits in the ring for a
+/// later writer.
+pub fn mirror(bytes: &[u8]) {
+    match SERIAL1.lock().as_mut() {
+        Some(port) => queue(port, bytes),
+        None => return,
+    }
+    loop {
+        let empty = match SERIAL1.lock().as_mut() {
+            Some(port) => {
+                port.tx.drain(tx::CHUNK);
+                port.tx.is_empty()
+            }
+            None => true,
+        };
+        if empty {
+            return;
+        }
+        crate::block::iowait::breathe(crate::block::Wait::MaySleep);
+    }
+}
+
+/// Queue `bytes` with their line stamps (draining only if the ring fills).
+fn queue(port: &mut Port, bytes: &[u8]) {
+    let mut out = Stamped(&mut port.tx);
+    bytes.iter().for_each(|&byte| out.put(byte));
 }

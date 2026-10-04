@@ -58,6 +58,10 @@ pub(super) struct Subscription {
     pub(super) drops: u64,
     pub(super) delivered: u64,
     pub(super) matched: u64,
+    /// The owner's doorbell (`Bell`, P7.2): this end of its channel.
+    pub(super) bell: Option<messenger::Endpoint>,
+    /// Whether the bell rang since the owner last found the queue empty.
+    pub(super) rung: bool,
 }
 
 impl Subscription {
@@ -322,12 +326,60 @@ impl Broker {
         if self.subscriptions[index].owner != owner {
             return Err(messenger::Error::Topics(errno::EPERM));
         }
-        self.subscriptions.remove(index);
+        if let Some(bell) = self.subscriptions.remove(index).bell {
+            let _ = bell.close();
+        }
         // Parked pulls for it can never be satisfied; the clients discover
         // that on their own deadline, so just drop the bookkeeping.
         self.pending
             .retain(|pending| !(pending.subscription == id && pending.owner == owner));
         Ok(())
+    }
+
+    /// Install `bell` as subscription `id`'s doorbell (owner only), closing
+    /// the one it replaces. The bell is unrung, so queued events ring it.
+    pub(super) fn set_bell(
+        &mut self,
+        id: u64,
+        owner: u64,
+        bell: messenger::Endpoint,
+    ) -> Result<(), messenger::Error> {
+        let sub = self
+            .subscriptions
+            .iter_mut()
+            .find(|sub| sub.id == id)
+            .ok_or(messenger::Error::Topics(errno::ENOENT))?;
+        if sub.owner != owner {
+            return Err(messenger::Error::Topics(errno::EPERM));
+        }
+        if let Some(old) = sub.bell.replace(bell) {
+            let _ = old.close();
+        }
+        sub.rung = false;
+        Ok(())
+    }
+
+    /// The bells to ring now: every unrung bell whose subscription has an
+    /// event queued (parked pulls were answered first, so nobody is pulling
+    /// it). Each is marked rung until its owner drains the queue.
+    pub(super) fn bells_due(&mut self) -> Vec<(u64, messenger::Endpoint)> {
+        let mut due = Vec::new();
+        for sub in self.subscriptions.iter_mut() {
+            if let Some(bell) = sub.bell.filter(|_| !sub.rung && sub.queued() > 0) {
+                sub.rung = true;
+                due.push((sub.id, bell));
+            }
+        }
+        due
+    }
+
+    /// Forget subscription `id`'s bell (its owner's end closed).
+    pub(super) fn drop_bell(&mut self, id: u64) {
+        if let Some(sub) = self.subscriptions.iter_mut().find(|sub| sub.id == id) {
+            if let Some(bell) = sub.bell.take() {
+                let _ = bell.close();
+            }
+        }
     }
 
     /// Track a topic for [`Broker::list`].

@@ -68,8 +68,8 @@ pub fn syscall_gate() -> HandlerFunc {
 pub const NATIVE_SYSCALL: u64 = 1 << 63;
 
 /// The syscall most recently entered (native ones tagged [`NATIVE_SYSCALL`]),
-/// for latency reports such as `PS2:GAP`: syscalls run with interrupts off,
-/// so a long interrupts-off stretch usually ends in the one recorded here.
+/// for latency reports such as `PS2:GAP` (`arch::irqoff` charges each
+/// interrupts-off stretch to its syscall precisely).
 pub static LAST_SYSCALL: AtomicU64 = AtomicU64::new(0);
 
 #[no_mangle]
@@ -78,6 +78,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     let regs = unsafe { &mut *regs };
     #[cfg(lazyos_tests)]
     task::harness::note_entry_flags();
+    // From here interrupts-off time is charged to this syscall, and long
+    // work (the reclaim below included) may open interrupt windows.
+    crate::arch::irqoff::enter_native(regs.rax);
     // Reclaim slots the scheduler flagged (issue #133): on a syscall entry the
     // current task holds no heap lock, so dropping dead tasks is safe.
     task::reclaim_pending();
@@ -85,7 +88,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // deadlines (issue #240): the ISR only records the interrupt, so this is
     // the task-context half. Free when nothing is pending.
     crate::dev::intx::service();
+    crate::arch::irq_window::poll_point();
     LAST_SYSCALL.store(NATIVE_SYSCALL | regs.rax, Ordering::Relaxed);
+    crate::perf::syscall_entry(NATIVE_SYSCALL | regs.rax);
     if regs.rax == 0 {
         exit(regs.rdi as u32);
     }
@@ -154,12 +159,19 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         33 => {
             crate::block::provider::sys::dispatch(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8)
         }
+        // 34: the monotonic nanosecond clock and sleep (P2.4), open to every
+        // task; see `super::timesys`.
+        34 => super::timesys::dispatch(regs.rdi, regs.rsi),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
     // task was blocked in this call ends it here, on its way back to user
     // mode, instead of waiting for a tick to catch it there.
     task::signal::deliver_native();
+    crate::arch::irqoff::exit();
+    crate::perf::syscall_exit();
+    // A task this call woke may outrank the caller (P1.1): run it now.
+    task::preempt_point();
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):
@@ -193,6 +205,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         29 => super::killsys::dispatch(a1, a2),
         31 => sys_spawnv(a1),
         33 => crate::block::provider::sys::dispatch(a1, a2, a3, 0, 0),
+        34 => super::timesys::dispatch(a1, a2),
         _ => u64::MAX,
     }
 }

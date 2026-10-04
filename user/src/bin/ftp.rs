@@ -124,13 +124,13 @@ fn connect() -> Result<(Rc<Client>, Stack), String> {
                 return Err(format!("no network stack: {}", error.message()))
             }
             Err(_) => {
-                let _ = sys::wait(sys::clock() + 1);
+                sys::nap();
             }
         }
     };
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
-        let _ = sys::wait(sys::clock() + 1);
+        sys::nap();
     }
     let sockets = Client::connect().map_err(|e| format!("sockets: {}", describe(&e)))?;
     Ok((Rc::new(sockets), stack))

@@ -16,8 +16,10 @@
 //!   and answers ([`pump::complete`]); the caller parks on the socket's wait
 //!   queue until then. Connections `netd` accepts are handed in
 //!   ([`pump::accepted`]). Bytes move through side A with non-blocking reads
-//!   and writes, and `netd` polls on its own tick, so no kernel-originated
-//!   Messenger call is needed.
+//!   and writes. Whatever the application does that `netd` must act on rings
+//!   the pump's doorbell ([`bell`]), which `netd` parks on beside its
+//!   Messenger endpoint, so no kernel-originated Messenger call is needed and
+//!   nothing waits for a timer.
 //!
 //! **Ownership** is the file descriptor: it is the kernel's, so `fork`, `dup`
 //! and passing a socket to a child need nothing from `netd` (the reason the
@@ -38,6 +40,7 @@ use spin::Mutex;
 
 use crate::ipc::pipe::SocketPair;
 
+pub mod bell;
 mod pump;
 mod sock;
 mod timeout;
@@ -248,4 +251,5 @@ pub fn reset() {
     }
     table.queue.clear();
     table.netd = None;
+    bell::set_owner(None);
 }

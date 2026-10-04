@@ -2,12 +2,11 @@
 //! dispatch.
 
 use alloc::format;
-use user::messenger::{self, clipboard as wire, errno, registry, Error, Message, Parcel};
+use user::messenger::{self, clipboard as wire, errno, registry, wait, Error, Message, Parcel};
 use user::sys;
 
 use super::args::{demo_from_args, history_from_args, spawn_demo};
 use super::state::Clipboard;
-use super::POLL_TICKS;
 
 /// Register the service and serve offers, pastes and the changed topic.
 pub(super) fn run() -> messenger::Result<()> {
@@ -17,6 +16,8 @@ pub(super) fn run() -> messenger::Result<()> {
     let mut clipboard = Clipboard::new(history);
     sys::write_str(&format!("CLIPBOARD:HISTORY:{history}\n"));
     sys::write_str("CLIPBOARD:READY\n");
+    // Serving: what waits for this service may start (init.Ready, P7.3).
+    user::messenger::services::init::notify_ready();
     // The demo pair (if requested) starts right here, so its two ELF loads
     // complete before the supervisor's crash test files its short-deadline
     // health report; the evidence then runs while the rest of boot is settled.
@@ -27,19 +28,25 @@ pub(super) fn run() -> messenger::Result<()> {
     // allocate one per request.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let now = sys::clock();
         if demo_pending {
             demo_children = spawn_demo();
             demo_pending = false;
         }
-        // Wake each poll while a demo child is alive, to reap its exit; with
-        // nothing to reap, park forever.
-        let deadline = if demo_children > 0 {
-            now.saturating_add(POLL_TICKS)
+        // Park until a request or, while a demo child is alive, its exit
+        // (the child bell, P7); never on a timer.
+        let doorbells = if demo_children > 0 {
+            wait::WAIT_CHILD
         } else {
             0
         };
-        match server.recv_with(&mut buffer, (deadline != 0).then_some(deadline)) {
+        let ready = wait::wait_any(&[server], doorbells, None)?;
+        if ready & wait::CHILD_READY != 0 && sys::wait(sys::clock().max(1)).is_some() {
+            demo_children -= 1;
+        }
+        if ready & 1 == 0 {
+            continue;
+        }
+        match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
                 let interface = message.interface_id();
                 let method = message.method();
@@ -64,11 +71,6 @@ pub(super) fn run() -> messenger::Result<()> {
             }
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(error),
-        }
-        // Non-blocking reap: an expired deadline returns after the next timer
-        // sweep, so a demo child that exited is collected promptly.
-        while demo_children > 0 && sys::wait(sys::clock()).is_some() {
-            demo_children -= 1;
         }
     }
 }

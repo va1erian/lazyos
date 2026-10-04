@@ -20,6 +20,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fw_ata_probe_soak", ata_probe_soak),
     ("fw_i8042_probe_cases", i8042_probe_cases),
     ("fw_com1_probe_cases", com1_probe_cases),
+    ("fw_com1_ring_cases", com1_ring_cases),
     ("fw_syslog_reads_the_ring", syslog_reads_the_ring),
     ("fw_logical_fit_cases", logical_fit_cases),
     ("fw_view_blits_stay_inside", view_blits_stay_inside),

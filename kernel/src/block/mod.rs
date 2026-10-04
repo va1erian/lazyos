@@ -7,10 +7,12 @@
 //! and needs no heap. A mount can then name a device ([`device`]) or use the
 //! active boot device ([`boot_device`]).
 //!
-//! Sector I/O takes a caller-provided buffer. Drivers that DMA cannot point
-//! the device at arbitrary kernel memory: the heap maps scattered physical
-//! frames and a stack slice can straddle pages. virtio-blk therefore copies
-//! through a static bounce buffer while ATA PIO has no such constraint. The
+//! Sector I/O takes a caller-provided buffer. The heap maps scattered
+//! physical frames and a stack slice can straddle pages, so virtio-blk hands
+//! the device one descriptor per page piece of the caller's buffers,
+//! translated with [`virt_to_phys`]; ATA PIO has no such constraint. A caller
+//! that holds no plain spin lock passes [`Wait::MaySleep`] and gives the CPU
+//! away while its request is in flight ([`iowait`]). The
 //! registry keeps a `'static` reference per device, so someone must own the
 //! driver instances for the whole kernel life, which the statics in
 //! [`ata`]/[`virtio`] provide.
@@ -20,6 +22,7 @@
 //! device is the active boot device.
 
 pub mod ata;
+pub mod iowait;
 pub mod mem;
 pub mod partition;
 pub mod provider;
@@ -55,6 +58,18 @@ pub enum BlockError {
     /// The device is read-only and the caller tried to write.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // write path is tested only
     ReadOnly,
+}
+
+/// How a request may wait for its device (docs/performance-plan.md P5).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Wait {
+    /// Busy-wait with interrupts as the caller has them (off in a syscall):
+    /// for callers that may hold a spin lock another task could want.
+    Spin,
+    /// The caller holds no lock but ones whose contenders yield
+    /// (`task::relax`), so it may give the CPU away while the device works
+    /// ([`iowait`] decides whether the context really can).
+    MaySleep,
 }
 
 /// Validate a sector range against a geometry. Shared by drivers so bounds
@@ -133,6 +148,31 @@ pub trait BlockDevice: Send + Sync {
             at += (buf.len() / self.sector_size().max(1)) as u64;
         }
         Ok(())
+    }
+
+    /// [`BlockDevice::read_sectors_vectored`], saying how the caller may wait.
+    /// A driver that can sleep (virtio-blk) honours [`Wait::MaySleep`]; the
+    /// default ignores it.
+    fn read_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &mut [&mut [u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let _ = wait;
+        self.read_sectors_vectored(lba, bufs)
+    }
+
+    /// [`BlockDevice::write_sectors_vectored`], saying how the caller may wait.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // no kernel writer yet
+    fn write_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &[&[u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        let _ = wait;
+        self.write_sectors_vectored(lba, bufs)
     }
 
     /// Flush any write cache so earlier writes are durable. Devices without a

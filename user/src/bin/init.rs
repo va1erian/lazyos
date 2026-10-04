@@ -91,6 +91,8 @@ mod launch;
 mod protocol;
 #[path = "init/provisioning.rs"]
 mod provisioning;
+#[path = "init/ready.rs"]
+mod ready;
 #[path = "init/selftest.rs"]
 mod selftest;
 #[path = "init/service.rs"]
@@ -111,7 +113,7 @@ mod supervise;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, router, services};
+use user::messenger::{self, registry, router, services, wait};
 use user::sys;
 
 use autostart::Autostart;
@@ -183,6 +185,8 @@ fn run() -> messenger::Result<()> {
     // Set by a `Shutdown` request; from then on nothing starts or restarts and
     // the loop steps the shutdown instead (docs/shutdown.md).
     let mut shutdown: Option<shutdown::Shutdown> = None;
+    // Whether the shutdown has taken its first step.
+    let mut stepped = false;
 
     loop {
         let now = sys::clock();
@@ -200,6 +204,10 @@ fn run() -> messenger::Result<()> {
             if BOOT_EVIDENCE {
                 selftest.step(&mut services, &mut broker, now);
             }
+            // A service that never said it serves is taken as ready late.
+            if ready::expire(&mut services, now) {
+                start_ready(&mut services, &mut broker);
+            }
             // A home volume on a USB stick (`home`): once it is mounted, or
             // the bounded wait for it ends, start what was held for it.
             if home::step(&services, now) {
@@ -210,12 +218,37 @@ fn run() -> messenger::Result<()> {
                 autostart.step(&mut services, &mut broker, &mut installed, now);
             }
         }
-        // Reap one exit (or time out to serve requests).
-        if let Some((pid, status)) = sys::wait(home::wake(wake_deadline(&services, now), now)) {
-            child_exited(&mut services, pid, status, &mut broker);
-            // The exit may unblock dependents (only a stop can; still cheap).
-            if shutdown.is_none() {
-                start_ready(&mut services, &mut broker);
+        // A shutdown accepted in the last pass starts stepping in this one,
+        // after a real park: it lets the requester run and see its reply
+        // before `init` signals the apps, the requester (LazyShell) among
+        // them. A same-class wake does not preempt, so stepping at once would
+        // stop it with the reply unread; and a wait could return at once on
+        // a queued message, so this is a plain sleep of one old poll tick.
+        if shutdown.is_some() && !stepped {
+            sys::sleep_ns(FIRST_STEP_PAUSE_NS);
+        }
+        // Park until a request, a child exit or the next timed step: requests
+        // are served at once, and an idle supervisor does not wake.
+        let stepping = shutdown.is_some();
+        let deadline = match shutdown.as_ref() {
+            Some(running) if stepped => running.next_deadline(&services),
+            // The first step runs right after the pause above.
+            Some(_) => Some(messenger::EXPIRED_DEADLINE),
+            None => next_wake(&services, &selftest, &autostart, now),
+        };
+        let ready = match wait::wait_any(&[server], wait::WAIT_CHILD, deadline) {
+            Ok(ready) => ready,
+            Err(messenger::Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
+            Err(error) => return Err(error),
+        };
+        // Reap one exit; the bell stays ready while more are waiting.
+        if ready & wait::CHILD_READY != 0 {
+            if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
+                child_exited(&mut services, pid, status, &mut broker);
+                // The exit may unblock dependents (only a stop can; still cheap).
+                if shutdown.is_none() {
+                    start_ready(&mut services, &mut broker);
+                }
             }
         }
         serve_pending(
@@ -229,10 +262,33 @@ fn run() -> messenger::Result<()> {
             &server,
             &mut buffer,
         )?;
-        if let Some(running) = &mut shutdown {
+        if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
+            stepped = true;
         }
     }
+}
+
+/// The pause before a shutdown's first step (see the loop): one 10 ms tick,
+/// what the supervisor's old poll gave the requester.
+const FIRST_STEP_PAUSE_NS: u64 = 10_000_000;
+
+/// The earliest tick the loop must run again with no request or exit to
+/// wake it; `None` parks until one of those.
+fn next_wake(
+    services: &[Service],
+    selftest: &LaunchSelftest,
+    autostart: &Autostart,
+    now: u64,
+) -> Option<u64> {
+    let home = home::wake(now);
+    let autostart = home::ready().then(|| autostart.next_due()).flatten();
+    let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
+    let late = ready::next_deadline(services);
+    [wake_deadline(services), home, autostart, selftest, late]
+        .into_iter()
+        .flatten()
+        .min()
 }
 
 #[panic_handler]

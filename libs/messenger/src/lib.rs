@@ -24,7 +24,7 @@ mod parcel;
 mod tests;
 mod tlv;
 
-pub use parcel::{BufferDesc, Header, Parcel};
+pub use parcel::{BufferDesc, Header, Parcel, ParcelView};
 pub use tlv::{Decoder, Encoder, Field, Kind};
 
 use core::fmt;

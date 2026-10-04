@@ -251,6 +251,7 @@ pub(super) fn stop_process(pml4: u64) {
                 deadline: None,
             };
             task.wake_reason = None;
+            crate::task::runq::sync(&tasks, slot);
         }
     }
 }

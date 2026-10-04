@@ -134,17 +134,63 @@ pub fn try_bytes<'a>(addr: u64, len: usize) -> Result<&'a [u8], Fault> {
     Ok(unsafe { core::slice::from_raw_parts(addr as *const u8, len) })
 }
 
+/// Bytes one copy moves between two poll points (`arch::irq_window`): a
+/// megabyte copy is a few hundred microseconds on hardware, far more under
+/// emulation, all with interrupts off.
+const COPY_PIECE: usize = 64 * 1024;
+
+/// Borrow `len` writable bytes at `addr` as a slice, so a producer can fill
+/// user memory in place (the `AF_INET` pump reads a ring straight into it).
+///
+/// The same rule as [`try_bytes`]: never hold it across a point where the
+/// task could block or its threads unmap the range.
+pub fn try_bytes_mut<'a>(addr: u64, len: usize) -> Result<&'a mut [u8], Fault> {
+    check(addr, len, true)?;
+    if len == 0 {
+        return Ok(&mut []);
+    }
+    // SAFETY: `check` proved the whole range is present and writable user
+    // memory in the active address space for the duration of the syscall,
+    // and nothing in the kernel aliases user pages.
+    Ok(unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, len) })
+}
+
 /// Copy `src` to `addr`.
 pub fn try_copy_to(addr: u64, src: &[u8]) -> Result<(), Fault> {
     check(addr, src.len(), true)?;
-    if src.is_empty() {
-        return Ok(());
+    for (index, piece) in src.chunks(COPY_PIECE).enumerate() {
+        crate::arch::irq_window::poll_point();
+        let at = addr + (index * COPY_PIECE) as u64;
+        // Safety: `check` proved `addr..addr + src.len()` is writable user
+        // memory in the active address space, and a window never switches
+        // tasks, so it stays so; `src` is kernel memory, so they cannot
+        // overlap.
+        unsafe { core::ptr::copy_nonoverlapping(piece.as_ptr(), at as *mut u8, piece.len()) };
     }
-    // Safety: `check` proved `addr..addr + src.len()` is writable user memory
-    // in the active address space; `src` is kernel memory, so they cannot
-    // overlap.
-    unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), addr as *mut u8, src.len()) };
     Ok(())
+}
+
+/// Why [`try_read_vec`] produced no buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReadVecError {
+    /// The user range is not readable (`EFAULT`).
+    Fault,
+    /// The kernel could not allocate the copy (`ENOMEM`).
+    NoMemory,
+}
+
+/// Copy `len` bytes from `addr` into a new kernel buffer. `len` is the
+/// caller's, so the allocation is fallible rather than an abort.
+pub fn try_read_vec(addr: u64, len: usize) -> Result<Vec<u8>, ReadVecError> {
+    let source = try_bytes(addr, len).map_err(|_| ReadVecError::Fault)?;
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(len)
+        .map_err(|_| ReadVecError::NoMemory)?;
+    for piece in source.chunks(COPY_PIECE) {
+        crate::arch::irq_window::poll_point();
+        copy.extend_from_slice(piece);
+    }
+    Ok(copy)
 }
 
 /// Copy little-endian `words` to `addr` in one validated write.

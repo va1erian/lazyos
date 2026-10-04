@@ -7,6 +7,7 @@ use user::messenger::display::{Canvas, Color, Face, Rect};
 use user::sys;
 
 use super::compositor::Compositor;
+use super::cursor::present_cursor_outside;
 use super::drag::draw_drag;
 use super::icons;
 use super::region::Region;
@@ -21,9 +22,10 @@ use super::window::surface_by_id;
 
 impl Compositor {
     /// Compose `damage` from the background, the desktop surface, every
-    /// visible window in z-order, the shell's panels, the Alt+Tab overlay,
-    /// the active drag & drop session (if any), and the cursor, then present
-    /// exactly that rectangle.
+    /// visible window in z-order, the shell's panels, the Alt+Tab overlay and
+    /// the active drag & drop session (if any), stamp the cursor overlay
+    /// (`cursor.rs`) at the pointer, then present exactly that rectangle and
+    /// the sprite's old and new places if it moved.
     ///
     /// Only pixels a later layer would not overwrite are painted (issue #360):
     /// panels, the Alt+Tab panel and each window are opaque, so each layer
@@ -36,12 +38,27 @@ impl Compositor {
         if damage.is_empty() {
             return;
         }
+        let lifted = self.cursor.lift(&mut self.screen);
         self.compose(damage);
+        let stamped = self.stamp_cursor();
         let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+        present_cursor_outside(lifted, stamped, damage);
     }
 
-    /// [`Compositor::repaint`] without the present, so a caller can draw over
-    /// the composed frame (the window-zoom wireframe) and present once.
+    /// Stamp the cursor overlay where it belongs ([`Compositor::cursor_target`]);
+    /// the rectangle it covers, empty when it is hidden.
+    pub(super) fn stamp_cursor(&mut self) -> Rect {
+        match self.cursor_target() {
+            Some(at) => self.cursor.stamp(&mut self.screen, at),
+            None => Rect::default(),
+        }
+    }
+
+    /// Compose the scene inside `damage` (with the resize wireframe while an
+    /// edge resize is live), without the cursor and without a present, so a
+    /// caller can draw over the composed frame (the window-zoom wireframe)
+    /// and present once. Call it only while the cursor overlay is
+    /// lifted (`cursor.rs`): it overwrites what the sprite covers.
     pub(super) fn compose(&mut self, damage: Rect) {
         let damage = damage.intersect(self.full());
         if damage.is_empty() {
@@ -135,12 +152,18 @@ impl Compositor {
         if let Some(tab) = self.alt_tab.as_ref() {
             draw_alt_tab(screen, surfaces, tab, damage);
         }
-        // The shutting-down screen covers everything, cursor included.
+        // An edge resize's wireframe belongs to the scene while it lasts:
+        // any repaint under it (the client redrawing its caret, a panel
+        // changing) must draw it again, or the outline vanishes there. Every
+        // pixel of `damage` was just written, so the XOR lands on clean ones.
+        if let Some(drag) = self.resize {
+            super::anim::outline(screen, drag.outline, damage);
+        }
+        // The shutting-down screen covers everything (the cursor overlay
+        // stays hidden meanwhile, `Compositor::cursor_target`).
         if super::powerfeed::active() {
             super::powerfeed::draw(screen, damage);
-            return;
         }
-        screen.cursor_scaled(cursor.0, cursor.1, super::theme::scale(), damage);
     }
 }
 
@@ -308,9 +331,15 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     } else {
         border_color()
     };
-    // Body, then a one-design-pixel frame and the title separator.
+    // Body, then a one-design-pixel frame and the title separator. The
+    // content rectangle is left out: the app's pixels (or the placeholder)
+    // cover it below, so each of its pixels is written once.
     let line = px(1);
-    screen.fill(window, clip, window_bg());
+    let mut body = Region::new(window.intersect(clip));
+    body.subtract(surface.content());
+    for piece in body.rects() {
+        screen.fill(*piece, clip, window_bg());
+    }
     screen.fill(Rect::new(window.x, window.y, window.w, line), clip, border);
     screen.fill(
         Rect::new(window.x, window.y + window.h - line, window.w, line),

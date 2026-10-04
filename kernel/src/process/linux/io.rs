@@ -12,12 +12,32 @@ use crate::user_ptr;
 use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
 use super::filerw::{read_file_bytes, write_file};
 use super::scatter::{Received, Scatter};
-use super::time::millis_to_ticks;
+use super::time::millis_deadline;
 use super::vfsfd;
 
-/// Bytes staged per `read`/`write` call through a pipe. A short transfer is
-/// legal on a pipe, so callers that want it all loop (as `write_all` does).
+/// Bytes staged on the kernel stack per `read`/`write` call through a pipe
+/// (and `sendfile`'s chunk).
 pub(super) const STREAM_CHUNK: usize = 4096;
+/// Most bytes one stream `read`/`write` moves: a whole `AF_INET` ring
+/// (docs/performance-plan.md P4.4). Above [`STREAM_CHUNK`] the bytes are
+/// staged on the heap, never borrowed across a block. A short transfer is
+/// legal on a pipe, so callers that want it all loop (as `write_all` does).
+const STREAM_MAX: usize = pipe::SMALL_CAPACITY;
+
+/// A staging buffer of `want` bytes: on the stack up to [`STREAM_CHUNK`],
+/// else on the heap (`None` when the heap cannot give it).
+fn stage<'a>(
+    stack: &'a mut [u8; STREAM_CHUNK],
+    heap: &'a mut Vec<u8>,
+    want: usize,
+) -> Option<&'a mut [u8]> {
+    if want <= STREAM_CHUNK {
+        return Some(&mut stack[..want]);
+    }
+    heap.try_reserve_exact(want).ok()?;
+    heap.resize(want, 0);
+    Some(heap)
+}
 
 /// Most `pollfd` entries one `poll` may scan.
 const POLL_MAX_FDS: u64 = 1024;
@@ -36,14 +56,16 @@ pub(super) fn sys_poll(fds: u64, nfds: u64, timeout: u64) -> u64 {
     let deadline = if (timeout as i64) < 0 {
         None
     } else {
-        Some(task::ticks() + millis_to_ticks(timeout))
+        Some(millis_deadline(timeout))
     };
     loop {
+        // Record what this scan looks at: only those objects' events wake it.
+        task::poll_scan_begin();
         let ready = scan_poll(fds, nfds);
         if ready > 0 {
             return ready;
         }
-        match task::wait_poll(deadline) {
+        match task::wait_poll_keyed_ns(deadline) {
             WakeReason::Woken => {} // input arrived: rescan
             WakeReason::TimedOut => return 0,
             WakeReason::Interrupted => return err(EINTR),
@@ -113,9 +135,12 @@ fn write_terminal(ptr: u64, len: u64) -> u64 {
         return err(EFAULT);
     };
     task::write_output(bytes);
-    crate::serial::write_bytes(bytes);
     // Answer a cursor-position report request (busybox line editing asks for it).
-    if bytes.windows(4).any(|w| w == b"\x1b[6n") {
+    let asks_position = bytes.windows(4).any(|w| w == b"\x1b[6n");
+    // Last use of the user slice: the mirror may let interrupts in (and
+    // other threads run) once it has queued the bytes.
+    crate::serial::mirror(bytes);
+    if asks_position {
         task::inject_input(b"\x1b[1;1R");
     }
     len
@@ -161,13 +186,16 @@ pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) ->
             Err(pipe::Error::BadEnd) => err(EBADF),
         };
     }
-    let want = (len as usize).min(STREAM_CHUNK);
-    let mut buf = [0u8; STREAM_CHUNK];
+    let want = (len as usize).min(STREAM_MAX);
+    let (mut stack, mut heap) = ([0u8; STREAM_CHUNK], Vec::new());
+    let Some(buf) = stage(&mut stack, &mut heap, want) else {
+        return err(ENOMEM);
+    };
     match user_ptr::try_bytes(ptr, want) {
-        Ok(bytes) => buf[..want].copy_from_slice(bytes),
+        Ok(bytes) => buf.copy_from_slice(bytes),
         Err(_) => return err(EFAULT),
     }
-    match task::fd_stream_send(fd as usize, &buf[..want], dont_wait) {
+    match task::fd_stream_send(fd as usize, buf, dont_wait) {
         Ok(n) => n as u64,
         Err(error) => pipe_error(error),
     }
@@ -249,18 +277,11 @@ pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Rece
     let want = if seqpacket {
         len.saturating_add(1).min(pipe::CAPACITY)
     } else {
-        len.min(STREAM_CHUNK)
+        len.min(STREAM_MAX)
     };
-    let mut heap = Vec::new();
-    let mut stack = [0u8; STREAM_CHUNK];
-    let buf: &mut [u8] = if want > STREAM_CHUNK {
-        if heap.try_reserve_exact(want).is_err() {
-            return Received::of(err(ENOMEM));
-        }
-        heap.resize(want, 0);
-        &mut heap
-    } else {
-        &mut stack[..want]
+    let (mut stack, mut heap) = ([0u8; STREAM_CHUNK], Vec::new());
+    let Some(buf) = stage(&mut stack, &mut heap, want) else {
+        return Received::of(err(ENOMEM));
     };
     let n = match task::fd_stream_recv(fd as usize, buf, opts) {
         Ok(n) => n,

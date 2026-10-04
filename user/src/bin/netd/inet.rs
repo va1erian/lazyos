@@ -1,15 +1,17 @@
 //! The pump for Linux programs' sockets (`docs/networking-plan.md`, stage N5).
 //!
 //! The kernel owns the application's side of every `AF_INET` socket
-//! (`kernel/src/ipc/inet`); `netd` owns the other. Each pass over this module
-//! (the event loop calls [`Inet::pump`] on its own tick, because the kernel
-//! never wakes a service) does three things:
+//! (`kernel/src/ipc/inet`); `netd` owns the other. The event loop calls
+//! [`Inet::pump`] on every pass, and the kernel's doorbell for these sockets
+//! (`kernel/src/ipc/inet/bell.rs`) wakes it whenever an application queued a
+//! request, wrote into an empty ring, made room in a full one or closed.
+//! Each pass does three things:
 //!
 //! 1. fetches the requests the kernel queued (bind, connect, listen, close)
 //!    and carries them out against the stack;
 //! 2. moves bytes both ways between each socket's kernel data path and its
-//!    stack socket, a chunk at a time, never waiting: a full buffer on either
-//!    side just means "next pass";
+//!    stack socket, in place and until one side is exhausted (`flow.rs`),
+//!    never waiting: a full buffer on either side just means "next pass";
 //! 3. notices what the network did (a connection finished, arrived, ended or
 //!    failed) and tells the kernel.
 //!
@@ -31,8 +33,6 @@ mod flow;
 
 /// Stack owners of kernel sockets: far above any Messenger owner id.
 pub(super) const OWNER_BASE: u64 = 1 << 40;
-/// Bytes moved per read or write.
-const CHUNK: usize = 16 * 1024;
 /// Largest datagram message: a 6-byte address header and 1472 bytes.
 const FRAME: usize = 6 + 1472;
 /// Requests handled per pass, so a flood cannot hold the loop.
@@ -64,10 +64,11 @@ struct Entry {
     kind: Kind,
     stack: Option<u32>,
     phase: Phase,
-    /// Bytes read from the application, not yet taken by the stack (a stream
-    /// chunk, or one datagram message).
+    /// A datagram message read from the application, not yet taken by the
+    /// stack (streams move in place and hold nothing here).
     tx: Vec<u8>,
-    /// Bytes read from the stack, not yet taken by the application.
+    /// A datagram message read from the stack, not yet taken by the
+    /// application.
     rx: Vec<u8>,
     /// The application finished sending.
     app_end: bool,
@@ -109,6 +110,16 @@ pub(super) struct InetStats {
     pub closed: u64,
     pub to_stack: u64,
     pub from_stack: u64,
+    /// Bytes handed to applications and taken from them.
+    pub to_app: u64,
+    pub from_app: u64,
+}
+
+impl InetStats {
+    /// Every byte counter added up: unchanged across a pass means nothing moved.
+    fn moved(&self) -> u64 {
+        self.to_stack + self.from_stack + self.to_app + self.from_app
+    }
 }
 
 pub(super) struct Inet {
@@ -116,6 +127,8 @@ pub(super) struct Inet {
     attached: bool,
     next_attach: u64,
     pub(super) stats: InetStats,
+    /// One datagram message read from the kernel, reused every pass.
+    scratch: Vec<u8>,
 }
 
 /// `local` and `peer` in the kernel's address-block form.
@@ -147,13 +160,23 @@ impl Inet {
             attached: false,
             next_attach: 0,
             stats: InetStats::default(),
+            scratch: alloc::vec![0u8; FRAME + 2],
         }
     }
 
-    /// Whether the next pass has work: sockets to move bytes for, or requests
-    /// waiting in the kernel.
-    pub(super) fn busy(&self) -> bool {
-        self.attached && (!self.entries.is_empty() || sys::inet_stats().1 > 0)
+    /// Whether this task serves the kernel's sockets (and may park on their
+    /// doorbell).
+    pub(super) fn attached(&self) -> bool {
+        self.attached
+    }
+
+    /// The kernel no longer counts this task as the pump's server (another
+    /// one attached): forget the sockets and try again later.
+    pub(super) fn lost(&mut self, tick: u64) {
+        sys::write_str("NETD:INET:LOST another task attached to the AF_INET table\n");
+        self.attached = false;
+        self.entries.clear();
+        self.next_attach = tick + ATTACH_RETRY_TICKS;
     }
 
     fn entry(&mut self, id: u32, kind: Kind) -> &mut Entry {
@@ -165,10 +188,13 @@ impl Inet {
     }
 
     /// One pass. `tick` is the kernel tick, `now_ms` the stack clock.
-    pub(super) fn pump(&mut self, stack: &mut Stack, tick: u64, now_ms: i64) {
+    /// `true` when bytes moved: the caller passes again at once, because
+    /// what is left (a stack buffer with more to read, a ring with more
+    /// to send) rings no doorbell and may bring no frame.
+    pub(super) fn pump(&mut self, stack: &mut Stack, tick: u64, now_ms: i64) -> bool {
         if !self.attached {
             if tick < self.next_attach {
-                return;
+                return false;
             }
             match sys::inet_attach() {
                 Ok(()) => {
@@ -179,7 +205,7 @@ impl Inet {
                 Err(_) => {
                     // Not root or `_netd`, or the kernel is without the pump.
                     self.next_attach = tick + ATTACH_RETRY_TICKS;
-                    return;
+                    return false;
                 }
             }
         }
@@ -190,6 +216,7 @@ impl Inet {
                 _ => break,
             }
         }
+        let before = self.stats.moved();
         let mut i = 0;
         while i < self.entries.len() {
             let finished = self.service(stack, i, now_ms);
@@ -199,6 +226,7 @@ impl Inet {
                 i += 1;
             }
         }
+        self.stats.moved() != before
     }
 
     fn request(&mut self, stack: &mut Stack, raw: &[u8; INET_REQUEST_BYTES], now_ms: i64) {
