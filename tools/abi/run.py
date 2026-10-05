@@ -335,6 +335,14 @@ def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
     return classify(name, capture(name, image, at, accel))
 
 
+# skip / unavailable (n/a) stay non-fatal; a fixture that failed or never ran gates CI.
+FATAL_STATUSES = ("fail", "not-run")
+
+
+def failing_rows(rows: list[dict]) -> list[str]:
+    return [r["fixture"] for r in rows if r["status"] in FATAL_STATUSES]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", default="8", help="capture time in seconds (default 8)")
