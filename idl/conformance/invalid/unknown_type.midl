@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): A type must be built in or declared here.
+interface os.lazy.conformance.bad.v1 {
+    struct P { q: Quaternion = 1 }
+}

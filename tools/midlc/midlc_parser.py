@@ -13,6 +13,8 @@ from midlc_lexer import Token
 from midlc_model import (
     BODY_FORBIDDEN,
     BUILTINS,
+    ERROR_FIELD,
+    MAX_FIELD_ID,
     Enum,
     Interface,
     Method,
@@ -38,6 +40,11 @@ class Parser:
         self.tokens = tokens
         self.pos = 0
         self.pending_doc = ""
+        # Source offset just past the last token consumed (a field's type
+        # ends there, which is where `--pin-field-ids` writes its id).
+        self.last_end = 0
+        # Non-fatal findings (implicit field ids), reported by the CLI.
+        self.warnings: list[str] = []
 
     def peek(self) -> Token | None:
         return self.tokens[self.pos] if self.pos < len(self.tokens) else None
@@ -47,6 +54,8 @@ class Parser:
         if token is None:
             raise MidlError("unexpected end of input")
         self.pos += 1
+        if token.kind != "doc":
+            self.last_end = token.end
         if token.kind == "doc":
             # Consecutive `///` lines are one doc comment; append (not
             # replace) so a multi-line comment keeps every line, in order.
@@ -81,6 +90,23 @@ class Parser:
             self.expect(">")
         return Type(token.text, args)
 
+    def parse_field(self, what: str) -> Param:
+        """`name: Type [= N]`: one struct field, argument or reply field."""
+        name = self.next()
+        if name.kind != "ident":
+            raise MidlError(f"expected a {what} name, found {name.text!r}", name.line)
+        self.expect(":")
+        param = Param(name.text, self.parse_type(), line=name.line)
+        param.end = self.last_end
+        if self.peek() and self.peek().text == "=":
+            self.next()
+            number = self.next()
+            if number.kind != "number":
+                raise MidlError(f"expected a field id after '=' for {name.text!r}", number.line)
+            param.id = int(number.text)
+            param.explicit = True
+        return param
+
     def parse_params(self) -> list[Param]:
         self.expect("(")
         params: list[Param] = []
@@ -88,17 +114,41 @@ class Parser:
             self.next()
             return params
         while True:
-            name = self.next()
-            if name.kind != "ident":
-                raise MidlError(f"expected a parameter name, found {name.text!r}", name.line)
-            self.expect(":")
-            params.append(Param(name.text, self.parse_type()))
+            params.append(self.parse_field("parameter"))
             if self.peek() and self.peek().text == ",":
                 self.next()
                 continue
             break
         self.expect(")")
         return params
+
+    def assign_field_ids(self, fields: list[Param], origin: str, reply: bool = False) -> None:
+        """Give every field its wire id: the explicit `= N`, else its 1-based
+        position (the rule before explicit ids existed, so the wire of an
+        unpinned file never changes). Ids are unique in the list, in
+        1..65535, and a reply field never takes [`ERROR_FIELD`]. An implicit
+        id is a warning: reordering the list would silently renumber it."""
+        seen: dict[int, str] = {}
+        for position, field in enumerate(fields, start=1):
+            if not field.explicit:
+                field.id = position
+                self.warnings.append(
+                    f"line {field.line}: {origin} field {field.name!r} has the implicit id "
+                    f"{position}; pin it with `= {position}` (midlc --pin-field-ids)"
+                )
+            if not 1 <= field.id <= MAX_FIELD_ID:
+                raise MidlError(f"{origin} field {field.name!r}: id {field.id} is outside 1..{MAX_FIELD_ID}", field.line)
+            if field.id in seen:
+                raise MidlError(
+                    f"{origin} fields {seen[field.id]!r} and {field.name!r} both have id {field.id}", field.line
+                )
+            if reply and field.id == ERROR_FIELD:
+                raise MidlError(
+                    f"{origin} field {field.name!r}: id {ERROR_FIELD} is reserved for the "
+                    "standard error field; give it another id",
+                    field.line,
+                )
+            seen[field.id] = field.name
 
     def parse_method(self) -> Method:
         doc = self.take_doc()
@@ -129,6 +179,8 @@ class Parser:
             else:
                 raise MidlError(f"unexpected {token.text!r} in method", token.line)
         self.expect(";")
+        self.assign_field_ids(params, f"{name.text} (args)")
+        self.assign_field_ids(returns, f"{name.text} (reply)", reply=True)
         return Method(name.text, params, returns, method_id, oneway, doc, transfers)
 
     def parse_struct(self) -> Struct:
@@ -139,14 +191,11 @@ class Parser:
         self.expect("{")
         fields: list[Param] = []
         while self.peek() and self.peek().text != "}":
-            field_name = self.next()
-            if field_name.kind != "ident":
-                raise MidlError(f"expected a field name, found {field_name.text!r}", field_name.line)
-            self.expect(":")
-            fields.append(Param(field_name.text, self.parse_type()))
+            fields.append(self.parse_field("field"))
             if self.peek() and self.peek().text == ",":
                 self.next()
         self.expect("}")
+        self.assign_field_ids(fields, f"struct {name.text}")
         return Struct(name.text, fields, doc)
 
     def parse_topic(self) -> Topic:
@@ -301,6 +350,10 @@ def validate(interface: Interface) -> None:
     for struct in interface.structs:
         for f in struct.fields:
             check_type(f.ty, named)
+    enums = {e.name for e in interface.enums}
+    for fields in [s.fields for s in interface.structs] + [m.params + m.returns for m in interface.methods]:
+        for f in fields:
+            mark_enums(f.ty, enums)
     validate_topics(interface, named, claim)
     validate_rings(interface, claim)
 
@@ -335,6 +388,13 @@ def validate_topics(interface: Interface, named: set[str], claim) -> None:
             claim(identifier, origin)
 
 
+def mark_enums(ty: Type, enums: set[str]) -> None:
+    """Flag every enum-typed node of `ty` (it travels as a `U32`)."""
+    ty.enum = ty.name in enums
+    for arg in ty.args:
+        mark_enums(arg, enums)
+
+
 def check_type(ty: Type, named: set[str]) -> None:
     if ty.name in BODY_FORBIDDEN:
         raise MidlError(
@@ -342,6 +402,8 @@ def check_type(ty: Type, named: set[str]) -> None:
             "nothing in the receiver's table); declare it in the method's "
             "`transfers (...)` clause"
         )
+    if ty.name == "Map" and "Map" not in named:
+        raise MidlError("MIDL has no Map type; use an Array of a struct with key and value fields")
     if ty.name in {"Array", "Option"} and len(ty.args) != 1:
         raise MidlError(f"{ty.name} takes exactly one type parameter")
     if ty.name not in BUILTINS and ty.name not in named:

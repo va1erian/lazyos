@@ -29,13 +29,13 @@ interface os.lazy.input.v1 {
     /// the login console and refused with `EINVAL` for now. The parcel transfers the event
     /// endpoint (`handles[0]`) that receives every event below. A task may hold
     /// several sessions, one per surface.
-    method Open(surface: Option<U64>) -> (session: U64) = 1
+    method Open(surface: Option<U64> = 1) -> (session: U64 = 1) = 1
         transfers (events: Channel<os.lazy.input.v1>);
     /// End a session. Only the task that opened it may.
-    method Close(session: U64) -> () = 2;
+    method Close(session: U64 = 1) -> () = 2;
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
-    method GetState() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32) = 3;
+    method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3;
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -44,17 +44,17 @@ interface os.lazy.input.v1 {
     /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
     /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
     /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
-    method KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () = 10 oneway;
+    method KeyEvent(code: U32 = 1, sym: U32 = 2, mods: U32 = 3, state: U32 = 4, ts_ns: U64 = 5, seq: U64 = 6) -> () = 10 oneway;
     /// Event: composed text (UTF-8) for a character-producing press or repeat.
-    method TextInput(utf8: String) -> () = 11 oneway;
+    method TextInput(utf8: String = 1) -> () = 11 oneway;
     /// Event: keyboard focus arrived. `down` lists the physical keys held right
     /// now, so the client seeds its key state.
-    method KeyboardEnter(down: Array<U32>) -> () = 12 oneway;
+    method KeyboardEnter(down: Array<U32> = 1) -> () = 12 oneway;
     /// Event: keyboard focus left. The client **must release every key** it
     /// believes is down; `inputd` also cancels repeat.
     method KeyboardLeave() -> () = 13 oneway;
     /// Event: the layout changed (a `confd` write, live).
-    method LayoutChanged(layout: String) -> () = 14 oneway;
+    method LayoutChanged(layout: String = 1) -> () = 14 oneway;
 
     /// What happened to a key. Numeric values are the wire values.
     enum KeyState { Down, Up, Repeat }
@@ -72,52 +72,52 @@ interface os.lazy.input.shell.v1 {
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.
-    method SetFocus(surface: Option<U64>) -> () = 2;
+    method SetFocus(surface: Option<U64> = 1) -> () = 2;
     /// Declare that `owner` (a task slot, as the compositor stamps in
     /// `Surface.owner`) created `surface`, so `inputd` can match that task's
     /// `Open` to the window.
-    method RegisterSurface(surface: U64, owner: U64) -> () = 3;
+    method RegisterSurface(surface: U64 = 1, owner: U64 = 2) -> () = 3;
     /// Forget a destroyed surface; its sessions are closed.
-    method UnregisterSurface(surface: U64) -> () = 4;
+    method UnregisterSurface(surface: U64 = 1) -> () = 4;
     /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
     /// Super bits of `mods`. A match is consumed (its press and release are
     /// never delivered to a client) and reported as `HotkeyFired`.
-    method RegisterHotkey(code: U32, mods: U32) -> (id: U64) = 5;
+    method RegisterHotkey(code: U32 = 1, mods: U32 = 2) -> (id: U64 = 1) = 5;
     /// Drop a chord.
-    method UnregisterHotkey(id: U64) -> () = 6;
+    method UnregisterHotkey(id: U64 = 1) -> () = 6;
     /// Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so
     /// this is refused with `ENOSYS`; the method is reserved so the interface
     /// does not change when they land.
-    method ApproveGrant(session: U64, allow: Bool) -> () = 7;
+    method ApproveGrant(session: U64 = 1, allow: Bool = 2) -> () = 7;
     /// The screen size the cursor is clamped to (each side `1..=16384`, else
     /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
     /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
-    method SetBounds(width: U32, height: U32) -> () = 8;
+    method SetBounds(width: U32 = 1, height: U32 = 2) -> () = 8;
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
-    method GetPointer() -> (x: I32, y: I32, buttons: U32) = 9;
+    method GetPointer() -> (x: I32 = 1, y: I32 = 2, buttons: U32 = 3) = 9;
     /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
     /// (docs/performance-plan.md P3.6). Requests from one sender are handled
     /// in the order sent, on the same endpoint as the clients' `Open`, so a
     /// surface noted before the compositor answers `CreateSurface` is known
     /// by the time its client opens a session. Refused calls are dropped.
-    method NoteFocus(surface: Option<U64>) -> () = 10 oneway;
+    method NoteFocus(surface: Option<U64> = 1) -> () = 10 oneway;
     /// One-way `RegisterSurface` (see `NoteFocus`).
-    method NoteSurface(surface: U64, owner: U64) -> () = 11 oneway;
+    method NoteSurface(surface: U64 = 1, owner: U64 = 2) -> () = 11 oneway;
     /// One-way `UnregisterSurface` (see `NoteFocus`).
-    method ForgetSurface(surface: U64) -> () = 12 oneway;
+    method ForgetSurface(surface: U64 = 1) -> () = 12 oneway;
     /// Shell event: a registered chord was pressed.
-    method HotkeyFired(id: U64) -> () = 20 oneway;
+    method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
     /// Shell event: a client asked for a grab (reserved; never sent yet).
-    method GrantRequested(session: U64, kind: U32) -> () = 21 oneway;
+    method GrantRequested(session: U64 = 1, kind: U32 = 2) -> () = 21 oneway;
     /// Shell event: the reserved escape chord was pressed (reserved).
     method EscapeChord() -> () = 22 oneway;
     /// Shell event: `surface` now receives keys through an input session, so
     /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
-    method SessionOpened(surface: U64) -> () = 23 oneway;
+    method SessionOpened(surface: U64 = 1) -> () = 23 oneway;
     /// Shell event: the last input session of `surface` ended; legacy key
     /// delivery applies again.
-    method SessionClosed(surface: U64) -> () = 24 oneway;
+    method SessionClosed(surface: U64 = 1) -> () = 24 oneway;
     /// Shell event: the pointer changed. One cursor for every pointing device
     /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
     /// `buttons` the bits held after this event (`1` left, `2` right,
@@ -126,5 +126,5 @@ interface os.lazy.input.shell.v1 {
     /// Motion is coalesced; the position and wheel apply *before* the button
     /// change. Only the compositor receives it: the window under the cursor is
     /// its decision. `ts_ns`/`seq` are the newest raw record's.
-    method PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () = 25 oneway;
+    method PointerEvent(x: I32 = 1, y: I32 = 2, buttons: U32 = 3, wheel: I32 = 4, wheel_h: I32 = 5, ts_ns: U64 = 6, seq: U64 = 7) -> () = 25 oneway;
 }

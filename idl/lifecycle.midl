@@ -10,5 +10,5 @@
 /// for a reply, and kills the service when its stop deadline passes.
 interface os.lazy.lifecycle.v1 {
     /// Persist and exit. `reason` is the shutdown's reason text, for the log.
-    method Shutdown(reason: String) -> () oneway;
+    method Shutdown(reason: String = 1) -> () oneway;
 }

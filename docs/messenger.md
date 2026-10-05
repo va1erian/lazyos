@@ -421,7 +421,10 @@ interface os.lazy.notify.v1 {
 
 ## 12. Errors (friendly by construction)
 
-Every reply may carry a structured error:
+Every reply may carry a structured error. On the wire it is the standard
+error field (id 15, generated as `messenger_generated::errors`); its encoding
+and which parts are implemented today (`code`, `message`, `domain`, `hint`,
+`docs`; not yet `detail`) are in [`midl.md`](midl.md), "Errors":
 
 ```
 Error {

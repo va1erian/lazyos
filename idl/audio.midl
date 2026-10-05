@@ -45,16 +45,16 @@
 interface os.lazy.audio.v1 {
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
-    method Info() -> (info: AudioInfo);
+    method Info() -> (info: AudioInfo = 1);
     /// Open a stream. `dir` and `format` are `Direction` and `Format`
     /// ordinals (enums travel as `U32`). The reply carries the stream index and
     /// the granted parameters. The stream is idle until a ring is attached and
     /// it is started.
-    method OpenStream(dir: U32, format: U32, rate: U32, channels: U32, period_bytes: U32) -> (grant: StreamGrant);
+    method OpenStream(dir: U32 = 1, format: U32 = 2, rate: U32 = 3, channels: U32 = 4, period_bytes: U32 = 5) -> (grant: StreamGrant = 1);
     /// Attach the stream's sample ring: the request's `buffers[0]`, at least
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
-    method AttachRing(stream: U32) -> ()
+    method AttachRing(stream: U32 = 1) -> ()
         transfers (ring: Ring<Samples>);
     /// Interleaved samples, client to driver; `Commit` reports how far the
     /// client wrote and replies how far the driver consumed.
@@ -62,56 +62,56 @@ interface os.lazy.audio.v1 {
     /// Announce that the client has written up to `written_frames` (a total,
     /// see the interface notes). Replies with the frames the driver has
     /// consumed so far.
-    method Commit(stream: U32, written_frames: U64) -> (consumed: U64);
+    method Commit(stream: U32 = 1, written_frames: U64 = 2) -> (consumed: U64 = 1);
     /// Start (or restart) transfer on a stream with an attached ring.
-    method Start(stream: U32) -> (ok: Bool);
+    method Start(stream: U32 = 1) -> (ok: Bool = 1);
     /// Stop transfer; committed periods not yet queued to the device are
     /// discarded. The stream can be started again.
-    method Stop(stream: U32) -> (ok: Bool);
+    method Stop(stream: U32 = 1) -> (ok: Bool = 1);
     /// Play everything committed, then stop. Replies once drained.
-    method Drain(stream: U32) -> (ok: Bool);
+    method Drain(stream: U32 = 1) -> (ok: Bool = 1);
     /// Frames the device has played since the last `Start`.
-    method Position(stream: U32) -> (frames: U64);
+    method Position(stream: U32 = 1) -> (frames: U64 = 1);
     /// Close a stream and release its ring. Also implied when the owner exits.
-    method CloseStream(stream: U32) -> ();
+    method CloseStream(stream: U32 = 1) -> ();
     /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
     /// silent, at most 262144, four times unity); larger values fail with
     /// `EINVAL`. Samples are scaled as they are copied out of the ring and
     /// saturate instead of wrapping. A driver that cannot scale the granted
     /// format fails with `ENOTSUP`.
-    method SetVolume(stream: U32, gain_q16: U32) -> ();
+    method SetVolume(stream: U32 = 1, gain_q16: U32 = 2) -> ();
     /// Silence the stream (`mute`) or restore its volume, without losing it.
     /// A muted stream keeps consuming and its position keeps moving.
-    method SetMute(stream: U32, mute: Bool) -> ();
+    method SetMute(stream: U32 = 1, mute: Bool = 2) -> ();
 
     /// Card capabilities.
     struct AudioInfo {
         /// Number of concurrent playback streams.
-        streams: U32,
+        streams: U32 = 1,
         /// Supported `Format` bitmap: bit *n* is set when the `Format` with
         /// ordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`, 2 `S32Le`,
         /// 3 `Float32`). Reserved bits are zero; a client ignores them.
-        formats: U32,
+        formats: U32 = 2,
         /// Supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
         /// 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
         /// 10 192000. Reserved bits are zero.
-        rates: U32,
+        rates: U32 = 3,
         /// Maximum channels per stream.
-        channels: U32
+        channels: U32 = 4
     }
 
     /// The parameters an opened stream actually runs at.
     struct StreamGrant {
-        stream: U32,
+        stream: U32 = 1,
         /// A `Direction` ordinal.
-        dir: U32,
+        dir: U32 = 2,
         /// A `Format` ordinal.
-        format: U32,
-        rate: U32,
-        channels: U32,
-        period_bytes: U32,
+        format: U32 = 3,
+        rate: U32 = 4,
+        channels: U32 = 5,
+        period_bytes: U32 = 6,
         /// Periods in the ring; the ring is `periods * period_bytes` bytes.
-        periods: U32
+        periods: U32 = 7
     }
 
     /// Why a stream event was published.
@@ -120,10 +120,10 @@ interface os.lazy.audio.v1 {
     /// One stream event, the payload of `system/audio/{card}/event`.
     /// `frames` is the stream position when it happened.
     struct AudioEvent {
-        stream: U32,
+        stream: U32 = 1,
         /// An `EventKind` ordinal.
-        kind: U32,
-        frames: U64
+        kind: U32 = 2,
+        frames: U64 = 3
     }
 
     /// Xruns and drain completion, for clients that would rather not poll

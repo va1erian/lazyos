@@ -54,6 +54,7 @@ import sys
 from pathlib import Path
 
 from midlc_docs import emit_manifest, emit_markdown
+from midlc_errors import ERRORS_SUPPORT
 from midlc_lexer import TOKEN, Token, lex
 from midlc_model import (
     BUILTINS,
@@ -72,6 +73,7 @@ from midlc_model import (
     snake_case,
 )
 from midlc_parser import Parser, check_type, validate
+from midlc_pin import pin_files
 from midlc_schema import emit_schema
 from midlc_rhai import emit_rhai_api
 from midlc_rust import (
@@ -104,21 +106,29 @@ HEADER = (
 )
 
 
-def parse_all(inputs: list[Path]) -> list[Interface]:
+def parse_all(inputs: list[Path], warnings: list[str] | None = None) -> list[Interface]:
+    """Every interface of `inputs`; non-fatal findings (implicit field ids)
+    are appended to `warnings` when given, prefixed with their file."""
     interfaces = []
     for path in inputs:
-        interfaces += Parser(lex(path.read_text(encoding="utf-8"))).parse_interfaces()
+        parser = Parser(lex(path.read_text(encoding="utf-8")))
+        interfaces += parser.parse_interfaces()
+        if warnings is not None:
+            warnings += [f"{path}: {warning}" for warning in parser.warnings]
     # A channel may carry another file's interface, so this check needs them all.
     check_channel_targets(interfaces)
     return interfaces
 
 
-def generate(inputs: list[Path]) -> tuple[str, list[dict], dict[str, str]]:
-    interfaces = parse_all(inputs)
+def generate(inputs: list[Path], warnings: list[str] | None = None) -> tuple[str, list[dict], dict[str, str]]:
+    interfaces = parse_all(inputs, warnings)
     modules = "\n\n".join(emit_rust(i) for i in interfaces)
     # The shared topic runtime comes before the modules that use it, and the
     # crate-level declaration table after them.
-    rust = HEADER + TOPIC_SUPPORT + "\n" + TRANSFER_SUPPORT + "\n" + RING_SUPPORT + "\n" + modules + "\n\n" + emit_topic_table(interfaces)
+    rust = (
+        HEADER + ERRORS_SUPPORT + "\n" + TOPIC_SUPPORT + "\n" + TRANSFER_SUPPORT + "\n" + RING_SUPPORT
+        + "\n" + modules + "\n\n" + emit_topic_table(interfaces)
+    )
     return rust, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
 
 
@@ -150,24 +160,37 @@ def main() -> int:
     parser.add_argument("--docs", type=Path, help="write Markdown docs into this directory")
     parser.add_argument("--schema", type=Path, help="write the interface schema table here")
     parser.add_argument("--rhai-api", type=Path, help="write the Rhai API modules into this directory")
-    parser.add_argument("--check", action="store_true", help="fail if --out/--schema/--rhai-api would change")
+    parser.add_argument("--check", action="store_true",
+                        help="fail if --out/--schema/--rhai-api/--manifest/--docs would change")
+    parser.add_argument("--pin-field-ids", action="store_true",
+                        help="write every implicit field id (`= N`) into the inputs, in place")
     args = parser.parse_args()
 
+    warnings: list[str] = []
     try:
-        rust, manifests, docs = generate(args.inputs)
+        if args.pin_field_ids:
+            pin_files(args.inputs)
+            return 0
+        rust, manifests, docs = generate(args.inputs, warnings)
         schema = emit_schema(parse_all(args.inputs)) if args.schema else ""
         rhai_api = emit_rhai_api(parse_all(args.inputs)) if args.rhai_api else {}
     except MidlError as error:
         print(f"midlc: {error}", file=sys.stderr)
         return 1
+    for warning in warnings:
+        print(f"midlc: warning: {warning}", file=sys.stderr)
 
     if args.check:
         targets = [(flag, path, text) for flag, path, text in
                    (("--out", args.out, rust), ("--schema", args.schema, schema)) if path]
         if args.rhai_api:
             targets += [("--rhai-api", args.rhai_api / name, text) for name, text in sorted(rhai_api.items())]
+        if args.manifest:
+            targets.append(("--manifest", args.manifest, json.dumps(manifests, indent=2) + "\n"))
+        if args.docs:
+            targets += [("--docs", args.docs / f"{name}.md", text) for name, text in sorted(docs.items())]
         if not targets:
-            print("midlc: --check needs --out, --schema and/or --rhai-api", file=sys.stderr)
+            print("midlc: --check needs --out, --schema, --rhai-api, --manifest and/or --docs", file=sys.stderr)
             return 1
         stale = stale_files(args.rhai_api, rhai_api) if args.rhai_api else []
         if stale:

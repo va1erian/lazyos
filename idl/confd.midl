@@ -7,36 +7,36 @@
 interface os.lazy.confd.v1 {
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `CONFD_DENIED`.
-    method Get(path: String) -> (value: Option<Value>);
+    method Get(path: String = 1) -> (value: Option<Value> = 1);
     /// Create or overwrite `path`; the change is persisted before the reply.
-    method Set(path: String, value: Value) -> ();
+    method Set(path: String = 1, value: Value = 2) -> ();
     /// Remove `path`; deleting an absent path succeeds.
-    method Delete(path: String) -> ();
+    method Delete(path: String = 1) -> ();
     /// Every path the caller may read under `prefix`, in sorted order.
-    method List(prefix: String) -> (paths: Array<String>);
+    method List(prefix: String = 1) -> (paths: Array<String> = 1);
     /// Where the store lives: the directory confd chose and whether it
     /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
-    method Info() -> (store_dir: String, persistent: Bool);
+    method Info() -> (store_dir: String = 1, persistent: Bool = 2);
 
     /// One typed value. `kind` selects which optional payload field is set:
     /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
     struct Value {
-        kind: U32,
-        bool_value: Option<Bool>,
-        i64_value: Option<I64>,
-        u64_value: Option<U64>,
-        str_value: Option<String>,
-        bytes_value: Option<Bytes>
+        kind: U32 = 1,
+        bool_value: Option<Bool> = 2,
+        i64_value: Option<I64> = 3,
+        u64_value: Option<U64> = 4,
+        str_value: Option<String> = 5,
+        bytes_value: Option<Bytes> = 6
     }
 
     /// One committed change (issue #307): the payload of the
     /// `system/confd/changed/<path>` topic. It deliberately never carries the
     /// value; a subscriber re-reads the path.
     struct Change {
-        path: String,
-        deleted: Bool
+        path: String = 1,
+        deleted: Bool = 2
     }
 
     /// Announced for every committed `sys/` change (issue #260): the topic is

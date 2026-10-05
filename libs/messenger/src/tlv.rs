@@ -149,10 +149,36 @@ impl Encoder {
     }
 
     /// A structured error: a 32-bit code followed by a UTF-8 message.
+    ///
+    /// A reader stops the message at its first NUL byte (see
+    /// [`Encoder::error_detail`]), so a message should not contain one.
     pub fn error(&mut self, id: u16, code: u32, message: &str) -> Result<(), Error> {
         let mut payload = Vec::with_capacity(4 + message.len());
         payload.extend_from_slice(&code.to_le_bytes());
         payload.extend_from_slice(message.as_bytes());
+        self.push(Kind::Error, id, &payload)
+    }
+
+    /// A structured error with a detail record: the code, the message, a NUL
+    /// byte, then `detail`'s fields. A reader that only knows
+    /// [`Field::error_parts`] still sees the code and the message. The
+    /// message must not contain a NUL (`BadString`), or the detail would
+    /// start inside it.
+    pub fn error_detail(
+        &mut self,
+        id: u16,
+        code: u32,
+        message: &str,
+        detail: &Encoder,
+    ) -> Result<(), Error> {
+        if message.as_bytes().contains(&0) {
+            return Err(Error::BadString);
+        }
+        let mut payload = Vec::with_capacity(5 + message.len() + detail.as_bytes().len());
+        payload.extend_from_slice(&code.to_le_bytes());
+        payload.extend_from_slice(message.as_bytes());
+        payload.push(0);
+        payload.extend_from_slice(detail.as_bytes());
         self.push(Kind::Error, id, &payload)
     }
 
@@ -217,14 +243,28 @@ impl<'a> Field<'a> {
             pos: 0,
         })
     }
-    /// Split an `Error` field into `(code, message)`.
+    /// Split an `Error` field into `(code, message)`. The message ends at
+    /// the first NUL byte, where an [`Encoder::error_detail`] record starts.
     pub fn error_parts(&self) -> Result<(u32, &'a str), Error> {
         if self.payload.len() < 4 {
             return Err(Error::BadValue);
         }
         let code = read_u32(self.payload, 0)?;
-        let message = core::str::from_utf8(&self.payload[4..]).map_err(|_| Error::BadString)?;
+        let text = &self.payload[4..];
+        let end = text.iter().position(|&b| b == 0).unwrap_or(text.len());
+        let message = core::str::from_utf8(&text[..end]).map_err(|_| Error::BadString)?;
         Ok((code, message))
+    }
+
+    /// The detail record of an `Error` field written by
+    /// [`Encoder::error_detail`], or `None` when it has none.
+    pub fn error_detail(&self) -> Option<Decoder<'a>> {
+        let text = self.payload.get(4..)?;
+        let nul = text.iter().position(|&b| b == 0)?;
+        Some(Decoder {
+            buf: &text[nul + 1..],
+            pos: 0,
+        })
     }
     pub fn as_handle(&self) -> Result<u64, Error> {
         self.as_u64()

@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): There is no Map type.
+interface os.lazy.conformance.bad.v1 {
+    struct P { m: Map<String, U32> = 1 }
+}

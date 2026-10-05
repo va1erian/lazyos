@@ -16,43 +16,43 @@
 /// `ENOENT`, an out-of-range gain `EINVAL`.
 interface os.lazy.audio.mixer.v1 {
     /// Every open stream, in opening order.
-    method ListStreams() -> (streams: Array<StreamStatus>);
+    method ListStreams() -> (streams: Array<StreamStatus> = 1);
     /// Set one stream's gain and mute flag, whoever owns it.
-    method SetStreamVolume(stream: U32, gain_q16: U32, mute: Bool) -> ();
+    method SetStreamVolume(stream: U32 = 1, gain_q16: U32 = 2, mute: Bool = 3) -> ();
     /// The master gain, the mute flag and what the card runs at.
-    method GetMaster() -> (master: Master);
+    method GetMaster() -> (master: Master = 1);
     /// Set the master gain and mute flag, applied after mixing.
-    method SetMaster(gain_q16: U32, mute: Bool) -> ();
+    method SetMaster(gain_q16: U32 = 1, mute: Bool = 2) -> ();
 
     /// What one open stream is doing.
     struct StreamStatus {
-        stream: U32,
+        stream: U32 = 1,
         /// The owner's task id (the kernel-stamped sender of `OpenStream`).
-        owner: U64,
+        owner: U64 = 2,
         /// A `StreamState` ordinal.
-        state: U32,
-        rate: U32,
-        channels: U32,
-        gain_q16: U32,
-        mute: Bool,
+        state: U32 = 3,
+        rate: U32 = 4,
+        channels: U32 = 5,
+        gain_q16: U32 = 6,
+        mute: Bool = 7,
         /// Frames played so far (the owner's `Position`).
-        frames: U64,
+        frames: U64 = 8,
         /// Times the stream ran dry while playing.
-        underruns: U32
+        underruns: U32 = 9
     }
 
     /// The output side of the mixer.
     struct Master {
-        gain_q16: U32,
-        mute: Bool,
+        gain_q16: U32 = 1,
+        mute: Bool = 2,
         /// Whether a card is attached; without one, opens fail with `ENODEV`.
-        card: Bool,
+        card: Bool = 3,
         /// The mix rate and channel count (the card's grant).
-        rate: U32,
-        channels: U32,
+        rate: U32 = 4,
+        channels: U32 = 5,
         /// Streams open now, and the most the mixer accepts.
-        streams: U32,
-        max_streams: U32
+        streams: U32 = 6,
+        max_streams: U32 = 7
     }
 
     /// A stream's lifecycle, as `os.lazy.audio.v1` drives it.

@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): A reply field may not take the standard error field id.
+interface os.lazy.conformance.bad.v1 {
+    method M() -> (a: U32 = 15);
+}

@@ -38,8 +38,16 @@ python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs idl/echo.mid
 python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs \
     --rhai-api libs/rhai-lazy/api idl/*.midl
 
+# Pin every implicit field id (`= N`) into the sources; midlc warns about them.
+python tools/midlc/midlc.py --pin-field-ids idl/*.midl
+
+# The conformance corpus (idl/conformance/, docs/midl.md): regenerate or check.
+python tools/midlc/conformance.py --write
+python tools/midlc/conformance.py --check
+
 # Compiler tests.
 python tools/midlc/test_midlc.py
+python tools/midlc/test_midlc_fields.py
 python tools/midlc/test_midlc_transfers.py
 python tools/midlc/test_midlc_rings.py
 python tools/midlc/test_midlc_rhai.py

@@ -36,6 +36,8 @@ def make_transfers(params: list[Param], line: int) -> list[Transfer]:
     seen: set[str] = set()
     counts = {"handles": 0, "buffers": 0}
     for param in params:
+        if param.explicit:
+            raise MidlError(f"transfer {param.name!r}: a transfer has a slot, not a field id", line)
         kind = KIND_OF.get(param.ty.name)
         if kind is None:
             raise MidlError(

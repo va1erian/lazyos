@@ -7,37 +7,37 @@
 /// field (errno-style code, friendly text), not as a typed reply.
 interface os.lazy.logd.v1 {
     /// Return the newest `count` records; an absent `count` means `10`.
-    method Tail(count: Option<U64>) -> (records: Array<LogRecord>);
+    method Tail(count: Option<U64> = 1) -> (records: Array<LogRecord> = 1);
 
     /// Return the number of records appended since boot.
-    method Count() -> (count: U64);
+    method Count() -> (count: U64 = 1);
 
     /// Recompute the hash chain and report `ok`/first bad `index` (the record
     /// count when the chain is intact).
-    method Verify() -> (ok: Bool, index: U64);
+    method Verify() -> (ok: Bool = 1, index: U64 = 2);
 
     /// The sources that have a persisted journal (`/logs/<source>.log`),
     /// sorted; empty when the store is absent. Served to uid 0 only, like
     /// `TailFile`: the journals carry every user's activity.
-    method Sources() -> (sources: Array<String>);
+    method Sources() -> (sources: Array<String> = 1);
 
     /// The newest `count` lines of `/logs/<source>.log` (records of earlier
     /// boots included), oldest first. Served to uid 0 only (`EACCES`
     /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
     /// and one without a journal with `ENOENT`.
-    method TailFile(source: String, count: U64) -> (lines: Array<String>);
+    method TailFile(source: String = 1, count: U64 = 2) -> (lines: Array<String> = 1);
 
     /// One hash-chained log record.
     struct LogRecord {
         /// Log sequence number.
-        seq: U64,
+        seq: U64 = 1,
         /// Tick the record was produced.
-        tick: U64,
+        tick: U64 = 2,
         /// Log topic.
-        topic: String,
+        topic: String = 3,
         /// Human-readable detail.
-        detail: String,
+        detail: String = 4,
         /// Log chain hash.
-        hash: U64
+        hash: U64 = 5
     }
 }

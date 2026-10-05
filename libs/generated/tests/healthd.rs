@@ -86,7 +86,8 @@ fn record_with(name: &str, status: &str, detail: &str, tick: u64) -> HealthRecor
 #[test]
 fn error_field_is_ignored_by_decoders() {
     let mut body = libmessenger::Encoder::new();
-    body.error(15, 1, "down").unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, 1, "down")
+        .unwrap();
     assert_eq!(
         decode_status_reply(&body.finish()).unwrap(),
         StatusReply::default()

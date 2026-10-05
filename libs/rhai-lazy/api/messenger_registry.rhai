@@ -14,8 +14,8 @@
 // kernel publishes `os.lazy.messenger.registry` itself at boot, so it is the
 // one name every task can resolve.
 //
-// A daemon failure is answered with a hand-written structured `ERROR` field
-// (id 15, outside the generated field range) instead of a typed reply; the
+// A daemon failure is answered with the standard error field (`docs/midl.md`)
+// (id 15, which no reply field may take) instead of a typed reply; the
 // kernel gate reports failures as negative errno values.
 
 // The interface every function of this module calls.

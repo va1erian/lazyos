@@ -132,7 +132,8 @@ fn key_list_is_an_array_of_structs() {
 #[test]
 fn decoders_ignore_unknown_fields_such_as_the_error_field() {
     let mut body = libmessenger::Encoder::new();
-    body.error(15, 1, "denied").unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, 1, "denied")
+        .unwrap();
     assert_eq!(
         decode_sign_reply(&body.finish()).unwrap(),
         SignReply::default()

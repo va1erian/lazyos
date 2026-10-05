@@ -9,8 +9,8 @@ data: a `static INTERFACES: &[Interface]` table whose types (`Interface`,
 `Method`, `Field`, `Ty`, ...) are declared by the consuming crate's
 `schema` module, so the generated file has no dependency of its own.
 
-Field ids are not written: a parameter or struct field's wire id is its
-1-based position, exactly as the Rust backend numbers them.
+Every field carries its wire id (`= N`, or its 1-based position when the
+`.midl` leaves it implicit), exactly as the Rust backend numbers them.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ SCHEMA_HEADER = (
     "//   python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs idl/*.midl\n"
     "//\n"
     "// Every Messenger interface as data, for dynamic clients (the Rhai `msg`\n"
-    "// module). Wire field ids are 1-based positions in each field list.\n"
+    "// module). Each field carries its wire id.\n"
     "use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Transfer, Ty};\n\n"
 )
 
@@ -59,7 +59,7 @@ def fields_expr(fields: list[Param], interface: Interface) -> str:
     if not fields:
         return "&[]"
     items = ", ".join(
-        f"Field {{ name: {rust_str(f.name)}, ty: {ty_expr(f.ty, interface)} }}" for f in fields
+        f"Field {{ name: {rust_str(f.name)}, id: {f.id}, ty: {ty_expr(f.ty, interface)} }}" for f in fields
     )
     return f"&[{items}]"
 

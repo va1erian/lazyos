@@ -8,26 +8,26 @@
 /// reply.
 interface os.lazy.timed.v1 {
     /// The current instant and its local-time parameters.
-    method Now() -> (unix_ms: I64, tz_offset_s: I32, tz_name: String, dst: Bool);
+    method Now() -> (unix_ms: I64 = 1, tz_offset_s: I32 = 2, tz_name: String = 3, dst: Bool = 4);
 
     /// The configured zone name (`UTC` when none is set).
-    method GetZone() -> (name: String);
+    method GetZone() -> (name: String = 1);
 
     /// Switch to the built-in zone `name` and persist it to `confd`.
     /// An unknown name fails with `EINVAL`.
-    method SetZone(name: String) -> ();
+    method SetZone(name: String = 1) -> ();
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
     /// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
-    method SetTime(unix_secs: I64) -> ();
+    method SetTime(unix_secs: I64 = 1) -> ();
 
     /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
     /// seconds, `offset` the local offset in seconds with DST included, and
     /// `zone_name` the zone (`Europe/Paris`).
     struct Tick {
-        unix: I64,
-        offset: I32,
-        zone_name: String
+        unix: I64 = 1,
+        offset: I32 = 2,
+        zone_name: String = 3
     }
 
     /// Published each minute (and on any zone or clock change) and retained, so

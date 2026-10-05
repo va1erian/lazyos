@@ -26,6 +26,10 @@ class Token:
     kind: str
     text: str
     line: int
+    # Source offsets, so a tool can rewrite the file around a token
+    # (`midlc --pin-field-ids`).
+    start: int = 0
+    end: int = 0
 
 
 def lex(text: str) -> list[Token]:
@@ -36,5 +40,5 @@ def lex(text: str) -> list[Token]:
         assert kind is not None
         if kind in ("comment",):
             continue
-        tokens.append(Token(kind, match.group(), line))
+        tokens.append(Token(kind, match.group(), line, match.start(), match.end()))
     return tokens

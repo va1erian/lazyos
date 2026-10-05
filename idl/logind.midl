@@ -2,53 +2,53 @@
 /// answers the query `messengerctl sessions` renders.
 interface os.lazy.logind.v1 {
     /// Snapshot the session table, oldest session first.
-    method Sessions() -> (active: U64, sessions: Array<Session>);
+    method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2);
 
     /// One login session.
     struct Session {
         /// Session id minted by `logind`.
-        id: U64,
+        id: U64 = 1,
         /// Account name.
-        user: String,
+        user: String = 2,
         /// User id stamped on the session.
-        uid: U32,
+        uid: U32 = 3,
         /// Task slot of the session's shell (`0` until spawned).
-        pid: U64,
+        pid: U64 = 4,
         /// `active` while the shell runs, `exited` after it is reaped.
-        state: String,
+        state: String = 5,
         /// Tick the session started.
-        started: U64
+        started: U64 = 6
     }
 
     /// A session began (issue #307): the payload of `system/events/login/start`.
     struct LoginStart {
         /// Account name.
-        user: String,
+        user: String = 1,
         /// User id stamped on the session.
-        uid: U32,
+        uid: U32 = 2,
         /// Session id minted by `logind`.
-        session: U64,
+        session: U64 = 3,
         /// Task slot of the shell.
-        pid: U64,
+        pid: U64 = 4,
         /// Session state (`active`).
-        state: String
+        state: String = 5
     }
 
     /// One session's state (issue #307): the payload of
     /// `system/events/login/session/<id>`.
     struct LoginSession {
         /// Account name.
-        user: String,
+        user: String = 1,
         /// User id stamped on the session.
-        uid: U32,
+        uid: U32 = 2,
         /// Task slot of the shell.
-        pid: U64,
+        pid: U64 = 3,
         /// Session state (`active`/`exited`).
-        state: String,
+        state: String = 4,
         /// The account's home directory (issue #508): `init` gives the
         /// session's apps `HOME` from it, so it never looks the account up
         /// again per launch.
-        home: String
+        home: String = 5
     }
 
     /// A refused attempt (issue #307): the payload of
@@ -56,21 +56,21 @@ interface os.lazy.logind.v1 {
     /// (`unknown-user`, `bad-secret`, `spawn-failed`), never the secret.
     struct LoginDenied {
         /// Account name offered.
-        user: String,
+        user: String = 1,
         /// Why the attempt was refused.
-        reason: String
+        reason: String = 2
     }
 
     /// A session ended (issue #307): the payload of `system/events/login/end`.
     struct LoginEnd {
         /// Account name.
-        user: String,
+        user: String = 1,
         /// User id stamped on the session.
-        uid: U32,
+        uid: U32 = 2,
         /// Session id minted by `logind`.
-        session: U64,
+        session: U64 = 3,
         /// Exit status of the shell.
-        status: U64
+        status: U64 = 4
     }
 
     /// The login lifecycle topics (issue #307). `logind` publishes all four

@@ -21,7 +21,7 @@ no_std = ["rhai/no_std"]
 # The real Messenger transport (`msg::gate`): the native `int 0x80` gate a
 # static-musl or native LazyOS program reaches the fabric through. Off for host
 # tests, which run the `msg` module against an in-memory fabric.
-lazyos = ["dep:messenger-generated"]
+lazyos = []
 
 [dependencies]
 # Pinned exactly (supply chain): a Rhai bump is a reviewed change to this line
@@ -38,10 +38,7 @@ rhai = { version = "=1.26.1", default-features = false }
 # hand-writes a wire format.
 libmessenger = { path = "../messenger" }
 # The compiled registry stubs, for the gate's `Resolve` request and name-table
-# `List` reply.
-messenger-generated = { path = "../generated", optional = true }
-
-[dev-dependencies]
-# The tests cross-check the schema-driven codec against the compiled codecs:
-# what one encodes, the other must decode.
+# `List` reply, and the standard reply error field every service answers with.
+# The tests also cross-check the schema-driven codec against the compiled
+# codecs: what one encodes, the other must decode.
 messenger-generated = { path = "../generated" }

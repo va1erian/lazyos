@@ -4,6 +4,133 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+/// The standard reply error (`docs/midl.md`, "Errors"): one `Error` field at
+/// [`errors::ERROR_FIELD`] answers a failed call instead of the declared reply.
+#[rustfmt::skip]
+pub mod errors {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use libmessenger::{Decoder, Encoder, Error, Field, Kind};
+
+    /// The reply field id of the standard error, the same in every reply of
+    /// every interface (`midlc` refuses it as a declared reply field id).
+    pub const ERROR_FIELD: u16 = 15;
+    const DOMAIN: u16 = 1;
+    const HINT: u16 = 2;
+    const DOCS: u16 = 3;
+
+    /// A decoded standard error. `domain` is empty for the service's own
+    /// errno-style codes.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct ReplyError {
+        pub domain: String,
+        pub code: u32,
+        pub message: String,
+        pub hint: Option<String>,
+        pub docs: Option<String>,
+    }
+
+    impl ReplyError {
+        /// An error with a code and a message and nothing else.
+        pub fn new(code: u32, message: &str) -> Self {
+            ReplyError { code, message: message.into(), ..ReplyError::default() }
+        }
+
+        /// The same error in `domain`.
+        pub fn with_domain(mut self, domain: &str) -> Self {
+            self.domain = domain.into();
+            self
+        }
+
+        /// The same error with a hint on how to fix it.
+        pub fn with_hint(mut self, hint: &str) -> Self {
+            self.hint = Some(hint.into());
+            self
+        }
+
+        /// The same error with a documentation id.
+        pub fn with_docs(mut self, docs: &str) -> Self {
+            self.docs = Some(docs.into());
+            self
+        }
+    }
+
+    /// Whether `field` is the standard error.
+    pub fn is_error(field: &Field<'_>) -> bool {
+        field.kind == Kind::Error && field.id == ERROR_FIELD
+    }
+
+    /// Append `error` to `target` as the standard error field. Without a
+    /// domain, hint or docs it is exactly a code and a message.
+    pub fn write(target: &mut Encoder, error: &ReplyError) -> Result<(), Error> {
+        if error.domain.is_empty() && error.hint.is_none() && error.docs.is_none() {
+            return target.error(ERROR_FIELD, error.code, &error.message);
+        }
+        let mut detail = Encoder::new();
+        if !error.domain.is_empty() {
+            detail.string(DOMAIN, &error.domain)?;
+        }
+        if let Some(hint) = &error.hint {
+            detail.string(HINT, hint)?;
+        }
+        if let Some(docs) = &error.docs {
+            detail.string(DOCS, docs)?;
+        }
+        target.error_detail(ERROR_FIELD, error.code, &error.message, &detail)
+    }
+
+    /// Append an errno-style `code` and `message` as the standard error.
+    pub fn write_code(target: &mut Encoder, code: u32, message: &str) -> Result<(), Error> {
+        target.error(ERROR_FIELD, code, message)
+    }
+
+    /// A reply body holding only `error`.
+    pub fn encode(error: &ReplyError) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        write(&mut target, error)?;
+        Ok(target.finish())
+    }
+
+    /// Decode one standard error field (see [`is_error`]).
+    pub fn decode(field: &Field<'_>) -> Result<ReplyError, Error> {
+        let (code, message) = field.error_parts()?;
+        let mut error = ReplyError::new(code, message);
+        if let Some(mut detail) = field.error_detail() {
+            while let Some(item) = detail.next()? {
+                match item.id {
+                    DOMAIN => error.domain = item.as_str()?.into(),
+                    HINT => error.hint = Some(item.as_str()?.into()),
+                    DOCS => error.docs = Some(item.as_str()?.into()),
+                    _ => {}
+                }
+            }
+        }
+        Ok(error)
+    }
+
+    /// The standard error of a reply `body`, or `None` for a success.
+    pub fn find(body: &[u8]) -> Result<Option<ReplyError>, Error> {
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if is_error(&field) {
+                return decode(&field).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
+    /// The code and message of a reply `body`'s standard error, borrowed.
+    pub fn find_code(body: &[u8]) -> Result<Option<(u32, &str)>, Error> {
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if is_error(&field) {
+                return field.error_parts().map(Some);
+            }
+        }
+        Ok(None)
+    }
+}
+
 /// Shared runtime for the topic helpers generated from `topic` declarations
 /// (issue #307, `docs/midl.md`).
 // Generated code is not hand-formatted; skip rustfmt so the generator's output

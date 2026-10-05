@@ -8,20 +8,20 @@
 interface os.lazy.mimed.v1 {
     /// MIME type for `path` from the database; a path the database has no
     /// entry for reports `application/octet-stream`.
-    method Guess(path: String) -> (mime: String);
+    method Guess(path: String = 1) -> (mime: String = 1);
     /// The app registered for `mime` and `verb`; an empty `app` means none is.
-    method Lookup(mime: String, verb: String) -> (app: Option<String>);
+    method Lookup(mime: String = 1, verb: String = 2) -> (app: Option<String> = 1);
     /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
     /// registration order.
-    method Verbs(mime: String) -> (verbs: Array<String>);
+    method Verbs(mime: String = 1) -> (verbs: Array<String> = 1);
     /// Guess the type of `path`, resolve the app for `verb` (falling back to
     /// `open`), ask `init` to launch it and publish the launch event.
     /// `published` reports whether the event went out, `launched` whether
     /// `init` accepted the launch request.
-    method Open(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool);
+    method Open(path: String = 1, verb: String = 2) -> (app: String = 1, mime: String = 2, topic: String = 3, published: Bool = 4, launched: Bool = 5);
     /// Add or replace the app registered for `mime` and `verb`; the registry
     /// keeps the latest registration for each pair.
-    method Register(mime: String, app: String, verb: String) -> ();
+    method Register(mime: String = 1, app: String = 2, verb: String = 3) -> ();
     /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
     /// installed app leaves no dangling handler. Only the caller's root
     /// identity may withdraw (the package manager); the registration is
@@ -29,15 +29,15 @@ interface os.lazy.mimed.v1 {
     /// another app is never undone, and the registration `app` had replaced
     /// takes over again. Withdrawing a registration that is not there is not
     /// an error.
-    method Unregister(mime: String, app: String, verb: String) -> ();
+    method Unregister(mime: String = 1, app: String = 2, verb: String = 3) -> ();
 
     /// One fire-and-forget launch record: the payload of the
     /// `system/events/open/<app>` topic. The app id is the topic's `<app>`
     /// segment, so it is not repeated here.
     struct OpenEvent {
-        path: String,
-        mime: String,
-        verb: String
+        path: String = 1,
+        mime: String = 2,
+        verb: String = 3
     }
 
     /// Published when `Open` resolves `<app>` for `path` (issue #307). Not

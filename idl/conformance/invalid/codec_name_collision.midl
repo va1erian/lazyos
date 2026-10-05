@@ -1,0 +1,5 @@
+// Conformance case (must be rejected): Two declarations that fold to one Rust name.
+interface os.lazy.conformance.bad.v1 {
+    struct Foo { a: U32 = 1 }
+    struct foo { b: U32 = 1 }
+}

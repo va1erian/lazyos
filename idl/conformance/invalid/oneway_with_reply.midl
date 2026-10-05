@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): A oneway method returns nothing.
+interface os.lazy.conformance.bad.v1 {
+    method M() -> (a: U32) oneway;
+}

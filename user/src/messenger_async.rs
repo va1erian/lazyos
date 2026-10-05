@@ -74,6 +74,7 @@
 //! ```
 
 use libmessenger::{Encoder, Header, VERSION};
+use messenger_generated::errors::ERROR_FIELD;
 
 /// Parcel type the generated handlers speak; re-exported so macro expansions
 /// do not need to name `libmessenger` themselves.
@@ -117,12 +118,13 @@ pub enum Concurrency {
     Mailbox,
 }
 
-/// Build a parcel carrying one structured `Error` field. Used for replies to
+/// Build a parcel carrying the standard error field. Used for replies to
 /// unknown interfaces/methods and for handler failures, so a synchronous
 /// caller never hangs on a request the service refused.
 pub fn error_parcel(interface_id: u64, method: u32, code: u32, message: &str) -> Result<Parcel> {
     let mut body = Encoder::new();
-    body.error(1, code, message).map_err(Error::Parcel)?;
+    body.error(ERROR_FIELD, code, message)
+        .map_err(Error::Parcel)?;
     Ok(Parcel {
         header: Header {
             version: VERSION,

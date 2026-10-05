@@ -461,9 +461,9 @@ class SchemaTests(unittest.TestCase):
 
     def test_types_resolve_to_structs_enums_and_containers(self) -> None:
         text = self.schema()
-        self.assertIn('Field { name: "items", ty: Ty::Array(&Ty::Struct("Point")) }', text)
-        self.assertIn('Field { name: "tag", ty: Ty::Option(&Ty::String) }', text)
-        self.assertIn('Field { name: "level", ty: Ty::Enum("Level") }', text)
+        self.assertIn('Field { name: "items", id: 1, ty: Ty::Array(&Ty::Struct("Point")) }', text)
+        self.assertIn('Field { name: "tag", id: 2, ty: Ty::Option(&Ty::String) }', text)
+        self.assertIn('Field { name: "level", id: 3, ty: Ty::Enum("Level") }', text)
         self.assertIn('variants: &["Low", "High"]', text)
 
     def test_ids_docs_and_topics_are_carried(self) -> None:

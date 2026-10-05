@@ -148,13 +148,17 @@ fn decoders_ignore_unknown_fields_such_as_the_error_field() {
     let mut named = Encoder::new();
     named.string(1, "os.lazy.echo").unwrap();
     named.u64(99, 1).unwrap();
-    named.error(15, 3, "denied").unwrap();
+    named
+        .error(messenger_generated::errors::ERROR_FIELD, 3, "denied")
+        .unwrap();
     let args = decode_resolve_args(&named.finish()).unwrap();
     assert_eq!(args.name, "os.lazy.echo");
 
     let mut failure = Encoder::new();
     failure.u64(99, 1).unwrap();
-    failure.error(15, 3, "denied").unwrap();
+    failure
+        .error(messenger_generated::errors::ERROR_FIELD, 3, "denied")
+        .unwrap();
     let failure = failure.finish();
     assert_eq!(decode_resolve_reply(&failure).unwrap().handle, 0);
     assert!(decode_list_reply(&failure).unwrap().entries.is_empty());

@@ -14,43 +14,43 @@
 /// an offer's owner, not the service) on the owner scope, and `Ping` and
 /// `Current` on this interface's own id. The scope names are ACL names, not
 /// wire fields, so they live as constants in `user/src/messenger/clipboard`.
-/// Failures reply with a structured error field (id 13) instead of the
+/// Failures reply with the standard error field (id 15, `docs/midl.md`) instead of the
 /// declared reply fields, which never use that id.
 interface os.lazy.clipboard.v1 {
     /// Publish typed payloads for the caller's session and return the new
     /// offer token. An eager offer fills `data` (one bounded copy is kept); a
     /// lazy offer sets `sink`, the registry name of the endpoint where the
     /// owner serves `Serialize`, and leaves `data` empty.
-    method Offer(owner: String, sink: Option<String>, mimes: Array<String>, data: Array<Payload>) -> (token: U64);
+    method Offer(owner: String = 1, sink: Option<String> = 2, mimes: Array<String> = 3, data: Array<Payload> = 4) -> (token: U64 = 1);
     /// Read one MIME of an offer. `token` 0 selects the newest offer in the
     /// caller's session that lists `mime`; another session's token fails with
     /// `EACCES` and is audited, an unknown one with `ENOENT`. The reply carries
     /// the payload bytes inline until the shared-buffer mapping op lands.
-    method Request(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes);
+    method Request(token: U64 = 1, mime: String = 2) -> (token: U64 = 1, mime: String = 2, lazy: Bool = 3, bytes: Bytes = 4);
     /// Serialize one MIME of a lazy offer on demand. The service calls this on
     /// the offer owner's `sink` endpoint when a paste happens.
-    method Serialize(token: U64, mime: String) -> (bytes: Bytes);
+    method Serialize(token: U64 = 1, mime: String = 2) -> (bytes: Bytes = 1);
     /// Liveness probe.
     method Ping() -> ();
     /// Metadata of the caller session's newest offer, never content; empty
     /// when no offer is live.
-    method Current() -> (offer: Option<OfferMeta>);
+    method Current() -> (offer: Option<OfferMeta> = 1);
 
     /// One inline `{MIME, bytes}` payload of an eager offer.
     struct Payload {
-        mime: String,
-        bytes: Bytes
+        mime: String = 1,
+        bytes: Bytes = 2
     }
 
     /// Metadata for one live offer: identity and MIME types, never content.
     /// Also the body of the retained `session/<id>/clipboard/changed` event.
     struct OfferMeta {
-        token: U64,
-        owner: String,
-        session: U64,
-        mimes: Array<String>,
-        lazy: Bool,
-        tick: U64
+        token: U64 = 1,
+        owner: String = 2,
+        session: U64 = 3,
+        mimes: Array<String> = 4,
+        lazy: Bool = 5,
+        tick: U64 = 6
     }
 
     /// The retained per-session offer-announcement topic (issue #307): paste
@@ -63,25 +63,25 @@ interface os.lazy.clipboard.v1 {
     /// counter, `uid`/`session` the kernel-stamped caller, `app` the owner
     /// slot, and `lazy` whether the bytes came from a lazy owner callback.
     struct PasteEvent {
-        seq: U64,
-        uid: U32,
-        session: U64,
-        mime: String,
-        app: U64,
-        bytes: U64,
-        lazy: Bool
+        seq: U64 = 1,
+        uid: U32 = 2,
+        session: U64 = 3,
+        mime: String = 4,
+        app: U64 = 5,
+        bytes: U64 = 6,
+        lazy: Bool = 7
     }
 
     /// One refused cross-session paste, the payload of
     /// `system/events/security/clipboard` (issue #307): the audit record of a
     /// token read denied by the clipboard read scope.
     struct ClipboardDenial {
-        seq: U64,
-        uid: U32,
-        session: U64,
-        mime: String,
-        app: U64,
-        token: U64
+        seq: U64 = 1,
+        uid: U32 = 2,
+        session: U64 = 3,
+        mime: String = 4,
+        app: U64 = 5,
+        token: U64 = 6
     }
 
     /// Published for every allowed paste, so `logd` keeps the audit trail.

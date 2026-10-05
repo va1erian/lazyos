@@ -1,0 +1,14 @@
+[
+  {
+    "name": "moved",
+    "interface": "os.lazy.conformance.decl.v1",
+    "message": "Moved",
+    "value": {"path": "/a/b", "x": 10, "y": -20}
+  },
+  {
+    "name": "changed_args",
+    "interface": "os.lazy.conformance.events.v1",
+    "message": "Changed.args",
+    "value": {"path": "sys/ui/scale"}
+  }
+]

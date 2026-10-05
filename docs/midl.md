@@ -202,11 +202,11 @@ and the manifest gives each interface a `rings` array.
 
 ## Language reference
 
-This section states what `midlc` accepts today (`tools/midlc/midlc_lexer.py`,
+This section states what `midlc` accepts (`tools/midlc/midlc_lexer.py`,
 `midlc_parser.py`, `midlc_model.py`, `midlc_rust.py`). Where the compiler is
-narrower than a tool might expect, the rule says so (issue #306 tracks the
-remaining work: explicit field ids, a standard error field, a conformance
-corpus).
+narrower than a tool might expect, the rule says so. The conformance corpus
+(below) pins every rule here with examples another implementation can test
+itself against.
 
 ### Lexical structure
 
@@ -225,9 +225,10 @@ file       = interface { interface } ;
 interface  = "interface" NAME "{" { member } "}" ;
 member     = method | struct | enum | topic | ring ;
 method     = "method" IDENT params "->" params { attr } ";" ;
-params     = "(" [ IDENT ":" type { "," IDENT ":" type } ] ")" ;
+params     = "(" [ field { "," field } ] ")" ;
+field      = IDENT ":" type [ "=" NUMBER ] ;
 attr       = "=" NUMBER | "oneway" | "sync" | "transfers" params ;
-struct     = "struct" IDENT "{" { IDENT ":" type [ "," ] } "}" ;
+struct     = "struct" IDENT "{" { field [ "," ] } "}" ;
 enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
 topic      = "topic" STRING ":" IDENT { "retained" | "qos" "=" IDENT } ";" ;
 ring       = "ring" IDENT ":" IDENT { IDENT "=" IDENT } ";" ;
@@ -237,14 +238,17 @@ type       = IDENT [ "<" type { "," type } ">" ] ;
 `NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
 (`os.lazy.confd.v1`). Several interfaces may share a file. `sync` is the
 default and only cancels an earlier `oneway`. A method has at most one
-`transfers` clause.
+`transfers` clause, whose entries take no `= N` (a transfer has a slot, not a
+field id).
 
 ### Types
 
 Built-ins: `Bool`, `I32`, `I64`, `U32`, `U64`, `F64`, `String` (UTF-8),
 `Bytes`, `Array<T>` and `Option<T>` (exactly one parameter each). A name
 declared as a `struct` or `enum` of the same interface is also a type. Enums
-travel as `U32` (the variant's index, in declaration order). `Channel`,
+travel as `U32` (the variant's index, in declaration order), and an
+enum-typed field is a `u32` in the generated Rust (compare it with the
+`{ENUM}_{VARIANT}` constants). `Channel`,
 `Buffer` and `Ring` (and the `Handle` kind) appear only inside `transfers (...)`
 and are rejected in a body. There is **no `Map`**: the runtime's TLV layer has
 a `Map` kind, but `midlc` does not accept `Map<K, V>`, so model a map as
@@ -258,10 +262,16 @@ a `Map` kind, but `midlc` does not accept `Map<K, V>`, so model a map as
   not share an id; the compiler rejects the file and the author renumbers one
   with `= N`. Renaming a method that relies on the hash changes its id, so pin
   the id first.
-* **Field id**: implicit, **1..n in declaration order** within each struct,
-  method argument list and method reply list (and 1 for the element of an
-  `Array` or `Option`). Explicit `name: T = 3` is *not* supported yet, so
-  reordering or inserting a field before the end silently changes the wire.
+* **Field id**: `name: T = N` pins it; without `= N` a field takes its
+  **1-based position** within its struct, method argument list or reply list
+  (the element of an `Array` or `Option` is always 1). Ids are unique within a
+  list and lie in 1..65535; a top-level reply field may not take 15, the
+  standard error field (below). `midlc` warns about every implicit id,
+  because reordering or inserting a field would silently renumber it, and
+  `python tools/midlc/midlc.py --pin-field-ids idl/*.midl` writes the
+  current positions into the source (the wire stays byte-identical). Every
+  file in `idl/` is pinned, so with explicit ids the declaration order no
+  longer matters to the wire.
 * **Generated names**: `encode_<snake>`/`decode_<snake>` for structs,
   `encode_<method>_args`/`_reply` for methods, `{ENUM}_{VARIANT}` constants.
   Two declarations that fold to the same Rust identifier are an error.
@@ -291,7 +301,59 @@ then a little-endian `u32` payload length. Kinds: `Bool`=1 (one byte), `I32`=2,
 
 ### Compatibility rules
 
-Append-only within a `.vN`: add methods (explicit ids stay put), add
-trailing struct fields, add trailing method args and reply fields, add enum
-variants at the end. Anything else needs a new interface version. The
-interface hash is checked at bind time (`docs/messenger.md` section 11).
+Append-only within a `.vN`: add methods (explicit ids stay put), add struct
+fields, method args and reply fields under new ids, add enum variants at the
+end. With pinned ids a new field may be declared anywhere in the list;
+reusing, renumbering or retyping an id needs a new interface version, as
+does removing a field whose absence a peer would misread. The interface hash
+is checked at bind time (`docs/messenger.md` section 11).
+
+## Errors
+
+A failed call is answered with **one `Error` field at id 15** instead of the
+declared reply fields (`docs/messenger.md` section 12). The id is the same in
+every reply of every interface; `midlc` refuses it as a reply field id and
+generates it, with the helpers to write and read it, as the crate-level
+`errors` module of `libs/generated` (`messenger_generated::errors`:
+`ERROR_FIELD`, `ReplyError`, `write`, `write_code`, `encode`, `find`,
+`find_code`, `decode`, `is_error`). No service hand-types the id. Fifteen is
+the id every service already used; the clipboard service (13) and the
+generated async mailbox (1) moved to it.
+
+The field's payload is the error's shape:
+
+| Part | Encoding |
+|---|---|
+| `code` | `u32` LE, errno-style (positive) unless a `domain` says otherwise |
+| `message` | UTF-8, up to the end of the payload or the first NUL |
+| detail (optional) | a NUL, then a TLV record: `1` domain, `2` hint, `3` docs (all `String`) |
+
+`domain` is empty (not written) for the service's own errno codes; `hint` is
+how to fix it; `docs` is a documentation id such as `err.messenger.denied`.
+A reader that knows only the code and the message
+(`libmessenger::Field::error_parts`) still reads both from a detailed error.
+Decoders of the declared reply skip the field (it is an unknown id to them),
+so a client checks for the error before trusting the reply.
+
+## Conformance corpus
+
+`idl/conformance/` is a language-neutral test corpus for anything that reads
+MIDL or speaks its wire format:
+
+* `valid/<case>.midl` with `<case>.vectors.json`, sample values (a struct,
+  `Method.args`, `Method.reply`, or `$error` for the standard error), and
+  `<case>.expected.json`: the parsed model with every interface, method and
+  field id resolved, the warnings, and each sample's encoded bytes (hex).
+* `invalid/<case>.midl` with `<case>.expected.json`: the exact error `midlc`
+  rejects it with.
+
+The expected files are written by `python tools/midlc/conformance.py --write`
+from `midlc`'s parser and an encoder independent of the Rust backend
+(`tools/midlc/midlc_wire.py`). The same command writes
+`libs/generated/tests/conformance.rs`, which compiles every valid case with
+the Rust backend and checks that the generated codecs produce, and decode,
+exactly the corpus bytes. CI (`.github/workflows/midlc.yml`) runs
+`conformance.py --check` and `cargo test -p messenger-generated`, so a change
+to `midlc`'s parsing, ids or encoding fails until the corpus is regenerated
+deliberately. A second implementation (for example a `libs/midl` crate)
+proves itself by reproducing the expected files.

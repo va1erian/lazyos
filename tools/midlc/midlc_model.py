@@ -37,15 +37,34 @@ class MidlError(Exception):
 class Type:
     name: str
     args: list["Type"] = field(default_factory=list)
+    # Set by the parser when `name` is an enum of the interface: it travels
+    # as a `U32` (the variant index) and is a `u32` in Rust.
+    enum: bool = field(default=False, compare=False)
 
     def __str__(self) -> str:
         return f"{self.name}<" + ", ".join(str(a) for a in self.args) + ">" if self.args else self.name
 
 
+# The reply field id every service uses for the standard structured error
+# (`docs/midl.md`, "Errors"). Fifteen because every service already used it
+# before it was standardized; a top-level reply field may not take it.
+ERROR_FIELD = 15
+MAX_FIELD_ID = 0xFFFF
+
+
 @dataclass
 class Param:
+    """A struct field, method argument or reply field. `id` is the wire field
+    id: the explicit `= N` when `explicit`, else the 1-based position (set by
+    the parser's `assign_field_ids`). `end` is the source offset just past
+    the type, where `--pin-field-ids` writes ` = N`."""
+
     name: str
     ty: Type
+    id: int = 0
+    explicit: bool = False
+    line: int = 0
+    end: int = 0
 
 
 @dataclass

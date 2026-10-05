@@ -14,38 +14,38 @@ interface os.lazy.keyd.v1 {
     /// Check a username/password pair against the stored Argon2id verifier.
     /// The plaintext `secret` crosses the channel; the kernel stamps the
     /// sender so `keyd` can audit who asked.
-    method Verify(user: String, secret: String) -> (ok: Bool);
+    method Verify(user: String = 1, secret: String = 2) -> (ok: Bool = 1);
     /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
-    method Sign(key: U64, digest: Bytes) -> (tag: Bytes);
+    method Sign(key: U64 = 1, digest: Bytes = 2) -> (tag: Bytes = 1);
     /// Seal `plaintext` under the caller's stored key `key`; returns an
     /// authenticated blob.
-    method Wrap(key: U64, plaintext: Bytes) -> (blob: Bytes);
+    method Wrap(key: U64 = 1, plaintext: Bytes = 2) -> (blob: Bytes = 1);
     /// Open a `blob` produced by `Wrap` under `key`; returns the plaintext.
-    method Unwrap(key: U64, blob: Bytes) -> (plaintext: Bytes);
+    method Unwrap(key: U64 = 1, blob: Bytes = 2) -> (plaintext: Bytes = 1);
     /// `len` cryptographically strong random bytes.
-    method Random(len: U64) -> (bytes: Bytes);
+    method Random(len: U64 = 1) -> (bytes: Bytes = 1);
     /// Create a fresh random key of type `kind` (`hmac` or `wrap`); returns
     /// its opaque id.
-    method Generate(kind: String) -> (id: U64);
+    method Generate(kind: String = 1) -> (id: U64 = 1);
     /// The caller's key ids, types and use counters; never material.
-    method List() -> (keys: Array<KeyInfo>);
+    method List() -> (keys: Array<KeyInfo> = 1);
     /// Round-trip probe.
     method Ping() -> ();
     /// Install or replace an account's password verifier. Root only: the
     /// accounts service pushes its database here so `Verify` can answer for
     /// every account. `keyd` derives and stores the Argon2id verifier and the
     /// secret does not outlive the call.
-    method Provision(user: String, secret: String) -> ();
+    method Provision(user: String = 1, secret: String = 2) -> ();
 
     /// One row of the key list: identity and counters only, never material.
     struct KeyInfo {
         /// Opaque key id clients pass back in `Sign`/`Wrap`/`Unwrap`.
-        id: U64,
+        id: U64 = 1,
         /// Key type name.
-        kind: String,
+        kind: String = 2,
         /// Operations this key has served.
-        uses: U64,
+        uses: U64 = 3,
         /// PIT tick of the last use (`0` before the first).
-        last_use: U64
+        last_use: U64 = 4
     }
 }

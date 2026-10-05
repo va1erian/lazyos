@@ -12,15 +12,15 @@ interface os.lazy.messenger.policy.v1 {
     /// unmatched is denied). An empty list revokes the label's grants. The
     /// label is interned if new; a malformed label or more rules than the
     /// kernel stores per label (256) fails with `EINVAL`.
-    method LoadLabel(label: String, rules: Array<LabelRule>) -> ();
+    method LoadLabel(label: String = 1, rules: Array<LabelRule> = 2) -> ();
 
     /// One rule. `interface_id` and `method` accept the wildcards
     /// `0xFFFFFFFFFFFFFFFF` and `0xFFFFFFFF`; `allow` of `false` is an
     /// explicit deny that shadows later rules.
     struct LabelRule {
-        interface_id: U64,
-        method: U32,
-        allow: Bool
+        interface_id: U64 = 1,
+        method: U32 = 2,
+        allow: Bool = 3
     }
 }
 
@@ -30,7 +30,7 @@ interface os.lazy.messenger.policy.v1 {
 /// Only the interface id is contractual; nothing ever serves this interface.
 interface os.lazy.messenger.names.resolve.v1 {
     /// Check that the actor may resolve `name`.
-    method Resolve(name: String) -> ();
+    method Resolve(name: String = 1) -> ();
 }
 
 /// Kernel ACL scope for spawning a child into a development label (issue #529,
@@ -43,5 +43,5 @@ interface os.lazy.messenger.names.resolve.v1 {
 /// Only the interface id is contractual; nothing ever serves this interface.
 interface os.lazy.process.label.spawn.v1 {
     /// Check that the actor may spawn a child labelled `label`.
-    method Assign(label: String) -> ();
+    method Assign(label: String = 1) -> ();
 }

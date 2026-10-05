@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): Two fields of one list share an id.
+interface os.lazy.conformance.bad.v1 {
+    struct P { x: I32 = 1, y: I32 = 1 }
+}

@@ -31,6 +31,8 @@ pub enum Ty {
 #[derive(Debug, Clone, Copy)]
 pub struct Field {
     pub name: &'static str,
+    /// The wire field id (`= N` in the `.midl`, else the 1-based position).
+    pub id: u16,
     pub ty: Ty,
 }
 

@@ -14,22 +14,22 @@ interface os.lazy.messenger.topics.v1 {
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
     /// event reached.
-    method Publish(topic: String, payload: Bytes, retained: Bool) -> (matched: U64);
+    method Publish(topic: String = 1, payload: Bytes = 2, retained: Bool = 3) -> (matched: U64 = 1);
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
-    method Subscribe(filter: String, qos: U32, depth: U32) -> (subscription: U64);
+    method Subscribe(filter: String = 1, qos: U32 = 2, depth: U32 = 3) -> (subscription: U64 = 1);
     /// Drop a subscription; later publishes stop matching it.
-    method Unsubscribe(subscription: U64) -> ();
+    method Unsubscribe(subscription: U64 = 1) -> ();
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
-    method NextEvent(subscription: U64) -> (event: Event);
+    method NextEvent(subscription: U64 = 1) -> (event: Event = 1);
     /// Retire every event up to `sequence` on a `Reliable` subscription.
-    method Ack(subscription: U64, sequence: U64) -> ();
+    method Ack(subscription: U64 = 1, sequence: U64 = 2) -> ();
     /// Topics the broker has seen, with live subscriber counts.
-    method ListTopics() -> (topics: Array<TopicInfo>);
+    method ListTopics() -> (topics: Array<TopicInfo> = 1);
     /// Queue and drop counters of one subscription.
-    method Stats(subscription: U64) -> (stats: Stats);
+    method Stats(subscription: U64 = 1) -> (stats: Stats = 1);
     /// Round-trip probe used to detect a live broker.
     method Ping() -> ();
     /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
@@ -39,7 +39,7 @@ interface os.lazy.messenger.topics.v1 {
     /// parks on the other end beside its own endpoints (`wait_any`) and
     /// drains with expired-deadline `NextEvent`s on each ring, instead of
     /// polling. Owner only; a second bell replaces the first.
-    method Bell(subscription: U64) -> ()
+    method Bell(subscription: U64 = 1) -> ()
         transfers (bell: Channel<os.lazy.messenger.topics.bell.v1>);
 
     /// Delivery contract chosen at subscribe time and enforced by the broker:
@@ -51,28 +51,28 @@ interface os.lazy.messenger.topics.v1 {
     /// One delivered event: broker metadata plus the publisher's opaque payload
     /// parcel (still encoded).
     struct Event {
-        topic: String,
-        publisher: U64,
-        sequence: U64,
-        retained: Bool,
-        payload: Bytes
+        topic: String = 1,
+        publisher: U64 = 2,
+        sequence: U64 = 3,
+        retained: Bool = 4,
+        payload: Bytes = 5
     }
 
     /// One row of the topic list.
     struct TopicInfo {
-        topic: String,
-        subscribers: U64,
-        retained: Bool
+        topic: String = 1,
+        subscribers: U64 = 2,
+        retained: Bool = 3
     }
 
     /// Per-subscription delivery counters.
     struct Stats {
-        qos: U32,
-        depth: U32,
-        queued: U64,
-        delivered: U64,
-        matched: U64,
-        drops: U64
+        qos: U32 = 1,
+        depth: U32 = 2,
+        queued: U64 = 3,
+        delivered: U64 = 4,
+        matched: U64 = 5,
+        drops: U64 = 6
     }
 }
 
@@ -82,7 +82,7 @@ interface os.lazy.messenger.topics.v1 {
 /// which re-arms the bell.
 interface os.lazy.messenger.topics.bell.v1 {
     /// `subscription` has events waiting.
-    method Ready(subscription: U64) -> () oneway;
+    method Ready(subscription: U64 = 1) -> () oneway;
 }
 
 /// Kernel ACL scope for publishing. `messengerd` asks the kernel
@@ -95,7 +95,7 @@ interface os.lazy.messenger.topics.publish.v1 {
     /// Check `name` (a literal topic) for the actor named by the syscall's
     /// `txn_id` argument. `mode` must be `0` (publish); `txn` is copied into
     /// denial audit records. Fails with `EACCES` when policy refuses a segment.
-    method AuthorizeTopic(name: String, mode: U32, txn: U64) -> ();
+    method AuthorizeTopic(name: String = 1, mode: U32 = 2, txn: U64 = 3) -> ();
 
     /// The `mode` request field: which scope the name is checked against.
     enum Mode { Publish, Subscribe }
@@ -106,7 +106,7 @@ interface os.lazy.messenger.topics.publish.v1 {
 interface os.lazy.messenger.topics.subscribe.v1 {
     /// Check `name` (a filter, possibly with `+`/trailing `#`) for the actor;
     /// see `os.lazy.messenger.topics.publish.v1`.
-    method AuthorizeTopic(name: String, mode: U32, txn: U64) -> ();
+    method AuthorizeTopic(name: String = 1, mode: U32 = 2, txn: U64 = 3) -> ();
 
     /// The `mode` request field (same values as the publish scope).
     enum Mode { Publish, Subscribe }

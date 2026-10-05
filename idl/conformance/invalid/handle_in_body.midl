@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): Handles travel in transfers, never in the body.
+interface os.lazy.conformance.bad.v1 {
+    struct P { h: Handle = 1 }
+}

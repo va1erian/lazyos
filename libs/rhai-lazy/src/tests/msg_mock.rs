@@ -256,7 +256,8 @@ fn parcel_error(_: libmessenger::Error) -> BusError {
 /// A structured service error reply, as `confd` sends it (field 15).
 pub fn error_reply(code: u32, message: &str) -> Vec<u8> {
     let mut body = libmessenger::Encoder::new();
-    body.error(15, code, message).unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, code, message)
+        .unwrap();
     body.finish()
 }
 

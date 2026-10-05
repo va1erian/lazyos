@@ -1,0 +1,33 @@
+// Conformance case: two interfaces in one file, transfers, topics, rings and
+// doc comments; their ids, slots and permissions are what the corpus pins.
+
+/// The receiving side of a channel.
+interface os.lazy.conformance.events.v1 {
+    /// Sent on the channel `Watch` transfers.
+    method Changed(path: String = 1) -> () oneway;
+}
+
+/// Kernel objects beside the body, declared topics and a ring.
+interface os.lazy.conformance.decl.v1 {
+    method Watch(prefix: String = 1) -> (watch: U64 = 1) = 1
+        transfers (events: Channel<os.lazy.conformance.events.v1>);
+    method Share(len: U64 = 1) -> () = 2
+        transfers (pixels: Buffer);
+    method Attach(slots: U32 = 1) -> (ring: U32 = 1) = 3
+        transfers (rings: Ring<Out>);
+    method Kick(ring: U32 = 1) -> () oneway;
+
+    struct Moved {
+        path: String = 1,
+        x: I32 = 2,
+        y: I32 = 3
+    }
+    enum Mode { Off, On }
+
+    /// A retained topic with named placeholders.
+    topic "session/{session}/moved/{rest...}" : Moved retained qos=reliable;
+    topic "system/conformance/mode" : Mode;
+
+    /// Client-produced frames, woken with `Kick`.
+    ring Out : frames producer=client doorbell=Kick;
+}
