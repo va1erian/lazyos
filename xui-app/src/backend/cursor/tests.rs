@@ -106,6 +106,19 @@ fn a_child_takes_its_nearest_ancestors_shape() {
 }
 
 #[test]
+fn a_widget_that_changes_its_request_under_the_pointer_is_heard_at_once() {
+    let backend = rig();
+    backend.pointer_move(W, 10, 30);
+    assert_eq!(probe::sent(), [(SURFACE, TEXT)]);
+    // No move: the field now wants the hand (a page decided a moment later).
+    backend.set_cursor(id(3), Cursor::Hand);
+    assert_eq!(probe::sent(), [(SURFACE, TEXT), (SURFACE, HAND)]);
+    // Asking for what is already shown sends nothing.
+    backend.set_cursor(id(3), Cursor::Hand);
+    assert_eq!(probe::sent().len(), 2);
+}
+
+#[test]
 fn leaving_the_window_is_the_arrow() {
     let backend = rig();
     backend.pointer_move(W, 10, 5);

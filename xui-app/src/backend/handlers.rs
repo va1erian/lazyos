@@ -308,6 +308,7 @@ impl Backend for LazyOSBackend {
 
     fn set_cursor(&self, id: WidgetId, cursor: xui_core::backend::Cursor) {
         self.cursors.borrow_mut().ask(id, cursor);
+        self.refresh_cursor();
     }
 
     fn set_capture(&self, id: WidgetId) {

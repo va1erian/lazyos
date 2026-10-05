@@ -114,25 +114,45 @@ impl LazyOSBackend {
         let Mode::Client(state) = &self.mode else {
             return;
         };
-        let Some(surface) = self
-            .windows
-            .borrow()
+        // A widget may ask for a shape from inside a delivery or a paint that
+        // holds one of these tables: skip rather than panic, the next move
+        // resolves it.
+        let (Ok(windows), Ok(nodes), Ok(mut cursors), Ok(state)) = (
+            self.windows.try_borrow(),
+            self.nodes.try_borrow(),
+            self.cursors.try_borrow_mut(),
+            state.try_borrow(),
+        ) else {
+            return;
+        };
+        let Some(surface) = windows
             .get(&window.raw())
             .and_then(|entry| entry.client.as_ref())
             .map(|client| client.surface)
         else {
             return;
         };
-        let shape = {
-            let nodes = self.nodes.borrow();
-            self.cursors.borrow().shape(&nodes, window, target)
-        };
-        if !self.cursors.borrow_mut().should_send(surface, shape) {
+        let shape = cursors.shape(&nodes, window, target);
+        if !cursors.should_send(surface, shape) {
             return;
         }
-        let client = state.borrow().client;
+        let client = state.client;
+        // The call may take a while: nothing stays borrowed across it.
+        drop((windows, nodes, state));
+        drop(cursors);
         if let Err(code) = client.set_cursor(surface, shape) {
-            self.cursors.borrow_mut().failed(surface, code);
+            if let Ok(mut cursors) = self.cursors.try_borrow_mut() {
+                cursors.failed(surface, code);
+            }
+        }
+    }
+
+    /// A widget changed what it asks for: when the pointer is over it, the
+    /// compositor hears at once and not at the next move (NetSurf learns what
+    /// is under the pointer a moment after the move that put it there).
+    pub(super) fn refresh_cursor(&self) {
+        if let Some((window, hovered)) = self.hovered.get() {
+            self.update_cursor(window, Some(hovered));
         }
     }
 
