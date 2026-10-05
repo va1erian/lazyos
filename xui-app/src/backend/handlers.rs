@@ -101,22 +101,9 @@ impl Backend for LazyOSBackend {
         // Declare the window resizable (if the app opted in) right after
         // `CreateSurface`, before any input can reach it. The desktop and
         // panels are chromeless and fixed-size.
-        let hints = self
-            .size_hints
-            .get()
-            .filter(|_| role == SurfaceRole::Window);
-        if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =
-            (hints, client.as_ref(), &self.mode)
-        {
-            // Design pixels to screen pixels; a `max` of 0 stays "the screen".
-            let scale = self.scale();
-            let (min_w, min_h, max_w, max_h) =
-                (min_w * scale, min_h * scale, max_w * scale, max_h * scale);
-            let _ =
-                state
-                    .borrow()
-                    .client
-                    .set_size_hints(surface.surface, min_w, min_h, max_w, max_h);
+        let resizable = role == SurfaceRole::Window;
+        if let (true, Some(surface)) = (resizable, client.as_ref()) {
+            self.send_size_hints(surface.surface);
         }
         self.windows.borrow_mut().insert(
             id.raw(),
@@ -130,6 +117,7 @@ impl Backend for LazyOSBackend {
                 width: width as i32,
                 height: height as i32,
                 client,
+                resizable,
             },
         );
         if self.is_client() {
