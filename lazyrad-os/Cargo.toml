@@ -93,3 +93,15 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# Size first, except the software rasteriser: every frame is painted by
+# tiny-skia through xui-canvas, and at "z" a full HiDPI repaint costs 3-4x
+# more (issue #604). Only performance-critical crates get 3; keep it that way.
+[profile.release.package.tiny-skia]
+opt-level = 3
+
+[profile.release.package.tiny-skia-path]
+opt-level = 3
+
+[profile.release.package.xui-canvas]
+opt-level = 3
