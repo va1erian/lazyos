@@ -143,6 +143,10 @@ netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
 xui-icons = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 
+# The cursor sprites, to check the shapes the backend asks for can be drawn.
+[dev-dependencies]
+cursorgfx = { path = "../libs/cursorgfx" }
+
 [[bin]]
 name = "xui-m0"
 path = "src/bin/m0.rs"

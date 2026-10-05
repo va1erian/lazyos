@@ -145,6 +145,9 @@ impl Backend for LazyOSBackend {
 
     fn close_window(&self, window: WindowId) {
         let removed = self.windows.borrow_mut().remove(&window.raw());
+        if let Some(client) = removed.as_ref().and_then(|w| w.client.as_ref()) {
+            self.cursors.borrow_mut().forget_surface(client.surface);
+        }
         if let (Some(surface), Mode::Client(state)) = (removed.and_then(|w| w.client), &self.mode) {
             surface.close(state.borrow().client);
         }
@@ -219,6 +222,7 @@ impl Backend for LazyOSBackend {
         if let Some((window, bounds)) = damage {
             self.add_damage(window, bounds);
         }
+        self.cursors.borrow_mut().forget(id);
         let mut nodes = self.nodes.borrow_mut();
         nodes.retain(|(node_id, _)| *node_id != id);
         if self.focused.get() == Some(id) {
@@ -300,6 +304,10 @@ impl Backend for LazyOSBackend {
 
     fn set_clip(&self, id: WidgetId, rect: Option<Rect>) {
         self.with_node(id, |node| node.clip = rect);
+    }
+
+    fn set_cursor(&self, id: WidgetId, cursor: xui_core::backend::Cursor) {
+        self.cursors.borrow_mut().ask(id, cursor);
     }
 
     fn set_capture(&self, id: WidgetId) {

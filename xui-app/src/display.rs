@@ -16,6 +16,7 @@ use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::sys::{self, errno};
 
+pub(crate) mod cursor;
 mod dnd;
 mod frames;
 mod shell;

@@ -28,6 +28,7 @@
 mod backdrop;
 mod background;
 mod compositor;
+mod cursor;
 mod dnd;
 mod double_click;
 mod event_loop;
@@ -138,6 +139,8 @@ pub struct LazyOSBackend {
     /// exactly as before. Client mode only; `None` inside when the kernel
     /// refused the descriptors.
     wakeup: std::cell::OnceCell<Option<wakeup::Wakeup>>,
+    /// Pointer shapes widgets asked for, and what each surface was last sent.
+    cursors: RefCell<cursor::Cursors>,
     /// The window rectangle being repainted while painters run
     /// ([`LazyOSBackend::paint_damage`]).
     paint_damage: Cell<Option<Rect>>,
@@ -305,6 +308,7 @@ impl LazyOSBackend {
             watched_fd: Cell::new(None),
             fd_ready: Cell::new(false),
             wakeup: std::cell::OnceCell::new(),
+            cursors: RefCell::default(),
             paint_damage: Cell::new(None),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
@@ -375,38 +379,4 @@ impl LazyOSBackend {
 const ENOENT: i64 = 2;
 
 #[cfg(test)]
-mod test_support {
-    use std::rc::Rc;
-
-    use xui_core::router::WidgetHost;
-
-    use super::*;
-    use crate::client_window::ClientState;
-    use crate::display::Client;
-
-    /// A client-mode backend with no display behind it.
-    pub(super) fn client_backend() -> LazyOSBackend {
-        LazyOSBackend::with_mode(Mode::Client(RefCell::new(ClientState::new(
-            Client::detached(),
-        ))))
-    }
-
-    impl Window {
-        /// A small surface-less window whose events go to `sink`.
-        pub(super) fn for_tests(sink: Rc<dyn WidgetHost>) -> Window {
-            Window {
-                surface: Surface::new(64, 64),
-                frame: Vec::new(),
-                sink: Some(sink),
-                theme: xui_core::Theme::light(),
-                backdrop: None,
-                background: Default::default(),
-                dpi: DEFAULT_DPI,
-                width: 64,
-                height: 64,
-                client: None,
-                resizable: true,
-            }
-        }
-    }
-}
+mod test_support;

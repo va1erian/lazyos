@@ -1,0 +1,36 @@
+[
+  {"wait_for": "DOCS:RENDER:PASS", "timeout": 300},
+  {"wait": 2.0},
+
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [574, 198]},
+  {"mouse_move": [1, 0]},
+  {"wait": 0.5},
+  {"shot": "link"},
+
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [300, 350]},
+  {"mouse_move": [1, 0]},
+  {"wait": 0.5},
+  {"shot": "text"},
+
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [560, 198]},
+  {"mouse_move": [1, 0]},
+  {"wait": 0.5},
+  {"shot": "link_again"},
+
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [-2000, -2000]},
+  {"mouse_move": [104, 87]},
+  {"mouse_move": [1, 0]},
+  {"wait": 0.5},
+  {"shot": "button"}
+]
