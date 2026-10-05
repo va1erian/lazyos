@@ -7,15 +7,15 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build, button, checkbox, column, group, row, Build, Handle, LayoutExt, Mounted,
+    button, checkbox, color_picker, column, group, radio_group, row, Build, Handle, LayoutExt,
+    Mounted,
 };
 use xui_core::backend::{Result, WidgetId};
 use xui_core::layout::Align;
 use xui_core::widget::{CheckBox, ColorPicker, ListView, RadioGroup};
-use xui_core::{Color, Rect};
+use xui_core::Color;
 
-use crate::app::Msg;
-use crate::place::{placed, Placed};
+use crate::app::{choice_list, Msg};
 use crate::theme_ops::{ACCENTS, BACKGROUNDS};
 use crate::wallpaper_ops;
 
@@ -24,11 +24,14 @@ pub fn pack(color: Color) -> u32 {
     (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b)
 }
 
+/// The size a swatch grid is laid out at: one row of up to six swatches.
+const SWATCHES: (i32, i32) = (300, 48);
+
 /// The page's widgets.
 pub struct AppearancePage {
-    pub mode: Rc<Placed<RadioGroup<Msg>>>,
-    pub accent: Rc<Placed<ColorPicker<Msg>>>,
-    pub background: Rc<Placed<ColorPicker<Msg>>>,
+    pub mode: Rc<RadioGroup<Msg>>,
+    pub accent: Rc<ColorPicker<Msg>>,
+    pub background: Rc<ColorPicker<Msg>>,
     /// The desktop pictures: "None", then one row per picture.
     pub wallpaper: Rc<ListView<Msg>>,
     pub anim: Rc<CheckBox<Msg>>,
@@ -37,13 +40,11 @@ pub struct AppearancePage {
 
 /// A swatch grid of `colors`, six to a row like the presets, raising `msg`
 /// with the picked colour.
-fn swatches(colors: Vec<u32>, msg: fn(u32) -> Msg) -> Build<Placed<ColorPicker<Msg>>, Msg> {
-    placed(300, 48, move |ui, bounds| {
-        let colors: Vec<Color> = colors.into_iter().map(Color::hex).collect();
-        Ok(ColorPicker::new(ui, bounds, &colors)?
-            .columns(6)
-            .on_select(move |color| Some(msg(pack(color)))))
-    })
+fn swatches(colors: &[u32], msg: fn(u32) -> Msg) -> Build<ColorPicker<Msg>, Msg> {
+    let colors: Vec<Color> = colors.iter().copied().map(Color::hex).collect();
+    color_picker(&colors)
+        .columns(6)
+        .on_select(move |color| msg(pack(color)))
 }
 
 impl AppearancePage {
@@ -53,25 +54,26 @@ impl AppearancePage {
         let (mode, accent, background) = (Handle::new(), Handle::new(), Handle::new());
         let (wallpaper, anim) = (Handle::new(), Handle::new());
         let rows = wallpaper_ops::rows(pictures);
+        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
         let mounted = ui.mount_in(
             page,
             column().gap(12).children((
                 group(
                     "Theme",
                     column().child(
-                        placed(200, 56, |ui, bounds| {
-                            Ok(RadioGroup::new(ui, bounds, &["Dark", "Light"])?
-                                .on_select(|i| Some(Msg::Mode(i))))
-                        })
-                        .bind(&mode)
-                        .align(Align::Start),
+                        radio_group(&["Dark", "Light"])
+                            .on_select(Msg::Mode)
+                            .bind(&mode)
+                            .size(200, 56)
+                            .align(Align::Start),
                     ),
                 ),
                 group(
                     "Accent color",
                     column().child(
-                        swatches(ACCENTS.iter().map(|a| a.1).collect(), Msg::Accent)
+                        swatches(&ACCENTS.map(|a| a.1), Msg::Accent)
                             .bind(&accent)
+                            .size(SWATCHES.0, SWATCHES.1)
                             .align(Align::Start),
                     ),
                 ),
@@ -79,18 +81,15 @@ impl AppearancePage {
                 group(
                     "Desktop background",
                     row().gap(16).children((
-                        swatches(BACKGROUNDS.iter().map(|b| b.1).collect(), Msg::Background)
+                        swatches(&BACKGROUNDS.map(|b| b.1), Msg::Background)
                             .bind(&background)
+                            .size(SWATCHES.0, SWATCHES.1)
                             .align(Align::Start),
-                        build(move |ui| {
-                            let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
-                            Ok(ListView::new(ui, Rect::default(), &rows)?
-                                .multi_select(false)
-                                .on_select(|i| Some(Msg::Wallpaper(i))))
-                        })
-                        .bind(&wallpaper)
-                        .fill(1)
-                        .max_height(112),
+                        choice_list(&rows)
+                            .on_select(Msg::Wallpaper)
+                            .bind(&wallpaper)
+                            .fill(1)
+                            .max_height(112),
                     )),
                 ),
                 group(

@@ -194,14 +194,14 @@ fn a_click_inside_an_offset_editor_puts_the_caret_under_the_pointer() {
     use std::rc::Rc;
 
     use xui_canvas::snapshot::{Snapshot, render_with};
+    use xui_core::arrange::{Handle, LayoutExt, absolute, column, panel};
     use xui_core::geometry::Rect;
     use xui_core::units::Dip;
-    use xui_core::widget::Panel;
     use xui_core::{App, Color};
 
     use crate::metrics::{CELL_PROBE, Metrics};
 
-    struct Empty(#[allow(dead_code)] Panel<()>);
+    struct Empty;
 
     impl App for Empty {
         type Msg = ();
@@ -233,8 +233,15 @@ fn a_click_inside_an_offset_editor_puts_the_caret_under_the_pointer() {
             let expected = Rc::clone(&expected);
             let text = text.clone();
             move |ui| {
-                let panel = Panel::new(ui, Rect::new(panel_origin.0, panel_origin.1, 480, 380))?;
-                let scoped = ui.with_parent(panel.id());
+                // The snapshot is at 96 DPI, so design units are pixels.
+                let frame = Handle::new();
+                ui.root(absolute().child(panel(column()).bind(&frame).at(
+                    panel_origin.0,
+                    panel_origin.1,
+                    480 - panel_origin.0,
+                    380 - panel_origin.1,
+                )))?;
+                let scoped = ui.with_parent(frame.get().id());
                 let widget = crate::Editor::new(
                     &scoped,
                     Rect::new(editor_origin.0, editor_origin.1, 400, 300),
@@ -264,7 +271,7 @@ fn a_click_inside_an_offset_editor_puts_the_caret_under_the_pointer() {
                 ));
                 expected.set(widget.state.borrow().buffer.line_start(line) + col);
                 *editor.borrow_mut() = Some(widget);
-                Ok(Empty(panel))
+                Ok(Empty)
             }
         },
         {

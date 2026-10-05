@@ -18,7 +18,7 @@ use std::rc::Rc;
 pub use flash::FlashHandle;
 
 use xui_core::app::{App, Proxy, Ui};
-use xui_core::arrange::{Handle, LayoutExt, build, column, status_bar};
+use xui_core::arrange::{Handle, LayoutExt, column, icon_view_with, status_bar};
 use xui_core::backend::{BackendError, NodeKind, NodeSpec, TimerId};
 use xui_core::geometry::{Point, Rect};
 use xui_core::message::Key;
@@ -130,15 +130,15 @@ impl ExplorerWindow {
         // both (and the view's scrollbar) when the window is resized.
         ui.root(
             column().children((
-                build(move |ui| {
-                    Ok(IconView::with_model(ui, Rect::default(), model)?
-                        .multi_select(true)
-                        .on_selection(|_| Some(Msg::Selection))
-                        .on_activate(|index| Some(Msg::Activate(index)))
-                        .on_context(|item, at| Some(Msg::Context(item, at))))
-                })
-                .bind(&view)
-                .fill(1),
+                icon_view_with(model)
+                    .on_activate(Msg::Activate)
+                    .then(|view| {
+                        view.multi_select(true)
+                            .on_selection(|_| Some(Msg::Selection))
+                            .on_context(|item, at| Some(Msg::Context(item, at)))
+                    })
+                    .bind(&view)
+                    .fill(1),
                 status_bar(&[""]).bind(&status),
             )),
         )?;

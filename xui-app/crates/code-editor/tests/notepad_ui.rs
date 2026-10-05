@@ -13,10 +13,10 @@ use xui_code_editor::find::Query;
 use xui_code_editor::search::{self, SearchState};
 use xui_code_editor::{Editor, FontConfig, Options};
 use xui_core::app::{App, Ui, run_app};
+use xui_core::arrange::{LayoutExt, absolute, button, checkbox, edit, label};
 use xui_core::backend::PlatformSpec;
 use xui_core::geometry::Rect;
 use xui_core::units::Dip;
-use xui_core::widget::{Button, CheckBox, Edit, Label};
 use xui_core::{Theme, dip};
 
 /// A plain app for the offscreen editor tests.
@@ -128,15 +128,9 @@ fn find_next_wraps_around_the_buffer() {
     });
 }
 
-/// The rendered app: the editor with a find/replace bar above it.
+/// The rendered app: the editor, under a find/replace bar the window keeps.
 struct NotepadApp {
     _editor: Editor<()>,
-    _query: Edit<()>,
-    _replacement: Edit<()>,
-    _status: Label<()>,
-    _next: Button<()>,
-    _replace: Button<()>,
-    _case: CheckBox<()>,
 }
 
 impl App for NotepadApp {
@@ -160,29 +154,16 @@ fn render_notepad(theme: Theme) -> xui_core::Image {
             Editor::with_options(ui, Rect::new(p(0.0), p(44.0), p(720.0), p(320.0)), options)
                 .expect("editor");
         editor.set_text("fn main() {\n    let answer = 42;\n}\n");
-        NotepadApp {
-            _editor: editor,
-            _query: Edit::new(ui, Rect::new(p(8.0), p(8.0), p(200.0), p(40.0)), "answer")
-                .expect("query"),
-            _replacement: Edit::new(ui, Rect::new(p(206.0), p(8.0), p(380.0), p(40.0)), "x")
-                .expect("replacement"),
-            _status: Label::new(ui, Rect::new(p(386.0), p(8.0), p(460.0), p(40.0)), "1 of 1")
-                .expect("status"),
-            _next: Button::new(ui, Rect::new(p(466.0), p(8.0), p(530.0), p(40.0)), "Next")
-                .expect("next"),
-            _replace: Button::new(
-                ui,
-                Rect::new(p(536.0), p(8.0), p(620.0), p(40.0)),
-                "Replace all",
-            )
-            .expect("replace"),
-            _case: CheckBox::new(
-                ui,
-                Rect::new(p(626.0), p(8.0), p(716.0), p(40.0)),
-                "Match case",
-            )
-            .expect("case"),
-        }
+        ui.root(absolute().children((
+            edit().text("answer").at(8, 8, 192, 32),
+            edit().text("x").at(206, 8, 174, 32),
+            label("1 of 1").at(386, 8, 74, 32),
+            button("Next").at(466, 8, 64, 32),
+            button("Replace all").at(536, 8, 84, 32),
+            checkbox("Match case").at(626, 8, 90, 32),
+        )))
+        .expect("find bar");
+        NotepadApp { _editor: editor }
     })
     .expect("render")
 }

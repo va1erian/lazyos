@@ -4,12 +4,12 @@
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::arrange::{build, column, edit, label, Handle, LayoutExt, Mounted};
+use xui_core::arrange::{column, edit, label, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::widget::{Label, ListView};
-use xui_core::{HasText, Rect};
+use xui_core::HasText;
 
-use crate::app::Msg;
+use crate::app::{choice_list, Msg};
 use crate::keyboard;
 
 /// The widest the list and the test field get.
@@ -30,15 +30,11 @@ impl KeyboardPage {
             page,
             column().padding(20).gap(8).children((
                 label("Keyboard layout"),
-                build(|ui| {
-                    let names: Vec<&str> = keyboard::LAYOUTS.iter().map(|(_, n)| *n).collect();
-                    Ok(ListView::new(ui, Rect::default(), &names)?
-                        .multi_select(false)
-                        .on_select(|i| Some(Msg::Layout(i))))
-                })
-                .bind(&layout)
-                .height(60)
-                .max_width(FIELD_W),
+                choice_list(&keyboard::LAYOUTS.map(|(_, name)| name))
+                    .on_select(Msg::Layout)
+                    .bind(&layout)
+                    .height(60)
+                    .max_width(FIELD_W),
                 label("").bind(&hint),
                 label("Try it"),
                 edit()

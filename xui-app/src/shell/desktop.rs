@@ -10,6 +10,7 @@ use std::rc::Rc;
 use lazyshell::taskbar::BAR_H;
 use lazyshell::{Entry, Rect as ShellRect};
 use xui_core::app::{App, Ui};
+use xui_core::arrange::{absolute, icon_view_with, Handle, LayoutExt};
 use xui_core::backend::{Canvas, PlatformSpec};
 use xui_core::icon::IconRef;
 use xui_core::image::Image;
@@ -47,7 +48,7 @@ pub enum DeskMsg {
 /// The desktop window's app.
 pub struct DesktopApp {
     ctx: Rc<Ctx>,
-    icons: IconView<DeskMsg>,
+    icons: Rc<IconView<DeskMsg>>,
     beat: heartbeat::Heartbeat,
     service: service::ShellService,
     /// The package icons decoded so far.
@@ -157,9 +158,17 @@ impl DesktopApp {
             images: Vec::new(),
             dark,
         };
-        let icons = IconView::with_model(ui, area, model)
-            .expect("desktop icons")
-            .on_activate(|index| Some(DeskMsg::Launch(index)));
+        let icons = Handle::new();
+        ui.root(
+            absolute().child(
+                icon_view_with(model)
+                    .on_activate(DeskMsg::Launch)
+                    .bind(&icons)
+                    .at(right - ICONS_W, ICONS_INSET, ICONS_W, bottom - ICONS_INSET),
+            ),
+        )
+        .expect("desktop icons");
+        let icons = icons.get();
         icons.set_icon_size(IconSize::Medium);
         icons.select(None);
 

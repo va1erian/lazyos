@@ -7,9 +7,8 @@
 //! than overflowing. A package with problems stops at Review: the problems
 //! replace the file types and `Next` is disabled.
 
-use xui_core::arrange::{build, column, label, Build, Layout, LayoutExt};
+use xui_core::arrange::{column, label, list, Build, Layout, LayoutExt};
 use xui_core::widget::ListView;
-use xui_core::Rect;
 
 use xui_app::installer::{elide, group_by_risk, permission_line, short_digest, Model, Package};
 
@@ -18,11 +17,10 @@ use crate::wizard::{page, Next};
 
 /// A list of `items` with nothing selected.
 pub fn items_list<M: 'static>(items: Vec<String>) -> Build<ListView<M>, M> {
-    build(move |ui| {
-        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-        let list = ListView::new(ui, Rect::default(), &refs)?;
+    let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+    list().items(&refs).then(|list| {
         list.select(None);
-        Ok(list)
+        list
     })
 }
 

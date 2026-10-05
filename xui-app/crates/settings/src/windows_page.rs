@@ -4,19 +4,18 @@
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::arrange::{build, button, column, label, row, Handle, LayoutExt, Mounted};
+use xui_core::arrange::{button, color_panel, column, label, row, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::layout::Align;
-use xui_core::widget::{ColorPanel, ListView};
-use xui_core::{Color, Rect};
+use xui_core::widget::ColorPanel;
+use xui_core::Color;
 
-use crate::app::Msg;
+use crate::app::{choice_list, Msg};
 use crate::appearance_page::pack;
-use crate::place::{placed, Placed};
 
 /// The page's widgets.
 pub struct WindowsPage {
-    pub panel: Rc<Placed<ColorPanel<Msg>>>,
+    pub panel: Rc<ColorPanel<Msg>>,
     _mounted: Mounted<Msg>,
 }
 
@@ -32,26 +31,18 @@ impl WindowsPage {
                     .gap(8)
                     .children((
                         label("Color to change"),
-                        build(move |ui| {
-                            let list = ListView::new(ui, Rect::default(), &names)?
-                                .multi_select(false)
-                                .on_select(|i| Some(Msg::Target(i)));
-                            // The panel opens on target 0; show which one.
-                            list.select(Some(0));
-                            Ok(list)
-                        })
-                        .height(150),
+                        // The panel opens on target 0, the list's first row.
+                        choice_list(&names).on_select(Msg::Target).height(150),
                         button("Use default")
                             .on_click(Msg::UseDefault)
                             .align(Align::Start),
                     ))
                     .width(160),
-                placed(280, 360, |ui, bounds| {
-                    Ok(ColorPanel::new(ui, bounds)?.on_commit(|c| Some(Msg::Commit(pack(c)))))
-                })
-                .bind(&panel)
-                .fill(1)
-                .max_height(360),
+                color_panel()
+                    .then(|panel| panel.on_commit(|c| Some(Msg::Commit(pack(c)))))
+                    .bind(&panel)
+                    .fill(1)
+                    .max_height(360),
             )),
         )?;
         Ok(WindowsPage {
@@ -62,6 +53,6 @@ impl WindowsPage {
 
     /// Points the colour panel at `rgb`.
     pub fn set_color(&self, rgb: u32) {
-        self.panel.widget.set_color(Color::hex(rgb));
+        self.panel.set_color(Color::hex(rgb));
     }
 }

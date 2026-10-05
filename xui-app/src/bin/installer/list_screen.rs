@@ -2,16 +2,12 @@
 //! "Built-in" badge instead for the core apps LazyOS ships, which cannot be
 //! removed), and the button that starts the install wizard.
 //!
-//! The rows live in a [`ScrollView`] rebuilt from the model, so a list of any
+//! The rows live in a scroll view rebuilt from the model, so a list of any
 //! length scrolls instead of overflowing; an empty list says so in words.
 
-use xui_core::app::Ui;
-use xui_core::arrange::{build, button, column, label, row, Layout, LayoutExt, Mounted};
-use xui_core::backend::{Result, WidgetId};
-use xui_core::geometry::{Rect, Size};
-use xui_core::layout::{Align, Constraints, Insets};
+use xui_core::arrange::{button, column, label, panel, row, scroll, Layout, LayoutExt};
+use xui_core::layout::{Align, Insets};
 use xui_core::units::Dip;
-use xui_core::widget::{Panel, Placeable, ScrollView};
 
 use xui_app::installer::{elide, Installed, Model};
 
@@ -21,46 +17,6 @@ use crate::wizard::focused;
 
 /// The height of one installed-app row.
 const ROW_H: f32 = 52.0;
-
-/// The installed apps: a scroll view of one card per app, each laid out by
-/// its own layout.
-struct AppList {
-    scroll: ScrollView<Msg>,
-    rows: Vec<(Panel<Msg>, Mounted<Msg>)>,
-}
-
-impl AppList {
-    fn build(ui: &Ui<Msg>, apps: &[Installed]) -> Result<AppList> {
-        let scroll = ScrollView::new(ui, Rect::default())?;
-        let mut rows = Vec::new();
-        for app in apps {
-            let panel = Panel::new(scroll.ui(), Rect::default())?;
-            scroll.add(panel.id(), Dip(ROW_H));
-            let mounted = scroll.ui().mount_in(panel.id(), app_row(app))?;
-            rows.push((panel, mounted));
-        }
-        Ok(AppList { scroll, rows })
-    }
-}
-
-impl Placeable<Msg> for AppList {
-    fn id(&self) -> WidgetId {
-        self.scroll.id()
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
-        Size::new(0, 0)
-    }
-
-    fn placed(&self, _ui: &Ui<Msg>, _rect: Rect) {
-        // The view sizes its rows from its own bounds; each row then lays
-        // its widgets out in its new width.
-        self.scroll.relayout();
-        for (_, mounted) in &self.rows {
-            mounted.relayout();
-        }
-    }
-}
 
 /// One installed-app row: its name and version over its system name, then
 /// Remove (or the badge of a core app).
@@ -95,7 +51,7 @@ fn app_row(app: &Installed) -> Layout<Msg> {
 
 /// The installed list, its actions and the status banner.
 pub fn layout(model: &Model) -> Layout<Msg> {
-    let apps = model.packages.clone();
+    let apps = &model.packages;
     let list = if apps.is_empty() {
         row()
             .padding(Insets::symmetric(Dip(8.0), Dip(12.0)))
@@ -104,7 +60,12 @@ pub fn layout(model: &Model) -> Layout<Msg> {
             ))
             .fill(1)
     } else {
-        build(move |ui| AppList::build(ui, &apps)).fill(1)
+        // One card per app, scrolling when they do not all fit.
+        let cards: Vec<_> = apps
+            .iter()
+            .map(|app| panel(app_row(app)).height(Dip(ROW_H)))
+            .collect();
+        scroll(column().children(cards)).fill(1)
     };
     let banner = elide(model.banner.as_deref().unwrap_or(""), 160);
     column().padding(MARGIN).gap(8).children((

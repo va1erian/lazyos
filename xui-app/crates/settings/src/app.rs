@@ -17,10 +17,13 @@ use std::rc::Rc;
 
 use uitheme::Mode;
 use xui_core::app::{App, Ui};
-use xui_core::arrange::{build, column, label, row, Handle, LayoutExt, Mounted};
-use xui_core::backend::{NodeKind, NodeSpec, Result};
-use xui_core::layout::Insets;
-use xui_core::widget::{Control, IconSize, IconView, Label, Panel};
+use xui_core::arrange::{
+    build, column, icon_view_with, label, list, panel, row, Build, Handle, LayoutExt, Mounted,
+};
+use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::geometry::Size;
+use xui_core::layout::{Constraints, Insets};
+use xui_core::widget::{Control, IconSize, Label, ListView, Panel, Placeable};
 use xui_core::{Color, Dip, HasText, Point, Rect, Rgba};
 
 use crate::about_page::AboutPage;
@@ -29,7 +32,6 @@ use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard;
 use crate::keyboard_page::KeyboardPage;
 use crate::menu_page::{MenuMsg, MenuPage};
-use crate::place::{placed, Placed};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
 use crate::system::System;
@@ -83,6 +85,11 @@ pub enum Msg {
     Close,
 }
 
+/// A single-select list of `items`, the first selected.
+pub(crate) fn choice_list(items: &[&str]) -> Build<ListView<Msg>, Msg> {
+    list().items(items).then(|list| list.multi_select(false))
+}
+
 /// The pages, kept alive for the life of the window.
 struct Pages {
     appearance: AppearancePage,
@@ -101,7 +108,7 @@ pub struct SettingsApp {
     /// The page title: the selected section's name.
     title: Rc<Label<Msg>>,
     /// One container per section, in [`Section::ALL`] order.
-    frames: Vec<Rc<Placed<Panel<Msg>>>>,
+    frames: Vec<Rc<Panel<Msg>>>,
     pages: Pages,
     status: Rc<Label<Msg>>,
     _sidebar: Mounted<Msg>,
@@ -120,22 +127,20 @@ impl SettingsApp {
     ) -> Result<SettingsApp> {
         ui.on_close(|| Some(Msg::Close));
         let (sidebar, title, status) = (Handle::new(), Handle::new(), Handle::new());
-        let frames: Vec<Handle<Placed<Panel<Msg>>>> =
-            Section::ALL.iter().map(|_| Handle::new()).collect();
+        let frames: Vec<Handle<Panel<Msg>>> = Section::ALL.iter().map(|_| Handle::new()).collect();
 
         let mut main = vec![label("").title().bind(&title).fixed(TITLE_H)];
         for (section, frame) in Section::ALL.into_iter().zip(&frames) {
-            // Appearance draws its own sections on the window; the others
-            // sit on a card.
-            let card = section != Section::Appearance;
-            let panel = placed(0, 0, move |ui, bounds| {
-                if card {
-                    Panel::new(ui, bounds)
-                } else {
-                    Panel::plain(ui, bounds)
-                }
-            });
-            main.push(panel.bind(frame).fill(1));
+            // Each page mounts its own layout in its container once the
+            // window is built. Appearance draws its own sections on the
+            // window; the others sit on a card.
+            let page = panel(column()).bind(frame);
+            let page = if section == Section::Appearance {
+                page.plain()
+            } else {
+                page
+            };
+            main.push(page.fill(1));
         }
         main.push(
             row()
@@ -145,9 +150,7 @@ impl SettingsApp {
         );
         ui.root(
             row().children((
-                placed(SIDEBAR_W, 0, sidebar_backdrop)
-                    .bind(&sidebar)
-                    .width(SIDEBAR_W),
+                build(sidebar_backdrop).bind(&sidebar).width(SIDEBAR_W),
                 column()
                     .padding(Insets::new(Dip(16.0), Dip(10.0), Dip(16.0), Dip(8.0)))
                     .gap(8)
@@ -156,24 +159,24 @@ impl SettingsApp {
             )),
         )?;
         let sidebar = ui.mount_in(
-            sidebar.get().widget.id(),
+            sidebar.get().0.id(),
             column()
                 .padding(Insets::symmetric(Dip(6.0), Dip(10.0)))
                 .child(
-                    build(|ui| {
-                        let view = IconView::with_model(ui, Rect::default(), SectionsModel)?
-                            .multi_select(false)
-                            .on_select(|index| Some(Msg::Section(index)));
-                        view.set_icon_size(IconSize::Medium);
-                        view.select(Some(0));
-                        Ok(view)
-                    })
-                    .fill(1),
+                    icon_view_with(SectionsModel)
+                        .on_select(Msg::Section)
+                        .then(|view| {
+                            let view = view.multi_select(false);
+                            view.set_icon_size(IconSize::Medium);
+                            view.select(Some(0));
+                            view
+                        })
+                        .fill(1),
                 ),
         )?;
 
-        let frames: Vec<Rc<Placed<Panel<Msg>>>> = frames.iter().map(Handle::get).collect();
-        let page = |section: Section| frames[section.index()].widget.id();
+        let frames: Vec<Rc<Panel<Msg>>> = frames.iter().map(Handle::get).collect();
+        let page = |section: Section| frames[section.index()].id();
         let pictures = system.wallpapers();
         let names: Vec<&'static str> = TARGETS.iter().map(|(n, _)| *n).collect();
         let pages = Pages {
@@ -213,7 +216,7 @@ impl SettingsApp {
     fn show(&mut self, ui: &Ui<Msg>, section: Section) {
         self.title.set_text(section.label());
         for (index, frame) in self.frames.iter().enumerate() {
-            ui.set_visible(frame.widget.id(), index == section.index());
+            ui.set_visible(frame.id(), index == section.index());
         }
         let p = &mut self.pages;
         match section {
@@ -235,15 +238,12 @@ impl SettingsApp {
         let settings = theme_ops::load(self.store.as_ref());
         let p = &self.pages;
         let a = &p.appearance;
-        a.mode
-            .widget
-            .select(usize::from(settings.mode == Mode::Light));
+        a.mode.select(usize::from(settings.mode == Mode::Light));
         a.anim.set_checked(settings.anim);
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
-        a.accent.widget.select(Color::hex(accent));
+        a.accent.select(Color::hex(accent));
         a.background
-            .widget
             .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
         let picture = wallpaper_ops::current(self.store.as_ref());
         a.wallpaper
@@ -353,11 +353,10 @@ impl App for SettingsApp {
                 // Keep the Appearance swatches in step with the new override.
                 let settings = theme_ops::load(store);
                 let a = &self.pages.appearance;
-                a.accent.widget.select(Color::hex(
+                a.accent.select(Color::hex(
                     settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT),
                 ));
                 a.background
-                    .widget
                     .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
                 self.retheme(ui);
             }
@@ -397,11 +396,25 @@ impl App for SettingsApp {
     }
 }
 
-/// The sidebar's own background, laid out at `bounds`: the window darkened,
-/// with a hairline on its right edge, so the section list reads as a column
-/// apart from the page. A container, so the section list sits inside it.
-fn sidebar_backdrop(ui: &Ui<Msg>, bounds: Rect) -> Result<Control<Msg>> {
-    let back = Control::new(ui, &NodeSpec::new(NodeKind::Container, bounds))?;
+/// The sidebar's own background: the window darkened, with a hairline on its
+/// right edge, so the section list reads as a column apart from the page. A
+/// container, so the section list sits inside it.
+struct Backdrop(Control<Msg>);
+
+/// A painted container has no content to size it: the layout gives it its
+/// width and the window's height.
+impl Placeable<Msg> for Backdrop {
+    fn id(&self) -> WidgetId {
+        self.0.id()
+    }
+
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
+        Size::new(0, 0)
+    }
+}
+
+fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Backdrop> {
+    let back = Control::new(ui, &NodeSpec::new(NodeKind::Container, Rect::default()))?;
     let theme = ui.theme_handle();
     back.set_painter(Rc::new(move |canvas| {
         let theme = theme.get();
@@ -416,7 +429,7 @@ fn sidebar_backdrop(ui: &Ui<Msg>, bounds: Rect) -> Result<Control<Msg>> {
             1.0,
         );
     }));
-    Ok(back)
+    Ok(Backdrop(back))
 }
 
 #[cfg(test)]

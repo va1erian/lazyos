@@ -9,8 +9,8 @@ use std::rc::Rc;
 use xui_code_editor::{Editor, FontConfig, Options};
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build as create, button, checkbox, column, edit, label, row, status_bar, Handle, Layout,
-    LayoutExt,
+    build as create, button, checkbox, column, edit, label, menu_bar, row, status_bar, Build,
+    Handle, Layout, LayoutExt,
 };
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
@@ -68,20 +68,6 @@ fn menu_msg(id: MenuId) -> Option<Msg> {
     })
 }
 
-/// A menu bar as a layout entry: it has a fixed design height and fills the
-/// window's width.
-struct MenuPane<M: 'static>(Menu<M>);
-
-impl<M: 'static> Placeable<M> for MenuPane<M> {
-    fn id(&self) -> WidgetId {
-        self.0.id().expect("a menu bar owns a node")
-    }
-
-    fn measure(&self, ui: &Ui<M>, _constraints: Constraints) -> Size {
-        Size::new(0, MENU_HEIGHT.to_px(ui.dpi()).value())
-    }
-}
-
 /// The editor as a layout entry: it takes all the leftover space.
 struct EditorPane<M: 'static>(Rc<Editor<M>>);
 
@@ -102,33 +88,31 @@ impl<M: 'static> Placeable<M> for EditorPane<M> {
 }
 
 /// The menu bar.
-fn menu_bar(ui: &Ui<Msg>) -> Result<MenuPane<Msg>> {
-    let menu = Menu::bar(ui, Rect::default())?
-        .on_select(menu_msg)
-        .build(|bar| {
-            bar.submenu(MenuId::new(100), "&File", |file| {
-                file.item(NEW, "&New");
-                file.item(OPEN, "&Open...");
-                file.separator();
-                file.item(SAVE, "&Save");
-                file.item(SAVE_AS, "Save &As...");
-                file.separator();
-                file.item(QUIT, "&Quit");
-            });
-            bar.submenu(MenuId::new(200), "&Edit", |edit| {
-                edit.item(UNDO, "&Undo");
-                edit.item(REDO, "&Redo");
-                edit.separator();
-                edit.item(CUT, "Cu&t");
-                edit.item(COPY, "&Copy");
-                edit.item(PASTE, "&Paste");
-                edit.item(SELECT_ALL, "Select &All");
-                edit.separator();
-                edit.item(FIND, "&Find...");
-                edit.item(REPLACE, "&Replace...");
-            });
+fn menus() -> Build<Menu<Msg>, Msg> {
+    menu_bar(|bar| {
+        bar.submenu(MenuId::new(100), "&File", |file| {
+            file.item(NEW, "&New");
+            file.item(OPEN, "&Open...");
+            file.separator();
+            file.item(SAVE, "&Save");
+            file.item(SAVE_AS, "Save &As...");
+            file.separator();
+            file.item(QUIT, "&Quit");
         });
-    Ok(MenuPane(menu))
+        bar.submenu(MenuId::new(200), "&Edit", |edit| {
+            edit.item(UNDO, "&Undo");
+            edit.item(REDO, "&Redo");
+            edit.separator();
+            edit.item(CUT, "Cu&t");
+            edit.item(COPY, "&Copy");
+            edit.item(PASTE, "&Paste");
+            edit.item(SELECT_ALL, "Select &All");
+            edit.separator();
+            edit.item(FIND, "&Find...");
+            edit.item(REPLACE, "&Replace...");
+        });
+    })
+    .on_select_with(menu_msg)
 }
 
 /// The code editor, in the monospace UI font.
@@ -153,7 +137,7 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
     let find = FindHandles::default();
     let status = Handle::new();
     let mounted = ui.mount(column().children((
-        create(menu_bar).height(MENU_HEIGHT),
+        menus().height(MENU_HEIGHT),
         find.row().fixed(FIND_HEIGHT),
         create(new_editor).bind(&editor).fill(1),
         status_bar(&["Ln 1, Col 1", "Sel 0", "LF", "Saved"]).bind(&status),

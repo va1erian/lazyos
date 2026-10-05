@@ -15,11 +15,10 @@ use std::rc::Rc;
 
 use xui_core::Dip;
 use xui_core::app::Ui;
-use xui_core::arrange::{Handle, LayoutExt, build as create, column, status_bar};
-use xui_core::backend::{Result, WidgetId};
-use xui_core::geometry::{Rect, Size};
-use xui_core::layout::Constraints;
-use xui_core::widget::{Lucide, Placeable, Toolbar};
+use xui_core::arrange::{Build, Handle, LayoutExt, build as create, column, status_bar, toolbar};
+use xui_core::backend::Result;
+use xui_core::geometry::Rect;
+use xui_core::widget::{Lucide, Toolbar};
 use xui_rich_text::{RichTextEditor, ViewMode};
 
 use crate::app::{Msg, Writer, shortcut};
@@ -50,22 +49,9 @@ const COMMANDS: [fn() -> Msg; 13] = [
     || Msg::PageBreak,
 ];
 
-/// The toolbar as a layout entry.
-struct ToolbarPane(Toolbar<Msg>);
-
-impl Placeable<Msg> for ToolbarPane {
-    fn id(&self) -> WidgetId {
-        self.0.id()
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
-        Size::new(0, 0)
-    }
-}
-
 /// The command toolbar: files, history, clipboard, insert.
-fn command_toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
-    let toolbar = Toolbar::empty(ui, Rect::default())?
+fn command_toolbar() -> Build<Toolbar<Msg>, Msg> {
+    toolbar()
         .item_with_text(Lucide::FilePlus, "New (Ctrl+N)", "New")
         .item_with_text(Lucide::FolderOpen, "Open (Ctrl+O)", "Open")
         .item_with_text(Lucide::Save, "Save (Ctrl+S)", "Save")
@@ -86,8 +72,7 @@ fn command_toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
             "Page break (Ctrl+Enter)",
             "Page break",
         )
-        .on_click(|index| COMMANDS.get(index).map(|msg| msg()));
-    Ok(ToolbarPane(toolbar))
+        .then(|bar| bar.on_click(|index| COMMANDS.get(index).map(|msg| msg())))
 }
 
 /// The rich-text editor, in page view.
@@ -108,7 +93,7 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
     let status = Handle::new();
     let dialogs = dialogs::build(ui, &host)?;
     let mounted = ui.mount(column().children((
-        create(command_toolbar).height(TOOLBAR_HEIGHT),
+        command_toolbar().height(TOOLBAR_HEIGHT),
         tools.row().fixed(FORMAT_HEIGHT),
         create(new_editor).bind(&editor).fill(1),
         print_bar.row().fixed(FORMAT_HEIGHT),
