@@ -189,6 +189,23 @@ class MainTests(unittest.TestCase):
         self.assertLess(packaged, cargo)
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
 
+    def test_a_desktop_build_opens_no_app_at_boot(self) -> None:
+        # The image's own default (nothing at boot): run_demo sets no list.
+        with mock.patch.dict(os.environ, {}, clear=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            os.environ.pop("LAZYOS_XUI_AUTOSTART", None)
+            code, _ = self.run_main("--desktop")
+        self.assertEqual(code, 0)
+        self.assertNotIn("LAZYOS_XUI_AUTOSTART", self.builds[-1])
+
+    def test_devices_opens_only_devices_unless_a_list_is_set(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True),                 mock.patch.object(run_demo, "build_xui_apps", return_value=True):
+            os.environ.pop("LAZYOS_XUI_AUTOSTART", None)
+            self.assertEqual(self.run_main("--desktop", "--devices")[0], 0)
+            self.assertEqual(self.builds[-1].get("LAZYOS_XUI_AUTOSTART"), "devices")
+            os.environ["LAZYOS_XUI_AUTOSTART"] = "term"
+            self.assertEqual(self.run_main("--desktop", "--devices")[0], 0)
+            self.assertEqual(self.builds[-1].get("LAZYOS_XUI_AUTOSTART"), "term,devices")
+
     def test_a_desktop_build_builds_missing_desktop_apps_first(self) -> None:
         # A `target/xui` from before LazyWriter (issue #533) lacks
         # xui-writer.elf, which the desktop image build requires.

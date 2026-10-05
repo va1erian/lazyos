@@ -68,8 +68,10 @@ class NewAppTests(unittest.TestCase):
             "build_support/core_packages.rs": '        "notes",\n    ];',
             "tools/xui/core_packages.py": '    "notes": xui_app("xui-notes.elf", "notes"),\n}',
             "tools/run_demo.py": '"xui-notes.elf",\n)]',
-            "tools/lazygui/catalog.py": '"settings", "devices", "notes"]',
-            "tools/screenshot/examples/core_apps.json": "os.lazy.archiver os.lazy.notes",
+            # Only the new entry's place: the end of the live lists (which grow
+            # with every scaffolded app) must not matter.
+            "tools/lazygui/catalog.py": ', "notes"]',
+            "tools/screenshot/examples/core_apps.json": ' os.lazy.notes"',
             "xui-app/crates/app-icons/src/lib.rs": '"xui-app/packages/notes",',
         }
         for rel, needle in expected.items():

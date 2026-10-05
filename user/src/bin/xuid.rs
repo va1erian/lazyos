@@ -118,6 +118,8 @@ mod layers;
 mod layout;
 #[path = "xuid/maximize.rs"]
 mod maximize;
+#[path = "xuid/opening.rs"]
+mod opening;
 #[path = "xuid/origin.rs"]
 mod origin;
 #[path = "xuid/pointer_feed.rs"]
@@ -128,6 +130,9 @@ mod powerfeed;
 mod present;
 #[path = "xuid/protocol.rs"]
 mod protocol;
+#[cfg(lazyos_desktop)]
+#[path = "xuid/provisioning.rs"]
+mod provisioning;
 #[path = "xuid/reap.rs"]
 mod reap;
 #[path = "xuid/region.rs"]
@@ -199,6 +204,10 @@ fn panic(info: &PanicInfo) -> ! {
 /// Bind the display, publish the protocol, and composite until the kernel
 /// kills the task.
 fn run() -> ! {
+    // A desktop image installs its core apps at the console, before the
+    // session takes the screen (`provisioning.rs`).
+    #[cfg(lazyos_desktop)]
+    provisioning::wait_for_core_packages();
     // The display grant: on success the mux stops painting and input starts
     // arriving on the poll queue.
     let mut info = sys::DisplayInfo::default();
@@ -290,6 +299,7 @@ fn run() -> ! {
         comp.reap_dead_shell();
         comp.tick_theme();
         comp.tick_power();
+        comp.tick_opening();
         comp.tick_spinner();
         comp.reap_dead_surfaces(sys::clock());
 
@@ -307,7 +317,10 @@ fn run() -> ! {
         // No doorbell rings for a pointer move on the kernel's display queue
         // (the fallback when `inputd` does not own the pointer), so that
         // stream keeps the short poll.
-        let idle = if comp.input.owns_pointer {
+        let idle = if comp.opening() {
+            // The open zoom draws a frame per pass.
+            1
+        } else if comp.input.owns_pointer {
             IDLE_TICKS
         } else {
             FALLBACK_TICKS

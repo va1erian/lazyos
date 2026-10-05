@@ -1,0 +1,27 @@
+# Calculator: a core LazyOS app, packaged by `tools/xui/build.py`
+# (scaffolded by `tools/xui/new_app.py`).
+#
+# `bin/calc.elf` is not checked in: the build copies the built xui app
+# into a scratch copy of this tree. `version` is replaced by the workspace
+# version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "Calculator"
+system_name = "os.lazy.calc"
+author = "LazyOS"
+version = "0.1.0"
+description = "A basic calculator"
+category = "accessories"
+
+[entry]
+binary = "bin/calc.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# The display and input every window needs. Derive the rest from a run under
+# `LAZYOS_LABEL_TRACE=1` (AGENTS.md) once the app does more.
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]

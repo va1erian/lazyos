@@ -1,0 +1,12 @@
+[package]
+name = "xui-calc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Calculator app core: a pocket-calculator engine and its window (host-testable)"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "efd472229b563ea5d86186c6e1556d0f94492d27" }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "efd472229b563ea5d86186c6e1556d0f94492d27", default-features = false }

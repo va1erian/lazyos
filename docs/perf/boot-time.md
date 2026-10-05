@@ -59,7 +59,7 @@ On the `LAZYOS_DESKTOP=1` image the desktop is not up at `XUID:UP:PASS`:
 (`shell_ready` = `SHELL:UP:PASS`, `terminal_ready` = `TERM:UP:PASS`):
 
 ```bash
-LAZYOS_DESKTOP=1 cargo build
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term cargo build   # the Terminal opens only on request
 python tools/bench/boot_time.py --image target/lazyos.img --accel whpx --runs 5 \
     --no-clients --need shell_ready,terminal_ready
 ```

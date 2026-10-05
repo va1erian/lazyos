@@ -117,6 +117,8 @@ jobs:
         env:
           LAZYOS_DESKTOP: "1"
           LAZYOS_DOOM: "1"
+          # doom.json installs and starts the game from the Terminal.
+          LAZYOS_XUI_AUTOSTART: term
         run: |
           set -euo pipefail
           cargo build

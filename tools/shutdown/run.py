@@ -165,7 +165,8 @@ def build() -> bool:
         print(f"missing {BUSYBOX}: run tools/abi/busybox.py (the Terminal needs sh)")
         return False
     steps = [[sys.executable, "tools/xui/build.py"], ["cargo", "build"]]
-    env = dict(os.environ, LAZYOS_DESKTOP="1")
+    # Both sessions type into the Terminal, which no longer opens by default.
+    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term")
     return all(subprocess.run(step, cwd=ROOT, env=env).returncode == 0 for step in steps)
 
 

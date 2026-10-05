@@ -79,7 +79,8 @@ def build(env_extra: dict[str, str], console: bool) -> str | None:
         if not LAZYWEB_ELF.is_file():
             return (f"{LAZYWEB_ELF} was not built (NetSurf needs zig: pip install ziglang==0.16.0); "
                     "--precheck-only tests the harness without it")
-        env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEB="1")
+        # The session starts the browser from the Terminal.
+        env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEB="1", LAZYOS_XUI_AUTOSTART="term")
     switches = " ".join(f"{k}={env[k]}" for k in sorted(env) if k.startswith("LAZYOS_")
                         and k != "LAZYOS_BUSYBOX")
     print(f"web: {switches} cargo build", flush=True)

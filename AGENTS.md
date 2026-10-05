@@ -161,7 +161,7 @@ The wire stays in physical pixels. Code laid out in pixel constants uses
 [`docs/hidpi-plan.md`](docs/hidpi-plan.md).
 
 ```bash
-LAZYOS_DESKTOP=1 LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json
 python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expect-height 1440
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
@@ -338,7 +338,7 @@ debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
 permissions from a run instead of by hand:
 
 ```bash
-LAZYOS_DESKTOP=1 LAZYOS_LABEL_TRACE=1 LAZYOS_RESET_OS=1 cargo build
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_LABEL_TRACE=1 LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/core_apps --script tools/screenshot/examples/core_apps.json
 grep LABEL:DENY shots/core_apps/serial.log   # map iface ids with idl/manifest.json
@@ -579,7 +579,7 @@ manual address written to `confd`'s `sys/net/eth0/*`) and **Net Tools**
 
 ```bash
 python tools/run_demo.py --desktop --net        # then open Net Tools, and http://localhost:8080 on the host
-LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_apps     --script tools/screenshot/examples/net_apps.json      # ping, lookup, a fetch through the host forward
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_config     --script tools/screenshot/examples/net_config.json    # Manual, back to DHCP, Renew
 python tools/net/test_qemu_net.py                         # the QEMU argument helper

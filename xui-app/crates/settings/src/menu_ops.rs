@@ -1,7 +1,7 @@
-//! Pure list operations behind the Menu page: the desktop right-click menu is
-//! one confd value (`deskmenu::KEY`), and every edit here saves the whole new
-//! list before the caller's copy changes, so the page never shows a state the
-//! store refused.
+//! Pure list operations behind the Menu page: the start menu's pinned apps
+//! are one confd value (`deskmenu::KEY`), and every edit here saves the whole
+//! new list before the caller's copy changes, so the page never shows a state
+//! the store refused.
 
 use deskmenu::{Entry, MAX_ENTRIES, MAX_LABEL};
 
@@ -26,7 +26,8 @@ fn commit(
     Ok(())
 }
 
-/// Drop the stored list and return to the built-in defaults.
+/// Drop the stored list and return to the built-in defaults (nothing
+/// pinned).
 pub fn reset(store: &dyn ConfigStore, list: &mut Vec<Entry>) -> Result<(), StoreError> {
     store.delete(deskmenu::KEY)?;
     *list = deskmenu::defaults();
@@ -55,8 +56,8 @@ pub fn move_by(
     Ok(target)
 }
 
-/// Remove entry `index`. The last entry cannot go (an empty stored list reads
-/// back as the defaults, which would surprise). Returns the index to select.
+/// Remove entry `index`. Returns the index to select (`0` once the list is
+/// empty).
 pub fn remove(
     store: &dyn ConfigStore,
     list: &mut Vec<Entry>,
@@ -65,13 +66,10 @@ pub fn remove(
     if index >= list.len() {
         return Err("no entry selected".into());
     }
-    if list.len() == 1 {
-        return Err("the menu needs at least one entry".into());
-    }
     let mut next = list.clone();
     next.remove(index);
     commit(store, list, next)?;
-    Ok(index.min(list.len() - 1))
+    Ok(index.min(list.len().saturating_sub(1)))
 }
 
 /// Give entry `index` a new label. Control characters are stripped; a label
@@ -105,10 +103,10 @@ pub fn add(
     app: &AppChoice,
 ) -> Result<usize, StoreError> {
     if list.len() >= MAX_ENTRIES {
-        return Err(format!("the menu is limited to {MAX_ENTRIES} entries"));
+        return Err(format!("at most {MAX_ENTRIES} apps can be pinned"));
     }
     if list.iter().any(|e| e.app == app.id) {
-        return Err("that app is already in the menu".into());
+        return Err("that app is already pinned".into());
     }
     let entry = Entry::new(&app.id, &app.name).ok_or("not a launchable app id")?;
     let mut next = list.clone();
@@ -147,6 +145,20 @@ mod tests {
         }
     }
 
+    /// A pinned list to edit: the menu the start menu used to show.
+    fn pinned() -> Vec<Entry> {
+        [
+            ("terminal", "Terminal"),
+            ("os.lazy.sysmon", "System Monitor"),
+            ("os.lazy.paint", "Paint"),
+            ("os.lazy.docs", "Docs"),
+            ("devices", "Devices"),
+        ]
+        .iter()
+        .filter_map(|(app, label)| Entry::new(app, label))
+        .collect()
+    }
+
     fn ids(list: &[Entry]) -> Vec<&str> {
         list.iter().map(|e| e.app.as_str()).collect()
     }
@@ -155,7 +167,7 @@ mod tests {
     fn empty_store_loads_defaults_and_keeps_unshipped_apps() {
         let store = MemStore::new();
         assert_eq!(load(&store), deskmenu::defaults());
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         let same = list.clone();
         commit(&store, &mut list, same).unwrap();
         // An app the registry does not list (not shipped) survives a reload.
@@ -165,7 +177,7 @@ mod tests {
     #[test]
     fn move_round_trips_through_the_store() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         assert_eq!(move_by(&store, &mut list, 1, -1), Ok(0));
         assert_eq!(list[0].app, "os.lazy.sysmon");
         assert_eq!(load(&store), list);
@@ -174,7 +186,7 @@ mod tests {
     #[test]
     fn move_past_the_ends_clamps_without_writing() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         assert_eq!(move_by(&store, &mut list, 0, -1), Ok(0));
         let last = list.len() - 1;
         assert_eq!(move_by(&store, &mut list, last, 1), Ok(last));
@@ -185,21 +197,20 @@ mod tests {
     }
 
     #[test]
-    fn remove_refuses_the_last_entry() {
+    fn remove_can_unpin_everything() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
-        while list.len() > 1 {
-            remove(&store, &mut list, 0).unwrap();
+        let mut list = pinned();
+        while !list.is_empty() {
+            assert_eq!(remove(&store, &mut list, 0), Ok(0));
         }
         assert!(remove(&store, &mut list, 0).is_err());
-        assert_eq!(list.len(), 1);
-        assert_eq!(load(&store).len(), 1);
+        assert!(load(&store).is_empty());
     }
 
     #[test]
     fn remove_selects_a_neighbour() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         let last = list.len() - 1;
         assert_eq!(remove(&store, &mut list, last), Ok(last - 1));
         assert_eq!(remove(&store, &mut list, 0), Ok(0));
@@ -209,7 +220,7 @@ mod tests {
     #[test]
     fn rename_cleans_and_rejects_bad_labels() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         rename(&store, &mut list, 0, "  Shell\t\n ").unwrap();
         assert_eq!(list[0].label, "Shell");
         assert!(rename(&store, &mut list, 0, "").is_err());
@@ -246,10 +257,7 @@ mod tests {
     #[test]
     fn available_excludes_listed_apps_in_registry_order() {
         let list = vec![Entry::new("os.lazy.paint", "Paint").unwrap()];
-        let apps: Vec<AppChoice> = deskmenu::defaults()
-            .iter()
-            .map(|e| choice(&e.app))
-            .collect();
+        let apps: Vec<AppChoice> = pinned().iter().map(|e| choice(&e.app)).collect();
         let free = available(&list, &apps);
         assert_eq!(free.len(), apps.len() - 1);
         assert!(free.iter().all(|a| a.id != "os.lazy.paint"));
@@ -259,7 +267,7 @@ mod tests {
     #[test]
     fn reset_restores_defaults_and_clears_the_key() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         remove(&store, &mut list, 0).unwrap();
         reset(&store, &mut list).unwrap();
         assert_eq!(list, deskmenu::defaults());
@@ -269,7 +277,7 @@ mod tests {
     #[test]
     fn store_failure_leaves_state_unchanged() {
         let store = MemStore::new();
-        let mut list = deskmenu::defaults();
+        let mut list = pinned();
         let before = list.clone();
         *store.fail_writes.borrow_mut() = Some("denied".into());
         assert_eq!(move_by(&store, &mut list, 1, -1), Err("denied".into()));

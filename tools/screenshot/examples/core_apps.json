@@ -9,11 +9,12 @@
   {"at": 8.5, "key": "enter"},
   {"at": 9.5, "type": "echo 'for a in os::args() { try { print(i.launch(a, \"\", 0)); } catch (e) { print(a); print(e); } }' >> /tmp/l.rhai"},
   {"at": 10.0, "key": "enter"},
-  {"at": 11.0, "type": "clear; rhai /tmp/l.rhai os.lazy.sysmon fabricmon os.lazy.widget os.lazy.counter editor os.lazy.files os.lazy.paint os.lazy.settings os.lazy.confd os.lazy.docs os.lazy.writer os.lazy.archiver"},
+  {"at": 11.0, "type": "clear; rhai /tmp/l.rhai os.lazy.sysmon fabricmon os.lazy.widget os.lazy.counter editor os.lazy.files os.lazy.paint os.lazy.settings os.lazy.confd os.lazy.docs os.lazy.writer os.lazy.archiver os.lazy.calc"},
   {"at": 11.5, "key": "enter"},
   {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.docs", "timeout": 300},
   {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.writer", "timeout": 300},
   {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.archiver", "timeout": 300},
+  {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.calc", "timeout": 300},
   {"at": 20.0, "shot": "03_all"},
   {"at": 21.0, "quit": true}
 ]

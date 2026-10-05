@@ -265,7 +265,8 @@ def build_desktop_image() -> None:
     """Build the desktop image exactly like the launcher's Desktop mode.
 
     ``tools/xui/build.py`` produces the app ELFs, then ``cargo build`` embeds
-    them with the env ``tools/lazygui/catalog.py`` derives for Desktop. A plain
+    them with the env ``tools/lazygui/catalog.py`` derives for Desktop, plus
+    the Terminal at boot (``LAZYOS_XUI_AUTOSTART=term`` unless set). A plain
     ``cargo build`` yields a userspace-less image that never shows a desktop.
     """
     root = Path(__file__).resolve().parents[2]
@@ -274,7 +275,10 @@ def build_desktop_image() -> None:
     spec.loader.exec_module(catalog)
     cfg = catalog.simple_config({"accel": "auto", "memory": DEFAULT_MEMORY, "qemu": "", "extra": ""},
                                 "dev", "Desktop")
+    # The Terminal no longer opens by default; keep it in the soak so random
+    # typing reaches a focused window, as it did before.
     env = {**os.environ, **catalog.build_env(cfg)}
+    env.setdefault("LAZYOS_XUI_AUTOSTART", "term")
     for argv, e in (([sys.executable, "tools/xui/build.py"], None), (["cargo", "build"], env)):
         print("MONKEY: build:", " ".join(argv), flush=True)
         if subprocess.run(argv, cwd=root, env=e).returncode != 0:
@@ -398,7 +402,9 @@ def main() -> int:
     p.add_argument("--runs", type=int, default=1, help="sequential runs (seed, seed+1, ...)")
     p.add_argument("--max-gap", type=float, default=0.15,
                    help="max random pause between actions (lower = harsher)")
-    p.add_argument("--marker", default="TERM:UP:PASS", help="serial marker meaning the desktop is up")
+    # LazyShell drew the desktop: every desktop image prints it, while the
+    # Terminal only opens when LAZYOS_XUI_AUTOSTART lists it.
+    p.add_argument("--marker", default="SHELL:DESKTOP:PASS", help="serial marker meaning the desktop is up")
     p.add_argument("--boot-timeout", type=float, default=180.0)
     p.add_argument("--fail-on", action="append", default=[], metavar="REGEX",
                    help=f"serial crash pattern (repeatable; default {DEFAULT_FATAL})")

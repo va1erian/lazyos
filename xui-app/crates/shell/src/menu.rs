@@ -9,19 +9,26 @@
 //! Rows run top-down: one row per menu category that has a desktop app
 //! (installed ones and the built-in desktop programs, everything `ListApps`
 //! gives a category), each opening a [`submenu`] of that category's apps
-//! ([`groups`]); then the configured `sys/ui/menu` entries, then the two power
-//! rows ([`power`]). A submenu lists every app of its category, pinned or
-//! not, at most [`groups::MAX_PER_CATEGORY`]. The category section scrolls
-//! with the wheel ([`Menu::scroll_by`]) when it is taller than the room above
-//! the configured rows. A configured entry the image does not ship stays in the list,
-//! greyed and disabled, so configured row `j` of `m` always has the same
-//! centre however the image was built and whatever is installed (the
-//! screenshot sessions click rows by coordinate): its centre is
-//! `y = H - 48 - (m + 1 - j) * 24`, and the power rows' centres are `H - 72`
-//! ("Restart...") and `H - 48` ("Shut down..."). With the default menu
-//! (13 entries) on a 720-pixel screen, Terminal is at `y = 336`, Settings at
-//! `y = 504` and Devices at `y = 624`, all at `x = 134`. Hiding a configured
-//! app removes its row, which moves the rows above it down by one.
+//! ([`groups`]); then the apps the user pinned (`sys/ui/menu`, none by
+//! default: every app is in its category), then the two power rows
+//! ([`power`]). A submenu lists every app of its category, pinned or not, at
+//! most [`groups::MAX_PER_CATEGORY`]. The category section scrolls with the
+//! wheel ([`Menu::scroll_by`]) when it is taller than the room above the
+//! pinned rows.
+//!
+//! The panel's bottom sits on the taskbar, so rows are placed from the
+//! bottom (the screenshot sessions click them by coordinate): the power rows'
+//! centres are `H - 72` ("Restart...") and `H - 48` ("Shut down..."), and with
+//! nothing pinned the last category row is at `H - 96`, the one above it at
+//! `H - 120`, and so on, at `x = 134`. On a 720-pixel desktop without
+//! networking that is Utilities at `y = 624`, System at 600, Office at 576,
+//! Graphics at 552, Development at 528 and Accessories at 504. A submenu too
+//! tall for its row slides up onto the taskbar, so its last rows are fixed
+//! too: in System, Terminal is at `(338, 672)`, System Monitor at 648 and
+//! Settings at 624. A pinned entry the image does not ship stays in the
+//! list, greyed and disabled, so pinned row `j` of `m` is centred at
+//! `y = H - 48 - (m + 1 - j) * 24` however the image was built. Hiding a
+//! pinned app removes its row, which moves the rows above it down by one.
 //!
 //! The panel is [`WIDTH`] wide, sits at `x = 0` with its bottom edge on the
 //! taskbar's top edge, and has a [`BANNER_W`]-wide vertical banner on its

@@ -22,7 +22,7 @@ fn hidden_apps_leave_both_row_groups() {
             .into_iter()
             .filter(|app| !hides(&app.entry.app))
             .collect();
-    let configured = visible(deskmenu::defaults(), hides);
+    let configured = visible(pinned(), hides);
     let menu = Menu::build(&installed, &configured, Shipped::Unknown, H);
     let ids = ids(&menu);
     let listed = sub_ids(&menu, "accessories");
@@ -31,16 +31,52 @@ fn hidden_apps_leave_both_row_groups() {
         assert!(!ids.contains(&gone), "{gone} is hidden");
     }
     assert!(ids.contains(&"os.lazy.editor"), "the user un-hid it");
-    assert_eq!(configured.len(), deskmenu::defaults().len() - 2);
+    assert_eq!(configured.len(), pinned().len() - 2);
 }
 
 #[test]
 fn nothing_hidden_keeps_every_row() {
     let hidden = deskmenu::hidden::Hidden::default();
+    assert_eq!(visible(pinned(), |id| hidden.hides(id)), pinned());
+}
+
+/// A pinned list (`sys/ui/menu`) of 13 apps, the root rows the menu showed
+/// before nothing was pinned by default.
+fn pinned() -> Vec<Entry> {
+    [
+        ("terminal", "Terminal"),
+        ("os.lazy.sysmon", "System Monitor"),
+        ("os.lazy.fabricmon", "Fabric Monitor"),
+        ("os.lazy.counter", "Counter"),
+        ("os.lazy.editor", "Editor"),
+        ("os.lazy.paint", "Paint"),
+        ("os.lazy.files", "Files"),
+        ("os.lazy.settings", "Settings"),
+        ("os.lazy.docs", "Docs"),
+        ("os.lazy.widget", "CPU & Memory"),
+        ("os.lazy.confd", "Config"),
+        ("installer", "Package Installer"),
+        ("devices", "Devices"),
+    ]
+    .iter()
+    .map(|(app, label)| entry(app, label))
+    .collect()
+}
+
+#[test]
+fn by_default_the_root_is_the_categories_and_the_power_rows() {
+    let installed = vec![
+        in_category("terminal", "Terminal", "system"),
+        in_category("os.lazy.settings", "Settings", "system"),
+        app("os.lazy.counter", "Counter"),
+    ];
+    let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 720);
     assert_eq!(
-        visible(deskmenu::defaults(), |id| hidden.hides(id)),
-        deskmenu::defaults()
+        labels(&menu),
+        ["Accessories", "System", "Restart...", "Shut down..."]
     );
+    assert!(menu.rows().iter().all(|row| row.action != Action::Launch));
+    assert_eq!(sub_ids(&menu, "system"), ["os.lazy.settings", "terminal"]);
 }
 
 fn entry(app: &str, label: &str) -> Entry {
@@ -80,7 +116,7 @@ const H: i32 = 768;
 #[test]
 fn installed_apps_come_first_then_the_configured_entries() {
     let installed = vec![app("snake", "Snake")];
-    let configured = deskmenu::defaults();
+    let configured = pinned();
     let shipped: Vec<String> = ["terminal", "files", "snake"]
         .iter()
         .map(|s| s.to_string())
@@ -99,7 +135,7 @@ fn installed_apps_come_first_then_the_configured_entries() {
 
 #[test]
 fn unknown_shipping_enables_every_row() {
-    let menu = Menu::build(&[], &deskmenu::defaults(), Shipped::Unknown, H);
+    let menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
     assert!(menu.rows().iter().all(|row| row.enabled));
 }
 
@@ -115,7 +151,7 @@ fn configured_rows_keep_the_contract_centres() {
             in_category("chess", "Chess", "office"),
         ],
     ] {
-        let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
+        let menu = Menu::build(&installed, &pinned(), Shipped::Unknown, H);
         let (ox, oy) = menu.origin(H);
         assert_eq!(oy + menu.height(), H - 32, "flush with the taskbar top");
         let centre = |app: &str| {
@@ -137,7 +173,7 @@ fn configured_rows_keep_the_contract_centres() {
 #[test]
 fn a_pinned_app_is_also_in_its_category() {
     let installed = vec![app("terminal", "Terminal (pkg)"), app("snake", "Snake")];
-    let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
+    let menu = Menu::build(&installed, &pinned(), Shipped::Unknown, H);
     assert_eq!(ids(&menu).iter().filter(|id| **id == "terminal").count(), 1);
     assert_eq!(sub_ids(&menu, "accessories"), ["snake", "terminal"]);
 }
@@ -153,12 +189,12 @@ fn one_per_category() -> Vec<InstalledApp> {
 #[test]
 fn rows_that_do_not_fit_drop_category_rows_first() {
     let installed = one_per_category();
-    let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 400);
+    let menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 400);
     // (400 - 32 - 8) / 24 = 15 rows: 13 configured + 2 power, no category.
     assert_eq!(menu.rows().len(), 15);
     assert_eq!(menu.rows()[0].app, "terminal");
     assert!(menu.origin(400).1 >= 0);
-    let roomier = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 448);
+    let roomier = Menu::build(&installed, &pinned(), Shipped::Unknown, 448);
     assert_eq!(
         roomier.rows()[2].app,
         "terminal",
@@ -183,7 +219,7 @@ fn a_submenu_lists_at_most_max_per_category() {
 
 #[test]
 fn row_hit_testing_skips_the_banner_and_padding() {
-    let menu = Menu::build(&[], &deskmenu::defaults(), Shipped::Unknown, H);
+    let menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
     assert_eq!(menu.row_at(100, PAD), Some(0));
     assert_eq!(menu.row_at(100, PAD + ROW_H), Some(1));
     assert_eq!(menu.row_at(10, PAD + 5), None, "the banner");
@@ -224,7 +260,7 @@ fn installed_rows_come_from_the_registry_flag() {
 
 #[test]
 fn the_power_rows_come_last_whatever_is_configured() {
-    for configured in [vec![], deskmenu::defaults()] {
+    for configured in [vec![], pinned()] {
         let menu = Menu::build(&[], &configured, Shipped::Unknown, H);
         let labels: Vec<&str> = menu.rows().iter().map(|r| r.label.as_str()).collect();
         assert_eq!(labels[labels.len() - 2..], ["Restart...", "Shut down..."]);
@@ -239,7 +275,7 @@ fn a_power_row_asks_for_confirmation_in_place() {
         (Power::Reboot, "Restart now"),
         (Power::PowerOff, "Shut down now"),
     ] {
-        let mut menu = Menu::build(&[], &deskmenu::defaults(), Shipped::Unknown, H);
+        let mut menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
         let (count, height) = (menu.rows().len(), menu.height());
         let ask = menu.find_action(Action::Ask(power)).unwrap();
         assert!(!menu.confirming());
@@ -260,7 +296,7 @@ fn a_power_row_asks_for_confirmation_in_place() {
 
 #[test]
 fn cancel_restores_the_power_rows_and_closes() {
-    let mut menu = Menu::build(&[], &deskmenu::defaults(), Shipped::Unknown, H);
+    let mut menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
     let fresh = menu.clone();
     let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
     assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
@@ -272,7 +308,7 @@ fn cancel_restores_the_power_rows_and_closes() {
 #[test]
 fn choosing_launches_enabled_apps_only() {
     let shipped = vec![String::from("terminal")];
-    let mut menu = Menu::build(&[], &deskmenu::defaults(), Shipped::Known(&shipped), H);
+    let mut menu = Menu::build(&[], &pinned(), Shipped::Known(&shipped), H);
     let terminal = menu.find("terminal").unwrap();
     assert_eq!(
         menu.choose(terminal, true),
@@ -323,7 +359,7 @@ fn installed_apps_group_by_category_in_menu_order() {
 fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
     let installed = one_per_category();
     // (448 - 32 - 8) / 24 = 17 rows: 13 configured + 2 power leave 2.
-    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 448);
+    let mut menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 448);
     let scroll = menu.scroll().expect("8 rows do not fit in 2");
     assert_eq!((scroll.first, scroll.shown, scroll.total), (0, 2, 8));
     assert_eq!(menu.rows()[0].label, "Accessories");
@@ -347,12 +383,7 @@ fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
 
 #[test]
 fn scrolling_keeps_a_pending_power_confirmation() {
-    let mut menu = Menu::build(
-        &one_per_category(),
-        &deskmenu::defaults(),
-        Shipped::Unknown,
-        448,
-    );
+    let mut menu = Menu::build(&one_per_category(), &pinned(), Shipped::Unknown, 448);
     let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
     assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
     assert!(menu.scroll_by(1));
@@ -366,7 +397,7 @@ fn a_category_row_opens_its_submenu_beside_it() {
         in_category("org.x.snake", "Snake", "games"),
         in_category("org.x.paint", "Paint", "graphics"),
     ];
-    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
+    let mut menu = Menu::build(&installed, &pinned(), Shipped::Unknown, H);
     let games = menu.find_category("games").unwrap();
     assert_eq!(menu.choose(games, false), Choice::Submenu(games));
     let sub = menu.submenu(games, H).unwrap();
@@ -424,9 +455,9 @@ fn hidden_flags_from_list_apps_match_short_ids() {
     assert!(listed_hidden(&listed, "os.lazy.paint"));
     assert!(listed_hidden(&listed, "paint"), "a pre-F5 short id");
     assert!(!listed_hidden(&listed, "terminal"));
-    let configured = visible(deskmenu::defaults(), |id| listed_hidden(&listed, id));
+    let configured = visible(pinned(), |id| listed_hidden(&listed, id));
     assert!(configured.iter().all(|e| e.app != "os.lazy.paint"));
-    assert_eq!(configured.len(), deskmenu::defaults().len() - 1);
+    assert_eq!(configured.len(), pinned().len() - 1);
 }
 
 #[test]

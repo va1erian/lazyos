@@ -18,9 +18,11 @@ use crate::os_image::Sink;
 /// `core.lst`, relative to the core package directory.
 const LIST: &str = "core.lst";
 
-/// The autostart apps when `LAZYOS_XUI_AUTOSTART` is unset: the Terminal
-/// (a built-in program; `user/build.rs` reads the same switch for it).
-const DEFAULT_AUTOSTART: &str = "terminal";
+/// The autostart apps when `LAZYOS_XUI_AUTOSTART` is unset: none, so the
+/// desktop opens on its own (`user/build.rs` reads the same switch for the
+/// built-in programs; `term` opens the Terminal, as the sessions that type
+/// into it ask for).
+const DEFAULT_AUTOSTART: &str = "none";
 
 /// One built core package, as `core.lst` lists it.
 pub struct CorePackage {
@@ -89,7 +91,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
 
 /// The short ids `LAZYOS_XUI_AUTOSTART` names: comma-separated, each a short
 /// id (`terminal`), an xui binary stem (`term`) or a `system_name`
-/// (`os.lazy.terminal`); `none` opens nothing; unset means the Terminal.
+/// (`os.lazy.terminal`); `none` or unset opens nothing.
 pub fn autostart_shorts() -> Vec<String> {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
     parse_autostart(std::env::var("LAZYOS_XUI_AUTOSTART").ok().as_deref())
@@ -139,6 +141,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "nettools",
         // LazyWeb, only with `LAZYOS_LAZYWEB=1` (`lazyweb_embed`).
         "lazyweb",
+        // Calculator: A basic calculator.
+        "calc",
     ];
     CORE.contains(&short_of(stem))
 }

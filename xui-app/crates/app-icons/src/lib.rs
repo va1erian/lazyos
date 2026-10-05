@@ -72,6 +72,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         Art::Lucide(Lucide::Plus, Tone::Teal),
     ),
     ("doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
+    // The Calculator: neither set has one; a keypad grid on an amber tile.
+    (
+        "xui-app/packages/calc",
+        Art::Lucide(Lucide::LayoutGrid, Tone::Amber),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

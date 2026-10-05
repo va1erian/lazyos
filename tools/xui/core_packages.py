@@ -105,6 +105,8 @@ CORE_APPS: dict[str, CoreApp] = {
         optional=True,
         built_by="python tools/lazyrad/build.py",
     ),
+    # Calculator: A basic calculator.
+    "calc": xui_app("xui-calc.elf", "calc"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

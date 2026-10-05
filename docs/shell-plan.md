@@ -77,10 +77,11 @@ sessions (S6); GPU acceleration (S8).
 - **Start menu.** A shell-owned popup surface (pinned above windows): Programs,
   Files, Settings, About, Log out, Restart. Its entries come from the app
   registry and MIME/open-with registrations (section 9), not a hard-coded menu.
-  Today: one row per app category above the configured `sys/ui/menu` rows,
-  each opening a submenu panel of that category's apps beside the menu
-  (`xui-app/src/shell/submenu.rs`, `SHELL:SUBMENU:OPEN category=<id>`), then
-  the restart / shut down rows.
+  Today: one row per app category, each opening a submenu panel of that
+  category's apps beside the menu (`xui-app/src/shell/submenu.rs`,
+  `SHELL:SUBMENU:OPEN category=<id>`), then the apps pinned in
+  `sys/ui/menu` (none by default, so every app is in a category), then the
+  restart / shut down rows.
 - **Desktop folder.** The desktop's icons are the entries of
   `$HOME/Desktop` (`fhs::state::DESKTOP_DIR`), polled about once a second:
   shortcut files (`<label>.lnk`, `App=<app id>` or `Path=<absolute path>`,
