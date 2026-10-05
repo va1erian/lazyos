@@ -9,8 +9,10 @@ never touched, and check that every registry names the new app.
 
 from __future__ import annotations
 
+import io
 import shutil
 import sys
+from contextlib import redirect_stderr
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +20,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import new_app  # noqa: E402
+
+try:  # Python 3.11+
+    import tomllib
+except ImportError:  # pragma: no cover - older Pythons skip the TOML check
+    tomllib = None
 
 REGISTRIES = [
     "xui-app/Cargo.toml",
@@ -83,9 +90,9 @@ class NewAppTests(unittest.TestCase):
         self.assertEqual(before, {rel: self.text(rel) for rel in REGISTRIES})
         self.assertFalse((self.root / "xui-app/src/bin/notes.rs").exists())
 
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
     def test_quotes_and_backslashes_stay_inside_their_literals(self) -> None:
         import ast
-        import tomllib
 
         app = new_app.App("quoted", 'Say "hi"', "Reads C:\\notes", "accessories")
         new_app.scaffold(self.root, app)
@@ -95,6 +102,16 @@ class NewAppTests(unittest.TestCase):
         source = self.text("xui-app/src/bin/quoted.rs")
         self.assertIn('label("Say \\"hi\\"").title()', source)
         ast.parse(self.text("tools/lazygui/catalog.py"))
+
+    def test_the_command_line_refuses_control_characters_and_unknown_categories(self) -> None:
+        for argv in (
+            ["bell", "--description", "rings\x07"],
+            ["broken", "--name", "two\nlines"],
+            ["odd", "--category", "toys"],
+        ):
+            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                new_app.main(argv + ["--root", str(self.root), "--no-icons"])
+        self.assertFalse(any((self.root / "xui-app/src/bin").glob("*.rs")))
 
     def test_names_derive_from_the_short_id(self) -> None:
         self.assertEqual(self.app.marker, "NOTES")

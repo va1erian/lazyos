@@ -35,6 +35,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+# The manifest validator's categories, so a bad one is refused up front.
+sys.path.insert(0, str(ROOT / "tools" / "pkg"))
+import pkgmanifest  # noqa: E402
 
 
 class ScaffoldError(Exception):
@@ -98,7 +101,9 @@ def read(root: Path, rel: str) -> tuple[str, bool]:
 
 def quoted(value: str) -> str:
     """`value` as a double-quoted literal that is valid Rust, TOML (a basic
-    string) and Python alike, whatever quotes or backslashes it holds."""
+    string) and Python alike, whatever quotes or backslashes it holds.
+    Control characters are refused before this (`main`): JSON's `\\u00XX`
+    escape is not one Rust accepts."""
     return json.dumps(value, ensure_ascii=False)
 
 
@@ -332,7 +337,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("short", help="short id: lower-case letters (e.g. notes)")
     parser.add_argument("--name", help="display name (default: the short id, capitalised)")
     parser.add_argument("--description", default="A LazyOS desktop app")
-    parser.add_argument("--category", default="accessories")
+    parser.add_argument("--category", default=pkgmanifest.DEFAULT_CATEGORY,
+                        choices=pkgmanifest.CATEGORIES)
     parser.add_argument("--no-icons", action="store_true",
                         help="skip drawing the icons (`cargo run -p app-icons`)")
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
@@ -340,10 +346,11 @@ def main(argv: list[str] | None = None) -> int:
     # The image build matches core stems as plain words (`core_packages.rs`).
     if not re.fullmatch(r"[a-z]+", args.short):
         parser.error("the short id is lower-case letters only")
-    # The name and description also land in comments and Markdown lines.
-    for text in (args.name or "", args.description, args.category):
-        if any(char in text for char in "\r\n"):
-            parser.error("names and descriptions are one line")
+    # The name and description also land in comments and Markdown lines, and
+    # a control character has no escape that Rust, TOML and Python all read.
+    for text in (args.name or "", args.description):
+        if any(ord(char) < 0x20 or ord(char) == 0x7F for char in text):
+            parser.error("names and descriptions are one line of printable text")
     app = App(
         short=args.short,
         name=args.name or args.short.capitalize(),
