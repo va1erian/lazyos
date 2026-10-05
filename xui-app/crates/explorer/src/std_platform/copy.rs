@@ -40,7 +40,7 @@ pub fn copy_into(sources: &[PathBuf], dir: &Path) -> CopyReport {
                     ));
                 }
             }
-            copy_entry(source, &unique(&dir.join(name)))
+            copy_entry(source, &unique(&dir.join(name)), Special::Skip)
         })();
         match outcome {
             Ok(()) => report.copied += 1,
@@ -50,9 +50,19 @@ pub fn copy_into(sources: &[PathBuf], dir: &Path) -> CopyReport {
     report
 }
 
+/// What a folder copy does with a device, FIFO or socket inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Special {
+    /// Leave it out and copy the rest (a drop's copy).
+    Skip,
+    /// Fail the whole copy (a move, which removes the original afterwards
+    /// and must not lose what it could not copy).
+    Refuse,
+}
+
 /// Copy one file, link or folder (recursively) to `target`, which must not
 /// exist.
-fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
+pub(super) fn copy_entry(source: &Path, target: &Path, special: Special) -> io::Result<()> {
     let meta = fs::symlink_metadata(source)?;
     let kind = meta.file_type();
     if kind.is_symlink() {
@@ -62,10 +72,15 @@ fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
         let mut children: Vec<_> = fs::read_dir(source)?.collect::<io::Result<_>>()?;
         children.sort_by_key(|child| child.file_name());
         for child in children {
-            // A device or FIFO inside a folder is skipped, as the module says;
-            // anything else that fails still stops the copy.
-            match copy_entry(&child.path(), &target.join(child.file_name())) {
-                Err(error) if error.kind() == io::ErrorKind::InvalidInput => continue,
+            // A device or FIFO inside a folder is skipped, as the module says,
+            // unless the caller refuses; anything else that fails still stops
+            // the copy.
+            match copy_entry(&child.path(), &target.join(child.file_name()), special) {
+                Err(error)
+                    if error.kind() == io::ErrorKind::InvalidInput && special == Special::Skip =>
+                {
+                    continue;
+                }
                 other => other?,
             }
         }
@@ -77,6 +92,54 @@ fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
             .write(true)
             .create_new(true)
             .open(target)?;
+        io::copy(&mut from, &mut to)?;
+        to.set_permissions(meta.permissions())?;
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ))
+    }
+}
+
+/// Copy `source` into `placeholder`, the empty file or folder a move
+/// reserved for it, without ever giving the name up: a folder's contents go
+/// inside it, a file's bytes overwrite it, and a link is made beside it
+/// under a private name and renamed over it. Devices and FIFOs inside a
+/// folder fail the copy (`Special::Refuse`), since the move removes the
+/// original afterwards.
+pub(super) fn copy_over_placeholder(source: &Path, placeholder: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(source)?;
+    let kind = meta.file_type();
+    if kind.is_symlink() {
+        let name = placeholder
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let staged = placeholder.with_file_name(format!(".{name}.link-{}", std::process::id()));
+        copy_link(source, &staged)?;
+        fs::rename(&staged, placeholder).inspect_err(|_| {
+            let _ = fs::remove_file(&staged);
+        })
+    } else if kind.is_dir() {
+        let mut children: Vec<_> = fs::read_dir(source)?.collect::<io::Result<_>>()?;
+        children.sort_by_key(|child| child.file_name());
+        for child in children {
+            copy_entry(
+                &child.path(),
+                &placeholder.join(child.file_name()),
+                Special::Refuse,
+            )?;
+        }
+        fs::set_permissions(placeholder, meta.permissions())
+    } else if kind.is_file() {
+        let mut from = fs::File::open(source)?;
+        // The placeholder already exists (this move made it): no `create`.
+        let mut to = fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(placeholder)?;
         io::copy(&mut from, &mut to)?;
         to.set_permissions(meta.permissions())?;
         Ok(())

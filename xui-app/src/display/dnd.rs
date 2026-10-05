@@ -22,11 +22,15 @@ pub enum DragEvent {
     /// The drag left the surface.
     Leave,
     /// The drag was released over the surface: paste `token` as `mime`.
+    /// `modifiers` are the `MOD_*` bits held at the release and `source` the
+    /// surface the drag started from (both `None` from an older compositor).
     Drop {
         x: i32,
         y: i32,
         token: u64,
         mime: String,
+        modifiers: Option<u32>,
+        source: Option<u64>,
     },
     /// To the source: its drag ended, `dropped` on a target or cancelled.
     Ended { dropped: bool },
@@ -59,6 +63,8 @@ pub fn decode_drag_event(parcel: &Parcel) -> Option<DragEvent> {
                 y: args.y,
                 token: args.token,
                 mime: args.mime,
+                modifiers: args.modifiers,
+                source: args.source,
             }
         }
         wire::METHOD_DRAGENDED => DragEvent::Ended {
@@ -131,6 +137,8 @@ mod tests {
             y: 20,
             token: 99,
             mime: "text/uri-list".into(),
+            modifiers: Some(1 << 25),
+            source: Some(7),
         })
         .unwrap();
         assert_eq!(
@@ -139,7 +147,9 @@ mod tests {
                 x: 10,
                 y: 20,
                 token: 99,
-                mime: "text/uri-list".into()
+                mime: "text/uri-list".into(),
+                modifiers: Some(1 << 25),
+                source: Some(7),
             })
         );
         let ended = wire::encode_drag_ended_args(&wire::DragEndedArgs { dropped: true }).unwrap();

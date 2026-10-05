@@ -10,14 +10,19 @@
 //!
 //! Drag and drop (`docs/archiver-plan.md`): a press-and-drag on a window's
 //! tiles offers the selection as a `text/uri-list`, and a `text/uri-list`
-//! dropped on a window is copied into its folder (`copy_into`: never into
-//! itself, `name (2)` on a clash, links as links), which then refreshes.
+//! dropped on a window goes into its folder (`drop_into`), which then
+//! refreshes. A drag between two Files windows *moves* what lives on the
+//! folder's volume and copies the rest; Ctrl held at the drop copies and
+//! Shift moves. A drop from another app copies unless Shift is held. Either
+//! way nothing goes into itself, a clash gets `name (2)`, links stay links,
+//! and an item dropped into its own folder is left alone.
 //!
 //! Serial evidence: `FILES:UP:PASS` after the first frame, `FILES:OPEN:PASS`
 //! when `mimed` accepts a launch, `FILES:OPEN:REJECTED` when no app handles a
 //! file, `FILES:DRAG:PASS:<n>` when a drag of `n` items starts,
-//! `FILES:DROP:PASS:<copied>:<failed>` after a drop is copied and
-//! `FILES:DROP:FAIL:<code>` when its paste is refused.
+//! `FILES:DROP:PASS:<done>:<failed>` after a drop (`done` counts copied and
+//! moved items), then `FILES:DROP:MOVED:<moved>:COPIED:<copied>:SKIPPED:<n>`,
+//! and `FILES:DROP:FAIL:<code>` when its paste is refused.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,7 +34,7 @@ use xui_app::platform::launcher::LazyLauncher;
 use xui_app::platform::{argv, urilist};
 use xui_core::backend::WindowId;
 use xui_explorer::platform::{Launcher, Platform};
-use xui_explorer::std_platform::{copy_into, StdPlatform};
+use xui_explorer::std_platform::{drop_into, Intent, StdPlatform};
 use xui_explorer::window::Msg;
 use xui_explorer::Explorer;
 
@@ -86,9 +91,18 @@ fn gesture(
     })
 }
 
-/// A drop on a window: copy the dropped paths into its folder.
+/// A drop on a window: copy or move the dropped paths into its folder. The
+/// drag is "ours" when the compositor says it started in another Files
+/// window of this process.
 fn dropped(explorer: &Explorer, window: WindowId, event: &DropEvent) {
-    let DropEvent::Drop { mime, data, .. } = event else {
+    let DropEvent::Drop {
+        mime,
+        data,
+        modifiers,
+        from_self,
+        ..
+    } = event
+    else {
         return;
     };
     if mime != urilist::MIME {
@@ -99,12 +113,27 @@ fn dropped(explorer: &Explorer, window: WindowId, event: &DropEvent) {
     };
     match data {
         Ok(bytes) => {
-            let report = copy_into(&urilist::decode(bytes), &state.dir);
+            let intent = Intent {
+                ours: *from_self,
+                ctrl: modifiers.ctrl,
+                shift: modifiers.shift,
+            };
+            let report = drop_into(&urilist::decode(bytes), &state.dir, intent);
             for (path, error) in &report.failed {
                 println!("FILES:COPY:FAIL:{}:{error}", path.display());
             }
-            println!("FILES:DROP:PASS:{}:{}", report.copied, report.failed.len());
-            let _ = state.proxy.send(Msg::Refresh);
+            println!(
+                "FILES:DROP:PASS:{}:{}",
+                report.copied + report.moved,
+                report.failed.len()
+            );
+            println!(
+                "FILES:DROP:MOVED:{}:COPIED:{}:SKIPPED:{}",
+                report.moved, report.copied, report.skipped
+            );
+            // Every window refreshes: a move empties the source folder's
+            // window too.
+            explorer.refresh_all();
         }
         Err(code) => println!("FILES:DROP:FAIL:{code}"),
     }

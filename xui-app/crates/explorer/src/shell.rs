@@ -129,6 +129,14 @@ impl Explorer {
         }
     }
 
+    /// Sends [`Msg::Refresh`] to every open window (after a drop that may
+    /// have moved items out of any of them).
+    pub fn refresh_all(&self) {
+        for state in self.views.all() {
+            let _ = state.proxy.send(Msg::Refresh);
+        }
+    }
+
     /// What window `window` (a raw window id) shows, while it is open.
     pub fn view_state(&self, window: u64) -> Option<ViewState> {
         self.views.get(window)

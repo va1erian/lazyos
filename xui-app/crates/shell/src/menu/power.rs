@@ -43,8 +43,9 @@ pub enum Action {
     Confirm(Power),
     /// Leave the confirmation.
     Cancel,
-    /// A category title in the installed-app section; never chosen.
-    Header,
+    /// A category row: opens the submenu of category `n`
+    /// ([`Menu::submenu`]).
+    Submenu(usize),
 }
 
 /// The outcome of choosing a row.
@@ -60,6 +61,8 @@ pub enum Choice {
     Request(Power),
     /// Close the menu (the confirmation was cancelled).
     Close,
+    /// Open the submenu of the category row chosen.
+    Submenu(usize),
 }
 
 /// How many rows the power section always takes.
@@ -107,7 +110,7 @@ impl Menu {
                 self.set_power_rows(ask_rows());
                 Choice::Close
             }
-            Action::Header => Choice::Nothing,
+            Action::Submenu(_) => Choice::Submenu(index),
         }
     }
 

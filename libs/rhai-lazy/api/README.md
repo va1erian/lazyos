@@ -186,7 +186,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `drag_enter(x, y, mime)` | `DragEnter(x: I32, y: I32, mime: String) -> () oneway` | Event: a drag carrying `mime` entered this surface at `(x, y)`. |
 | `drag_over(x, y)` | `DragOver(x: I32, y: I32) -> () oneway` | Event: a drag moved inside this surface to `(x, y)`. |
 | `drag_leave()` | `DragLeave() -> () oneway` | Event: a drag left this surface. |
-| `drop(x, y, token, mime)` | `Drop(x: I32, y: I32, token: U64, mime: String) -> () oneway` | Event: a drag was released over this surface at `(x, y)`; the target |
+| `drop(x, y, token, mime, modifiers, source)` | `Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () oneway` | Event: a drag was released over this surface at `(x, y)`; the target |
 | `drag_ended(dropped)` | `DragEnded(dropped: Bool) -> () oneway` | Event to the drag's source: the drag ended (`dropped`) or was cancelled. |
 | `list_surfaces()` | `ListSurfaces() -> (surfaces: Array<SurfaceRow>)` | Every surface in z-order (bottom first), including the desktop and |
 | `get_work_area()` | `GetWorkArea() -> (x: I32, y: I32, w: I32, h: I32)` | The rectangle available to windows: what the shell set with |

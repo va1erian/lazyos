@@ -256,16 +256,22 @@ fn drag_and_drop_roundtrip() {
         encode_drag_over_args,
         decode_drag_over_args
     );
-    roundtrip!(
-        DropArgs {
-            x: 1,
-            y: 2,
-            token: u64::MAX,
-            mime: "application/x-lazyos-demo".into()
-        },
-        encode_drop_args,
-        decode_drop_args
-    );
+    // With the release's modifiers and source surface, and without them (an
+    // older compositor).
+    for (modifiers, source) in [(Some(1 << 24), Some(7)), (None, None)] {
+        roundtrip!(
+            DropArgs {
+                x: 1,
+                y: 2,
+                token: u64::MAX,
+                mime: "application/x-lazyos-demo".into(),
+                modifiers,
+                source,
+            },
+            encode_drop_args,
+            decode_drop_args
+        );
+    }
     for dropped in [true, false] {
         roundtrip!(
             DragEndedArgs { dropped },

@@ -285,7 +285,18 @@
   "at": 1.0,
   "mouse_move": [
    90,
-   -440
+   -512
+  ]
+ },
+ {
+  "wait_for": "SHELL:SUBMENU:OPEN category=accessories",
+  "timeout": 30
+ },
+ {
+  "at": 1.0,
+  "mouse_move": [
+   166,
+   72
   ]
  },
  {
@@ -298,6 +309,14 @@
   "until": "SHELL:LAUNCH:PASS app=org.lazy.counter",
   "timeout": 60,
   "retries": 1
+ },
+ {
+  "at": 0.2,
+  "mouse_move": [
+   -166,
+   0
+  ],
+  "note": "back to where the click used to leave the pointer"
  },
  {
   "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.counter",

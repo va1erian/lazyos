@@ -37,6 +37,14 @@ pub mod mods {
 
 /// Keysyms (`inputmap::keysym`, X11 values) the backend maps to `xui` keys.
 pub mod keysym {
+    pub const SHIFT_L: u32 = 0xFFE1;
+    pub const SHIFT_R: u32 = 0xFFE2;
+    pub const CONTROL_L: u32 = 0xFFE3;
+    pub const CONTROL_R: u32 = 0xFFE4;
+    pub const ALT_L: u32 = 0xFFE9;
+    pub const ALT_R: u32 = 0xFFEA;
+    pub const SUPER_L: u32 = 0xFFEB;
+    pub const SUPER_R: u32 = 0xFFEC;
     pub const BACKSPACE: u32 = 0xFF08;
     pub const TAB: u32 = 0xFF09;
     pub const ENTER: u32 = 0xFF0D;

@@ -3472,12 +3472,19 @@ pub mod os_lazy_display_v1 {
 
     /// Event: a drag was released over this surface at `(x, y)`; the target
     /// pastes `token` of type `mime` through the clipboard service.
+    /// `modifiers` are the `MOD_*` key bits held at the release (the
+    /// keyboard may be another client's, so the target cannot read them
+    /// itself) and `source` is the surface the drag started from, so a
+    /// client can tell a drag between its own windows from another app's.
+    /// Both are absent from an older compositor.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct DropArgs {
         pub x: i32,
         pub y: i32,
         pub token: u64,
         pub mime: alloc::string::String,
+        pub modifiers: core::option::Option<u32>,
+        pub source: core::option::Option<u64>,
     }
 
     pub fn encode_drop_args(value: &DropArgs) -> Result<Vec<u8>, Error> {
@@ -3486,6 +3493,26 @@ pub mod os_lazy_display_v1 {
         target.i32(2, value.y)?;
         target.u64(3, value.token)?;
         target.string(4, &value.mime)?;
+        match &value.modifiers {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u32(1, *item)?;
+                target.option(5, Some(&nested))?;
+            }
+            None => {
+                target.option(5, None)?;
+            }
+        }
+        match &value.source {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(6, Some(&nested))?;
+            }
+            None => {
+                target.option(6, None)?;
+            }
+        }
         Ok(target.finish())
     }
 
@@ -3505,6 +3532,24 @@ pub mod os_lazy_display_v1 {
                 }
                 4 => {
                     out.mime = field.as_str()?.into();
+                }
+                5 => {
+                    if field.payload.is_empty() {
+                        out.modifiers = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.modifiers = Some(item.as_u32()?);
+                    }
+                }
+                6 => {
+                    if field.payload.is_empty() {
+                        out.source = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.source = Some(item.as_u64()?);
+                    }
                 }
                 _ => {}
             }
@@ -12009,7 +12054,8 @@ pub mod os_lazy_shell_v1 {
     /// The window title.
     /// Whether the window is minimized.
     /// One start-menu row or desktop icon: the `init` registry app it
-    /// launches and the label it shows.
+    /// launches (for a desktop icon that is not an app shortcut, its absolute
+    /// path in the desktop folder) and the label it shows.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Launcher {
         pub app: alloc::string::String,
@@ -12206,7 +12252,8 @@ pub mod os_lazy_shell_v1 {
     }
 
     /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
-    /// desktop icons (`sys/ui/desktop`); returns how many rows each has.
+    /// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
+    /// without one); returns how many rows each has.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RefreshReply {
         pub menu: u32,

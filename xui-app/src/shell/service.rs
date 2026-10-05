@@ -127,11 +127,11 @@ fn dispatch<M: 'static>(
         }
         wire::METHOD_REFRESH => {
             ctx.reload_menu();
-            ctx.reload_launchers();
+            ctx.reload_desktop(true);
             ctx.repaint_menu();
             let reply = wire::RefreshReply {
                 menu: ctx.menu.borrow().rows().len() as u32,
-                desktop: ctx.launchers.borrow().len() as u32,
+                desktop: ctx.icons.borrow().len() as u32,
             };
             encode(wire::encode_refresh_reply(&reply))
         }
@@ -168,9 +168,14 @@ fn launch_origin(ctx: &Ctx, app: &str) -> Option<lazyshell::Rect> {
 /// What the shell shows right now.
 fn status(ctx: &Ctx) -> wire::StatusReply {
     let bar = ctx.taskbar.borrow();
-    let launcher = |entry: &lazyshell::Entry| wire::Launcher {
-        app: entry.app.clone(),
-        label: entry.label.clone(),
+    // A desktop icon reports the app its shortcut launches, else its path.
+    let launcher = |item: &lazyshell::desktop::folder::Item| wire::Launcher {
+        app: item
+            .app()
+            .map(str::to_owned)
+            .or_else(|| ctx.icon_path(item).map(|p| p.display().to_string()))
+            .unwrap_or_default(),
+        label: item.label.clone(),
     };
     wire::StatusReply {
         windows: bar
@@ -194,6 +199,6 @@ fn status(ctx: &Ctx) -> wire::StatusReply {
                 label: row.label.clone(),
             })
             .collect(),
-        desktop: ctx.launchers.borrow().iter().map(launcher).collect(),
+        desktop: ctx.icons.borrow().iter().map(launcher).collect(),
     }
 }

@@ -8,19 +8,22 @@
 //! single surface plus one buffer. Ctrl+Esc/Super (`StartMenu`) and the button
 //! toggle it; `Dismiss` (a press outside every panel), choosing a row or the
 //! button again close it. The power rows at the bottom first turn into a
-//! confirmation and keep the menu open ([`super::power`]). The installed
-//! apps' category section scrolls with the wheel when it does not fit
-//! (`lazyshell::menu::Menu::scroll_by`), with a thin bar on its right edge.
+//! confirmation and keep the menu open ([`super::power`]). Each category row
+//! opens its submenu beside the menu when the pointer rests on it or clicks
+//! it ([`super::submenu`]). The category section scrolls with the wheel when
+//! it does not fit (`lazyshell::menu::Menu::scroll_by`), with a thin bar on
+//! its right edge.
 
 use std::rc::Rc;
 
-use lazyshell::menu::{Action, Choice, BANNER_W, PAD, ROW_H, WIDTH};
+use lazyshell::menu::{Action, Choice, Row, BANNER_W, PAD, ROW_H, WIDTH};
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec, TextStyle};
 use xui_core::{Canvas, Control, Dip, MouseButton, Rect};
 
 use super::ctx::Ctx;
+use super::submenu;
 use super::theme::{chrome_look, color, fill_bar};
 use crate::client_window::SurfaceRole;
 use xui_core::theme::look;
@@ -36,6 +39,8 @@ const WHEEL_ROWS: i64 = 3;
 const WHEEL_NOTCH: i64 = 120;
 /// Width of the section's scroll bar.
 const BAR_W: i32 = 3;
+/// Room a submenu row's arrow takes at the right end of its row.
+const ARROW_W: i32 = 16;
 
 /// A start-menu message.
 pub enum MenuMsg {
@@ -82,8 +87,9 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     }
 }
 
-/// Close the menu, if open.
+/// Close the menu (and its submenu), if open.
 pub fn close(ctx: &Ctx) {
+    submenu::close(ctx);
     let Some(handle) = ctx.menu_window.borrow_mut().take() else {
         return;
     };
@@ -132,10 +138,29 @@ impl MenuApp {
         MenuApp { ctx, root }
     }
 
+    /// The pointer rests on `row`: a category row opens its submenu, any
+    /// other row closes an open one (nothing, the banner or the padding
+    /// leaves it, so the pointer can travel to it).
+    fn hover(&self, row: Option<usize>, ui: &Ui<MenuMsg>) {
+        let Some(index) = row else {
+            return;
+        };
+        let category = matches!(
+            self.ctx.menu.borrow().rows().get(index).map(|r| r.action),
+            Some(Action::Submenu(_))
+        );
+        if category {
+            submenu::open(&self.ctx, ui, index);
+        } else {
+            submenu::close(&self.ctx);
+        }
+    }
+
     /// Act on the enabled row under `(x, y)`: launch an app (closing the
-    /// menu), or step the power rows. A press on the banner or a disabled
-    /// row does nothing. Returns whether the menu must repaint.
-    fn press(&self, x: i32, y: i32, repeat: bool) -> bool {
+    /// menu), open a category's submenu, or step the power rows. A press on
+    /// the banner or a disabled row does nothing. Returns whether the menu
+    /// must repaint.
+    fn press(&self, x: i32, y: i32, repeat: bool, ui: &Ui<MenuMsg>) -> bool {
         let (choice, origin) = {
             let mut menu = self.ctx.menu.borrow_mut();
             let Some(index) = menu.row_at(x, y) else {
@@ -165,6 +190,10 @@ impl MenuApp {
                 close(&self.ctx);
                 false
             }
+            Choice::Submenu(index) => {
+                submenu::open(&self.ctx, ui, index);
+                true
+            }
         }
     }
 }
@@ -191,6 +220,7 @@ impl App for MenuApp {
             MenuMsg::Move(x, y) => {
                 let row = self.ctx.menu.borrow().row_at(x, y);
                 if self.ctx.menu_hover.replace(row) != row {
+                    self.hover(row, ui);
                     ui.invalidate(self.root.id());
                 }
             }
@@ -200,12 +230,15 @@ impl App for MenuApp {
                 }
             }
             MenuMsg::Press(x, y, repeat) => {
-                if self.press(x, y, repeat) {
+                if self.press(x, y, repeat, ui) {
                     ui.invalidate(self.root.id());
                 }
             }
             MenuMsg::Wheel(delta) => {
                 if self.ctx.menu.borrow_mut().scroll_by(wheel_rows(delta)) {
+                    // The category rows moved: the open submenu no longer
+                    // sits beside its row.
+                    submenu::close(&self.ctx);
                     self.ctx.menu_hover.set(None);
                     ui.invalidate(self.root.id());
                 }
@@ -226,7 +259,7 @@ fn wheel_rows(delta: i16) -> i64 {
 }
 
 /// A design-pixel shell rectangle as an xui one at scale `s`.
-fn rect(r: ShellRect, s: i32) -> Rect {
+pub(super) fn rect(r: ShellRect, s: i32) -> Rect {
     Rect::new(r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s)
 }
 
@@ -264,67 +297,92 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
 
     let menu = ctx.menu.borrow();
     let hover = ctx.menu_hover.get();
+    let open = ctx.submenu.borrow().as_ref().map(|sub| sub.category);
     for (index, row) in menu.rows().iter().enumerate() {
         let Some(area) = menu.row_rect(index).map(|r| rect(r, s)) else {
             continue;
         };
-        let label = Rect::new(
-            area.left + LABEL_PAD * s,
-            area.top,
-            area.right - 4 * s,
-            area.bottom,
-        );
-        if row.action == Action::Header {
-            // A category title: bold, in the banner's colour, never lit.
-            canvas.push_clip(label);
-            // The accent lifted toward white on a dark panel, where the plain
-            // accent is too dim to read as a title.
-            let ink = if ctx.theme.borrow().is_dark() {
-                color(uitheme::mix(palette.overlay_selected, 0xFF_FF_FF, 1, 2))
-            } else {
-                color(palette.overlay_selected)
-            };
-            canvas.draw_text(
-                &row.label,
-                label,
-                &TextStyle::new(ink, TEXT).bold().middle(),
-            );
-            canvas.pop_clip();
-            continue;
-        }
-        let lit = row.enabled && hover == Some(index);
-        if lit {
-            let lit_area = Rect::new(
-                area.left + 2 * s,
-                area.top + s,
-                area.right - 2 * s,
-                area.bottom - s,
-            );
-            look::face(
-                canvas,
-                lit_area,
-                4.0 * s as f32,
-                color(palette.overlay_selected),
-                &deco,
-            );
-        }
-        let ink = if !row.enabled {
-            uitheme::mix(palette.overlay_text, palette.overlay_bg, 3, 5)
-        } else if lit {
-            0xFF_FF_FF
-        } else {
-            palette.overlay_text
+        let category = match row.action {
+            Action::Submenu(category) => Some(category),
+            _ => None,
         };
-        canvas.push_clip(label);
-        canvas.draw_text(
-            &row.label,
-            label,
-            &TextStyle::new(color(ink), TEXT).middle(),
-        );
-        canvas.pop_clip();
+        // A category row stays lit while its submenu is open.
+        let lit = hover == Some(index) || (category.is_some() && category == open);
+        paint_row(canvas, ctx, area, row, lit, category.is_some());
     }
     if let Some(scroll) = menu.scroll() {
         paint_scroll_bar(canvas, scroll, s, color(palette.overlay_selected));
+    }
+}
+
+/// Paint one menu or submenu row in `area` (screen pixels): the hover face
+/// when `lit` and enabled, the label (greyed when disabled) and, for a row
+/// that opens a submenu, an arrow at its right end.
+pub(super) fn paint_row(
+    canvas: &mut dyn Canvas,
+    ctx: &Ctx,
+    area: Rect,
+    row: &Row,
+    lit: bool,
+    arrow: bool,
+) {
+    let palette = ctx.theme.borrow().palette();
+    let s = ctx.scale();
+    let deco = chrome_look(ctx.theme.borrow().is_dark());
+    let lit = lit && row.enabled;
+    if lit {
+        let lit_area = Rect::new(
+            area.left + 2 * s,
+            area.top + s,
+            area.right - 2 * s,
+            area.bottom - s,
+        );
+        look::face(
+            canvas,
+            lit_area,
+            4.0 * s as f32,
+            color(palette.overlay_selected),
+            &deco,
+        );
+    }
+    let ink = if !row.enabled {
+        uitheme::mix(palette.overlay_text, palette.overlay_bg, 3, 5)
+    } else if lit {
+        0xFF_FF_FF
+    } else {
+        palette.overlay_text
+    };
+    let reserve = if arrow { ARROW_W } else { 4 };
+    let label = Rect::new(
+        area.left + LABEL_PAD * s,
+        area.top,
+        area.right - reserve * s,
+        area.bottom,
+    );
+    canvas.push_clip(label);
+    canvas.draw_text(
+        &row.label,
+        label,
+        &TextStyle::new(color(ink), TEXT).middle(),
+    );
+    canvas.pop_clip();
+    if arrow {
+        paint_arrow(canvas, area, s, color(ink));
+    }
+}
+
+/// A small right-pointing triangle near `area`'s right edge, built from
+/// one-pixel columns (the canvas has no paths).
+fn paint_arrow(canvas: &mut dyn Canvas, area: Rect, s: i32, ink: xui_core::Color) {
+    let half = 4 * s;
+    let left = area.right - (ARROW_W - 4) * s;
+    let mid = (area.top + area.bottom) / 2;
+    for i in 0..=half {
+        let reach = half - i;
+        canvas.fill_rect(
+            Rect::new(left + i, mid - reach, left + i + 1, mid + reach + 1),
+            ink,
+        );
     }
 }
 

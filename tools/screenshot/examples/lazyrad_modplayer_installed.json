@@ -149,8 +149,21 @@
  {
   "mouse_move": [
    23,
-   -488
+   -510
   ]
+ },
+ {
+  "wait_for": "SHELL:SUBMENU:OPEN category=accessories",
+  "timeout": 30
+ },
+ {
+  "mouse_move": [
+   233,
+   72
+  ]
+ },
+ {
+  "wait": 0.4
  },
  {
   "wait": 0.4
@@ -160,6 +173,13 @@
   "until": "LRPLAY:UP:PASS",
   "timeout": 120,
   "retries": 1
+ },
+ {
+  "mouse_move": [
+   -233,
+   -50
+  ],
+  "note": "back to where the click used to leave the pointer"
  },
  {
   "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.modplayer",

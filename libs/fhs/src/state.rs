@@ -49,6 +49,12 @@ pub const HOME_ROOT: &str = "/home";
 /// app.
 pub const APP_DATA_DIR: &str = ".apps";
 
+/// The desktop folder inside a home, `<home>/Desktop`: LazyShell shows its
+/// entries as the desktop's icons and seeds it with shortcuts the first time
+/// it is missing. Relative to a home. Written by the user (and the shell's
+/// seed).
+pub const DESKTOP_DIR: &str = "Desktop";
+
 /// The LazyRAD IDE's app data directory name inside a home: its `system_name`,
 /// since it is an installed package (`os.lazy.lazyrad`, docs/lazyrad-package-plan.md).
 /// Its settings and the data of projects run from the IDE live in

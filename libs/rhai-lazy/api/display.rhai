@@ -160,14 +160,19 @@ fn drag_leave() {
     msg::connect("os.lazy.display.v1").invoke("DragLeave", [])
 }
 
-/// `Drop(x: I32, y: I32, token: U64, mime: String) -> () oneway`
+/// `Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () oneway`
 ///
 /// Event: a drag was released over this surface at `(x, y)`; the target
 /// pastes `token` of type `mime` through the clipboard service.
+/// `modifiers` are the `MOD_*` key bits held at the release (the
+/// keyboard may be another client's, so the target cannot read them
+/// itself) and `source` is the surface the drag started from, so a
+/// client can tell a drag between its own windows from another app's.
+/// Both are absent from an older compositor.
 ///
 /// One-way: returns `()` once the message is queued.
-fn drop(x, y, token, mime) {
-    msg::connect("os.lazy.display.v1").invoke("Drop", [x, y, token, mime])
+fn drop(x, y, token, mime, modifiers, source) {
+    msg::connect("os.lazy.display.v1").invoke("Drop", [x, y, token, mime, modifiers, source])
 }
 
 /// `DragEnded(dropped: Bool) -> () oneway`

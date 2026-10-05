@@ -22,6 +22,8 @@
 //! `SHELL:POWER:*` ([`power`]).
 
 mod ctx;
+mod deskdir;
+mod deskicons;
 mod desktop;
 mod heartbeat;
 mod icons;
@@ -30,6 +32,7 @@ mod menu;
 mod power;
 mod service;
 mod services;
+mod submenu;
 mod taskbar;
 mod theme;
 mod wallpaper;
@@ -95,7 +98,7 @@ pub fn run() -> i32 {
         );
     }
     ctx.reload_menu();
-    ctx.reload_launchers();
+    ctx.reload_desktop(true);
 
     loop {
         backend.set_next_role(SurfaceRole::Desktop);

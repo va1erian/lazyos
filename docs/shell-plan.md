@@ -77,6 +77,22 @@ sessions (S6); GPU acceleration (S8).
 - **Start menu.** A shell-owned popup surface (pinned above windows): Programs,
   Files, Settings, About, Log out, Restart. Its entries come from the app
   registry and MIME/open-with registrations (section 9), not a hard-coded menu.
+  Today: one row per app category above the configured `sys/ui/menu` rows,
+  each opening a submenu panel of that category's apps beside the menu
+  (`xui-app/src/shell/submenu.rs`, `SHELL:SUBMENU:OPEN category=<id>`), then
+  the restart / shut down rows.
+- **Desktop folder.** The desktop's icons are the entries of
+  `$HOME/Desktop` (`fhs::state::DESKTOP_DIR`), polled about once a second:
+  shortcut files (`<label>.lnk`, `App=<app id>` or `Path=<absolute path>`,
+  `lazyshell::shortcut`; the VFS has no symbolic links yet) launch their app or
+  open their target, folders open in Files and other files open with their app
+  through `mimed`. A missing folder is created once and seeded with one
+  shortcut per `sys/ui/desktop` launcher, plus a hidden `.order` file that
+  keeps them in place (`SHELL:DESKTOP:SEEDED`); without a `$HOME` the desktop
+  shows the launchers directly. Icons fill right-anchored columns, top to
+  bottom. The desktop is a drop target (a `text/uri-list` is copied into the
+  folder, moved with Shift; `SHELL:DESKTOP:DROP:<copied>:<moved>:<failed>`)
+  and its icons can be dragged out onto a Files window.
 - **Affordances.** Minimize/restore/close already flow through xuid events
   (`WindowClose`); maximize/snap and the Alt+Tab overlay land in S5.3 on the
   same chrome.
