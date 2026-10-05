@@ -48,6 +48,20 @@ pub(super) fn attached() -> Bed {
     bed
 }
 
+/// The engine produces into the first declared ring (`rx`) and consumes the
+/// second (`tx`); a swapped or extended `Ring<...>` declaration in
+/// `idl/net.midl` fails here instead of corrupting traffic.
+#[test]
+fn engine_roles_match_the_midl_declaration() {
+    use messenger_generated::os_lazy_net_nic_v1 as nic;
+    use messenger_generated::rings::Side;
+    assert_eq!(nic::ATTACH_RING_RINGS.len(), 2);
+    assert_eq!(nic::ATTACH_RING_RINGS[0].name, nic::RING_RX.name);
+    assert_eq!(nic::ATTACH_RING_RINGS[1].name, nic::RING_TX.name);
+    assert_eq!(nic::RING_RX.producer, Side::Server);
+    assert_eq!(nic::RING_TX.producer, Side::Client);
+}
+
 #[test]
 fn layout_rules() {
     assert!(Layout::new(256, 256).is_some());

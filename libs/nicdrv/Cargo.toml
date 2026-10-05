@@ -19,6 +19,7 @@ fuzz = ["framering/fuzz"]
 virtio = { path = "../virtio" }
 virtio-net = { path = "../virtio-net" }
 framering = { path = "../framering" }
+messenger-generated = { path = "../generated" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

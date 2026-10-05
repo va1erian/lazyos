@@ -240,14 +240,22 @@ pub mod bed {
         /// Create the client's rings and attach them as `owner`.
         pub fn attach(&mut self, slots: u32, owner: u64) -> Result<u32, AttachError> {
             let one = ring_bytes(slots);
-            let mut mem = Mem::with_len(if one == 0 { 4096 } else { one * 2 });
+            // The client lays the buffer out as the client library does, from
+            // the declaration.
+            let layout = messenger_generated::os_lazy_net_nic_v1::attach_ring_rings(one as u64)
+                .expect("ring layout");
+            let mut mem = Mem::with_len(if one == 0 {
+                4096
+            } else {
+                layout.total as usize
+            });
             let base = mem.base();
             if one != 0 {
                 // SAFETY: both halves are inside `mem`, which the client keeps.
                 let (rx, tx) = unsafe {
                     (
-                        Ring::create(base, one, slots).expect("rx ring"),
-                        Ring::create(base.add(one), one, slots).expect("tx ring"),
+                        Ring::create(base.add(layout.rx as usize), one, slots).expect("rx ring"),
+                        Ring::create(base.add(layout.tx as usize), one, slots).expect("tx ring"),
                     )
                 };
                 let len = mem.len();
