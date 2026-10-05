@@ -12,9 +12,8 @@
 //! * **Client mode** ([`LazyOSBackend::new_client`], issue #168): the app
 //!   resolves `xuid`, creates a surface through `os.lazy.display.v1`, attaches
 //!   double-buffered pixel slots, presents damage rectangles, and receives
-//!   pointer/key/close events on its event endpoint. The window manager (drag,
-//!   minimize, taskbar, close) runs in `xuid`; closing the surface ends the
-//!   loop.
+//!   pointer/key/close events on its event endpoint. `xuid` runs the window
+//!   manager (drag, minimize, taskbar, close); closing the surface ends the run.
 //!
 //! Keyboard routing (issue #151) is mode-independent: pointer presses move the
 //! backend focus to the node under them (when it is focusable), `Tab` and
