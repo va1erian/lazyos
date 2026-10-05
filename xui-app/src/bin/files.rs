@@ -24,7 +24,6 @@
 //! moved items), then `FILES:DROP:MOVED:<moved>:COPIED:<copied>:SKIPPED:<n>`,
 //! and `FILES:DROP:FAIL:<code>` when its paste is refused.
 
-use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -71,15 +70,9 @@ impl Launcher for ReportingLauncher {
     }
 }
 
-/// The payload of the latest drag this process offered: a drop carrying the
-/// same bytes started in a Files window (the compositor never drops a drag
-/// on its own source window, so it is another of ours).
-type LastOffer = RefCell<Vec<u8>>;
-
 /// A press-and-drag on a window's tiles: offer what it carries.
 fn gesture(
     explorer: &Explorer,
-    last: &LastOffer,
     window: WindowId,
     widget: xui_core::backend::WidgetId,
 ) -> Option<DragOffer> {
@@ -92,23 +85,24 @@ fn gesture(
     if state.collapsed() {
         let _ = state.proxy.send(Msg::RestoreSelection);
     }
-    let bytes = urilist::encode(&paths).into_bytes();
-    last.replace(bytes.clone());
     Some(DragOffer {
         mime: urilist::MIME.to_owned(),
-        bytes,
+        bytes: urilist::encode(&paths).into_bytes(),
     })
 }
 
-/// A drop on a window: copy or move the dropped paths into its folder.
-fn dropped(
-    explorer: &Explorer,
-    backend: &LazyOSBackend,
-    last: &LastOffer,
-    window: WindowId,
-    event: &DropEvent,
-) {
-    let DropEvent::Drop { mime, data, .. } = event else {
+/// A drop on a window: copy or move the dropped paths into its folder. The
+/// drag is "ours" when the compositor says it started in another Files
+/// window of this process.
+fn dropped(explorer: &Explorer, window: WindowId, event: &DropEvent) {
+    let DropEvent::Drop {
+        mime,
+        data,
+        modifiers,
+        from_self,
+        ..
+    } = event
+    else {
         return;
     };
     if mime != urilist::MIME {
@@ -119,11 +113,10 @@ fn dropped(
     };
     match data {
         Ok(bytes) => {
-            let held = backend.held_modifiers();
             let intent = Intent {
-                ours: !bytes.is_empty() && *last.borrow() == *bytes,
-                ctrl: held.ctrl,
-                shift: held.shift,
+                ours: *from_self,
+                ctrl: modifiers.ctrl,
+                shift: modifiers.shift,
             };
             let report = drop_into(&urilist::decode(bytes), &state.dir, intent);
             for (path, error) in &report.failed {
@@ -161,22 +154,13 @@ fn main() {
             backend: Rc::clone(backend),
         };
         let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
-        let last: Rc<LastOffer> = Rc::default();
         {
-            let (explorer, last) = (Rc::clone(&explorer), Rc::clone(&last));
-            backend.on_drag_gesture(move |window, widget, _| {
-                gesture(&explorer, &last, window, widget)
-            });
+            let explorer = Rc::clone(&explorer);
+            backend.on_drag_gesture(move |window, widget, _| gesture(&explorer, window, widget));
         }
         {
             let explorer = Rc::clone(&explorer);
-            // A weak handle: the backend owns this hook.
-            let weak = Rc::downgrade(backend);
-            backend.on_drag_event(move |window, event| {
-                if let Some(backend) = weak.upgrade() {
-                    dropped(&explorer, &backend, &last, window, event);
-                }
-            });
+            backend.on_drag_event(move |window, event| dropped(&explorer, window, event));
         }
         // Every folder window is resizable; the explorer's tile view re-flows.
         backend.set_size_hints(360, 240, 0, 0);

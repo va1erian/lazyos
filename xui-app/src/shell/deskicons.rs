@@ -189,7 +189,13 @@ pub fn wire_drag(ctx: &Rc<Ctx>, desktop: WindowId, source: Rc<RefCell<DragSource
     });
     let weak: Weak<Ctx> = Rc::downgrade(ctx);
     ctx.backend.on_drag_event(move |window, event| {
-        let DropEvent::Drop { mime, data, .. } = event else {
+        let DropEvent::Drop {
+            mime,
+            data,
+            modifiers,
+            ..
+        } = event
+        else {
             return;
         };
         let Some(ctx) = weak.upgrade() else {
@@ -199,7 +205,7 @@ pub fn wire_drag(ctx: &Rc<Ctx>, desktop: WindowId, source: Rc<RefCell<DragSource
             return;
         }
         match data {
-            Ok(bytes) => ctx.drop_on_desktop(&urilist::decode(bytes)),
+            Ok(bytes) => ctx.drop_on_desktop(&urilist::decode(bytes), *modifiers),
             Err(code) => println!("SHELL:DESKTOP:DROP:FAIL paste err={code}"),
         }
     });

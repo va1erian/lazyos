@@ -181,13 +181,12 @@ impl Ctx {
         (!item.name.is_empty()).then(|| dir.join(&item.name))
     }
 
-    /// A `text/uri-list` dropped on the desktop: copy (or with Shift, move)
-    /// the paths into the folder, then re-read it.
-    pub fn drop_on_desktop(&self, paths: &[PathBuf]) {
+    /// A `text/uri-list` dropped on the desktop with `held` modifiers: copy
+    /// (or with Shift, move) the paths into the folder, then re-read it.
+    pub fn drop_on_desktop(&self, paths: &[PathBuf], held: xui_core::Modifiers) {
         let Some(dir) = self.desk.borrow().dir.clone() else {
             return;
         };
-        let held = self.backend.held_modifiers();
         let intent = Intent {
             ours: false,
             ctrl: held.ctrl,
@@ -208,17 +207,23 @@ impl Ctx {
 }
 
 /// Write the seed into a new folder `dir`. `create_dir` (not `_all`) and
-/// `create_new` files: a folder something else made meanwhile is left as is.
+/// `create_new` files: a folder something else made meanwhile is left as is,
+/// and one this call made is removed again if a write fails.
 fn write_seed(dir: &Path, files: &[(String, String)]) -> io::Result<()> {
     fs::create_dir(dir)?;
-    for (name, text) in files {
-        let mut file = fs::OpenOptions::new()
+    let written = files.iter().try_for_each(|(name, text)| {
+        fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(dir.join(name))?;
-        file.write_all(text.as_bytes())?;
+            .open(dir.join(name))?
+            .write_all(text.as_bytes())
+    });
+    if written.is_err() {
+        // This call made the folder, so all it holds is this seed: take it
+        // back, or the half-written folder would count as seeded for good.
+        let _ = fs::remove_dir_all(dir);
     }
-    Ok(())
+    written
 }
 
 /// The folder's visible entries and the order file, stamped, sorted by name.

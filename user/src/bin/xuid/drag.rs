@@ -4,7 +4,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use user::messenger::display::{wire, Canvas, Face, Rect};
+use user::messenger::display::{self, wire, Canvas, Face, Rect};
 
 use super::compositor::Compositor;
 use super::layout::cursor_rect;
@@ -186,11 +186,21 @@ impl Compositor {
         match drag_target_at(&self.surfaces, active.source, pointer) {
             Some(id) => {
                 let (x, y) = relative(&self.surfaces, id, pointer);
+                let mods = &self.mods;
+                let held = display::key::with_modifiers(
+                    0,
+                    mods.shift,
+                    mods.ctrl,
+                    mods.alt,
+                    mods.super_key,
+                );
                 let args = wire::DropArgs {
                     x,
                     y,
                     token: active.token,
                     mime: active.mime.clone(),
+                    modifiers: Some(held),
+                    source: Some(active.source),
                 };
                 let body = wire::encode_drop_args(&args);
                 forward(

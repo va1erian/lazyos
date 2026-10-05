@@ -40,7 +40,7 @@ pub fn copy_into(sources: &[PathBuf], dir: &Path) -> CopyReport {
                     ));
                 }
             }
-            copy_entry(source, &unique(&dir.join(name)))
+            copy_entry(source, &unique(&dir.join(name)), Special::Skip)
         })();
         match outcome {
             Ok(()) => report.copied += 1,
@@ -50,9 +50,19 @@ pub fn copy_into(sources: &[PathBuf], dir: &Path) -> CopyReport {
     report
 }
 
+/// What a folder copy does with a device, FIFO or socket inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Special {
+    /// Leave it out and copy the rest (a drop's copy).
+    Skip,
+    /// Fail the whole copy (a move, which removes the original afterwards
+    /// and must not lose what it could not copy).
+    Refuse,
+}
+
 /// Copy one file, link or folder (recursively) to `target`, which must not
 /// exist.
-pub(super) fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
+pub(super) fn copy_entry(source: &Path, target: &Path, special: Special) -> io::Result<()> {
     let meta = fs::symlink_metadata(source)?;
     let kind = meta.file_type();
     if kind.is_symlink() {
@@ -62,10 +72,15 @@ pub(super) fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
         let mut children: Vec<_> = fs::read_dir(source)?.collect::<io::Result<_>>()?;
         children.sort_by_key(|child| child.file_name());
         for child in children {
-            // A device or FIFO inside a folder is skipped, as the module says;
-            // anything else that fails still stops the copy.
-            match copy_entry(&child.path(), &target.join(child.file_name())) {
-                Err(error) if error.kind() == io::ErrorKind::InvalidInput => continue,
+            // A device or FIFO inside a folder is skipped, as the module says,
+            // unless the caller refuses; anything else that fails still stops
+            // the copy.
+            match copy_entry(&child.path(), &target.join(child.file_name()), special) {
+                Err(error)
+                    if error.kind() == io::ErrorKind::InvalidInput && special == Special::Skip =>
+                {
+                    continue;
+                }
                 other => other?,
             }
         }

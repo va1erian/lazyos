@@ -51,6 +51,8 @@ pub(super) fn draw(
 ) {
     let (cx, cy) = (content.x + content.w / 2, content.y + content.h / 2);
     let (ring, dot) = (px(RING_R), px(DOT_R));
+    // A window smaller than the ring keeps its dots inside its content.
+    let clip = clip.intersect(content);
     for (index, (ux, uy)) in UNIT.iter().enumerate() {
         // 0 for the head, DOTS - 1 for the dot just ahead of it.
         let behind = (phase + DOTS - index as u32) % DOTS;

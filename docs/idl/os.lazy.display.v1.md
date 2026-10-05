@@ -53,7 +53,7 @@ fields, which never use that id.
 | DragEnter | 13 | oneway | `(x: I32, y: I32, mime: String) -> ()` |
 | DragOver | 14 | oneway | `(x: I32, y: I32) -> ()` |
 | DragLeave | 15 | oneway | `() -> ()` |
-| Drop | 16 | oneway | `(x: I32, y: I32, token: U64, mime: String) -> ()` |
+| Drop | 16 | oneway | `(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> ()` |
 | DragEnded | 17 | oneway | `(dropped: Bool) -> ()` |
 | ListSurfaces | 18 | sync | `() -> (surfaces: Array<SurfaceRow>)` |
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |

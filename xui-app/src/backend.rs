@@ -354,6 +354,14 @@ impl LazyOSBackend {
         Some(windows.get(&window.raw())?.client.as_ref()?.surface)
     }
 
+    /// Whether compositor surface `surface` is one of this app's windows.
+    pub fn owns_surface(&self, surface: u64) -> bool {
+        self.windows
+            .borrow()
+            .values()
+            .any(|window| window.client.as_ref().is_some_and(|c| c.surface == surface))
+    }
+
     /// The pointer's last position in window pixels, as the most recent
     /// pointer event reported it.
     pub fn pointer(&self) -> (i32, i32) {

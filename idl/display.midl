@@ -78,7 +78,12 @@ interface os.lazy.display.v1 {
     method DragLeave() -> () = 15 oneway;
     /// Event: a drag was released over this surface at `(x, y)`; the target
     /// pastes `token` of type `mime` through the clipboard service.
-    method Drop(x: I32, y: I32, token: U64, mime: String) -> () = 16 oneway;
+    /// `modifiers` are the `MOD_*` key bits held at the release (the
+    /// keyboard may be another client's, so the target cannot read them
+    /// itself) and `source` is the surface the drag started from, so a
+    /// client can tell a drag between its own windows from another app's.
+    /// Both are absent from an older compositor.
+    method Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () = 16 oneway;
     /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
     method DragEnded(dropped: Bool) -> () = 17 oneway;
     /// Every surface in z-order (bottom first), including the desktop and
