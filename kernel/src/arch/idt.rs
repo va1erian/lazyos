@@ -180,6 +180,8 @@ extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, er
 // (issue #405): a page fault inside a user `memmove` arrives with DF set, and
 // the COW/demand-zero paths copy and zero whole frames with `rep movs`/`stos`.
 // The `x86-interrupt` handlers need no such care: LLVM emits `cld` for them.
+// Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
+// "Entry stub contract".
 global_asm!(
     r#"
     .macro exception_isr name, vector, has_error
@@ -236,6 +238,8 @@ global_asm!(
     "#
 );
 
+// Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
+// "Entry stub contract".
 global_asm!(
     r#"
     .global page_fault_isr

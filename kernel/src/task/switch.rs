@@ -30,6 +30,8 @@
 //! caller's flags, so the clear is invisible to the interrupted code. The
 //! `syscall` entry needs nothing: `IA32_FMASK` clears DF (`arch::linux`).
 
+// Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
+// "Entry stub contract".
 use core::arch::global_asm;
 
 /// IDT vector of the voluntary-reschedule gate. Distinct from the PIT (32),
