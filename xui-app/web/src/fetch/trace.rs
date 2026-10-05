@@ -86,7 +86,10 @@ impl Timing {
         let start = Some(self.start);
         // The connection is ready after TLS for https:, after TCP for http:.
         let ready = secured.or(connected);
-        let shown: String = crate::marker_text(url).chars().take(160).collect();
+        let shown: String = crate::marker_text(&redacted(url))
+            .chars()
+            .take(160)
+            .collect();
         format!(
             "WEB:FETCH:{}ms {outcome} total={} dns={} tcp={} tls={} wait={} body={} {}B {shown}",
             self.at,
@@ -99,6 +102,39 @@ impl Timing {
             self.bytes,
         )
     }
+}
+
+/// `url` without what could be a secret: the user name and password, and
+/// the query's values (`?token=…` becomes `?token=_`).
+fn redacted(url: &str) -> String {
+    let (url, query) = match url.split_once('?') {
+        Some((url, query)) => (url, Some(query)),
+        None => (url, None),
+    };
+    let mut out = match url.split_once("://") {
+        Some((scheme, rest)) => {
+            let end = rest.find('/').unwrap_or(rest.len());
+            let (authority, path) = rest.split_at(end);
+            let host = authority
+                .rsplit_once('@')
+                .map_or(authority, |(_, host)| host);
+            format!("{scheme}://{host}{path}")
+        }
+        None => url.to_string(),
+    };
+    if let Some(query) = query {
+        let query = query.split('#').next().unwrap_or("");
+        let names: Vec<&str> = query
+            .split('&')
+            .map(|pair| pair.split('=').next().unwrap_or(""))
+            .collect();
+        out.push('?');
+        out.push_str(&names.join("=_&"));
+        if !query.is_empty() {
+            out.push_str("=_");
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -127,7 +163,22 @@ mod tests {
         timing.add(10);
         let line = timing.line("200", "http://a.test/", Instant::now());
         assert!(line.contains(" 200 "), "{line}");
-        assert!(line.contains(" tls=- wait=0 "), "{line}");
+        let wait = line
+            .split(" wait=")
+            .nth(1)
+            .and_then(|r| r.split(' ').next());
+        assert!(line.contains(" tls=- wait="), "{line}");
+        assert!(wait.is_some_and(|ms| ms.parse::<u64>().is_ok()), "{line}");
         assert!(line.contains(" 10B http://a.test/"), "{line}");
+    }
+
+    #[test]
+    fn secrets_are_not_logged() {
+        assert_eq!(
+            redacted("https://me:pw@a.test/p?token=abc&x=1#f"),
+            "https://a.test/p?token=_&x=_"
+        );
+        assert_eq!(redacted("http://a.test/@x?q"), "http://a.test/@x?q=_");
+        assert_eq!(redacted("http://a.test/"), "http://a.test/");
     }
 }

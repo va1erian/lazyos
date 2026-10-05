@@ -88,6 +88,10 @@ impl Browser {
             .on_change(|_| Some(Msg::AddressEdited));
         let go = Button::new(ui, at.go, "Go")?.on_click(|| Some(Msg::Go));
         let status = Label::new(ui, at.status, "")?;
+        // The first page loads without passing through `open`.
+        let initial = if first == start_url { START } else { &first };
+        println!("WEB:NAV:{}", marker_text(initial));
+        println!("WEB:TIME:{}ms:nav", trace::now_ms());
         let view = NetSurfView::new(ui, at.view, &first, || Msg::Frame)?;
 
         let field = address.id();

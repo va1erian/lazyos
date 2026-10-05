@@ -97,6 +97,7 @@ browser started. Then come its status (`FAIL` when there was no response) and
 the time of each step in milliseconds: the name lookup, the TCP connect, the
 TLS handshake, the wait for the response headers and the body. A step that
 did not happen shows `-`: `tls` on `http:`, or `dns` after a failed lookup.
-Name lookups are cached for a minute, so later fetches from the same host show
-`dns=0`. `WEB:TIME` marks when a navigation started, finished or failed, on
+Successful name lookups are cached by `host:port` for up to a minute, so later
+fetches to the same `host:port` show `dns=0`; failed lookups are not cached.
+The URL is shown without its user name, password or query values. `WEB:TIME` marks when a navigation started, finished or failed, on
 the same clock.
