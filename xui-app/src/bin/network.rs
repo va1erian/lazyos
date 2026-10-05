@@ -16,25 +16,27 @@
 //! `NETAPP:APPLY:PASS mode=<dhcp|static>` or `NETAPP:APPLY:REFUSED` on Apply;
 //! `NETAPP:RENEW:PASS`/`FAIL` on Renew; `NETAPP:CLOSE:PASS` on close.
 
-use std::rc::Rc;
-
-use xui_app::backend::LazyOSBackend;
+use xui_app::launch;
 use xui_app::net::model::{self, Form, NetStatus, Write};
 use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
-use xui_app::themed::run_themed;
 use xui_confd_editor::store::StoreError as ConfStoreError;
 use xui_core::app::{App, Ui};
-use xui_core::backend::PlatformSpec;
-use xui_core::widget::{Button, Edit, GroupBox, Label, RadioGroup};
-use xui_core::{Dip, HasText, Rect};
+use xui_core::backend::WidgetId;
+use xui_core::geometry::{Rect, Size};
+use xui_core::layout::Constraints;
+use xui_core::prelude::*;
+use xui_core::widget::{Placeable, RadioGroup};
 use xui_settings::store::{ConfigStore, Value};
 
 /// The window size when a compositor lays the app out.
 const WINDOW: (i32, i32) = (600, 470);
 /// How often the status refreshes.
 const REFRESH_MILLIS: u32 = 1000;
+/// The design height of one radio option (`RadioGroup` draws them 28 tall).
+const RADIO_ROW: Dip = Dip(28.0);
 
+#[derive(Clone)]
 enum Msg {
     Tick,
     Apply,
@@ -43,24 +45,121 @@ enum Msg {
     Close,
 }
 
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    // Design pixels, at the desktop's UI scale (docs/hidpi-plan.md).
-    xui_app::hidpi::rect(x, y, w, h)
-}
-
 /// The status rows: caption, then the line it shows.
 const STATUS_ROWS: [&str; 5] = ["Interface", "Mode", "Address", "Gateway", "Traffic"];
 
-/// Widgets held only so they live as long as the window.
-type Keep = (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>);
+/// The mode choice as a layout entry. A `RadioGroup` is one node per option
+/// and not `Placeable`, so this stacks the options in the rectangle the layout
+/// gives the first one.
+struct ModeChoice {
+    group: RadioGroup<Msg>,
+    ids: Vec<WidgetId>,
+}
+
+impl ModeChoice {
+    fn new(ui: &Ui<Msg>) -> xui_core::backend::Result<ModeChoice> {
+        let group = RadioGroup::new(
+            ui,
+            Rect::default(),
+            &["Automatic (DHCP)", "Manual (static address)"],
+        )?;
+        let ids = group.ids();
+        Ok(ModeChoice { group, ids })
+    }
+}
+
+impl Placeable<Msg> for ModeChoice {
+    fn id(&self) -> WidgetId {
+        self.ids[0]
+    }
+
+    fn measure(&self, _ui: &Ui<Msg>, constraints: Constraints) -> Size {
+        let row = RADIO_ROW.to_px(constraints.dpi).value();
+        Size::new(0, row * self.ids.len() as i32)
+    }
+
+    fn placed(&self, ui: &Ui<Msg>, rect: Rect) {
+        let row = rect.height() / self.ids.len() as i32;
+        let moves: Vec<(WidgetId, Rect)> = self
+            .ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| {
+                let top = rect.top + row * index as i32;
+                (*id, Rect::new(rect.left, top, rect.right, top + row))
+            })
+            .collect();
+        ui.apply_moves(&moves);
+    }
+}
+
+/// Every widget the app reads or changes after start-up.
+#[derive(Default)]
+struct Widgets {
+    values: [Handle<Label<Msg>>; 5],
+    mode: Handle<ModeChoice>,
+    address: Handle<Edit<Msg>>,
+    gateway: Handle<Edit<Msg>>,
+    dns: Handle<Edit<Msg>>,
+    message: Handle<Label<Msg>>,
+}
+
+impl Widgets {
+    /// The Status group over the Configuration group and the message line.
+    /// The sizes keep the options and the buttons where the `net_config`
+    /// session clicks.
+    fn layout(&self) -> Layout<Msg> {
+        let mut status = Vec::new();
+        for (caption, value) in STATUS_ROWS.iter().zip(&self.values) {
+            status.push(label(*caption).into_entry());
+            status.push(label("...").bind(value).into_entry());
+        }
+        let mut fields = Vec::new();
+        for (caption, handle, cue) in [
+            ("Address / prefix", &self.address, "192.168.1.20/24"),
+            ("Gateway", &self.gateway, "192.168.1.1 (optional)"),
+            ("DNS server", &self.dns, "10.0.2.3 (optional)"),
+        ] {
+            fields.push(
+                row()
+                    .gap(8)
+                    .children((
+                        label(caption).width(132).align(Align::Center),
+                        edit().placeholder(cue).bind(handle).width(200),
+                    ))
+                    .into_entry(),
+            );
+        }
+        column()
+            .padding(Insets::new(Dip(12.0), Dip(8.0), Dip(12.0), Dip(8.0)))
+            .gap(8)
+            .children((
+                group(
+                    "Status",
+                    grid([Track::Fixed(Dip(100.0)), Track::Fill(1)]).children(status),
+                ),
+                group(
+                    "Configuration",
+                    column().gap(8).children((
+                        build(ModeChoice::new).bind(&self.mode),
+                        row().gap(12).children((
+                            column().gap(8).children(fields),
+                            label("Used in Manual mode.").align(Align::Start),
+                        )),
+                        row().gap(8).children((
+                            button("Apply").on_click(Msg::Apply).width(90),
+                            button("Renew lease").on_click(Msg::Renew).width(120),
+                            button("Revert").on_click(Msg::Revert).width(90),
+                        )),
+                    )),
+                ),
+                label("").bind(&self.message).fixed(44),
+            ))
+    }
+}
 
 struct Network {
-    values: Vec<Label<Msg>>,
-    mode: RadioGroup<Msg>,
-    address: Edit<Msg>,
-    gateway: Edit<Msg>,
-    dns: Edit<Msg>,
-    message: Label<Msg>,
+    w: Widgets,
     store: ConfdStore,
     status: Option<NetStatus>,
     /// The address last reported on serial, so a change is reported once.
@@ -68,7 +167,6 @@ struct Network {
     /// Whether the form has been filled (it waits for the first status, so
     /// Manual starts from the live address).
     filled: bool,
-    _keep: Keep,
 }
 
 impl App for Network {
@@ -81,7 +179,9 @@ impl App for Network {
             Msg::Renew => self.renew(),
             Msg::Revert => {
                 self.fill();
-                self.message
+                self.w
+                    .message
+                    .get()
                     .set_text("Form reset to the saved configuration.");
             }
             Msg::Close => {
@@ -93,62 +193,6 @@ impl App for Network {
 }
 
 impl Network {
-    fn build(ui: &Ui<Msg>) -> xui_core::backend::Result<Network> {
-        let width = xui_app::hidpi::design_rect(ui).width().max(WINDOW.0);
-        let inner = width - 24;
-        let groups = vec![
-            GroupBox::new(ui, rect(12, 8, inner, 156), "Status")?,
-            GroupBox::new(ui, rect(12, 172, inner, 236), "Configuration")?,
-        ];
-        let mut labels = Vec::new();
-        let mut values = Vec::new();
-        for (row, caption) in STATUS_ROWS.iter().enumerate() {
-            let y = 34 + row as i32 * 24;
-            labels.push(Label::new(ui, rect(28, y, 90, 20), caption)?);
-            values.push(Label::new(ui, rect(120, y, inner - 120, 20), "...")?);
-        }
-        let mode = RadioGroup::new(
-            ui,
-            rect(28, 196, 320, 56),
-            &["Automatic (DHCP)", "Manual (static address)"],
-        )?;
-        let fields = [
-            ("Address / prefix", 264),
-            ("Gateway", 296),
-            ("DNS server", 328),
-        ];
-        for (caption, y) in fields {
-            labels.push(Label::new(ui, rect(28, y + 4, 130, 20), caption)?);
-        }
-        let address = Edit::new(ui, rect(160, 264, 200, 26), "")?.cue("192.168.1.20/24");
-        let gateway = Edit::new(ui, rect(160, 296, 200, 26), "")?.cue("192.168.1.1 (optional)");
-        let dns = Edit::new(ui, rect(160, 328, 200, 26), "")?.cue("10.0.2.3 (optional)");
-        labels.push(Label::new(
-            ui,
-            rect(372, 268, inner - 372, 60),
-            "Used in Manual mode.",
-        )?);
-        let buttons = vec![
-            Button::new(ui, rect(28, 366, 90, 30), "Apply")?.on_click(|| Some(Msg::Apply)),
-            Button::new(ui, rect(126, 366, 120, 30), "Renew lease")?.on_click(|| Some(Msg::Renew)),
-            Button::new(ui, rect(254, 366, 90, 30), "Revert")?.on_click(|| Some(Msg::Revert)),
-        ];
-        let message = Label::new(ui, rect(16, 416, inner, 44), "")?;
-        Ok(Network {
-            values,
-            mode,
-            address,
-            gateway,
-            dns,
-            message,
-            store: ConfdStore::new(),
-            status: None,
-            reported: None,
-            filled: false,
-            _keep: (labels, buttons, groups),
-        })
-    }
-
     /// Read the stack and show it; fill the form once the first answer is in.
     fn refresh(&mut self) {
         match stack::status() {
@@ -160,8 +204,8 @@ impl Network {
                     status.gateway_line(),
                     status.traffic_line(),
                 ];
-                for (label, line) in self.values.iter().zip(lines) {
-                    label.set_text(&line);
+                for (label, line) in self.w.values.iter().zip(lines) {
+                    label.get().set_text(&line);
                 }
                 let cidr = status.cidr();
                 if cidr.is_some() && cidr != self.reported {
@@ -180,9 +224,9 @@ impl Network {
                 if self.status.is_some() || !self.filled {
                     println!("NETAPP:STATUS:NOSTACK {}", error.describe());
                 }
-                self.values[0].set_text(&error.describe());
-                for label in &self.values[1..] {
-                    label.set_text("-");
+                self.w.values[0].get().set_text(&error.describe());
+                for label in &self.w.values[1..] {
+                    label.get().set_text("-");
                 }
                 self.status = None;
             }
@@ -205,18 +249,18 @@ impl Network {
             stored,
             self.status.as_ref().unwrap_or(&NetStatus::default()),
         );
-        self.mode.select(usize::from(form.manual));
-        self.address.set_text(&form.address);
-        self.gateway.set_text(&form.gateway);
-        self.dns.set_text(&form.dns);
+        self.w.mode.get().group.select(usize::from(form.manual));
+        self.w.address.get().set_text(&form.address);
+        self.w.gateway.get().set_text(&form.gateway);
+        self.w.dns.get().set_text(&form.dns);
     }
 
     fn form(&self) -> Form {
         Form {
-            manual: self.mode.selected() == 1,
-            address: self.address.text(),
-            gateway: self.gateway.text(),
-            dns: self.dns.text(),
+            manual: self.w.mode.get().group.selected() == 1,
+            address: self.w.address.get().text(),
+            gateway: self.w.gateway.get().text(),
+            dns: self.w.dns.get().text(),
         }
     }
 
@@ -227,7 +271,7 @@ impl Network {
             Ok(writes) => writes,
             Err(why) => {
                 println!("NETAPP:APPLY:REFUSED");
-                self.message.set_text(&why);
+                self.w.message.get().set_text(&why);
                 return;
             }
         };
@@ -245,13 +289,16 @@ impl Network {
             };
             if let Err(error) = outcome {
                 println!("NETAPP:APPLY:FAIL");
-                self.message.set_text(&format!("Could not save: {error}"));
+                self.w
+                    .message
+                    .get()
+                    .set_text(&format!("Could not save: {error}"));
                 return;
             }
         }
         let mode = if form.manual { "static" } else { "dhcp" };
         println!("NETAPP:APPLY:PASS mode={mode}");
-        self.message.set_text(if form.manual {
+        self.w.message.get().set_text(if form.manual {
             "Saved. The network stack restarts with the manual address within a few seconds."
         } else {
             "Saved. The network stack restarts with DHCP within a few seconds."
@@ -262,49 +309,38 @@ impl Network {
         match stack::renew() {
             Ok(()) => {
                 println!("NETAPP:RENEW:PASS");
-                self.message
+                self.w
+                    .message
+                    .get()
                     .set_text("Asked the DHCP server for a fresh lease.");
             }
             Err(error) => {
                 println!("NETAPP:RENEW:FAIL");
-                self.message
+                self.w
+                    .message
+                    .get()
                     .set_text(&format!("Renew failed: {}", error.describe()));
             }
         }
     }
 }
 
-fn main() -> std::process::ExitCode {
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("NETAPP:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
-    let spec = PlatformSpec::new("Network").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, |ui| {
-        let mut app = match Network::build(ui) {
-            Ok(app) => app,
-            Err(error) => {
-                println!("NETAPP:BUILD:FAIL:{error}");
-                std::process::exit(1);
-            }
+fn main() {
+    launch::run("NETAPP", "Network", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
+        let w = Widgets::default();
+        ui.root(w.layout())
+            .inspect_err(|error| println!("NETAPP:BUILD:FAIL:{error}"))?;
+        ui.every(REFRESH_MILLIS, Msg::Tick);
+        ui.on_close(|| Some(Msg::Close));
+        let mut app = Network {
+            w,
+            store: ConfdStore::new(),
+            status: None,
+            reported: None,
+            filled: false,
         };
         app.refresh();
-        ui.on_timer(|_| Some(Msg::Tick));
-        ui.set_timer(REFRESH_MILLIS);
-        ui.on_close(|| Some(Msg::Close));
-        app
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("NETAPP:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+        Ok(app)
+    })
 }
