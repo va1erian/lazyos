@@ -5,6 +5,7 @@
 //! [`files`].
 
 pub mod files;
+pub mod print;
 
 use xui_core::Dip;
 use xui_core::app::Ui;
@@ -61,7 +62,7 @@ pub fn refresh_table(app: &Writer) {
 /// caret is.
 pub fn table_menu(app: &mut Writer, ui: &mut Ui<Msg>) {
     table_menu::sync(&app.dialogs.table, app.editor.table_cursor().as_ref());
-    let at = ui.bounds(app.tools.table.id());
+    let at = ui.bounds(app.tools.table.get().id());
     app.dialogs.table.show_context(at.left, at.bottom);
 }
 
@@ -92,7 +93,7 @@ pub fn page_view(app: &mut Writer, on: bool) {
 pub fn page_menu(app: &mut Writer, ui: &mut Ui<Msg>) {
     let choice = app.editor.with_document(|d| Choice::of(d.page()));
     page_menu::sync(&app.dialogs.page, choice);
-    let at = ui.bounds(app.tools.page_setup.id());
+    let at = ui.bounds(app.tools.page_setup.get().id());
     app.dialogs.page.show_context(at.left, at.bottom);
 }
 

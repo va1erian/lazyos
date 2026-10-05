@@ -8,7 +8,7 @@ use std::rc::Rc;
 use lazyarc::format::{Format, Level, ALL as FORMATS};
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build as build_with, button, column, combo_box, label, progress, row, status_bar, Handle,
+    build as create, button, column, combo_box, label, progress, row, status_bar, Handle,
     LayoutExt, Mounted,
 };
 use xui_core::backend::{Result, WidgetId};
@@ -97,26 +97,25 @@ impl Placeable<Msg> for ToolbarPane {
 }
 
 fn toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
-    Ok(ToolbarPane(
-        Toolbar::empty(ui, Rect::default())?
-            .item_with_text(Lucide::FolderOpen, "Open an archive (Ctrl+O)", "Open")
-            .item_with_text(Lucide::Package, "New archive (Ctrl+N)", "New")
-            .item_with_text(Lucide::Plus, "Add a file to the archive", "Add")
-            .item_with_text(
-                Lucide::Download,
-                "Extract the selection or everything (Ctrl+E)",
-                "Extract",
-            )
-            .item_with_text(Lucide::Check, "Test the archive's checksums", "Test")
-            .item_with_text(
-                Lucide::Trash2,
-                "Delete the selection from the archive (Del)",
-                "Delete",
-            )
-            .separator()
-            .item_with_text(Lucide::ChevronUp, "Up one folder (Backspace)", "Up")
-            .on_click(|index| COMMANDS.get(index).map(|msg| msg())),
-    ))
+    let toolbar = Toolbar::empty(ui, Rect::default())?
+        .item_with_text(Lucide::FolderOpen, "Open an archive (Ctrl+O)", "Open")
+        .item_with_text(Lucide::Package, "New archive (Ctrl+N)", "New")
+        .item_with_text(Lucide::Plus, "Add a file to the archive", "Add")
+        .item_with_text(
+            Lucide::Download,
+            "Extract the selection or everything (Ctrl+E)",
+            "Extract",
+        )
+        .item_with_text(Lucide::Check, "Test the archive's checksums", "Test")
+        .item_with_text(
+            Lucide::Trash2,
+            "Delete the selection from the archive (Del)",
+            "Delete",
+        )
+        .separator()
+        .item_with_text(Lucide::ChevronUp, "Up one folder (Backspace)", "Up")
+        .on_click(|index| COMMANDS.get(index).map(|msg| msg()));
+    Ok(ToolbarPane(toolbar))
 }
 
 fn list(ui: &Ui<Msg>) -> Result<ListView<Msg>> {
@@ -186,68 +185,14 @@ fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
 
 /// Builds the window's widgets and mounts the layout.
 pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
-    let (list_h, address, welcome, level) =
-        (Handle::new(), Handle::new(), Handle::new(), Handle::new());
-    let (bar, progress_label, cancel, status) =
-        (Handle::new(), Handle::new(), Handle::new(), Handle::new());
-    let labels: Vec<&str> = Level::ALL.iter().map(|level| level.label()).collect();
-    let normal = Level::ALL
-        .iter()
-        .position(|l| *l == Level::Normal)
-        .unwrap_or(0);
-    let mounted = ui.mount(
-        column().children((
-            row()
-                .gap(6)
-                .children((
-                    build_with(toolbar).fill(1),
-                    row()
-                        .gap(6)
-                        .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
-                        .children((
-                            label("Level"),
-                            combo_box(&labels)
-                                .bind(&level)
-                                .on_select(Msg::Level)
-                                .then(move |level| {
-                                    level.select(normal);
-                                    level
-                                })
-                                .width(104),
-                        ))
-                        .fixed(166),
-                ))
-                .fixed(TOOLBAR_HEIGHT),
-            row()
-                .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .child(label("").bind(&address).fill(1))
-                .fixed(ADDRESS_HEIGHT),
-            build_with(list).bind(&list_h).fill(1),
-            row()
-                .padding(Insets::symmetric(Dip(16.0), Dip(0.0)))
-                .child(
-                    label(
-                        "Drop an archive here to open it, or files and folders to make a new one.",
-                    )
-                    .bind(&welcome)
-                    .fill(1),
-                )
-                .fill(1),
-            row()
-                .gap(6)
-                .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .children((
-                    label("").bind(&progress_label).width(300),
-                    progress(1000).bind(&bar).fill(1),
-                    button("Cancel")
-                        .bind(&cancel)
-                        .on_click_with(|| Some(Msg::Cancel))
-                        .width(84),
-                ))
-                .fixed(PROGRESS_HEIGHT),
-            status_bar(&["Ready", "", ""]).bind(&status),
-        )),
-    )?;
+    let list = Handle::new();
+    let address = Handle::new();
+    let welcome = Handle::new();
+    let level = Handle::new();
+    let progress_bar = Handle::new();
+    let progress_label = Handle::new();
+    let cancel = Handle::new();
+    let status = Handle::new();
     let menu = Menu::context(ui)
         .build(|scope| {
             scope.item(MENU_OPEN, "Open");
@@ -258,12 +203,69 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
         })
         .on_select(|id| Some(Msg::Menu(id)));
     let dialogs = dialogs(ui, host)?;
+
+    let levels: Vec<&str> = Level::ALL.iter().map(|level| level.label()).collect();
+    let normal = Level::ALL
+        .iter()
+        .position(|l| *l == Level::Normal)
+        .unwrap_or(0);
+    let gap = 6;
+    let root = column().children((
+        row()
+            .gap(gap)
+            .children((
+                create(toolbar).fill(1),
+                row()
+                    .gap(gap)
+                    .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
+                    .children((
+                        label("Level"),
+                        combo_box(&levels)
+                            .bind(&level)
+                            .on_select(Msg::Level)
+                            .then(move |level| {
+                                level.select(normal);
+                                level
+                            })
+                            .width(104),
+                    ))
+                    .fixed(166),
+            ))
+            .fixed(TOOLBAR_HEIGHT),
+        row()
+            .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
+            .child(label("").bind(&address).fill(1))
+            .fixed(ADDRESS_HEIGHT),
+        create(self::list).bind(&list).fill(1),
+        row()
+            .padding(Insets::symmetric(Dip(16.0), Dip(0.0)))
+            .child(
+                label("Drop an archive here to open it, or files and folders to make a new one.")
+                    .bind(&welcome)
+                    .fill(1),
+            )
+            .fill(1),
+        row()
+            .gap(gap)
+            .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
+            .children((
+                label("").bind(&progress_label).width(300),
+                progress(1000).bind(&progress_bar).fill(1),
+                button("Cancel")
+                    .bind(&cancel)
+                    .on_click_with(|| Some(Msg::Cancel))
+                    .width(84),
+            ))
+            .fixed(PROGRESS_HEIGHT),
+        status_bar(&["Ready", "", ""]).bind(&status),
+    ));
+    let mounted = ui.mount(root)?;
     let widgets = Widgets {
-        list: list_h.get(),
+        list: list.get(),
         address: address.get(),
         welcome: welcome.get(),
         level: level.get(),
-        progress: bar.get(),
+        progress: progress_bar.get(),
         progress_label: progress_label.get(),
         cancel: cancel.get(),
         status: status.get(),

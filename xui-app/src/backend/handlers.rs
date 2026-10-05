@@ -101,22 +101,9 @@ impl Backend for LazyOSBackend {
         // Declare the window resizable (if the app opted in) right after
         // `CreateSurface`, before any input can reach it. The desktop and
         // panels are chromeless and fixed-size.
-        let hints = self
-            .size_hints
-            .get()
-            .filter(|_| role == SurfaceRole::Window);
-        if let (Some((min_w, min_h, max_w, max_h)), Some(surface), Mode::Client(state)) =
-            (hints, client.as_ref(), &self.mode)
-        {
-            // Design pixels to screen pixels; a `max` of 0 stays "the screen".
-            let scale = self.scale();
-            let (min_w, min_h, max_w, max_h) =
-                (min_w * scale, min_h * scale, max_w * scale, max_h * scale);
-            let _ =
-                state
-                    .borrow()
-                    .client
-                    .set_size_hints(surface.surface, min_w, min_h, max_w, max_h);
+        let resizable = role == SurfaceRole::Window;
+        if let (true, Some(surface)) = (resizable, client.as_ref()) {
+            self.send_size_hints(surface.surface);
         }
         self.windows.borrow_mut().insert(
             id.raw(),
@@ -130,6 +117,7 @@ impl Backend for LazyOSBackend {
                 width: width as i32,
                 height: height as i32,
                 client,
+                resizable,
             },
         );
         if self.is_client() {
@@ -256,11 +244,15 @@ impl Backend for LazyOSBackend {
     }
 
     fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
+        let mut resized = Vec::new();
         let mut nodes = self.nodes.borrow_mut();
         for (id, rect) in moves {
             let Some(index) = nodes.iter().position(|(node_id, _)| node_id == id) else {
                 continue;
             };
+            if nodes[index].1.bounds.size() != rect.size() {
+                resized.push((*id, *rect));
+            }
             // Damage is window-absolute: the old and the new position of the
             // node and of every descendant (a child may extend past its parent).
             let family = self.is_client().then(|| family(&nodes, *id));
@@ -277,6 +269,21 @@ impl Backend for LazyOSBackend {
             for area in before.into_iter().chain(after) {
                 self.add_damage(window, area);
             }
+        }
+        drop(nodes);
+        // As xui-canvas does: a moved node gets no other size notification,
+        // so a resized one is told directly. A layout mounted in a container
+        // (a tab page, a settings page) re-flows on it, and a widget with
+        // satellite nodes (a tree's scrollbar) re-lays them.
+        for (id, rect) in resized {
+            self.deliver(
+                window,
+                id,
+                &Event::Resize {
+                    width: rect.width(),
+                    height: rect.height(),
+                },
+            );
         }
     }
 

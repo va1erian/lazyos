@@ -29,11 +29,15 @@ pub struct Host {
     pub serif_family: String,
     /// The family the Mono choice names.
     pub mono_family: String,
+    /// The printer the last successful job went to, for the print bar.
+    pub last_printer: Rc<dyn Fn() -> Option<String>>,
+    /// Remembers a printer that took a job.
+    pub remember_printer: Rc<dyn Fn(&str)>,
 }
 
 impl Host {
-    /// A host over `std::fs` with plain (non-atomic) writes, for tests and
-    /// host runs.
+    /// A host over `std::fs` with plain (non-atomic) writes and no memory of
+    /// printers, for tests and host runs.
     pub fn std(start_dir: impl Into<PathBuf>) -> Host {
         Host {
             write: Rc::new(|path, bytes| std::fs::write(path, bytes).map_err(|e| e.to_string())),
@@ -41,6 +45,8 @@ impl Host {
             file_system: Rc::new(StdFileSystem),
             serif_family: "serif".to_owned(),
             mono_family: "monospace".to_owned(),
+            last_printer: Rc::new(|| None),
+            remember_printer: Rc::new(|_| {}),
         }
     }
 }

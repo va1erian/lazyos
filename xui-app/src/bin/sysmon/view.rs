@@ -291,8 +291,9 @@ impl Widgets {
         ));
     }
 
-    /// Fills the Services tab.
-    pub(crate) fn show_services(&self, view: &Services) {
+    /// Fills the Services tab. The note line is hidden while there is
+    /// nothing to say, so it leaves no gap above the table.
+    pub(crate) fn show_services(&self, ui: &Ui<Msg>, view: &Services) {
         let (good, warn, bad) = view.counts();
         let mut heading = format!(
             "Services — {} listed · {good} ok · {warn} degraded · {bad} down",
@@ -313,7 +314,9 @@ impl Widgets {
             notes
                 .push("No supervised services (is the image built with LAZYOS_SERVICES=1?)".into());
         }
-        self.services_note.get().set_text(&notes.join(" · "));
+        let note = self.services_note.get();
+        note.set_text(&notes.join(" · "));
+        ui.set_visible(note.id(), !notes.is_empty());
         let rows: Vec<Vec<String>> = view
             .rows
             .iter()
