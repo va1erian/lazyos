@@ -1,16 +1,16 @@
 //! The About page: OS version, uptime, and where the settings are stored.
 
+use std::rc::Rc;
+
 use xui_core::app::Ui;
-use xui_core::backend::Result;
-use xui_core::widget::{Button, Label, Panel};
-use xui_core::{HasText, Rect};
+use xui_core::arrange::{button, column, grid, label, Handle, IntoEntry, LayoutExt, Mounted};
+use xui_core::backend::{Result, WidgetId};
+use xui_core::layout::{Align, Track};
+use xui_core::widget::Label;
+use xui_core::HasText;
 
 use crate::app::Msg;
 use crate::system::{StoreStatus, System};
-
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
-}
 
 /// `1 d 02:03:04`-style uptime text.
 pub fn uptime_text(secs: u64) -> String {
@@ -37,45 +37,44 @@ pub fn persistence_text(status: Option<&StoreStatus>) -> String {
     }
 }
 
-/// The page's widgets: a fixed column of captions and their values.
+/// The page's widgets: captions beside their values.
 pub struct AboutPage {
-    panel: Panel<Msg>,
-    version: Label<Msg>,
-    uptime: Label<Msg>,
-    store: Label<Msg>,
-    persistence: Label<Msg>,
-    _labels: Vec<Label<Msg>>,
-    _refresh: Button<Msg>,
+    version: Rc<Label<Msg>>,
+    uptime: Rc<Label<Msg>>,
+    store: Rc<Label<Msg>>,
+    persistence: Rc<Label<Msg>>,
+    _mounted: Mounted<Msg>,
 }
 
 impl AboutPage {
-    /// Build the page (hidden state is the caller's job) inside `bounds`.
-    pub fn build(ui: &Ui<Msg>, bounds: Rect) -> Result<AboutPage> {
-        let panel = Panel::new(ui, bounds)?;
-        let p = panel.ui();
-        let caption = |y, text| Label::new(p, rect(20, y, 130, 20), text);
-        let value = |y| Label::new(p, rect(150, y, 320, 20), "");
-        let labels = vec![
-            caption(14, "Version")?,
-            caption(44, "Uptime")?,
-            caption(74, "Settings store")?,
-            caption(104, "Persistence")?,
-        ];
-        let page = AboutPage {
-            version: value(14)?,
-            uptime: value(44)?,
-            store: value(74)?,
-            persistence: Label::new(p, rect(150, 104, 320, 40), "")?,
-            _labels: labels,
-            _refresh: Button::new(p, rect(20, 150, 100, 28), "Refresh")?
-                .on_click(|| Some(Msg::AboutRefresh)),
-            panel,
-        };
-        Ok(page)
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.panel.set_visible(visible);
+    /// Lays the page out in the container `page`.
+    pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<AboutPage> {
+        let values: [Handle<Label<Msg>>; 4] = Default::default();
+        let mut cells = Vec::new();
+        for (caption, value) in ["Version", "Uptime", "Settings store", "Persistence"]
+            .into_iter()
+            .zip(&values)
+        {
+            cells.push(label(caption).into_entry());
+            cells.push(label("").bind(value).into_entry());
+        }
+        let mounted = ui.mount_in(
+            page,
+            column().padding(20).gap(16).children((
+                grid([Track::Auto, Track::Fill(1)]).gap(12).children(cells),
+                button("Refresh")
+                    .on_click(Msg::AboutRefresh)
+                    .align(Align::Start),
+            )),
+        )?;
+        let [version, uptime, store, persistence] = values;
+        Ok(AboutPage {
+            version: version.get(),
+            uptime: uptime.get(),
+            store: store.get(),
+            persistence: persistence.get(),
+            _mounted: mounted,
+        })
     }
 
     /// Re-read every value.

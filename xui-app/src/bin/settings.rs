@@ -7,49 +7,22 @@
 //! pick changes up live, and an [`OsSystem`] over `timed`, `confd` and
 //! `sysinfo` for the Time & Date and About pages.
 //!
-//! Serial evidence: `SETTINGS:UP:PASS` after the first frame.
+//! Serial evidence: `SETTINGS:UP:PASS` after the first frame;
+//! `SETTINGS:BUILD:FAIL:<error>` when the window cannot be built (then
+//! `SETTINGS:RUN:FAIL:<error>`), and `SETTINGS:BIND:FAIL:<errno>` without a
+//! display.
 
 use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
+use xui_app::launch;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::system::OsSystem;
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
-use xui_core::units::Dip;
 use xui_settings::app::{SettingsApp, WINDOW};
 
-fn main() -> std::process::ExitCode {
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("SETTINGS:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
-
-    let spec = PlatformSpec::new("Settings").size(Dip(width as f32), Dip(height as f32));
-    let outcome =
-        run_app(
-            Rc::clone(&backend) as Rc<dyn Backend>,
-            spec,
-            |ui| match SettingsApp::build(ui, Rc::new(ConfdStore::new()), Rc::new(OsSystem::new()))
-            {
-                Ok(app) => app,
-                Err(error) => {
-                    println!("SETTINGS:BUILD:FAIL:{error}");
-                    std::process::exit(1);
-                }
-            },
-        );
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("SETTINGS:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+fn main() {
+    launch::run("SETTINGS", "Settings", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
+        SettingsApp::build(ui, Rc::new(ConfdStore::new()), Rc::new(OsSystem::new()))
+            .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
+    })
 }
