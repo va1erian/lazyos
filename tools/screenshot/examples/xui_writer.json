@@ -75,7 +75,7 @@
   {"at": 73.9, "mouse_move": [-300, -300]},
   {"at": 74.1, "mouse_move": [-300, -300]},
   {"at": 74.3, "mouse_move": [-300, -300]},
-  {"at": 74.6, "mouse_move": [698, 0], "note": "toolbar: Image (after New Open Save Export | Undo Redo | Cut Copy Paste |) (pointer pinned at 0,0, then along the top edge and down, crossing no other control)"},
+  {"at": 74.6, "mouse_move": [761, 0], "note": "toolbar: Image (after New Open Save Export Print | Undo Redo | Cut Copy Paste |) (pointer pinned at 0,0, then along the top edge and down, crossing no other control)"},
   {"at": 74.9, "mouse_move": [0, 87]},
   {"at": 75.5, "mouse_click": "left"},
   {"at": 78.5, "shot": "05_image_dialog"},

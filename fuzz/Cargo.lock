@@ -244,6 +244,10 @@ name = "inputmap"
 version = "0.1.0"
 
 [[package]]
+name = "ipp"
+version = "0.1.0"
+
+[[package]]
 name = "jobserver"
 version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -271,12 +275,14 @@ dependencies = [
  "ext2fs",
  "framering",
  "inputmap",
+ "ipp",
  "lazypkg",
  "libfuzzer-sys",
  "modplay",
  "netstack",
  "nicdrv",
  "nvme",
+ "raster",
  "usbhid",
  "usbmsc",
  "virtio-net",
@@ -399,6 +405,10 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+
+[[package]]
+name = "raster"
+version = "0.1.0"
 
 [[package]]
 name = "scopeguard"
