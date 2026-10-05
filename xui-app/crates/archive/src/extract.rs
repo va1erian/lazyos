@@ -204,34 +204,50 @@ fn write_file(
         Ok(_) => match overwrite {
             Overwrite::Skip => return Ok(Written::Skipped("it already exists".to_owned())),
             Overwrite::Rename => safety::unique(target),
-            Overwrite::Replace => {
-                // Remove the old file (or link) so the new one is created
-                // fresh, never written through a link.
-                fs::remove_file(target)?;
-                target.to_path_buf()
-            }
+            Overwrite::Replace => target.to_path_buf(),
         },
         Err(_) => target.to_path_buf(),
     };
+    // The data goes to a fresh sibling first and replaces the target only
+    // once it is complete, so a damaged member never costs the file it
+    // would have replaced. The rename replaces a link itself, never writing
+    // through it.
+    let partial = partial_sibling(&target);
     let mut out = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&target)?;
+        .open(&partial)?;
     let copied = io::copy(data, &mut out);
     drop(out);
     match copied {
         Ok(bytes) => {
+            if let Err(error) = fs::rename(&partial, &target) {
+                let _ = fs::remove_file(&partial);
+                return Err(Error::Io(error));
+            }
             finish_file(&target, entry);
             Ok(Written::Done(target, bytes))
         }
         Err(error) => {
-            let _ = fs::remove_file(&target);
+            let _ = fs::remove_file(&partial);
             match Error::from(error) {
                 Error::Corrupt(reason) | Error::Unsupported(reason) => Ok(Written::Skipped(reason)),
                 other => Err(other),
             }
         }
     }
+}
+
+/// A unique temporary name beside `target` for a file being written.
+fn partial_sibling(target: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    target.with_file_name(format!(".{name}.part-{}-{n}", std::process::id()))
 }
 
 /// Restore what the archive says about a file's mode and time, best-effort

@@ -334,3 +334,50 @@ fn a_test_passes_for_good_archives_and_reports_damage() {
     assert_eq!(report.skipped.len(), 1);
     assert_eq!(report.skipped[0].0, "project/src/main.rs");
 }
+
+#[test]
+fn a_damaged_member_never_costs_the_file_it_would_replace() {
+    let scratch = Scratch::new("keep-on-damage");
+    let project = sample_tree(&scratch.0);
+    let dest = scratch.join("a.zip");
+    create::create(
+        &dest,
+        Format::Zip,
+        Level::Store,
+        &Source::under("", std::slice::from_ref(&project)),
+        &progress(),
+    )
+    .unwrap();
+    let mut bytes = fs::read(&dest).unwrap();
+    let at = bytes.windows(8).position(|w| w == b"line 100").unwrap();
+    bytes[at] = b'L';
+    fs::write(&dest, bytes).unwrap();
+    let out = scratch.join("out");
+    fs::create_dir_all(out.join("project/src")).unwrap();
+    fs::write(out.join("project/src/main.rs"), "mine").unwrap();
+    let archive = Archive::open(&dest, &progress()).unwrap();
+    let options = Options {
+        strip: String::new(),
+        overwrite: Overwrite::Replace,
+    };
+    let report = extract::extract(&archive, &|_| true, &out, &options, &progress()).unwrap();
+    assert!(report
+        .skipped
+        .iter()
+        .any(|(path, _)| path == "project/src/main.rs"));
+    assert_eq!(
+        fs::read_to_string(out.join("project/src/main.rs")).unwrap(),
+        "mine"
+    );
+    // No temporary file is left beside it.
+    let names: Vec<_> = fs::read_dir(out.join("project/src"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(
+        names
+            .iter()
+            .all(|n| !n.to_string_lossy().contains(".part-")),
+        "{names:?}"
+    );
+}
