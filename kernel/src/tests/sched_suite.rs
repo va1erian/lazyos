@@ -321,7 +321,66 @@ pub fn priority_api_and_cpu_accounting() -> Result<(), String> {
     Ok(())
 }
 
+/// A task that wakes, or is forked, while nothing else is runnable joins at
+/// the virtual time the busy tasks reached, not at its old pass: it cannot
+/// then hold the CPU against them for a backlog of quanta. (A shell's child
+/// that spun on a yielding lock once starved `netd` and an FTP daemon for
+/// the 10 s of a FUSE deadline that way.)
+pub fn idle_wake_keeps_virtual_time() -> Result<(), String> {
+    fresh()?;
+    let busy = child(PriorityClass::Normal)?;
+    let sleeper = child(PriorityClass::Normal)?;
+    let naps = task::wait::WaitQueue::new(task::WaitKind::Sleep);
+    let rests = task::wait::WaitQueue::new(task::WaitKind::Sleep);
+    naps.park(sleeper, None);
+    let ticks = 1000usize;
+    let (picks, _) = simulate(ticks);
+    check!(
+        runs(&picks, busy) == ticks,
+        "the busy task ran {} of {ticks} ticks alone",
+        runs(&picks, busy)
+    );
+
+    // Everyone parks: the CPU is idle when the sleeper wakes and when a task
+    // is forked.
+    rests.park(busy, None);
+    task::harness::switch_current(task::KERNEL_TASK);
+    check!(naps.notify_one() == 1, "the sleeper did not wake");
+    let forked = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    // A fork of the kernel task inherits its class; the share below is
+    // within one class.
+    check!(
+        task::set_priority(forked, PriorityClass::Normal),
+        "set_priority({forked}) failed"
+    );
+    let stride = 1024 / u64::from(PriorityClass::Normal.default_weight());
+    let busy_pass = task::harness::pass(busy).ok_or("busy task vanished")?;
+    for (name, slot) in [("woken sleeper", sleeper), ("forked task", forked)] {
+        let pass = task::harness::pass(slot).ok_or("task vanished")?;
+        check!(
+            pass + 2 * stride >= busy_pass,
+            "the {name} joined at pass {pass}, {} strides behind the busy task's {busy_pass}",
+            (busy_pass - pass) / stride
+        );
+    }
+
+    // Back together, they share: the busy task is not shut out.
+    check!(rests.notify_one() == 1, "the busy task did not wake");
+    let (picks, _) = simulate(30);
+    check!(
+        runs(&picks, busy) >= 8,
+        "the busy task ran {} of 30 ticks against the woken and forked tasks: {picks:?}",
+        runs(&picks, busy)
+    );
+    cleanup();
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "task_sched_idle_wake_keeps_virtual_time",
+        idle_wake_keeps_virtual_time,
+    ),
     (
         "task_sched_strict_classes_no_starvation",
         strict_classes_no_starvation,
