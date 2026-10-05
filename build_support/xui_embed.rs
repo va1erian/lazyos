@@ -131,6 +131,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     // The Devices app (issue #481): devices, their owners and the driver
     // class rules, read-only; opened from the menu.
     "xui-devices.elf",
+    // Calculator: A basic calculator.
+    "xui-calc.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build

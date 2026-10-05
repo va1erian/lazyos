@@ -77,8 +77,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 # LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
-# The desktop apps `--devices` opens at boot: the Terminal, then Devices.
-DEVICES_AUTOSTART = "term,devices"
+# The desktop apps `--devices` opens at boot when no list is set: just
+# Devices, since the desktop opens nothing at boot by default.
+DEVICES_AUTOSTART = "devices"
 # The apps every desktop image ships (`build_support/xui_embed.rs`
 # `DESKTOP_XUI_APPS` and `DOCUMENT_XUI_APPS`): the image build fails when one
 # is missing, so a `target/xui` built before an app was added (LazyWriter,
@@ -87,6 +88,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
+    "xui-calc.elf",
 )]
 # The network apps a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / name for name in ("xui-network.elf", "xui-nettools.elf")]
@@ -190,7 +192,7 @@ def build_core_packages() -> bool:
 def with_devices(autostart: str | None) -> str:
     """`LAZYOS_XUI_AUTOSTART` with the Devices app added: an existing list
     (`editor`) keeps its apps and gains `devices` once; no list means
-    [`DEVICES_AUTOSTART`], the Terminal first. Mirrors `lazygui.catalog`."""
+    [`DEVICES_AUTOSTART`] alone. Mirrors `lazygui.catalog`."""
     if not autostart:
         return DEVICES_AUTOSTART
     if "devices" in [item.strip() for item in autostart.split(",")]:
@@ -315,8 +317,9 @@ def main(argv: list[str]) -> int:
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
                              "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
-                             "`devices` to LAZYOS_XUI_AUTOSTART (default "
-                             f"{DEVICES_AUTOSTART})")
+                             "`devices` to LAZYOS_XUI_AUTOSTART (unset: "
+                             f"{DEVICES_AUTOSTART}; set LAZYOS_XUI_AUTOSTART=term,devices "
+                             "to open the Terminal too)")
     parser.add_argument("--timer", choices=["pit", "lapic"],
                         help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
                              "local APIC timer even where the PIT ticks, the path a PC "

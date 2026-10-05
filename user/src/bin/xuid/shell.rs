@@ -189,6 +189,9 @@ impl Compositor {
     /// Focus surface `id` (restoring and raising it), telling the shell about
     /// the restore and the focus change.
     pub(super) fn restore_and_focus(&mut self, id: u64) {
+        // A window still opening lands first: it is hidden while it flies
+        // in, which these state changes would misread as minimized.
+        self.finish_opening();
         let before = self.focused;
         let was_minimized =
             surface_by_id(&self.surfaces, id).is_some_and(|surface| surface.minimized);

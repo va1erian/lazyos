@@ -5,6 +5,9 @@
 //! time. It has no work of its own; declaring itself as its only input keeps it
 //! from rerunning needlessly.
 
+// Named so cargo sees the dependency as used.
+use cc as _;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 }

@@ -1,4 +1,6 @@
-//! The Menu page: edit the desktop right-click menu (`sys/ui/menu`).
+//! The Menu page: the apps pinned to the start menu's root (`sys/ui/menu`),
+//! above the power rows. Every app is in its category's submenu anyway, so
+//! nothing is pinned by default.
 //!
 //! Left, the menu's entries; right, the registry apps not in it yet. Every
 //! button saves through [`menu_ops`] at once, where `xuid` follows the key
@@ -70,12 +72,12 @@ impl MenuPage {
                 column()
                     .gap(8)
                     .children((
-                        label("Menu entries"),
+                        label("Pinned to the start menu"),
                         rows(MenuMsg::Select).bind(&entries).fill(1),
                         row().gap(6).children((
                             command("Move up", MenuMsg::Up),
                             command("Move down", MenuMsg::Down),
-                            command("Remove", MenuMsg::Remove),
+                            command("Unpin", MenuMsg::Remove),
                         )),
                         row().gap(6).children((
                             edit().placeholder("New label").bind(&rename).fill(1),
@@ -86,9 +88,9 @@ impl MenuPage {
                 column()
                     .gap(8)
                     .children((
-                        label("Apps you can add"),
+                        label("Apps you can pin"),
                         rows(MenuMsg::Pick).bind(&available).fill(1),
-                        row().child(command("Add", MenuMsg::Add)),
+                        row().child(command("Pin", MenuMsg::Add)),
                         row().child(command("Reset to defaults", MenuMsg::Reset)),
                     ))
                     .fill(2),

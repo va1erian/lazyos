@@ -151,12 +151,11 @@ impl Compositor {
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
             // Open with a zoom out of the tile the app (or the shell) hinted
-            // at, else out of the window's icon; hidden (as if minimized) so
-            // the wireframe flies over the old screen.
+            // at, else out of the window's icon. The zoom runs from the main
+            // loop (`opening.rs`), so this answers at once and the app builds
+            // and paints its first frame while the wireframe flies in.
             let origin = self.take_open_origin(message.sender);
-            self.set_minimized(id, true);
-            self.open_zoom(id, origin);
-            self.set_minimized(id, false);
+            self.start_opening(id, origin);
             self.repaint_full();
         }
         // Register the surface with `inputd` before the client learns its id,

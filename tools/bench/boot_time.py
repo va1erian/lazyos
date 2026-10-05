@@ -55,7 +55,8 @@ MILESTONES: list[tuple[str, str, int]] = [
     ("desktop_ready", r"^XUID:UP:PASS", 1),
     ("clients_ready", r"^XDEMO:UP:PASS", 2),
     # The full desktop (`LAZYOS_DESKTOP=1`): init's autostart opened the shell
-    # and the Terminal, and each painted its first frame.
+    # (and the Terminal, when built with `LAZYOS_XUI_AUTOSTART=term`), and
+    # each painted its first frame.
     ("shell_ready", r"^SHELL:UP:PASS", 1),
     ("terminal_ready", r"^TERM:UP:PASS", 1),
 ]

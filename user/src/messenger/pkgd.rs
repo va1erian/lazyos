@@ -128,10 +128,20 @@ impl Client {
 
     /// One request; a service failure becomes its [`Failure`].
     fn call(&self, method: u32, body: Vec<u8>) -> core::result::Result<Parcel, Failure> {
+        self.call_until(method, body, None)
+    }
+
+    /// [`Client::call`] given up at the absolute PIT tick `deadline`.
+    fn call_until(
+        &self,
+        method: u32,
+        body: Vec<u8>,
+        deadline: Option<u64>,
+    ) -> core::result::Result<Parcel, Failure> {
         let mut buffer = alloc::vec![0u8; REPLY_BUFFER];
         let reply = self
             .endpoint
-            .call_with(&parcel(method, body), &mut buffer, None)?;
+            .call_with(&parcel(method, body), &mut buffer, deadline)?;
         match failure_of(&reply) {
             Some(failure) => Err(failure),
             None => Ok(reply),
@@ -183,7 +193,17 @@ impl Client {
     /// `Provisioned()`: whether this start's core package provisioning is
     /// over, and what it did.
     pub fn provisioned(&self) -> core::result::Result<ProvisionState, Failure> {
-        let reply = self.call(wire::METHOD_PROVISIONED, Vec::new())?;
+        self.provisioned_until(None)
+    }
+
+    /// [`Client::provisioned`] given up at the absolute PIT tick `deadline`:
+    /// `pkgd` answers only between two packages, so a caller that must not
+    /// hang (the compositor at boot) bounds the wait.
+    pub fn provisioned_until(
+        &self,
+        deadline: Option<u64>,
+    ) -> core::result::Result<ProvisionState, Failure> {
+        let reply = self.call_until(wire::METHOD_PROVISIONED, Vec::new(), deadline)?;
         Ok(wire::decode_provisioned_reply(&reply.body)
             .map_err(Error::Parcel)?
             .state)

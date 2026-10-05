@@ -563,9 +563,10 @@ capabilities. A restarted app is stamped again, so a crash does not launder the
 sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
 read back from the kernel.
 
-LazyShell's start menu is re-read each time it opens: the configured
-`sys/ui/menu` entries keep their order and positions at the bottom, and above
-them sits one row per `category` that has a desktop app; resting the pointer
+LazyShell's start menu is re-read each time it opens: one row per
+`category` that has a desktop app (the built-in Terminal, Installer and
+Devices are under System), then the apps the user pinned in Settings -> Menu
+(`sys/ui/menu`, none by default), then the power rows; resting the pointer
 on a category row (or clicking it) opens a submenu beside the menu listing
 that category's apps, pinned or not (at most 16 per category; the category
 rows scroll with the wheel when they do not fit). Apps `ListApps` marks
@@ -681,13 +682,20 @@ decisions in `pkgstore::provision`):
 Every step is audited in `pkg.log` as `op=provision`. The packages that open at
 login go first; once they are in, `pkgd` announces `ready` on
 `system/events/pkg/provision` through `init`'s broker, and `done` at the end.
-`init` waits for `ready` (bounded at 30 s, `INIT:AUTOSTART:WAIT pkgd`, then
-`INIT:AUTOSTART:READY` or `INIT:AUTOSTART:PARTIAL`) before it opens the apps
-whose manifest sets `autostart`, core first, then by `system_name`; hiding does
-not stop an app from autostarting. It watches the announcements instead of
-calling `Provisioned()` because `pkgd` answers requests only between two
-packages. `Install` and `Remove` are refused with `EAGAIN` until the pass is
-over; `Provisioned()` answers throughout.
+The pass runs before the desktop, at the console, so its disk work never
+slows a session down: `init` waits for `done` (bounded at 3 min,
+`INIT:AUTOSTART:WAIT pkgd`, then `INIT:AUTOSTART:READY` or
+`INIT:AUTOSTART:PARTIAL`; no wait when the image has no running `pkgd`)
+before it opens the shell and then the apps whose manifest sets `autostart`,
+core first, then by `system_name`; hiding does not stop an app from
+autostarting. It watches the announcements instead of calling
+`Provisioned()` because `pkgd` answers requests only between two packages.
+`xuid`, which the kernel starts, leaves the console on screen until then: it
+polls `Provisioned()` with a deadline, prints the count installed so far, and
+binds the display after `XUID:PROVISION:DONE` (or `ABSENT`, `TIMEOUT`;
+`user/src/bin/xuid/provisioning.rs`). `Install` and `Remove` are refused with
+`EAGAIN` until the pass is over; `Provisioned()` answers throughout, its
+counts growing as the pass goes.
 
 Provisioning one package is one install: read into the buffer `pkgd` keeps
 (sized once for the largest archive), extract through one kept scratch buffer

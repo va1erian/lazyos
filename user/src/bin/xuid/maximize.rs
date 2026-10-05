@@ -27,6 +27,9 @@ impl Compositor {
 
     /// Maximize surface `id` to the work area with the zoom animation.
     pub(super) fn maximize(&mut self, id: u64) {
+        // A window still opening lands first: it is hidden while it flies
+        // in, which these state changes would misread as minimized.
+        self.finish_opening();
         let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) else {
             return;
         };
@@ -50,6 +53,9 @@ impl Compositor {
 
     /// Restore surface `id` to the rectangle saved when it was maximized.
     pub(super) fn unmaximize(&mut self, id: u64) {
+        // A window still opening lands first: it is hidden while it flies
+        // in, which these state changes would misread as minimized.
+        self.finish_opening();
         let Some(restore) = self
             .surfaces
             .iter()

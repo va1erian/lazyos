@@ -362,6 +362,8 @@ jobs:
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
+          # The session kills LazyShell from the Terminal.
+          LAZYOS_XUI_AUTOSTART: term
         run: |
           set -euo pipefail
           cargo build

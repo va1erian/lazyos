@@ -1,8 +1,13 @@
-//! Desktop context-menu schema (`sys/ui/menu` in confd).
+//! The start menu's pinned apps (`sys/ui/menu` in confd).
 //!
-//! One definition of the stored list, shared by `xuid` (which paints and
-//! launches from it) and the Settings app (which edits it), so neither
-//! hand-copies the format. Pure `no_std` + `alloc` logic with host tests.
+//! One definition of the stored list, shared by LazyShell (which shows the
+//! pinned rows between the category rows and the power rows) and the
+//! Settings app (which edits them), so neither hand-copies the format. Pure
+//! `no_std` + `alloc` logic with host tests.
+//!
+//! Every app is already in its category's submenu, so nothing is pinned by
+//! default ([`defaults`] is empty): the menu's root is the categories and
+//! the power rows until the user pins an app.
 //!
 //! The value is one string, one entry per line: `<app id>\t<label>`. Storage
 //! is untrusted (any uid-0 writer, or a corrupt file), so [`parse`] validates
@@ -66,35 +71,13 @@ impl Entry {
     }
 }
 
-/// The built-in list: what the menu shows when confd has nothing usable.
-/// Terminal first. The desktop apps are core packages, named by their
-/// `system_name` (issue #509); the Terminal, the Installer and Devices are
-/// built-in programs. `init` still answers the bare short ids (`editor`) a menu saved
-/// before F5 holds.
+/// The built-in list, what the menu pins when confd has nothing usable:
+/// nothing. Every app sits in its category's submenu, so the menu's root
+/// stays the categories and the power rows. Pinned ids are core packages'
+/// `system_name`s or built-in programs (`terminal`); `init` still answers the
+/// bare short ids (`editor`) a menu saved before F5 holds.
 pub fn defaults() -> Vec<Entry> {
-    const ITEMS: [(&str, &str); 13] = [
-        ("terminal", "Terminal"),
-        ("os.lazy.sysmon", "System Monitor"),
-        ("os.lazy.fabricmon", "Fabric Monitor"),
-        ("os.lazy.counter", "Counter"),
-        ("os.lazy.editor", "Editor"),
-        ("os.lazy.paint", "Paint"),
-        ("os.lazy.files", "Files"),
-        ("os.lazy.settings", "Settings"),
-        // Shipped only when the build had the zig toolchain; an image
-        // without it answers the launch as unavailable.
-        ("os.lazy.docs", "Docs"),
-        // Last, so the rows above keep the positions the screenshot sessions
-        // click by coordinate.
-        ("os.lazy.widget", "CPU & Memory"),
-        ("os.lazy.confd", "Config"),
-        ("installer", "Package Installer"),
-        ("devices", "Devices"),
-    ];
-    ITEMS
-        .iter()
-        .filter_map(|(app, label)| Entry::new(app, label))
-        .collect()
+    Vec::new()
 }
 
 /// The namespace of the core apps' `system_name`s (issue #509).
@@ -224,11 +207,11 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_valid_and_start_with_terminal() {
-        let list = defaults();
-        assert_eq!(list.len(), 13);
-        assert_eq!(list[0].app, "terminal");
-        assert_eq!(parse(&encode(&list), &any), list);
+    fn nothing_is_pinned_by_default() {
+        assert!(defaults().is_empty());
+        // An empty list stores as an empty value, which reads back as the
+        // (empty) defaults.
+        assert_eq!(from_value(Some(&to_value(&defaults())), &any), defaults());
     }
 
     #[test]

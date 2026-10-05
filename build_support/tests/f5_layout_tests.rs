@@ -48,7 +48,7 @@ fn source_bytes(source: &Source) -> Vec<u8> {
 
 #[test]
 fn the_autostart_list_names_core_apps_by_stem_short_id_or_system_name() {
-    assert_eq!(parse_autostart(None), ["terminal"]);
+    assert_eq!(parse_autostart(None), Vec::<String>::new());
     assert_eq!(parse_autostart(Some("none")), Vec::<String>::new());
     assert_eq!(
         parse_autostart(Some("term, sysmon,os.lazy.paint,,")),

@@ -67,7 +67,7 @@ one boot of the `linuxapps` fixture) and shown by two session scripts:
 LAZYOS_CLI=1 LAZYOS_LINUXAPPS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/linuxapps_console --script tools/screenshot/examples/linuxapps_console.json
-LAZYOS_DESKTOP=1 LAZYOS_LINUXAPPS=1 cargo build     # after tools/xui/build.py
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_LINUXAPPS=1 cargo build     # after tools/xui/build.py
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/linuxapps_desktop --script tools/screenshot/examples/linuxapps_desktop.json
 ```
@@ -77,7 +77,7 @@ guest reaches the host's loopback as `10.0.2.2` through QEMU's user-mode
 network) and feeds the result to `jq`; `hostserver.py` logs each request:
 
 ```bash
-LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_LINUXAPPS=1 cargo build
+LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_LINUXAPPS=1 cargo build
 python tools/linuxapps/hostserver.py &            # 127.0.0.1:47790
 python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/linuxapps_net --script tools/screenshot/examples/linuxapps_net.json \

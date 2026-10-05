@@ -67,6 +67,8 @@ def image_env() -> dict[str, str]:
     env.update({
         "LAZYOS_RESET_OS": "1",
         "LAZYOS_DESKTOP": "1",
+        # Both sessions wait for the Terminal (the dev one plays from it).
+        "LAZYOS_XUI_AUTOSTART": "term",
         "LAZYOS_LAZYRAD": "1",
         "LAZYOS_MODPLAYER": "1",
         "LAZYOS_SOUND": "1",

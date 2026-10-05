@@ -102,6 +102,8 @@ BINS = {
     # The Devices app (issue #481): owners, rights and the driver class rules.
     # `build_support/xui_embed.rs` places it at /system/bin/devices.
     "xui-devices": "xui-devices.elf",
+    # Calculator: A basic calculator.
+    "xui-calc": "xui-calc.elf",
 }
 
 

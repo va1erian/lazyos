@@ -90,7 +90,7 @@ screenshot sessions click by coordinate keep their positions.
   `TERM:UP:PASS`, and its in-app
   pointer coordinates assume Config is the only open window, so it takes the
   first tiling cell; run it against a desktop built with
-  `LAZYOS_XUI_AUTOSTART=none` (or any image whose Terminal is not open). It was
+  no app at boot (the default: `LAZYOS_XUI_AUTOSTART` unset or `none`). It was
   verified headless on Windows/QEMU with `shots/confd/*.png` read and
   `pngstats.py` reporting every shot non-blank.
 - CI: clippy `-D warnings`, `cargo fmt`.

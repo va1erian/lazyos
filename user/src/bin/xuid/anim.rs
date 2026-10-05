@@ -69,19 +69,14 @@ impl Compositor {
         let mut previous = [Rect::new(0, 0, 0, 0); STRIPS];
         previous[0] = from.intersect(full);
         let start = sys::monotonic_ns();
-        let total = PHASE_NS + TRAIL_LAG_NS * (TRAIL as u64 - 1);
+        let total = zoom_total_ns();
         let mut frame = 1u64;
         loop {
             // This frame shows the motion at its own presentation time, and
             // the last one shows every outline at `to`.
             let shown_at = (frame * FRAME_NS).min(total);
             self.hold_pending_input();
-            let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
-            for (index, slot) in rects.iter_mut().enumerate() {
-                if let Some(at) = progress(shown_at, index as u64) {
-                    *slot = lerp(from, to, at);
-                }
-            }
+            let rects = trail_rects(from, to, shown_at);
             let strips = trail_strips(&rects, full);
             self.draw_frame(&previous, &strips, &rects);
             previous = strips;
@@ -100,7 +95,7 @@ impl Compositor {
     /// (`previous`) and what this one covers (`strips`), XOR the trail
     /// `rects` onto the clean pixels, put the cursor back on top and present
     /// it all.
-    fn draw_frame(
+    pub(super) fn draw_frame(
         &mut self,
         previous: &[Rect; STRIPS],
         strips: &[Rect; STRIPS],
@@ -155,21 +150,6 @@ impl Compositor {
         self.zoom(small, window);
     }
 
-    /// Animate a new window opening: from `origin` (the on-screen rectangle
-    /// the app hinted at, e.g. the folder tile just double-clicked) to the
-    /// window in two steps through an icon-sized rectangle centred on the
-    /// window, or from its taskbar entry when there is no hint.
-    pub(super) fn open_zoom(&mut self, id: u64, origin: Option<Rect>) {
-        let Some(from) = origin else {
-            self.deiconify(id);
-            return;
-        };
-        if let Some((window, _, small)) = self.phases(id) {
-            self.zoom(from, small);
-            self.zoom(small, window);
-        }
-    }
-
     /// Move or resize `id` from `from` to `to` in two steps, like iconify:
     /// `from` shrinks to an icon-sized rectangle centred on it, which then
     /// travels to `to`. Used by maximize and restore; `id` must already be
@@ -195,7 +175,7 @@ impl Compositor {
 
     /// The window, its icon rectangle, and the icon-sized rectangle centred on
     /// the window that joins them.
-    fn phases(&self, id: u64) -> Option<(Rect, Rect, Rect)> {
+    pub(super) fn phases(&self, id: u64) -> Option<(Rect, Rect, Rect)> {
         let window = self
             .surfaces
             .iter()
@@ -223,6 +203,23 @@ fn small_rect(window: Rect, w: i32, h: i32, bounds: Rect) -> Rect {
     super::geometry::clamp_into(small, bounds)
 }
 
+/// How long one move takes, the last trailing outline included.
+pub(super) fn zoom_total_ns() -> u64 {
+    PHASE_NS + TRAIL_LAG_NS * (TRAIL as u64 - 1)
+}
+
+/// The trail's outlines `shown_at` nanoseconds into the move from `from` to
+/// `to`; an outline that has not started yet is empty.
+pub(super) fn trail_rects(from: Rect, to: Rect, shown_at: u64) -> [Rect; TRAIL as usize] {
+    let mut rects = [Rect::new(0, 0, 0, 0); TRAIL as usize];
+    for (index, slot) in rects.iter_mut().enumerate() {
+        if let Some(at) = progress(shown_at, index as u64) {
+            *slot = lerp(from, to, at);
+        }
+    }
+    rects
+}
+
 /// How far along the move trail outline `index` is `elapsed` nanoseconds
 /// in, out of [`FULL`]; `None` before it has started (nothing drawn).
 fn progress(elapsed: u64, index: u64) -> Option<i32> {
@@ -247,12 +244,12 @@ fn lerp(from: Rect, to: Rect, at: i32) -> Rect {
 }
 
 /// Strips one frame's trail occupies: four per outline.
-const STRIPS: usize = TRAIL as usize * 4;
+pub(super) const STRIPS: usize = TRAIL as usize * 4;
 
 /// The screen strips the outlines of `rects` cover, each with one pixel of
 /// slack so the outlines' edges are always inside; empty for an
 /// unused trail slot.
-fn trail_strips(rects: &[Rect; TRAIL as usize], full: Rect) -> [Rect; STRIPS] {
+pub(super) fn trail_strips(rects: &[Rect; TRAIL as usize], full: Rect) -> [Rect; STRIPS] {
     let mut out = [Rect::new(0, 0, 0, 0); STRIPS];
     for (index, rect) in rects.iter().enumerate().filter(|(_, r)| !r.is_empty()) {
         for (side, strip) in outline_strips(*rect).into_iter().enumerate() {
@@ -323,7 +320,7 @@ pub(super) fn selftest_anim() -> &'static str {
     let mid = lerp(from, to, FULL / 2);
     let eased = mid.x > (from.x + to.x) / 2 && mid.w > (from.w + to.w) / 2;
     // Time drives it: the trail starts staggered and ends together.
-    let total = PHASE_NS + TRAIL_LAG_NS * (TRAIL as u64 - 1);
+    let total = zoom_total_ns();
     let timed = progress(0, 0).is_none()
         && progress(TRAIL_LAG_NS / 2, 1).is_none()
         && progress(PHASE_NS / 2, 0) == Some(FULL / 2)

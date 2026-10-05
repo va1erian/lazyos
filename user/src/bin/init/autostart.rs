@@ -5,14 +5,19 @@
 //! opens as soon as every boot service is ready (`ready::settled`), and each
 //! stage moves on when what it waits for is announced, not after a delay.
 //!
-//! The apps are packages, and on a fresh image `pkgd` installs them at its
-//! first start, so the second half waits for `pkgd`'s provisioning
-//! (`INIT:AUTOSTART:WAIT pkgd`): until the packages that open at login are
-//! installed (`pkgd` does them first, then announces `ready`; see
-//! `provisioning.rs`, which observes it from the publish that wakes this
-//! supervisor), bounded at [`PROVISION_WAIT`]: on timeout it opens whatever
-//! is installed (`INIT:AUTOSTART:PARTIAL`). The shell and the Terminal are
-//! not packages, so the desktop always appears.
+//! The apps are packages, and on a fresh image (or after a rebuild that
+//! changed them) `pkgd` installs them at its start. That work belongs before
+//! the desktop, not under it: writing a dozen packages to disk while the
+//! session opened made the first seconds of every such boot sluggish. So the
+//! whole autostart, the shell included, waits for `pkgd` to finish
+//! provisioning (`INIT:AUTOSTART:WAIT pkgd`, then `INIT:AUTOSTART:READY pkgd`
+//! once it announces `done`; see `provisioning.rs`, which observes it from
+//! the publish that wakes this supervisor), while the console still shows
+//! the boot. `xuid` holds the screen back for the same reason
+//! (`user/src/bin/xuid/provisioning.rs`). The wait is bounded at
+//! [`PROVISION_WAIT`]: on timeout the session opens anyway with whatever is
+//! installed (`INIT:AUTOSTART:PARTIAL`), and an image whose `pkgd` is not
+//! running does not wait at all.
 
 use alloc::format;
 use alloc::string::String;
@@ -28,16 +33,17 @@ use super::state::{
     Service, AUTOSTART_ATTEMPTS, BOOT_SELFTESTS, CAP_SETUID, LAUNCH_SELFTEST_RETRY,
 };
 
-/// Ticks (100 Hz) the autostart waits for `pkgd`'s provisioning: 30 s.
-const PROVISION_WAIT: u64 = 3000;
+/// Ticks (100 Hz) the autostart waits for `pkgd`'s provisioning: 3 min, for
+/// a first boot under TCG that writes every core package.
+const PROVISION_WAIT: u64 = 18_000;
 /// Ticks (100 Hz) the registry self-test waits for the whole core set: a
 /// first boot writes every package to disk, which is slow on some hosts.
 const SELFTEST_WAIT: u64 = 60_000;
 
 /// Where the autostart is.
 enum Stage {
-    /// Opening the built-in rows (the shell) once the services are ready.
-    Builtins,
+    /// Waiting for every boot service to be ready.
+    Services,
     /// Waiting for `pkgd` to finish provisioning, until the absolute tick.
     Waiting { until: u64 },
     /// Opening the installed apps; the registry self-test still waits for
@@ -61,7 +67,7 @@ pub(super) struct Autostart {
 impl Autostart {
     pub(super) fn new() -> Autostart {
         Autostart {
-            stage: Stage::Builtins,
+            stage: Stage::Services,
             pending: autostart_ids(),
             retry_at: 0,
             attempts: 0,
@@ -73,7 +79,7 @@ impl Autostart {
     /// `pkgd`'s announcements arrive as messages, which wake it anyway.
     pub(super) fn next_due(&self) -> Option<u64> {
         let bound = match self.stage {
-            Stage::Builtins => None,
+            Stage::Services => None,
             Stage::Waiting { until } => Some(until),
             Stage::Apps { selftest_until } => (selftest_until != 0).then_some(selftest_until),
         };
@@ -81,8 +87,9 @@ impl Autostart {
         [bound, retry].into_iter().flatten().min()
     }
 
-    /// Advance as far as the system allows: open the shell once the boot
-    /// services are ready, wait for `pkgd`, open the installed apps.
+    /// Advance as far as the system allows: once the boot services are ready
+    /// and `pkgd` has provisioned the core packages, open the shell, then the
+    /// apps that open at login.
     pub(super) fn step(
         &mut self,
         services: &mut Vec<Service>,
@@ -94,11 +101,8 @@ impl Autostart {
             return;
         }
         self.retry_at = 0;
-        if matches!(self.stage, Stage::Builtins) {
+        if matches!(self.stage, Stage::Services) {
             if !super::ready::settled(services) {
-                return;
-            }
-            if !self.launch_pending(services, broker, installed, now) {
                 return;
             }
             sys::write_str("INIT:AUTOSTART:WAIT pkgd\n");
@@ -107,7 +111,7 @@ impl Autostart {
             };
         }
         if let Stage::Waiting { until } = self.stage {
-            if !self.provisioned(installed, now, until) {
+            if !self.provisioned(services, installed, now, until) {
                 return;
             }
         }
@@ -159,22 +163,33 @@ impl Autostart {
         true
     }
 
-    /// Whether `pkgd` has provisioned the apps that open at login (or the
-    /// wait ran out); moves on to opening them.
-    fn provisioned(&mut self, installed: &mut InstalledApps, now: u64, until: u64) -> bool {
-        // `ready`: the packages that open at login went first and are
-        // installed, so the session need not wait for the whole set.
-        let ready = super::provisioning::ready();
-        if !ready && now < until {
+    /// Whether `pkgd` has provisioned the core packages (or the wait ran
+    /// out, or there is no `pkgd` to wait for); moves on to opening the
+    /// session: the built-in rows first (the shell), then the installed apps
+    /// that open at login.
+    fn provisioned(
+        &mut self,
+        services: &[Service],
+        installed: &mut InstalledApps,
+        now: u64,
+        until: u64,
+    ) -> bool {
+        let done = super::provisioning::done();
+        let awaited = super::provisioning::awaited(services);
+        if !done && awaited && now < until {
             return false;
         }
-        if ready {
+        if done || !awaited {
             sys::write_str("INIT:AUTOSTART:READY pkgd\n");
         } else {
             sys::write_str("INIT:AUTOSTART:PARTIAL pkgd did not finish provisioning\n");
         }
         installed.refresh();
-        self.pending = installed.autostart_ids();
+        for id in installed.autostart_ids() {
+            if !self.pending.contains(&id) {
+                self.pending.push(id);
+            }
+        }
         self.stage = Stage::Apps {
             selftest_until: if BOOT_SELFTESTS {
                 now + SELFTEST_WAIT

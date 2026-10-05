@@ -59,9 +59,9 @@ directory and persistence (`Info`).
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
 (Appearance, Windows & Taskbar, Time & Date, Keyboard, About). Color input is
 preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
-`tools/xui/build.py`, `build.rs`, `user/src/bin/init/apps.rs` and the
-`sys/ui/menu` defaults (the start menu is LazyShell's since issue #157; it was
-`user/src/bin/xuid/menu.rs`).
+`tools/xui/build.py`, `build.rs`, `user/src/bin/init/apps.rs` and the core
+package's menu `category` (the start menu is LazyShell's since issue #157; it
+was `user/src/bin/xuid/menu.rs`).
 
 ## Phases
 

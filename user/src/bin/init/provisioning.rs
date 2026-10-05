@@ -1,6 +1,8 @@
 //! What `init` knows of `pkgd`'s core package provisioning (issue #509), for
 //! the autostart: on a fresh image the apps a session opens are installed by
-//! `pkgd` at its first start, so they cannot be launched before it.
+//! `pkgd` at its first start, so they cannot be launched before it, and the
+//! session waits for the whole pass so it does not open under that disk work
+//! (`autostart.rs`).
 //!
 //! `pkgd` announces progress on `system/events/pkg/provision` through this
 //! supervisor's topic broker: `ready` once the packages that open at login are
@@ -26,11 +28,6 @@ const READY: u8 = 1;
 const DONE: u8 = 2;
 
 static STATE: AtomicU8 = AtomicU8::new(UNKNOWN);
-
-/// Whether the apps a session opens are installed (or the pass is over).
-pub(super) fn ready() -> bool {
-    STATE.load(Ordering::Relaxed) >= READY
-}
 
 /// Whether this boot's provisioning pass is over.
 pub(super) fn done() -> bool {
@@ -61,6 +58,18 @@ pub(super) fn observe(services: &[Service], message: &Message) {
         _ => return,
     };
     STATE.fetch_max(state, Ordering::Relaxed);
+}
+
+/// Whether there is a `pkgd` whose provisioning is worth waiting for: its
+/// manifest row exists and has not settled for good (`Stopped`, `Failed`).
+/// An image without one, or one whose `pkgd` cannot start, opens the session
+/// at once.
+pub(super) fn awaited(services: &[Service]) -> bool {
+    services.iter().any(|service| {
+        !service.launched
+            && service.name == "pkgd"
+            && !matches!(service.phase, Phase::Stopped | Phase::Failed)
+    })
 }
 
 /// Whether `sender` is the task of the running `pkgd` manifest row.

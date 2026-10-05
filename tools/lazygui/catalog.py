@@ -56,7 +56,8 @@ MODES = [
 # (file, label, switches, xui-app) - `switches` are the image build switches a
 # script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP. A
 # `desktop` script (the document apps) instead boots the desktop profile with
-# every desktop app embedded and only `xui-app` autostarted.
+# every desktop app embedded and only `xui-app` autostarted (`term` for the
+# scripts that only wait for the Terminal: nothing opens at boot by default).
 SCRIPTS = [
     ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
     ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
@@ -80,12 +81,13 @@ SCRIPTS = [
     ("xui_writer.json", "XUI app: LazyWriter (format, save, export)", ("desktop",), "writer"),
     ("xui_archiver.json", "XUI app: Archiver (open, extract, create, drag to Files)",
      ("desktop",), "archiver"),
-    ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), None),
+    ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), "term"),
     ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
     ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
-     ("desktop",), None),
+     ("desktop",), "term"),
     ("xui_settings_hidden.json", "XUI app: Settings (hide an app from the start menu)",
-     ("desktop",), None),
+     ("desktop",), "term"),
+    ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -100,13 +102,13 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc"]
 # What the desktop opens at boot when the Devices app is asked for (issue
-# #481): the Terminal first (it takes the focus), then Devices. Matches
-# `run_demo.py --devices`.
-DEVICES_AUTOSTART = "term,devices"
+# #481) and nothing else is: just Devices, since the desktop opens no app at
+# boot by default. Matches `run_demo.py --devices`.
+DEVICES_AUTOSTART = "devices"
 # The desktop session's apps (issues #215/#216): embedded side by side, opened
-# by `init` as `xuid` clients. The Terminal comes first so it takes the focus.
+# by `init` as `xuid` clients when `LAZYOS_XUI_AUTOSTART` lists them.
 # The document apps ship with every desktop image (`build.rs`
 # `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
 # open-with), never at boot. The GUI does not list the embedded apps: the
@@ -173,8 +175,10 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("devices") and cfg.get("desktop"):
         # The Devices app ships with every desktop image; this opens it at
         # boot, next to whatever else the session opens.
-        current = env.get("LAZYOS_XUI_AUTOSTART", "term")
-        if "devices" not in current.split(","):
+        current = env.get("LAZYOS_XUI_AUTOSTART")
+        if not current:
+            env["LAZYOS_XUI_AUTOSTART"] = DEVICES_AUTOSTART
+        elif "devices" not in current.split(","):
             env["LAZYOS_XUI_AUTOSTART"] = f"{current},devices"
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
@@ -286,9 +290,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         # image stays quiet, since a sound card there means boot-time test tones.
         "sound": desktop,
         # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
-        # suite + compositor + the xui apps as its clients (`init` opens the
-        # Terminal at boot; the viewers, Editor, Files and Paint are embedded
-        # and open on demand), with no demo/evidence programs. The individual switches stay off so no
+        # suite + compositor + the xui apps as its clients (embedded; nothing
+        # opens at boot, every app opens on demand), with no demo/evidence programs. The individual switches stay off so no
         # Advanced checkbox leaks in.
         "desktop": desktop,
         "services": False,

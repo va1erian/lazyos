@@ -130,6 +130,18 @@ class ShellSwitchTests(unittest.TestCase):
         cli = catalog.simple_config(demo_config(), "dev", "CLI", shell=True)
         self.assertFalse(cli["shell"])
 
+    def test_desktop_scripts_that_wait_for_the_terminal_open_it(self) -> None:
+        # Nothing opens at boot by default: a desktop session whose script
+        # waits for the Terminal must autostart it (or the app it drives).
+        examples = os.path.join(catalog.ROOT, "tools", "screenshot", "examples")
+        for file, _, switches, stem in catalog.SCRIPTS:
+            if "desktop" not in switches:
+                continue
+            with open(os.path.join(examples, file), encoding="utf-8") as script:
+                waits_for_terminal = "TERM:UP:PASS" in script.read()
+            if waits_for_terminal:
+                self.assertEqual(stem, "term", file)
+
     def test_shell_demo_is_a_desktop_session(self) -> None:
         entry = [s for s in catalog.SCRIPTS if s[0] == "shell_demo.json"]
         self.assertEqual(len(entry), 1)
@@ -286,12 +298,12 @@ class CorePackageTests(unittest.TestCase):
         cfg = {"mode": "Scripted session", "script": index["xui_settings.json"], "profile": "dev",
                "skip_build": False, "accel": "auto", "memory": "512M", "qemu": "",
                "out": "shots", "timeout": "300", "tablet": False, "lazyrad": False}
-        labels = self.labels(cfg)
-        self.assertEqual(labels[:2], ["Build core packages", "Build image (cargo build)"])
-        viewer = {**cfg, "script": index["xui_editor.json"]}
-        self.assertEqual(self.labels(viewer)[:3], ["Build xui apps (static musl)",
-                                                   "Build core packages",
-                                                   "Build image (cargo build)"])
+        # Settings' sessions open the Terminal (`term`), so they build the xui
+        # apps like the document-app sessions do.
+        for script in ("xui_settings.json", "xui_editor.json"):
+            self.assertEqual(self.labels({**cfg, "script": index[script]})[:3],
+                             ["Build xui apps (static musl)", "Build core packages",
+                              "Build image (cargo build)"], script)
 
 
 class DevicesAppTests(unittest.TestCase):
@@ -302,10 +314,12 @@ class DevicesAppTests(unittest.TestCase):
         return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
                 "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
 
-    def test_the_switch_opens_it_at_boot_after_the_terminal(self) -> None:
+    def test_the_switch_opens_only_it_at_boot(self) -> None:
+        # The desktop opens nothing at boot by default, so the Terminal is not
+        # added with it.
         env = catalog.build_env({**self.base(), "desktop": True, "devices": True})
         self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], catalog.DEVICES_AUTOSTART)
-        self.assertEqual(catalog.DEVICES_AUTOSTART.split(",")[0], "term")
+        self.assertEqual(catalog.DEVICES_AUTOSTART, "devices")
 
     def test_it_joins_a_session_autostart_once(self) -> None:
         env = catalog.build_env({**self.base(), "desktop": True, "devices": True,
@@ -348,8 +362,9 @@ class DevicesAppTests(unittest.TestCase):
     def test_run_demo_keeps_an_existing_autostart_list(self) -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         import run_demo  # noqa: E402
-        self.assertEqual(run_demo.with_devices(None), "term,devices")
-        self.assertEqual(run_demo.with_devices(""), "term,devices")
+        self.assertEqual(run_demo.with_devices(None), "devices")
+        self.assertEqual(run_demo.with_devices(""), "devices")
+        self.assertEqual(run_demo.with_devices("term"), "term,devices")
         self.assertEqual(run_demo.with_devices("editor"), "editor,devices")
         self.assertEqual(run_demo.with_devices("editor,devices"), "editor,devices")
         self.assertEqual(run_demo.with_devices("term, devices"), "term, devices")

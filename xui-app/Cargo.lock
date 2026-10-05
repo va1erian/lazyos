@@ -2306,6 +2306,7 @@ dependencies = [
  "surfbuf",
  "uitheme",
  "xui-archiver",
+ "xui-calc",
  "xui-canvas",
  "xui-code-editor",
  "xui-confd-editor",
@@ -2331,6 +2332,14 @@ name = "xui-archiver"
 version = "0.1.0"
 dependencies = [
  "lazyarc",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
+name = "xui-calc"
+version = "0.1.0"
+dependencies = [
  "xui-canvas",
  "xui-core",
 ]

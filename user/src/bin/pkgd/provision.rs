@@ -143,6 +143,12 @@ impl Pkgd {
         if let Some(action) = pass.actions.get(pass.next).cloned() {
             pass.next += 1;
             self.run(action, &mut pass.tally);
+            // `Provisioned` reports the progress while the pass runs (the
+            // compositor prints it on the console before the desktop).
+            self.provisioned.installed = pass.tally.installed;
+            self.provisioned.upgraded = pass.tally.upgraded;
+            self.provisioned.kept = pass.tally.kept;
+            self.provisioned.failed = pass.tally.failed;
             pass.autostart_left = pass.autostart_left.saturating_sub(1);
             if pass.autostart_left == 0 && !self.provisioned.ready {
                 self.provisioned.ready = true;

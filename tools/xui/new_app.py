@@ -92,6 +92,12 @@ def insert_before_close(text: str, opener: str, close: str, line: str) -> str:
     raise ScaffoldError(f"no {close!r} after {opener!r}")
 
 
+def noted(app: App, comment: str, line: str) -> str:
+    """`line` under a comment naming the app, so a new last item never reads
+    as part of the comment block above it (e.g. "LazyWeb, only with ...")."""
+    return f"{comment} {app.name}: {app.description.rstrip('.')}.\n{line}"
+
+
 def read(root: Path, rel: str) -> tuple[str, bool]:
     """`rel`'s text with plain line ends, and whether it used CRLF."""
     raw = (root / rel).read_bytes().decode("utf-8")
@@ -250,17 +256,21 @@ def scaffold(root: Path, app: App) -> list[str]:
     change("xui-app/Cargo.toml", cargo)
     change(
         "tools/xui/build.py",
-        lambda t: insert_before_close(t, "BINS = {", "}", f'"xui-{app.short}": "{app.elf}",'),
+        lambda t: insert_before_close(
+            t, "BINS = {", "}", noted(app, "#", f'"xui-{app.short}": "{app.elf}",')
+        ),
     )
     change(
         "build_support/xui_embed.rs",
         lambda t: insert_before_close(
-            t, "const DOCUMENT_XUI_APPS: &[&str] = &[", "];", f'"{app.elf}",'
+            t, "const DOCUMENT_XUI_APPS: &[&str] = &[", "];", noted(app, "//", f'"{app.elf}",')
         ),
     )
     change(
         "build_support/core_packages.rs",
-        lambda t: insert_before_close(t, "const CORE: &[&str] = &[", "];", f'"{app.short}",'),
+        lambda t: insert_before_close(
+            t, "const CORE: &[&str] = &[", "];", noted(app, "//", f'"{app.short}",')
+        ),
     )
     change(
         "tools/xui/core_packages.py",
@@ -268,7 +278,7 @@ def scaffold(root: Path, app: App) -> list[str]:
             t,
             "CORE_APPS: dict[str, CoreApp] = {",
             "}",
-            f'"{app.short}": xui_app("{app.elf}", "{app.short}"),',
+            noted(app, "#", f'"{app.short}": xui_app("{app.elf}", "{app.short}"),'),
         ),
     )
 
@@ -362,7 +372,8 @@ def main(argv: list[str] | None = None) -> int:
     except ScaffoldError as error:
         print(f"new_app: {error}", file=sys.stderr)
         return 1
-    print("\n".join(f"  {path}" for path in touched))
+    # Flushed, so the list comes before cargo's output when stdout is a pipe.
+    print("\n".join(f"  {path}" for path in touched), flush=True)
     if not args.no_icons:
         # A package without its three icons fails the core package build.
         drawn = subprocess.run(

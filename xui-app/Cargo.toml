@@ -25,6 +25,8 @@ members = [
     # The Archiver (docs/archiver-plan.md): its format library and app core.
     "crates/archive",
     "crates/archiver",
+    # The Calculator's engine and window (host-tested); `src/bin/calc.rs` runs it.
+    "crates/calc",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
 ]
@@ -83,6 +85,8 @@ xui-settings = { path = "crates/settings" }
 uitheme = { path = "../libs/uitheme" }
 # The Config app core (registry tree editor); the binary supplies confd.
 xui-confd-editor = { path = "crates/confd-editor" }
+# The Calculator's engine and window; the `xui-calc` binary only launches it.
+xui-calc = { path = "crates/calc" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
@@ -188,3 +192,7 @@ path = "src/bin/nettools.rs"
 [[bin]]
 name = "xui-shell"
 path = "src/bin/lazyshell.rs"
+
+[[bin]]
+name = "xui-calc"
+path = "src/bin/calc.rs"

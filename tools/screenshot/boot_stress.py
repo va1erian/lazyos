@@ -14,7 +14,7 @@ boots keep their whole output directory; passing boots keep only their serial
 log, so a long run stays small.
 
     python tools/screenshot/boot_stress.py --image target/lazyos.img \
-        --boots 40 --parallel 4 --marker TERM:UP:PASS --out shots/stress
+        --boots 40 --parallel 4 --marker SHELL:DESKTOP:PASS --out shots/stress
 
 Prints ``BOOTSTRESS: boots=N ready=R hung=H`` and exits non-zero when any
 boot hung, so CI can use it as a gate.
@@ -78,7 +78,7 @@ def main() -> int:
     parser.add_argument("--image", required=True, help="raw disk image to boot")
     parser.add_argument("--boots", type=int, default=16, help="number of boots")
     parser.add_argument("--parallel", type=int, default=4, help="concurrent boots")
-    parser.add_argument("--marker", default="TERM:UP:PASS",
+    parser.add_argument("--marker", default="SHELL:DESKTOP:PASS",
                         help="serial marker that means the boot is ready")
     parser.add_argument("--timeout", type=float, default=90.0,
                         help="seconds to wait for the marker per boot")

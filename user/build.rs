@@ -74,11 +74,11 @@ fn main() {
     // apps are packages whose manifest says whether they open at boot, but the
     // Terminal and Devices are built-in programs, so `init` learns them here
     // from the same `LAZYOS_XUI_AUTOSTART` list the image build reads
-    // (`build_support/core_packages.rs`): unset means the Terminal, `none`
-    // nothing, otherwise the built-ins it names (`term`/`terminal`, `devices`),
+    // (`build_support/core_packages.rs`): unset or `none` means nothing,
+    // otherwise the built-ins it names (`term`/`terminal`, `devices`),
     // as `init` registry ids in `LAZYOS_BUILTIN_AUTOSTART`.
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
-    let list = env::var("LAZYOS_XUI_AUTOSTART").unwrap_or_else(|_| String::from("terminal"));
+    let list = env::var("LAZYOS_XUI_AUTOSTART").unwrap_or_default();
     let mut builtins: Vec<&str> = Vec::new();
     for item in list.split(',').map(str::trim) {
         let id = match item {

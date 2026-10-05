@@ -155,7 +155,7 @@ a setup with the reason instead of saving it.
   with `LAZYOS_NETD=1`:
 
   ```bash
-  LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
+  LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
   python tools/screenshot/qemu_session.py --image target/lazyos.img --net \
       --out shots/net_apps --script tools/screenshot/examples/net_apps.json
   ```

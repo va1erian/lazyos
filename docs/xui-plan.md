@@ -214,8 +214,8 @@ Since F5 (issue #509) each desktop app is a core package
 `pkgd` installs into `/apps` at boot; the Terminal, Devices, the Installer and
 LazyShell stay built-in `/system/bin` programs. `init` opens the apps whose
 manifest sets `autostart` as `xuid` clients once provisioning is done; by
-default only the Terminal is autostarted (`LAZYOS_XUI_AUTOSTART` lists other
-stems, `none` disables it) and the other apps open on demand from
+default nothing is autostarted (`LAZYOS_XUI_AUTOSTART` lists the stems to open,
+`term` for the Terminal) and the apps open on demand from
 LazyShell's start menu (grouped by package category) or desktop icons (each
 package's own icon) (issue #157).
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;

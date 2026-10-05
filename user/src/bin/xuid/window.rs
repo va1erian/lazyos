@@ -82,6 +82,9 @@ pub(super) fn focus_on_create(
 impl Compositor {
     /// Minimize a surface, moving focus to the next visible surface.
     pub(super) fn minimize_surface(&mut self, id: u64) {
+        // A window still opening lands first: it is hidden while it flies
+        // in, which these state changes would misread as minimized.
+        self.finish_opening();
         if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
             surface.minimized = true;
         }
