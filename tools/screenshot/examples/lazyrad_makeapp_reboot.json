@@ -73,10 +73,7 @@
  },
  {
   "at": 1.0,
-  "mouse_move": [
-   90,
-   -512
-  ]
+  "mouse_move": [90, -200], "note": "start menu: the Accessories row (134,504)"
  },
  {
   "wait_for": "SHELL:SUBMENU:OPEN category=accessories",
@@ -84,10 +81,7 @@
  },
  {
   "at": 1.0,
-  "mouse_move": [
-   166,
-   72
-  ]
+  "mouse_move": [166, 96], "note": "Accessories submenu: Hello (300,600), after Archiver, Calculator, Counter, Editor"
  },
  {
   "at": 1.0,
@@ -102,10 +96,7 @@
  },
  {
   "at": 0.2,
-  "mouse_move": [
-   -166,
-   -48
-  ],
+  "mouse_move": [-166, -384],
   "note": "back to where the click used to leave the pointer"
  },
  {
