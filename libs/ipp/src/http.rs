@@ -176,7 +176,7 @@ fn dechunk<S: Read>(stream: &mut S, rest: Vec<u8>) -> io::Result<Vec<u8>> {
         if size == 0 {
             return Ok(body);
         }
-        if body.len() + size > MAX_BODY {
+        if body.len().checked_add(size).is_none_or(|n| n > MAX_BODY) {
             return Err(invalid("reply too large"));
         }
         body.extend_from_slice(&input.take(size)?);

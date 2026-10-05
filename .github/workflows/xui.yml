@@ -801,6 +801,11 @@ jobs:
             shots/writer_light/*.png
             shots/writer_light/serial.log
             shots/writer_light/summary.json
+            shots/print/*.png
+            shots/print/serial.log
+            shots/print/summary.json
+            shots/print/printer.log
+            shots/print/jobs/*
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots

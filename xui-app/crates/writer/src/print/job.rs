@@ -25,6 +25,8 @@ const QUEUE: usize = 3;
 const POLL: Duration = Duration::from_secs(2);
 /// How long a sent job is followed before the client stops asking.
 const FOLLOW: Duration = Duration::from_secs(600);
+/// Unanswered state requests in a row after which the job is given up on.
+const GIVE_UP: u32 = 5;
 
 /// What the job is doing, for the print bar's status line.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -251,6 +253,7 @@ impl Worker {
     fn follow(&self, client: &Client, id: i32, mut job: JobStatus) -> Result<String, String> {
         let started = Instant::now();
         let mut request_id = 3;
+        let mut unanswered = 0;
         loop {
             if let Some(state) = job.state {
                 if job_state::is_final(state) {
@@ -268,10 +271,19 @@ impl Worker {
             std::thread::sleep(POLL);
             request_id += 1;
             match self.ask(&request::get_job_attributes(client, request_id, id)) {
-                Ok(reply) if reply.is_success() => job = JobStatus::of(&reply),
+                Ok(reply) if reply.is_success() => {
+                    unanswered = 0;
+                    job = JobStatus::of(&reply);
+                }
                 // The printer forgets finished jobs after a while.
                 Ok(_) => return Ok("Printed".into()),
-                Err(e) => self.set(format!("Printing (no answer from the printer: {e})")),
+                Err(e) if unanswered + 1 >= GIVE_UP => {
+                    return Err(format!("The printer stopped answering: {e}"));
+                }
+                Err(e) => {
+                    unanswered += 1;
+                    self.set(format!("Printing (no answer from the printer: {e})"));
+                }
             }
         }
     }

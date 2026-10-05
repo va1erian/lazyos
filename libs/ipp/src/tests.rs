@@ -452,6 +452,8 @@ mod http {
             b"HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n",
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
             b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nabX\r\n",
+            // A chunk size whose sum with the body so far would overflow.
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\nffffffffffffffff\r\n",
             b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort",
             b"HTTP/1.1 200",
         ] {
