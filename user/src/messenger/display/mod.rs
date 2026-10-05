@@ -14,6 +14,7 @@ use libmessenger::{flags, Decoder, Encoder, Header, Kind, Object, Parcel, VERSIO
 mod canvas;
 mod client;
 mod cursor_blit;
+mod cursor_call;
 mod events;
 mod typeface;
 

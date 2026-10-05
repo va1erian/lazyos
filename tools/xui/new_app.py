@@ -206,7 +206,7 @@ autostart = false
 [permissions]
 # The display and input every window needs. Derive the rest from a run under
 # `LAZYOS_LABEL_TRACE=1` (AGENTS.md) once the app does more.
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
 '''
 
 

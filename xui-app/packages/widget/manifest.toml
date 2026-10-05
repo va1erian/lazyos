@@ -22,4 +22,4 @@ autostart = false
 
 [permissions]
 # Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]

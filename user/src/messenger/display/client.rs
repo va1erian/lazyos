@@ -23,6 +23,11 @@ fn wire_u32(value: u64) -> u32 {
 }
 
 impl Client {
+    /// The compositor's endpoint, for the sibling modules' calls.
+    pub(super) fn endpoint(&self) -> Endpoint {
+        self.endpoint
+    }
+
     /// Resolve [`super::NAME`] into this task, retrying briefly while the
     /// compositor starts, and wrap the endpoint.
     pub fn connect() -> Result<Client> {

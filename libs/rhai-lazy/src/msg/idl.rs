@@ -944,6 +944,27 @@ pub static INTERFACES: &[Interface] = &[
         topics: &[],
     },
     Interface {
+        name: "os.lazy.display.cursor.v1",
+        id: 0x17e8a175efe87bc6,
+        doc: "The mouse pointer's shape over an app's own windows (`docs/cursor-plan.md`).\n\n`xuid` serves this interface on the display service (`os.lazy.display.v1`,\nthe endpoint every display client already holds) and is also the ACL scope\nit travels on: the parcel's interface id is this interface's, so the\nkernel's label rules decide whether an app may change the pointer before\nthe compositor sees the call. A package asks for it by listing\n`os.lazy.display.cursor.v1` in its manifest's `interfaces`; it is not\nimplied by `os.lazy.display.v1`. Unlabelled tasks (the Terminal, system\nservices) pass by the usual uid rules.\n\nThe compositor itself picks the arrow over the title bar, a resize shape\nover a resizable window's border and while a resize runs, and the shape the\nsurface asked for over its content. Failures are returned as a structured\nerror field (id 15) like the display interface's.",
+        methods: &[
+            Method {
+                name: "SetCursor",
+                id: 1,
+                oneway: false,
+                doc: "Set the shape shown while the pointer is over `surface`'s content. The\ncaller must own the surface (`EACCES` otherwise); an unknown surface is\n`ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.\nThe shape stays until the next call or until the surface goes away;\n`Default` restores the arrow.",
+                params: &[Field { name: "surface", ty: Ty::U64 }, Field { name: "shape", ty: Ty::U32 }],
+                returns: &[],
+                transfers: &[],
+            },
+        ],
+        structs: &[],
+        enums: &[
+            Enum { name: "CursorShape", variants: &["Default", "Busy", "Text", "Hand", "ResizeH", "ResizeV", "ResizeNwse", "ResizeNesw"] },
+        ],
+        topics: &[],
+    },
+    Interface {
         name: "os.lazy.echo.v1",
         id: 0xcc4ac1057e84db93,
         doc: "A tiny demo service: echo whatever you send (issue #90 sample IDL).",

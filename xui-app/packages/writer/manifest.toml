@@ -36,6 +36,7 @@ verbs = ["open", "edit"]
 # which talks to the printer, so the app itself needs no network.
 interfaces = [
     "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
     "os.lazy.clipboard.v1",
     "os.lazy.confd.v1",

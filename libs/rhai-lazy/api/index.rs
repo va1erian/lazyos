@@ -49,6 +49,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "display_cursor",
+        interface: "os.lazy.display.cursor.v1",
+        source: include_str!("display_cursor.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "echo",
         interface: "os.lazy.echo.v1",
         source: include_str!("echo.rhai"),

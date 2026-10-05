@@ -29,6 +29,9 @@ impl Compositor {
         // channel, `AttachBuffer*`'s pixels) are the message's until their
         // decoder claims them, so a refused request leaks nothing into the
         // compositor's (immortal) handle table: the message closes them.
+        if super::cursor_request::is_cursor_scope(message) {
+            return self.cursor_request(message);
+        }
         if message.interface_id() != display::INTERFACE {
             return empty_reply(message.method());
         }

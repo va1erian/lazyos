@@ -98,6 +98,8 @@ mod anim;
 mod compositor;
 #[path = "xuid/cursor.rs"]
 mod cursor;
+#[path = "xuid/cursor_request.rs"]
+mod cursor_request;
 #[path = "xuid/cursor_shape.rs"]
 mod cursor_shape;
 #[path = "xuid/drag.rs"]
@@ -300,6 +302,7 @@ fn run() -> ! {
         pointer_feed::selftest_pointer_feed,
         held::selftest_held,
         cursor::selftest_cursor,
+        cursor_request::selftest_cursor_request,
         shellcalls::selftest_shell_calls,
         prompt::selftest_prompt,
         wm::selftest_wm,
