@@ -85,8 +85,8 @@ DEVICES_AUTOSTART = "term,devices"
 # issue #533) is rebuilt first.
 DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
-    "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-settings.elf",
-    "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
+    "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
+    "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
 )]
 # The network apps a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / name for name in ("xui-network.elf", "xui-nettools.elf")]

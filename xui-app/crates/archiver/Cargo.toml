@@ -1,0 +1,20 @@
+# The Archiver's app core (docs/archiver-plan.md): the folder view over an
+# archive's entries, commands, dialogs, the worker-thread job runner and the
+# drag bridge. The `xui-archiver` binary in `xui-app/src/bin/archiver.rs`
+# supplies the LazyOS platform through `Host`, so this crate builds and is
+# tested on the host.
+[package]
+name = "xui-archiver"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Archiver, a 7-Zip-style archive manager for xui"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c9de88f8cbd470c10b99eb0d60a5ada95c474233" }
+lazyarc = { path = "../archive" }
+
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c9de88f8cbd470c10b99eb0d60a5ada95c474233", default-features = false }

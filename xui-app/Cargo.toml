@@ -22,6 +22,9 @@ members = [
     # LazyWriter's portable core (issue #533); `src/bin/writer.rs` hosts it.
     "crates/writer",
     "crates/shell",
+    # The Archiver (docs/archiver-plan.md): its format library and app core.
+    "crates/archive",
+    "crates/archiver",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
 ]
@@ -72,6 +75,8 @@ xui-writer = { path = "crates/writer" }
 # `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
 # the coloured set instead of the Lucide fallback.
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
+# The Archiver (docs/archiver-plan.md): its app core and format library.
+xui-archiver = { path = "crates/archiver" }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
 # The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
@@ -144,6 +149,11 @@ path = "src/bin/paint.rs"
 [[bin]]
 name = "xui-files"
 path = "src/bin/files.rs"
+
+# The Archiver, a 7-Zip-style archive manager (docs/archiver-plan.md).
+[[bin]]
+name = "xui-archiver"
+path = "src/bin/archiver.rs"
 
 [profile.release]
 opt-level = "z"

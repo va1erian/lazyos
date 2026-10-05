@@ -1,0 +1,60 @@
+# Archiver: a core LazyOS app, packaged by `tools/xui/build.py`
+# (docs/archiver-plan.md).
+#
+# `bin/archiver.elf` is not checked in: the build copies the built xui app into
+# a scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "Archiver"
+system_name = "os.lazy.archiver"
+author = "LazyOS"
+version = "0.1.0"
+description = "Browse, extract and create zip, tar, gz, zst, xz and 7z archives"
+# First in the start menu's installed section, so no other row moves.
+category = "accessories"
+
+[entry]
+binary = "bin/archiver.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+# `mimed` maps the extensions (a manifest cannot name them).
+[[mime]]
+type = "application/zip"
+verbs = ["open"]
+
+[[mime]]
+type = "application/x-tar"
+verbs = ["open"]
+
+[[mime]]
+type = "application/gzip"
+verbs = ["open"]
+
+[[mime]]
+type = "application/x-xz"
+verbs = ["open"]
+
+[[mime]]
+type = "application/zstd"
+verbs = ["open"]
+
+[[mime]]
+type = "application/x-7z-compressed"
+verbs = ["open"]
+
+[permissions]
+# Derived from runs of the app under its label (`LAZYOS_LABEL_TRACE=1`, which
+# prints every refused call); see docs/packages.md, core packages. The
+# clipboard carries drag-and-drop payloads; mimed opens a file from inside an
+# archive with its handler.
+interfaces = [
+    "os.lazy.clipboard.v1",
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.mimed.v1",
+]

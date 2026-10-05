@@ -97,6 +97,47 @@ impl Transport for MessengerTransport {
     }
 }
 
+/// Offers `bytes` as `mime` (a drag's payload) and returns the offer token
+/// `DragStart` hands the compositor. Unlike [`set_text`] there is no
+/// in-process fallback: a drag needs the service to reach another app.
+pub fn offer(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
+    if bytes.len() > MAX_BYTES {
+        return Err(-7); // E2BIG
+    }
+    let service = Service::try_connect(NAME).ok_or(-2)?;
+    let body = wire::encode_offer_args(&wire::OfferArgs {
+        owner: OWNER.to_owned(),
+        sink: None,
+        mimes: vec![mime.to_owned()],
+        data: vec![wire::Payload {
+            mime: mime.to_owned(),
+            bytes: bytes.to_vec(),
+        }],
+    })
+    .map_err(|_| -22)?;
+    let reply = service.call(WRITE_INTERFACE, wire::METHOD_OFFER, ERROR_FIELD, body)?;
+    let token = wire::decode_offer_reply(&reply.body)
+        .map_err(|_| -22)?
+        .token;
+    if token == 0 {
+        return Err(-22);
+    }
+    Ok(token)
+}
+
+/// Pastes offer `token` as `mime` (a drop's payload), bounded like every
+/// paste. The service refuses another session's token (`-EACCES`).
+pub fn paste(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
+    let service = Service::try_connect(NAME).ok_or(-2)?;
+    let body = wire::encode_request_args(&wire::RequestArgs {
+        token,
+        mime: mime.to_owned(),
+    })
+    .map_err(|_| -22)?;
+    let reply = service.call(READ_INTERFACE, wire::METHOD_REQUEST, ERROR_FIELD, body)?;
+    decode_bytes(&reply)
+}
+
 /// Sets the clipboard text, falling back in-process when the service is absent.
 pub fn set_text(text: &str) {
     set_text_with(&MessengerTransport, text);

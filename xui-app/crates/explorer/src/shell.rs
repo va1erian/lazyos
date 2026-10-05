@@ -13,6 +13,7 @@
 //! borrow, then acts. See [`registry`] for the map and its tests.
 
 mod registry;
+mod views;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -28,6 +29,7 @@ use crate::platform::{Launcher, Platform};
 use crate::window::{ExplorerWindow, Msg};
 
 pub use registry::{Closable, Registry};
+pub use views::{ViewState, Views};
 
 /// The width each folder window opens at.
 const WINDOW_WIDTH: Dip = Dip(720.0);
@@ -45,6 +47,8 @@ pub struct Explorer {
     /// The title last published by each window, keyed by its window id. Used by
     /// tests to read a title the portable backend does not offer back.
     titles: RefCell<HashMap<u64, String>>,
+    /// What each window shows, for the platform's drag and drop.
+    views: Views,
 }
 
 impl Explorer {
@@ -55,6 +59,7 @@ impl Explorer {
             launcher,
             registry: Registry::new(),
             titles: RefCell::new(HashMap::new()),
+            views: Views::default(),
         })
     }
 
@@ -122,6 +127,21 @@ impl Explorer {
                 handle.send(Msg::Refresh);
             }
         }
+    }
+
+    /// What window `window` (a raw window id) shows, while it is open.
+    pub fn view_state(&self, window: u64) -> Option<ViewState> {
+        self.views.get(window)
+    }
+
+    /// Records what a window shows.
+    pub(crate) fn publish_view(&self, window: u64, state: ViewState) {
+        self.views.publish(window, state);
+    }
+
+    /// Forgets a closed window.
+    pub(crate) fn forget_view(&self, window: u64) {
+        self.views.forget(window);
     }
 
     /// Records the title a window published.

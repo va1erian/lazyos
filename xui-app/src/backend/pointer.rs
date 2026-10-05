@@ -58,6 +58,7 @@ impl LazyOSBackend {
             modifiers: Modifiers::NONE,
         };
         self.deliver_pointer(window, target, event);
+        self.drag_motion(window, x, y);
     }
 
     /// Tell the hovered node it was left: when the pointer moves onto another
@@ -129,6 +130,10 @@ impl LazyOSBackend {
         }
         let target = self.pointer_target(window, x, y);
         let id = target.map_or(WidgetId::NONE, |(id, _)| id);
+        if button == MouseButton::Left {
+            let local = target.map_or((x, y), |(_, abs)| (x - abs.left, y - abs.top));
+            self.drag_press(window, id, (x, y), local);
+        }
         // A press on nothing never pairs. The tracker borrow ends here,
         // before any widget code runs.
         let kind = if id == WidgetId::NONE {
@@ -144,6 +149,9 @@ impl LazyOSBackend {
     /// Route one pointer release.
     pub(super) fn pointer_up(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
         self.pointer.set((x, y));
+        if button == MouseButton::Left {
+            self.drag_release();
+        }
         let target = self.pointer_target(window, x, y);
         let event = Event::MouseUp {
             x,

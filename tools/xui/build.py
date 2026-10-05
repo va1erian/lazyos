@@ -20,8 +20,9 @@ Usage::
 Output: target/xui/xui-m0.elf, target/xui/xui-counter.elf,
 target/xui/xui-sysmon.elf, target/xui/xui-fabricmon.elf,
 target/xui/xui-client.elf and target/xui/xui-term.elf, plus xui-editor.elf,
-xui-paint.elf, xui-files.elf (the migrated document apps) and xui-writer.elf
-(LazyWriter, cargo bin ``writer``), and a JSON map
+xui-paint.elf, xui-files.elf (the migrated document apps), xui-writer.elf
+(LazyWriter, cargo bin ``writer``) and xui-archiver.elf (the Archiver), and a
+JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 
@@ -82,6 +83,8 @@ BINS = {
     # LazyWriter, the word processor (issue #533): its cargo bin is `writer`,
     # built under the same `xui-<stem>.elf` name as the other apps.
     "writer": "xui-writer.elf",
+    # The Archiver, a 7-Zip-style archive manager (docs/archiver-plan.md).
+    "xui-archiver": "xui-archiver.elf",
     # The Settings app (confd-backed configuration panel).
     "xui-settings": "xui-settings.elf",
     # The Config app (generic confd registry editor).

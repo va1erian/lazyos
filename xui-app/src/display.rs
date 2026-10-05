@@ -16,9 +16,11 @@ use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult};
 
+mod dnd;
 mod frames;
 mod shell;
 
+pub use dnd::{decode_drag_event, DragEvent};
 pub use frames::{decode_frame_event, FrameEvent};
 pub use shell::{decode_shell_event, ShellEvent, SurfaceChange};
 

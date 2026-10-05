@@ -29,6 +29,17 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("lzp", "application/x-lazyos-package"),
     // LazyWriter documents (issue #533); a manifest cannot declare extensions.
     ("lzw", "application/x-lazywriter"),
+    // Archives, opened by the Archiver (docs/archiver-plan.md). `x.tar.gz`
+    // is `gz` here; the Archiver tells a tarball from its content.
+    ("zip", "application/zip"),
+    ("tar", "application/x-tar"),
+    ("gz", "application/gzip"),
+    ("tgz", "application/gzip"),
+    ("xz", "application/x-xz"),
+    ("txz", "application/x-xz"),
+    ("zst", "application/zstd"),
+    ("tzst", "application/zstd"),
+    ("7z", "application/x-7z-compressed"),
     ("c", "text/x-c"),
     ("h", "text/x-c"),
 ];

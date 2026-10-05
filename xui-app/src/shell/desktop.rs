@@ -125,7 +125,7 @@ fn icon_for(app: &str) -> Icon {
         "paint" => Icon::Image,
         "fabricmon" => Icon::PubSub,
         "widget" | "counter" => Icon::Widget,
-        "installer" => Icon::Archive,
+        "installer" | "archiver" => Icon::Archive,
         _ => Icon::Window,
     }
 }

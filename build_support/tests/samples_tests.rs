@@ -23,7 +23,7 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
 #[test]
 fn every_sample_lands_in_the_samples_directory() {
     let files = samples();
-    assert_eq!(files.len(), 4);
+    assert_eq!(files.len(), 6);
     for file in files.files() {
         assert!(file.path.starts_with(fhs::share::SAMPLES), "{}", file.path);
     }
@@ -44,5 +44,19 @@ fn the_writer_sample_is_a_small_png() {
         png.len() < 4096,
         "keep the sample tiny: {} bytes",
         png.len()
+    );
+}
+
+#[test]
+fn the_archiver_samples_are_small_archives() {
+    // The Archiver's screenshot session opens them (docs/archiver-plan.md).
+    let files = samples();
+    let zip = bytes(&files, fhs::share::ARCHIVER_SAMPLE_ZIP);
+    assert!(zip.starts_with(b"PK"));
+    let sevenz = bytes(&files, fhs::share::ARCHIVER_SAMPLE_7Z);
+    assert!(sevenz.starts_with(&[b'7', b'z', 0xbc, 0xaf, 0x27, 0x1c]));
+    assert!(
+        zip.len() < 8192 && sevenz.len() < 8192,
+        "keep the samples tiny"
     );
 }
