@@ -283,8 +283,9 @@ CPU's frame first and then 15 GPRs, so from the saved `rsp` upward the qwords
 are: `r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax` (word 0 is
 `r15`), then, for `page_fault_isr` and `general_protection_isr` only, the
 CPU's error code (word 15), then the iret frame `RIP CS RFLAGS RSP SS` (words
-15..19, or 16..20 after an error code). The ring-0-to-ring-3 transition always
-pushes `SS:RSP`, so the frame has all five words for a fault from user mode.
+15..19, or 16..20 after an error code). In 64-bit mode the CPU pushes `SS:RSP` on every interrupt or exception, and
+a ring 3 to ring 0 trap also loads the stack from TSS `RSP0`, so the frame
+always has all five words, whether the fault came from user or kernel mode.
 `timer_isr` and `yield_isr` push `rax` first and then use `eax` as the
 "real tick" flag, so both leave the identical layout and a task parked by one
 resumes through the other. `build_user_frame`/`build_thread_frame` write the
