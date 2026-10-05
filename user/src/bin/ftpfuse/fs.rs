@@ -24,10 +24,15 @@ use fused::payload::{DirEnt, SetAttrRecord, StatFsRecord};
 use fused::wire::{errno, Attr, S_IFDIR, S_IFREG};
 use user::sys;
 
-use crate::link::{remote, Inodes, Link, MAX_FILE};
+use crate::link::{remote, Inodes, Link, RenameError, MAX_FILE};
 
 /// How long a listing is believed, ticks (100 Hz).
 const LISTING_TICKS: u64 = 300;
+/// Whole files kept for reading, and the bytes they may hold together: two
+/// files read in alternation (`cmp a b`, `diff`) must not fetch each other
+/// out.
+const CACHED_FILES: usize = 4;
+const CACHED_BYTES: usize = 48 * 1024 * 1024;
 /// The `statfs` magic `ftpfuse` reports ("FTPF").
 const MAGIC: u64 = 0x4654_5046;
 
@@ -40,8 +45,8 @@ pub struct FtpFs {
     link: Link,
     inodes: Inodes,
     dirs: BTreeMap<String, Listing>,
-    /// The last file read whole: its path and bytes.
-    file: Option<(String, Vec<u8>)>,
+    /// Files read whole, least recently used first: path and bytes.
+    files: Vec<(String, Vec<u8>)>,
     mlsd: Option<bool>,
     uid: u32,
     gid: u32,
@@ -67,7 +72,7 @@ impl FtpFs {
             link,
             inodes: Inodes::new(),
             dirs: BTreeMap::new(),
-            file: None,
+            files: Vec::new(),
             mlsd: None,
             uid,
             gid,
@@ -167,17 +172,39 @@ impl FtpFs {
 
     /// The whole file, from the cache when it still has the listed size.
     fn contents(&mut self, path: &str, size: u64) -> Result<&mut Vec<u8>, Errno> {
-        let cached =
-            matches!(&self.file, Some((p, bytes)) if p == path && bytes.len() as u64 == size);
-        if !cached {
-            if size > MAX_FILE as u64 {
-                return Err(errno::EOPNOTSUPP);
+        let hit = self
+            .files
+            .iter()
+            .position(|(p, bytes)| p == path && bytes.len() as u64 == size);
+        match hit {
+            // Most recently used goes last.
+            Some(index) => {
+                let entry = self.files.remove(index);
+                self.files.push(entry);
             }
-            let bytes = self.link.fetch("RETR", &remote(path), MAX_FILE)?;
-            self.set_size(path, bytes.len() as u64);
-            self.file = Some((String::from(path), bytes));
+            None => {
+                if size > MAX_FILE as u64 {
+                    return Err(errno::EOPNOTSUPP);
+                }
+                let bytes = self.link.fetch("RETR", &remote(path), MAX_FILE)?;
+                self.set_size(path, bytes.len() as u64);
+                self.cache(path, bytes);
+            }
         }
-        Ok(&mut self.file.as_mut().expect("just read").1)
+        Ok(&mut self.files.last_mut().expect("just cached").1)
+    }
+
+    /// Keep `bytes` as `path`'s cached copy, evicting the least recently used
+    /// files past [`CACHED_FILES`] or [`CACHED_BYTES`] (never the new one).
+    fn cache(&mut self, path: &str, bytes: Vec<u8>) {
+        self.files.retain(|(p, _)| p != path);
+        self.files.push((String::from(path), bytes));
+        let total = |files: &[(String, Vec<u8>)]| files.iter().map(|(_, b)| b.len()).sum::<usize>();
+        while self.files.len() > 1
+            && (self.files.len() > CACHED_FILES || total(&self.files) > CACHED_BYTES)
+        {
+            self.files.remove(0);
+        }
     }
 
     /// Record `path`'s new size in its parent's listing (adding it if new).
@@ -200,7 +227,7 @@ impl FtpFs {
     fn rewrite(&mut self, path: &str, bytes: Vec<u8>) -> Result<(), Errno> {
         self.link.store("STOR", &remote(path), &bytes)?;
         self.set_size(path, bytes.len() as u64);
-        self.file = Some((String::from(path), bytes));
+        self.cache(path, bytes);
         Ok(())
     }
 
@@ -212,13 +239,8 @@ impl FtpFs {
         }
         let below = alloc::format!("{path}/");
         self.dirs.retain(|d, _| d != path && !d.starts_with(&below));
-        if self
-            .file
-            .as_ref()
-            .is_some_and(|(p, _)| p == path || p.starts_with(&below))
-        {
-            self.file = None;
-        }
+        self.files
+            .retain(|(p, _)| p != path && !p.starts_with(&below));
     }
 
     /// The parent of a new `path` exists and the name is free.
@@ -275,11 +297,9 @@ impl FuseFs for FtpFs {
             match self.link.store(verb, &remote(&path), data) {
                 Ok(()) => {
                     // Keep the cached copy in step instead of fetching it again.
-                    if let Some((cached, bytes)) = &mut self.file {
-                        if *cached == path {
-                            bytes.truncate(size as usize);
-                            bytes.extend_from_slice(data);
-                        }
+                    if let Some((_, bytes)) = self.files.iter_mut().find(|(p, _)| *p == path) {
+                        bytes.truncate(size as usize);
+                        bytes.extend_from_slice(data);
                     }
                     self.set_size(&path, end);
                     return Ok(data.len());
@@ -364,15 +384,26 @@ impl FuseFs for FtpFs {
         if from == to {
             return Ok(());
         }
-        match self.entry(to) {
-            // A file over a file replaces it, as POSIX says; servers differ
-            // on whether RNTO may overwrite, so delete first.
-            Ok(existing) if !existing.dir && !moving.dir => self.unlink(to)?,
+        let replaces = match self.entry(to) {
+            Ok(existing) if !existing.dir && !moving.dir => true,
             Ok(_) => return Err(errno::EEXIST),
-            Err(errno::ENOENT) => {}
+            Err(errno::ENOENT) => false,
             Err(error) => return Err(error),
+        };
+        // A file over a file replaces it, as POSIX says, and a failed rename
+        // must leave the destination alone. Servers differ on whether RNTO may
+        // overwrite: try it first, and only when RNTO was refused with a
+        // file in the way, delete that file and try once more.
+        match self.link.rename(&remote(from), &remote(to)) {
+            Ok(()) => {}
+            Err(RenameError::Target(_)) if replaces => {
+                self.unlink(to)?;
+                self.link
+                    .rename(&remote(from), &remote(to))
+                    .map_err(RenameError::errno)?;
+            }
+            Err(error) => return Err(error.errno()),
         }
-        self.link.rename(&remote(from), &remote(to))?;
         self.forget(from);
         let (parent, _) = split(to);
         self.dirs.remove(parent);

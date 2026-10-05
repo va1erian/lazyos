@@ -9,6 +9,7 @@ afterwards: the files the guest wrote are the server's own files.
 
     python tools/fuse/ftpserver.py DIR --port 2121 --user lazy --password os
     python tools/fuse/ftpserver.py DIR --no-mlsd     # answer MLSD with 500
+    python tools/fuse/ftpserver.py DIR --no-overwrite  # RNTO onto a file: 553
 
 The passive address it announces is QEMU's gateway (10.0.2.2), which the guest
 reaches; `ftpfuse` connects to the control peer's address anyway.
@@ -31,9 +32,11 @@ class FtpServer:
     """Serve `root` on 127.0.0.1:`port` until `close()`."""
 
     def __init__(self, root: Path, port: int = 0, user: str = "lazy", password: str = "os",
-                 mlsd: bool = True) -> None:
+                 mlsd: bool = True, overwrite: bool = True) -> None:
         self.root = root.resolve()
         self.user, self.password, self.mlsd = user, password, mlsd
+        # Servers differ on whether RNTO may replace an existing file.
+        self.overwrite = overwrite
         self.commands: list[tuple[str, str]] = []
         self._lock = threading.Lock()
         self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -169,6 +172,8 @@ class Session:
             source, self.rename_from = self.rename_from, None
             if source is None:
                 self.say("503 RNFR first")
+            elif path.exists() and not self.server.overwrite:
+                self.say("553 destination exists")
             else:
                 self.attempt(lambda: os.replace(source, path), "250 renamed")
 
@@ -253,8 +258,10 @@ def main() -> int:
     parser.add_argument("--user", default="lazy")
     parser.add_argument("--password", default="os")
     parser.add_argument("--no-mlsd", action="store_true", help="refuse MLSD (clients fall back to LIST)")
+    parser.add_argument("--no-overwrite", action="store_true", help="refuse RNTO onto an existing file")
     args = parser.parse_args()
-    server = FtpServer(args.root, args.port, args.user, args.password, mlsd=not args.no_mlsd)
+    server = FtpServer(args.root, args.port, args.user, args.password, mlsd=not args.no_mlsd,
+                          overwrite=not args.no_overwrite)
     print(f"serving {server.root} on 127.0.0.1:{server.port}", flush=True)
     try:
         while True:

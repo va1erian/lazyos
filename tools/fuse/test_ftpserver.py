@@ -70,6 +70,16 @@ class ServerTest(unittest.TestCase):
         with self.assertRaises(ftplib.error_perm):
             list(self.ftp.mlsd("/"))
 
+    def test_overwrite_refusal(self) -> None:
+        (self.root / "b.txt").write_bytes(b"beta")
+        self.server.overwrite = False
+        with self.assertRaises(ftplib.error_perm):
+            self.ftp.rename("/a.txt", "/b.txt")
+        self.assertEqual((self.root / "b.txt").read_bytes(), b"beta")
+        self.server.overwrite = True
+        self.ftp.rename("/a.txt", "/b.txt")
+        self.assertEqual((self.root / "b.txt").read_bytes(), b"alpha")
+
     def test_wrong_password(self) -> None:
         other = ftplib.FTP()
         other.connect("127.0.0.1", self.server.port, timeout=10)
