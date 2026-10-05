@@ -49,7 +49,7 @@ pub(crate) struct Order {
 }
 
 /// `client-error-not-found` and `client-error-gone`: the printer no longer
-/// knows the job, which it does once a finished job is purged.
+/// knows the job, which it does once an ended job is purged, however it ended.
 const NOT_FOUND: u16 = 0x0406;
 const GONE: u16 = 0x0407;
 
@@ -304,9 +304,10 @@ impl Run<'_> {
                     unanswered = 0;
                     job = JobStatus::of(&reply);
                 }
-                // The printer forgets finished jobs after a while.
+                // The printer forgets ended jobs after a while, whether they
+                // completed or not: a completion seen would have returned.
                 Ok(reply) if matches!(reply.code, NOT_FOUND | GONE) => {
-                    return Ok("Printed".into());
+                    return Ok("Sent; the printer no longer reports the job".into());
                 }
                 // Any other refusal says nothing about the job: asked again,
                 // like a printer that did not answer.
@@ -316,6 +317,9 @@ impl Run<'_> {
                         Err(e) => e.to_string(),
                     };
                     if unanswered + 1 >= GIVE_UP {
+                        // Failed must mean it will not print: tell the
+                        // printer, in case it is still listening.
+                        self.printer.cancel(request_id + 1, printer_job);
                         return Err((
                             State::Failed,
                             format!("The printer stopped answering: {why}"),
