@@ -49,6 +49,7 @@ impl Compositor {
     /// Stamp the cursor overlay where it belongs ([`Compositor::cursor_target`]);
     /// the rectangle it covers, empty when it is hidden.
     pub(super) fn stamp_cursor(&mut self) -> Rect {
+        self.cursor.set_look(self.cursor_look());
         match self.cursor_target() {
             Some(at) => self.cursor.stamp(&mut self.screen, at),
             None => Rect::default(),

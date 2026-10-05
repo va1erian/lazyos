@@ -76,11 +76,11 @@ fn clamp_on_screen(origin: i32, extent: i32, room: i32, visible: i32) -> i32 {
     }
 }
 
-/// The rectangle the cursor sprite (10x10 design pixels, drawn at the UI
-/// scale) occupies at `point`.
+/// A rectangle every cursor sprite at `point` lies inside, whatever its
+/// shape and hotspot: damage for drags, not the stamped rectangle.
 pub(super) fn cursor_rect(point: (i32, i32)) -> Rect {
-    let scale = super::theme::scale();
-    Rect::new(point.0 - scale, point.1 - scale, 11 * scale, 11 * scale)
+    let reach = super::cursor::extent();
+    Rect::new(point.0 - reach, point.1 - reach, 2 * reach, 2 * reach)
 }
 
 /// Where surface `id` iconifies to: the taskbar entry the shell reported with

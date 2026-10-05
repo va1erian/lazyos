@@ -56,6 +56,9 @@ pub(super) struct ThemeFeed {
     settings: Settings,
     /// Reused reply buffer for the topic poll.
     buffer: Vec<u8>,
+    /// The cursor size read from confd and the size the compositor last took.
+    cursor_size: u32,
+    cursor_taken: u32,
 }
 
 impl ThemeFeed {
@@ -72,6 +75,8 @@ impl ThemeFeed {
             next_connect: 0,
             settings,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
+            cursor_size: uitheme::DEFAULT_CURSOR_SIZE,
+            cursor_taken: uitheme::DEFAULT_CURSOR_SIZE,
         }
     }
 
@@ -103,6 +108,14 @@ impl ThemeFeed {
     /// The `confd` link, once reached (shared with `layoutfeed.rs`).
     pub(super) fn confd(&self) -> Option<&Client> {
         self.client.as_ref()
+    }
+
+    /// The new cursor size when `sys/ui/cursor/size` changed since the last
+    /// call. The size has no palette effect, so it is reported on its own.
+    pub(super) fn take_cursor_size(&mut self) -> Option<u32> {
+        let changed = self.cursor_size != self.cursor_taken;
+        self.cursor_taken = self.cursor_size;
+        changed.then_some(self.cursor_size)
     }
 
     /// Whether the desktop animations are enabled (`sys/ui/anim`).
@@ -207,6 +220,9 @@ impl ThemeFeed {
             settings.apply(key, uitheme::overlay(machine, own).as_ref());
         }
         self.settings = settings;
+        if let Ok(value) = client.get(uitheme::KEY_CURSOR_SIZE) {
+            self.cursor_size = uitheme::cursor_size_from_value(value.as_ref());
+        }
         let changed = theme::set_palette(&uitheme::resolve(&settings));
         if changed {
             sys::write_str("THEME:APPLIED\n");

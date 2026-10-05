@@ -290,6 +290,7 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         role,
         icon: None,
         input_session: false,
+        cursor: Default::default(),
     }
 }
 

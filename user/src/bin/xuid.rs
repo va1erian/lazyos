@@ -98,6 +98,8 @@ mod anim;
 mod compositor;
 #[path = "xuid/cursor.rs"]
 mod cursor;
+#[path = "xuid/cursor_shape.rs"]
+mod cursor_shape;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]
@@ -336,6 +338,7 @@ fn run() -> ! {
         comp.tick_spinner();
         comp.tick_prompt();
         comp.pump_prompt_keys();
+        comp.tick_cursor();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Park until a request, a shell event from `inputd` (pointer

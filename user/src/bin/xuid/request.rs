@@ -410,6 +410,7 @@ fn new_surface(
         role,
         icon: None,
         input_session: false,
+        cursor: Default::default(),
         slots: Default::default(),
     }
 }
