@@ -96,6 +96,12 @@ def read(root: Path, rel: str) -> tuple[str, bool]:
 
 
 
+def quoted(value: str) -> str:
+    """`value` as a double-quoted literal that is valid Rust, TOML (a basic
+    string) and Python alike, whatever quotes or backslashes it holds."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 def app_source(app: App) -> str:
     """The starting app: a layout, a handle, a message, and the evidence."""
     m, t = app.marker, app.type_name
@@ -142,13 +148,13 @@ impl App for {t} {{
 }}
 
 fn main() {{
-    launch::run("{m}", "{app.name}", WINDOW, |ui, backend| {{
+    launch::run("{m}", {quoted(app.name)}, WINDOW, |ui, backend| {{
         backend.on_first_frame(|| println!("{m}:UP:PASS"));
         let app = {t}::default();
         ui.root(
             column().padding(16).gap(8).children((
-                label("{app.name}").title(),
-                label("{app.description}").bind(&app.status).fill(1),
+                label({quoted(app.name)}).title(),
+                label({quoted(app.description)}).bind(&app.status).fill(1),
                 row()
                     .justify(Align::End)
                     .child(button("Click me").on_click(Msg::Clicked)),
@@ -171,12 +177,12 @@ def manifest(app: App) -> str:
 # version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
 
 [app]
-name = "{app.name}"
+name = {quoted(app.name)}
 system_name = "{app.system_name}"
 author = "LazyOS"
 version = "0.1.0"
-description = "{app.description}"
-category = "{app.category}"
+description = {quoted(app.description)}
+category = {quoted(app.category)}
 
 [entry]
 binary = "bin/{app.short}.elf"
@@ -276,7 +282,7 @@ def scaffold(root: Path, app: App) -> list[str]:
             text,
             "SCRIPTS = [",
             "]",
-            f'("xui_{app.short}.json", "XUI app: {app.name}", ("desktop",), "{app.short}"),',
+            f'("xui_{app.short}.json", {quoted("XUI app: " + app.name)}, ("desktop",), "{app.short}"),',
         )
         viewers = re.search(r"XUI_VIEWERS = \[[^\]]*\]", text)
         if viewers is None:
@@ -334,6 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     # The image build matches core stems as plain words (`core_packages.rs`).
     if not re.fullmatch(r"[a-z]+", args.short):
         parser.error("the short id is lower-case letters only")
+    # The name and description also land in comments and Markdown lines.
+    for text in (args.name or "", args.description, args.category):
+        if any(char in text for char in "\r\n"):
+            parser.error("names and descriptions are one line")
     app = App(
         short=args.short,
         name=args.name or args.short.capitalize(),

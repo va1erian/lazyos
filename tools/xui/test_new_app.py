@@ -83,6 +83,19 @@ class NewAppTests(unittest.TestCase):
         self.assertEqual(before, {rel: self.text(rel) for rel in REGISTRIES})
         self.assertFalse((self.root / "xui-app/src/bin/notes.rs").exists())
 
+    def test_quotes_and_backslashes_stay_inside_their_literals(self) -> None:
+        import ast
+        import tomllib
+
+        app = new_app.App("quoted", 'Say "hi"', "Reads C:\\notes", "accessories")
+        new_app.scaffold(self.root, app)
+        manifest = tomllib.loads(self.text("xui-app/packages/quoted/manifest.toml"))
+        self.assertEqual(manifest["app"]["name"], 'Say "hi"')
+        self.assertEqual(manifest["app"]["description"], "Reads C:\\notes")
+        source = self.text("xui-app/src/bin/quoted.rs")
+        self.assertIn('label("Say \\"hi\\"").title()', source)
+        ast.parse(self.text("tools/lazygui/catalog.py"))
+
     def test_names_derive_from_the_short_id(self) -> None:
         self.assertEqual(self.app.marker, "NOTES")
         self.assertEqual(self.app.type_name, "Notes")
