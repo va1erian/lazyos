@@ -7,6 +7,10 @@
 // has no runtime backstop for a bad unsafe block, and a repo-wide audit is
 // only as durable as the lint that stops the next one from going undocumented.
 #![warn(clippy::undocumented_unsafe_blocks)]
+// A bare unwrap/expect is a kernel panic (issue #486): the few that remain
+// state their invariant and carry a local `#[allow]`; `kernel/src/tests/` is
+// exempt (a failed unwrap there is a failed test).
+#![deny(clippy::unwrap_used, clippy::expect_used)]
 
 extern crate alloc;
 

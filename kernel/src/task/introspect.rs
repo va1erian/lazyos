@@ -54,13 +54,16 @@ fn class_tag(class: PriorityClass) -> u64 {
 /// so the block stays fixed-size without a variable-length tail.
 fn pack_name(name: &str) -> (u64, u64) {
     let bytes = name.as_bytes();
-    let mut buf = [0u8; 16];
-    let len = bytes.len().min(16);
-    buf[..len].copy_from_slice(&bytes[..len]);
-    (
-        u64::from_le_bytes(buf[0..8].try_into().unwrap()),
-        u64::from_le_bytes(buf[8..16].try_into().unwrap()),
-    )
+    let mut lo = [0u8; 8];
+    let mut hi = [0u8; 8];
+    for (i, &byte) in bytes.iter().take(16).enumerate() {
+        if i < 8 {
+            lo[i] = byte;
+        } else {
+            hi[i - 8] = byte;
+        }
+    }
+    (u64::from_le_bytes(lo), u64::from_le_bytes(hi))
 }
 
 /// Unpack [`pack_name`]'s two words back into a display string (lossy: bytes
@@ -216,7 +219,12 @@ pub fn snapshot_words() -> Vec<u64> {
     let bytes = TaskSnapshot::snapshot().to_bytes();
     bytes
         .chunks_exact(8)
-        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
+        .map(|chunk| {
+            // `chunks_exact(8)` yields 8-byte slices, so the copy cannot panic.
+            let mut word = [0u8; 8];
+            word.copy_from_slice(chunk);
+            u64::from_le_bytes(word)
+        })
         .collect()
 }
 
