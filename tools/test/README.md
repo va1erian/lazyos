@@ -14,6 +14,9 @@ python tools/test/run.py
 # Force TCG (no hardware acceleration)
 python tools/test/run.py --accel none
 
+# Add a blank NVMe disk for the NVMe request-path tests (nvme_suite)
+LAZYOS_TEST_FILTER=nvme python tools/test/run.py --nvme
+
 # Re-run an image that was already built in test mode
 python tools/test/run.py --no-build
 

@@ -17,7 +17,7 @@ use xui_rich_text::model::{BlockKind, CharStylePatch, Selection, Side, StyleSumm
 use crate::app::{Mark, Msg, Writer};
 use crate::names;
 use crate::page::{Choice, Margins, Paper, pages_label};
-use crate::ui::{BLOCKS, FAMILIES, SIZES, WRAPS, page_menu};
+use crate::ui::{BLOCKS, FAMILIES, SIZES, WRAPS, page_menu, table_menu};
 
 /// The window title: `LazyWriter: <name>`, with `*` before the name when the
 /// document is modified.
@@ -48,6 +48,30 @@ pub fn edited(app: &mut Writer, ui: &mut Ui<Msg>, words: usize) {
     app.status.set_text(2, &words_label(words));
     refresh_title(app, ui);
     refresh_pages(app);
+    refresh_table(app);
+}
+
+/// Shows the caret's table cell in the status bar.
+pub fn refresh_table(app: &Writer) {
+    let cursor = app.editor.table_cursor();
+    app.status
+        .set_text(4, &table_menu::cell_label(cursor.as_ref()));
+}
+
+/// Shows the Table menu under its button, its commands enabled for where the
+/// caret is.
+pub fn table_menu(app: &mut Writer, ui: &mut Ui<Msg>) {
+    table_menu::sync(&app.dialogs.table, app.editor.table_cursor().as_ref());
+    let at = ui.bounds(app.tools.table.id());
+    app.dialogs.table.show_context(at.left, at.bottom);
+}
+
+/// A Table menu entry was picked: run its command as one undo step.
+pub fn table_choice(app: &mut Writer, index: usize, on: bool) {
+    if let Some(command) = table_menu::command(index, on, app.editor.table_cursor()) {
+        format(app, command);
+    }
+    refresh_table(app);
 }
 
 /// Shows the caret's page and the page count in the status bar.
@@ -102,6 +126,7 @@ pub fn selection(app: &mut Writer, summary: StyleSummary) {
     };
     app.tools.sync_wrap(image);
     refresh_pages(app);
+    refresh_table(app);
 }
 
 /// Runs an editor command from the toolbar and returns focus to the text.

@@ -118,6 +118,32 @@ class CorePackageTests(unittest.TestCase):
         for size in (16, 32, 128):
             self.assertTrue((core_packages.SOURCES / "writer" / "icons" / f"app-{size}.png").is_file())
 
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_archiver_opens_every_archive_type_it_reads(self) -> None:
+        # docs/archiver-plan.md: cargo bin `xui-archiver`, packaged as
+        # `bin/archiver.elf`; first in the start menu's installed section
+        # (accessories) so no other row moves; the clipboard carries drags.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("xui_build", HERE / "build.py")
+        xui_build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(xui_build)
+        self.assertEqual(xui_build.BINS["xui-archiver"], "xui-archiver.elf")
+        self.assertEqual(core_packages.CORE_APPS["archiver"].programs,
+                         {"xui-archiver.elf": "bin/archiver.elf"})
+        self.assertFalse(core_packages.CORE_APPS["archiver"].optional)
+        text = (core_packages.SOURCES / "archiver" / "manifest.toml").read_text(encoding="utf-8")
+        manifest = tomllib.loads(text)
+        self.assertEqual(manifest["app"]["system_name"], "os.lazy.archiver")
+        self.assertEqual(manifest["app"]["category"], "accessories")
+        types = {entry["type"] for entry in manifest["mime"]}
+        self.assertEqual(types, {"application/zip", "application/x-tar", "application/gzip",
+                                 "application/x-xz", "application/zstd",
+                                 "application/x-7z-compressed"})
+        self.assertIn("os.lazy.clipboard.v1", manifest["permissions"]["interfaces"])
+        self.assertIn("os.lazy.mimed.v1", manifest["permissions"]["interfaces"])
+        for size in (16, 32, 128):
+            self.assertTrue((core_packages.SOURCES / "archiver" / "icons" / f"app-{size}.png").is_file())
+
     def test_the_image_build_lists_the_same_core_apps(self) -> None:
         # `build_support/core_packages.rs` `is_core_stem` mirrors CORE_APPS
         # (minus the LazyRAD IDE, which `lazyrad_embed` adds).

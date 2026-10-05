@@ -95,6 +95,7 @@ pub fn reset() {
             task.weight = PriorityClass::Interactive.default_weight();
         }
         super::runq::sync_all(&tasks);
+        super::sched::reset_virtual_clock();
         removed
     };
     // Dropping removed tasks closes their pipe ends, which may notify a

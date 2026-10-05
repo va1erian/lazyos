@@ -83,6 +83,8 @@ CORE_APPS: dict[str, CoreApp] = {
     "files": xui_app("xui-files.elf", "files"),
     "paint": xui_app("xui-paint.elf", "paint"),
     "writer": xui_app("xui-writer.elf", "writer"),
+    # The Archiver (docs/archiver-plan.md).
+    "archiver": xui_app("xui-archiver.elf", "archiver"),
     "settings": xui_app("xui-settings.elf", "settings"),
     "confd": xui_app("xui-confd.elf", "confd"),
     # The network apps. Only a desktop image with the network stack ships them

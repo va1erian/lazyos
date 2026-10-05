@@ -96,11 +96,31 @@ switches to draft view (one continuous column) and back.
   `RichTextEditor::page_info()`, refreshed on every edit and selection change
   and when the view changes.
 
+## Tables
+
+Tables come from xui-rich-text (its README, "Tables"; va1erian/xui#257): a
+table is a run of paragraphs tagged with their cell, so undo, copy and paste
+and the `.lzw` format carry them unchanged.
+
+* **The Table button** (after the wrap picker) opens a menu
+  (`src/ui/table_menu.rs`): Insert table (2 x 2 to 5 x 5, columns by rows,
+  enabled outside a table), Insert row above or below, Insert column left or
+  right, Delete rows, Delete columns, Delete table, and the Header row and
+  Borders switches (enabled inside a table). Each pick is one editor command
+  and one undo step.
+* **Keys and mouse**: `Tab` / `Shift+Tab` move between cells (the editor's
+  own keys; `Tab` in the last cell adds a row), and dragging a column edge
+  resizes the columns.
+* **Status bar**: a fifth part, `Table: row 2, column 3`, from
+  `RichTextEditor::table_cursor()`, empty outside a table.
+* **Pages**: rows are kept whole across pages, under a repeated header row.
+* **Markdown export** writes a pipe table whose first row is the header.
+
 ## Formats
 
 | Format | Direction | What |
 |---|---|---|
-| `.lzw` (`application/x-lazywriter`) | open, save | xui-rich-text's versioned JSON (`format::to_json` / `from_json`, crate feature `serde`) with every picture embedded as PNG, the page setup and page breaks. Files from before page view open on A4. |
+| `.lzw` (`application/x-lazywriter`) | open, save | xui-rich-text's versioned JSON (`format::to_json` / `from_json`, crate feature `serde`) with every picture embedded as PNG, the page setup, page breaks and tables. Files from before page view open on A4. |
 | `.md` | export only | GitHub Flavored Markdown (`format::to_markdown`). A document with pictures also gets `<name>_images/1.png`, `2.png`, ... beside the `.md`; the folder is created only when there is a picture. |
 | `.txt` | open only | Plain text (`Document::from_plain_text`), from the Open dialog. Save on a document opened from `.txt` never writes JSON over it: it opens Save As, suggesting `<name>.lzw`. |
 
@@ -186,6 +206,8 @@ at 8 KiB; pasting from another app inserts plain text.
 * A path containing a space cannot be opened from Files or `pkgctl open` (a
   launcher limit, `xui-app/src/platform/argv.rs`); the Open dialog can.
 * Italic is synthesised, so it looks rougher than a designed face.
+* Tables have no merged, nested or shaded cells; borders are all on or all
+  off, and a picture in a cell is shown inline.
 
 ## Verification
 

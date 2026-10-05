@@ -81,22 +81,45 @@ pub(super) fn stride(weight: u16) -> u64 {
     (STRIDE_UNIT / weight.clamp(MIN_WEIGHT, MAX_WEIGHT) as u64).max(1)
 }
 
-/// The smallest pass among runnable tasks: the scheduler's "now". A task that
-/// spawns or wakes here starts even with its peers instead of claiming a
-/// backlog of catch-up quanta. Walks the run queues (P6.1), not the table.
+/// The pass the latest selection was made at: how far virtual time has got.
+/// It only moves forward (but for [`renormalize`]'s shift), and it keeps
+/// its value while nothing is runnable, which the run queues cannot.
+static VIRTUAL_CLOCK: AtomicU64 = AtomicU64::new(0);
+
+/// The scheduler's "now": the smallest pass among runnable tasks, but never
+/// behind [`VIRTUAL_CLOCK`]. A task that spawns or wakes here starts even
+/// with its peers instead of claiming a backlog of catch-up quanta. Walks
+/// the run queues (P6.1), not the table.
+///
+/// The clock matters when the CPU was idle: a task waking with nothing else
+/// runnable used to find no "now" at all and kept its old pass, so a task
+/// that mostly sleeps (a shell) fell further behind the busy services with
+/// every wake and handed that lag to its children. One that then spun on a
+/// yielding lock (`relax::YieldMutex`) won every pick for seconds against the
+/// very tasks its lock holder was waiting for.
 pub(super) fn virtual_now(tasks: &[Option<Task>; MAX_TASKS]) -> u64 {
-    let mut now: Option<u64> = None;
+    let mut now = VIRTUAL_CLOCK.load(Ordering::Relaxed);
+    let mut least: Option<u64> = None;
     for rank in 0..PriorityClass::ALL.len() {
         for slot in runq::runnable(rank).iter() {
             if !runq::check(tasks, slot, rank) {
                 continue;
             }
             if let Some(task) = tasks[slot].as_ref() {
-                now = Some(now.map_or(task.pass, |now| now.min(task.pass)));
+                least = Some(least.map_or(task.pass, |least| least.min(task.pass)));
             }
         }
     }
-    now.unwrap_or(0)
+    if let Some(least) = least {
+        now = now.max(least);
+    }
+    now
+}
+
+/// Restart virtual time (the test harness's table reset).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
+pub(super) fn reset_virtual_clock() {
+    VIRTUAL_CLOCK.store(0, Ordering::Relaxed);
 }
 
 /// The smallest pass in the whole table, blocked tasks included (a blocked
@@ -366,6 +389,7 @@ pub(super) fn charge(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) {
     super::preempt::note_selected(slot);
     let mut pass = 0;
     if let Some(task) = tasks[slot].as_mut() {
+        VIRTUAL_CLOCK.fetch_max(task.pass, Ordering::Relaxed);
         task.pass = task.pass.saturating_add(stride(task.weight));
         pass = task.pass;
     }
@@ -385,4 +409,6 @@ pub(super) fn renormalize(tasks: &mut [Option<Task>; MAX_TASKS]) {
     for task in tasks.iter_mut().flatten() {
         task.pass -= min;
     }
+    let clock = VIRTUAL_CLOCK.load(Ordering::Relaxed);
+    VIRTUAL_CLOCK.store(clock.saturating_sub(min), Ordering::Relaxed);
 }

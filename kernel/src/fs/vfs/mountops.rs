@@ -61,6 +61,36 @@ impl Vfs {
         )
     }
 
+    /// Remove the mount at exactly `point` (a user-space filesystem going
+    /// away, `fs::fuse`). A mount with another mount below it is
+    /// [`FsError::Invalid`]; no mount there is [`FsError::NotFound`].
+    ///
+    /// The caches key on mount indices, which shift, so they are dropped
+    /// whole: unmounting is rare, and a cold cache only costs lookups.
+    /// Open nodes keep the filesystem alive and keep failing or working as
+    /// it decides; the table only forgets the path.
+    pub fn unmount(&mut self, point: &str) -> Result<(), FsError> {
+        let point = Path::parse(point);
+        let index = self
+            .mounts
+            .iter()
+            .position(|mount| mount.point == point)
+            .ok_or(FsError::NotFound)?;
+        let nested = self
+            .mounts
+            .iter()
+            .any(|mount| mount.point.len() > point.len() && mount.point.starts_with(&point));
+        if nested || point.is_root() {
+            return Err(FsError::Invalid);
+        }
+        self.mounts.remove(index);
+        self.dentry.clear();
+        self.inodes.clear();
+        self.stats.mounts = self.mounts.len();
+        self.stats.invalidations += 1;
+        Ok(())
+    }
+
     /// The short name of the filesystem holding `path` (`"ext2 (rw)"`, ...).
     pub fn mount_fs_name(&self, path: &str) -> Option<&'static str> {
         let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;

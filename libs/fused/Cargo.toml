@@ -1,0 +1,11 @@
+[package]
+name = "fused"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The user-space filesystem (FUSE) provider protocol of syscall 35: request and reply records, directory and statfs payloads, the daemon serve loop and an in-memory filesystem. Pure no_std + alloc"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "fused"
+path = "src/lib.rs"

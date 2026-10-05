@@ -7,6 +7,7 @@
 mod dialogs;
 pub mod page_menu;
 pub mod print_bar;
+pub mod table_menu;
 mod tools;
 
 use std::cell::Cell;
@@ -169,6 +170,7 @@ fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 
     let page_setup = Rc::new(push(ui, t, (Lucide::Ruler, "Page setup"), || {
         Msg::PageSetup
     })?);
+    let table = Rc::new(push(ui, t, (Lucide::Table, "Table"), || Msg::Table)?);
     let tools = Tools {
         block,
         family,
@@ -179,6 +181,7 @@ fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 
         wrap,
         page_view,
         page_setup,
+        table,
         tips,
     };
     Ok((tools, [indent, outdent]))
@@ -198,7 +201,7 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
     let (tools, [indent, outdent]) = format_tools(ui)?;
     let status = Rc::new(StatusBar::auto(
         ui,
-        &["Untitled", "Saved", "0 words", "Page 1 of 1"],
+        &["Untitled", "Saved", "0 words", "Page 1 of 1", ""],
     )?);
     let dialogs = dialogs::build(ui, &host)?;
     let print_bar = print_bar::PrintBar::build(ui)?;
@@ -239,6 +242,8 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
                 .child(outdent.width(ICON_WIDTH))
                 .child(spacer().width(gap))
                 .child((&t.wrap).width(Dip(120.0)))
+                .child(spacer().width(gap))
+                .child((&t.table).width(ICON_WIDTH))
                 .child(spacer())
                 .child((&t.page_view).width(ICON_WIDTH))
                 .child((&t.page_setup).width(ICON_WIDTH))

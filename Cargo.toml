@@ -65,6 +65,10 @@ members = [
     # (docs/architecture/usb-storage.md): pure `no_std` logic with host tests
     # against a model device and fuzz entry points.
     "libs/usbmsc",
+    # NVMe controller bring-up, queues, PRP planning and Identify parsing for
+    # the kernel's NVMe driver (docs/nvme-install-plan.md N1): pure `no_std`
+    # logic with host tests against a model controller and seeded fuzz.
+    "libs/nvme",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
@@ -76,6 +80,10 @@ members = [
     # encoder, pure `no_std` + `alloc` with host tests and fuzz entry points.
     "libs/ipp",
     "libs/raster",
+    # The user-space filesystem (FUSE) provider protocol of syscall 35, the
+    # daemon serve loop and the in-memory tree (docs/smb-plan.md F1), shared
+    # by the kernel's `fs/fuse` backend and the daemons. Pure `no_std` + alloc.
+    "libs/fused",
     "libs/netpolicy",
     "libs/usbpolicy",
     "libs/sndpolicy",

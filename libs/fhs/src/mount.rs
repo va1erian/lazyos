@@ -27,3 +27,7 @@ pub const HOME: &str = "/home";
 /// `"/transient"`. Not used yet.
 #[doc(hidden)]
 pub const TRANSIENT: &str = "/transient";
+
+/// Where user-space filesystems mount (docs/smb-plan.md F1): a provider of
+/// syscall 35 serves `/mnt/<name>`, and nothing else may mount here.
+pub const MNT: &str = "/mnt";

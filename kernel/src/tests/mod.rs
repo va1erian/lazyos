@@ -177,6 +177,7 @@ mod fault_suite;
 mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
+mod fuse_suite;
 mod hardening_suite;
 mod heap_slab_suite;
 mod heap_suite;
@@ -195,6 +196,7 @@ mod mem_suite;
 mod messenger_suite;
 mod mount_suite;
 mod native_exec_suite;
+mod nvme_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
@@ -267,6 +269,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    nvme_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,
@@ -308,6 +311,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
     provider_suite::CASES,
+    fuse_suite::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,

@@ -1,7 +1,8 @@
 # Plan: install LazyOS on an NVMe drive (Intel N150 mini PC)
 
-> **Status: draft proposal, revision 1 (2026-10-04).** Exploration only, no
-> code yet. Builds on [`real-pc-boot-plan.md`](real-pc-boot-plan.md) (H0-H4,
+> **Status: N1 shipped (2026-10-04), N0 and N2-N4 proposed.** The kernel NVMe
+> driver is `kernel/src/block/nvme.rs` over `libs/nvme`; see N1 below for
+> what landed. Builds on [`real-pc-boot-plan.md`](real-pc-boot-plan.md) (H0-H4,
 > the USB stick), [`usb-stick.md`](usb-stick.md) (the stick image and its
 > persistent `/home`), [`architecture/block-devices.md`](architecture/block-devices.md)
 > (the block registry, MBR partitions, `lazyos.cfg` root selection),
@@ -33,7 +34,7 @@ virtio-blk), and resizing an existing installation. Each has a seam below.
 | Piece | State today | Needed for an NVMe install |
 |---|---|---|
 | Firmware boot | `target/lazyos-usb.img` boots UEFI (OVMF, a real Z890 board) from `\EFI\BOOT\BOOTX64.EFI` on an MBR FAT partition; the `bootloader` 0.11 UEFI stage loads `kernel-x86_64` (and an optional ramdisk) from the partition it was started from | the same loader and kernel on an ESP of the internal disk; the removable-media path also works on fixed disks on AMI Aptio, which N150 boxes use (inferred from the Z890 run and common practice; checked on the real box in N0) |
-| NVMe | **none.** The kernel's block drivers are ATA PIO (read-only) and legacy virtio-blk; `usbd` serves USB sticks from user space through the block provider (syscall 33) | a kernel NVMe driver (N1) |
+| NVMe | **N1 landed:** `kernel/src/block/nvme.rs` over `libs/nvme` drives QEMU's `-device nvme` (namespace 1, 512-byte LBAs, polled); the dev image boots from it alone | served as is; a 4 KiB-formatted SSD needs the block layer to learn other sector sizes (open question 1) |
 | Kernel MMIO and DMA | `mem::mmio::map_mmio` maps BAR pages uncached (used by the LAPIC); `block::virt_to_phys` and the virtio bounce region show the DMA pattern; PCI walks bridges and sizes 64-bit BARs | reused as is |
 | Partition tables | MBR only (`block/partition.rs`); a protective `0xEE` entry is logged and skipped, so a GPT disk shows no partitions | a GPT reader (N2) |
 | Root selection | `fs::mounts::build` finds a FAT volume carrying `lazyos.cfg`, mounts the ext2 `root=UUID=...` at `/` (on any device), `/boot` read-only, `home=` at `/home` | reused as is: the NVMe layout is the dev image's layout on another disk |
@@ -136,6 +137,20 @@ Each is shippable alone and testable in QEMU, which has an NVMe controller
 | **N4** Living on the disk | Firmware notes for the N150 (boot order, Secure Boot off, Fast Boot off) in a `docs/nvme-install.md` user guide; an on-screen warning when `/` mounted unclean, and a rescue path: boot the stick, which mounts nothing from the NVMe disk (its `lazyos.cfg` names its own UUIDs), and run an `ext2check` built from the host's offline repair (`build_support/os_recover.rs`) against `nvme0p2`/`p6`. Measured: boot time to desktop from NVMe, sustained write throughput, and what an unexpected power cut costs (at most the flusher's 5 s, by design) | the persistence harness with a hard `quit` from QEMU's monitor instead of a poweroff, repeated: the next boot must mount, report unclean, and `ext2check` must leave a clean volume |
 | **N5** Graphical installer (later) | An "Install LazyOS on this PC" flow in the desktop, on top of `lazyinstall`'s logic (the Installer app today installs packages; a separate app is fine), showing the disk, the layout and progress | screenshots of each step in QEMU, read |
 
+**N1 as built.** The protocol is the host-tested `libs/nvme` crate (a
+model controller covers bring-up, PRP shapes, media errors, stray
+completions, a hung command and a controller that never comes ready; seeded
+fuzz covers Identify, completions, the PRP planner and a fully hostile
+controller), and `kernel/src/block/nvme.rs` is its machine side. Two
+departures from the row above: BAR0 is mapped with a new
+`mem::mmio::map_kernel` (4 KiB uncached pages in a kernel window, since OVMF
+places 64-bit BARs above the physical-memory map and `map_mmio` is for user
+tables), and the kernel takes the boot slot for NVMe only when no other disk
+did. A controller with a 4 KiB namespace still initialises in the library;
+the kernel refuses it with the log line. CI: `kernel-tests (nvme)` runs
+`nvme_suite` against a scratch `-device nvme`, and `nvme-boot (bios)` boots
+the dev image from NVMe alone and requires `FS:ROOT:nvme0p3`.
+
 **Suggested order:** N0 now (one evening with the stick). N1 is the critical
 path and the only new kernel subsystem; N2 follows and already gives a manual
 install route (below). N3 and N4 make it something a person can repeat
@@ -191,7 +206,9 @@ picks it at build time, as `LAZYOS_USB_HOME_SIZE` does for the stick).
    services, so LazyOS cannot add an NVRAM boot entry; it relies on the
    firmware listing the disk's `\EFI\BOOT\BOOTX64.EFI` as "UEFI OS". The user
    sets the boot order once in setup, and the guide says how.
-4. **Power loss on a machine that never stops.** ext2 has no journal. The
+4. **Power loss on a machine that never stops.** ext2 on `main` has no
+   journal yet (an optional JBD2 metadata journal is in review, #581; its
+   commit barriers reach the disk through the NVMe driver's Flush). The
    flusher bounds the loss to about 5 s and writeback is phase ordered, but a
    cut during a commit can leave a volume that needs repair; v1's answer is
    the rescue stick (N4). A journal or a boot-time check is the next step

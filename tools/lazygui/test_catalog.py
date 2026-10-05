@@ -183,6 +183,25 @@ class DocumentAppSessionTests(unittest.TestCase):
                "busybox": ""}
         self.assertTrue(catalog.build_env(cfg)["LAZYOS_XUI_APP"].endswith("xui-writer.elf"))
 
+    def test_archiver_is_a_document_app_session(self) -> None:
+        # docs/archiver-plan.md: the Archiver ships in every desktop image (no
+        # flag of its own); its session autostarts it by its short name.
+        self.assertIn("archiver", catalog.DOCUMENT_APPS)
+        entry = [s for s in catalog.SCRIPTS if s[0] == "xui_archiver.json"]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0][2:], (("desktop",), "archiver"))
+        env = self.env("archiver")
+        self.assertEqual(env["LAZYOS_DESKTOP"], "1")
+        self.assertEqual(env["LAZYOS_XUI_AUTOSTART"], "archiver")
+        self.assertNotIn("LAZYOS_XUI_APPS", env)
+
+    def test_archiver_viewer_is_its_built_binary(self) -> None:
+        self.assertIn("archiver", catalog.XUI_VIEWERS)
+        cfg = {"desktop": False, "services": True, "xuid": True, "xui_client": False,
+               "xui_app": "archiver", "shellprobe": False, "msgctl": False, "msgrd": False,
+               "busybox": ""}
+        self.assertTrue(catalog.build_env(cfg)["LAZYOS_XUI_APP"].endswith("xui-archiver.elf"))
+
 class LazyRadTests(unittest.TestCase):
     """The launcher can put the LazyRAD IDE on the image (Settings -> Menu offers it)."""
 

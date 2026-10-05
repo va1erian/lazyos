@@ -1,0 +1,19 @@
+[package]
+name = "nvme"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "NVMe controller bring-up, queues, PRP planning and Identify parsing for the LazyOS kernel driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "nvme"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte entry point shared by the in-tree seeded tests
+# and the cargo-fuzz target (`fuzz/fuzz_targets/nvme.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

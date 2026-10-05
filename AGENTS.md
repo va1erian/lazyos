@@ -176,17 +176,6 @@ warning and every other app still builds. `python tools/xui/test_zig.py` tests
 the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
-On Windows the pinned `va1erian/xui` cannot be checked out as cargo ships it:
-the NetSurf submodule `libnsbmp` (and its siblings) names AFL test cases with a
-colon, which NTFS rejects
-(`cannot checkout to invalid path 'test/afl-bmp/id:000023,...bmp'`).
-`tools/xui/git_checkout.py` checks every submodule out without those test paths
-and marks the checkout usable; the xui, LazyRAD and Doom build scripts run it
-via `git_checkout.resolve` and retry. Both cargo `xui` sources are seeded (the
-`github.com` one `xui-app`/`doom` use and the `www.github.com` one
-`lazyrad-os`'s `[patch]` uses). `python tools/xui/test_git_checkout.py` tests
-it. Nothing needs doing by hand.
-
 ## LazyWriter (word processor)
 
 `writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
@@ -198,6 +187,26 @@ and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`
 Printing (`Ctrl+P`, `libs/ipp`, `libs/raster`, docs/printing-plan.md):
 `python tools/print/run.py` builds, boots, prints to a fake IPP printer on the
 host and judges the PWG Raster page it gets (`WRITER:PRINT:PASS:<pages>`).
+
+## Archiver (archive manager) and desktop drag and drop
+
+`xui-archiver` (`os.lazy.archiver`) is a 7-Zip-style archive manager shipped
+in every desktop image: browse, extract, test, create, add, delete, for zip,
+tar, tar.gz/zst/xz, gz/zst/xz and 7z (xz and 7z read-only). Formats live in
+`xui-app/crates/archive` (`lazyarc`, host-tested and fuzzed, real 7-Zip/xz
+fixtures in `tests/fixtures`), the app in `xui-app/crates/archiver`; see
+[`docs/xui-archiver.md`](docs/xui-archiver.md). It added drag and drop for xui
+apps: `LazyOSBackend::on_drag_gesture`/`on_drag_event` over the compositor's
+`DragStart`/`Drop` and `clipboardd` tokens, carrying `text/uri-list`; Files
+is a source and a target. The `xui-app` lib tests are Linux-only: on Windows
+build them for musl (`tools/xui/build.py`'s rust-lld settings) and run the
+ELF under WSL. Session: `tools/screenshot/examples/xui_archiver.json`
+(`LAZYOS_XUI_AUTOSTART=archiver`; markers `ARCHIVER:UP|OPEN|EXTRACT|TEST:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyarc -p xui-archiver -p xui-explorer
+FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazyarc --release seeded
+```
 
 ## Doom (an installable `.lzp` package)
 

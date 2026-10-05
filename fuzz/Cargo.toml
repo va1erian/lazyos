@@ -29,6 +29,7 @@ ext2fs = { path = "../libs/ext2fs", features = ["fuzz"] }
 acpi = { path = "../libs/acpi", features = ["fuzz"] }
 ipp = { path = "../libs/ipp", features = ["fuzz"] }
 raster = { path = "../libs/raster", features = ["fuzz"] }
+nvme = { path = "../libs/nvme", features = ["fuzz"] }
 
 [workspace]
 
@@ -154,6 +155,13 @@ bench = false
 [[bin]]
 name = "pwgraster"
 path = "fuzz_targets/pwgraster.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nvme"
+path = "fuzz_targets/nvme.rs"
 test = false
 doc = false
 bench = false

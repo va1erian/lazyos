@@ -27,6 +27,7 @@
 //! [`run`]: Backend::run
 
 mod backdrop;
+mod dnd;
 mod double_click;
 mod event_loop;
 mod focus;
@@ -54,6 +55,8 @@ use xui_core::{Key, Modifiers, Rect};
 use crate::client_window::{ClientState, ClientWindow, SurfaceRole};
 use crate::display;
 use crate::sys::{self, DisplayInfo};
+
+pub use dnd::{DragOffer, DropEvent};
 
 /// The only DPI the bring-up supports (see `docs/xui-plan.md`, risks).
 const DEFAULT_DPI: u32 = 96;
@@ -150,6 +153,8 @@ pub struct LazyOSBackend {
     /// worker thread and this thread's canvas draws the resulting layouts. The
     /// backend is never opened or run; it only owns the shaper.
     shaper: OffscreenBackend,
+    /// Drag and drop: the app's hooks and the press that may become a drag.
+    dnd: dnd::Dnd,
 }
 
 /// One repeating timer, on the monotonic nanosecond clock
@@ -285,6 +290,7 @@ impl LazyOSBackend {
             next_role: Cell::new(SurfaceRole::Window),
             scale: Cell::new(1),
             shaper: OffscreenBackend::new(),
+            dnd: dnd::Dnd::default(),
         }
     }
 

@@ -39,6 +39,7 @@ pub mod ext2;
 pub mod fallible;
 pub mod fat;
 pub mod flusher;
+pub mod fuse;
 pub mod hidden;
 pub mod late;
 pub(crate) mod mounts;
@@ -267,6 +268,11 @@ fn abi_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     ABI_FS.lock().as_mut().map(f)
 }
 
+/// [`abi_with`], unless another task holds the table right now.
+fn try_abi_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
+    ABI_FS.try_lock()?.as_mut().map(f)
+}
+
 /// Mount points of the Linux ABI table, in mount order, with each
 /// filesystem's short name (which ends in `(ro)` for a read-only mount).
 pub fn abi_mounts() -> Vec<(String, &'static str)> {
@@ -360,13 +366,14 @@ pub fn abi_statfs(id: Id, path: &str) -> Result<vfs::StatFs, FsError> {
 }
 
 /// Whether `path` lives on an ext2 volume (the data volume, or an ext2 root and
-/// home), whose files a Linux descriptor reads and writes in place
-/// ([`openfile::OpenFile`]) instead of through a snapshot. False when `path` is
-/// on the copy-up root or a ramfs.
+/// home) or a user-space filesystem ([`fuse`]), whose files a Linux descriptor
+/// reads and writes in place ([`openfile::OpenFile`]) instead of through a
+/// snapshot: a snapshot would copy a whole remote file into the kernel heap
+/// at `open`. False when `path` is on the copy-up root or a ramfs.
 pub fn abi_persistent(path: &str) -> bool {
     abi_with(|vfs| vfs.mount_fs_name(path))
         .flatten()
-        .is_some_and(|name| name.starts_with("ext2"))
+        .is_some_and(|name| name.starts_with("ext2") || name == "fuse")
 }
 
 /// Remove an empty directory through the Linux ABI VFS.

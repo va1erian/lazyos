@@ -17,10 +17,17 @@ fhs = { path = "../libs/fhs" }
 # The ext2 driver, shared with the host image build (docs/filesystem-plan.md F2);
 # fs/ext2/fsimpl.rs adapts it to the VFS.
 ext2fs = { path = "../libs/ext2fs" }
+# The user-space filesystem protocol of syscall 35 (docs/smb-plan.md F1), the
+# same records and payload codecs the daemons link; the suite also serves the
+# library's in-memory tree through the real kernel path.
+fused = { path = "../libs/fused" }
 bootloader_api = "0.11.17"
 # ACPI table walker (docs/real-pc-boot-plan.md H2): the timer code reads the
 # FADT's PM timer, the MADT's local APIC and the HPET through it.
 acpi = { path = "../libs/acpi" }
+# NVMe protocol core (docs/nvme-install-plan.md N1): bring-up, queues, PRP
+# planning and Identify parsing behind `block::nvme`'s platform seam.
+nvme = { path = "../libs/nvme" }
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.
 lazyos-crypto = { path = "../libs/crypto" }

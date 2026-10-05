@@ -281,6 +281,7 @@ dependencies = [
  "modplay",
  "netstack",
  "nicdrv",
+ "nvme",
  "raster",
  "usbhid",
  "usbmsc",
@@ -359,6 +360,10 @@ dependencies = [
  "virtio",
  "virtio-net",
 ]
+
+[[package]]
+name = "nvme"
+version = "0.1.0"
 
 [[package]]
 name = "password-hash"

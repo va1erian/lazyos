@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 pub use flash::FlashHandle;
 
-use xui_core::app::{App, Ui};
+use xui_core::app::{App, Proxy, Ui};
 use xui_core::backend::{BackendError, Event, NodeKind, NodeSpec, TimerId, WidgetId};
 use xui_core::geometry::{Point, Rect};
 use xui_core::message::Key;
@@ -28,7 +28,7 @@ use xui_core::widget::{
 
 use crate::model::{Clock, Flash, Listing, SharedListing, summarize, title};
 use crate::platform::Kind;
-use crate::shell::Explorer;
+use crate::shell::{Explorer, ViewState};
 
 /// The status bar's design height.
 const STATUS_HEIGHT: Dip = Dip(24.0);
@@ -70,6 +70,9 @@ pub enum Msg {
     /// The window was resized; the view and status bar re-flow to the new
     /// client rect.
     WindowResized,
+    /// A drag out of the view started carrying the selection the press
+    /// collapsed: select it again.
+    RestoreSelection,
 }
 
 /// One open folder window.
@@ -94,6 +97,13 @@ pub struct ExplorerWindow {
     pending_delete: Vec<OsString>,
     confirm: Option<TaskDialog<Msg>>,
     properties: Option<Dialog<Msg>>,
+    /// This window's raw id, under which its [`ViewState`] is published.
+    window: u64,
+    /// Reaches this window from the platform's drag hooks.
+    proxy: Proxy<Msg>,
+    /// The selection, and the one before its latest change.
+    selected: Vec<usize>,
+    previous: Vec<usize>,
 }
 
 impl ExplorerWindow {
@@ -174,6 +184,10 @@ impl ExplorerWindow {
             pending_delete: Vec::new(),
             confirm: None,
             properties: None,
+            window: ui.window().raw(),
+            proxy: ui.proxy(),
+            selected: Vec::new(),
+            previous: Vec::new(),
         };
         window.refresh(ui);
         Ok(window)
@@ -215,6 +229,40 @@ impl ExplorerWindow {
         self.title = title(&self.dir);
         ui.set_window_title(&self.title);
         self.explorer.publish_title(ui.window(), &self.title);
+        self.selected = self.view.selection();
+        self.previous.clear();
+        self.publish_view();
+        self.update_status();
+    }
+
+    /// Tells the shell what this window shows, for drag and drop.
+    fn publish_view(&self) {
+        let paths = |rows: &[usize]| {
+            self.listing
+                .names_of(rows)
+                .into_iter()
+                .map(|name| self.dir.join(name))
+                .collect::<Vec<PathBuf>>()
+        };
+        self.explorer.publish_view(
+            self.window,
+            ViewState {
+                dir: self.dir.clone(),
+                view: self.view.id(),
+                selected: paths(&self.selected),
+                previous: paths(&self.previous),
+                proxy: self.proxy.clone(),
+            },
+        );
+    }
+
+    /// The selection changed: remember the one before it.
+    fn selection_changed(&mut self) {
+        let now = self.view.selection();
+        if now != self.selected {
+            self.previous = std::mem::replace(&mut self.selected, now);
+        }
+        self.publish_view();
         self.update_status();
     }
 
@@ -315,7 +363,12 @@ impl App for ExplorerWindow {
             // A resize re-flows even while a modal is open: the dialogs are
             // window-level nodes and keep their own layout.
             Msg::WindowResized => self.reflow(ui),
-            Msg::Selection => self.update_status(),
+            Msg::Selection => self.selection_changed(),
+            Msg::RestoreSelection => {
+                let previous = self.previous.clone();
+                self.view.set_selection(&previous);
+                self.selection_changed();
+            }
             Msg::Activate(index) => {
                 if !self.modal_open() {
                     self.activate(index, ui);
@@ -350,6 +403,12 @@ impl App for ExplorerWindow {
             Msg::PropertiesClosed => self.properties = None,
             Msg::FlashTick => self.flash_tick(),
         }
+    }
+}
+
+impl Drop for ExplorerWindow {
+    fn drop(&mut self) {
+        self.explorer.forget_view(self.window);
     }
 }
 
