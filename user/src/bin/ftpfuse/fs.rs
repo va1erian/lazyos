@@ -243,6 +243,14 @@ impl FtpFs {
             .retain(|(p, _)| p != path && !p.starts_with(&below));
     }
 
+    /// `path` may have changed on the server in a way not known here: drop
+    /// its cached bytes and its parent's listing, so both are read again.
+    fn unsure(&mut self, path: &str) {
+        let (dir, _) = split(path);
+        self.dirs.remove(dir);
+        self.files.retain(|(p, _)| p != path);
+    }
+
     /// The parent of a new `path` exists and the name is free.
     fn creatable(&mut self, path: &str) -> Result<(), Errno> {
         match self.entry(path) {
@@ -306,7 +314,12 @@ impl FuseFs for FtpFs {
                 }
                 // A server without APPE: rewrite instead.
                 Err(errno::EOPNOTSUPP) if verb == "APPE" => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    // The server may hold part of the data: what is cached
+                    // about the file can no longer be believed.
+                    self.unsure(&path);
+                    return Err(error);
+                }
             }
         }
         let mut bytes = core::mem::take(self.contents(&path, size)?);
@@ -405,6 +418,9 @@ impl FuseFs for FtpFs {
             Err(error) => return Err(error.errno()),
         }
         self.forget(from);
+        // An RNTO that overwrote `to` leaves its old bytes cached under that
+        // name; a same-size replacement would otherwise read back stale.
+        self.forget(to);
         let (parent, _) = split(to);
         self.dirs.remove(parent);
         self.inodes.rename(from, to);

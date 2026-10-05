@@ -97,7 +97,10 @@ def session(port: int, verbose: bool = False) -> list[dict]:
                   "| ok 'HEllo from the host' patch", "FTPFUSE:patch:")
     steps += step(f"mkdir {m}/newdir && mv {m}/up.txt {m}/newdir/; ls {m}/newdir | ok up.txt rename", "FTPFUSE:rename:")
     # Rename over an existing file (the editor's save): it is replaced.
-    steps += step(f"echo new > {m}/new.part && mv {m}/new.part {m}/old.txt; cat {m}/old.txt | ok new replace",
+    # Read it first, so the old bytes are cached when a same-size file
+    # replaces them: the replacement must not read back stale.
+    steps += step(f"cat {m}/old.txt >/dev/null; echo new > {m}/new.part && mv {m}/new.part {m}/old.txt; "
+                  f"cat {m}/old.txt | ok new replace",
                   "FTPFUSE:replace:")
     # Two files read in alternation, both through the mount.
     steps += step(f"cp {m}/big.bin {m}/big2.bin && cmp {m}/big.bin {m}/big2.bin; chk twin $? 0",

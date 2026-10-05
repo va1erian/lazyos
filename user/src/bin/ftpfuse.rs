@@ -136,9 +136,10 @@ fn run() -> Result<(), String> {
     sys::cred_get(None, &mut cred).map_err(|e| format!("credentials: errno {e}"))?;
     let started = (sys::wall_centis() / 100) as i64;
     let mut tree = fs::FtpFs::new(link, cred.uid, cred.gid, started);
+    let point = format!("{}/{}", fhs::mount::MNT, opts.name);
     let mut mount = sys::fuse::Mount::register(&opts.name, 0)
-        .map_err(|e| format!("mount /mnt/{}: errno {e}", opts.name))?;
-    sys::write_str(&format!("FTPFUSE:UP /mnt/{}\n", opts.name));
+        .map_err(|e| format!("mount {point}: errno {e}"))?;
+    sys::write_str(&format!("FTPFUSE:UP {point}\n"));
     let mut buffers = Buffers::new();
     let mut idle_since = sys::clock();
     loop {

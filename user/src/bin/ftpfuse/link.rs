@@ -12,6 +12,7 @@ use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use ftpwire::Reply;
 use fused::daemon::Errno;
@@ -89,7 +90,17 @@ impl Link {
     /// [`RECONNECT_TICKS`] pass. A connection that never holds is `EIO`.
     pub fn run<T>(
         &mut self,
+        step: impl FnMut(&mut Control) -> Result<T, String>,
+    ) -> Result<T, Errno> {
+        self.run_guarded(step, || true)
+    }
+
+    /// [`Link::run`], retrying a failed step only while `may_retry` says so
+    /// (an append whose data phase began must not be sent twice).
+    fn run_guarded<T>(
+        &mut self,
         mut step: impl FnMut(&mut Control) -> Result<T, String>,
+        may_retry: impl Fn() -> bool,
     ) -> Result<T, Errno> {
         let deadline = sys::clock() + RECONNECT_TICKS;
         let mut steps = 0;
@@ -106,6 +117,9 @@ impl Link {
             match step(control) {
                 Ok(value) => return Ok(value),
                 Err(_) => self.control = None,
+            }
+            if !may_retry() {
+                break;
             }
         }
         Err(errno::EIO)
@@ -172,19 +186,30 @@ impl Link {
     }
 
     /// An upload (`STOR`, `APPE`) of `bytes`.
+    ///
+    /// A `STOR` replaces the file whole, so it is retried like any command.
+    /// An `APPE` is not idempotent: once its data connection is open, the
+    /// server may have appended any part of `bytes` before the connection was
+    /// lost, so a lost connection then is `EIO`, never a second append.
     pub fn store(&mut self, verb: &str, remote: &str, bytes: &[u8]) -> Result<(), Errno> {
-        let outcome = self.run(|c| {
-            let data = match open(c, verb, remote)? {
-                Ok(data) => data,
-                Err(code) => return Ok(Err(code)),
-            };
-            let sent = send_all(&data, bytes);
-            // End of file for the server is the end of the data connection.
-            let _ = data.shutdown_write();
-            drop(data);
-            sent?;
-            Ok(finish(c)?.map(|_| ()))
-        })?;
+        let started = Cell::new(false);
+        let idempotent = verb != "APPE";
+        let outcome = self.run_guarded(
+            |c| {
+                let data = match open(c, verb, remote)? {
+                    Ok(data) => data,
+                    Err(code) => return Ok(Err(code)),
+                };
+                started.set(true);
+                let sent = send_all(&data, bytes);
+                // End of file for the server is the end of the data connection.
+                let _ = data.shutdown_write();
+                drop(data);
+                sent?;
+                Ok(finish(c)?.map(|_| ()))
+            },
+            || idempotent || !started.get(),
+        )?;
         outcome.map_err(errno_of)
     }
 }
