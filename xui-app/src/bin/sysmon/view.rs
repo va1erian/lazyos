@@ -284,7 +284,6 @@ impl Widgets {
         status.set_text(3, &source);
     }
 
-    /// Says the snapshot cannot be read, where the task heading goes.
     /// Says the snapshot cannot be read and clears the values it would show,
     /// so neither view keeps the last successful read; the compact meters
     /// (shown without the tabs or the status bar) carry the errno.
