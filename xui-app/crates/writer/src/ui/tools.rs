@@ -58,6 +58,8 @@ pub struct Tools {
     pub page_view: Rc<ToggleButton<Msg>>,
     /// Opens the Page setup menu under itself.
     pub page_setup: Rc<Button<Msg>>,
+    /// Opens the Table menu under itself.
+    pub table: Rc<Button<Msg>>,
     /// The icon-only buttons' names, shown on hover.
     pub tips: Vec<Tooltip<Msg>>,
 }
@@ -142,6 +144,7 @@ pub struct ToolHandles {
     wrap: Handle<ComboBox<Msg>>,
     page_view: Handle<ToggleButton<Msg>>,
     page_setup: Handle<Button<Msg>>,
+    table: Handle<Button<Msg>>,
     tips: Tips,
 }
 
@@ -163,6 +166,10 @@ impl ToolHandles {
             .bind(&self.page_setup)
             .then(|button| button.icon(Lucide::Ruler))
             .on_click_with(|| Some(Msg::PageSetup));
+        let table = button("")
+            .bind(&self.table)
+            .then(|button| button.icon(Lucide::Table))
+            .on_click_with(|| Some(Msg::Table));
         let entries = vec![
             combo_box(&BLOCKS)
                 .bind(&self.block)
@@ -233,6 +240,8 @@ impl ToolHandles {
                     wrap
                 })
                 .width(120),
+            spacer().width(GAP),
+            tipped(table, t, "Table").width(ICON_WIDTH),
             spacer(),
             tipped(page_view, t, "Page view").width(ICON_WIDTH),
             tipped(page_setup, t, "Page setup").width(ICON_WIDTH),
@@ -259,6 +268,7 @@ impl ToolHandles {
             wrap: self.wrap.get(),
             page_view: self.page_view.get(),
             page_setup: self.page_setup.get(),
+            table: self.table.get(),
             tips: self.tips.take(),
         }
     }

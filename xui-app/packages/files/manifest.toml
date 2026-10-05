@@ -34,8 +34,10 @@ verbs = ["reveal"]
 
 [permissions]
 # Derived from runs of the app under its label (`LAZYOS_LABEL_TRACE=1`, which
-# prints every refused call); see docs/packages.md, core packages.
+# prints every refused call); see docs/packages.md, core packages. The
+# clipboard carries drag-and-drop payloads (docs/archiver-plan.md).
 interfaces = [
+    "os.lazy.clipboard.v1",
     "os.lazy.display.v1",
     "os.lazy.input.v1",
     "os.lazy.mimed.v1",

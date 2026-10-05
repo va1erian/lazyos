@@ -30,6 +30,7 @@ use crate::{fs, user_ptr};
 
 const EPERM: i64 = 1;
 const ENOENT: i64 = 2;
+const EIO: i64 = 5;
 const ENOMEM: i64 = 12;
 const EFAULT: i64 = 14;
 const EACCES: i64 = 13;
@@ -70,6 +71,7 @@ fn errno_of(error: FsError) -> i64 {
         FsError::NoSpace => ENOSPC,
         FsError::NameTooLong => ENAMETOOLONG,
         FsError::NotSupported => ENOSYS,
+        FsError::Io => EIO,
     }
 }
 

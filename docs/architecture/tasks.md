@@ -59,6 +59,12 @@ ISR that performs context switches.
   `virtual_now`; a waking one rejoins no further behind it than one of its
   own strides (`sched::rejoin`), so it never claims catch-up quanta but a
   task that mostly sleeps is the next pick when it wakes (P6.2).
+  `virtual_now` is the smallest runnable pass, but never behind the pass of
+  the latest selection (`VIRTUAL_CLOCK`, which an idle CPU does not reset):
+  without that floor a task waking with nothing else runnable kept its old
+  pass, a sleeping shell drifted thousands of quanta behind busy services,
+  and a child of it spinning on a `YieldMutex` outran `netd` and an FTP
+  daemon for the 10 s of a FUSE deadline (`task_sched_idle_wake_keeps_virtual_time`).
 - Charging (P6.2): a selection charges a whole stride; a task that leaves
   the CPU early (parked, or preempted by a wake) gets back the unused part of
   that quantum, keeping at least a tenth (`preempt::refund`,

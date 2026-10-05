@@ -420,6 +420,14 @@ compositor never sees payload bytes (field names below are the IDL parameters):
   (the target re-tries its dropped token from another session and expects the
   clipboard's refusal).
 
+xui apps reach the protocol through the LazyOS backend
+(`xui-app/src/backend/dnd.rs`, [`xui-archiver.md`](../xui-archiver.md)): an
+app registers `on_drag_gesture` (asked what a press-and-drag of more than 6
+design pixels on a widget carries; the backend offers it to `clipboardd` and
+calls `DragStart`) and `on_drag_event` (enter, over, leave, a drop with its
+token already pasted, and the source's `Ended`). Files and the Archiver
+exchange `text/uri-list` payloads this way.
+
 **Shell protocol (issue #167, S5.0)**
 
 LazyShell (S5) is an ordinary `os.lazy.display.v1` client, so `xuid` grows an

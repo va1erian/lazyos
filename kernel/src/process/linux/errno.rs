@@ -67,5 +67,6 @@ pub(super) fn fs_err(error: FsError) -> u64 {
         FsError::NoSpace => ENOSPC,
         FsError::NameTooLong => ENAMETOOLONG,
         FsError::NotSupported => ENOSYS,
+        FsError::Io => EIO,
     })
 }

@@ -23,6 +23,14 @@ double-click, or from the start menu under **Office**.
 * **Page break** (`Ctrl+Enter`, or the toolbar's Page break): the rest of the
   paragraph starts a new page. Backspace at the start of that page removes
   the break.
+* **Tables** (the table button): insert a table of 2 x 2 to 5 x 5 cells,
+  then add rows above or below, columns left or right, delete rows, columns
+  or the whole table, and turn the header row and the thin grid borders on
+  or off. `Tab` moves to the next cell and adds a row after the last one;
+  `Shift+Tab` goes back. Drag a column's edge to make it wider or narrower.
+  On pages a row is never cut in two (unless it is taller than a page), and
+  a header row is repeated at the top of the next page. The status bar shows
+  the caret's row and column.
 
 ## Shortcuts
 
@@ -39,6 +47,7 @@ double-click, or from the start menu under **Office**.
 | `Ctrl+X`, `Ctrl+C`, `Ctrl+V` | Cut, copy, paste |
 | `Ctrl+A` | Select all |
 | `Ctrl+Enter` | Page break |
+| `Tab`, `Shift+Tab` | Next or previous table cell |
 
 New, Open, Quit and closing the window ask whether to save a modified
 document first.
@@ -66,3 +75,5 @@ document first.
   pictures of more than 4096 x 4096 pixels are refused.
 * There is no italic face: italic text is slanted from the regular one.
 * No import of Markdown, HTML, RTF or Word documents.
+* Table cells cannot be merged or shaded, and tables cannot be nested.
+  Pictures in a cell sit in the text, not floating.

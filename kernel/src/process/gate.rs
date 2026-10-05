@@ -162,6 +162,9 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
         // 34: the monotonic nanosecond clock and sleep (P2.4), open to every
         // task; see `super::timesys`.
         34 => super::timesys::dispatch(regs.rdi, regs.rsi),
+        // 35: user-space filesystems: a daemon mounted at `/mnt/<name>`
+        // serving the VFS (docs/smb-plan.md F1); see `crate::fs::fuse::sys`.
+        35 => crate::fs::fuse::sys::dispatch(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8),
         _ => u64::MAX,
     };
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
@@ -206,6 +209,7 @@ pub fn dispatch_for_test(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         31 => sys_spawnv(a1),
         33 => crate::block::provider::sys::dispatch(a1, a2, a3, 0, 0),
         34 => super::timesys::dispatch(a1, a2),
+        35 => crate::fs::fuse::sys::dispatch(a1, a2, a3, 0, 0),
         _ => u64::MAX,
     }
 }

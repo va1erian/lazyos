@@ -81,6 +81,10 @@ pub enum Msg {
     PageSetup,
     /// An entry of the Page setup menu was picked.
     PageChoice(usize),
+    /// The Table button: show its menu.
+    Table,
+    /// An entry of the Table menu was picked, with a switch's new state.
+    TableChoice(usize, bool),
     /// The Save / Discard / Cancel prompt was dismissed.
     Unsaved(TaskDialogAction),
     /// The error message was dismissed.
@@ -113,6 +117,8 @@ pub struct Dialogs {
     pub message: Dialog<Msg>,
     /// The Page setup menu: paper, orientation, margins.
     pub page: Menu<Msg>,
+    /// The Table menu: insert a table, edit rows and columns, switches.
+    pub table: Menu<Msg>,
 }
 
 /// The LazyWriter application.
@@ -207,6 +213,8 @@ impl App for Writer {
             Msg::PageView(on) => commands::page_view(self, on),
             Msg::PageSetup => commands::page_menu(self, ui),
             Msg::PageChoice(id) => commands::page_choice(self, id),
+            Msg::Table => commands::table_menu(self, ui),
+            Msg::TableChoice(index, on) => commands::table_choice(self, index, on),
         }
     }
 }

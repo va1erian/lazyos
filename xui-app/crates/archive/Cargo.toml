@@ -1,0 +1,22 @@
+# The Archiver's format library (docs/archiver-plan.md): detection, listing,
+# streaming extraction, writing and rewriting of zip, tar (+gz/xz/zst), the
+# single-file gz/xz/zst and 7z (read-only). No UI and no LazyOS calls, so it
+# builds and is tested (round trips, hostile archives, seeded fuzz) on the host.
+[package]
+name = "lazyarc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Archive formats for the LazyOS Archiver"
+
+[dependencies]
+# Deflate and gzip (the pure-Rust miniz_oxide backend, already in the lock
+# through the PNG decoder).
+flate2 = "1"
+crc32fast = "1"
+# xz, LZMA and LZMA2 decoding (pure Rust, MIT). Its encoder emits literals
+# only, so the library never writes xz.
+lzma-rs = "0.3"
+# Zstandard decoding and the `Fastest` encoder (pure Rust, MIT).
+ruzstd = "0.8"

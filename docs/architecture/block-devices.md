@@ -1,7 +1,7 @@
-# Block devices: ATA, PCI, virtio
+# Block devices: ATA, PCI, virtio, NVMe
 
 **What it is.** The storage abstraction filesystems sit on: a `BlockDevice`
-trait, a fixed registry with a selected boot device, and three drivers.
+trait, a fixed registry with a selected boot device, and four drivers.
 
 **Key files**
 
@@ -12,6 +12,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 | `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
 | `kernel/src/dev/pci.rs` | PCI config-space access (0xCF8/0xCFC); moved here from `block/pci.rs` by the device core (#239) |
 | `kernel/src/block/virtio.rs` (+ `virtio/plan.rs`, `ring.rs`, `queue.rs`, `io.rs`) | Legacy virtio-blk (0.9.5) driver, read/write; one instance per PCI function |
+| `kernel/src/block/nvme.rs` (+ `libs/nvme`) | NVMe driver (docs/nvme-install-plan.md N1): one polled I/O queue pair per controller, namespace 1, read/write/flush, shutdown notification |
 | `kernel/src/block/iowait.rs` | How a request waits: park on deadlines (`Wait::MaySleep`) or spin (`Wait::Spin`); `breathe` for long CPU stretches |
 
 **`BlockDevice` trait** (`mod.rs:86`)
@@ -45,6 +46,7 @@ trait, a fixed registry with a selected boot device, and three drivers.
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
 | `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, up to 8 requests in flight (up to 256 KiB each, DMA straight to and from the caller's buffers), polled, `is_writable` = attached |
+| `nvme` | PCIe, class 01:08:02, BAR0 mapped uncached (`mem::mmio::map_kernel`) | yes | yes | up to 2 controllers (`nvme0`, `nvme1`): admin and one I/O queue pair in static memory, polled (no interrupts), up to 8 commands of 64 KiB in flight (fewer when `MDTS` says so), PRP entries straight to the caller's buffers (a bounce page for buffers that are not dword aligned), Flush when the controller has a volatile write cache, `CC.SHN` after the power path's sync; only 512-byte LBA formats are served |
 | `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
 - ATA is read-only because the write path was not needed for the FAT boot image;
@@ -176,6 +178,23 @@ platform device, enumerates PCI, then runs the table, which calls the same
 exactly as before. `block::init` is now a thin idempotent wrapper over
 `dev::init`, so all probe paths (boot, `fs::init`, kernel tests) behave the
 same.
+
+**NVMe (`block/nvme.rs`, docs/nvme-install-plan.md N1).** The protocol is
+`libs/nvme`, a pure `no_std` crate host-tested against a model controller
+(bring-up, every PRP shape, media errors, stray completions, a hung command,
+a controller that never comes ready) with seeded fuzz of the Identify pages,
+completions, the PRP planner and a fully hostile controller. The kernel
+supplies its `Platform`: BAR0 in the kernel MMIO window (firmware may place a
+64-bit BAR above the physical-memory map), queue, Identify and PRP-list pages
+in static memory, and a TSC clock (bring-up runs with interrupts off). The
+driver entry comes after virtio in the device-core table and takes the boot
+slot only when no other disk did; the root is still chosen by UUID from
+`lazyos.cfg`, so the dev image boots from NVMe alone (`FS:ROOT:nvme0p3`).
+Every wait is bounded: a timeout or `CSTS.CFS` disables the controller and the
+device then answers `Io`. The device lock is a `YieldMutex` held for a whole
+transfer, so a `Wait::MaySleep` caller parks in `iowait` while commands run.
+Tests: `nvme_suite` against a scratch disk (`tools/test/run.py --nvme`), and
+`tools/boot/run.py --media nvme` boots an image from QEMU's `-device nvme`.
 
 **User-space block providers (`block/provider.rs`).** A ring-3 driver
 holding `CAP_BLOCK_PROVIDER` (only `usbd`, for a USB stick) registers a

@@ -132,6 +132,8 @@ impl LazyOSBackend {
                     }
                     if let Some(frame) = display::decode_frame_event(&parcel) {
                         self.frame_event(window, frame);
+                    } else if let Some(drag) = display::decode_drag_event(&parcel) {
+                        self.drag_message(window, drag);
                     } else if let Some(event) = display::decode_event(&parcel) {
                         self.route_client_event(window, event);
                     }

@@ -89,9 +89,51 @@ impl Driver for VirtioBlkDriver {
     }
 }
 
+/// NVMe controllers (class 01:08:02), one block device per function
+/// (docs/nvme-install-plan.md N1). After virtio in the table, so it never
+/// displaces an earlier boot device.
+struct NvmeDriver;
+
+impl Driver for NvmeDriver {
+    fn name(&self) -> &'static str {
+        "nvme"
+    }
+
+    fn matches(&self, info: &DeviceInfo) -> bool {
+        matches!(info.bus, BusId::Pci(_))
+            && (info.class, info.subclass, info.prog_if) == (0x01, 0x08, 0x02)
+    }
+
+    fn attach(&self, handle: DeviceHandle) -> Result<(), DevError> {
+        let info = super::table()
+            .lock()
+            .get(handle.id())
+            .ok_or(DevError::NoDriver)?;
+        let BusId::Pci(address) = info.bus else {
+            return Err(DevError::NoDriver);
+        };
+        let Some(bar) = info
+            .resources
+            .bar(0)
+            .filter(|bar| bar.kind == super::BarKind::Mem)
+        else {
+            serial_println!("nvme: {:?} has no memory BAR0", address);
+            return Err(DevError::NoDriver);
+        };
+        let function = super::pci::Function {
+            address,
+            vendor: info.vendor,
+            id: info.device,
+        };
+        crate::block::install_nvme(function, bar.base, bar.len)
+            .map(|_| ())
+            .ok_or(DevError::NoDriver)
+    }
+}
+
 /// The static in-kernel driver table. Order matters only for which driver wins
 /// a device both accept; drivers do not overlap today.
-pub static DRIVERS: &[&dyn Driver] = &[&AtaDriver, &VirtioBlkDriver];
+pub static DRIVERS: &[&dyn Driver] = &[&AtaDriver, &VirtioBlkDriver, &NvmeDriver];
 
 /// Guards the one-shot boot probe.
 static PROBED: AtomicBool = AtomicBool::new(false);

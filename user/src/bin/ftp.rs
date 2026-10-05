@@ -36,10 +36,9 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use ftpwire::{crc32_update, Pattern};
-use session::{describe, Control, STALL_MS};
+use session::{describe, drain, send_all, Control};
 use user::messenger::netsock::{Addr, Client};
 use user::messenger::netstack::Client as Stack;
-use user::messenger::netstd::{is_timeout, TcpStream};
 use user::sys;
 
 /// Ticks to wait for `netd` at boot, and for an address.
@@ -136,42 +135,8 @@ fn connect() -> Result<(Rc<Client>, Stack), String> {
     Ok((Rc::new(sockets), stack))
 }
 
-/// Read a data connection to its end, handing each chunk to `sink`. A stall of
-/// [`STALL_MS`] is an error; so is more than `limit` bytes.
-fn drain(data: &TcpStream, limit: usize, mut sink: impl FnMut(&[u8])) -> Result<usize, String> {
-    let mut total = 0usize;
-    let mut idle_until = sys::clock() + STALL_MS / 10;
-    loop {
-        match data.read(16 * 1024, 200) {
-            Ok(chunk) if chunk.is_empty() => return Ok(total),
-            Ok(chunk) => {
-                total += chunk.len();
-                if total > limit {
-                    return Err(format!("more than {limit} bytes"));
-                }
-                sink(&chunk);
-                idle_until = sys::clock() + STALL_MS / 10;
-            }
-            Err(e) if is_timeout(&e) => {
-                if sys::clock() >= idle_until {
-                    return Err(String::from("the transfer stalled"));
-                }
-            }
-            Err(e) => return Err(format!("data read: {}", describe(&e))),
-        }
-    }
-}
-
-/// Start a transfer command on a fresh passive connection; the preliminary
-/// reply (125 or 150) has been read.
-fn open_transfer(c: &mut Control, verb: &str, argument: Option<&str>) -> Result<TcpStream, String> {
-    let data = c.passive()?;
-    c.request(verb, argument, &[1])?;
-    Ok(data)
-}
-
 fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
-    let data = open_transfer(c, "LIST", args.first().map(String::as_str))?;
+    let data = c.transfer("LIST", args.first().map(String::as_str))?;
     // A listing is text from the server: control characters (escape sequences
     // that could rewrite the terminal) are shown as `?`; only line and tab
     // characters pass.
@@ -197,7 +162,7 @@ fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
 fn cmd_get(c: &mut Control, args: &[String], quiet: bool) -> Result<(), String> {
     let name = args.first().ok_or("get: which file?")?;
     let to_stdout = args.get(1).map(String::as_str) == Some("-");
-    let data = open_transfer(c, "RETR", Some(name))?;
+    let data = c.transfer("RETR", Some(name))?;
     let mut crc = 0u32;
     let bytes = drain(&data, usize::MAX, |chunk| {
         crc = crc32_update(crc, chunk);
@@ -240,7 +205,7 @@ fn cmd_put(c: &mut Control, args: &[String]) -> Result<(), String> {
         }
         [] => return Err(String::from("put: which file?")),
     };
-    let data = open_transfer(c, "STOR", Some(remote))?;
+    let data = c.transfer("STOR", Some(remote))?;
     let (mut crc, mut sent) = (0u32, 0usize);
     let mut pattern = Pattern::new();
     let total = match &source {
@@ -254,18 +219,7 @@ fn cmd_put(c: &mut Control, args: &[String]) -> Result<(), String> {
             Source::File(bytes) => chunk[..n].copy_from_slice(&bytes[sent..sent + n]),
             Source::Generated(_) => pattern.fill(&mut chunk[..n]),
         }
-        let mut at = 0;
-        let mut stalled = sys::clock() + STALL_MS / 10;
-        while at < n {
-            match data.write_some(&chunk[at..n], 200) {
-                Ok(k) => {
-                    at += k;
-                    stalled = sys::clock() + STALL_MS / 10;
-                }
-                Err(e) if is_timeout(&e) && sys::clock() < stalled => {}
-                Err(e) => return Err(format!("data write: {}", describe(&e))),
-            }
-        }
+        send_all(&data, &chunk[..n])?;
         crc = crc32_update(crc, &chunk[..n]);
         sent += n;
     }

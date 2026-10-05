@@ -77,7 +77,7 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 
 /// Every directory the image creates, parents before children.
 ///
-/// * the mount points `/boot`, `/home` and `/transient` (root, 0755);
+/// * the mount points `/boot`, `/home`, `/transient` and `/mnt` (root, 0755);
 /// * `/system` with `bin`, `etc`, `share` and `packages` (root, 0755; F5 fills
 ///   `packages`);
 /// * each service's state (the table below);
@@ -93,6 +93,7 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
         fhs::mount::BOOT,
         fhs::mount::HOME,
         fhs::mount::TRANSIENT,
+        fhs::mount::MNT,
         fhs::SYSTEM,
         fhs::SYSTEM_BIN,
         fhs::SYSTEM_ETC,

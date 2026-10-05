@@ -6,6 +6,7 @@
 
 mod dialogs;
 pub mod page_menu;
+pub mod table_menu;
 mod tools;
 
 use std::cell::Cell;
@@ -121,7 +122,7 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         build_with(command_toolbar).height(TOOLBAR_HEIGHT),
         tools.row().fixed(FORMAT_HEIGHT),
         build_with(new_editor).bind(&editor).fill(1),
-        status_bar(&["Untitled", "Saved", "0 words", "Page 1 of 1"]).bind(&status),
+        status_bar(&["Untitled", "Saved", "0 words", "Page 1 of 1", ""]).bind(&status),
     )))?;
     let editor = Rc::clone(&editor.get().0);
     let tools = tools.tools();

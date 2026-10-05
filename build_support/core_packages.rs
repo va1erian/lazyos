@@ -131,6 +131,7 @@ pub fn is_core_stem(stem: &str) -> bool {
         "files",
         "paint",
         "writer",
+        "archiver",
         "settings",
         "confd",
         "docs",

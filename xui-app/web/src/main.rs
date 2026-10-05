@@ -42,6 +42,7 @@ fn main() -> std::process::ExitCode {
         serif: xui_app::font::SERIF_FAMILY.to_string(),
         monospace: xui_app::font::MONO_FAMILY.to_string(),
     });
+    fetch::trace::now_ms();
     fetch::netsurf::install(Options::default());
     let url = url_arg();
     let backend = match LazyOSBackend::connect() {

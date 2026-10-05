@@ -9,6 +9,7 @@
 use std::rc::Rc;
 
 use lazyweb::address::{self, START};
+use lazyweb::fetch::trace;
 use lazyweb::history::History;
 use lazyweb::layout::{layout, Layout};
 use lazyweb::marker_text;
@@ -41,6 +42,8 @@ pub enum Msg {
     FocusAddress,
     /// Escape in the address field.
     RestoreAddress,
+    /// The user changed the address field's text.
+    AddressEdited,
     Resized,
 }
 
@@ -61,6 +64,9 @@ pub struct Browser {
     title: String,
     /// The current load failed: its end is not a `WEB:LOAD`.
     failed: bool,
+    /// The user is typing an address: the page's own news (its URL as it
+    /// loads, redirects) must not replace what they typed.
+    editing: bool,
 }
 
 impl Browser {
@@ -77,9 +83,15 @@ impl Browser {
         let back = Button::new(ui, at.back, "Back")?.on_click(|| Some(Msg::Back));
         let forward = Button::new(ui, at.forward, "Forward")?.on_click(|| Some(Msg::Forward));
         let reload = Button::new(ui, at.reload, "Reload")?.on_click(|| Some(Msg::Reload));
-        let address = Edit::new(ui, at.address, "")?.cue("Type an address and press Enter");
+        let address = Edit::new(ui, at.address, "")?
+            .cue("Type an address and press Enter")
+            .on_change(|_| Some(Msg::AddressEdited));
         let go = Button::new(ui, at.go, "Go")?.on_click(|| Some(Msg::Go));
         let status = Label::new(ui, at.status, "")?;
+        // The first page loads without passing through `open`.
+        let initial = if first == start_url { START } else { &first };
+        println!("WEB:NAV:{}", marker_text(initial));
+        println!("WEB:TIME:{}ms:nav", trace::now_ms());
         let view = NetSurfView::new(ui, at.view, &first, || Msg::Frame)?;
 
         let field = address.id();
@@ -102,6 +114,7 @@ impl Browser {
             url: String::new(),
             title: String::new(),
             failed: false,
+            editing: false,
         };
         browser.show_url(&first);
         browser.set_status(&format!("Opening {}", browser.shown(&first)));
@@ -121,6 +134,9 @@ impl Browser {
 
     fn show_url(&mut self, url: &str) {
         self.url = url.to_string();
+        if self.editing {
+            return;
+        }
         let text = self.shown(url).to_string();
         self.address.set_text(&text);
     }
@@ -142,7 +158,9 @@ impl Browser {
         } else {
             url.to_string()
         };
+        self.editing = false;
         println!("WEB:NAV:{}", marker_text(self.shown(&target)));
+        println!("WEB:TIME:{}ms:nav", trace::now_ms());
         self.failed = false;
         self.set_status(&format!("Opening {}", self.shown(&target)));
         self.view.navigate(&target);
@@ -208,6 +226,7 @@ impl Browser {
             return;
         }
         let shown = self.shown(&self.url).to_string();
+        println!("WEB:TIME:{}ms:done", trace::now_ms());
         println!("WEB:LOAD:{}", marker_text(&shown));
         println!("WEB:TITLE:{}", marker_text(&self.title));
         let done = if self.title.trim().is_empty() {
@@ -221,6 +240,7 @@ impl Browser {
     fn fail(&mut self, why: &str) {
         self.failed = true;
         self.history.on_load_end();
+        println!("WEB:TIME:{}ms:fail", trace::now_ms());
         println!("WEB:FAIL:{}", marker_text(why));
         self.set_status(&format!("Failed: {why}"));
     }
@@ -269,11 +289,14 @@ impl App for Browser {
             Msg::FocusAddress => {
                 self.address.set_text("");
                 self.address.focus();
+                self.editing = true;
             }
             Msg::RestoreAddress => {
+                self.editing = false;
                 let url = self.url.clone();
                 self.show_url(&url);
             }
+            Msg::AddressEdited => self.editing = true,
             Msg::Resized => self.relayout(ui),
         }
         self.update_buttons();

@@ -20,6 +20,7 @@ use ureq::unversioned::transport::{
 };
 use ureq::Error;
 
+use super::trace::{self, Stage};
 use super::{roots, Roots};
 
 thread_local! {
@@ -107,6 +108,8 @@ impl<In: Transport> Connector<In> for TlsConnector {
         let Some(transport) = chained else {
             return Ok(None);
         };
+        // Every connection reaches this connector right after TCP connects.
+        trace::mark(Stage::Connected);
         if !details.needs_tls() || transport.is_tls() {
             return Ok(Some(Either::A(transport)));
         }
@@ -136,6 +139,7 @@ impl<In: Transport> Connector<In> for TlsConnector {
             record_failure(explain(&e, bare));
             return Err(Error::Tls("TLS handshake failed"));
         }
+        trace::mark(Stage::Secured);
         let buffers = LazyBuffers::new(
             details.config.input_buffer_size(),
             details.config.output_buffer_size(),

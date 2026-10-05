@@ -625,6 +625,16 @@ declares one type, `application/x-lazywriter` (`open`, `edit`), which `mimed`
 maps from `.lzw` (a manifest cannot name extensions), so Files opens `.lzw`
 documents in it; plain text and Markdown stay with the Editor and Docs.
 
+**Archiver**, the archive manager (`os.lazy.archiver`,
+`xui-app/packages/archiver`, category `accessories`,
+[`xui-archiver.md`](xui-archiver.md)), ships in every desktop image too: the
+cargo bin `xui-archiver` is built as `target/xui/xui-archiver.elf` and packaged
+as `bin/archiver.elf`. It declares the archive types `mimed` maps from `.zip`,
+`.tar`, `.gz`/`.tgz`, `.xz`/`.txz`, `.zst`/`.tzst` and `.7z` (`open`), and the
+clipboard, which carries its drag-and-drop payloads. Accessories is the first
+category of the start menu's installed section and held no unpinned app, so
+its two rows move no other row the sessions click.
+
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
   `args = ["--client"]`, a `category`, `[[mime]]` mirroring `mimed`'s defaults,

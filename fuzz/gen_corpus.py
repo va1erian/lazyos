@@ -597,6 +597,39 @@ def mscsession_seeds():
     }
 
 
+# ---- nvme: Identify pages, completions, PRP scripts, hostile controllers ------
+
+def nvme_seeds():
+    """`libs/nvme/src/fuzz.rs` input: a mode byte, then that mode's bytes."""
+    controller = bytearray(4096)
+    struct.pack_into("<H", controller, 0, 0x1B36)
+    controller[4:24] = b"lazyos-seed".ljust(20)
+    controller[24:64] = b"QEMU NVMe Ctrl".ljust(40)
+    controller[64:72] = b"8.2.2".ljust(8)
+    controller[77] = 7
+    controller[512], controller[513] = 0x66, 0x44
+    struct.pack_into("<I", controller, 516, 256)
+    controller[525] = 1
+    namespace = bytearray(4096)
+    struct.pack_into("<QQQ", namespace, 0, 1 << 15, 1 << 15, 1 << 15)
+    namespace[25] = 1
+    namespace[26] = 1
+    struct.pack_into("<II", namespace, 128, 9 << 16, 12 << 16)
+    completion = struct.pack("<IIHHHH", 0, 0, 3, 1, 0x0009, 1)
+    # A CAP with the NVM command set, TO = 1, MQES = 63, then a ready CSTS.
+    cap = struct.pack("<II", 63 | 1 << 24, 1 << 5)
+    return {
+        "identify_controller": bytes([0]) + bytes(controller),
+        "identify_namespace": bytes([1]) + bytes(namespace),
+        "completions": bytes([2]) + completion * 8,
+        "plan_scattered": bytes([3, 0, 7, 3, 0x10, 0x02, 0, 4, 1, 0x34, 0x12, 1]),
+        "plan_aligned": bytes([3, 1, 15, 2, 0, 0, 0, 7, 0, 0, 0, 3, 0]),
+        "hostile_ready": bytes([4]) + cap + struct.pack("<I", 1) * 16,
+        "hostile_ones": bytes([4]) + b"\xff" * 64,
+        "empty": b"",
+    }
+
+
 TARGETS = {
     "acpi": acpi_seeds,
     "ext2fs": ext2fs_seeds,
@@ -613,6 +646,7 @@ TARGETS = {
     "mscdesc": mscdesc_seeds,
     "mscreply": mscreply_seeds,
     "mscsession": mscsession_seeds,
+    "nvme": nvme_seeds,
 }
 
 
