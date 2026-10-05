@@ -3,7 +3,7 @@
 //! nothing here, and the others are found through one index instead of a
 //! table scan each (va1erian/xui#277).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use xui_core::backend::{ParentRef, WidgetId};
 use xui_core::Rect;
@@ -79,14 +79,15 @@ fn children_of(nodes: &[(WidgetId, Node)]) -> HashMap<u64, Vec<WidgetId>> {
     children
 }
 
-/// `id` and every node below it. The walk visits each node once, so a
-/// corrupted (cyclic) parent chain cannot spin.
+/// `id` and every node below it. The walk visits each node once (a big list
+/// or tree stays linear), so a corrupted (cyclic) parent chain cannot spin.
 fn family(children: &HashMap<u64, Vec<WidgetId>>, id: WidgetId) -> Vec<WidgetId> {
     let mut family = vec![id];
+    let mut seen = HashSet::from([id.raw()]);
     let mut next = 0;
     while next < family.len() {
         for child in children.get(&family[next].raw()).into_iter().flatten() {
-            if !family.contains(child) {
+            if seen.insert(child.raw()) {
                 family.push(*child);
             }
         }
