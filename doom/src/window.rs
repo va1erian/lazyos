@@ -10,7 +10,7 @@
 use lazydoom::keymap;
 use lazydoom::keys::Keys;
 use lazydoom::pixels;
-use xui_app::client_window::{ClientWindow, SurfaceRole};
+use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
 use xui_app::display::{self, Client, Event, FrameEvent};
 use xui_app::input::{self, Event as InputEvent, KeyState};
 use xui_app::sys::{self, errno};
@@ -29,16 +29,16 @@ pub struct Window {
 
 impl Window {
     /// Connect to `xuid` and open a `width` x `height` window.
-    pub fn open(width: usize, height: usize, title: &str) -> Result<Window, String> {
-        let client = Client::connect().map_err(|code| format!("connect: errno {code}"))?;
+    pub fn open(width: usize, height: usize, title: &str) -> Result<Window, OpenError> {
+        let client = Client::connect()
+            .map_err(|code| OpenError::Failed(format!("connect: errno {code}")))?;
         let mut window = ClientWindow::open(
             client,
             width as u32,
             height as u32,
             title,
             SurfaceRole::Window,
-        )
-        .map_err(|e| e.to_string())?;
+        )?;
         let (w, h) = window.rect;
         let pending = std::mem::take(&mut window.pending_events);
         let configure = window.pending_configure.take();

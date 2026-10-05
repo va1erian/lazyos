@@ -438,6 +438,10 @@ def main() -> int:
 
     passed = sum(1 for r in rows_out if r["status"] == "pass")
     print(f"\n{passed}/{len(rows_out)} fixtures passing")
+    failing = failing_rows(rows_out)
+    if failing:
+        print(f"failing: {', '.join(failing)}", file=sys.stderr)
+        return 1
     return 0
 
 

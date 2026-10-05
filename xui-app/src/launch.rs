@@ -86,7 +86,14 @@ where
 pub fn finish<E: std::fmt::Display>(marker: &str, outcome: Result<(), E>) -> u8 {
     match outcome {
         Ok(()) => 0,
-        Err(_) if crate::client_window::closed_while_opening() => {
+        // The flag is process-wide, so the error must also be the close the
+        // backend reported (its text), not an unrelated failure of the app.
+        Err(error)
+            if crate::client_window::closed_while_opening()
+                && error
+                    .to_string()
+                    .contains(&crate::client_window::OpenError::Closed.to_string()) =>
+        {
             println!("{marker}:RUN:CLOSED");
             0
         }
