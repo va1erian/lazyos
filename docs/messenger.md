@@ -112,7 +112,9 @@ old readers can **skip** unknown fields.
 
 `BOOL`, `I32`, `I64`, `U32`, `U64`, `F64`, `STRING` (UTF-8, length-prefixed),
 `BYTES`, `ARRAY<T>` (element TD), `STRUCT` (nested TLVs), `HANDLE`, `BUFFER`,
-`MAP<K,V>`, `OPTION<T>`, `ERROR` (see section 12).
+`MAP<K,V>`, `OPTION<T>`, `ERROR` (see section 12). The runtime codec defines
+`MAP`, but MIDL has no `Map` type yet: `midlc` rejects it and an IDL models a
+map as an `ARRAY` of key/value structs ([`docs/midl.md`](midl.md#types)).
 
 Unknown kinds and fields are skipped; required fields are declared per method in
 the IDL. MIDL never puts a `HANDLE` or `BUFFER` in a body (the number would

@@ -199,3 +199,99 @@ Each interface module gets:
 `user::messenger::net` builds its receive and transmit rings from
 `attach_ring_rings`. The Markdown reference lists the rings under **Rings**,
 and the manifest gives each interface a `rings` array.
+
+## Language reference
+
+This section states what `midlc` accepts today (`tools/midlc/midlc_lexer.py`,
+`midlc_parser.py`, `midlc_model.py`, `midlc_rust.py`). Where the compiler is
+narrower than a tool might expect, the rule says so (issue #306 tracks the
+remaining work: explicit field ids, a standard error field, a conformance
+corpus).
+
+### Lexical structure
+
+* `//` starts a comment to the end of the line; `///` starts a doc comment,
+  attached to the next declaration (consecutive lines join with `\n`).
+* Tokens: identifiers `[A-Za-z_][A-Za-z0-9_.]*` (dots allowed, so interface
+  names are one token), decimal numbers, double-quoted strings (used only by
+  `topic`), `->`, and the punctuation `{ } ( ) < > : , ; =`.
+* Whitespace is insignificant. Commas between struct fields and enum variants
+  are optional.
+
+### Grammar (EBNF)
+
+```ebnf
+file       = interface { interface } ;
+interface  = "interface" NAME "{" { member } "}" ;
+member     = method | struct | enum | topic | ring ;
+method     = "method" IDENT params "->" params { attr } ";" ;
+params     = "(" [ IDENT ":" type { "," IDENT ":" type } ] ")" ;
+attr       = "=" NUMBER | "oneway" | "sync" | "transfers" params ;
+struct     = "struct" IDENT "{" { IDENT ":" type [ "," ] } "}" ;
+enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
+topic      = "topic" STRING ":" IDENT { "retained" | "qos" "=" IDENT } ";" ;
+ring       = "ring" IDENT ":" IDENT { IDENT "=" IDENT } ";" ;
+type       = IDENT [ "<" type { "," type } ">" ] ;
+```
+
+`NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
+(`os.lazy.confd.v1`). Several interfaces may share a file. `sync` is the
+default and only cancels an earlier `oneway`. A method has at most one
+`transfers` clause.
+
+### Types
+
+Built-ins: `Bool`, `I32`, `I64`, `U32`, `U64`, `F64`, `String` (UTF-8),
+`Bytes`, `Array<T>` and `Option<T>` (exactly one parameter each). A name
+declared as a `struct` or `enum` of the same interface is also a type. Enums
+travel as `U32` (the variant's index, in declaration order). `Channel`,
+`Buffer` and `Ring` (and the `Handle` kind) appear only inside `transfers (...)`
+and are rejected in a body. There is **no `Map`**: the runtime's TLV layer has
+a `Map` kind, but `midlc` does not accept `Map<K, V>`, so model a map as
+`Array<Entry>` of a struct with `key` and `value` fields.
+
+### Identifiers
+
+* **Interface id**: FNV-1a 64-bit of the interface name (`fnv1a64`).
+* **Method id**: an explicit `= N` wins; otherwise FNV-1a 32-bit of the
+  method name, masked to 31 bits (`fnv1a32`). Two methods of one interface may
+  not share an id; the compiler rejects the file and the author renumbers one
+  with `= N`. Renaming a method that relies on the hash changes its id, so pin
+  the id first.
+* **Field id**: implicit, **1..n in declaration order** within each struct,
+  method argument list and method reply list (and 1 for the element of an
+  `Array` or `Option`). Explicit `name: T = 3` is *not* supported yet, so
+  reordering or inserting a field before the end silently changes the wire.
+* **Generated names**: `encode_<snake>`/`decode_<snake>` for structs,
+  `encode_<method>_args`/`_reply` for methods, `{ENUM}_{VARIANT}` constants.
+  Two declarations that fold to the same Rust identifier are an error.
+
+### Wire encoding
+
+A body is a sequence of TLV fields. Each field is an 8-byte header followed by
+the payload: a little-endian `u32` tag, `kind | (id << 8)` (the id is 16 bits),
+then a little-endian `u32` payload length. Kinds: `Bool`=1 (one byte), `I32`=2,
+`I64`=3, `U32`=4, `U64`=5, `F64`=6 (little-endian), `String`=7, `Bytes`=8,
+`Array`=9, `Struct`=10, `Map`=11 (unused by MIDL), `Option`=12, `Error`=13,
+`Handle`=14, `Buffer`=15 (the last two never in a MIDL body).
+
+* `Array<T>`: one `Array` field whose payload is the elements, each a TLV with
+  id 1.
+* `Option<T>`: one `Option` field; an empty payload is `None`, otherwise the
+  payload holds the value as a TLV with id 1.
+* A struct field is a `Struct` field whose payload is the struct's own body.
+* A decoder skips unknown field ids, and a field that is absent keeps its
+  `Default`. So appending fields is compatible; removing, reordering or
+  retyping is not (publish `.v2`).
+* `oneway` methods have no reply (`returns` must be empty) and set the
+  `ONE_WAY` call flag; the caller does not wait.
+* A request's channels and buffers are not in the body: they ride in the
+  parcel's `handles`/`buffers` vectors, in the order `transfers (...)` lists
+  (see above).
+
+### Compatibility rules
+
+Append-only within a `.vN`: add methods (explicit ids stay put), add
+trailing struct fields, add trailing method args and reply fields, add enum
+variants at the end. Anything else needs a new interface version. The
+interface hash is checked at bind time (`docs/messenger.md` section 11).
