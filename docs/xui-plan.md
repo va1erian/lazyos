@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"` (see
+the same `rev = "efd472229b563ea5d86186c6e1556d0f94492d27"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -194,7 +194,7 @@ only the three xui packages, and re-run
 `cargo tree --target x86_64-unknown-linux-musl | grep -E
 'winit|softbuffer|glutin|glow|arboard|xui-gpu'` to confirm the windowing crates
 are still absent.
-`doom/` and `lazyrad-os/` (including its `[patch]`) pin the same commit;
+`doom/` and `lazyrad-os/` pin the same commit (and LazyRAD's own workspace does, so `lazyrad-os` needs no `[patch]`);
 `python tools/xui/check_pin.py` (run by CI) fails when any manifest or lockfile
 disagrees, and lists a workspace that has to wait (`LAGGING`) with the reason.
 
