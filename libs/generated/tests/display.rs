@@ -406,14 +406,12 @@ fn unknown_fields_and_the_error_field_are_ignored() {
     let mut body = libmessenger::Encoder::new();
     body.u64(1, 42).unwrap();
     body.string(30, "future field").unwrap();
-    body.error(messenger_generated::errors::ERROR_FIELD, 13, "denied")
-        .unwrap();
+    messenger_generated::errors::write_code(&mut body, 13, "denied").unwrap();
     let reply = decode_create_surface_reply(&body.finish()).unwrap();
     assert_eq!(reply.surface, 42);
 
     let mut body = libmessenger::Encoder::new();
-    body.error(messenger_generated::errors::ERROR_FIELD, 13, "denied")
-        .unwrap();
+    messenger_generated::errors::write_code(&mut body, 13, "denied").unwrap();
     assert_eq!(
         decode_list_surfaces_reply(&body.finish()).unwrap(),
         ListSurfacesReply::default()
