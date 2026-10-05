@@ -179,3 +179,16 @@ fn base256_sizes_parse() {
     assert_eq!(parse_octal(b"0000644 \0"), Some(0o644));
     assert_eq!(parse_octal(b"9"), None);
 }
+
+#[test]
+fn a_size_that_overflows_its_padding_is_corrupt_not_a_panic() {
+    // A global pax header claiming u64::MAX bytes (GNU base-256).
+    let mut block = super::write::build_header("g", "", b'g', 0, 0o644, 0, "");
+    block[124] = 0x80;
+    block[125..128].fill(0);
+    block[128..136].fill(0xff);
+    block[148..156].fill(b' ');
+    let sum: u64 = block.iter().map(|&b| u64::from(b)).sum();
+    block[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    assert!(matches!(read_all(&block), Err(Error::Corrupt(_))));
+}

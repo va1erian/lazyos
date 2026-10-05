@@ -62,7 +62,12 @@ fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
         let mut children: Vec<_> = fs::read_dir(source)?.collect::<io::Result<_>>()?;
         children.sort_by_key(|child| child.file_name());
         for child in children {
-            copy_entry(&child.path(), &target.join(child.file_name()))?;
+            // A device or FIFO inside a folder is skipped, as the module says;
+            // anything else that fails still stops the copy.
+            match copy_entry(&child.path(), &target.join(child.file_name())) {
+                Err(error) if error.kind() == io::ErrorKind::InvalidInput => continue,
+                other => other?,
+            }
         }
         Ok(())
     } else if kind.is_file() {

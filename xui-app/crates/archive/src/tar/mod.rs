@@ -220,7 +220,10 @@ pub fn walk(
             }
             // Global pax headers and GNU volume/sparse metadata: skipped.
             b'g' | b'V' | b'M' | b'N' => {
-                skip(input, size + padding(size))?;
+                let total = size
+                    .checked_add(padding(size))
+                    .ok_or_else(|| Error::corrupt("tar: bad size field"))?;
+                skip(input, total)?;
                 continue;
             }
             _ => {}
@@ -240,7 +243,10 @@ pub fn walk(
         let flow = visit(entry, &mut data)?;
         let unread = data.limit();
         skip(input, unread)?;
-        skip(input, size - data_size + padding(size))?;
+        let rest = (size - data_size)
+            .checked_add(padding(size))
+            .ok_or_else(|| Error::corrupt("tar: bad size field"))?;
+        skip(input, rest)?;
         if flow == Flow::Stop {
             return Ok(());
         }

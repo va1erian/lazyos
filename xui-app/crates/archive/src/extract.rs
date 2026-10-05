@@ -6,7 +6,7 @@
 //! stay inside the destination. A member whose data turns out damaged is
 //! removed and reported; the others are still extracted.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -96,7 +96,8 @@ pub fn extract(
     let mut report = Report::default();
     let mut top_level = BTreeSet::new();
     let mut written: HashMap<String, PathBuf> = HashMap::new();
-    let mut links: Vec<(String, String, PathBuf)> = Vec::new();
+    // (entry path, relative path, link target, where it goes).
+    let mut links: Vec<(String, String, String, PathBuf)> = Vec::new();
     archive.visit(wanted, progress, &mut |entry, data| {
         // The stripped folder itself is the destination: nothing to write.
         if !options.strip.is_empty() && entry.path == options.strip {
@@ -134,7 +135,12 @@ pub fn extract(
                 if !symlink_stays_inside(&rel, link) {
                     return refuse("its link points outside the folder", &mut report);
                 }
-                links.push((entry.path.clone(), link.clone(), target.clone()));
+                links.push((
+                    entry.path.clone(),
+                    rel.clone(),
+                    link.clone(),
+                    target.clone(),
+                ));
             }
             EntryKind::Hardlink { target: original } => match written.get(original) {
                 Some(source) => {
@@ -156,7 +162,18 @@ pub fn extract(
         }
         Ok(())
     })?;
-    for (name, link, path) in links {
+    // A link whose target passes through another link (this archive's, or
+    // one already on disk) could resolve outside the destination even though
+    // its text stays inside: `a/b -> .` then `c -> a/b/../..`.
+    let link_paths: HashSet<String> = links.iter().map(|(_, rel, _, _)| rel.clone()).collect();
+    for (name, rel, link, path) in links {
+        let is_link = |prefix: &str| link_paths.contains(prefix);
+        if safety::walks_through_link(dest, &rel, &link, &is_link) {
+            report
+                .skipped
+                .push((name, "its link points through another link".to_owned()));
+            continue;
+        }
         match make_symlink(&link, &path, options.overwrite) {
             Ok(()) => report.links += 1,
             Err(reason) => report.skipped.push((name, reason)),
@@ -220,17 +237,19 @@ fn write_file(
 /// Restore what the archive says about a file's mode and time, best-effort
 /// (a filesystem without them keeps its defaults).
 fn finish_file(path: &Path, entry: &Entry) {
-    #[cfg(unix)]
-    if let Some(mode) = entry.mode {
-        use std::os::unix::fs::PermissionsExt;
-        // Never restore set-id or sticky bits from an archive.
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777));
-    }
+    // The time first: setting it reopens the file for writing, which a
+    // read-only mode would refuse.
     if let Some(modified) = entry.modified.and_then(|t| u64::try_from(t).ok()) {
         let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(modified);
         if let Ok(file) = OpenOptions::new().write(true).open(path) {
             let _ = file.set_modified(time);
         }
+    }
+    #[cfg(unix)]
+    if let Some(mode) = entry.mode {
+        use std::os::unix::fs::PermissionsExt;
+        // Never restore set-id or sticky bits from an archive.
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777));
     }
 }
 

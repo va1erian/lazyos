@@ -82,6 +82,38 @@ pub fn symlink_stays_inside(link: &str, target: &str) -> bool {
     true
 }
 
+/// Whether resolving `target` from link `link` (both relative to `dest`)
+/// passes through a component that is itself a link: one `is_link` names (the
+/// archive's own links, created later) or a symlink already on disk. Such a
+/// target's lexical check proves nothing, so the link is refused.
+pub fn walks_through_link(
+    dest: &Path,
+    link: &str,
+    target: &str,
+    is_link: &dyn Fn(&str) -> bool,
+) -> bool {
+    let mut stack: Vec<&str> = link.split('/').collect();
+    stack.pop();
+    for component in target.split(['/', '\\']) {
+        match component {
+            "" | "." => {}
+            ".." => {
+                stack.pop();
+            }
+            other => {
+                stack.push(other);
+                let prefix = stack.join("/");
+                let on_disk = fs::symlink_metadata(dest.join(&prefix))
+                    .is_ok_and(|meta| meta.file_type().is_symlink());
+                if is_link(&prefix) || on_disk {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// `path`, or `name (2).ext`, `name (3).ext`, ... beside it: the first that
 /// does not exist.
 pub fn unique(path: &Path) -> PathBuf {
@@ -114,6 +146,15 @@ mod tests {
         assert!(!symlink_stays_inside("a/link", "../../x"));
         assert!(!symlink_stays_inside("a/link", "/etc/passwd"));
         assert!(!symlink_stays_inside("a/link", ""));
+    }
+
+    #[test]
+    fn a_target_through_another_link_is_caught() {
+        let dest = std::env::temp_dir();
+        let links = |p: &str| p == "a/b";
+        assert!(walks_through_link(&dest, "c", "a/b/../..", &links));
+        assert!(!walks_through_link(&dest, "c", "a/x/../y", &links));
+        assert!(!walks_through_link(&dest, "a/link", "../file", &links));
     }
 
     #[test]

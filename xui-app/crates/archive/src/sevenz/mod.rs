@@ -253,6 +253,10 @@ fn build(header: Header, len: u64) -> Result<SevenZArchive> {
             "7z: folders use more pack streams than exist",
         ));
     }
+    // Repeated or reordered stream properties can leave these out of step.
+    if streams.substreams.len() != streams.folders.len() {
+        return Err(Error::corrupt("7z: substreams do not match the folders"));
+    }
     // Hand out substreams to the files with data, in order.
     let mut slots = Vec::new();
     let mut sub = 0usize;

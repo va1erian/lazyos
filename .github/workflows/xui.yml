@@ -607,7 +607,7 @@ jobs:
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
-          LAZYOS_XUI_APPS: ${{ steps.app.outputs.archiver }}
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.archiver }}:${{ steps.app.outputs.files }}:${{ steps.app.outputs.editor }}
           LAZYOS_XUI_AUTOSTART: archiver
         run: |
           set -euo pipefail
@@ -704,7 +704,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -733,7 +733,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -741,7 +741,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|SHELL:|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|SHELL:|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -804,6 +804,9 @@ jobs:
             shots/writer_light/*.png
             shots/writer_light/serial.log
             shots/writer_light/summary.json
+            shots/archiver/*.png
+            shots/archiver/serial.log
+            shots/archiver/summary.json
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -845,7 +848,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light archiver; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -881,7 +884,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files docs docs_open writer writer_light archiver; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"
@@ -892,12 +895,12 @@ jobs:
                 echo
               done
             done
-            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log shots/writer/serial.log shots/writer_light/serial.log; do
+            for log in shots/m0/serial.log shots/m2/serial.log shots/sysmon/serial.log shots/fabmon/serial.log shots/client/serial.log shots/sysclient/serial.log shots/desktop/serial.log shots/editor/serial.log shots/paint/serial.log shots/files/serial.log shots/docs/serial.log shots/docs_open/serial.log shots/writer/serial.log shots/writer_light/serial.log shots/archiver/serial.log; do
               if [ -f "$log" ]; then
                 echo "<details><summary>${log} (xui/sysmon/fabricmon/client markers)</summary>"
                 echo
                 echo '```'
-                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|INIT:AUTOSTART" "$log" || true
+                grep -E "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|INIT:AUTOSTART" "$log" || true
                 echo '```'
                 echo
                 echo "</details>"

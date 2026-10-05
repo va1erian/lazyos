@@ -19,10 +19,11 @@ takes part in drag and drop with Files in both directions.
   names), **tar.gz / tgz**, **tar.xz / txz**, **tar.zst**, single-file **gz**,
   **xz** and **zst**, and **7z** (LZMA, LZMA2 and copy coders, encoded headers;
   read-only).
-* Write zip (deflate or stored, by level), tar, tar.gz, tar.xz, tar.zst and the
-  single-file gz/xz/zst. Add files to and delete entries from every writable
-  format; a zip rewrite copies kept entries' compressed bytes without
-  recompressing them.
+* Write zip (deflate or stored, by level), tar, tar.gz, tar.zst and the
+  single-file gz/zst. Add files to and delete entries from zip and the
+  writable tarballs; a zip rewrite copies kept entries' compressed bytes
+  without recompressing them. tar.xz, xz and 7z stay read-only (`lzma-rs`'s
+  encoder writes literals only).
 * Test: decompress everything and check every CRC/checksum without writing.
 * Long operations run on a worker thread with a progress bar and Cancel; the
   window stays responsive.
@@ -57,7 +58,7 @@ takes part in drag and drop with Files in both directions.
 | Formats | `xui-app/crates/archive` (`lazyarc`) | Pure Rust, no UI: detection, listing, streaming extraction, writers, rewrite (add/delete), test, path safety, progress/cancel. Host-tested and fuzzed. |
 | App core | `xui-app/crates/archiver` (`xui-archiver`) | The xui `App`: model (folder view over the entry list, sorting, selection), commands, dialogs, the worker-thread job runner, the drag bridge. Host-tested offscreen. |
 | Binary | `xui-app/src/bin/archiver.rs` | LazyOS side: backend, theme, argv path, launcher (`mimed`), drag-and-drop wiring, serial evidence `ARCHIVER:*`. |
-| DnD in the backend | `xui-app/src/backend/dnd.rs`, `src/display/dnd.rs`, `src/platform/dnd.rs` | Decodes `DragEnter/Over/Leave/Drop/DragEnded`, pastes a drop's token, detects a press-and-drag gesture, offers a payload and calls `DragStart`; `text/uri-list` encoding. |
+| DnD in the backend | `xui-app/src/backend/dnd.rs`, `src/display/dnd.rs`, `src/platform/urilist.rs` | Decodes `DragEnter/Over/Leave/Drop/DragEnded`, pastes a drop's token, detects a press-and-drag gesture, offers a payload and calls `DragStart`; `text/uri-list` encoding. |
 | Files DnD | `xui-app/src/bin/files.rs`, `crates/explorer` | Selection as a drag source; a folder window as a drop target (recursive copy with `name (2)` on conflicts). |
 | Package | `xui-app/packages/archiver` | Manifest (display, input, clipboard, mimed), icons, README. |
 | MIME | `user/src/bin/mimed/{db,apps}.rs` | `.zip .tar .gz .tgz .xz .txz .zst .7z` types, opened by Archiver. |
@@ -91,8 +92,8 @@ intact.
 
 ## Phases
 
-* **A1 formats** — `lazyarc`: zip/tar/gz/xz/zst readers and writers, 7z
-  reader, path safety, extract/test/create/rewrite, unit tests, round trips,
+* **A1 formats** — `lazyarc`: zip/tar/gz/zst readers and writers, xz and 7z
+  readers, path safety, extract/test/create/rewrite, unit tests, round trips,
   hostile-archive tests, seeded fuzz.
 * **A2 app core** — model, commands, worker jobs, dialogs, toolbar, status
   and progress; offscreen window tests.

@@ -180,3 +180,24 @@ fn zip_symlinks_list_their_targets() {
         }
     );
 }
+
+#[test]
+fn a_link_through_another_link_is_refused() {
+    // `a/b -> .` stays inside on its own, but `c -> a/b/../..` read through
+    // it resolves to the destination's parent.
+    let scratch = Scratch::new("link-chain");
+    let archive_path = hostile_tar(&scratch, |w| {
+        w.dir("a", meta()).unwrap();
+        w.symlink("a/b", meta(), ".").unwrap();
+        w.symlink("c", meta(), "a/b/../..").unwrap();
+    });
+    let archive = Archive::open(&archive_path, &progress()).unwrap();
+    let out = scratch.join("out");
+    let report =
+        extract::extract(&archive, &|_| true, &out, &Options::default(), &progress()).unwrap();
+    assert!(report
+        .skipped
+        .iter()
+        .any(|(path, why)| path == "c" && why.contains("through another link")));
+    assert!(fs::symlink_metadata(out.join("c")).is_err());
+}
