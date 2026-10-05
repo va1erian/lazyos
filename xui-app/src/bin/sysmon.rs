@@ -106,10 +106,10 @@ impl Sysmon {
     /// Reads the snapshot (and, while the Services tab is shown, `init` and
     /// `healthd`) and shows it. The snapshot is read whichever tab is shown:
     /// the compact meters and the status bar use it.
-    fn reload(&mut self) -> Option<i64> {
+    fn reload(&mut self, ui: &Ui<Msg>) -> Option<i64> {
         if self.view == View::Services {
             let services = services::fetch();
-            self.widgets.show_services(&services);
+            self.widgets.show_services(ui, &services);
             self.report_services(&services);
         }
         match sysinfo::snapshot() {
@@ -156,7 +156,7 @@ impl App for Sysmon {
         match msg {
             Msg::Tick | Msg::Refresh => {
                 self.refreshes += 1;
-                let error = self.reload();
+                let error = self.reload(ui);
                 if matches!(msg, Msg::Refresh) {
                     println!("SYSMON:REFRESH:PASS");
                 }
@@ -169,7 +169,7 @@ impl App for Sysmon {
                     self.view = view;
                     self.reported = Reported::Nothing;
                     self.widgets.tabs.get().select(view.index());
-                    self.reload();
+                    self.reload(ui);
                 }
                 println!("SYSMON:VIEW:{}", view.marker());
             }
@@ -249,7 +249,7 @@ fn main() {
             reported: Reported::Nothing,
             full_size: WINDOW,
         };
-        app.reload();
+        app.reload(ui);
         let design = hidpi::design_rect(ui);
         app.widgets
             .set_compact(ui, compact::is_compact(design.width(), design.height()));
