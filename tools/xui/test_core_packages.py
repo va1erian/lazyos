@@ -112,9 +112,10 @@ class CorePackageTests(unittest.TestCase):
                                              "verbs": ["open", "edit"]}])
         self.assertEqual(manifest["permissions"]["interfaces"],
                          ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.clipboard.v1",
-                          "os.lazy.confd.v1"])
-        # Printing (docs/xui-writer.md): IPP to the printer, the address in confd.
-        self.assertEqual(manifest["permissions"]["network"], ["outbound"])
+                          "os.lazy.confd.v1", "os.lazy.print.v1"])
+        # Printing (docs/xui-writer.md): pages go to the print spooler, which
+        # talks to the printer, so LazyWriter needs no network access itself.
+        self.assertNotIn("network", manifest["permissions"])
         for size in (16, 32, 128):
             self.assertTrue((core_packages.SOURCES / "writer" / "icons" / f"app-{size}.png").is_file())
 

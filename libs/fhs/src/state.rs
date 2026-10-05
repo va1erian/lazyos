@@ -17,6 +17,11 @@ pub const CONF_FALLBACK: &str = "/transient/conf";
 /// creates nothing there.
 pub const CONF_SVC: &str = "/conf/svc";
 
+/// `printd`'s spool: one `<id>.job` record and `<id>.doc` document per print
+/// job until its printer has it, so a queued job survives a restart. Under
+/// [`CONF_SVC`], 0700 root. Written by `printd`.
+pub const PRINT_SPOOL: &str = "/conf/svc/printd";
+
 /// The marker `confd` writes in [`CONF_ROOT`] once it has seeded the store
 /// from [`LEGACY_DATA_CONFD`], so a setting deleted after the migration does
 /// not come back. Written by `confd`.
@@ -117,6 +122,7 @@ mod tests {
             );
         }
         assert!(CONF_SVC.starts_with(CONF_ROOT));
+        assert!(PRINT_SPOOL.starts_with(CONF_SVC));
         assert!(CONF_SEEDED_MARKER.starts_with(CONF_ROOT));
         assert!(PKG_LOG_FILE.starts_with(LOGS_ROOT));
         assert_eq!(HOME_ROOT, HOME);

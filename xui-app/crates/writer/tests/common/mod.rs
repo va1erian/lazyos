@@ -2,8 +2,6 @@
 //! folder, the whole LazyWriter window rendered offscreen, and a watchdog.
 #![allow(dead_code)]
 
-pub mod printer;
-
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;

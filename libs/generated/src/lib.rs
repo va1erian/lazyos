@@ -11740,6 +11740,383 @@ pub mod os_lazy_process_label_spawn_v1 {
     }
 }
 
+/// `os.lazy.print.v1` (interface id `0xbf8d5aec16ec445f`).
+#[rustfmt::skip]
+pub mod os_lazy_print_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xbf8d5aec16ec445f;
+
+    /// `State::Open` wire value.
+    pub const STATE_OPEN: u32 = 0;
+    /// `State::Queued` wire value.
+    pub const STATE_QUEUED: u32 = 1;
+    /// `State::Sending` wire value.
+    pub const STATE_SENDING: u32 = 2;
+    /// `State::Printing` wire value.
+    pub const STATE_PRINTING: u32 = 3;
+    /// `State::Done` wire value.
+    pub const STATE_DONE: u32 = 4;
+    /// `State::Failed` wire value.
+    pub const STATE_FAILED: u32 = 5;
+    /// `State::Canceled` wire value.
+    pub const STATE_CANCELED: u32 = 6;
+
+    /// The print dialog's choices, as IPP job attributes.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Ticket {
+        pub name: alloc::string::String,
+        pub format: alloc::string::String,
+        pub copies: u32,
+        pub media: alloc::string::String,
+        pub color_mode: alloc::string::String,
+        pub quality: u32,
+    }
+
+    pub fn encode_ticket(value: &Ticket) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.format)?;
+        target.u32(3, value.copies)?;
+        target.string(4, &value.media)?;
+        target.string(5, &value.color_mode)?;
+        target.u32(6, value.quality)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ticket(body: &[u8]) -> Result<Ticket, Error> {
+        let mut out = Ticket::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.format = field.as_str()?.into();
+                }
+                3 => {
+                    out.copies = field.as_u32()?;
+                }
+                4 => {
+                    out.media = field.as_str()?.into();
+                }
+                5 => {
+                    out.color_mode = field.as_str()?.into();
+                }
+                6 => {
+                    out.quality = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `job-name`: the document's title.
+    /// `document-format`, e.g. `image/pwg-raster`.
+    /// `copies`, 1 to 99; 0 leaves it to the printer.
+    /// `media`, a PWG name such as `iso_a4_210x297mm`; empty for the
+    /// printer's default.
+    /// `print-color-mode`: `color`, `monochrome`, or empty.
+    /// `print-quality`: 3 draft, 4 normal, 5 high; 0 for the default.
+    /// One job, for the app that printed it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct JobInfo {
+        pub job: u32,
+        pub name: alloc::string::String,
+        pub printer: alloc::string::String,
+        pub state: u32,
+        pub line: alloc::string::String,
+        pub ink: alloc::string::String,
+    }
+
+    pub fn encode_job_info(value: &JobInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        target.string(2, &value.name)?;
+        target.string(3, &value.printer)?;
+        target.u32(4, value.state)?;
+        target.string(5, &value.line)?;
+        target.string(6, &value.ink)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_job_info(body: &[u8]) -> Result<JobInfo, Error> {
+        let mut out = JobInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.job = field.as_u32()?;
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.printer = field.as_str()?.into();
+                }
+                4 => {
+                    out.state = field.as_u32()?;
+                }
+                5 => {
+                    out.line = field.as_str()?.into();
+                }
+                6 => {
+                    out.ink = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Open` method id.
+    pub const METHOD_OPEN: u32 = 1401622761;
+    /// `Write` method id.
+    pub const METHOD_WRITE: u32 = 1717336572;
+    /// `Close` method id.
+    pub const METHOD_CLOSE: u32 = 1300671683;
+    /// `Cancel` method id.
+    pub const METHOD_CANCEL: u32 = 900713019;
+    /// `Status` method id.
+    pub const METHOD_STATUS: u32 = 6222351;
+    /// `Jobs` method id.
+    pub const METHOD_JOBS: u32 = 1256630173;
+
+    /// Open a job for the printer at `printer` (`192.168.1.89`,
+    /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
+    /// the printer shows, a label only.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenArgs {
+        pub printer: alloc::string::String,
+        pub user: alloc::string::String,
+        pub ticket: Ticket,
+    }
+
+    pub fn encode_open_args(value: &OpenArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.printer)?;
+        target.string(2, &value.user)?;
+        target.raw(Kind::Struct, 3, &encode_ticket(&value.ticket)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_args(body: &[u8]) -> Result<OpenArgs, Error> {
+        let mut out = OpenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.printer = field.as_str()?.into();
+                }
+                2 => {
+                    out.user = field.as_str()?.into();
+                }
+                3 => {
+                    out.ticket = decode_ticket(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OpenReply {
+        pub job: u32,
+    }
+
+    pub fn encode_open_reply(value: &OpenReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_open_reply(body: &[u8]) -> Result<OpenReply, Error> {
+        let mut out = OpenReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.job = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Append `bytes` to an open job's document (at most 256 KiB a call).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WriteArgs {
+        pub job: u32,
+        pub bytes: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_write_args(value: &WriteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        target.bytes(2, &value.bytes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_write_args(body: &[u8]) -> Result<WriteArgs, Error> {
+        let mut out = WriteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.job = field.as_u32()?;
+                }
+                2 => {
+                    out.bytes = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The document is complete: queue the job for its printer.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CloseArgs {
+        pub job: u32,
+    }
+
+    pub fn encode_close_args(value: &CloseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_close_args(body: &[u8]) -> Result<CloseArgs, Error> {
+        let mut out = CloseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.job = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop a job wherever it is; one the printer has is canceled there.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CancelArgs {
+        pub job: u32,
+    }
+
+    pub fn encode_cancel_args(value: &CancelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_cancel_args(body: &[u8]) -> Result<CancelArgs, Error> {
+        let mut out = CancelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.job = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a job is doing.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusArgs {
+        pub job: u32,
+    }
+
+    pub fn encode_status_args(value: &StatusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.job)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_args(body: &[u8]) -> Result<StatusArgs, Error> {
+        let mut out = StatusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.job = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusReply {
+        pub info: JobInfo,
+    }
+
+    pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_job_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_reply(body: &[u8]) -> Result<StatusReply, Error> {
+        let mut out = StatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_job_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The caller's jobs (every job for root), oldest first.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct JobsReply {
+        pub jobs: alloc::vec::Vec<JobInfo>,
+    }
+
+    pub fn encode_jobs_reply(value: &JobsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.jobs {
+            nested.raw(Kind::Struct, 1, &encode_job_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_jobs_reply(body: &[u8]) -> Result<JobsReply, Error> {
+        let mut out = JobsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.jobs.push(decode_job_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+}
+
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
 #[rustfmt::skip]
 pub mod os_lazy_messenger_registry_v1 {

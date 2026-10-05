@@ -1,7 +1,7 @@
 //! The LazyOS platform layer shared by the migrated apps: argument validation,
 //! the pickers' default folder, the Paint storage and atomic writes, the Files
 //! launcher, the clipboard client, the drag-and-drop `text/uri-list` codec,
-//! the audio transport and the Settings app's
+//! the audio transport, the print spooler's interface and the Settings app's
 //! config store and system services.
 //!
 //! Everything here is behind a small, testable seam so the apps stay portable
@@ -15,6 +15,7 @@ pub mod dirs;
 pub mod launcher;
 pub mod messenger;
 pub mod pkg;
+pub mod print;
 pub mod storage;
 pub mod system;
 pub mod urilist;

@@ -51,6 +51,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::net_stack`](#sysnet_stack) | `os.lazy.net.stack.v1` |
 | [`sys::net_socket`](#sysnet_socket) | `os.lazy.net.socket.v1` |
 | [`sys::pkgd`](#syspkgd) | `os.lazy.pkgd.v1` |
+| [`sys::print`](#sysprint) | `os.lazy.print.v1` |
 | [`sys::messenger_registry`](#sysmessenger_registry) | `os.lazy.messenger.registry.v1` |
 | [`sys::shell`](#sysshell) | `os.lazy.shell.v1` |
 | [`sys::sysmond`](#syssysmond) | `os.lazy.sysmond.v1` |
@@ -530,6 +531,25 @@ The application package manager (`docs/packages.md`, phase 3 of the
 | Topic | Payload | Helpers |
 |---|---|---|
 | `system/events/pkg/{op}` | `PkgEvent` | `pkg_topic(op)`, `on_pkg(op, handler)`, `subscribe_pkg(op)`, `publish_pkg(op, payload)` |
+
+## `sys::print`
+
+Interface `os.lazy.print.v1`, source [`print.rhai`](print.rhai).
+
+The print spooler, `printd` (docs/printing-plan.md P6).
+
+| Function | IDL | About |
+|---|---|---|
+| `open(printer, user, ticket)` | `Open(printer: String, user: String, ticket: Ticket) -> (job: U32)` | Open a job for the printer at `printer` (`192.168.1.89`, |
+| `write(job, bytes)` | `Write(job: U32, bytes: Bytes) -> ()` | Append `bytes` to an open job's document (at most 256 KiB a call). |
+| `close(job)` | `Close(job: U32) -> ()` | The document is complete: queue the job for its printer. |
+| `cancel(job)` | `Cancel(job: U32) -> ()` | Stop a job wherever it is; one the printer has is canceled there. |
+| `status(job)` | `Status(job: U32) -> (info: JobInfo)` | What a job is doing. |
+| `jobs()` | `Jobs() -> (jobs: Array<JobInfo>)` | The caller's jobs (every job for root), oldest first. |
+| `new_ticket()` | struct `Ticket` | a `Ticket` at its zero value |
+| `new_job_info()` | struct `JobInfo` | a `JobInfo` at its zero value |
+
+- `STATE` = the `State` variants; `STATE_OPEN`, `STATE_QUEUED`, `STATE_SENDING`, `STATE_PRINTING`, `STATE_DONE`, `STATE_FAILED`, `STATE_CANCELED`
 
 ## `sys::messenger_registry`
 

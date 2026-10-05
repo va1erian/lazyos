@@ -63,6 +63,8 @@ programs! {
     NETD = "netd";
     /// `sysmond`, the system monitor service.
     SYSMOND = "sysmond";
+    /// `printd`, the print spooler (an xui-app program, docs/printing-plan.md P6).
+    PRINTD = "printd";
     /// `usbd`, the USB HID driver (`LAZYOS_USB=1` images).
     USBD = "usbd";
     /// `xuid`, the display compositor.

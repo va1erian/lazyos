@@ -421,7 +421,26 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &[],
     },
+    // The print spooler (docs/printing-plan.md P6) on desktop images with the
+    // network stack, the only ones that ship it: it keeps apps' documents in
+    // `fhs::state::PRINT_SPOOL` until their printer has them, so a job
+    // outlives the app that printed it. A static musl program (`LINUX_ROWS`),
+    // with this supervisor's identity like the platform services. Its
+    // printers are reached through `netd`, but it serves without it: a job
+    // just waits, or fails to connect.
+    #[cfg(all(lazyos_desktop, lazyos_netd))]
+    ServiceSpec {
+        name: "printd",
+        path: fhs::bin::PRINTD,
+        args: "",
+        restart: Restart::Always,
+        deps: &[],
+    },
 ];
+
+/// Manifest rows that are static musl programs, spawned under the Linux
+/// personality like the desktop's apps.
+pub(super) const LINUX_ROWS: &[&str] = &["printd"];
 
 // The runtime rows (`Phase`, `Service`) live in `service.rs`; re-exported so
 // the supervisor modules keep one import path.

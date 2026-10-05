@@ -1,0 +1,24 @@
+# The print spooler's core (docs/printing-plan.md P6, `printd`): a job is
+# spooled to disk whole before any of it reaches the printer, then sent as
+# Create-Job + Send-Document, so the printer only ever gets complete
+# documents or a clean Cancel-Job. The `xui-printd` binary
+# (`xui-app/src/bin/printd.rs`) serves it as `os.lazy.print.v1`; LazyWriter's
+# host runs and tests use it in process. Pure `std`, so it tests on the host.
+[package]
+name = "printd"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "The LazyOS print spooler: spool, queue and send IPP jobs"
+publish = false
+
+[dependencies]
+ipp = { path = "../../../libs/ipp", features = ["std"] }
+
+[features]
+# `fake::FakePrinter`, the loopback IPP printer the spooler's and
+# LazyWriter's tests print to.
+fake = []
+
+[dev-dependencies]
+printd = { path = ".", features = ["fake"] }

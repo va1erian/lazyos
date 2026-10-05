@@ -157,6 +157,9 @@ fn mail_app() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_MAIL");
     std::env::var_os("LAZYOS_MAIL").as_deref() == Some(OsStr::new("1"))
 }
+/// The print spooler (docs/printing-plan.md P6), an xui-app program with no
+/// window: `init` starts it on every desktop image with the network stack.
+const PRINTD_ELF: &str = "xui-printd.elf";
 
 /// Whether this build has the network stack, which brings the network apps.
 fn network_stack() -> bool {
@@ -283,6 +286,25 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         }
     }
     core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
+    if desktop && network_stack() {
+        embed_printd(sink, &dir);
+    }
+}
+
+/// Embed `printd` as `fhs::bin::PRINTD`, whatever `LAZYOS_XUI_APPS` lists:
+/// `init`'s manifest has its row on such an image, so a missing binary fails
+/// the build rather than the boot.
+fn embed_printd(sink: &mut dyn Sink, dir: &std::path::Path) {
+    let path = dir.join(PRINTD_ELF);
+    println!("cargo:rerun-if-changed={}", path.display());
+    if !path.is_file() {
+        panic!(
+            "LAZYOS_DESKTOP=1 with LAZYOS_NETD=1 needs the print spooler ({}); \
+             run `python tools/xui/build.py`",
+            path.display()
+        );
+    }
+    sink.add_file(fhs::bin::PRINTD, path);
 }
 
 /// Embed the sample `.lzp` packages in `/system/share/samples`, when

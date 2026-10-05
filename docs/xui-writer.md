@@ -162,20 +162,31 @@ The design and the printer's capabilities are in
 * **Address.** `host`, `host:port` or an `ipp://` URI (port 631 and
   `/ipp/print` by default); `ipps://` is refused until TLS exists. A
   successful print remembers it in `confd` at `user/<uid>/writer/printer`.
-  The package declares `network = ["outbound"]` and `os.lazy.confd.v1`.
+  The package declares `os.lazy.print.v1` and `os.lazy.confd.v1`; it needs
+  no network access of its own, since `printd` talks to the printer.
 * **Rendering.** `RichTextEditor::printout(300)` (xui-rich-text's
   `Printout`) lays the document out at the printer's resolution. Each page is
   painted in 256-row bands into an offscreen surface on the UI thread, one
   page per 50 ms timer tick, and encoded as PWG Raster (`libs/raster`,
   `sgray_8` or `srgb_8`). A landscape page is painted in strips and rotated,
   since the printer takes portrait sheets only.
-* **Sending.** A worker thread asks the printer for its ink levels, streams
-  one `Print-Job` (`libs/ipp`, a chunked HTTP `POST` over `TcpStream`) as
-  pages arrive (at most three queued), then asks for the job's state every
-  2 s until it ends. Close during a job cancels it (`Cancel-Job` once the
-  printer has it). The status line shows the printer's words and ink, for
-  example `Printed (ink: tri-color 90%, black 50%)`.
-* **Markers.** `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>`.
+* **Spooling.** Pages go to the print spooler, `printd`
+  (`os.lazy.print.v1`, [printing-plan.md P6](printing-plan.md)), as they are
+  rendered. Once the last one is in, the job is closed and the status line
+  says it is queued: from then on LazyWriter may quit and the printer still
+  gets the whole document. Quitting while pages are still being prepared
+  asks first (Stop printing / Keep printing); stopping sends nothing.
+* **Sending.** `printd` asks the printer for its ink levels, creates the job
+  (`Create-Job`), sends the document (`Send-Document`, a chunked HTTP `POST`
+  over `TcpStream`) and follows it every 2 s until it ends. Any failure or
+  cancel sends `Cancel-Job`, so no half-sent job is left at the printer.
+  LazyWriter asks `printd` for the job's state every half second. Close
+  during a job cancels it. The status line shows the printer's words and
+  ink, for example `Printed (ink: tri-color 90%, black 50%)`.
+* **Markers.** `WRITER:PRINT:QUEUED:<pages>` once `printd` has the whole job,
+  then `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>`;
+  `WRITER:QUIT:PASS` when the window closes. `printd` prints `PRINTD:UP:PASS`
+  and `PRINTD:JOB:<state>:<id>:<line>` as each job ends.
 
 ## Fonts
 
@@ -200,7 +211,8 @@ at 8 KiB; pasting from another app inserts plain text.
 * No headers, footers or page numbers on the page; no IME or bidi
   (outside `xui-rich-text`'s scope so far).
 * Printing is plain IPP over the network only: no printer discovery, no
-  `ipps://`, no USB printers, and no spooler, so a job ends if LazyWriter quits.
+  `ipps://` and no USB printers. `printd` runs as `init`'s identity and
+  sends one job at a time.
 * No import of Markdown, HTML, RTF or Word documents; Markdown is export only.
 * The clipboard between apps is plain text, at most 8 KiB.
 * A path containing a space cannot be opened from Files or `pkgctl open` (a
@@ -275,8 +287,10 @@ fake printer on the host and judges the page it receives
 ([printing-plan.md §7](printing-plan.md#7-testing-without-a-printer)):
 
 ```bash
-python tools/print/run.py      # PASS: one A4 page printed; see shots/print/page-1.png
+python tools/print/run.py         # PASS: one A4 page printed; see shots/print/page-1.png
+python tools/print/run.py --quit  # LazyWriter quits once queued; the page still arrives whole
 cargo test -p ipp -p raster --features ipp/std
+(cd xui-app && cargo test -p printd -p xui-writer)
 ```
 
 The `xui` CI workflow runs both sessions ("Capture LazyWriter" and "Capture

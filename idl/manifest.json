@@ -1283,6 +1283,43 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.print.v1",
+    "interface_id": "0xbf8d5aec16ec445f",
+    "methods": [
+      {
+        "name": "Open",
+        "id": 1401622761,
+        "oneway": false
+      },
+      {
+        "name": "Write",
+        "id": 1717336572,
+        "oneway": false
+      },
+      {
+        "name": "Close",
+        "id": 1300671683,
+        "oneway": false
+      },
+      {
+        "name": "Cancel",
+        "id": 900713019,
+        "oneway": false
+      },
+      {
+        "name": "Status",
+        "id": 6222351,
+        "oneway": false
+      },
+      {
+        "name": "Jobs",
+        "id": 1256630173,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.messenger.registry.v1",
     "interface_id": "0x51d501afec09806c",
     "methods": [

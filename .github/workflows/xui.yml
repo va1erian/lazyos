@@ -661,10 +661,13 @@ jobs:
           PY
 
       # LazyWriter printing (docs/printing-plan.md): type a line, open the
-      # print bar (Ctrl+P), print to a fake IPP printer on the host
-      # (tools/print/fake_printer.py, 10.0.2.2:8631 from the guest) and judge
-      # what it received: one Print-Job of one A4 PWG Raster page at 300 dpi
-      # with the text at the 25 mm margins.
+      # print bar (Ctrl+P), print through the spooler (printd) to a fake IPP
+      # printer on the host (tools/print/fake_printer.py, 10.0.2.2:8631 from
+      # the guest) and judge what it received: one Create-Job + Send-Document
+      # of one A4 PWG Raster page at 300 dpi with the text at the 25 mm
+      # margins, nothing cut off and no job left open. `--quit` then quits
+      # LazyWriter as soon as the job is queued, while the printer still reads
+      # slowly: the page must arrive whole all the same.
       - name: Print from LazyWriter to a fake printer
         if: ${{ !cancelled() && steps.app.outputs.writer != '' }}
         shell: bash
@@ -676,9 +679,12 @@ jobs:
           LAZYOS_XUI_AUTOSTART: writer
         run: |
           set -euo pipefail
+          python tools/print/test_fake_printer.py
           cargo build
           python tools/print/run.py --no-build --out shots/print
           ! grep -q "^init: launch .* failed" shots/print/serial.log
+          python tools/print/run.py --no-build --quit --out shots/print_quit
+          ! grep -q "^init: launch .* failed" shots/print_quit/serial.log
 
       # docs/input-plan.md: the same desktop on the French AZERTY layout. The
       # session types *physical* keys (`qwerty` is `azerty` there) into the
@@ -725,7 +731,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -754,7 +760,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -833,6 +839,10 @@ jobs:
             shots/print/summary.json
             shots/print/printer.log
             shots/print/jobs/*
+            shots/print_quit/*.png
+            shots/print_quit/serial.log
+            shots/print_quit/summary.json
+            shots/print_quit/printer.log
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots

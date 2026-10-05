@@ -82,6 +82,17 @@ impl Server {
         }))
     }
 
+    /// Park until a request is queued or the absolute PIT `deadline` passes
+    /// (`0` waits forever), for a service with no UI loop to poll from
+    /// (`printd`). Nothing is received: [`Server::poll`] takes it.
+    pub fn wait(&self, deadline: u64) -> Result<(), i64> {
+        match sys::msg_wait_any(&[self.endpoint], deadline) {
+            Ok(_) => Ok(()),
+            Err(code) if code == -errno::ETIMEDOUT => Ok(()),
+            Err(code) => Err(code),
+        }
+    }
+
     /// Answer `txn`. A caller that gave up (deadline, cancel, exit) leaves no
     /// transaction and the kernel answers `-ENOENT`: an ordinary race, not an
     /// error of the service, so it is swallowed.

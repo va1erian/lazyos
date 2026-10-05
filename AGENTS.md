@@ -185,8 +185,11 @@ editor: `.lzw` documents, Markdown export, pictures; see
 `WRITER:UP|SAVE|EXPORT|OPEN:PASS`, build with `LAZYOS_XUI_AUTOSTART=writer`)
 and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`).
 Printing (`Ctrl+P`, `libs/ipp`, `libs/raster`, docs/printing-plan.md):
-`python tools/print/run.py` builds, boots, prints to a fake IPP printer on the
-host and judges the PWG Raster page it gets (`WRITER:PRINT:PASS:<pages>`).
+`python tools/print/run.py` builds, boots, prints through the `printd` spooler
+to a fake IPP printer on the host and judges the PWG Raster page it gets
+(`WRITER:PRINT:PASS:<pages>`); `--quit` quits LazyWriter once the job is
+queued and checks the page still arrives whole. The queue is
+`xui-app/crates/printd` (`cd xui-app && cargo test -p printd`).
 
 ## Archiver (archive manager) and desktop drag and drop
 
