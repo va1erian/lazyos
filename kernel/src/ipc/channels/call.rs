@@ -91,7 +91,7 @@ pub fn begin_call_owned(
         let queued_bytes = parcel_bytes.len();
         let queued = Queued {
             sender: me,
-            quota_uid: credentials::of(me).uid,
+            origin: SenderId::of(me),
             method,
             flags: parcel_flags,
             txn: Some(txn_id),
@@ -103,12 +103,12 @@ pub fn begin_call_owned(
         // Per-uid queue quota (issue #103), then take the buffer references and
         // finish the handle move before the request is visible, so a callee that
         // runs immediately finds the transfers already installed in the message.
-        if let Err(error) = charge_queued(queued.quota_uid, queued_bytes) {
+        if let Err(error) = charge_queued(queued.origin.uid, queued_bytes) {
             channel.drops += 1;
             return Err(error);
         }
         if let Err(error) = retain_transfers(&queued) {
-            release_queued_quota(queued.quota_uid, queued_bytes);
+            release_queued_quota(queued.origin.uid, queued_bytes);
             channel.drops += 1;
             return Err(error);
         }

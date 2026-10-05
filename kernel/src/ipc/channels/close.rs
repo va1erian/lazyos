@@ -96,7 +96,7 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
             channel.endpoints[side].queued_bytes = 0;
             for message in &dropped {
                 release_queued(message);
-                release_queued_quota(message.quota_uid, message.bytes.len());
+                release_queued_quota(message.origin.uid, message.bytes.len());
             }
             let mut released = Vec::new();
             for txn in channel.txns.iter_mut() {
@@ -125,7 +125,7 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
                 channel.drops += extra_drops;
                 for message in &pending {
                     release_queued(message);
-                    release_queued_quota(message.quota_uid, message.bytes.len());
+                    release_queued_quota(message.origin.uid, message.bytes.len());
                 }
             }
         }

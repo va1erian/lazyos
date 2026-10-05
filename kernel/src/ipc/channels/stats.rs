@@ -75,7 +75,7 @@ pub fn reset() {
         for endpoint in &channel.endpoints {
             for message in &endpoint.inbox {
                 release_queued(message);
-                release_queued_quota(message.quota_uid, message.bytes.len());
+                release_queued_quota(message.origin.uid, message.bytes.len());
             }
         }
     }

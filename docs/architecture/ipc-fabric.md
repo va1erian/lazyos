@@ -71,6 +71,16 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   (teardown semantics), instead of ending the side for every holder. A receiver
   that was handed someone else's endpoint must release, not close (networking
   plan N2: `netdrv` was closing `netd`'s service endpoint).
+- `RECV` takes a flags word too. `RECV_SENDER_ID` (1) also writes the sender's
+  identity to `parcel_ptr` (`parcel_len` must be at least 32): `uid, gid,
+  label_id, session` as little-endian `u64` words, stamped from the sender's
+  credentials when the message was *queued* (`channels::SenderId`, the same
+  stamp the per-uid queue quota is charged to), never its capability bits. A
+  too-small block is `EINVAL` before anything is dequeued. This is how a
+  service authorizes callers by uid or label without `CAP_SETUID` (which
+  `creds` `GET` on another task needs) and without racing a sender slot that
+  exited or was reused: LazyShell's `os.lazy.shell.v1` checks it
+  (`xui-app/src/server.rs` `Request::origin`, `lazyshell::policy`).
 - ABI blocks are fixed 64-byte `MsgArgs`/`MsgResult` little-endian word arrays,
   mirrored byte-for-byte in `user/src/messenger/`; sizes are compile-time
   asserted at the bottom of `syscalls/abi.rs`.

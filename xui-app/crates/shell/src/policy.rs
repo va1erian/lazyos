@@ -1,9 +1,9 @@
 //! Who may drive the shell through `os.lazy.shell.v1`.
 //!
 //! The rule (idl/shell.midl): the caller's kernel-stamped uid is 0 or the
-//! shell's own uid. The identity always comes from the kernel (`cred_get` on
-//! the message's sender slot), never from the request; when the shell cannot
-//! read it, the call is refused.
+//! shell's own uid. The identity always comes from the kernel (the sender id
+//! it stamps on each message at queue time, `RECV_SENDER_ID`), never from the
+//! request; when either uid cannot be read, the call is refused.
 
 /// Whether a caller with kernel-stamped `caller_uid` may call a shell running
 /// as `shell_uid`. Either is `None` when it could not be read, and then every

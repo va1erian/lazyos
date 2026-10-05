@@ -150,7 +150,7 @@ pub(super) fn charge_queued(uid: u32, bytes: usize) -> Result<(), Error> {
 }
 
 /// Release the per-uid queue charge a message held, matched by
-/// [`Queued::quota_uid`] so a delivery after a credential transition still
+/// the uid in [`Queued::origin`] so a delivery after a credential transition still
 /// credits the user that was charged.
 pub(super) fn release_queued_quota(uid: u32, bytes: usize) {
     quota::release_many(
