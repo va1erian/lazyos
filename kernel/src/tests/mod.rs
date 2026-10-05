@@ -195,6 +195,7 @@ mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
 mod mount_suite;
+mod mux_suite;
 mod native_exec_suite;
 mod nvme_suite;
 mod overlay_suite;
@@ -320,6 +321,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     exec_perm_suite::CASES,
     chmod_suite::CASES,
     display_suite::CASES,
+    mux_suite::CASES,
     sysinfo_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
