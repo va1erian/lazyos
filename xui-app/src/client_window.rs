@@ -13,6 +13,8 @@
 //! path releases what was created so far, so no half-built surface stays in the
 //! compositor with nothing able to destroy it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::display::{self, Client, Event};
@@ -69,6 +71,49 @@ impl ClientState {
     }
 }
 
+/// Why [`ClientWindow::open`] gave no window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpenError {
+    /// The window was closed before its first buffer was attached (a close
+    /// request arrived, or the compositor no longer knows the surface; issue
+    /// #498). Not a failure: the user dismissed the window, so the app should
+    /// exit cleanly.
+    Closed,
+    /// Anything else, described for the log.
+    Failed(String),
+}
+
+/// Set when [`ClientWindow::open`] ended with [`OpenError::Closed`]. The
+/// backend reports it to `xui_core` as a plain error, so the app's `run`
+/// outcome cannot say which kind it was; the process asks here instead
+/// ([`closed_while_opening`], `launch::finish`).
+static CLOSED_WHILE_OPENING: AtomicBool = AtomicBool::new(false);
+
+/// Note that a window was closed before it opened (see [`OpenError::Closed`]).
+pub(crate) fn note_closed_while_opening() {
+    CLOSED_WHILE_OPENING.store(true, Ordering::Relaxed);
+}
+
+/// Whether an opening window was closed before its first attach.
+pub fn closed_while_opening() -> bool {
+    CLOSED_WHILE_OPENING.load(Ordering::Relaxed)
+}
+
+impl core::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            OpenError::Closed => f.write_str("window closed while opening"),
+            OpenError::Failed(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<String> for OpenError {
+    fn from(message: String) -> OpenError {
+        OpenError::Failed(message)
+    }
+}
+
 /// One open window's surface: the event channel and the buffer slots.
 pub struct ClientWindow {
     /// This task's end of the surface's event channel.
@@ -104,7 +149,7 @@ impl ClientWindow {
         height: u32,
         title: &str,
         role: SurfaceRole,
-    ) -> Result<ClientWindow, String> {
+    ) -> Result<ClientWindow, OpenError> {
         let (events, peer) =
             sys::msg_create_pair().map_err(|code| format!("event pair: errno {code}"))?;
         let created =
@@ -116,22 +161,22 @@ impl ClientWindow {
                 // handle only fails harmlessly.
                 let _ = display::close(peer);
                 let _ = display::close(events);
-                return Err(format!("create_surface: errno {code}"));
+                return Err(format!("create_surface: errno {code}").into());
             }
         };
         if let SurfaceRole::Panel { x, y } = role {
             if let Err(code) = client.place_surface(surface, x, y) {
                 let _ = client.destroy_surface(surface);
                 let _ = display::close(events);
-                return Err(format!("place_surface: errno {code}"));
+                return Err(format!("place_surface: errno {code}").into());
             }
         }
         let first = match attach_first_buffer(client, events, surface, width, height) {
             Ok(first) => first,
-            Err(message) => {
+            Err(error) => {
                 let _ = client.destroy_surface(surface);
                 let _ = display::close(events);
-                return Err(message);
+                return Err(error);
             }
         };
         let (width, height) = first.size;
@@ -140,7 +185,11 @@ impl ClientWindow {
             slots.close();
             let _ = client.destroy_surface(surface);
             let _ = display::close(events);
-            return Err(format!("attach_slot: errno {code}"));
+            return Err(if code == -errno::ENOENT {
+                OpenError::Closed
+            } else {
+                OpenError::Failed(format!("attach_slot: errno {code}"))
+            });
         }
         // Best effort: `xuid` registered the surface with `inputd` before it
         // answered `CreateSurface`, so the session can be opened right away.
@@ -191,6 +240,9 @@ enum AttachError {
     /// The compositor answered `EINVAL`: it no longer has a surface of this
     /// size (a maximize or resize landed before the attach), or it has gone.
     Refused,
+    /// The compositor answered `ENOENT`: the surface is gone, the window was
+    /// closed before the attach (issue #498).
+    Closed,
     /// Anything else (no buffer quota, a dead compositor): not retryable.
     Failed(String),
 }
@@ -203,10 +255,10 @@ fn attach_new_buffer(client: Client, surface: u64, size: u64) -> Result<(u64, u6
         .map_err(|code| AttachError::Failed(format!("create_buffer: errno {code}")))?;
     if let Err(code) = client.attach_slot(surface, 0, buffer, size) {
         let _ = sys::display_close_buffer(buffer);
-        return Err(if code == -errno::EINVAL {
-            AttachError::Refused
-        } else {
-            AttachError::Failed(format!("attach_slot: errno {code}"))
+        return Err(match code {
+            c if c == -errno::EINVAL => AttachError::Refused,
+            c if c == -errno::ENOENT => AttachError::Closed,
+            _ => AttachError::Failed(format!("attach_slot: errno {code}")),
         });
     }
     Ok((buffer, va))
@@ -235,7 +287,7 @@ fn attach_first_buffer(
     surface: u64,
     mut width: u32,
     mut height: u32,
-) -> Result<FirstBuffer, String> {
+) -> Result<FirstBuffer, OpenError> {
     let mut resized = None;
     let mut kept = Vec::new();
     for _ in 0..ATTACH_RETRIES {
@@ -250,7 +302,8 @@ fn attach_first_buffer(
                     events: kept,
                 })
             }
-            Err(AttachError::Failed(message)) => return Err(message),
+            Err(AttachError::Closed) => return Err(OpenError::Closed),
+            Err(AttachError::Failed(message)) => return Err(OpenError::Failed(message)),
             Err(AttachError::Refused) => match newest_configure(events, &mut kept)? {
                 Some((w, h)) if w > 0 && h > 0 => {
                     (width, height) = (w as u32, h as u32);
@@ -260,15 +313,18 @@ fn attach_first_buffer(
             },
         }
     }
-    Err(format!("attach_slot: errno {}", -errno::EINVAL))
+    Err(OpenError::Failed(format!(
+        "attach_slot: errno {}",
+        -errno::EINVAL
+    )))
 }
 
 /// The newest `Configure` queued on `events`, waiting briefly for the first
 /// one. Other events are pushed to `kept` (bounded) for the backend to replay,
 /// since `xuid` focuses a new surface before `CreateSurface` returns and early
-/// keystrokes can be queued here. A close request is an error: the window is
-/// already gone.
-fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i32)>, String> {
+/// keystrokes can be queued here. A close request is [`OpenError::Closed`]:
+/// the window is already gone.
+fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i32)>, OpenError> {
     let mut buf = [0u8; EVENT_BYTES];
     let mut newest = None;
     let mut wait = CONFIGURE_WAIT_TICKS;
@@ -280,7 +336,7 @@ fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i
                     continue;
                 };
                 if parcel.header.method == display::METHOD_WINDOW_CLOSE {
-                    return Err("window closed while opening".into());
+                    return Err(OpenError::Closed);
                 }
                 match display::decode_event(&parcel) {
                     Some(Event::Configure { width, height, .. }) => newest = Some((width, height)),
@@ -291,7 +347,7 @@ fn newest_configure(events: u64, kept: &mut Vec<Event>) -> Result<Option<(i32, i
                 wait = 0;
             }
             Err(code) if code == -errno::ETIMEDOUT => return Ok(newest),
-            Err(code) => return Err(format!("event drain: errno {code}")),
+            Err(code) => return Err(OpenError::Failed(format!("event drain: errno {code}"))),
         }
     }
 }
@@ -320,6 +376,21 @@ mod tests {
 
     fn mv(x: i32) -> Event {
         Event::PointerMove { x, y: 0 }
+    }
+
+    /// A failed run exits 1, but once a window was closed while opening the
+    /// same error exits 0 (issue #498). The only test that sets the flag.
+    #[test]
+    fn a_window_closed_while_opening_exits_cleanly() {
+        let failed = |_: ()| Err::<(), _>(OpenError::Failed("create_surface: errno 5".into()));
+        assert_eq!(crate::launch::finish("T", Ok::<(), OpenError>(())), 0);
+        assert_eq!(crate::launch::finish("T", failed(())), 1);
+        assert!(!closed_while_opening());
+
+        note_closed_while_opening();
+        assert!(closed_while_opening());
+        assert_eq!(crate::launch::finish("T", Err(OpenError::Closed)), 0);
+        assert_eq!(OpenError::Closed.to_string(), "window closed while opening");
     }
 
     #[test]

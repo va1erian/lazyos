@@ -12,7 +12,7 @@ use xui_core::backend::{
 use xui_core::router::WidgetHost;
 use xui_core::{Rect, Theme};
 
-use crate::client_window::{ClientWindow, SurfaceRole};
+use crate::client_window::{self, ClientWindow, OpenError, SurfaceRole};
 use crate::sys;
 
 use super::geometry::absolute_bounds;
@@ -89,7 +89,12 @@ impl Backend for LazyOSBackend {
         let client = match &self.mode {
             Mode::Client(state) => Some(
                 ClientWindow::open(state.borrow().client, width, height, &spec.title, role)
-                    .map_err(BackendError::Other)?,
+                    .map_err(|error| {
+                        if error == OpenError::Closed {
+                            client_window::note_closed_while_opening();
+                        }
+                        BackendError::Other(error.to_string())
+                    })?,
             ),
             Mode::Owner { .. } => None,
         };
