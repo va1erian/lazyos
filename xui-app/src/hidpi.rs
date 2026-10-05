@@ -6,8 +6,8 @@
 //! *design pixels* by switching the canvas to a `scale` transform
 //! ([`design_bounds`]): rectangles, strokes and radii are scaled by the
 //! canvas, while text keeps its DPI-derived size, so nothing is drawn twice
-//! as large and every edge stays crisp. Their pointer hit-tests take
-//! [`design_rect`] and [`design_point`].
+//! as large and every edge stays crisp. [`design_rect`] reads a window's
+//! client area in design pixels.
 
 use std::cell::Cell;
 
@@ -71,12 +71,6 @@ pub fn design_bounds(canvas: &mut dyn Canvas) -> Rect {
 /// The window's client area in design pixels.
 pub fn design_rect<M: 'static>(ui: &Ui<M>) -> Rect {
     down(ui.client_rect(), scale_of(ui.dpi()))
-}
-
-/// A pointer position (screen pixels, as events carry it) in design pixels.
-pub fn design_point<M: 'static>(ui: &Ui<M>, x: i32, y: i32) -> (i32, i32) {
-    let scale = scale_of(ui.dpi());
-    (x.div_euclid(scale), y.div_euclid(scale))
 }
 
 #[cfg(test)]

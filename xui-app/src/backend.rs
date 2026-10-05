@@ -191,6 +191,9 @@ struct Window {
     height: i32,
     /// Client mode: this window's compositor surface, or `None` in owner mode.
     client: Option<ClientWindow>,
+    /// Whether the window is an ordinary app window, which takes the app's
+    /// size hints (the shell's desktop and panels are fixed-size).
+    resizable: bool,
 }
 
 struct Node {
@@ -294,13 +297,38 @@ impl LazyOSBackend {
         }
     }
 
-    /// Make every window this app opens resizable within the given content
-    /// bounds (`min_w`/`min_h` at least, `max_w`/`max_h` at most; a `max` of 0
-    /// means the screen), in design pixels: they are multiplied by the UI
-    /// scale. Call it before `run_app`. Apps that never call it
-    /// keep the old fixed-size behaviour.
+    /// Make this app's windows resizable within the given content bounds
+    /// (`min_w`/`min_h` at least, `max_w`/`max_h` at most; a `max` of 0 means
+    /// the screen), in design pixels: they are multiplied by the UI scale.
+    /// Windows already open take them at once, so an app may call it while it
+    /// builds its first window (`launch::run`'s `make`). Apps that never call
+    /// it keep the old fixed-size behaviour.
     pub fn set_size_hints(&self, min_w: u32, min_h: u32, max_w: u32, max_h: u32) {
         self.size_hints.set(Some((min_w, min_h, max_w, max_h)));
+        for window in self.windows.borrow().values() {
+            if let (true, Some(client)) = (window.resizable, &window.client) {
+                self.send_size_hints(client.surface);
+            }
+        }
+    }
+
+    /// Sends the app's size hints, if any, for the compositor surface
+    /// `surface` (client mode).
+    pub(super) fn send_size_hints(&self, surface: u64) {
+        let (Some((min_w, min_h, max_w, max_h)), Mode::Client(state)) =
+            (self.size_hints.get(), &self.mode)
+        else {
+            return;
+        };
+        // Design pixels to screen pixels; a `max` of 0 stays "the screen".
+        let scale = self.scale();
+        let _ = state.borrow().client.set_size_hints(
+            surface,
+            min_w * scale,
+            min_h * scale,
+            max_w * scale,
+            max_h * scale,
+        );
     }
 
     /// Make the *next* window this app opens a `role` surface (the shell's
@@ -458,6 +486,7 @@ mod test_support {
                 width: 64,
                 height: 64,
                 client: None,
+                resizable: true,
             }
         }
     }
