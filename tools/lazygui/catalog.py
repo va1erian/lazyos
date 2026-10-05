@@ -15,7 +15,7 @@ import sys
 
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
-from .appsteps import app_steps, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, modplayer_step, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, tls_step  # noqa: F401,E501
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -234,6 +234,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
         # with zig); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
+    env.update(mail_env(cfg))
     return env
 
 
@@ -248,7 +249,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   modplayer: bool = False, net: bool = False,
                   linuxapps: bool = False, hidpi: bool = False,
-                  tls: bool = False, lazyweb: bool = False) -> dict:
+                  tls: bool = False, lazyweb: bool = False, mail: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -264,7 +265,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720
     desktop at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl,
     wget, fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser
-    (Desktop only; it implies ``tls``). Machine settings (accelerator, memory, QEMU path)
+    (Desktop only; it implies ``tls``); ``mail`` the Mail app (Desktop only;
+    it implies ``tls``). Machine settings (accelerator, memory, QEMU path)
     come from ``base``; every image switch is decided here so stale Advanced
     checkboxes cannot leak into a Simple boot.
     """
@@ -274,7 +276,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         raise ValueError(f"unknown interface: {interface!r}")
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
-    tls = tls or lazyweb
+    tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
         "mode": "Interactive demo",
@@ -314,6 +316,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "tls": tls,
         "journal": False,
         "lazyweb": lazyweb,
+        "mail": desktop and mail,
         "display_mode": HIDPI_MODE if hidpi else "",
     })
     return cfg
@@ -380,6 +383,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.
             argv.append("--lazyweb")
+        argv += mail_argv(cfg)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

@@ -82,6 +82,9 @@ def make_vars() -> dict:
         # desktop, networking and HTTPS).
         "lazyweb": b(value=False),
         "simple_lazyweb": b(value=False),
+        # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
+        "mail": b(value=False),
+        "simple_mail": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

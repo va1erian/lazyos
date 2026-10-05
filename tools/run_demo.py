@@ -28,6 +28,7 @@ Examples
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
+    python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -63,8 +64,8 @@ from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 from demo_qemu import sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_modplayer, build_rhai,
-    build_tls, build_xui_apps,
+    build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
+    build_rhai, build_tls, build_xui_apps,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
@@ -313,6 +314,9 @@ def main(argv: list[str]) -> int:
                         help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
                              "a core package; NetSurf compiled with zig by tools/xui/build.py), "
                              "networking and the HTTPS tools (docs/lazyweb.md)")
+    parser.add_argument("--mail", action="store_true",
+                        help="the desktop with HTTPS and Mail, esMail's IMAP/SMTP client "
+                             "(LAZYOS_MAIL=1, docs/mail.md)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -338,9 +342,10 @@ def main(argv: list[str]) -> int:
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
-    args.desktop = args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
-    # A browser wants HTTPS (curl beside it too), and HTTPS needs a network.
-    args.tls = args.tls or args.lazyweb
+    args.desktop = (args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
+                    or args.mail)
+    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
+    args.tls = args.tls or args.lazyweb or args.mail
     args.net = args.net or args.tls
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
@@ -387,29 +392,19 @@ def main(argv: list[str]) -> int:
             # the LazyOS-only ones (the Messenger demo).
             user = args.lazyrad_samples or os.environ.get("LAZYRAD_SAMPLES", "")
             env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
-        if args.doom:
-            if not build_doom():
+        # Opt-in apps, built before their switch (the MOD player after LazyRAD's).
+        for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
+                                      (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
+                                      (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
+                                      (args.tls, build_tls, "LAZYOS_TLS"),
+                                      (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB")):
+            if not wanted:
+                continue
+            if not build():
                 return 1
-            env["LAZYOS_DOOM"] = "1"
-        if args.modplayer:
-            # After build_lazyrad: the package carries the player it just built.
-            if not build_modplayer():
-                return 1
-            env["LAZYOS_MODPLAYER"] = "1"
-        if args.linuxapps:
-            if not build_linuxapps():
-                return 1
-            env["LAZYOS_LINUXAPPS"] = "1"
-        if args.tls:
-            if not build_tls():
-                return 1
-            env["LAZYOS_TLS"] = "1"
+            env[switch] = "1"
         if args.journal:
             env["LAZYOS_JOURNAL"] = args.journal
-        if args.lazyweb:
-            if not build_lazyweb():
-                return 1
-            env["LAZYOS_LAZYWEB"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
@@ -426,6 +421,11 @@ def main(argv: list[str]) -> int:
             needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
+        if args.mail:
+            # After the other apps: one incremental build that adds Mail.
+            if not build_mail():
+                return 1
+            env["LAZYOS_MAIL"] = "1"
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).

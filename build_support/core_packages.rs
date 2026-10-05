@@ -137,6 +137,7 @@ pub fn is_core_stem(stem: &str) -> bool {
         "settings",
         "confd",
         "docs",
+        "mail",
         "network",
         "nettools",
         // LazyWeb, only with `LAZYOS_LAZYWEB=1` (`lazyweb_embed`).

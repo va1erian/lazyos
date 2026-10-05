@@ -273,6 +273,21 @@ mapped to the host (`LAZYOS_TLS_TEST_HOSTS`); never set those in a normal
 image. Behind an egress proxy that re-signs TLS, `--live --extra-ca PEM`
 trusts that proxy's CA too.
 
+## Mail (esMail over TLS, `LAZYOS_MAIL=1`)
+
+`xui-mail` (`os.lazy.mail`, `xui-app/mail/`) is va1erian/esmail's IMAP/SMTP
+core (a pinned git dependency, built with its `rustls` feature over
+`nettls-crypto`) behind a xui window; zig builds it like the Docs app
+(`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
+See [`docs/mail.md`](docs/mail.md).
+
+```bash
+python tools/run_demo.py --mail          # desktop + HTTPS + Mail
+python tools/mail/run.py                 # mock IMAPS/SMTPS server under the test CA, session, judge
+python tools/mail/run.py --label-trace   # the same, listing LABEL:DENY lines
+cargo test --manifest-path xui-app/Cargo.toml -p xui-mail
+```
+
 ## LazyWeb browser (`LAZYOS_LAZYWEB=1`)
 
 LazyWeb (`os.lazy.lazyweb`, crate `lazyweb` in `xui-app/web`) is the web

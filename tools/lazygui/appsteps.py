@@ -1,5 +1,5 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, Doom, the Linux programs, the HTTPS tools, LazyWeb), run before `cargo build`.
+player package, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail), run before `cargo build`.
 `catalog` re-exports them; they live apart to keep it small."""
 
 from __future__ import annotations
@@ -56,9 +56,32 @@ def lazyweb_step(cfg: dict) -> list[dict]:
     if not cfg.get("lazyweb"):
         return []
     return [{"label": "Build xui apps with LazyWeb (zig)", "argv": [PY, "tools/xui/build.py"]}]
+def mail_step(cfg: dict) -> list[dict]:
+    """The step that builds Mail (esMail; docs/mail.md) with the other xui apps
+    and repackages them, when a desktop image embeds it."""
+    if not wants_mail(cfg):
+        return []
+    return [{"label": "Build Mail (esMail, with zig) and the core packages",
+             "argv": [PY, "tools/xui/build.py", "--mail"]}]
+
+
+def wants_mail(cfg: dict) -> bool:
+    """Mail is a desktop app: it means nothing on a CLI image."""
+    return bool(cfg.get("mail") and cfg.get("desktop"))
+
+
+def mail_env(cfg: dict) -> dict[str, str]:
+    """`LAZYOS_MAIL=1` (the image embeds `xui-mail.elf`); `build_env` also turns
+    on the HTTPS stack, since `cfg["tls"]` follows `mail`."""
+    return {"LAZYOS_MAIL": "1"} if wants_mail(cfg) else {}
+
+
+def mail_argv(cfg: dict) -> list[str]:
+    """run_demo's `--mail`, which builds Mail and sets the switches itself."""
+    return ["--mail"] if wants_mail(cfg) and not cfg.get("skip_build") else []
 
 
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + linuxapps_step(cfg)
-            + tls_step(cfg) + lazyweb_step(cfg))
+            + tls_step(cfg) + lazyweb_step(cfg) + mail_step(cfg))

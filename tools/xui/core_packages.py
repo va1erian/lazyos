@@ -98,6 +98,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
+    # esMail (docs/mail.md): C and C++ too, and built only on request
+    # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
+    "mail": xui_app("xui-mail.elf", "mail", optional=True),
     # The IDE and its player, built by `tools/lazyrad/build.py`.
     "lazyrad": CoreApp(
         {"lazyrad.elf": "bin/lazyrad.elf", "lrplay.elf": "bin/lrplay.elf"},

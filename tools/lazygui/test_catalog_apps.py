@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player, the Linux programs, the HTTPS tools and LazyWeb (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools, LazyWeb and Mail (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -207,6 +207,44 @@ class TlsTests(unittest.TestCase):
         labels = [step["label"] for step in plan]
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/nettls/build.py", "--require"])
+
+
+class MailTests(unittest.TestCase):
+    """Mail (esMail over TLS; LAZYOS_MAIL=1) from the Simple tab, the Advanced
+    tab and run_demo: a desktop app that brings HTTPS and the network with it."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_embeds_mail_on_the_desktop_only(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "tls": True, "mail": True})
+        self.assertEqual(env["LAZYOS_MAIL"], "1")
+        self.assertEqual(env["LAZYOS_TLS"], "1")
+        self.assertNotIn("LAZYOS_MAIL", catalog.build_env({**self.base(), "desktop": True}))
+        self.assertNotIn("LAZYOS_MAIL", catalog.build_env({**self.base(), "mail": True}))
+
+    def test_simple_desktop_gets_mail_with_https_and_cli_does_not(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", mail=True)
+        self.assertTrue(cfg["mail"] and cfg["tls"] and cfg["net"])
+        cli = catalog.simple_config(demo_config(), "dev", "CLI", mail=True)
+        self.assertFalse(cli["mail"] or cli["tls"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["mail"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--mail", demo_argv(mail=True, desktop=True, skip_build=False))
+        self.assertNotIn("--mail", demo_argv(mail=True, desktop=False, skip_build=False))
+        self.assertNotIn("--mail", demo_argv(mail=True, desktop=True, skip_build=True))
+
+    def test_session_modes_build_mail_before_the_image(self) -> None:
+        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "256M", "qemu": "", "out": "shots",
+               "timeout": "300", "tablet": False, "script": 0, "desktop": True,
+               "tls": True, "mail": True}
+        plan = catalog.build_plan(cfg)
+        labels = [step["label"] for step in plan]
+        at = labels.index("Build image (cargo build)")
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py", "--mail"])
 
 
 class LazyWebTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--modplayer`,
-`--linuxapps`, `--tls`, `--lazyweb`, `--devices`) return False so the run stops instead of booting
+`--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return False so the run stops instead of booting
 an image without what was asked for.
 """
 
@@ -86,3 +86,9 @@ def build_lazyweb() -> bool:
 def build_xui_apps() -> bool:
     """The desktop's xui apps, which include the Devices app (`--devices`)."""
     return required("the xui apps", "xui/build.py")
+
+
+def build_mail() -> bool:
+    """The xui apps plus Mail (esMail with its IMAP/SMTP core, SQLite and
+    litehtml, built with zig; docs/mail.md) and their core packages."""
+    return required("Mail", "xui/build.py", ("--mail",))
