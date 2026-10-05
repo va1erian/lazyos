@@ -4,10 +4,15 @@
 //! button saves through [`menu_ops`] at once, where `xuid` follows the key
 //! live. The page owns the working list and only ever shows what was saved.
 
+use std::rc::Rc;
+
 use deskmenu::Entry;
 use xui_core::app::Ui;
-use xui_core::backend::Result;
-use xui_core::widget::{Button, Edit, Label, ListView, Panel};
+use xui_core::arrange::{
+    build, button, column, edit, label, row, Build, Handle, LayoutExt, Mounted,
+};
+use xui_core::backend::{Result, WidgetId};
+use xui_core::widget::{Button, Edit, ListView};
 use xui_core::{HasText, Rect};
 
 use crate::app::Msg;
@@ -29,74 +34,75 @@ pub enum MenuMsg {
     Reset,
 }
 
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
+/// A button raising `msg`.
+fn command(text: &str, msg: MenuMsg) -> Build<Button<Msg>, Msg> {
+    button(text).on_click(Msg::Menu(msg))
 }
 
-fn button(ui: &Ui<Msg>, bounds: Rect, text: &str, msg: MenuMsg) -> Result<Button<Msg>> {
-    Ok(Button::new(ui, bounds, text)?.on_click(move || Some(Msg::Menu(msg.clone()))))
+/// An empty single-column list raising `msg` with the selected row.
+fn rows(msg: fn(usize) -> MenuMsg) -> Build<ListView<Msg>, Msg> {
+    build(move |ui| {
+        Ok(ListView::new(ui, Rect::default(), &[])?
+            .multi_select(false)
+            .on_select(move |i| Some(Msg::Menu(msg(i)))))
+    })
 }
 
 /// The page's widgets and working state.
 pub struct MenuPage {
-    panel: Panel<Msg>,
-    entries: ListView<Msg>,
-    available: ListView<Msg>,
-    rename: Edit<Msg>,
-    _labels: Vec<Label<Msg>>,
-    _buttons: Vec<Button<Msg>>,
+    entries: Rc<ListView<Msg>>,
+    available: Rc<ListView<Msg>>,
+    rename: Rc<Edit<Msg>>,
+    _mounted: Mounted<Msg>,
     list: Vec<Entry>,
     apps: Vec<AppChoice>,
     free: Vec<AppChoice>,
 }
 
 impl MenuPage {
-    /// Build the page (hidden state is the caller's job) inside `bounds`.
-    pub fn build(ui: &Ui<Msg>, bounds: Rect) -> Result<MenuPage> {
-        let panel = Panel::new(ui, bounds)?;
-        let (entries, available, rename, labels, buttons) = {
-            let p = panel.ui();
-            let labels = vec![
-                Label::new(p, rect(20, 14, 220, 20), "Menu entries")?,
-                Label::new(p, rect(260, 14, 210, 20), "Apps you can add")?,
-            ];
-            let entries = ListView::new(p, rect(20, 38, 220, 246), &[])?
-                .multi_select(false)
-                .on_select(|i| Some(Msg::Menu(MenuMsg::Select(i))));
-            let available = ListView::new(p, rect(260, 38, 210, 246), &[])?
-                .multi_select(false)
-                .on_select(|i| Some(Msg::Menu(MenuMsg::Pick(i))));
-            let rename = Edit::new(p, rect(20, 326, 150, 26), "")?.cue("New label");
-            let buttons = vec![
-                button(p, rect(20, 292, 70, 28), "Move up", MenuMsg::Up)?,
-                button(p, rect(94, 292, 80, 28), "Move down", MenuMsg::Down)?,
-                button(p, rect(178, 292, 62, 28), "Remove", MenuMsg::Remove)?,
-                button(p, rect(176, 325, 64, 28), "Rename", MenuMsg::Rename)?,
-                button(p, rect(260, 292, 70, 28), "Add", MenuMsg::Add)?,
-                button(
-                    p,
-                    rect(260, 325, 140, 28),
-                    "Reset to defaults",
-                    MenuMsg::Reset,
-                )?,
-            ];
-            (entries, available, rename, labels, buttons)
-        };
+    /// Lays the page out in the container `page`.
+    pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<MenuPage> {
+        let (entries, available, rename) = (Handle::new(), Handle::new(), Handle::new());
+        // Both columns end in two rows of buttons, so the lists line up.
+        let mounted = ui.mount_in(
+            page,
+            row().padding(20).gap(20).children((
+                column()
+                    .gap(8)
+                    .children((
+                        label("Menu entries"),
+                        rows(MenuMsg::Select).bind(&entries).fill(1),
+                        row().gap(6).children((
+                            command("Move up", MenuMsg::Up),
+                            command("Move down", MenuMsg::Down),
+                            command("Remove", MenuMsg::Remove),
+                        )),
+                        row().gap(6).children((
+                            edit().placeholder("New label").bind(&rename).fill(1),
+                            command("Rename", MenuMsg::Rename),
+                        )),
+                    ))
+                    .fill(3),
+                column()
+                    .gap(8)
+                    .children((
+                        label("Apps you can add"),
+                        rows(MenuMsg::Pick).bind(&available).fill(1),
+                        row().child(command("Add", MenuMsg::Add)),
+                        row().child(command("Reset to defaults", MenuMsg::Reset)),
+                    ))
+                    .fill(2),
+            )),
+        )?;
         Ok(MenuPage {
-            panel,
-            entries,
-            available,
-            rename,
-            _labels: labels,
-            _buttons: buttons,
+            entries: entries.get(),
+            available: available.get(),
+            rename: rename.get(),
+            _mounted: mounted,
             list: Vec::new(),
             apps: Vec::new(),
             free: Vec::new(),
         })
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.panel.set_visible(visible);
     }
 
     /// Re-read the store and the registry and repaint both lists.

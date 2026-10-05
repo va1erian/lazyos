@@ -1,18 +1,17 @@
 #![forbid(unsafe_code)]
 
-//! The application: widget construction, layout from the client rect, and the
-//! `Msg` -> model glue.
+//! The application: widget construction and the `Msg` -> model glue.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Event, Result, WidgetId};
+use xui_core::backend::Result;
 use xui_core::widget::{FileSystem, StatusBar};
 
 use super::canvas::CanvasMsg;
-use super::layout::{Observer, layout, strip_items};
+use super::layout::{self, Observer};
 use super::palette::Palette;
 use super::toolbar::ToolStrip;
 use super::{Msg, PaintCanvas};
@@ -29,10 +28,10 @@ use dialogs::{FileDialogs, ResizePrompt};
 /// The paint application.
 pub struct PaintApp {
     model: Model,
-    canvas: PaintCanvas,
-    toolbar: ToolStrip,
-    palette: Palette,
-    status: StatusBar<Msg>,
+    canvas: Rc<PaintCanvas>,
+    toolbar: Rc<ToolStrip>,
+    palette: Rc<Palette>,
+    status: Rc<StatusBar<Msg>>,
     storage: Rc<dyn Storage>,
     observer: Rc<RefCell<Observer>>,
     cursor: Option<(i32, i32)>,
@@ -99,19 +98,12 @@ impl PaintApp {
     ) -> Result<PaintApp> {
         let files = fs.map(|fs| FileDialogs::new(ui, fs)).transpose()?;
         let io = storage.available() || files.is_some();
-        let areas = layout(ui.client_rect(), ui.dpi(), io);
-        let canvas = PaintCanvas::new(ui, areas.canvas)?;
-        let toolbar = ToolStrip::new(ui, areas.toolbar, strip_items(io))?;
-        let palette = Palette::new(ui, areas.palette)?;
-        let status = StatusBar::new(ui, areas.status, &["--", "320 x 240", "Pencil"])?;
-
-        // The compositor tells the window it was resized at the window level;
-        // map it to a message so the re-flow runs in `update`, outside the
-        // event dispatch and any widget borrow.
-        ui.register_events(WidgetId::NONE, |event| match event {
-            Event::Resize { .. } => Some(Msg::WindowResized),
-            _ => None,
-        });
+        let layout::Widgets {
+            canvas,
+            toolbar,
+            palette,
+            status,
+        } = layout::mount(ui, io)?;
 
         let mut app = PaintApp {
             model: Model::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
@@ -160,19 +152,6 @@ impl PaintApp {
     /// The last save/load message, if any.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
-    }
-
-    /// Re-lays the widgets out for the window's current client rect. The
-    /// document is untouched: only the viewport follows the window.
-    fn reflow(&self, ui: &Ui<Msg>) {
-        let io = self.storage.available() || self.files.is_some();
-        let areas = layout(ui.client_rect(), ui.dpi(), io);
-        self.toolbar.set_bounds(areas.toolbar);
-        self.canvas.set_bounds(areas.canvas);
-        self.palette.set_bounds(areas.palette);
-        // `StatusBar` owns its node through a private `Control`, so move it
-        // through the same batch the other widgets use.
-        ui.apply_moves(&[(self.status.id(), areas.status)]);
     }
 
     /// Rebuilds the painter state, toolbar and status bar from the model.
@@ -278,7 +257,6 @@ impl App for PaintApp {
                 | Msg::ResizeChosen
                 | Msg::DialogClosed
                 | Msg::OpenStartup
-                | Msg::WindowResized
                 | Msg::Canvas(CanvasMsg::Cancel)
         );
         if !passes && self.modal_open() {
@@ -312,7 +290,6 @@ impl App for PaintApp {
             }
             Msg::ResizeChosen => self.resize_chosen(ui),
             Msg::DialogClosed => ui.focus(self.canvas.id()),
-            Msg::WindowResized => self.reflow(ui),
             Msg::Canvas(CanvasMsg::Down { x, y, side }) => {
                 if self.model.is_dragging() {
                     self.model.end();

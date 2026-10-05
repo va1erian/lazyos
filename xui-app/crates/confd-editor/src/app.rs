@@ -3,22 +3,24 @@
 //!
 //! The heavy lifting lives in [`crate::sections`] (the editor state machine),
 //! [`crate::tree`] (the tree projection) and [`crate::value_edit`] (the value
-//! grammar); this module only wires those to xui widgets and mirrors the state
-//! back onto them. A `Refresh` re-lists the tree and re-reads the selected key
+//! grammar); this module only lays the widgets out and mirrors the state back
+//! onto them. A `Refresh` re-lists the tree and re-reads the selected key
 //! (never clobbering a dirty buffer); live change-topic subscription is not
 //! wired, see `docs/confd-editor.md`.
 
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
+use xui_core::arrange::{column, label, row, Handle, LayoutExt, Mounted};
 use xui_core::backend::Result;
-use xui_core::widget::{Button, Edit, Label, ListView, Panel, RadioGroup};
-use xui_core::{HasText, Rect};
+use xui_core::layout::Insets;
+use xui_core::{Dip, HasText};
 
 use crate::sections::{self, CreateOutcome, KeyEditor, NewKeyEditor};
 use crate::store::ConfStore;
 use crate::tree::{Row, Tree};
 use crate::value_edit::{self, Kind};
+use crate::view::{card, Widgets};
 
 /// Window size (DIP) the app asks for.
 pub const WINDOW: (i32, i32) = (720, 500);
@@ -26,8 +28,6 @@ pub const WINDOW: (i32, i32) = (720, 500);
 const LEFT_W: i32 = 300;
 /// Height reserved at the bottom for the status line.
 const STATUS_H: i32 = 26;
-/// The body height (the window less the status line).
-const BODY_H: i32 = WINDOW.1 - STATUS_H;
 
 /// Messages the widgets raise.
 #[derive(Clone, Debug, PartialEq)]
@@ -80,34 +80,8 @@ pub struct ConfdEditorApp {
     persistent: bool,
     status_text: String,
     banner_text: String,
-    _left: Panel<Msg>,
-    _right: Panel<Msg>,
-    filter_edit: Edit<Msg>,
-    // Owned only to keep the node registered; Refresh has no per-render state.
-    _refresh: Button<Msg>,
-    list: ListView<Msg>,
-    path_label: Label<Msg>,
-    kind: RadioGroup<Msg>,
-    value: Edit<Msg>,
-    bool_button: Button<Msg>,
-    // Apply and Revert are read only to disable them in a read-only state;
-    // Reload is owned only to keep its node registered.
-    _apply: Button<Msg>,
-    _revert: Button<Msg>,
-    delete: Button<Msg>,
-    _reload: Button<Msg>,
-    preview: Label<Msg>,
-    new_toggle: Button<Msg>,
-    new_path: Edit<Msg>,
-    new_kind: RadioGroup<Msg>,
-    new_value: Edit<Msg>,
-    create: Button<Msg>,
-    banner: Label<Msg>,
-    status: Label<Msg>,
-}
-
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
+    widgets: Widgets,
+    _panes: [Mounted<Msg>; 2],
 }
 
 /// Sets a widget's text only when it differs, so a focused field's caret is
@@ -121,59 +95,27 @@ fn set_text(widget: &impl HasText, text: &str) {
 impl ConfdEditorApp {
     /// Builds the window's widgets over `store`.
     pub fn build(ui: &mut Ui<Msg>, store: Rc<dyn ConfStore>) -> Result<ConfdEditorApp> {
-        crate::layout::set_dpi(ui.dpi());
         ui.on_close(|| Some(Msg::Close));
-
-        let left = Panel::new(ui, rect(0, 0, LEFT_W, BODY_H))?;
-        let (filter_edit, refresh) = {
-            let p = left.ui();
-            let filter = Edit::new(p, rect(10, 10, 196, 26), "")?
-                .cue("filter paths")
-                .on_change(|text| Some(Msg::Filter(text.to_owned())));
-            let refresh =
-                Button::new(p, rect(212, 10, 78, 26), "Refresh")?.on_click(|| Some(Msg::Refresh));
-            (filter, refresh)
-        };
-        let list = {
-            let p = left.ui();
-            ListView::new(p, rect(10, 44, 280, 418), &[])?
-                .multi_select(false)
-                .on_select(|index| Some(Msg::Select(index)))
-        };
-
-        let right = Panel::new(ui, rect(LEFT_W, 0, WINDOW.0 - LEFT_W, BODY_H))?;
-        let kind_labels: Vec<&str> = Kind::ALL.iter().map(|kind| kind.label()).collect();
-        let p = right.ui();
-        let path_label = Label::new(p, rect(14, 10, 392, 20), "No key selected")?;
-        let kind = RadioGroup::new(p, rect(14, 36, 180, 140), &kind_labels)?
-            .on_select(|index| Some(Msg::Kind(index)));
-        let value = Edit::new(p, rect(14, 184, 392, 26), "")?
-            .on_change(|text| Some(Msg::Value(text.to_owned())));
-        let bool_button =
-            Button::new(p, rect(14, 184, 120, 28), "false")?.on_click(|| Some(Msg::ToggleBool));
-        let apply = Button::new(p, rect(14, 218, 88, 28), "Apply")?.on_click(|| Some(Msg::Apply));
-        let revert =
-            Button::new(p, rect(110, 218, 88, 28), "Revert")?.on_click(|| Some(Msg::Revert));
-        let delete =
-            Button::new(p, rect(206, 218, 110, 28), "Delete")?.on_click(|| Some(Msg::Delete));
-        let reload =
-            Button::new(p, rect(324, 218, 82, 28), "Reload")?.on_click(|| Some(Msg::Reload));
-        let preview = Label::new(p, rect(14, 252, 392, 40), "")?;
-        let new_toggle =
-            Button::new(p, rect(14, 300, 140, 28), "New key")?.on_click(|| Some(Msg::NewToggle));
-        let new_path = Edit::new(p, rect(14, 334, 250, 26), "")?
-            .cue("sys/... path")
-            .on_change(|text| Some(Msg::NewPath(text.to_owned())));
-        let new_kind = RadioGroup::new(p, rect(274, 300, 140, 140), &kind_labels)?
-            .on_select(|index| Some(Msg::NewKind(index)));
-        let new_value = Edit::new(p, rect(14, 366, 250, 26), "")?
-            .cue("value")
-            .on_change(|text| Some(Msg::NewValue(text.to_owned())));
-        let create =
-            Button::new(p, rect(14, 398, 120, 28), "Create")?.on_click(|| Some(Msg::Create));
-        let banner = Label::new(p, rect(14, 450, 392, 20), "")?;
-
-        let status = Label::new(ui, rect(10, BODY_H + 3, WINDOW.0 - 20, 20), "")?;
+        let widgets = Widgets::default();
+        let (left, right) = (Handle::new(), Handle::new());
+        ui.root(
+            column().children((
+                row()
+                    .children((
+                        card().bind(&left).width(LEFT_W),
+                        card().bind(&right).fill(1),
+                    ))
+                    .fill(1),
+                row()
+                    .padding(Insets::symmetric(Dip(10.0), Dip(3.0)))
+                    .child(label("").bind(&widgets.status).fill(1))
+                    .fixed(STATUS_H),
+            )),
+        )?;
+        let panes = [
+            ui.mount_in(left.get().widget.id(), widgets.tree_pane())?,
+            ui.mount_in(right.get().widget.id(), widgets.key_pane())?,
+        ];
 
         let mut app = ConfdEditorApp {
             store,
@@ -186,27 +128,8 @@ impl ConfdEditorApp {
             persistent: true,
             status_text: String::new(),
             banner_text: String::new(),
-            _left: left,
-            _right: right,
-            filter_edit,
-            _refresh: refresh,
-            list,
-            path_label,
-            kind,
-            value,
-            bool_button,
-            _apply: apply,
-            _revert: revert,
-            delete,
-            _reload: reload,
-            preview,
-            new_toggle,
-            new_path,
-            new_kind,
-            new_value,
-            create,
-            banner,
-            status,
+            widgets,
+            _panes: panes,
         };
         match app.store.info() {
             Ok(info) => app.persistent = info.persistent,
@@ -305,33 +228,37 @@ impl ConfdEditorApp {
 
     /// Mirrors the model onto every widget.
     fn sync(&mut self, ui: &mut Ui<Msg>) {
+        let w = &self.widgets;
+        let list = w.list.get();
         let labels: Vec<String> = self.visible.iter().map(Row::label).collect();
         if labels != self.rendered {
             let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-            self.list.set_items(&refs);
+            list.set_items(&refs);
             self.rendered = labels;
         }
         let selected = self
             .editor
             .path()
             .and_then(|path| self.visible.iter().position(|row| row.path == path));
-        self.list.select(selected);
+        list.select(selected);
 
-        set_text(&self.filter_edit, &self.filter);
-        self.path_label.set_text(
+        set_text(&*w.filter.get(), &self.filter);
+        w.path.get().set_text(
             &self
                 .editor
                 .path()
                 .map(|path| format!("Key: {path}"))
                 .unwrap_or_else(|| "No key selected".into()),
         );
-        self.kind.select(self.editor.kind().index());
-        set_text(&self.value, self.editor.text());
-        self.bool_button.set_text(self.editor.text());
+        w.kind.get().widget.select(self.editor.kind().index());
+        let (value, bool_button) = (w.value.get(), w.bool_button.get());
+        set_text(&*value, self.editor.text());
+        bool_button.set_text(self.editor.text());
         let is_bool = self.editor.kind() == Kind::Bool;
-        ui.set_visible(self.value.id(), !is_bool);
-        ui.set_visible(self.bool_button.id(), is_bool);
-        self.delete.set_text(if self.editor.confirm_delete {
+        ui.set_visible(value.id(), !is_bool);
+        ui.set_visible(bool_button.id(), is_bool);
+        let delete = w.delete.get();
+        delete.set_text(if self.editor.confirm_delete {
             "Confirm delete"
         } else {
             "Delete"
@@ -339,34 +266,37 @@ impl ConfdEditorApp {
         // A denied key stays visible but its write controls are disabled; the
         // editor also refuses the write itself, so this is belt and braces.
         let writable = !self.editor.read_only;
-        ui.set_enabled(self._apply.id(), writable);
-        ui.set_enabled(self._revert.id(), writable);
-        ui.set_enabled(self.delete.id(), writable);
-        self.preview.set_text(&self.preview_text());
+        ui.set_enabled(w.apply.get().id(), writable);
+        ui.set_enabled(w.revert.get().id(), writable);
+        ui.set_enabled(delete.id(), writable);
+        w.preview.get().set_text(&self.preview_text());
 
-        self.new_toggle.set_text(if self.new_key.active {
+        w.new_toggle.get().set_text(if self.new_key.active {
             "Cancel new key"
         } else {
             "New key"
         });
-        self.new_kind.select(self.new_key.kind.index());
-        set_text(&self.new_path, &self.new_key.path);
-        set_text(&self.new_value, &self.new_key.text);
-        self.create.set_text(if self.new_key.confirm_clobber {
+        let new_kind = w.new_kind.get();
+        new_kind.widget.select(self.new_key.kind.index());
+        let (new_path, new_value, create) = (w.new_path.get(), w.new_value.get(), w.create.get());
+        set_text(&*new_path, &self.new_key.path);
+        set_text(&*new_value, &self.new_key.text);
+        create.set_text(if self.new_key.confirm_clobber {
             "Confirm create"
         } else {
             "Create"
         });
         let show_new = self.new_key.active;
-        ui.set_visible(self.new_path.id(), show_new);
-        ui.set_visible(self.new_value.id(), show_new);
-        ui.set_visible(self.create.id(), show_new);
-        for id in self.new_kind.ids() {
+        let mut new_ids = vec![new_path.id(), new_value.id(), create.id()];
+        new_ids.extend(new_kind.widget.ids());
+        for id in new_ids {
             ui.set_visible(id, show_new);
         }
 
-        self.banner.set_text(&self.banner_text);
-        self.status.set_text(&self.status_text);
+        w.banner.get().set_text(&self.banner_text);
+        w.status.get().set_text(&self.status_text);
+        // The buttons' labels change their natural widths.
+        ui.relayout();
     }
 }
 
@@ -428,7 +358,7 @@ mod tests {
     #[test]
     fn window_is_wide_enough_for_both_panes() {
         assert!(LEFT_W < WINDOW.0);
-        assert!(BODY_H > 0 && BODY_H < WINDOW.1);
+        assert!(STATUS_H > 0 && STATUS_H < WINDOW.1);
     }
 
     #[test]

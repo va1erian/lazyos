@@ -21,19 +21,15 @@
 //! from=<peer>` (from the server thread); `NETTOOLS:CLOSE:PASS`.
 
 use std::net::Ipv4Addr;
-use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
 use xui_app::format;
 use xui_app::net::http::{self, PageInfo};
 use xui_app::net::model::{self, NetStatus};
 use xui_app::net::stack;
 use xui_app::net::web::{Fetch, Server};
-use xui_app::sys;
-use xui_app::themed::run_themed;
+use xui_app::{launch, sys};
 use xui_core::app::{App, Ui};
-use xui_core::backend::PlatformSpec;
-use xui_core::{Dip, HasText};
+use xui_core::HasText;
 
 #[path = "nettools/widgets.rs"]
 mod widgets;
@@ -55,6 +51,7 @@ const LOOKUP_TIMEOUT_MS: u32 = 4000;
 /// The web server's port (QEMU forwards host 8080 to it by default).
 const SERVER_PORT: u16 = 8080;
 
+#[derive(Clone)]
 pub enum Msg {
     Tick,
     Ping,
@@ -172,26 +169,27 @@ impl NetTools {
     fn refresh_status(&mut self) {
         match stack::status() {
             Ok(status) => {
-                self.w.headline.set_text(&status.headline());
+                self.w.headline.get().set_text(&status.headline());
                 self.status = Some(status);
             }
             Err(error) => {
                 self.w
                     .headline
+                    .get()
                     .set_text(&format!("Network: {}", error.describe()));
                 self.status = None;
             }
         }
         if let Some(server) = &self.server {
             server.set_page(PageInfo {
-                network: self.w.headline.text(),
+                network: self.w.headline.get().text(),
                 uptime: format::uptime(sys::clock_ticks()),
             });
         }
     }
 
     fn start_ping(&mut self) {
-        match resolve(&self.w.host.text()) {
+        match resolve(&self.w.host.get().text()) {
             Ok(target) => {
                 self.ping = Some(PingRun {
                     target,
@@ -201,12 +199,13 @@ impl NetTools {
                 });
                 self.w
                     .ping_result
+                    .get()
                     .set_text(&format!("Pinging {}...", model::dotted(target)));
                 self.next_ping();
             }
             Err(why) => {
                 println!("NETTOOLS:PING:FAIL");
-                self.w.ping_result.set_text(&why);
+                self.w.ping_result.get().set_text(&why);
             }
         }
     }
@@ -249,7 +248,7 @@ impl NetTools {
                 )
             }
         };
-        self.w.ping_result.set_text(&text);
+        self.w.ping_result.get().set_text(&text);
     }
 
     fn finish_ping(&mut self, how: &str) {
@@ -258,7 +257,7 @@ impl NetTools {
             .total_rtt
             .checked_div(run.answered)
             .map_or_else(String::new, |ms| format!(", average {ms} ms"));
-        self.w.ping_result.set_text(&format!(
+        self.w.ping_result.get().set_text(&format!(
             "{}: {} sent, {} answered{average} ({how})",
             model::dotted(run.target),
             run.sent,
@@ -267,7 +266,7 @@ impl NetTools {
     }
 
     fn lookup(&mut self) {
-        let name = self.w.name.text().trim().to_string();
+        let name = self.w.name.get().text().trim().to_string();
         let text = match stack::resolve(&name, LOOKUP_TIMEOUT_MS) {
             Ok(addrs) if !addrs.is_empty() => {
                 println!(
@@ -284,14 +283,17 @@ impl NetTools {
                 error.describe()
             }
         };
-        self.w.lookup_result.set_text(&format::clip(&text, 60));
+        self.w
+            .lookup_result
+            .get()
+            .set_text(&format::clip(&text, 60));
     }
 
     fn start_fetch(&mut self) {
         if self.fetch.is_some() {
             return;
         }
-        let started = http::parse_url(&self.w.url.text()).and_then(|url| {
+        let started = http::parse_url(&self.w.url.get().text()).and_then(|url| {
             let addr = resolve(&url.host)?;
             let shown = format!(
                 "Fetching {}:{}{} ...",
@@ -303,13 +305,16 @@ impl NetTools {
         });
         match started {
             Ok((fetch, shown)) => {
-                self.w.fetch_result.set_text(&format::clip(&shown, 90));
-                self.w.preview.set_items(&[]);
+                self.w
+                    .fetch_result
+                    .get()
+                    .set_text(&format::clip(&shown, 90));
+                self.w.preview.get().set_items(&[]);
                 self.fetch = Some(fetch);
             }
             Err(why) => {
                 println!("NETTOOLS:FETCH:FAIL");
-                self.w.fetch_result.set_text(&why);
+                self.w.fetch_result.get().set_text(&why);
             }
         }
     }
@@ -327,16 +332,16 @@ impl NetTools {
                     s.code.unwrap_or(0),
                     done.bytes
                 );
-                self.w.fetch_result.set_text(&format!(
+                self.w.fetch_result.get().set_text(&format!(
                     "{} · {} body bytes, {} headers · {} ms",
                     s.status, s.body_bytes, s.headers, done.millis
                 ));
                 let rows: Vec<&str> = s.preview.iter().map(String::as_str).collect();
-                self.w.preview.set_items(&rows);
+                self.w.preview.get().set_items(&rows);
             }
             Err(why) => {
                 println!("NETTOOLS:FETCH:FAIL");
-                self.w.fetch_result.set_text(&format::clip(&why, 90));
+                self.w.fetch_result.get().set_text(&format::clip(&why, 90));
             }
         }
     }
@@ -345,8 +350,8 @@ impl NetTools {
         if let Some(server) = self.server.take() {
             server.stop();
             self.stopping = Some(server);
-            self.w.server_status.set_text("Stopped.");
-            self.w.server_button.set_text("Start");
+            self.w.server_status.get().set_text("Stopped.");
+            self.w.server_button.get().set_text("Start");
             self.shown_hits = None;
             return;
         }
@@ -358,8 +363,8 @@ impl NetTools {
             } else {
                 ("Stopped.", "Start")
             };
-            self.w.server_status.set_text(status);
-            self.w.server_button.set_text(button);
+            self.w.server_status.get().set_text(status);
+            self.w.server_button.get().set_text(button);
             return;
         }
         self.start_server();
@@ -369,10 +374,10 @@ impl NetTools {
         match Server::start(SERVER_PORT) {
             Ok(server) => {
                 self.server = Some(server);
-                self.w.server_button.set_text("Stop");
+                self.w.server_button.get().set_text("Stop");
                 self.refresh_status();
             }
-            Err(why) => self.w.server_status.set_text(&why),
+            Err(why) => self.w.server_status.get().set_text(&why),
         }
     }
 
@@ -391,49 +396,26 @@ impl NetTools {
                 )
             }
         };
-        if self.w.server_status.text() != text {
-            self.w.server_status.set_text(&text);
+        if self.w.server_status.get().text() != text {
+            self.w.server_status.get().set_text(&text);
         }
         let shown = (state.hits, state.logged);
         if self.shown_hits != Some(shown) {
             let rows: Vec<&str> = state.log.iter().map(String::as_str).collect();
-            self.w.server_log.set_items(&rows);
+            self.w.server_log.get().set_items(&rows);
             self.shown_hits = Some(shown);
         }
     }
 }
 
-fn main() -> std::process::ExitCode {
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("NETTOOLS:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
-    let spec = PlatformSpec::new("Net Tools").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, |ui| {
-        let widgets = match Widgets::build(ui) {
-            Ok(widgets) => widgets,
-            Err(error) => {
-                println!("NETTOOLS:BUILD:FAIL:{error}");
-                std::process::exit(1);
-            }
-        };
-        let app = NetTools::new(widgets);
-        ui.on_timer(|_| Some(Msg::Tick));
-        ui.set_timer(TICK_MILLIS);
+fn main() {
+    launch::run("NETTOOLS", "Net Tools", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
+        let widgets = Widgets::default();
+        ui.root(widgets.layout())
+            .inspect_err(|error| println!("NETTOOLS:BUILD:FAIL:{error}"))?;
+        ui.every(TICK_MILLIS, Msg::Tick);
         ui.on_close(|| Some(Msg::Close));
-        app
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("NETTOOLS:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+        Ok(NetTools::new(widgets))
+    })
 }

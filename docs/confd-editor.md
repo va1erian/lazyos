@@ -80,12 +80,14 @@ screenshot sessions click by coordinate keep their positions.
   new-key validation/clobber, delete cancel, list-error tree retention).
 - Kernel/confd: `cargo test -p confd` is unaffected (no `libs/confd` change).
 - Visual: `tools/screenshot/examples/xui_confd.json` — opens Config from the
-  desktop menu, creates `sys/ui/demo` (a scratch key that sorts before the seeded `sys/ui/menu`, so the session never edits a real setting), expands the tree, selects the key, edits
+  desktop menu, creates `sys/ui/demo` (a scratch key that sorts before the seeded `sys/ui/menu`, so the session never edits a real setting), filters the tree down to it, selects the key, edits
   the value to `light` and applies it, then closes. Serial markers:
   `CONFDED:UP:PASS`, `CONFDED:MSG:<Msg>`, `CONFDED:CLOSE:PASS` (plus the
   `confd` service's own `CONFD:READY`). The write is to a scratch key, so the session leaves the desktop theme alone.
 
-  The session gates on `XUID:UP:PASS` (not `TERM:UP:PASS`) and its in-app
+  The session gates on `XUID:UP:PASS` and `PKGD:PROVISION:DONE` (Config is a
+  core package, greyed in the menu until `pkgd` installs it), not
+  `TERM:UP:PASS`, and its in-app
   pointer coordinates assume Config is the only open window, so it takes the
   first tiling cell; run it against a desktop built with
   `LAZYOS_XUI_AUTOSTART=none` (or any image whose Terminal is not open). It was

@@ -5,16 +5,13 @@
 //! M2 evidence: a left click on the button raises `Msg::Bump` and the app
 //! prints `XUIAPP:INPUT:PASS` (and the new count) on the first click.
 //!
-//! The button sits over the kernel's initial pointer position (400, 300), so a
-//! headless click needs no pointer movement.
+//! As the display owner the button sits over the kernel's initial pointer
+//! position (400, 300), so a headless click needs no pointer movement; a
+//! client window centres it instead.
 
-use std::rc::Rc;
-
-use xui_app::backend::LazyOSBackend;
-use xui_app::themed::run_themed;
+use xui_app::{hidpi, launch};
 use xui_core::app::{App, Ui};
-use xui_core::backend::PlatformSpec;
-use xui_core::{Button, Dip, HasText, Label, Rect};
+use xui_core::prelude::*;
 
 /// The kernel seeds the pointer at (400, 300) when the display is bound.
 const POINTER_SEED: (i32, i32) = (400, 300);
@@ -23,6 +20,14 @@ const POINTER_SEED: (i32, i32) = (400, 300);
 /// display owner it fills the screen instead.
 const WINDOW: (i32, i32) = (400, 260);
 
+/// The label's design size; the button's centre sits `BUTTON_DROP` below the
+/// label's top.
+const LABEL: (i32, i32) = (280, 60);
+const BUTTON: (i32, i32) = (200, 64);
+const GAP: i32 = 8;
+const BUTTON_DROP: i32 = LABEL.1 + GAP + BUTTON.1 / 2;
+
+#[derive(Clone)]
 enum Msg {
     Bump,
     /// The compositor asked the window to close (client mode).
@@ -30,11 +35,8 @@ enum Msg {
 }
 
 struct Counter {
-    label: Label<Msg>,
+    label: Handle<Label<Msg>>,
     count: i32,
-    // Kept alive for the lifetime of the app, so the node and its click mapper
-    // stay registered.
-    _button: Button<Msg>,
 }
 
 impl App for Counter {
@@ -48,7 +50,7 @@ impl App for Counter {
             }
             Msg::Bump => {
                 self.count += 1;
-                self.label.set_text(&format!("{} clicks", self.count));
+                self.label.get().set_text(&format!("{} clicks", self.count));
                 println!("XUIAPP:CLICK:{}", self.count);
                 if self.count == 1 {
                     println!("XUIAPP:INPUT:PASS");
@@ -58,59 +60,50 @@ impl App for Counter {
     }
 }
 
-fn main() {
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("XUIAPP:BIND:FAIL:{code}");
-            std::process::exit(1);
+/// The label over the button, centred on the window or, with `seed` (design
+/// pixels), with the button centred on that point.
+fn layout(
+    label_handle: &Handle<Label<Msg>>,
+    area: (i32, i32),
+    seed: Option<(i32, i32)>,
+) -> Layout<Msg> {
+    let content = column().gap(GAP).align(Align::Center);
+    let content = match seed {
+        // The window fills the screen: inset the column so the button's
+        // centre lands on the seed.
+        Some((x, y)) => {
+            let x = x.min(area.0 - 8).max(0);
+            let y = y.min(area.1 - 8).max(0);
+            content.padding(Insets::new(
+                Dip(((2 * x - area.0).max(0)) as f32),
+                Dip(((y - BUTTON_DROP).max(0)) as f32),
+                Dip(((area.0 - 2 * x).max(0)) as f32),
+                Dip(0.0),
+            ))
         }
+        None => content.justify(Align::Center),
     };
-    let (width, height) = backend.window_size(WINDOW);
-    let is_client = backend.is_client();
-    backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
+    content.children((
+        row()
+            .child(label("0 clicks").bind(label_handle).width(LABEL.0))
+            .fixed(LABEL.1),
+        row()
+            .child(button("Click me").on_click(Msg::Bump).width(BUTTON.0))
+            .fixed(BUTTON.1),
+    ))
+}
 
-    let spec = PlatformSpec::new("xui counter").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, |ui| {
-        let area = ui.client_rect();
-        // Owner mode centres on the kernel's pointer seed so a headless click
-        // needs no movement; a client window centres on its own area.
-        let seed = if is_client {
-            (area.width() / 2, area.height() / 2)
-        } else {
-            POINTER_SEED
-        };
-        let cx = seed.0.min((area.width() - 8).max(0));
-        let cy = seed.1.min((area.height() - 8).max(0));
-        // The offsets are design pixels; the centre is already on screen.
-        let s = xui_app::hidpi::layout_scale();
-        let label = Label::new(
-            ui,
-            Rect::new(cx - 140 * s, cy - 100 * s, cx + 140 * s, cy - 40 * s),
-            "0 clicks",
-        )
-        .expect("label");
-        let button = Button::new(
-            ui,
-            Rect::new(cx - 100 * s, cy - 32 * s, cx + 100 * s, cy + 32 * s),
-            "Click me",
-        )
-        .expect("button")
-        .on_click(|| Some(Msg::Bump));
+fn main() {
+    launch::run("XUIAPP", "xui counter", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
+        let scale = backend.scale() as i32;
+        let area = hidpi::design_rect(ui);
+        let area = (area.width(), area.height());
+        let seed = (!backend.is_client()).then(|| (POINTER_SEED.0 / scale, POINTER_SEED.1 / scale));
+
+        let label = Handle::new();
+        ui.root(layout(&label, area, seed))?;
         ui.on_close(|| Some(Msg::Close));
-        Counter {
-            label,
-            count: 0,
-            _button: button,
-        }
-    });
-
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::exit(0),
-        Err(error) => {
-            println!("XUIAPP:RUN:FAIL:{error}");
-            std::process::exit(1);
-        }
-    }
+        Ok(Counter { label, count: 0 })
+    })
 }
