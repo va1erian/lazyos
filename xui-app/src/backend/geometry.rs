@@ -65,7 +65,7 @@ pub(super) fn effectively_visible(nodes: &[(WidgetId, Node)], id: WidgetId) -> b
 }
 
 /// The clip `id`'s ancestors impose, in window coordinates.
-fn ancestor_clip(nodes: &[(WidgetId, Node)], id: WidgetId) -> Option<Rect> {
+pub(super) fn ancestor_clip(nodes: &[(WidgetId, Node)], id: WidgetId) -> Option<Rect> {
     let mut clip: Option<Rect> = None;
     let mut parent = node_of(nodes, id)?.parent;
     for _ in 0..=nodes.len() {
