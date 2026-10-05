@@ -90,10 +90,8 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
     "xui-calc.elf",
 )]
-# The network apps and the print spooler a `--net` desktop ships
-# (`build_support/xui_embed.rs`).
-NET_APPS = [ROOT / "target" / "xui" / name
-            for name in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]
+# The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
+NET_APPS = [ROOT / "target" / "xui" / n for n in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]
 
 
 def confirm(question: str) -> bool:

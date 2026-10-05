@@ -44,13 +44,7 @@ XUI_URL = re.compile(r"^(?:git\+)?https://(?:www\.)?github\.com/va1erian/xui(?:\
 
 # Workspaces held at an older revision: directory (relative to the root, `/`
 # separated) -> (revision, reason).
-LAGGING: dict[str, tuple[str, str]] = {
-    "lazyrad-os": (
-        "48e504e52e0e5cbe20ffcd1cbeb05da4c6714828",
-        "LazyRAD's pinned xui-form still uses the rect constructors xui made "
-        "private; move it with the LazyRAD bump",
-    ),
-}
+LAGGING: dict[str, tuple[str, str]] = {}
 
 
 @dataclass(frozen=True)

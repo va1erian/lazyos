@@ -132,32 +132,46 @@ fn render(back: &mut RgbaBuffer) {
     let (w, h) = (back.width() as i32, back.height() as i32);
     back.fill_rect(0, 0, w, h, BACKGROUND);
 
-    // Lay the user windows out side by side.
-    let mut slot = 0;
-    let window_w = (w - PAD * 3) / 2;
-    let window_h = h - PAD * 2 - TITLE_H;
+    // Collect the windows first: the layout depends on how many there are.
+    let mut windows = alloc::vec::Vec::new();
     for index in 1..MAX_TASKS {
         let Some((name, output, done)) = without_interrupts(|| task::snapshot(index)) else {
             continue;
         };
-        let x = PAD + slot * (window_w + PAD);
-        let y = PAD;
-        draw_window(
-            back,
-            x,
-            y,
-            window_w,
-            window_h,
-            name,
-            &output,
-            done,
-            task::focus() == index,
-        );
-        slot += 1;
-        if slot == 2 {
+        windows.push((index, name, output, done));
+        if windows.len() == MAX_COLUMNS {
             break; // the layout has two columns
         }
     }
+    let count = windows.len();
+    let window_h = h - PAD * 2 - TITLE_H;
+    for (slot, (index, name, output, done)) in windows.iter().enumerate() {
+        let (x, window_w) = column(w, count, slot);
+        draw_window(
+            back,
+            x,
+            PAD,
+            window_w,
+            window_h,
+            name,
+            output,
+            *done,
+            task::focus() == *index,
+        );
+    }
+}
+
+/// Most windows the multiplexer lays out side by side.
+const MAX_COLUMNS: usize = 2;
+
+/// Left edge and width of column `slot` when `count` windows share a screen
+/// `screen_w` wide. A lone window (a `LAZYOS_CLI=1` boot runs only `sh`)
+/// takes the full width (issue #218); the terminal text is not wrapped by the
+/// multiplexer, so its visible columns simply follow the window.
+pub(crate) fn column(screen_w: i32, count: usize, slot: usize) -> (i32, i32) {
+    let count = count.clamp(1, MAX_COLUMNS) as i32;
+    let width = (screen_w - PAD * (count + 1)) / count;
+    (PAD + slot as i32 * (width + PAD), width)
 }
 
 #[allow(clippy::too_many_arguments)]

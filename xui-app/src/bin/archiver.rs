@@ -163,11 +163,5 @@ fn main() -> std::process::ExitCode {
         app
     });
     backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("ARCHIVER:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    std::process::ExitCode::from(xui_app::launch::finish("ARCHIVER", outcome))
 }

@@ -152,6 +152,22 @@ impl RamFs {
         Ok(())
     }
 
+    /// The node `ino`, which the caller resolved under the `inner` lock it
+    /// still holds.
+    // INVARIANT: every caller got `ino` from `resolve`, `resolve_parent` or
+    // `child` on this same `inner` while holding the lock, and nothing else
+    // can remove a node while the lock is held, so it is always present.
+    #[allow(clippy::expect_used)]
+    fn node_mut(inner: &mut Inner, ino: u64) -> &mut Node {
+        inner.nodes.get_mut(&ino).expect("resolved inode exists")
+    }
+
+    /// Remove and return node `ino`; same invariant as [`Self::node_mut`].
+    #[allow(clippy::expect_used)] // INVARIANT: see `node_mut`
+    fn take_node(inner: &mut Inner, ino: u64) -> Node {
+        inner.nodes.remove(&ino).expect("resolved inode exists")
+    }
+
     /// Resize file `ino` to `new_len` bytes, charging the difference against
     /// the byte cap first and reserving with `try_reserve_exact`, so running
     /// out of heap is `ENOSPC` rather than an allocation-failure abort. The
@@ -163,8 +179,7 @@ impl RamFs {
             Some(next) if next <= inner.max_bytes => {}
             _ => return Err(FsError::NoSpace),
         }
-        // INVARIANT: callers resolved `ino` under the same lock held here.
-        let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
+        let node = Self::node_mut(inner, ino);
         if new_len > old_len {
             node.data
                 .try_reserve_exact(new_len - old_len)
@@ -206,15 +221,7 @@ impl RamFs {
         let ino = inner.next_ino;
         inner.next_ino += 1;
         inner.nodes.insert(ino, Node::new(name, kind, mode, owner));
-        // INVARIANT: `parent` was resolved by the caller under the same
-        // `inner` lock held here, and nothing else can remove it while we
-        // hold that lock (single-threaded access to `inner`).
-        inner
-            .nodes
-            .get_mut(&parent)
-            .expect("parent exists")
-            .children
-            .push(ino);
+        Self::node_mut(inner, parent).children.push(ino);
         inner.live += 1;
         inner.nodes[&ino].meta(ino)
     }
@@ -270,9 +277,7 @@ impl Filesystem for RamFs {
         if end > inner.nodes[&ino].data.len() {
             Self::resize_file(&mut inner, ino, end)?;
         }
-        // INVARIANT: `ino` was just resolved above under this same lock, and
-        // nothing else can remove it while we hold `inner`.
-        let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
+        let node = Self::node_mut(&mut inner, ino);
         node.data[offset as usize..end].copy_from_slice(data);
         node.touch();
         Ok(data.len())
@@ -286,20 +291,14 @@ impl Filesystem for RamFs {
         }
         let size = usize::try_from(size).map_err(|_| FsError::NoSpace)?;
         Self::resize_file(&mut inner, ino, size)?;
-        // INVARIANT: `ino` was resolved above under this same lock.
-        inner
-            .nodes
-            .get_mut(&ino)
-            .expect("resolved inode exists")
-            .touch();
+        Self::node_mut(&mut inner, ino).touch();
         Ok(())
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
         let mut inner = self.inner.lock();
         let ino = Self::resolve(&inner, path)?;
-        // INVARIANT: `ino` was resolved above under this same lock.
-        let node = inner.nodes.get_mut(&ino).expect("resolved inode exists");
+        let node = Self::node_mut(&mut inner, ino);
         node.set_attr(attr);
         Ok(node.meta(ino))
     }
@@ -345,15 +344,10 @@ impl Filesystem for RamFs {
         if inner.nodes[&ino].kind == FileKind::Dir {
             return Err(FsError::IsDir); // directories need rmdir
         }
-        // INVARIANT: `parent` was resolved above under this same lock; see
-        // the note in `insert` for why it cannot have gone away since.
-        inner
-            .nodes
-            .get_mut(&parent)
-            .expect("parent exists")
+        Self::node_mut(&mut inner, parent)
             .children
             .retain(|&child| child != ino);
-        let removed = inner.nodes.remove(&ino).expect("resolved inode exists");
+        let removed = Self::take_node(&mut inner, ino);
         inner.bytes -= removed.data.len();
         inner.live -= 1;
         Ok(())
@@ -369,12 +363,7 @@ impl Filesystem for RamFs {
         if !inner.nodes[&ino].children.is_empty() {
             return Err(FsError::NotEmpty);
         }
-        // INVARIANT: `parent` was resolved above under this same lock; see
-        // the note in `insert` for why it cannot have gone away since.
-        inner
-            .nodes
-            .get_mut(&parent)
-            .expect("parent exists")
+        Self::node_mut(&mut inner, parent)
             .children
             .retain(|&child| child != ino);
         inner.nodes.remove(&ino);
@@ -416,39 +405,19 @@ impl Filesystem for RamFs {
                 (FileKind::File, FileKind::Dir) => return Err(FsError::IsDir),
                 (FileKind::Dir, FileKind::File) => return Err(FsError::NotDir),
             }
-            // INVARIANT: `to_parent`/`existing` were resolved above under
-            // this same lock; see the note in `insert` for why they cannot
-            // have gone away since.
-            inner
-                .nodes
-                .get_mut(&to_parent)
-                .expect("parent exists")
+            Self::node_mut(&mut inner, to_parent)
                 .children
                 .retain(|&child| child != existing);
-            let removed = inner
-                .nodes
-                .remove(&existing)
-                .expect("resolved inode exists");
+            let removed = Self::take_node(&mut inner, existing);
             inner.bytes -= removed.data.len();
             inner.live -= 1;
         }
 
-        // INVARIANT: `from_parent`/`source` were resolved above under this
-        // same lock; see the note in `insert` for why they cannot have gone
-        // away since.
-        inner
-            .nodes
-            .get_mut(&from_parent)
-            .expect("parent exists")
+        Self::node_mut(&mut inner, from_parent)
             .children
             .retain(|&child| child != source);
-        inner.nodes.get_mut(&source).expect("source exists").name = to_name;
-        inner
-            .nodes
-            .get_mut(&to_parent)
-            .expect("parent exists")
-            .children
-            .push(source);
+        Self::node_mut(&mut inner, source).name = to_name;
+        Self::node_mut(&mut inner, to_parent).children.push(source);
         Ok(())
     }
 

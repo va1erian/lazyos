@@ -116,6 +116,7 @@ fn find_space(spaces: &mut [Space], table: PhysAddr) -> Option<&mut Space> {
     spaces.iter_mut().find(|space| space.pml4 == table.as_u64())
 }
 
+#[allow(clippy::expect_used)] // INVARIANT: see the comment at the lookup
 fn ensure_space(spaces: &mut Vec<Space>, table: PhysAddr) -> &mut Space {
     let pml4 = table.as_u64();
     if spaces.iter().all(|space| space.pml4 != pml4) {

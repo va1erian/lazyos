@@ -56,11 +56,5 @@ fn main() -> std::process::ExitCode {
         notepad
     });
     backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("EDITOR:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    std::process::ExitCode::from(xui_app::launch::finish("EDITOR", outcome))
 }

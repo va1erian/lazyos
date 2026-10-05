@@ -9,6 +9,7 @@ use lazydoom::launch::{self, Mode};
 use crate::headless::Headless;
 use crate::hooks::{self, Backend};
 use crate::window::Window;
+use xui_app::client_window::OpenError;
 
 extern "C" {
     fn doomgeneric_Create(argc: c_int, argv: *mut *mut c_char);
@@ -37,8 +38,13 @@ pub fn run() {
     let backend = match launch.mode {
         Mode::Window => match Window::open(WIDTH, HEIGHT, "Freedoom") {
             Ok(window) => Backend::Window(window),
-            Err(message) => {
-                println!("DOOM:WINDOW:FAIL {message}");
+            // Closed before its first frame: the user dismissed it, not a failure.
+            Err(OpenError::Closed) => {
+                println!("DOOM:QUIT:PASS");
+                std::process::exit(0);
+            }
+            Err(error) => {
+                println!("DOOM:WINDOW:FAIL {error}");
                 std::process::exit(1);
             }
         },

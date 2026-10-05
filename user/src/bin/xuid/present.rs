@@ -84,8 +84,11 @@ fn try_attach(
     id: u64,
     slot: Option<u32>,
 ) -> Result<(), i64> {
+    // An unknown id is `ENOENT`, not `EINVAL` (issue #498): the window was
+    // closed before this attach arrived, which a client tells apart from a
+    // refused size (`EINVAL`) that it can retry after the next `Configure`.
     let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
-        return Err(messenger::errno::EINVAL);
+        return Err(messenger::errno::ENOENT);
     };
     if surface.owner != message.sender {
         // Only the surface's own client may attach its pixels (issue #176:

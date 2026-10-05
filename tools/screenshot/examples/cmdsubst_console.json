@@ -9,6 +9,12 @@
   {"key": "enter", "until": "SUB:backtick:hi", "timeout": 60, "retries": 1},
   {"type": "D=$(echo /system/*); echo SUB:glob:$D"},
   {"key": "enter", "until": "SUB:glob:/system/bin", "timeout": 60, "retries": 1},
+  {"type": "echo SUB:pipe:$(echo hello | tr a-z A-Z)"},
+  {"key": "enter", "until": "SUB:pipe:HELLO", "timeout": 60, "retries": 1},
+  {"type": "echo SUB:nested:$(echo $(echo deep))"},
+  {"key": "enter", "until": "SUB:nested:deep", "timeout": 60, "retries": 1},
+  {"type": "echo hi | echo SUB:inpipe:$(echo ok)"},
+  {"key": "enter", "until": "SUB:inpipe:ok", "timeout": 60, "retries": 1},
   {"at": 2.0, "shot": "01_console_subst"},
   {"at": 3.0, "quit": true}
 ]

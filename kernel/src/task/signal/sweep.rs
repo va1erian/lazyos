@@ -192,6 +192,7 @@ unsafe fn sweep_slot(
                     // is held exclusively for the whole call, so the slot is
                     // still occupied here. Same single-CPU caveat as the
                     // scheduler unwraps in `task/mod.rs`.
+                    #[allow(clippy::unwrap_used)]
                     let task = tasks[slot].as_mut().unwrap();
                     task.state = TaskState::Blocked {
                         wait: WaitKind::Signal,

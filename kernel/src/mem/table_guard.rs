@@ -22,6 +22,7 @@ impl UserTableGuard {
     }
 
     /// The guarded table, for installing it (e.g. `switch_to`, `set_pml4`).
+    #[allow(clippy::expect_used)] // INVARIANT: see below
     pub fn table(&self) -> PhysAddr {
         // INVARIANT: the inner option is only cleared in `commit`/`drop`, both
         // of which consume or end the guard, so a live guard always holds one.

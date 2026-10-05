@@ -1,5 +1,7 @@
 //! In-kernel test harness and suite (issue #62).
 //!
+//! Exempt from the kernel's `unwrap_used`/`expect_used` lints (issue #486).
+//!
 //! Compiled only when the image is built with `LAZYOS_TESTS=1`; `kernel_main`
 //! then calls [`run`] instead of the normal boot. Every test prints exactly one
 //! machine-parseable line to serial:
@@ -20,6 +22,8 @@
 //! they stay last within their own suite's table. Add a new subsystem's tests
 //! as its own `mod`, with a `CASES` table colocated with its test bodies, and
 //! list it in [`SUITE`] below.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use alloc::format;
 use alloc::string::String;
@@ -195,6 +199,7 @@ mod loader_suite;
 mod mem_suite;
 mod messenger_suite;
 mod mount_suite;
+mod mux_suite;
 mod native_exec_suite;
 mod nvme_suite;
 mod overlay_suite;
@@ -320,6 +325,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     exec_perm_suite::CASES,
     chmod_suite::CASES,
     display_suite::CASES,
+    mux_suite::CASES,
     sysinfo_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
