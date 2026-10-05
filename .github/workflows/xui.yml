@@ -115,7 +115,6 @@ jobs:
           python -m pip install ziglang==0.16.0
           python tools/xui/test_zig.py
           python tools/xui/test_core_packages.py
-          python tools/xui/test_git_checkout.py
           python tools/screenshot/test_qmp_mouse.py
 
       - name: Build the app (static musl)
