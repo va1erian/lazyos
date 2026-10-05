@@ -226,17 +226,17 @@ fn main() {
     // profile, so the image leaves their ELFs out entirely: the deliberate
     // crash service (issue #93), whose restart-with-backoff demo is the
     // `flaky` row, and the clipboard demo pair (issue #115), which
-    // `clipboardd` spawns under `demo=1`.
+    // `clipboardd` spawns under `demo=1`, and `async_echo` (#91, #309).
     if !desktop {
-        let flaky =
-            std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
-        files.add_file(fhs::bin::FLAKY, PathBuf::from(flaky));
-        let clipcopy = std::env::var_os("CARGO_BIN_FILE_USER_clipcopy")
-            .expect("user clipcopy artifact not found");
-        files.add_file(fhs::bin::CLIPCP, PathBuf::from(clipcopy));
-        let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
-            .expect("user clippaste artifact not found");
-        files.add_file(fhs::bin::CLIPPASTE, PathBuf::from(clippaste));
+        for (artifact, path) in [
+            ("CARGO_BIN_FILE_USER_flaky", fhs::bin::FLAKY),
+            ("CARGO_BIN_FILE_USER_clipcopy", fhs::bin::CLIPCP),
+            ("CARGO_BIN_FILE_USER_clippaste", fhs::bin::CLIPPASTE),
+            ("CARGO_BIN_FILE_USER_async_echo", fhs::bin::ASYNC_ECHO),
+        ] {
+            let elf = std::env::var_os(artifact).unwrap_or_else(|| panic!("{artifact} not found"));
+            files.add_file(path, PathBuf::from(elf));
+        }
     }
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and

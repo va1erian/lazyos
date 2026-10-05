@@ -95,6 +95,9 @@ const NATIVE: &[&str] = &[
     // The in-memory user-space filesystem (docs/smb-plan.md F1): `memfuse
     // [-r] [-s MiB] [name]` serves `/mnt/<name>`, usually run with `&`.
     fhs::bin::MEMFUSE,
+    // The async Messenger and `wait` op demo (issues #91, #309): `async-echo`.
+    // On non-desktop images.
+    fhs::bin::ASYNC_ECHO,
 ];
 
 /// Names that differ from the file: `(name typed at the prompt, program,

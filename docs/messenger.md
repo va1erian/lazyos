@@ -505,7 +505,7 @@ stays cheap under load.
 - **Syscalls** (native ABI), each taking a small op structure validated on entry:
   `msg_endpoint`, `msg_connect`, `msg_register`, `msg_resolve`, `msg_call`,
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
-  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 endpoints plus doorbells, return a ready mask without receiving; `user::messenger::wait`), `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
+  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
 - **Service supervision calls:** ahead of the Messenger family, the S2
   supervisor adds four small native calls — `spawn` (start a program as the
   caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT

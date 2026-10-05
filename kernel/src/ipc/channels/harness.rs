@@ -45,6 +45,16 @@ pub fn total_waiters() -> usize {
         .sum()
 }
 
+/// Transactions across every live channel, in any state (a terminal one
+/// stays until its caller awaits it, so a leak never returns to 0).
+pub fn live_transactions() -> usize {
+    CHANNELS
+        .lock()
+        .iter()
+        .map(|channel| channel.txns.len())
+        .sum()
+}
+
 /// Entries on the messenger wait queue, duplicates included.
 pub fn queued_waiters() -> usize {
     MESSENGER.len()

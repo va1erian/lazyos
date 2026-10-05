@@ -4,9 +4,9 @@
 //!
 //! # Why the futures look like this
 //!
-//! LazyOS syscalls are blocking and the native surface has no "probe this
-//! transaction" op (`OP_CALL_AWAIT` parks until the transaction is terminal),
-//! so a leaf future here parks the calling task inside the kernel rather than
+//! LazyOS syscalls are blocking (`OP_CALL_AWAIT` parks until the transaction
+//! is terminal; the `wait` op reports a terminal transaction without taking
+//! it, which is how [`Selector`] multiplexes), so a leaf future here parks the calling task inside the kernel rather than
 //! returning [`Poll::Pending`](core::task::Poll::Pending). What still makes the API asynchronous is the
 //! split at the start: `Call` (and [`Selector::call`]) registers the request
 //! with `OP_CALL_BEGIN` *before* anything waits, so any number of requests are
@@ -20,9 +20,10 @@
 //!   `async fn` wrappers, and [`block_on`] runs a single future to completion.
 //! * [`Selector`] is the multiplexer: queue calls and one-way receives, then
 //!   call [`Selector::step`]. Each step drains ready one-way messages without
-//!   blocking, then waits for the oldest in-flight call, or, with no calls in
-//!   flight, parks on every queued receive at once (`wait_any`);
-//!   [`Selector::cancel`] cancels a pending call with `OP_CANCEL`.
+//!   blocking, then parks once on every in-flight call and queued receive
+//!   together (the `wait` op names pending calls too, issue #309) and reports
+//!   whichever is ready first; [`Selector::cancel`] cancels a pending call
+//!   with `OP_CANCEL`.
 //!
 //! A begun call that is never awaited leaves the task parked in the kernel
 //! until some Messenger event wakes it (any reply, send, or cancel notifies the
