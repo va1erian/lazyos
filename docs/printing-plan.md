@@ -1,6 +1,12 @@
 # LazyWriter printing to an HP DeskJet 3700 — exploration and plan (blue sky)
 
-> **Status: exploratory, revision 1 (2026-10-03). Nothing here is built.**
+> **Status: revision 2 (2026-10-04). P0 to P5 are built**: `libs/ipp`,
+> `libs/raster`, xui-rich-text's `Printout` and LazyWriter's print bar
+> (`Ctrl+P`), checked end to end against a fake printer in CI
+> (`tools/print/run.py`); how to use it is in
+> [xui-writer.md](xui-writer.md#printing). Not built: P6 (`printd`), URF,
+> `ipps://`. Not yet tried on the real DeskJet.
+>
 > This answers one question: how could LazyWriter on LazyOS print to an HP
 > DeskJet 3700? Short answer: send each page as PWG Raster over plain IPP to
 > the printer's network address. The printer was probed on 2026-10-03 (P0
@@ -149,24 +155,29 @@ LazyWriter process (P2–P5)
    `python tools/print/ipp_probe.py <ip> --raw out.bin` against any other
    printer. (On Windows, PowerShell's `>` writes UTF-16; the checked-in text
    copy is UTF-8.)
-2. **P1, `libs/ipp`.** `no_std` encoder and decoder for IPP/2.0 messages
-   (RFC 8010): attribute groups, the value tags we use, collections. Host tests
-   decode the P0 fixture (a raw `--raw` capture to be added alongside it) and
-   round-trip requests; a fuzz target like `libs/netstack`'s.
-3. **P2, `libs/raster`.** PWG Raster encoder streaming bands, `srgb_8` and
-   `sgray_8`; URF behind the same trait as the backup. Host tests decode the
-   output back and compare pixels; a fuzz target for the decoder used in tests.
-4. **P3, render pages.** A `print_pages(doc, setup, pages, dpi) -> impl Iterator<Band>`
-   (`pages` = the selected range)
-   on top of xui-rich-text's page layout and `OffscreenBackend`; host test that
-   a 300 dpi render of a known `.lzw` matches a reference within a tolerance.
-5. **P4, submit a job.** `Validate-Job`, then `Print-Job` over `TcpStream`,
-   then `Get-Job-Attributes` polling and `Cancel-Job`. On a worker thread in
-   LazyWriter.
+2. **P1, `libs/ipp`.** *Done*: `no_std` encoder and decoder for IPP/2.0
+   messages (RFC 8010): attribute groups, every value tag, collections; the
+   requests LazyWriter sends; with `std`, a chunked HTTP/1.1 `POST` and its
+   reply. Host tests check the probe's request byte for byte and talk to fake
+   printers; fuzz target `ipp`. The raw P0 capture is still to be added.
+3. **P2, `libs/raster`.** *Done* for PWG Raster: an encoder taking RGBA rows,
+   `srgb_8` and `sgray_8`, and the decoder its tests use (fuzz target
+   `pwgraster`). URF is not built.
+4. **P3, render pages.** *Done*: xui-rich-text's `Printout` lays the document
+   out at 300 dpi and paints any area of a sheet; LazyWriter
+   (`crates/writer/src/print/render.rs`) paints 256-row bands into an
+   offscreen surface, transposing them for landscape. Host tests check the
+   margins, grey, landscape and page count.
+5. **P4, submit a job.** *Done*, without `Validate-Job` (the printer's
+   refusal of `Print-Job` says the same, and the request is built but unused):
+   `Get-Printer-Attributes` for ink, `Print-Job` streaming pages as they are
+   rendered, `Get-Job-Attributes` every 2 s, `Cancel-Job`. On a worker thread
+   in LazyWriter (`crates/writer/src/print/job.rs`).
 6. **P5, print dialog.** `Ctrl+P` and a toolbar Print button: printer address
    (remembered in `confd`), copies, page range, colour or grey, draft / normal
    / high; paper and orientation come from Page setup. A status line with the
-   printer's own words and ink levels from `marker-levels`.
+   printer's own words and ink levels from `marker-levels`. *Done* as a bar
+   above the status bar rather than a dialog.
 7. **P6, `printd` (optional).** A spooler serving `os.lazy.print.v1` (new MIDL),
    so other apps print and a job outlives LazyWriter.
 
@@ -179,12 +190,15 @@ without PWG Raster.
 CI never sees the DeskJet, so the verdict is what a fake printer on the host
 received, as `tools/net/run.py` judges the packet capture.
 
-* **Fake printer.** `ippeveprinter` (CUPS / libcups3, or PAPPL) runs an IPP
-  Everywhere printer on the host and saves each job to a file. Started with the
-  P0 attributes, it imitates the DeskJet's capabilities.
-* **Harness.** A `tools/print/run.py` boots LazyOS with `--net`, has LazyWriter
-  print a known `.lzw` to `10.0.2.2:<port>`, then decodes the saved raster
-  and compares it with a host-side reference render of the same document.
+* **Fake printer.** `tools/print/fake_printer.py` (standard library only, so
+  CI needs no CUPS) answers the three operations LazyWriter uses and saves
+  each job's document and attributes. `ippeveprinter` remains an option for a
+  stricter check by hand.
+* **Harness.** `tools/print/run.py` boots LazyOS with `--net`, has LazyWriter
+  print a typed line to `10.0.2.2:8631`
+  (`tools/screenshot/examples/writer_print.json`), then decodes the saved
+  raster (`tools/print/pwg.py`) and checks one A4 page at 300 dpi with the
+  text at the margins, writing `page-1.png`. The `xui` workflow runs it.
 * **Real printer.** A manual checklist per stage from a desktop on the same
   Wi-Fi: one page, five pages, A4 and Letter, landscape, grey, out of paper,
   cancel mid-job.

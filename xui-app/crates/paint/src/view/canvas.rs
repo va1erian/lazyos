@@ -10,10 +10,11 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::backend::{Event, NodeKind, NodeSpec, Result, WidgetId};
-use xui_core::geometry::Rect;
+use xui_core::geometry::{Rect, Size};
 use xui_core::image::Image;
+use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
-use xui_core::widget::Control;
+use xui_core::widget::{Control, Placeable};
 
 use super::Msg;
 use crate::model::{Bitmap, Preview, Side};
@@ -70,9 +71,12 @@ pub struct PaintCanvas {
 }
 
 impl PaintCanvas {
-    /// Creates a canvas node at `bounds`.
-    pub fn new(ui: &Ui<Msg>, bounds: Rect) -> Result<PaintCanvas> {
-        let control = Control::new(ui, &NodeSpec::new(NodeKind::Custom, bounds).tab_stop())?;
+    /// Creates a canvas node; the window layout places it.
+    pub fn new(ui: &Ui<Msg>) -> Result<PaintCanvas> {
+        let control = Control::new(
+            ui,
+            &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
+        )?;
         let state: Rc<RefCell<CanvasState>> = Rc::new(RefCell::new(CanvasState::default()));
         let releasing = Rc::new(Cell::new(false));
 
@@ -120,19 +124,7 @@ impl PaintCanvas {
             }
             state.bitmap_size = (bitmap.width() as i32, bitmap.height() as i32);
             // A shrinking bitmap must not leave the viewport scrolled past it.
-            let view = self.control.bounds();
-            let clamped = (
-                state
-                    .offset
-                    .0
-                    .clamp(0, (state.bitmap_size.0 - view.width()).max(0)),
-                state
-                    .offset
-                    .1
-                    .clamp(0, (state.bitmap_size.1 - view.height()).max(0)),
-            );
-            if clamped != state.offset {
-                state.offset = clamped;
+            if state.clamp_offset(self.control.bounds()) {
                 self.control.invalidate();
             }
             if state.preview != preview || state.brush != brush {
@@ -152,14 +144,45 @@ impl PaintCanvas {
         self.state.borrow().offset
     }
 
-    /// Moves/resizes the node.
-    pub fn set_bounds(&self, bounds: Rect) {
-        self.control.set_bounds(bounds);
-    }
-
     /// Shows or hides the node.
     pub fn set_visible(&self, visible: bool) {
         self.control.set_visible(visible);
+    }
+}
+
+impl Placeable<Msg> for PaintCanvas {
+    fn id(&self) -> WidgetId {
+        self.control.id()
+    }
+
+    /// The canvas takes whatever its `fill` entry gives it.
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
+        Size::new(0, 0)
+    }
+
+    /// A smaller viewport must not stay scrolled past the bitmap.
+    fn placed(&self, _ui: &Ui<Msg>, rect: Rect) {
+        if self.state.borrow_mut().clamp_offset(rect) {
+            self.control.invalidate();
+        }
+    }
+}
+
+impl CanvasState {
+    /// Clamps the scroll offset so a `view`-sized viewport stays over the
+    /// bitmap; returns whether it moved.
+    fn clamp_offset(&mut self, view: Rect) -> bool {
+        let clamped = (
+            self.offset
+                .0
+                .clamp(0, (self.bitmap_size.0 - view.width()).max(0)),
+            self.offset
+                .1
+                .clamp(0, (self.bitmap_size.1 - view.height()).max(0)),
+        );
+        let moved = clamped != self.offset;
+        self.offset = clamped;
+        moved
     }
 }
 

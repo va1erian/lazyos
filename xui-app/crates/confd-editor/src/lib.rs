@@ -11,11 +11,13 @@
 //! on the host.
 
 pub mod app;
-pub mod layout;
+#[path = "../../shared/place.rs"]
+mod place;
 pub mod sections;
 pub mod store;
 pub mod tree;
 pub mod value_edit;
+mod view;
 
 pub use app::{ConfdEditorApp, Msg, WINDOW};
 pub use sections::{CreateOutcome, KeyEditor, NewKeyEditor};

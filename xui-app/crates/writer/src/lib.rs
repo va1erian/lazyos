@@ -21,6 +21,7 @@ pub mod files;
 pub mod host;
 pub mod names;
 pub mod page;
+pub mod print;
 pub mod probe;
 pub mod ui;
 

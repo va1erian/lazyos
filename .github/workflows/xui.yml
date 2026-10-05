@@ -658,6 +658,26 @@ jobs:
               sys.exit(f"the document area is not light (mean {mean:.1f})")
           PY
 
+      # LazyWriter printing (docs/printing-plan.md): type a line, open the
+      # print bar (Ctrl+P), print to a fake IPP printer on the host
+      # (tools/print/fake_printer.py, 10.0.2.2:8631 from the guest) and judge
+      # what it received: one Print-Job of one A4 PWG Raster page at 300 dpi
+      # with the text at the 25 mm margins.
+      - name: Print from LazyWriter to a fake printer
+        if: ${{ !cancelled() && steps.app.outputs.writer != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_NETD: "1"
+          LAZYOS_NETD_ARGS: demo=0
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.writer }}
+          LAZYOS_XUI_AUTOSTART: writer
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/print/run.py --no-build --out shots/print
+          ! grep -q "^init: launch .* failed" shots/print/serial.log
+
       # docs/input-plan.md: the same desktop on the French AZERTY layout. The
       # session types *physical* keys (`qwerty` is `azerty` there) into the
       # Editor and the Terminal, so a wrong keymap, a lost session or a key
@@ -703,7 +723,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
             echo "::error::no screenshots were captured"
             exit 1
@@ -732,7 +752,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -806,6 +826,11 @@ jobs:
             shots/archiver/*.png
             shots/archiver/serial.log
             shots/archiver/summary.json
+            shots/print/*.png
+            shots/print/serial.log
+            shots/print/summary.json
+            shots/print/printer.log
+            shots/print/jobs/*
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots

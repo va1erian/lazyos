@@ -6,6 +6,7 @@
 
 mod dialogs;
 pub mod page_menu;
+pub mod print_bar;
 pub mod table_menu;
 mod tools;
 
@@ -14,34 +15,31 @@ use std::rc::Rc;
 
 use xui_core::Dip;
 use xui_core::app::Ui;
-use xui_core::arrange::{LayoutExt, column, row, spacer, widget};
+use xui_core::arrange::{Handle, LayoutExt, build as create, column, status_bar};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
-use xui_core::layout::Insets;
-use xui_core::widget::{Lucide, Placeable, StatusBar, ToggleButton, Toolbar, Tooltip};
-use xui_rich_text::model::{Align, ListKind};
+use xui_core::layout::Constraints;
+use xui_core::widget::{Lucide, Placeable, Toolbar};
 use xui_rich_text::{RichTextEditor, ViewMode};
 
-use crate::app::{Mark, Msg, Writer, shortcut};
+use crate::app::{Msg, Writer, shortcut};
 use crate::files::word_count;
 use crate::host::Host;
 
 pub use tools::{
-    ALIGNS, BLOCK_ICONS, BLOCKS, DEFAULT_SIZE, FAMILIES, SIZES, Tools, WRAPS, family_index,
+    ALIGNS, BLOCK_ICONS, BLOCKS, DEFAULT_SIZE, FAMILIES, SIZES, Tips, Tools, WRAPS, family_index,
 };
-use tools::{picker, push, toggle};
 
 const TOOLBAR_HEIGHT: Dip = Dip(36.0);
 const FORMAT_HEIGHT: Dip = Dip(34.0);
-/// The width of an icon-only button in the formatting row.
-const ICON_WIDTH: Dip = Dip(32.0);
 
 /// The toolbar's commands, in the order of its items.
-const COMMANDS: [fn() -> Msg; 12] = [
+const COMMANDS: [fn() -> Msg; 13] = [
     || Msg::New,
     || Msg::Open,
     || Msg::Save,
     || Msg::Export,
+    || Msg::Print,
     || Msg::Undo,
     || Msg::Redo,
     || Msg::Cut,
@@ -60,31 +58,19 @@ impl Placeable<Msg> for ToolbarPane {
         self.0.id()
     }
 
-    fn natural_size(&self, _ui: &Ui<Msg>, _dpi: u32) -> Size {
-        Size::new(0, 0)
-    }
-}
-
-/// The shared editor as a layout entry: it takes the leftover space.
-struct EditorPane(Rc<RichTextEditor<Msg>>);
-
-impl Placeable<Msg> for EditorPane {
-    fn id(&self) -> WidgetId {
-        self.0.id()
-    }
-
-    fn natural_size(&self, _ui: &Ui<Msg>, _dpi: u32) -> Size {
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 }
 
 /// The command toolbar: files, history, clipboard, insert.
-fn command_toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
-    Ok(Toolbar::empty(ui, Rect::default())?
+fn command_toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
+    let toolbar = Toolbar::empty(ui, Rect::default())?
         .item_with_text(Lucide::FilePlus, "New (Ctrl+N)", "New")
         .item_with_text(Lucide::FolderOpen, "Open (Ctrl+O)", "Open")
         .item_with_text(Lucide::Save, "Save (Ctrl+S)", "Save")
         .item_with_text(Lucide::Download, "Export as Markdown (Ctrl+E)", "Export")
+        .item_with_text(Lucide::Printer, "Print (Ctrl+P)", "Print")
         .separator()
         .item_with_text(Lucide::Undo2, "Undo (Ctrl+Z)", "Undo")
         .item_with_text(Lucide::Redo2, "Redo (Ctrl+Y)", "Redo")
@@ -100,160 +86,52 @@ fn command_toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
             "Page break (Ctrl+Enter)",
             "Page break",
         )
-        .on_click(|index| COMMANDS.get(index).map(|msg| msg())))
+        .on_click(|index| COMMANDS.get(index).map(|msg| msg()));
+    Ok(ToolbarPane(toolbar))
 }
 
-/// The formatting row's controls.
-fn format_tools(ui: &Ui<Msg>) -> Result<(Tools, [xui_core::widget::Button<Msg>; 2])> {
-    let block = picker(ui, &BLOCKS, Msg::Block)?;
-    for (index, icon) in BLOCK_ICONS.into_iter().enumerate() {
-        block.set_item_icon(index, Some(icon.into()));
-    }
-    let family = picker(ui, &FAMILIES, Msg::Family)?;
-    let size_labels: Vec<String> = SIZES.iter().map(|s| format!("{s}")).collect();
-    let size_refs: Vec<&str> = size_labels.iter().map(String::as_str).collect();
-    let size = picker(ui, &size_refs, Msg::Size)?;
-    size.select(DEFAULT_SIZE);
-    let wrap = picker(ui, &WRAPS, Msg::Wrap)?;
-    wrap.set_enabled(false);
-
-    let mut tips = Vec::new();
-    let t = &mut tips;
-    let marks = [
-        toggle(ui, t, (Lucide::Bold, "Bold (Ctrl+B)"), || {
-            Msg::Toggle(Mark::Bold)
-        })?,
-        toggle(ui, t, (Lucide::Italic, "Italic (Ctrl+I)"), || {
-            Msg::Toggle(Mark::Italic)
-        })?,
-        toggle(ui, t, (Lucide::Underline, "Underline (Ctrl+U)"), || {
-            Msg::Toggle(Mark::Underline)
-        })?,
-        toggle(ui, t, (Lucide::Strikethrough, "Strikethrough"), || {
-            Msg::Toggle(Mark::Strike)
-        })?,
-    ];
-    let aligns = [
-        toggle(ui, t, (Lucide::TextAlignStart, "Align left"), || {
-            Msg::Align(Align::Left)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignCenter, "Centre"), || {
-            Msg::Align(Align::Center)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignEnd, "Align right"), || {
-            Msg::Align(Align::Right)
-        })?,
-        toggle(ui, t, (Lucide::TextAlignJustify, "Justify"), || {
-            Msg::Align(Align::Justify)
-        })?,
-    ];
-    let lists = [
-        toggle(ui, t, (Lucide::List, "Bulleted list"), || {
-            Msg::List(ListKind::Bullet)
-        })?,
-        toggle(ui, t, (Lucide::ListOrdered, "Numbered list"), || {
-            Msg::List(ListKind::Numbered)
-        })?,
-    ];
-    let indent = push(ui, t, (Lucide::IndentIncrease, "Indent"), || Msg::Indent)?;
-    let outdent = push(ui, t, (Lucide::IndentDecrease, "Outdent"), || Msg::Outdent)?;
-    let page_view = Rc::new(
-        ToggleButton::auto(ui, "")?
-            .icon(Lucide::BookOpen)
-            .on_toggle(|on| Some(Msg::PageView(on))),
-    );
-    page_view.set_checked(true);
-    t.push(Tooltip::attach(ui, page_view.id(), "Page view")?);
-    let page_setup = Rc::new(push(ui, t, (Lucide::Ruler, "Page setup"), || {
-        Msg::PageSetup
-    })?);
-    let table = Rc::new(push(ui, t, (Lucide::Table, "Table"), || Msg::Table)?);
-    let tools = Tools {
-        block,
-        family,
-        size,
-        marks,
-        aligns,
-        lists,
-        wrap,
-        page_view,
-        page_setup,
-        table,
-        tips,
-    };
-    Ok((tools, [indent, outdent]))
+/// The rich-text editor, in page view.
+fn new_editor(ui: &Ui<Msg>) -> Result<RichTextEditor<Msg>> {
+    Ok(RichTextEditor::new(ui, Rect::default())?
+        .on_change(|doc| Some(Msg::Edited(word_count(doc))))
+        .on_selection(|summary| Some(Msg::Selection(summary.clone())))
+        .on_link(|url| Some(Msg::LinkClicked(url.to_owned())))
+        .view_mode(ViewMode::Page))
 }
 
 /// Builds the app's widgets, wires the window's keys and close button, and
 /// mounts the layout.
 pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
-    let editor = Rc::new(
-        RichTextEditor::new(ui, Rect::default())?
-            .on_change(|doc| Some(Msg::Edited(word_count(doc))))
-            .on_selection(|summary| Some(Msg::Selection(summary.clone())))
-            .on_link(|url| Some(Msg::LinkClicked(url.to_owned())))
-            .view_mode(ViewMode::Page),
-    );
-    let commands = command_toolbar(ui)?;
-    let (tools, [indent, outdent]) = format_tools(ui)?;
-    let status = Rc::new(StatusBar::auto(
-        ui,
-        &["Untitled", "Saved", "0 words", "Page 1 of 1", ""],
-    )?);
+    let tools = Tools::default();
+    let print_bar = print_bar::PrintBar::default();
+    let editor = Handle::new();
+    let status = Handle::new();
     let dialogs = dialogs::build(ui, &host)?;
+    let mounted = ui.mount(column().children((
+        create(command_toolbar).height(TOOLBAR_HEIGHT),
+        tools.row().fixed(FORMAT_HEIGHT),
+        create(new_editor).bind(&editor).fill(1),
+        print_bar.row().fixed(FORMAT_HEIGHT),
+        status_bar(&["Untitled", "Saved", "0 words", "Page 1 of 1", ""]).bind(&status),
+    )))?;
+    let editor = editor.get();
+    editor.focus();
 
     let dialog_open = Rc::new(Cell::new(false));
     ui.on_close(|| Some(Msg::Quit));
+    ui.on_timer(|_| Some(Msg::PrintTick));
     {
         let dialog_open = Rc::clone(&dialog_open);
         ui.on_key(move |key, modifiers| shortcut(key, modifiers, &dialog_open));
     }
 
-    let gap = Dip(6.0);
-    let t = &tools;
-    let root = column()
-        .child(widget(ToolbarPane(commands)).height(TOOLBAR_HEIGHT))
-        .child(
-            row()
-                .spacing(Dip(4.0))
-                .margins(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .child((&t.block).width(Dip(120.0)))
-                .child((&t.family).width(Dip(96.0)))
-                .child((&t.size).width(Dip(64.0)))
-                .child(spacer().width(gap))
-                .child((&t.marks[0]).width(ICON_WIDTH))
-                .child((&t.marks[1]).width(ICON_WIDTH))
-                .child((&t.marks[2]).width(ICON_WIDTH))
-                .child((&t.marks[3]).width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.aligns[0]).width(ICON_WIDTH))
-                .child((&t.aligns[1]).width(ICON_WIDTH))
-                .child((&t.aligns[2]).width(ICON_WIDTH))
-                .child((&t.aligns[3]).width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.lists[0]).width(ICON_WIDTH))
-                .child((&t.lists[1]).width(ICON_WIDTH))
-                .child(indent.width(ICON_WIDTH))
-                .child(outdent.width(ICON_WIDTH))
-                .child(spacer().width(gap))
-                .child((&t.wrap).width(Dip(120.0)))
-                .child(spacer().width(gap))
-                .child((&t.table).width(ICON_WIDTH))
-                .child(spacer())
-                .child((&t.page_view).width(ICON_WIDTH))
-                .child((&t.page_setup).width(ICON_WIDTH))
-                .fixed(FORMAT_HEIGHT),
-        )
-        .child(widget(EditorPane(Rc::clone(&editor))).fill(1))
-        .child(&status);
-    let mounted = ui.mount(root)?;
-    editor.focus();
-
     let app = Writer {
         editor,
         tools,
-        status,
+        status: status.get(),
         dialogs,
+        print_bar,
+        printing: None,
         host,
         path: None,
         dirty: false,

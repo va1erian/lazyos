@@ -846,6 +846,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipp"
+version = "0.1.0"
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,7 +1069,7 @@ dependencies = [
 [[package]]
 name = "netsurf-sys"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "cc",
  "libz-sys",
@@ -1399,6 +1403,10 @@ name = "rangemap"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
+
+[[package]]
+name = "raster"
+version = "0.1.0"
 
 [[package]]
 name = "rcgen"
@@ -2330,7 +2338,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -2361,7 +2369,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -2392,7 +2400,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "xui-core",
 ]
@@ -2400,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "xui-litehtml"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "image",
  "litehtml",
@@ -2411,7 +2419,7 @@ dependencies = [
 [[package]]
 name = "xui-netsurf"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "log",
  "netsurf-sys",
@@ -2433,7 +2441,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "serde",
  "serde_json",
@@ -2458,6 +2466,8 @@ dependencies = [
 name = "xui-writer"
 version = "0.1.0"
 dependencies = [
+ "ipp",
+ "raster",
  "xui-canvas",
  "xui-core",
  "xui-rich-text",

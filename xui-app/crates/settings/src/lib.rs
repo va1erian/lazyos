@@ -14,14 +14,16 @@
 //! and the About facts come through [`System`] (`timed`, `sysinfo`).
 
 pub mod about_page;
-pub mod appearance_page;
 pub mod app;
-pub mod layout;
+pub mod appearance_page;
 pub mod hidden_ops;
 pub mod hidden_page;
 pub mod keyboard;
+pub mod keyboard_page;
 pub mod menu_ops;
 pub mod menu_page;
+#[path = "../../shared/place.rs"]
+pub mod place;
 pub mod sections;
 pub mod store;
 pub mod system;
@@ -29,6 +31,7 @@ pub mod theme_ops;
 pub mod time_ops;
 pub mod time_page;
 pub mod wallpaper_ops;
+pub mod windows_page;
 
 pub use app::{Msg, SettingsApp};
 pub use sections::Section;

@@ -8,16 +8,15 @@
 //! `WIDGET:UP:FAIL:<errno>`), `WIDGET:TICK:cpu=<pct> mem=<pct>` on every
 //! refresh, `WIDGET:QUIT:PASS` on `q` or the close button.
 
-use xui_core::theme::look;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
 use xui_app::dashboard as dash;
+use xui_app::launch;
 use xui_app::sysinfo::{self, CpuSample};
-use xui_app::themed::run_themed;
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
+use xui_core::backend::{Event, NodeKind, NodeSpec};
+use xui_core::theme::look;
 use xui_core::{Canvas, Control, Rect, Theme};
 
 /// The window size when a compositor lays the app out.
@@ -27,6 +26,7 @@ const WINDOW: (i32, i32) = (200, 90);
 const REFRESH_MILLIS: u32 = 1000;
 
 /// One application message.
+#[derive(Clone)]
 enum Msg {
     Tick,
     Quit,
@@ -164,29 +164,17 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("WIDGET:BIND:FAIL:{code}");
-            std::process::exit(1);
+    launch::run("WIDGET", "widget", WINDOW, |ui, backend| {
+        let state = Rc::new(RefCell::new(State::load()));
+        {
+            let state = Rc::clone(&state);
+            backend.on_first_frame(move || match state.borrow().error {
+                None => println!("WIDGET:UP:PASS"),
+                Some(code) => println!("WIDGET:UP:FAIL:{code}"),
+            });
         }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    let state = Rc::new(RefCell::new(State::load()));
 
-    {
-        let state = Rc::clone(&state);
-        backend.on_first_frame(move || match state.borrow().error {
-            None => println!("WIDGET:UP:PASS"),
-            Some(code) => println!("WIDGET:UP:FAIL:{code}"),
-        });
-    }
-
-    let spec =
-        PlatformSpec::new("widget").size(xui_core::Dip(width as f32), xui_core::Dip(height as f32));
-    let outcome = run_themed(&backend, spec, |ui| {
-        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
-            .expect("root node");
+        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))?;
         {
             let state = Rc::clone(&state);
             let theme = ui.theme_handle();
@@ -199,18 +187,8 @@ fn main() {
             _ => None,
         });
         root.focus();
-        ui.on_timer(|_| Some(Msg::Tick));
+        ui.every(REFRESH_MILLIS, Msg::Tick);
         ui.on_close(|| Some(Msg::Quit));
-        ui.set_timer(REFRESH_MILLIS);
-        Widget { state, root }
-    });
-
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::exit(0),
-        Err(error) => {
-            println!("WIDGET:RUN:FAIL:{error}");
-            std::process::exit(1);
-        }
-    }
+        Ok(Widget { state, root })
+    })
 }

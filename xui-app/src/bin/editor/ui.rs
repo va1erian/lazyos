@@ -8,11 +8,15 @@ use std::rc::Rc;
 
 use xui_code_editor::{Editor, FontConfig, Options};
 use xui_core::app::Ui;
-use xui_core::arrange::{column, row, widget, LayoutExt};
+use xui_core::arrange::{
+    build as create, button, checkbox, column, edit, label, row, status_bar, Handle, Layout,
+    LayoutExt,
+};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
+use xui_core::layout::Constraints;
 use xui_core::widget::{
-    Button, CheckBox, Dialog, Edit, FileDialog, Label, Menu, MenuId, Placeable, StatusBar,
+    Button, CheckBox, Dialog, Edit, FileDialog, Label, Menu, MenuId, Placeable,
 };
 use xui_core::Dip;
 
@@ -73,8 +77,8 @@ impl<M: 'static> Placeable<M> for MenuPane<M> {
         self.0.id().expect("a menu bar owns a node")
     }
 
-    fn natural_size(&self, _ui: &Ui<M>, dpi: u32) -> Size {
-        Size::new(0, MENU_HEIGHT.to_px(dpi).value())
+    fn measure(&self, ui: &Ui<M>, _constraints: Constraints) -> Size {
+        Size::new(0, MENU_HEIGHT.to_px(ui.dpi()).value())
     }
 }
 
@@ -86,7 +90,7 @@ impl<M: 'static> Placeable<M> for EditorPane<M> {
         self.0.id()
     }
 
-    fn natural_size(&self, _ui: &Ui<M>, _dpi: u32) -> Size {
+    fn measure(&self, _ui: &Ui<M>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 
@@ -97,21 +101,8 @@ impl<M: 'static> Placeable<M> for EditorPane<M> {
     }
 }
 
-/// Builds the app's widgets and mounts the layout.
-pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
-    // The editor is a monospace grid: the default UI font is proportional and
-    // would space the glyphs apart.
-    let options = Options {
-        font: FontConfig {
-            family: Some(xui_app::font::MONO_FAMILY.to_owned()),
-            ..FontConfig::default()
-        },
-        ..Options::default()
-    };
-    let editor = Rc::new(
-        Editor::with_options(ui, Rect::default(), options)?.on_change(|_text| Some(Msg::Edited)),
-    );
-
+/// The menu bar.
+fn menu_bar(ui: &Ui<Msg>) -> Result<MenuPane<Msg>> {
     let menu = Menu::bar(ui, Rect::default())?
         .on_select(menu_msg)
         .build(|bar| {
@@ -137,14 +128,39 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
                 edit.item(REPLACE, "&Replace...");
             });
         });
+    Ok(MenuPane(menu))
+}
 
-    let find_bar = build_find_bar(ui)?;
+/// The code editor, in the monospace UI font.
+fn new_editor(ui: &Ui<Msg>) -> Result<EditorPane<Msg>> {
+    // The editor is a monospace grid: the default UI font is proportional and
+    // would space the glyphs apart.
+    let options = Options {
+        font: FontConfig {
+            family: Some(xui_app::font::MONO_FAMILY.to_owned()),
+            ..FontConfig::default()
+        },
+        ..Options::default()
+    };
+    let editor =
+        Editor::with_options(ui, Rect::default(), options)?.on_change(|_text| Some(Msg::Edited));
+    Ok(EditorPane(Rc::new(editor)))
+}
+
+/// Builds the app's widgets and mounts the layout.
+pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
+    let editor = Handle::new();
+    let find = FindHandles::default();
+    let status = Handle::new();
+    let mounted = ui.mount(column().children((
+        create(menu_bar).height(MENU_HEIGHT),
+        find.row().fixed(FIND_HEIGHT),
+        create(new_editor).bind(&editor).fill(1),
+        status_bar(&["Ln 1, Col 1", "Sel 0", "LF", "Saved"]).bind(&status),
+    )))?;
+    let editor = Rc::clone(&editor.get().0);
+    let find_bar = find.get();
     find_bar.set_visible(ui, false);
-
-    let status = Rc::new(StatusBar::auto(
-        ui,
-        &["Ln 1, Col 1", "Sel 0", "LF", "Saved"],
-    )?);
 
     let confirm = Dialog::confirm(
         ui,
@@ -197,26 +213,6 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
         });
     }
 
-    let root = column()
-        .child(widget(MenuPane(menu)).height(MENU_HEIGHT))
-        .child(
-            row()
-                .spacing(Dip(4.0))
-                .child(&find_bar.query)
-                .child(&find_bar.replacement)
-                .child(&find_bar.buttons[0])
-                .child(&find_bar.buttons[1])
-                .child(&find_bar.buttons[2])
-                .child(&find_bar.buttons[3])
-                .child(&find_bar.regex)
-                .child(&find_bar.case)
-                .child(&find_bar.status)
-                .fixed(FIND_HEIGHT),
-        )
-        .child(widget(EditorPane(Rc::clone(&editor))).fill(1))
-        .child(&status);
-    let mounted = ui.mount(root)?;
-
     editor.focus();
 
     Ok(Notepad {
@@ -224,7 +220,7 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
         document: xui_code_editor::Document::untitled(),
         search: Default::default(),
         find_bar,
-        status,
+        status: status.get(),
         open_dialog,
         save_dialog,
         confirm,
@@ -236,45 +232,66 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
     })
 }
 
-/// The find/replace bar's widgets, wired to their messages.
-fn build_find_bar(ui: &Ui<Msg>) -> Result<FindBar> {
-    let query = Rc::new(
-        Edit::auto(ui, "")?
-            .cue("Find")
-            .on_change(|text| Some(Msg::QueryChanged(text.to_string()))),
-    );
-    let replacement = Rc::new(Edit::auto(ui, "")?.cue("Replace"));
-    let status = Rc::new(Label::auto(ui, "")?);
-    let regex = Rc::new(CheckBox::auto(ui, "Regex")?.on_toggle(|on| Some(Msg::RegexToggled(on))));
-    let case =
-        Rc::new(CheckBox::auto(ui, "Match case")?.on_toggle(|on| Some(Msg::CaseToggled(on))));
-    let next = Rc::new(Button::auto(ui, "Next")?.on_click(|| Some(Msg::FindNext)));
-    let prev = Rc::new(Button::auto(ui, "Previous")?.on_click(|| Some(Msg::FindPrevious)));
-    let replace = Rc::new(Button::auto(ui, "Replace")?.on_click(|| Some(Msg::ReplaceCurrent)));
-    let replace_all = Rc::new(Button::auto(ui, "Replace all")?.on_click(|| Some(Msg::ReplaceAll)));
+/// The find/replace bar's widgets, filled when its row is mounted.
+#[derive(Default)]
+struct FindHandles {
+    query: Handle<Edit<Msg>>,
+    replacement: Handle<Edit<Msg>>,
+    status: Handle<Label<Msg>>,
+    regex: Handle<CheckBox<Msg>>,
+    case: Handle<CheckBox<Msg>>,
+    buttons: [Handle<Button<Msg>>; 4],
+}
 
-    let nodes = [
-        query.id(),
-        replacement.id(),
-        next.id(),
-        prev.id(),
-        replace.id(),
-        replace_all.id(),
-        regex.id(),
-        case.id(),
-        status.id(),
-    ]
-    .to_vec();
+impl FindHandles {
+    /// The find/replace bar, wired to its messages.
+    fn row(&self) -> Layout<Msg> {
+        let [next, prev, replace, replace_all] = &self.buttons;
+        row().gap(4).children((
+            edit()
+                .placeholder("Find")
+                .bind(&self.query)
+                .on_change(Msg::QueryChanged),
+            edit().placeholder("Replace").bind(&self.replacement),
+            button("Next")
+                .bind(next)
+                .on_click_with(|| Some(Msg::FindNext)),
+            button("Previous")
+                .bind(prev)
+                .on_click_with(|| Some(Msg::FindPrevious)),
+            button("Replace")
+                .bind(replace)
+                .on_click_with(|| Some(Msg::ReplaceCurrent)),
+            button("Replace all")
+                .bind(replace_all)
+                .on_click_with(|| Some(Msg::ReplaceAll)),
+            checkbox("Regex")
+                .bind(&self.regex)
+                .on_toggle(Msg::RegexToggled),
+            checkbox("Match case")
+                .bind(&self.case)
+                .on_toggle(Msg::CaseToggled),
+            label("").bind(&self.status),
+        ))
+    }
 
-    Ok(FindBar {
-        query,
-        replacement,
-        status,
-        regex,
-        case,
-        buttons: [next, prev, replace, replace_all],
-        nodes,
-    })
+    /// The mounted bar.
+    fn get(&self) -> FindBar {
+        let buttons = self.buttons.each_ref().map(Handle::get);
+        let (query, replacement) = (self.query.get(), self.replacement.get());
+        let (regex, case, status) = (self.regex.get(), self.case.get(), self.status.get());
+        let mut nodes = vec![query.id(), replacement.id()];
+        nodes.extend(buttons.iter().map(|button| button.id()));
+        nodes.extend([regex.id(), case.id(), status.id()]);
+        FindBar {
+            query,
+            replacement,
+            status,
+            regex,
+            case,
+            nodes,
+        }
+    }
 }
 
 /// Maps a dialog dismissal to a message.

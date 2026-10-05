@@ -15,9 +15,7 @@ use xui_core::app::Ui;
 use xui_core::arrange::Mounted;
 use xui_core::backend::WidgetId;
 use xui_core::message::{Key, Modifiers};
-use xui_core::widget::{
-    Button, CheckBox, Dialog, DialogAction, Edit, FileDialog, Label, StatusBar,
-};
+use xui_core::widget::{CheckBox, Dialog, DialogAction, Edit, FileDialog, Label, StatusBar};
 
 use crate::commands;
 
@@ -106,8 +104,6 @@ pub struct FindBar {
     pub regex: Rc<CheckBox<Msg>>,
     /// The Match case check box.
     pub case: Rc<CheckBox<Msg>>,
-    /// Next, Previous, Replace and Replace all buttons.
-    pub buttons: [Rc<Button<Msg>>; 4],
     /// Every node in the bar, for one show/hide call.
     pub nodes: Vec<WidgetId>,
 }

@@ -30,11 +30,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use xui_app::backend::{DragOffer, DropEvent, LazyOSBackend};
+use xui_app::launch;
 use xui_app::platform::launcher::LazyLauncher;
 use xui_app::platform::{argv, urilist};
-use xui_app::themed::run_themed;
-use xui_core::backend::{PlatformSpec, WindowId};
-use xui_core::units::Dip;
+use xui_core::backend::WindowId;
 use xui_explorer::platform::{Launcher, Platform};
 use xui_explorer::std_platform::{drop_into, Intent, StdPlatform};
 use xui_explorer::window::Msg;
@@ -153,49 +152,35 @@ fn start_dir() -> PathBuf {
     argv::file_arg(std::env::args_os()).unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn main() -> std::process::ExitCode {
+fn main() {
     let platform = Rc::new(StdPlatform::new());
     let start = start_dir();
 
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("FILES:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
+    launch::run("FILES", "Files", WINDOW, move |ui, backend| {
+        let launcher = ReportingLauncher {
+            backend: Rc::clone(backend),
+        };
+        let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
+        let last: Rc<LastOffer> = Rc::default();
+        {
+            let (explorer, last) = (Rc::clone(&explorer), Rc::clone(&last));
+            backend.on_drag_gesture(move |window, widget, _| {
+                gesture(&explorer, &last, window, widget)
+            });
         }
-    };
-    let launcher = ReportingLauncher {
-        backend: Rc::clone(&backend),
-    };
-    let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
-    let last: Rc<LastOffer> = Rc::default();
-    {
-        let (explorer, last) = (Rc::clone(&explorer), Rc::clone(&last));
-        backend.on_drag_gesture(move |window, widget, _| gesture(&explorer, &last, window, widget));
-    }
-    {
-        let explorer = Rc::clone(&explorer);
-        // A weak handle: the backend owns this hook.
-        let weak = Rc::downgrade(&backend);
-        backend.on_drag_event(move |window, event| {
-            if let Some(backend) = weak.upgrade() {
-                dropped(&explorer, &backend, &last, window, event);
-            }
-        });
-    }
-    let (width, height) = backend.window_size(WINDOW);
-    // Every folder window is resizable; the explorer's tile view re-flows.
-    backend.set_size_hints(360, 240, 0, 0);
-    backend.on_first_frame(|| println!("FILES:UP:PASS"));
-
-    let spec = PlatformSpec::new("Files").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, move |ui| explorer.open_root(ui, start));
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("FILES:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
+        {
+            let explorer = Rc::clone(&explorer);
+            // A weak handle: the backend owns this hook.
+            let weak = Rc::downgrade(backend);
+            backend.on_drag_event(move |window, event| {
+                if let Some(backend) = weak.upgrade() {
+                    dropped(&explorer, &backend, &last, window, event);
+                }
+            });
         }
-    }
+        // Every folder window is resizable; the explorer's tile view re-flows.
+        backend.set_size_hints(360, 240, 0, 0);
+        backend.on_first_frame(|| println!("FILES:UP:PASS"));
+        Ok(explorer.open_root(ui, start))
+    })
 }

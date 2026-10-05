@@ -558,6 +558,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipp"
+version = "0.1.0"
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -572,6 +576,16 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "lazyarc"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "lzma-rs",
+ "ruzstd",
 ]
 
 [[package]]
@@ -603,7 +617,7 @@ source = "git+https://github.com/va1erian/lazyrad?rev=79f4319a4ffb2331c6ecaa2d16
 dependencies = [
  "lazyrad-project",
  "thiserror",
- "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828)",
  "xui-core",
  "xui-form",
 ]
@@ -623,7 +637,7 @@ dependencies = [
  "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "xui-canvas",
- "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828)",
  "xui-core",
  "xui-form",
 ]
@@ -742,6 +756,16 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
 
 [[package]]
 name = "managed"
@@ -914,6 +938,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
 
 [[package]]
+name = "raster"
+version = "0.1.0"
+
+[[package]]
 name = "read-fonts"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,6 +1067,15 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "ruzstd"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7c1c839d570d835527c9a5e4db7cb2198683a988cb9d7293fc8674e6bd58fc8"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "self_cell"
@@ -1445,6 +1482,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1689,6 +1732,7 @@ dependencies = [
  "netstack",
  "surfbuf",
  "uitheme",
+ "xui-archiver",
  "xui-canvas",
  "xui-code-editor 0.1.0",
  "xui-confd-editor",
@@ -1702,9 +1746,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-archiver"
+version = "0.1.0"
+dependencies = [
+ "lazyarc",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -1723,7 +1775,7 @@ dependencies = [
 [[package]]
 name = "xui-code-editor"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "regex",
  "ropey",
@@ -1741,7 +1793,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "png",
  "zune-jpeg",
@@ -1769,7 +1821,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "xui-core",
 ]
@@ -1794,7 +1846,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=c9de88f8cbd470c10b99eb0d60a5ada95c474233#c9de88f8cbd470c10b99eb0d60a5ada95c474233"
+source = "git+https://www.github.com/va1erian/xui?rev=48e504e52e0e5cbe20ffcd1cbeb05da4c6714828#48e504e52e0e5cbe20ffcd1cbeb05da4c6714828"
 dependencies = [
  "serde",
  "serde_json",
@@ -1818,6 +1870,9 @@ dependencies = [
 name = "xui-writer"
 version = "0.1.0"
 dependencies = [
+ "ipp",
+ "raster",
+ "xui-canvas",
  "xui-core",
  "xui-rich-text",
 ]

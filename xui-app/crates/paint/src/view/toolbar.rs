@@ -12,9 +12,10 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::backend::{Event, NodeKind, NodeSpec, Result, WidgetId};
-use xui_core::geometry::{Point, Rect};
+use xui_core::geometry::{Point, Rect, Size};
+use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
-use xui_core::widget::Control;
+use xui_core::widget::{Control, Placeable};
 
 use super::Msg;
 use crate::model::{Model, Tool};
@@ -135,12 +136,15 @@ pub struct ToolStrip {
 }
 
 impl ToolStrip {
-    /// Creates a strip of `items` at `bounds`.
-    pub fn new(ui: &Ui<Msg>, bounds: Rect, items: Vec<StripItem>) -> Result<ToolStrip> {
-        let control = Control::new(ui, &NodeSpec::new(NodeKind::Custom, bounds).tab_stop())?;
+    /// Creates a strip of `items`; the window layout places it.
+    pub fn new(ui: &Ui<Msg>, items: Vec<StripItem>) -> Result<ToolStrip> {
+        let control = Control::new(
+            ui,
+            &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
+        )?;
         let state = Rc::new(State {
             items,
-            bounds: Cell::new(bounds),
+            bounds: Cell::new(Rect::default()),
             dpi: Cell::new(ui.dpi()),
             active_tool: Cell::new(Tool::Pencil),
             active_size: Cell::new(1),
@@ -189,17 +193,31 @@ impl ToolStrip {
         self.control.invalidate();
     }
 
-    /// Moves/resizes the strip.
-    pub fn set_bounds(&self, bounds: Rect) {
-        self.state.bounds.set(bounds);
-        self.control.set_bounds(bounds);
-    }
-
     /// Shows or hides the strip.
     pub fn set_visible(&self, visible: bool) {
         self.control.set_visible(visible);
     }
 }
+
+impl Placeable<Msg> for ToolStrip {
+    fn id(&self) -> WidgetId {
+        self.control.id()
+    }
+
+    /// As tall as the cells need once they wrap at the offered width.
+    fn measure(&self, _ui: &Ui<Msg>, constraints: Constraints) -> Size {
+        let width = constraints.max_width.unwrap_or(i32::MAX);
+        let height = preferred_height(self.state.items.len(), width, constraints.dpi);
+        Size::new(0, height)
+    }
+
+    /// Hit-testing and the cell flow follow the placed rect.
+    fn placed(&self, ui: &Ui<Msg>, rect: Rect) {
+        self.state.bounds.set(rect);
+        self.state.dpi.set(ui.dpi());
+    }
+}
+
 fn handle(ui: &Ui<Msg>, id: WidgetId, state: &Rc<State>, event: &Event) -> Option<Msg> {
     match event {
         Event::MouseMove { x, y, .. } => {

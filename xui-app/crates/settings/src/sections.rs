@@ -55,6 +55,11 @@ impl Section {
         }
     }
 
+    /// The section's position in [`Section::ALL`].
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
     pub fn from_index(index: usize) -> Option<Section> {
         Section::ALL.get(index).copied()
     }
@@ -100,5 +105,9 @@ mod tests {
     fn from_index_round_trips_and_rejects_out_of_range() {
         assert_eq!(Section::from_index(0), Some(Section::Appearance));
         assert_eq!(Section::from_index(99), None);
+        for (i, section) in Section::ALL.iter().enumerate() {
+            assert_eq!(section.index(), i);
+            assert_eq!(Section::from_index(i), Some(*section));
+        }
     }
 }

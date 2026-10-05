@@ -5,13 +5,18 @@
 //! menu each time it opens, so the change shows on the next open. Hiding is a
 //! menu matter only: a hidden app still launches and opens files.
 
+use std::rc::Rc;
+
 use xui_core::app::Ui;
-use xui_core::backend::Result;
-use xui_core::widget::{Button, CheckState, Label, Panel, TreeRow, TreeView};
-use xui_core::{HasText, Rect};
+use xui_core::arrange::{button, column, label, Handle, LayoutExt, Mounted};
+use xui_core::backend::{Result, WidgetId};
+use xui_core::layout::Align;
+use xui_core::widget::{CheckState, Label, TreeRow, TreeView};
+use xui_core::HasText;
 
 use crate::app::Msg;
 use crate::hidden_ops::{self, HiddenList};
+use crate::place::{placed, Placed};
 use crate::store::ConfigStore;
 
 /// Messages the Hidden apps page's widgets raise.
@@ -22,62 +27,50 @@ pub enum HiddenMsg {
     Reset,
 }
 
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
-}
-
 /// The page's widgets and working state.
 pub struct HiddenPage {
-    panel: Panel<Msg>,
-    tree: TreeView<Msg>,
-    hint: Label<Msg>,
-    _labels: Vec<Label<Msg>>,
-    _buttons: Vec<Button<Msg>>,
+    tree: Rc<Placed<TreeView<Msg>>>,
+    hint: Rc<Label<Msg>>,
+    _mounted: Mounted<Msg>,
     /// `None` when the user is unknown: the page then only explains why.
     list: Option<HiddenList>,
 }
 
 impl HiddenPage {
-    /// Build the page (hidden state is the caller's job) inside `bounds`.
-    pub fn build(ui: &Ui<Msg>, bounds: Rect) -> Result<HiddenPage> {
-        let panel = Panel::new(ui, bounds)?;
-        let (tree, hint, labels, buttons) = {
-            let p = panel.ui();
-            let labels = vec![Label::new(
-                p,
-                rect(20, 14, 450, 20),
-                "Hide from the start menu",
-            )?];
-            let tree = TreeView::new(p, rect(20, 38, 450, 300), &[])?
-                .checkboxes(true)
-                .indent_guides(false)
-                .on_check(|row, state| {
-                    Some(Msg::Hidden(HiddenMsg::Toggle(
-                        row,
-                        state == CheckState::Checked,
-                    )))
-                });
-            let hint = Label::new(
-                p,
-                rect(20, 346, 450, 20),
-                "Hidden apps still run and open files.",
-            )?;
-            let buttons = vec![Button::new(p, rect(20, 374, 170, 30), "Reset to defaults")?
-                .on_click(|| Some(Msg::Hidden(HiddenMsg::Reset)))];
-            (tree, hint, labels, buttons)
-        };
+    /// Lays the page out in the container `page`.
+    pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<HiddenPage> {
+        let (tree, hint) = (Handle::new(), Handle::new());
+        // The tree keeps the size it is built at: it re-lays its scrollbar
+        // out on a resize event, which a layout's move does not send.
+        let mounted = ui.mount_in(
+            page,
+            column().padding(20).gap(8).children((
+                label("Hide from the start menu"),
+                placed(440, 300, |ui, bounds| {
+                    Ok(TreeView::new(ui, bounds, &[])?
+                        .checkboxes(true)
+                        .indent_guides(false)
+                        .on_check(|row, state| {
+                            Some(Msg::Hidden(HiddenMsg::Toggle(
+                                row,
+                                state == CheckState::Checked,
+                            )))
+                        }))
+                })
+                .bind(&tree)
+                .align(Align::Start),
+                label("Hidden apps still run and open files.").bind(&hint),
+                button("Reset to defaults")
+                    .on_click(Msg::Hidden(HiddenMsg::Reset))
+                    .align(Align::Start),
+            )),
+        )?;
         Ok(HiddenPage {
-            panel,
-            tree,
-            hint,
-            _labels: labels,
-            _buttons: buttons,
+            tree: tree.get(),
+            hint: hint.get(),
+            _mounted: mounted,
             list: None,
         })
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.panel.set_visible(visible);
     }
 
     /// Re-read the registry and both layers of keys, and repaint the list.
@@ -110,7 +103,7 @@ impl HiddenPage {
                 TreeRow::new(row.text(), 0).checked(state)
             })
             .collect();
-        self.tree.set_rows(&rows);
+        self.tree.widget.set_rows(&rows);
     }
 
     /// Handle one message; returns the status line text.

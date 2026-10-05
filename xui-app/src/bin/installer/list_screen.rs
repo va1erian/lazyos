@@ -6,154 +6,115 @@
 //! length scrolls instead of overflowing; an empty list says so in words.
 
 use xui_core::app::Ui;
+use xui_core::arrange::{build, button, column, label, row, Layout, LayoutExt, Mounted};
+use xui_core::backend::{Result, WidgetId};
+use xui_core::geometry::{Rect, Size};
+use xui_core::layout::{Align, Constraints, Insets};
 use xui_core::units::Dip;
-use xui_core::widget::{Button, Label, Panel, ScrollView};
+use xui_core::widget::{Panel, Placeable, ScrollView};
 
-use xui_app::installer::{elide, Model};
+use xui_app::installer::{elide, Installed, Model};
 
 use crate::msg::Msg;
-use crate::view::{fail, rect, MARGIN};
+use crate::view::MARGIN;
+use crate::wizard::focused;
 
 /// The height of one installed-app row.
-const ROW_H: i32 = 40;
-/// The width reserved for the scrollbar so a row's Remove button never sits
-/// under it.
-const BAR_RESERVE: i32 = 14;
-/// The bottom strip holding the action buttons and the status banner.
-const BOTTOM_H: i32 = 96;
+const ROW_H: f32 = 52.0;
 
-/// One installed-app row: the panel that owns it and its child widgets.
-struct AppRow {
-    _panel: Panel<Msg>,
-    _name: Label<Msg>,
-    _meta: Label<Msg>,
-    _action: RowAction,
+/// The installed apps: a scroll view of one card per app, each laid out by
+/// its own layout.
+struct AppList {
+    scroll: ScrollView<Msg>,
+    rows: Vec<(Panel<Msg>, Mounted<Msg>)>,
 }
 
-/// A row's right-hand control: Remove for a user package, the badge for a
-/// core one. Held only to keep the widget alive.
-#[allow(dead_code)]
-enum RowAction {
-    Remove(Button<Msg>),
-    BuiltIn(Label<Msg>),
-}
-
-/// The installed-list screen's widgets.
-pub struct ListScreen {
-    _panel: Panel<Msg>,
-    _title: Label<Msg>,
-    _empty: Label<Msg>,
-    _scroll: ScrollView<Msg>,
-    _rows: Vec<AppRow>,
-    _install: Button<Msg>,
-    _reload: Button<Msg>,
-    _banner: Label<Msg>,
-}
-
-impl ListScreen {
-    /// Builds the screen at `width` x `height` from `model`.
-    pub fn build(
-        ui: &Ui<Msg>,
-        width: i32,
-        height: i32,
-        model: &Model,
-    ) -> Result<ListScreen, String> {
-        let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
-        let page = panel.ui();
-        let title = Label::new(
-            page,
-            rect(MARGIN, 10, width - 2 * MARGIN, 20),
-            "Installed applications",
-        )
-        .map_err(fail)?;
-
-        let scroll_top = 36;
-        let scroll_h = (height - BOTTOM_H - scroll_top).max(40);
-        let scroll = ScrollView::new(page, rect(MARGIN, scroll_top, width - 2 * MARGIN, scroll_h))
-            .map_err(fail)?;
-
-        // The row width is the viewport width minus the scrollbar reserve; the
-        // scroll view re-lays each row's own bounds on top of this.
-        let row_w = (width - 2 * MARGIN - BAR_RESERVE).max(120);
+impl AppList {
+    fn build(ui: &Ui<Msg>, apps: &[Installed]) -> Result<AppList> {
+        let scroll = ScrollView::new(ui, Rect::default())?;
         let mut rows = Vec::new();
-        {
-            let scoped = scroll.ui();
-            for app in &model.packages {
-                let row = Panel::new(scoped, rect(0, 0, row_w, ROW_H)).map_err(fail)?;
-                let cell = row.ui();
-                let name = Label::new(cell, rect(8, 4, row_w - 112, 18), &elide(&app.name, 48))
-                    .map_err(fail)?;
-                let meta = Label::new(
-                    cell,
-                    rect(8, 20, row_w - 112, 14),
-                    &format!(
+        for app in apps {
+            let panel = Panel::new(scroll.ui(), Rect::default())?;
+            scroll.add(panel.id(), Dip(ROW_H));
+            let mounted = scroll.ui().mount_in(panel.id(), app_row(app))?;
+            rows.push((panel, mounted));
+        }
+        Ok(AppList { scroll, rows })
+    }
+}
+
+impl Placeable<Msg> for AppList {
+    fn id(&self) -> WidgetId {
+        self.scroll.id()
+    }
+
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
+        Size::new(0, 0)
+    }
+
+    fn placed(&self, _ui: &Ui<Msg>, _rect: Rect) {
+        // The view sizes its rows from its own bounds; each row then lays
+        // its widgets out in its new width.
+        self.scroll.relayout();
+        for (_, mounted) in &self.rows {
+            mounted.relayout();
+        }
+    }
+}
+
+/// One installed-app row: its name and version over its system name, then
+/// Remove (or the badge of a core app).
+fn app_row(app: &Installed) -> Layout<Msg> {
+    let action = if app.core {
+        label("Built-in").align(Align::Center)
+    } else {
+        let system_name = app.system_name.clone();
+        button("Remove")
+            .on_click(Msg::AskRemove(system_name))
+            .width(88)
+            .align(Align::Center)
+    };
+    row()
+        .padding(Insets::symmetric(Dip(8.0), Dip(0.0)))
+        .gap(8)
+        .children((
+            column()
+                .justify(Align::Center)
+                .children((
+                    label(elide(&app.name, 48)),
+                    label(format!(
                         "v{}  ·  {}",
                         elide(&app.version, 20),
                         elide(&app.system_name, 48)
-                    ),
-                )
-                .map_err(fail)?;
-                let action = if app.core {
-                    RowAction::BuiltIn(
-                        Label::new(cell, rect(row_w - 96, 12, 88, 16), "Built-in").map_err(fail)?,
-                    )
-                } else {
-                    let system_name = app.system_name.clone();
-                    RowAction::Remove(
-                        Button::new(cell, rect(row_w - 96, 6, 88, 28), "Remove")
-                            .map_err(fail)?
-                            .on_click(move || Some(Msg::AskRemove(system_name.clone()))),
-                    )
-                };
-                scroll.add(row.id(), Dip(ROW_H as f32));
-                rows.push(AppRow {
-                    _panel: row,
-                    _name: name,
-                    _meta: meta,
-                    _action: action,
-                });
-            }
-        }
+                    )),
+                ))
+                .fill(1),
+            action,
+        ))
+}
 
-        let empty = Label::new(
-            page,
-            rect(MARGIN + 8, scroll_top + 12, width - 2 * MARGIN - 16, 18),
-            "No applications are installed yet. Install a package to add one.",
-        )
-        .map_err(fail)?;
-        ui.set_visible(empty.id(), model.packages.is_empty());
-        ui.raise(empty.id());
-
-        let install = Button::new(
-            page,
-            rect(MARGIN, height - 84, 180, 30),
-            "Install a package…",
-        )
-        .map_err(fail)?
-        .on_click(|| Some(Msg::StartInstall));
-        // The wizard is the screen's main action: Enter starts it.
-        page.focus(install.id());
-        let reload = Button::new(page, rect(MARGIN + 188, height - 84, 96, 30), "Refresh")
-            .map_err(fail)?
-            .on_click(|| Some(Msg::Reload));
-
-        let banner_text = model.banner.as_deref().unwrap_or("");
-        let banner = Label::new(
-            page,
-            rect(MARGIN, height - 50, width - 2 * MARGIN, 18),
-            &elide(banner_text, 160),
-        )
-        .map_err(fail)?;
-
-        Ok(ListScreen {
-            _panel: panel,
-            _title: title,
-            _empty: empty,
-            _scroll: scroll,
-            _rows: rows,
-            _install: install,
-            _reload: reload,
-            _banner: banner,
-        })
-    }
+/// The installed list, its actions and the status banner.
+pub fn layout(model: &Model) -> Layout<Msg> {
+    let apps = model.packages.clone();
+    let list = if apps.is_empty() {
+        row()
+            .padding(Insets::symmetric(Dip(8.0), Dip(12.0)))
+            .child(label(
+                "No applications are installed yet. Install a package to add one.",
+            ))
+            .fill(1)
+    } else {
+        build(move |ui| AppList::build(ui, &apps)).fill(1)
+    };
+    let banner = elide(model.banner.as_deref().unwrap_or(""), 160);
+    column().padding(MARGIN).gap(8).children((
+        label("Installed applications"),
+        list,
+        row().gap(8).children((
+            // The wizard is the screen's main action: Enter starts it.
+            focused(button("Install a package…").on_click(Msg::StartInstall)),
+            button("Refresh").on_click(Msg::Reload).width(96),
+        )),
+        label(banner),
+    ))
 }
