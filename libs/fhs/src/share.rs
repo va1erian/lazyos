@@ -11,7 +11,8 @@ pub const MIME_TYPES: &str = "/system/share/mime.types";
 pub const WALLPAPERS: &str = "/system/share/wallpapers";
 
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
-/// `writer-sample.png`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
+/// `writer-sample.png`, `archiver-sample.zip`, `archiver-sample.7z`,
+/// `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
 /// replaced by real core packages.
 pub const SAMPLES: &str = "/system/share/samples";
 
@@ -21,6 +22,13 @@ pub const TESTDOC: &str = "/system/share/samples/testdoc.md";
 /// A small picture (200 x 120 PNG) LazyWriter's screenshot session inserts
 /// into a document. Written by the image build.
 pub const WRITER_SAMPLE_IMAGE: &str = "/system/share/samples/writer-sample.png";
+
+/// A small zip (a `sample/` folder: text, Markdown and a picture, made by
+/// 7-Zip) the Archiver's screenshot session opens. Written by the image build.
+pub const ARCHIVER_SAMPLE_ZIP: &str = "/system/share/samples/archiver-sample.zip";
+
+/// The same `sample/` folder as a 7z (LZMA2), for the Archiver's session.
+pub const ARCHIVER_SAMPLE_7Z: &str = "/system/share/samples/archiver-sample.7z";
 
 /// The sample package (the Counter demo), installed with
 /// `pkgctl install /system/share/samples/pkgdemo.lzp`.
@@ -59,6 +67,8 @@ mod tests {
         for path in [
             TESTDOC,
             WRITER_SAMPLE_IMAGE,
+            ARCHIVER_SAMPLE_ZIP,
+            ARCHIVER_SAMPLE_7Z,
             PKGDEMO,
             DOOM_LZP,
             LRDEV_TEST_LZP,

@@ -22,6 +22,9 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("APP.ELF", "application/x-elf"),
         ("LOGO.PNG", "image/png"),
         ("LETTER.LZW", "application/x-lazywriter"),
+        ("BUNDLE.ZIP", "application/zip"),
+        ("SRC.TAR.GZ", "application/gzip"),
+        ("PHOTOS.7Z", "application/x-7z-compressed"),
         ("DATA.BIN", mime::FALLBACK_MIME),
     ] {
         let got = db.guess(path);
@@ -114,6 +117,21 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
             "MIME:DEFAULT:FAIL application/x-lazywriter open={} edit={}\n",
             writer_open.unwrap_or("<none>"),
             writer_edit.unwrap_or("<none>"),
+        ));
+    }
+
+    // Archives open in the Archiver (docs/archiver-plan.md).
+    let archive_open = apps.lookup("application/zip", "open");
+    if archive_open == Some("os.lazy.archiver") {
+        sys::write_str(
+            "MIME:DEFAULT:PASS application/zip=os.lazy.archiver
+",
+        );
+    } else {
+        sys::write_str(&format!(
+            "MIME:DEFAULT:FAIL application/zip open={}
+",
+            archive_open.unwrap_or("<none>"),
         ));
     }
 

@@ -196,6 +196,26 @@ editor: `.lzw` documents, Markdown export, pictures; see
 `WRITER:UP|SAVE|EXPORT|OPEN:PASS`, build with `LAZYOS_XUI_AUTOSTART=writer`)
 and `xui_writer_light.json` (light theme, build with `LAZYOS_XUI_AUTOSTART=term`).
 
+## Archiver (archive manager) and desktop drag and drop
+
+`xui-archiver` (`os.lazy.archiver`) is a 7-Zip-style archive manager shipped
+in every desktop image: browse, extract, test, create, add, delete, for zip,
+tar, tar.gz/zst/xz, gz/zst/xz and 7z (xz and 7z read-only). Formats live in
+`xui-app/crates/archive` (`lazyarc`, host-tested and fuzzed, real 7-Zip/xz
+fixtures in `tests/fixtures`), the app in `xui-app/crates/archiver`; see
+[`docs/xui-archiver.md`](docs/xui-archiver.md). It added drag and drop for xui
+apps: `LazyOSBackend::on_drag_gesture`/`on_drag_event` over the compositor's
+`DragStart`/`Drop` and `clipboardd` tokens, carrying `text/uri-list`; Files
+is a source and a target. The `xui-app` lib tests are Linux-only: on Windows
+build them for musl (`tools/xui/build.py`'s rust-lld settings) and run the
+ELF under WSL. Session: `tools/screenshot/examples/xui_archiver.json`
+(`LAZYOS_XUI_AUTOSTART=archiver`; markers `ARCHIVER:UP|OPEN|EXTRACT|TEST:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyarc -p xui-archiver -p xui-explorer
+FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazyarc --release seeded
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with

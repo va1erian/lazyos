@@ -1,5 +1,6 @@
 //! The sample files every image ships in [`fhs::share::SAMPLES`]: two text
-//! files, the Docs app's test document and LazyWriter's sample picture. The
+//! files, the Docs app's test document, LazyWriter's sample picture and the
+//! Archiver's sample archives. The
 //! sample packages (`pkgdemo.lzp`, Doom, the MOD player) have their own embed
 //! modules.
 
@@ -12,12 +13,20 @@ const TESTDOC: &str = "xui-app/docs/testdata/testdoc.md";
 /// LazyWriter's sample picture (issue #533), relative to the manifest dir:
 /// inserted into a document by its screenshot session.
 const WRITER_SAMPLE_IMAGE: &str = "assets/samples/writer-sample.png";
+/// The Archiver's sample archives (docs/archiver-plan.md), made by 7-Zip.
+const ARCHIVER_SAMPLES: [&str; 2] = [
+    "assets/samples/archiver-sample.zip",
+    "assets/samples/archiver-sample.7z",
+];
 
 /// Add the samples to the OS file list.
 pub fn embed(sink: &mut dyn Sink) {
     println!("cargo:rerun-if-changed=build_support/samples_embed.rs");
     println!("cargo:rerun-if-changed={TESTDOC}");
     println!("cargo:rerun-if-changed={WRITER_SAMPLE_IMAGE}");
+    for path in ARCHIVER_SAMPLES {
+        println!("cargo:rerun-if-changed={path}");
+    }
     let sample = |name: &str| format!("{}/{name}", fhs::share::SAMPLES);
     sink.add_bytes(
         &sample("hello.txt"),
@@ -34,5 +43,13 @@ pub fn embed(sink: &mut dyn Sink) {
     sink.add_bytes(
         fhs::share::WRITER_SAMPLE_IMAGE,
         include_bytes!("../assets/samples/writer-sample.png").to_vec(),
+    );
+    sink.add_bytes(
+        fhs::share::ARCHIVER_SAMPLE_ZIP,
+        include_bytes!("../assets/samples/archiver-sample.zip").to_vec(),
+    );
+    sink.add_bytes(
+        fhs::share::ARCHIVER_SAMPLE_7Z,
+        include_bytes!("../assets/samples/archiver-sample.7z").to_vec(),
     );
 }

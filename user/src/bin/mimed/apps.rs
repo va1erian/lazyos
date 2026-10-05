@@ -29,6 +29,13 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
         "os.lazy.writer",
         &["open", "edit"],
     ),
+    // Archives (docs/archiver-plan.md).
+    ("application/zip", "os.lazy.archiver", &["open"]),
+    ("application/x-tar", "os.lazy.archiver", &["open"]),
+    ("application/gzip", "os.lazy.archiver", &["open"]),
+    ("application/x-xz", "os.lazy.archiver", &["open"]),
+    ("application/zstd", "os.lazy.archiver", &["open"]),
+    ("application/x-7z-compressed", "os.lazy.archiver", &["open"]),
     ("application/x-elf", "runner", &["open"]),
     (
         "application/x-lazyos-package",

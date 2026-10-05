@@ -126,7 +126,7 @@ jobs:
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
           m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
-          editor=""; paint=""; files=""; docs=""; writer=""; shell=""
+          editor=""; paint=""; files=""; docs=""; writer=""; shell=""; archiver=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
             m0="$(pwd)/target/xui/xui-m0.elf"
             counter="$(pwd)/target/xui/xui-counter.elf"
@@ -137,7 +137,7 @@ jobs:
             # The document apps (Editor, Paint, Files, Docs, LazyWriter) are
             # built by the same script; a build without them just skips their
             # sessions.
-            for app in editor paint files docs writer shell; do
+            for app in editor paint files docs writer shell archiver; do
               if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
                 printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
               fi
@@ -156,6 +156,7 @@ jobs:
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           echo "writer=$writer" >> "$GITHUB_OUTPUT"
+          echo "archiver=$archiver" >> "$GITHUB_OUTPUT"
           # LazyShell (issue #157) is part of every desktop image.
           echo "shell=$shell" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
@@ -595,6 +596,28 @@ jobs:
               sys.exit(f"the reopened document is nearly blank ({len(colours)} colours)")
           PY
           ! grep -q "^init: launch .* failed" shots/writer/serial.log
+
+      # The Archiver (docs/archiver-plan.md): open the sample zip, enter its
+      # folder, extract it to the home, test it, open the sample 7z, create a
+      # tar.gz and add the extracted readme, then open Files, drag a folder
+      # from Files onto the Archiver and the readme from the Archiver onto
+      # Files, and open the readme from inside the archive (the Editor).
+      - name: Capture Archiver (browse, extract, test, create, drag and drop)
+        if: ${{ !cancelled() && steps.app.outputs.archiver != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.archiver }}
+          LAZYOS_XUI_AUTOSTART: archiver
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/archiver             --timeout 300 --script tools/screenshot/examples/xui_archiver.json             --fail-on "ARCHIVER:FAIL" --fail-on "ARCHIVER:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in ARCHIVER:UP:PASS ARCHIVER:OPEN:PASS:ZIP:7 ARCHIVER:EXTRACT:PASS:4:0               ARCHIVER:TEST:PASS:4 ARCHIVER:OPEN:PASS:7Z:7 ARCHIVER:CREATED:PASS ARCHIVER:ADDED:PASS               FILES:DRAG:PASS ARCHIVER:DRAGSTART:PASS ARCHIVER:DRAGEND:true FILES:DROP:PASS:1:0               ARCHIVER:OPENINSIDE:PASS; do
+            grep -q "$marker" shots/archiver/serial.log
+          done
+          python tools/screenshot/pngstats.py shots/archiver/shot_*.png --min-nonblack 0.01
+          ! grep -q "^init: launch .* failed" shots/archiver/serial.log
 
       # LazyWriter in the light theme (issue #533): the Terminal switches
       # `sys/ui/mode` to light, then starts the app (which reads the theme

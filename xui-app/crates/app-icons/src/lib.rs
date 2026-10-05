@@ -27,6 +27,12 @@ pub enum Art {
 
 /// Each package's directory (relative to the repository root) and its art.
 pub const PACKAGES: &[(&str, Art)] = &[
+    // The Archiver: Lucide `package` (a box) on a rose tile; the Global
+    // Village archive picture is the Installer's.
+    (
+        "xui-app/packages/archiver",
+        Art::Lucide(Lucide::Package, Tone::Rose),
+    ),
     ("xui-app/packages/confd", Art::Village(Icon::Server)),
     (
         "xui-app/packages/counter",
