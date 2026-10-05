@@ -423,6 +423,13 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         screen.blit(pixels, surface.buf_w, surface.buf_h, content, clip);
     } else {
         screen.fill(content, clip, empty_bg());
-        spinner::draw(screen, content, spinner::phase(), empty_text(), empty_bg(), clip);
+        spinner::draw(
+            screen,
+            content,
+            spinner::phase(),
+            empty_text(),
+            empty_bg(),
+            clip,
+        );
     }
 }

@@ -58,7 +58,14 @@ impl IconModel for Icons {
         None
     }
 
-    fn paint_icon(&self, slot: usize, canvas: &mut dyn Canvas, rect: Rect, _: &Theme, _: u32) -> bool {
+    fn paint_icon(
+        &self,
+        slot: usize,
+        canvas: &mut dyn Canvas,
+        rect: Rect,
+        _: &Theme,
+        _: u32,
+    ) -> bool {
         let Some((index, item)) = self.at(slot) else {
             return true;
         };
@@ -118,7 +125,9 @@ pub fn app_picture(app: &str) -> Icon {
 
 /// A file's picture by its extension.
 fn file_picture(name: &str) -> Icon {
-    let ext = name.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase());
     match ext.as_deref() {
         Some("png" | "jpg" | "jpeg" | "gif" | "bmp") => Icon::Image,
         Some("zip" | "tar" | "gz" | "tgz" | "zst" | "xz" | "7z" | "lzp") => Icon::Archive,

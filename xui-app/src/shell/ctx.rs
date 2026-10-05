@@ -9,9 +9,9 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use lazyshell::desktop::folder::Item;
 use lazyshell::menu::{listed_hidden, visible, Listed, Menu, Submenu};
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
-use lazyshell::desktop::folder::Item;
 use lazyshell::Rect;
 use xui_core::app::WindowHandle;
 

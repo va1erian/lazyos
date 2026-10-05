@@ -41,7 +41,14 @@ pub(super) fn phase() -> u32 {
 
 /// Paint the spinner centred in `content` over the already-filled `bg`:
 /// the head at `phase` in `ink`, the dots behind it fading toward `bg`.
-pub(super) fn draw(screen: &mut Canvas, content: Rect, phase: u32, ink: Color, bg: Color, clip: Rect) {
+pub(super) fn draw(
+    screen: &mut Canvas,
+    content: Rect,
+    phase: u32,
+    ink: Color,
+    bg: Color,
+    clip: Rect,
+) {
     let (cx, cy) = (content.x + content.w / 2, content.y + content.h / 2);
     let (ring, dot) = (px(RING_R), px(DOT_R));
     for (index, (ux, uy)) in UNIT.iter().enumerate() {
