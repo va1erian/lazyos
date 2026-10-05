@@ -403,7 +403,7 @@ mod tests {
 
     fn block(words: [u64; 4]) -> [u8; SenderId::SIZE] {
         let mut bytes = [0u8; SenderId::SIZE];
-        for (chunk, word) in bytes.chunks_exact_mut(8).zip(words) {
+        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
             chunk.copy_from_slice(&word.to_le_bytes());
         }
         bytes

@@ -76,7 +76,8 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   label_id, session` as little-endian `u64` words, stamped from the sender's
   credentials when the message was *queued* (`channels::SenderId`, the same
   stamp the per-uid queue quota is charged to), never its capability bits. A
-  too-small block is `EINVAL` before anything is dequeued. This is how a
+  too-small block is `EINVAL` and an unwritable one `EFAULT`, both before
+  anything is dequeued. This is how a
   service authorizes callers by uid or label without `CAP_SETUID` (which
   `creds` `GET` on another task needs) and without racing a sender slot that
   exited or was reused: LazyShell's `os.lazy.shell.v1` checks it

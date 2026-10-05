@@ -10,6 +10,8 @@ use crate::quota::{self, Resource};
 
 /// `-EINVAL` as `rax` carries it.
 const EINVAL_CODE: u64 = (-22i64) as u64;
+/// `-EFAULT` as `rax` carries it.
+const EFAULT_CODE: u64 = (-14i64) as u64;
 
 /// Where the tests ask `recv` to write the sender block.
 const SENDER_BUF: u64 = SPACE + 0x5000;
@@ -26,7 +28,7 @@ fn expected(cred: Cred) -> [u8; SenderId::SIZE] {
         cred.label_id as u64,
         cred.session,
     ];
-    for (chunk, word) in bytes.chunks_exact_mut(8).zip(words) {
+    for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
         chunk.copy_from_slice(&word.to_le_bytes());
     }
     bytes
@@ -135,8 +137,9 @@ pub fn recv_reports_queue_time_sender() -> Result<(), String> {
     outcome
 }
 
-/// A sender block too small for the identity, or an unknown flag, is refused
-/// before anything is taken off the queue: the message is still there.
+/// A sender block too small for the identity, one that is not writable user
+/// memory, or an unknown flag, is refused before anything is taken off the
+/// queue: the message is still there.
 pub fn recv_sender_id_refuses_bad_requests() -> Result<(), String> {
     fresh()?;
     in_space(|| -> Result<(), String> {
@@ -152,6 +155,22 @@ pub fn recv_sender_id_refuses_bad_requests() -> Result<(), String> {
         for bad in [2u64, 3, 1 << 32, u64::MAX] {
             let (code, _) = recv_with(server, bad, SenderId::SIZE as u64);
             check!(code == EINVAL_CODE, "flags {bad:#x} on recv -> {code:#x}");
+        }
+        // Unmapped user memory, a block straddling the end of the scratch
+        // space, and a kernel address.
+        let end = SPACE + SPACE_PAGES * 4096;
+        for bad in [end + 0x1000, end - 8, 0xffff_8000_0000_0000] {
+            let args = MsgArgs {
+                handle: server,
+                parcel_ptr: bad,
+                parcel_len: SenderId::SIZE as u64,
+                buf_ptr: RECV_BUF,
+                buf_cap: 4096,
+                flags: RECV_SENDER_ID,
+                ..MsgArgs::default()
+            };
+            let (code, _) = syscall(OP_RECV, &args);
+            check!(code == EFAULT_CODE, "sender block at {bad:#x} -> {code:#x}");
         }
         let stats = channels::channel_stats(server).map_err(reason)?;
         check!(

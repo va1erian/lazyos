@@ -232,9 +232,13 @@ fn op_send(args: &MsgArgs) -> Result<MsgResult, i64> {
 
 fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
     let want_sender = args.flags == RECV_SENDER_ID;
-    // Refused before anything is taken off the queue.
-    if want_sender && args.parcel_len < channels::SenderId::SIZE as u64 {
-        return Err(errno::EINVAL);
+    // Refused before anything is taken off the queue, so a bad block never
+    // costs the receiver its message.
+    if want_sender {
+        if args.parcel_len < channels::SenderId::SIZE as u64 {
+            return Err(errno::EINVAL);
+        }
+        access_range(args.parcel_ptr, channels::SenderId::SIZE, true)?;
     }
     let message = channels::recv(args.handle, args.deadline_ticks()).map_err(channel_errno)?;
     if message.bytes.len() > args.buf_cap as usize {
