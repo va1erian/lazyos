@@ -28,9 +28,10 @@ pub use display::{
     EVENT_BYTES,
 };
 pub use messenger::{
-    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_register, msg_reply,
-    msg_resolve, msg_send, msg_wait_any, msg_wait_any_ns, MsgArgs, MsgResult, FD_READY,
-    REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT, WAIT_MAX_ENDPOINTS,
+    messenger, msg_call, msg_create_pair, msg_op, msg_queued, msg_recv, msg_recv_from,
+    msg_register, msg_reply, msg_resolve, msg_send, msg_wait_any, msg_wait_any_ns, MsgArgs,
+    MsgResult, SenderId, FD_READY, REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT,
+    WAIT_MAX_ENDPOINTS,
 };
 
 use core::arch::asm;

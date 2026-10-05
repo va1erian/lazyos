@@ -197,7 +197,7 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
         side,
         Queued {
             sender: me,
-            quota_uid: credentials::of(me).uid,
+            origin: SenderId::of(me),
             method,
             flags: parcel_flags,
             txn: None,
@@ -235,14 +235,14 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<WaiterS
     // Per-uid aggregate (issue #103): the endpoint's own depth/byte caps above
     // remain the first line, and the sender's user must also have room. Charge
     // before taking buffer references so a refusal has nothing to unwind.
-    if let Err(error) = charge_queued(message.quota_uid, message.bytes.len()) {
+    if let Err(error) = charge_queued(message.origin.uid, message.bytes.len()) {
         channel.drops += 1;
         return Err(error);
     }
     // The queue has room: take the message's buffer references so a sender
     // that closes its own handle cannot free frames an in-flight message needs.
     if let Err(error) = retain_transfers(&message) {
-        release_queued_quota(message.quota_uid, message.bytes.len());
+        release_queued_quota(message.origin.uid, message.bytes.len());
         channel.drops += 1;
         return Err(error);
     }

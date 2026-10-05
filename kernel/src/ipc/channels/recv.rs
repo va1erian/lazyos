@@ -33,7 +33,7 @@ fn take_or_register(
         Some(message) => {
             // Delivery takes the message out of the inbox, so the sender's
             // user gets the queue charge back (issue #103).
-            release_queued_quota(message.quota_uid, message.bytes.len());
+            release_queued_quota(message.origin.uid, message.bytes.len());
             Ok(Some(deliver(message)?))
         }
         None => Ok(None),
@@ -139,6 +139,7 @@ pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
     }
     Ok(Message {
         sender: queued.sender,
+        origin: queued.origin,
         method: queued.method,
         flags: queued.flags,
         txn: queued.txn,

@@ -14,7 +14,7 @@
 
 use libmessenger::{Encoder, Header, Parcel, VERSION};
 
-use crate::sys::{self, errno, msg_op, Cred, MsgArgs, MsgResult, EXPIRED_DEADLINE};
+use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult, SenderId, EXPIRED_DEADLINE};
 
 /// The structured error field id every LazyOS service replies with.
 pub const ERROR_FIELD: u16 = 15;
@@ -24,17 +24,13 @@ pub const ERROR_FIELD: u16 = 15;
 pub struct Request {
     /// The sender's task slot, kernel-stamped.
     pub sender: u64,
+    /// Who sent it (uid, gid, label, session), stamped by the kernel when the
+    /// message was queued: what a service authorizes the caller by. Reading
+    /// it needs no capability, unlike `cred_get` on [`Request::sender`].
+    pub origin: SenderId,
     /// The transaction to answer, or `None` for a one-way message.
     pub txn: Option<u64>,
     pub parcel: Parcel,
-}
-
-impl Request {
-    /// The sender's kernel-stamped credentials. Reading another task's block
-    /// needs `CAP_SETUID`; without it this is `Err` and the caller must refuse.
-    pub fn sender_cred(&self) -> Result<Cred, i64> {
-        sys::cred_get(Some(self.sender))
-    }
 }
 
 /// A published service endpoint.
@@ -64,8 +60,8 @@ impl Server {
         if sys::msg_queued(self.endpoint)? == 0 {
             return Ok(None);
         }
-        let result = match sys::msg_recv(self.endpoint, buf, EXPIRED_DEADLINE) {
-            Ok(result) => result,
+        let (result, origin) = match sys::msg_recv_from(self.endpoint, buf, EXPIRED_DEADLINE) {
+            Ok(received) => received,
             Err(code) if code == -errno::ETIMEDOUT => return Ok(None),
             Err(code) => return Err(code),
         };
@@ -80,6 +76,7 @@ impl Server {
         };
         Ok(Some(Request {
             sender: result.aux,
+            origin,
             txn,
             parcel,
         }))

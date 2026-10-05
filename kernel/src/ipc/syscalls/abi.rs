@@ -143,13 +143,20 @@ pub struct MsgArgs {
     /// Absolute PIT deadline in ticks (100 Hz); `0` waits forever.
     pub deadline: u64,
     /// Reserved for future flags; must be zero except where an op names one
-    /// ([`CLOSE_RELEASE`] on `close_endpoint`).
+    /// ([`CLOSE_RELEASE`] on `close_endpoint`, [`RECV_SENDER_ID`] on `recv`).
     pub flags: u64,
 }
 
 /// `close_endpoint` flag: release the handle, and close the side only if no
 /// other handle names it (see `channels::release_endpoint`).
 pub const CLOSE_RELEASE: u64 = 1;
+
+/// `recv` flag: also write the sender's kernel-stamped identity, as
+/// queued ([`crate::ipc::channels::SenderId`], `SenderId::SIZE` bytes), to
+/// `parcel_ptr`; `parcel_len` must be at least that. This is how a service
+/// authorizes a caller by uid or label without `CAP_SETUID`, which reading
+/// an arbitrary task's credentials needs.
+pub const RECV_SENDER_ID: u64 = 1;
 
 impl MsgArgs {
     /// Decode a little-endian block of exactly [`ARGS_SIZE`] bytes.

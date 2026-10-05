@@ -22,6 +22,9 @@ pub mod msg_op {
     /// `CLOSE_ENDPOINT` flag: release this task's handle only, leaving the
     /// channel side open for its other holders.
     pub const CLOSE_RELEASE: u64 = 1;
+    /// `RECV` flag: also write the sender's kernel-stamped [`super::SenderId`]
+    /// to `parcel_ptr`.
+    pub const RECV_SENDER_ID: u64 = 1;
     /// Create a fresh channel pair; both handles open in this task.
     pub const CREATE_PAIR: u64 = 7;
     /// Read the versioned fabric snapshot (`FabricStats`).
@@ -238,6 +241,66 @@ pub fn msg_recv(handle: u64, buf: &mut [u8], deadline: u64) -> Result<MsgResult,
     Ok(result)
 }
 
+/// [`msg_recv`] that also returns who sent the message: the identity the
+/// kernel stamped when the message was queued ([`msg_op::RECV_SENDER_ID`]).
+/// Unlike [`super::cred_get`] on the sender's slot, it needs no capability.
+pub fn msg_recv_from(
+    handle: u64,
+    buf: &mut [u8],
+    deadline: u64,
+) -> Result<(MsgResult, SenderId), i64> {
+    let mut id = [0u8; SenderId::SIZE];
+    let args = MsgArgs {
+        handle,
+        parcel_ptr: id.as_mut_ptr() as u64,
+        parcel_len: id.len() as u64,
+        buf_ptr: buf.as_mut_ptr() as u64,
+        buf_cap: buf.len() as u64,
+        deadline,
+        flags: msg_op::RECV_SENDER_ID,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    messenger_syscall(msg_op::RECV, &args, &mut result)?;
+    if result.bytes as usize > buf.len() {
+        return Err(-errno::E2BIG);
+    }
+    let sender = SenderId::from_bytes(&id).ok_or(-errno::EINVAL)?;
+    Ok((result, sender))
+}
+
+/// A message sender's identity as the kernel stamped it at queue time; the
+/// layout mirrors the kernel's `channels::SenderId` (four little-endian `u64`
+/// words: uid, gid, label id, session).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SenderId {
+    pub uid: u32,
+    pub gid: u32,
+    pub label_id: u32,
+    pub session: u64,
+}
+
+impl SenderId {
+    /// Bytes the kernel writes.
+    pub const SIZE: usize = 32;
+
+    /// Decode the kernel's block; a word that does not fit its field means
+    /// the block is not one, and is refused.
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Option<SenderId> {
+        let word = |index: usize| {
+            let mut le = [0u8; 8];
+            le.copy_from_slice(&bytes[index * 8..index * 8 + 8]);
+            u64::from_le_bytes(le)
+        };
+        Some(SenderId {
+            uid: u32::try_from(word(0)).ok()?,
+            gid: u32::try_from(word(1)).ok()?,
+            label_id: u32::try_from(word(2)).ok()?,
+            session: word(3),
+        })
+    }
+}
+
 /// Publish `endpoint` (a handle in this task) under `name` as a permanent
 /// registration implementing `interfaces`; this task becomes the owner. The
 /// body comes from the generated `os.lazy.messenger.registry.v1` stubs.
@@ -332,4 +395,38 @@ pub fn msg_wait_any_ns(handles: &[u64], flags: u64, deadline_ns: u64) -> Result<
     let mut result = MsgResult::default();
     messenger_syscall(msg_op::WAIT, &args, &mut result)?;
     Ok(result.value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block(words: [u64; 4]) -> [u8; SenderId::SIZE] {
+        let mut bytes = [0u8; SenderId::SIZE];
+        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_sender_block_decodes_in_kernel_order() {
+        let id = SenderId::from_bytes(&block([1000, 100, 7, 42])).unwrap();
+        assert_eq!(
+            id,
+            SenderId {
+                uid: 1000,
+                gid: 100,
+                label_id: 7,
+                session: 42
+            }
+        );
+    }
+
+    #[test]
+    fn a_sender_block_with_oversized_ids_is_refused() {
+        assert!(SenderId::from_bytes(&block([1 << 32, 0, 0, 0])).is_none());
+        assert!(SenderId::from_bytes(&block([0, u64::MAX, 0, 0])).is_none());
+        assert!(SenderId::from_bytes(&block([0, 0, 1 << 40, 0])).is_none());
+    }
 }

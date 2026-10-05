@@ -80,8 +80,10 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
         Ok(args) => args,
         Err(code) => return report(result_ptr, code),
     };
-    // Flags are reserved, except the ones `close_endpoint` and `wait` know.
+    // Flags are reserved, except the ones `close_endpoint`, `recv` and `wait`
+    // know.
     let allowed = (op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE)
+        || (op == OP_RECV && args.flags == RECV_SENDER_ID)
         || (op == OP_WAIT && channels::wait_flags_known(args.flags));
     if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
@@ -229,11 +231,23 @@ fn op_send(args: &MsgArgs) -> Result<MsgResult, i64> {
 }
 
 fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
+    let want_sender = args.flags == RECV_SENDER_ID;
+    // Refused before anything is taken off the queue, so a bad block never
+    // costs the receiver its message.
+    if want_sender {
+        if args.parcel_len < channels::SenderId::SIZE as u64 {
+            return Err(errno::EINVAL);
+        }
+        access_range(args.parcel_ptr, channels::SenderId::SIZE, true)?;
+    }
     let message = channels::recv(args.handle, args.deadline_ticks()).map_err(channel_errno)?;
     if message.bytes.len() > args.buf_cap as usize {
         return Err(errno::E2BIG);
     }
     copy_out(args.buf_ptr, &message.bytes)?;
+    if want_sender {
+        copy_out(args.parcel_ptr, &message.origin.to_bytes())?;
+    }
     Ok(MsgResult {
         // The kernel transaction id (0 for one-way messages), not the
         // sender's header field, is what `reply` expects.

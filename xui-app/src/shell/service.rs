@@ -3,9 +3,10 @@
 //! desktop the way a user would.
 //!
 //! Every call is checked against the sender's kernel-stamped uid (0 or the
-//! shell's own; see `lazyshell::policy`). Reading another task's credentials
-//! needs `CAP_SETUID`, so a shell started without it cannot identify callers
-//! and refuses every call with `EACCES` (fail closed; logged once).
+//! shell's own; see `lazyshell::policy`): the uid the kernel stamped on the
+//! message when it was queued (`Request::origin`), so the shell needs no
+//! capability to identify callers. When its own uid is unknown it refuses
+//! every call with `EACCES` (fail closed).
 
 use std::rc::Rc;
 
@@ -74,13 +75,9 @@ fn answer<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, request: &Request) -> Parcel {
     if request.parcel.header.interface_id != wire::INTERFACE_ID {
         return error_parcel(wire::INTERFACE_ID, method, ENOTSUP, "not os.lazy.shell.v1");
     }
-    let caller = request.sender_cred().ok().map(|cred| cred.uid);
-    if caller.is_none() {
-        ctx.note("cred", || {
-            "SHELL:SERVICE:NOCRED (cannot read caller credentials; refusing calls)".into()
-        });
-    }
-    if !lazyshell::policy::caller_allowed(caller, ctx.uid) {
+    let caller = request.origin.uid;
+    if !lazyshell::policy::caller_allowed(Some(caller), ctx.uid) {
+        ctx.note("deny", || format!("SHELL:SERVICE:DENY uid={caller}"));
         return error_parcel(
             wire::INTERFACE_ID,
             method,

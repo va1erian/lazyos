@@ -40,6 +40,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   only downward), the target must be the actor or a live task, and the kernel
   task may only restamp itself. `check` validates a spawn before the task exists;
   `read` lets a task read its own identity, or another's with `CAP_SETUID`.
+  A service that only needs to know *who called* reads the identity stamped on
+  the message instead (`RECV_SENDER_ID`, [ipc-fabric.md](ipc-fabric.md)): no
+  capability, no capability bits disclosed.
   Transition records use `AUDIT_INTERFACE = "os.cred."` / `AUDIT_METHOD_SET` with
   `reason` codes for allowed, not-privileged, widening, bad target and
   label-locked.

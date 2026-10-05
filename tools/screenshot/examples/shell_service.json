@@ -1,0 +1,14 @@
+[
+  {"wait_for": "SHELL:SERVICE:PASS", "timeout": 240},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait": 2},
+  {"type": "rhai -e 'print(\"SVC:st:\"+sys::shell::status().menu.len())'"},
+  {"key": "enter", "until": "TERM:OUT:SVC:st:", "timeout": 60, "retries": 1},
+  {"wait": 1},
+  {"shot": "01_status"},
+  {"type": "rhai -e 'print(\"SVC:pid:\"+sys::shell::launch(\"os.lazy.files\"))'"},
+  {"key": "enter", "until": "TERM:OUT:SVC:pid:", "timeout": 60, "retries": 1},
+  {"wait": 6},
+  {"shot": "02_launched"},
+  {"quit": true}
+]

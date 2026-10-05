@@ -54,7 +54,7 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
     let parcel = super::validate_parcel(parcel_bytes)?;
     let queued = Queued {
         sender: crate::task::KERNEL_TASK,
-        quota_uid: 0,
+        origin: super::SenderId::KERNEL,
         method: parcel.header.method,
         flags: parcel.header.flags,
         txn: None,

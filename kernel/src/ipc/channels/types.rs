@@ -57,16 +57,73 @@ pub struct BufferTransfer {
     pub rights: u32,
 }
 
+/// Who sent a message, stamped by the kernel when the message is *queued*:
+/// the sender's `uid/gid/label_id/session` at that instant. A receiver reads
+/// it from `recv` (`RECV_SENDER_ID`) instead of looking the sender's slot up
+/// later, which needs `CAP_SETUID` and races a slot that exited or was reused.
+/// Capability bits are left out on purpose: authorizing a caller needs who it
+/// is, not what else it may do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SenderId {
+    pub uid: u32,
+    pub gid: u32,
+    pub label_id: u32,
+    pub session: u64,
+}
+
+impl SenderId {
+    /// Bytes `recv` writes for [`SenderId::to_bytes`].
+    pub const SIZE: usize = 32;
+    /// The kernel's own posts ([`super::post_from_kernel`]): root, unlabelled.
+    pub const KERNEL: SenderId = SenderId {
+        uid: 0,
+        gid: 0,
+        label_id: 0,
+        session: 0,
+    };
+
+    /// `slot`'s identity right now.
+    pub fn of(slot: usize) -> SenderId {
+        Self::of_cred(credentials::of(slot))
+    }
+
+    /// The identity part of `cred` (everything but the capability bits).
+    pub const fn of_cred(cred: credentials::Cred) -> SenderId {
+        SenderId {
+            uid: cred.uid,
+            gid: cred.gid,
+            label_id: cred.label_id,
+            session: cred.session,
+        }
+    }
+
+    /// The user ABI block: `uid, gid, label_id, session` as little-endian
+    /// `u64` words (`xui-app/src/sys/messenger.rs` mirrors it).
+    pub fn to_bytes(self) -> [u8; Self::SIZE] {
+        let words = [
+            self.uid as u64,
+            self.gid as u64,
+            self.label_id as u64,
+            self.session,
+        ];
+        let mut bytes = [0u8; Self::SIZE];
+        for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
+        bytes
+    }
+}
+
 /// One queued message: the encoded parcel plus the kernel-side metadata a
 /// receiver needs to dispatch or answer it. Transfers are still unresolved
 /// here: they become the receiver's handles in [`deliver`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(super) struct Queued {
     pub(super) sender: usize,
-    /// Sender's uid *at queue time* (issue #103): the per-uid queue charge is
-    /// released against this uid even if the sender transitions identity before
-    /// the message is delivered.
-    pub(super) quota_uid: u32,
+    /// Sender's identity *at queue time*. Its uid is also the per-uid queue
+    /// charge (issue #103), released against this uid even if the sender
+    /// transitions identity before the message is delivered.
+    pub(super) origin: SenderId,
     pub(super) method: u32,
     pub(super) flags: u16,
     pub(super) txn: Option<u64>,
@@ -84,6 +141,8 @@ pub(super) struct Queued {
 pub struct Message {
     /// Task slot that sent the message (kernel-stamped, never forgeable).
     pub sender: usize,
+    /// The sender's identity when it queued the message (kernel-stamped).
+    pub origin: SenderId,
     /// Method id from the parcel header, copied out for dispatch.
     pub method: u32,
     /// Parcel header flags.
