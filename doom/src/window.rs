@@ -37,7 +37,8 @@ impl Window {
             height as u32,
             title,
             SurfaceRole::Window,
-        )?;
+        )
+        .map_err(|e| e.to_string())?;
         let (w, h) = window.rect;
         let pending = std::mem::take(&mut window.pending_events);
         let configure = window.pending_configure.take();
