@@ -48,6 +48,11 @@ pub(crate) struct Order {
     pub cancel: Arc<AtomicBool>,
 }
 
+/// `client-error-not-found` and `client-error-gone`: the printer no longer
+/// knows the job, which it does once a finished job is purged.
+const NOT_FOUND: u16 = 0x0406;
+const GONE: u16 = 0x0407;
+
 /// The printer one job talks to.
 struct Printer {
     uri: PrinterUri,
@@ -300,13 +305,24 @@ impl Run<'_> {
                     job = JobStatus::of(&reply);
                 }
                 // The printer forgets finished jobs after a while.
-                Ok(_) => return Ok("Printed".into()),
-                Err(e) if unanswered + 1 >= GIVE_UP => {
-                    return Err((State::Failed, format!("The printer stopped answering: {e}")));
+                Ok(reply) if matches!(reply.code, NOT_FOUND | GONE) => {
+                    return Ok("Printed".into());
                 }
-                Err(e) => {
+                // Any other refusal says nothing about the job: asked again,
+                // like a printer that did not answer.
+                result => {
+                    let why = match result {
+                        Ok(reply) => refusal(&reply),
+                        Err(e) => e.to_string(),
+                    };
+                    if unanswered + 1 >= GIVE_UP {
+                        return Err((
+                            State::Failed,
+                            format!("The printer stopped answering: {why}"),
+                        ));
+                    }
                     unanswered += 1;
-                    self.line(format!("Printing (no answer from the printer: {e})"));
+                    self.line(format!("Printing (no answer from the printer: {why})"));
                 }
             }
         }
