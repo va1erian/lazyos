@@ -13,16 +13,16 @@
 //! A move is a `rename` onto a name reserved first (an empty file or folder
 //! created exclusively, which the rename then replaces), so two moves racing
 //! for one free name can never overwrite each other. When the kernel refuses
-//! the rename across volumes it falls back to the careful copy
-//! ([`super::copy`]) followed by removing the original, which happens only
-//! once everything was copied: a device or FIFO inside a moved folder fails
-//! the move instead of being left behind and deleted.
+//! the rename across volumes it copies into that same reservation (never
+//! giving the name up, so no other move can slip in) and removes the
+//! original only once everything was copied: a device or FIFO inside a moved
+//! folder fails the move instead of being left behind and deleted.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::copy::{CopyReport, Special, copy_entry, copy_into, unique};
+use super::copy::{CopyReport, copy_into, copy_over_placeholder, unique};
 
 /// What happens to one dropped item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,10 +126,9 @@ fn move_one(source: &Path, dir: &Path, dir_real: &Path) -> io::Result<()> {
     match fs::rename(source, &target) {
         Ok(()) => Ok(()),
         Err(error) if crosses_volumes(&error) => {
-            // The copy creates the target itself (exclusively): give the
-            // reservation back first.
-            let _ = remove(&target);
-            if let Err(error) = copy_entry(source, &target, Special::Refuse) {
+            // Copy into the reservation itself: the name is never free, so
+            // whatever is at `target` on failure is this move's own.
+            if let Err(error) = copy_over_placeholder(source, &target) {
                 // Leave the original and take back the partial copy.
                 let _ = remove(&target);
                 return Err(error);
@@ -144,6 +143,7 @@ fn move_one(source: &Path, dir: &Path, dir_real: &Path) -> io::Result<()> {
 }
 
 /// Most names tried before a move gives up reserving one.
+#[cfg(unix)]
 const RESERVE_TRIES: usize = 64;
 
 /// Claim a free name for a moved item at `wanted` (or `name (2)`, ...): an
@@ -323,16 +323,48 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_folder_holding_a_special_file_never_half_moves() {
+        use super::super::copy::{Special, copy_entry};
         use std::os::unix::net::UnixListener;
         let root = scratch("special");
         fs::create_dir_all(root.join("a")).unwrap();
         fs::write(root.join("a/x.txt"), "x").unwrap();
         let _socket = UnixListener::bind(root.join("a/sock")).unwrap();
-        let error = copy_entry(&root.join("a"), &root.join("b"), Special::Refuse).unwrap_err();
+        let placeholder = reserve(&root.join("b"), true).unwrap();
+        let error = copy_over_placeholder(&root.join("a"), &placeholder).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         // A drop's copy still skips it.
         copy_entry(&root.join("a"), &root.join("c"), Special::Skip).unwrap();
         assert!(root.join("c/x.txt").exists() && !root.join("c/sock").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cross_volume_copy_fills_the_reservation_in_place() {
+        let root = scratch("fill");
+        fs::create_dir_all(root.join("src/tree")).unwrap();
+        fs::write(root.join("src/tree/x.txt"), "x").unwrap();
+        fs::write(root.join("src/f.txt"), "f").unwrap();
+        std::os::unix::fs::symlink("f.txt", root.join("src/l")).unwrap();
+        fs::create_dir(root.join("dst")).unwrap();
+        for (name, dir) in [("tree", true), ("f.txt", false), ("l", false)] {
+            let placeholder = reserve(&root.join("dst").join(name), dir).unwrap();
+            copy_over_placeholder(&root.join("src").join(name), &placeholder).unwrap();
+        }
+        assert_eq!(
+            fs::read_to_string(root.join("dst/tree/x.txt")).unwrap(),
+            "x"
+        );
+        assert_eq!(fs::read_to_string(root.join("dst/f.txt")).unwrap(), "f");
+        assert_eq!(
+            fs::read_link(root.join("dst/l")).unwrap(),
+            Path::new("f.txt")
+        );
+        assert_eq!(
+            fs::read_dir(root.join("dst")).unwrap().count(),
+            3,
+            "no staged link left"
+        );
         let _ = fs::remove_dir_all(root);
     }
 

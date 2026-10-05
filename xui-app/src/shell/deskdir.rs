@@ -207,21 +207,28 @@ impl Ctx {
 }
 
 /// Write the seed into a new folder `dir`. `create_dir` (not `_all`) and
-/// `create_new` files: a folder something else made meanwhile is left as is,
-/// and one this call made is removed again if a write fails.
+/// `create_new` files: a folder something else made meanwhile is left as is.
+/// If a write fails, the files this call created are removed and then the
+/// folder if nothing else was put in it meanwhile, so the next poll seeds
+/// again instead of counting a half-written folder as done.
 fn write_seed(dir: &Path, files: &[(String, String)]) -> io::Result<()> {
     fs::create_dir(dir)?;
+    let mut created = Vec::new();
     let written = files.iter().try_for_each(|(name, text)| {
-        fs::OpenOptions::new()
+        let path = dir.join(name);
+        let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(dir.join(name))?
-            .write_all(text.as_bytes())
+            .open(&path)?;
+        created.push(path);
+        file.write_all(text.as_bytes())
     });
     if written.is_err() {
-        // This call made the folder, so all it holds is this seed: take it
-        // back, or the half-written folder would count as seeded for good.
-        let _ = fs::remove_dir_all(dir);
+        for path in &created {
+            let _ = fs::remove_file(path);
+        }
+        // Fails, and keeps the folder, when someone else's file is in it.
+        let _ = fs::remove_dir(dir);
     }
     written
 }

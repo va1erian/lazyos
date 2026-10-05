@@ -103,6 +103,54 @@ pub(super) fn copy_entry(source: &Path, target: &Path, special: Special) -> io::
     }
 }
 
+/// Copy `source` into `placeholder`, the empty file or folder a move
+/// reserved for it, without ever giving the name up: a folder's contents go
+/// inside it, a file's bytes overwrite it, and a link is made beside it
+/// under a private name and renamed over it. Devices and FIFOs inside a
+/// folder fail the copy (`Special::Refuse`), since the move removes the
+/// original afterwards.
+pub(super) fn copy_over_placeholder(source: &Path, placeholder: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(source)?;
+    let kind = meta.file_type();
+    if kind.is_symlink() {
+        let name = placeholder
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let staged = placeholder.with_file_name(format!(".{name}.link-{}", std::process::id()));
+        copy_link(source, &staged)?;
+        fs::rename(&staged, placeholder).inspect_err(|_| {
+            let _ = fs::remove_file(&staged);
+        })
+    } else if kind.is_dir() {
+        let mut children: Vec<_> = fs::read_dir(source)?.collect::<io::Result<_>>()?;
+        children.sort_by_key(|child| child.file_name());
+        for child in children {
+            copy_entry(
+                &child.path(),
+                &placeholder.join(child.file_name()),
+                Special::Refuse,
+            )?;
+        }
+        fs::set_permissions(placeholder, meta.permissions())
+    } else if kind.is_file() {
+        let mut from = fs::File::open(source)?;
+        // The placeholder already exists (this move made it): no `create`.
+        let mut to = fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(placeholder)?;
+        io::copy(&mut from, &mut to)?;
+        to.set_permissions(meta.permissions())?;
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ))
+    }
+}
+
 #[cfg(unix)]
 fn copy_link(source: &Path, target: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(fs::read_link(source)?, target)
