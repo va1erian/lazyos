@@ -9,7 +9,10 @@ pub fn layout_widths() -> Result<(), String> {
     check!(x == 8 && w == 1280 - 16, "lone window at {x}, width {w}");
     let (x0, w0) = column(1280, 2, 0);
     let (x1, w1) = column(1280, 2, 1);
-    check!(w0 == w1 && w0 == (1280 - 24) / 2, "two columns {w0} and {w1}");
+    check!(
+        w0 == w1 && w0 == (1280 - 24) / 2,
+        "two columns {w0} and {w1}"
+    );
     check!(x0 == 8 && x1 == x0 + w0 + 8, "column starts {x0}, {x1}");
     check!(x1 + w1 <= 1280 - 8, "right column overruns the screen");
     Ok(())
@@ -23,7 +26,11 @@ pub fn layout_bounds() -> Result<(), String> {
             for slot in 0..count.clamp(1, 2) {
                 let (x, w) = column(screen, count, slot);
                 check!(x >= 0 && w > 0, "{screen}/{count}/{slot}: x={x} w={w}");
-                check!(x + w <= screen, "{screen}/{count}/{slot} overruns: {}", x + w);
+                check!(
+                    x + w <= screen,
+                    "{screen}/{count}/{slot} overruns: {}",
+                    x + w
+                );
             }
         }
     }
