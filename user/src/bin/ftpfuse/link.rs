@@ -1,9 +1,12 @@
 //! The FTP connection behind `ftpfuse`, and the inode numbers it hands out.
 //!
 //! A [`Link`] logs in lazily and again after the connection drops (servers
-//! close idle control connections): a command that fails for want of a
-//! connection is retried once on a fresh one. A server's refusal is not a
-//! connection failure and is never retried; it becomes an errno.
+//! close idle control connections, and the guest's network may blink): a
+//! command that fails for want of a connection is retried once on a fresh
+//! one, and opening that connection is tried again for up to
+//! [`RECONNECT_TICKS`], well inside the kernel's 10 s request deadline. A
+//! server's refusal is not a connection failure and is never retried; it
+//! becomes an errno.
 
 use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
@@ -14,6 +17,7 @@ use ftpwire::Reply;
 use fused::daemon::Errno;
 use fused::wire::errno;
 use user::messenger::netsock::{Addr, Client};
+use user::sys;
 
 use crate::session::{drain, send_all, Control};
 
@@ -21,6 +25,10 @@ use crate::session::{drain, send_all, Control};
 pub const MAX_FILE: usize = 32 * 1024 * 1024;
 /// The largest listing read, bytes.
 const MAX_LISTING: usize = 8 * 1024 * 1024;
+/// How long one command keeps trying to open a connection, ticks (100 Hz).
+const RECONNECT_TICKS: u64 = 500;
+/// The pause between two connection attempts, nanoseconds.
+const RECONNECT_PAUSE_NS: u64 = 250_000_000;
 
 /// A command's outcome: the reply, or the server's refusal code. The outer
 /// `Err` is a connection failure.
@@ -76,15 +84,24 @@ impl Link {
     }
 
     /// Run `step` on the control connection, once more on a fresh one if
-    /// the connection failed. A connection failure both times is `EIO`.
+    /// the connection failed (at most twice, so a non-idempotent step is not
+    /// repeated further). Opening a connection is retried until
+    /// [`RECONNECT_TICKS`] pass. A connection that never holds is `EIO`.
     pub fn run<T>(
         &mut self,
         mut step: impl FnMut(&mut Control) -> Result<T, String>,
     ) -> Result<T, Errno> {
-        for _ in 0..2 {
+        let deadline = sys::clock() + RECONNECT_TICKS;
+        let mut steps = 0;
+        while steps < 2 {
             if self.control.is_none() && self.connect().is_err() {
+                if sys::clock() >= deadline {
+                    break;
+                }
+                sys::sleep_ns(RECONNECT_PAUSE_NS);
                 continue;
             }
+            steps += 1;
             let control = self.control.as_mut().expect("connected");
             match step(control) {
                 Ok(value) => return Ok(value),
@@ -107,12 +124,14 @@ impl Link {
     }
 
     /// `RNFR` then `RNTO`, on one connection.
-    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), Errno> {
-        let outcome = self.run(|c| match ask(c, "RNFR", Some(from), &[3])? {
-            Ok(_) => ask(c, "RNTO", Some(to), &[2]),
-            refused => Ok(refused),
-        })?;
-        outcome.map(|_| ()).map_err(errno_of)
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), RenameError> {
+        let outcome = self
+            .run(|c| match ask(c, "RNFR", Some(from), &[3])? {
+                Ok(_) => Ok(ask(c, "RNTO", Some(to), &[2])?.map_err(RenameError::Target)),
+                Err(code) => Ok(Err(RenameError::Source(code))),
+            })
+            .map_err(RenameError::Link)?;
+        outcome.map(|_| ())
     }
 
     /// A download (`RETR`, `MLSD`, `LIST`) read whole, at most `limit` bytes.
@@ -126,8 +145,7 @@ impl Link {
             let read = drain(&data, limit, |chunk| body.extend_from_slice(chunk));
             drop(data);
             read?;
-            c.finish_transfer()?;
-            Ok(Ok(body))
+            Ok(finish(c)?.map(|_| body))
         })?;
         outcome.map_err(errno_of)
     }
@@ -165,10 +183,29 @@ impl Link {
             let _ = data.shutdown_write();
             drop(data);
             sent?;
-            c.finish_transfer()?;
-            Ok(Ok(()))
+            Ok(finish(c)?.map(|_| ()))
         })?;
         outcome.map_err(errno_of)
+    }
+}
+
+/// Why a rename failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenameError {
+    /// The connection failed (an errno).
+    Link(Errno),
+    /// The server refused `RNFR` (its code).
+    Source(u16),
+    /// The server refused `RNTO` (its code): the destination may exist.
+    Target(u16),
+}
+
+impl RenameError {
+    pub fn errno(self) -> Errno {
+        match self {
+            RenameError::Link(error) => error,
+            RenameError::Source(code) | RenameError::Target(code) => errno_of(code),
+        }
     }
 }
 
@@ -177,6 +214,19 @@ fn ask(c: &mut Control, verb: &str, argument: Option<&str>, classes: &[u16]) -> 
     c.send(verb, argument)?;
     let reply = c.reply()?;
     Ok(if classes.contains(&reply.class()) {
+        Ok(reply)
+    } else {
+        Err(reply.code)
+    })
+}
+
+/// The reply that ends a transfer (226 or 250), or the server's refusal
+/// (`552` over quota, `451` aborted, ...). A refusal here is the server's
+/// answer, not a lost connection: it must not be retried, or an `APPE` whose
+/// data the server kept would be appended twice.
+fn finish(c: &mut Control) -> Outcome {
+    let reply = c.reply()?;
+    Ok(if reply.class() == 2 {
         Ok(reply)
     } else {
         Err(reply.code)
