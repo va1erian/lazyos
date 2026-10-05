@@ -126,3 +126,13 @@ cargo test -p xui-explorer
 
 The snapshot test writes `target/snapshots/xui-explorer-{light,dark}.png`
 headlessly, with no window.
+
+## Drag and drop
+
+`std_platform::drop_into` is what a drop into a folder window runs: a drag
+that started in this explorer **moves** items on the folder's volume and
+copies the rest; Ctrl held at the drop copies and Shift moves. A drag from
+another app copies unless Shift is held. Nothing goes into itself, a clash
+gets `name (2)`, links stay links, an item dropped into its own folder is
+left alone, and a move across volumes copies first and removes the original
+only once the copy succeeded (`std_platform/transfer.rs`).

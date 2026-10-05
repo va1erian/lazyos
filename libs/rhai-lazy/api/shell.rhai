@@ -56,7 +56,8 @@ fn launch(app) {
 /// `Refresh() -> (menu: U32, desktop: U32)`
 ///
 /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
-/// desktop icons (`sys/ui/desktop`); returns how many rows each has.
+/// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
+/// without one); returns how many rows each has.
 fn refresh() {
     msg::connect("os.lazy.shell.v1").invoke("Refresh", [])
 }
@@ -82,7 +83,8 @@ fn new_taskbar_entry() {
 /// The window title.
 /// Whether the window is minimized.
 /// One start-menu row or desktop icon: the `init` registry app it
-/// launches and the label it shows.
+/// launches (for a desktop icon that is not an app shortcut, its absolute
+/// path in the desktop folder) and the label it shows.
 fn new_launcher() {
     #{ app: "", label: "" }
 }

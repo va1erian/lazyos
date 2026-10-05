@@ -21,10 +21,12 @@
 use std::cell::{Cell, RefCell};
 
 use xui_core::backend::{Event, WidgetId, WindowId};
+use xui_core::Modifiers;
 
 use crate::display::DragEvent as WireEvent;
 use crate::platform::clipboard;
 
+use super::input::modifiers_from_key;
 use super::LazyOSBackend;
 
 /// Design pixels a press must travel before it becomes a drag.
@@ -46,12 +48,17 @@ pub enum DropEvent {
     Over { x: i32, y: i32 },
     /// It left (or was cancelled while over the window).
     Leave,
-    /// It was dropped: the pasted payload, or the paste's negative errno.
+    /// It was dropped: the pasted payload, or the paste's negative errno;
+    /// the modifier keys held at the release (the compositor's, since the
+    /// keyboard may belong to the drag's source), and whether the drag
+    /// started in one of this app's own windows.
     Drop {
         x: i32,
         y: i32,
         mime: String,
         data: Result<Vec<u8>, i64>,
+        modifiers: Modifiers,
+        from_self: bool,
     },
     /// A drag this window started was accepted by the compositor.
     Started,
@@ -192,9 +199,25 @@ impl LazyOSBackend {
             WireEvent::Enter { x, y, mime } => DropEvent::Enter { x, y, mime },
             WireEvent::Over { x, y } => DropEvent::Over { x, y },
             WireEvent::Leave => DropEvent::Leave,
-            WireEvent::Drop { x, y, token, mime } => {
+            WireEvent::Drop {
+                x,
+                y,
+                token,
+                mime,
+                modifiers,
+                source,
+            } => {
                 let data = clipboard::paste(token, &mime);
-                DropEvent::Drop { x, y, mime, data }
+                DropEvent::Drop {
+                    x,
+                    y,
+                    mime,
+                    data,
+                    // An older compositor sends none: the keys this app saw
+                    // last are the best guess left.
+                    modifiers: modifiers.map_or_else(|| self.modifiers.get(), modifiers_from_key),
+                    from_self: source.is_some_and(|surface| self.owns_surface(surface)),
+                }
             }
             WireEvent::Ended { dropped } => {
                 self.dnd.dragging.set(false);
@@ -260,6 +283,37 @@ mod tests {
         let backend = client_backend();
         backend.drag_press(WindowId::from_raw(1), WidgetId::from_raw(3), (0, 0), (0, 0));
         assert!(backend.dnd.press.get().is_none());
+    }
+
+    #[test]
+    fn a_drop_carries_the_compositors_modifiers_and_its_source() {
+        let backend = client_backend();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let log = Rc::clone(&events);
+        backend.on_drag_event(move |_, event| log.borrow_mut().push(event.clone()));
+        let shift = crate::sys::key::MOD_SHIFT;
+        backend.drag_message(
+            WindowId::from_raw(1),
+            WireEvent::Drop {
+                x: 1,
+                y: 2,
+                token: 0,
+                mime: "text/uri-list".into(),
+                modifiers: Some(shift),
+                source: Some(u64::MAX),
+            },
+        );
+        let events = events.borrow();
+        let DropEvent::Drop {
+            modifiers,
+            from_self,
+            ..
+        } = &events[0]
+        else {
+            panic!("not a drop: {:?}", events[0]);
+        };
+        assert!(modifiers.shift && !modifiers.ctrl);
+        assert!(!from_self, "no window of this backend is that surface");
     }
 
     #[test]

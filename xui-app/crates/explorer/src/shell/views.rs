@@ -69,4 +69,9 @@ impl Views {
     pub fn get(&self, window: u64) -> Option<ViewState> {
         self.0.borrow().get(&window).cloned()
     }
+
+    /// Every open window's state.
+    pub fn all(&self) -> Vec<ViewState> {
+        self.0.borrow().values().cloned().collect()
+    }
 }

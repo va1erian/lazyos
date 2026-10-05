@@ -298,7 +298,7 @@ fn char_key(code: u32) -> Key {
 }
 
 /// The modifier state packed into a compositor-forwarded key.
-fn modifiers_from_key(key: u32) -> Modifiers {
+pub(super) fn modifiers_from_key(key: u32) -> Modifiers {
     Modifiers {
         shift: key & key::MOD_SHIFT != 0,
         ctrl: key & key::MOD_CTRL != 0,

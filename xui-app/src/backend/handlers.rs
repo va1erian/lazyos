@@ -113,6 +113,7 @@ impl Backend for LazyOSBackend {
                 sink: None,
                 theme: Theme::light(),
                 backdrop: None,
+                background: Default::default(),
                 dpi,
                 width: width as i32,
                 height: height as i32,

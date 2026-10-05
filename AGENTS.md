@@ -672,16 +672,19 @@ regressions, not kernel-internal correctness or resource leaks.
   `tools/screenshot/examples/core_apps.json` launches every core app), so `pkgd`
   installs it at boot and Settings -> Menu offers it (`docs/packages.md`, core
   packages). Verify it by starting it through the launcher or `run_demo.py`, not
-  only by hand-built env vars.
+  only by hand-built env vars. Start a desktop app with
+  `python tools/xui/new_app.py <short> --name "..." --description "..."`: it
+  writes a working app on xui layouts (`xui_app::launch::run`, `UP`/`QUIT`
+  evidence) and registers it for (a)-(d), icons included; then derive its
+  permissions from a traced run.
 - **Rhai first for small apps.** A new utility-class app (a dialog, a settings
   pane, a monitor) is a LazyRAD form by default: a `.lfm` plus its `.rhai`
   script, packaged as an `.lzp` that runs on `lrplay`
   (`lazyrad-os/samples/messenger` is a working start;
-  `python tools/lazyrad/package.py --project <dir>` or the IDE's Make LazyOS
-  App packages it). Write Rust only for apps that need it: editors, Paint,
-  browsers, a custom painter, heavy data or threads. A Rust app starts from
-  `python tools/xui/new_app.py <short> --name "<Name>"`, which writes the bin
-  and every registry entry above. The `xui-app` skill
+  `python tools/lazyrad/package.py --project <dir> --out <app>.lzp` or the
+  IDE's Make LazyOS App packages it). Write Rust only for apps that need it:
+  editors, Paint, browsers, a custom painter, heavy data or threads; a Rust
+  app starts from `tools/xui/new_app.py` (above). The `xui-app` skill
   (`.claude/skills/xui-app/SKILL.md`) walks both paths, and verification goes
   headless first (offscreen renders and host tests), QEMU sessions last.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are

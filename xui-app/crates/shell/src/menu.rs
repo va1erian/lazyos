@@ -6,14 +6,14 @@
 //! [`Menu::build`] sees them ([`visible`], [`installed_entries`]); they still
 //! launch and open files.
 //!
-//! Rows run top-down: the desktop apps (installed ones and the built-in
-//! desktop programs, everything `ListApps` gives a category) no `sys/ui/menu`
-//! entry pins, grouped by menu category under a header row each ([`groups`]),
-//! then the configured `sys/ui/menu` entries, then the two power rows
-//! ([`power`]). The installed section holds at most
-//! [`groups::MAX_PER_CATEGORY`] apps per category and scrolls with the wheel
-//! ([`Menu::scroll_by`]) when it is taller than the room above the configured
-//! rows. A configured entry the image does not ship stays in the list,
+//! Rows run top-down: one row per menu category that has a desktop app
+//! (installed ones and the built-in desktop programs, everything `ListApps`
+//! gives a category), each opening a [`submenu`] of that category's apps
+//! ([`groups`]); then the configured `sys/ui/menu` entries, then the two power
+//! rows ([`power`]). A submenu lists every app of its category, pinned or
+//! not, at most [`groups::MAX_PER_CATEGORY`]. The category section scrolls
+//! with the wheel ([`Menu::scroll_by`]) when it is taller than the room above
+//! the configured rows. A configured entry the image does not ship stays in the list,
 //! greyed and disabled, so configured row `j` of `m` always has the same
 //! centre however the image was built and whatever is installed (the
 //! screenshot sessions click rows by coordinate): its centre is
@@ -33,10 +33,12 @@ use crate::taskbar::BAR_H;
 
 pub mod groups;
 mod power;
+pub mod submenu;
 
 use crate::Rect;
-pub use groups::{InstalledApp, MAX_PER_CATEGORY};
+pub use groups::{Category, InstalledApp, MAX_PER_CATEGORY};
 pub use power::{Action, Choice, Power, POWER_ROWS};
+pub use submenu::{Submenu, SUB_WIDTH};
 
 /// Panel width.
 pub const WIDTH: i32 = 240;
@@ -67,8 +69,10 @@ pub struct Menu {
     /// The rows on screen: `section[scroll..scroll + window]`, the
     /// configured rows, the power rows.
     rows: Vec<Row>,
-    /// The whole installed section, headers included.
+    /// The whole category section, one row per category.
     section: Vec<Row>,
+    /// The categories the section's rows open.
+    categories: Vec<Category>,
     /// The first section row on screen.
     scroll: usize,
     /// How many section rows are on screen.
@@ -107,8 +111,8 @@ impl Shipped<'_> {
 }
 
 impl Menu {
-    /// Build the menu for a screen `screen_h` tall: the `installed` apps no
-    /// configured entry names, grouped by category ([`groups::rows`]), then
+    /// Build the menu for a screen `screen_h` tall: the `installed` apps
+    /// grouped by category, one row each ([`groups::rows`]), then
     /// `configured`, then the power rows. When the rows do not fit above the
     /// taskbar, the installed section shrinks first (and scrolls), so the
     /// configured rows keep their positions; the power rows always stay.
@@ -123,16 +127,8 @@ impl Menu {
             .saturating_sub(POWER_ROWS);
         let configured = &configured[..configured.len().min(fit)];
         let room = fit - configured.len();
-        let unpinned: Vec<InstalledApp> = installed
-            .iter()
-            .filter(|app| {
-                !configured
-                    .iter()
-                    .any(|c| deskmenu::same_app(&c.app, &app.entry.app))
-            })
-            .cloned()
-            .collect();
-        let section = groups::rows(&unpinned);
+        let categories = groups::categories(installed);
+        let section = groups::rows(&categories);
         let window = section.len().min(room);
         let mut rows: Vec<Row> = section[..window].to_vec();
         rows.extend(configured.iter().map(|entry| Row {
@@ -145,6 +141,7 @@ impl Menu {
         Menu {
             rows,
             section,
+            categories,
             scroll: 0,
             window,
         }
@@ -208,6 +205,35 @@ impl Menu {
         }
         let index = usize::try_from((y - PAD) / ROW_H).ok()?;
         (index < self.rows.len()).then_some(index)
+    }
+
+    /// The categories, in section order.
+    pub fn categories(&self) -> &[Category] {
+        &self.categories
+    }
+
+    /// The submenu row `index` opens (a category row), placed beside it on a
+    /// screen `screen_h` tall.
+    pub fn submenu(&self, index: usize, screen_h: i32) -> Option<Submenu> {
+        let Action::Submenu(category) = self.rows.get(index)?.action else {
+            return None;
+        };
+        let (_, oy) = self.origin(screen_h);
+        let top = oy + self.row_rect(index)?.y;
+        Some(Submenu::new(
+            category,
+            self.categories.get(category)?,
+            top,
+            screen_h,
+        ))
+    }
+
+    /// The row opening category `id`'s submenu.
+    pub fn find_category(&self, id: &str) -> Option<usize> {
+        self.rows.iter().position(|row| match row.action {
+            Action::Submenu(index) => self.categories.get(index).is_some_and(|c| c.id == id),
+            _ => false,
+        })
     }
 
     /// The row launching `app`.

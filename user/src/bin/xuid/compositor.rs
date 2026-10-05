@@ -41,6 +41,8 @@ pub(super) struct Compositor {
     pub(super) last_title_click: Option<(u64, u64, (i32, i32))>,
     /// The live drag & drop session, if any (issue #145).
     pub(super) drag_session: Option<DragSession>,
+    /// The placeholder spinner's last painted phase (`spinner.rs`).
+    pub(super) spinner_phase: u32,
     /// Whether a pointer button is held (`DragStart` requires it).
     pub(super) button_down: bool,
     /// Buttons whose press the compositor consumed (window buttons, title
@@ -106,6 +108,7 @@ impl Compositor {
             resize: None,
             last_title_click: None,
             drag_session: None,
+            spinner_phase: 0,
             button_down: false,
             consumed: 0,
             grab: None,

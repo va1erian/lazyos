@@ -1,5 +1,5 @@
 //! The heartbeat's schedule: when to re-read the zone, the theme and the
-//! launchers, and when to retry what failed (the taskbar panel, the service
+//! desktop icons, and when to retry what failed (the taskbar panel, the service
 //! registration). All deadlines are PIT ticks (100 Hz).
 
 use super::ctx::Ctx;
@@ -12,8 +12,11 @@ use crate::sys;
 const ZONE_TICKS: u64 = 300;
 /// While `timed` is unreachable, try again every five seconds.
 const ZONE_RETRY_TICKS: u64 = 500;
-/// The desktop launchers are re-read every ten seconds.
+/// `init`'s registry is re-read for the desktop icons every ten seconds
+/// (hidden apps, package icons)...
 const LAUNCHER_TICKS: u64 = 1000;
+/// ...and the desktop folder's listing about once a second.
+const FOLDER_TICKS: u64 = 100;
 /// A failed taskbar panel is retried every five seconds...
 const BAR_RETRY_TICKS: u64 = 500;
 /// ...a few times: a compositor that refuses panels for good (one older than
@@ -28,6 +31,7 @@ pub struct Heartbeat {
     zone: Option<String>,
     next_zone: u64,
     next_launchers: u64,
+    next_folder: u64,
     next_bar: u64,
     bar_retries: u32,
     next_register: u64,
@@ -41,6 +45,7 @@ impl Heartbeat {
             zone: None,
             next_zone: 0,
             next_launchers: 0,
+            next_folder: 0,
             next_bar: now.saturating_add(BAR_RETRY_TICKS),
             bar_retries: 0,
             next_register: 0,
@@ -75,9 +80,14 @@ impl Heartbeat {
         ctx.theme.borrow_mut().poll()
     }
 
-    /// Whether the launchers are due for a re-read.
+    /// Whether the desktop icons' apps are due for a re-read.
     pub fn launchers_due(&mut self) -> bool {
         due(&mut self.next_launchers, LAUNCHER_TICKS)
+    }
+
+    /// Whether the desktop folder is due for a look.
+    pub fn folder_due(&mut self) -> bool {
+        due(&mut self.next_folder, FOLDER_TICKS)
     }
 
     /// Whether a missing taskbar should be tried again now.

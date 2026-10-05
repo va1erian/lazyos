@@ -9,13 +9,16 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use lazyshell::menu::{listed_hidden, visible, Listed, Menu};
+use lazyshell::desktop::folder::Item;
+use lazyshell::menu::{listed_hidden, visible, Listed, Menu, Submenu};
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
-use lazyshell::{Entry, Rect};
+use lazyshell::Rect;
 use xui_core::app::WindowHandle;
 
+use super::deskdir::Watch;
 use super::menu::MenuMsg;
 use super::services;
+use super::submenu::SubMsg;
 use super::taskbar::BarMsg;
 use super::theme::ThemeFeed;
 use crate::backend::LazyOSBackend;
@@ -50,17 +53,23 @@ pub struct Ctx {
     pub bar_hover: Cell<Option<BarHover>>,
     pub menu: RefCell<Menu>,
     pub menu_hover: Cell<Option<usize>>,
-    /// The desktop launchers on screen: `sys/ui/desktop` minus the apps this
-    /// user hides.
-    pub launchers: RefCell<Vec<Entry>>,
-    /// Each launcher's package icon path (`ListApps.icon`; empty: draw the
-    /// built-in picture), parallel to `launchers`.
-    pub launcher_icons: RefCell<Vec<String>>,
-    /// Set when `launchers` changed and the desktop must rebuild its view.
-    pub launchers_changed: Cell<bool>,
+    /// The desktop icons on screen: the desktop folder's entries (or, with
+    /// no folder, `sys/ui/desktop`) minus the apps this user hides.
+    pub icons: RefCell<Vec<Item>>,
+    /// Each icon's package icon path (`ListApps.icon`; empty: draw the
+    /// built-in picture), parallel to `icons`.
+    pub icon_images: RefCell<Vec<String>>,
+    /// Set when `icons` changed and the desktop must rebuild its view.
+    pub icons_changed: Cell<bool>,
+    /// The desktop folder and what was last read from it (`deskdir`).
+    pub desk: RefCell<Watch>,
     pub theme: RefCell<ThemeFeed>,
     pub bar: RefCell<Option<WindowHandle<BarMsg>>>,
     pub menu_window: RefCell<Option<WindowHandle<MenuMsg>>>,
+    /// The open category submenu, its hovered row and its panel.
+    pub submenu: RefCell<Option<Submenu>>,
+    pub submenu_hover: Cell<Option<usize>>,
+    pub submenu_window: RefCell<Option<WindowHandle<SubMsg>>>,
     /// Keys of the one-time log lines already printed.
     noted: RefCell<Vec<&'static str>>,
 }
@@ -87,12 +96,16 @@ impl Ctx {
             bar_hover: Cell::new(None),
             menu: RefCell::new(Menu::default()),
             menu_hover: Cell::new(None),
-            launchers: RefCell::new(lazyshell::desktop::defaults()),
-            launcher_icons: RefCell::new(Vec::new()),
-            launchers_changed: Cell::new(false),
+            icons: RefCell::new(Vec::new()),
+            icon_images: RefCell::new(Vec::new()),
+            icons_changed: Cell::new(false),
+            desk: RefCell::new(Watch::new()),
             theme: RefCell::new(ThemeFeed::new()),
             bar: RefCell::new(None),
             menu_window: RefCell::new(None),
+            submenu: RefCell::new(None),
+            submenu_hover: Cell::new(None),
+            submenu_window: RefCell::new(None),
             noted: RefCell::new(Vec::new()),
         }
     }
@@ -191,6 +204,12 @@ impl Ctx {
     /// new window open from `origin` (a screen rectangle). Prints the
     /// `SHELL:LAUNCH` marker and returns the pid or the negative errno.
     pub fn launch(&self, app: &str, origin: Option<Rect>) -> Result<u64, i64> {
+        self.launch_with(app, "", origin)
+    }
+
+    /// [`Ctx::launch`] with `arg`, one absolute path (`init`'s `Launch`
+    /// argument), or `""` for none.
+    pub fn launch_with(&self, app: &str, arg: &str, origin: Option<Rect>) -> Result<u64, i64> {
         if let Some(rect) = origin.filter(|rect| !rect.is_empty()) {
             let rect = self.to_screen(rect);
             let hint = (rect.x, rect.y, rect.w as u32, rect.h as u32);
@@ -198,7 +217,7 @@ impl Ctx {
                 self.note("hint", || format!("SHELL:HINT:FAIL err={}", -code));
             }
         }
-        let result = services::launch(app);
+        let result = services::launch(app, arg);
         match result {
             Ok(pid) => println!("SHELL:LAUNCH:PASS app={app} pid={pid}"),
             Err(code) => println!("SHELL:LAUNCH:FAIL app={app} err={}", -code),
@@ -234,37 +253,5 @@ impl Ctx {
         };
         *self.menu.borrow_mut() = Menu::build(&installed, &configured, shipped, self.screen.1);
         self.menu_hover.set(None);
-    }
-
-    /// Re-read the desktop launchers (`sys/ui/desktop`, then `ListApps` for
-    /// what this user hides and each package's icon); `true` when they
-    /// changed. An unreachable `init` hides nothing and draws the built-in
-    /// pictures.
-    pub fn reload_launchers(&self) -> bool {
-        let Ok(stored) = services::confd_get(lazyshell::desktop::KEY) else {
-            return false;
-        };
-        let apps = services::list_apps().unwrap_or_default();
-        let listed: Vec<Listed<'_>> = apps.iter().map(services::App::listed).collect();
-        let next = visible(lazyshell::desktop::from_value(stored.as_ref()), |app| {
-            listed_hidden(&listed, app)
-        });
-        let icons: Vec<String> = next
-            .iter()
-            .map(|entry| {
-                apps.iter()
-                    .find(|app| deskmenu::same_app(&app.id, &entry.app))
-                    .map(|app| app.icon.clone())
-                    .unwrap_or_default()
-            })
-            .collect();
-        if *self.launchers.borrow() == next && *self.launcher_icons.borrow() == icons {
-            return false;
-        }
-        println!("SHELL:DESKTOP:ICONS n={}", next.len());
-        *self.launchers.borrow_mut() = next;
-        *self.launcher_icons.borrow_mut() = icons;
-        self.launchers_changed.set(true);
-        true
     }
 }
