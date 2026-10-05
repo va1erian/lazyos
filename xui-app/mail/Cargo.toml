@@ -1,0 +1,42 @@
+# Mail: esMail (va1erian/esmail) on LazyOS. A package of its own, like the Docs
+# app, because it links C and C++ (SQLite for the mail cache, litehtml for the
+# reading pane), which `tools/xui/build.py` builds with the zig toolchain; the
+# other apps keep the plain Rust toolchain. See docs/mail.md.
+[package]
+name = "xui-mail"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Mail for LazyOS: esMail's IMAP/SMTP core behind a xui window"
+
+[[bin]]
+name = "xui-mail"
+path = "src/main.rs"
+
+[build-dependencies]
+# litehtml-sys and SQLite compile through cc-rs; build their files in parallel.
+cc = { version = "1", features = ["parallel"] }
+
+[dependencies]
+xui-app = { path = ".." }
+fhs = { path = "../../libs/fhs" }
+# One xui revision for every crate, so a single `xui_core` links.
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767efe9253ab4691b14d4bb1" }
+xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767efe9253ab4691b14d4bb1" }
+# The mail core and its frontend-independent glue, with the `rustls` backend:
+# no OpenSSL, ring or D-Bus, and the crypto provider is the one installed below.
+esmail = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
+esmail-glue = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
+# The GPLv2-compatible RustCrypto provider the HTTPS clients use
+# (docs/tls-plan.md §3.2), installed as rustls's process default.
+nettls-crypto = { path = "../../nettls/crypto" }
+rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
+# The credential store esMail reads passwords through; `secrets.rs` gives it a
+# session-only store (docs/tls-plan.md §6.3, "prompted, never stored").
+keyring = "3.2"
+
+secrecy = "0.10"
+
+[dev-dependencies]
+# Offscreen renders of the window (`app/window_tests.rs`).
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767efe9253ab4691b14d4bb1", default-features = false }

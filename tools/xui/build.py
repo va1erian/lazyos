@@ -32,7 +32,8 @@ its own cargo invocation and target directory, with the zig toolchain
 Without zig it is skipped with a warning and every other app still builds.
 LazyWeb (``xui-lazyweb.elf``, the web browser on the NetSurf core, C and
 GPL-2.0-only) is built the same way, in its own cargo invocation sharing that
-target directory.
+target directory. Mail (``xui-mail.elf``, esMail's IMAP/SMTP core with SQLite
+and litehtml) is built the same way, only with ``--mail`` or ``LAZYOS_MAIL=1``.
 
 ``xui-core``, ``xui-canvas`` and ``xui-icons`` are git dependencies on
 ``va1erian/xui`` at a single pinned revision; ``xui-canvas`` is built with
@@ -67,6 +68,10 @@ DOCS_PACKAGE = "xui-docs"
 # zig like Docs, in the same target directory (same environment).
 WEB_PACKAGE = "lazyweb"
 WEB_ELF = "xui-lazyweb.elf"
+# Mail (esMail, docs/mail.md) links SQLite and litehtml, so it is built like
+# the Docs app; only on request (`--mail`, or `LAZYOS_MAIL=1` in the
+# environment), since its mail core is a long build no other image needs.
+MAIL_PACKAGE = "xui-mail"
 BINS = {
     "xui-m0": "xui-m0.elf",
     "xui-counter": "xui-counter.elf",
@@ -197,10 +202,10 @@ def build_zig_package(package: str, env: dict[str, str], debug: bool) -> str | N
     return str(source) if source.is_file() else None
 
 
-def build_zig_apps(debug: bool, lazyweb: bool = True) -> dict[str, str]:
-    """Build the zig-linked apps (Docs, and LazyWeb unless `lazyweb` is
-    False); return `{package: elf}` of those built. A missing zig is a skip
-    (warning), like a missing musl target."""
+def build_zig_apps(debug: bool, lazyweb: bool = True, mail: bool = False) -> dict[str, str]:
+    """Build the zig-linked apps (Docs, LazyWeb unless `lazyweb` is False,
+    and Mail when `mail`); return `{package: elf}` of those built. A missing
+    zig is a skip (warning), like a missing musl target."""
     env = zig_env()
     if env is None:
         print(f"warning: skipping {DOCS_PACKAGE} and {WEB_PACKAGE}", file=sys.stderr)
@@ -209,6 +214,8 @@ def build_zig_apps(debug: bool, lazyweb: bool = True) -> dict[str, str]:
     apps = [(DOCS_PACKAGE, f"{DOCS_PACKAGE}.elf")]
     if lazyweb:
         apps.append((WEB_PACKAGE, WEB_ELF))
+    if mail:
+        apps.append((MAIL_PACKAGE, f"{MAIL_PACKAGE}.elf"))
     for package, disk_name in apps:
         source = build_zig_package(package, env, debug)
         if source:
@@ -262,6 +269,8 @@ def main() -> int:
                         help="skip packaging the desktop apps (run tools/xui/core_packages.py later)")
     parser.add_argument("--no-lazyweb", action="store_true",
                         help="skip LazyWeb (the NetSurf browser, the slowest zig build)")
+    parser.add_argument("--mail", action="store_true",
+                        help="also build Mail (xui-mail.elf, with zig); LAZYOS_MAIL=1 does the same")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,7 +308,12 @@ def main() -> int:
         dest.write_bytes(source.read_bytes())
         built[name] = str(dest)
 
-    built.update(build_zig_apps(args.debug, lazyweb=not args.no_lazyweb))
+    mail = args.mail or os.environ.get("LAZYOS_MAIL") == "1"
+    built.update(build_zig_apps(args.debug, lazyweb=not args.no_lazyweb, mail=mail))
+    if mail and MAIL_PACKAGE not in built:
+        # Asked for by name: an image without it is not what was requested.
+        print(f"error: {MAIL_PACKAGE} was requested but not built", file=sys.stderr)
+        return 1
 
     build_sample_packages()
     if not args.no_core_packages and not build_core_packages():

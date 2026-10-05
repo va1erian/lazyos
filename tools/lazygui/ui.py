@@ -95,9 +95,11 @@ class Launcher:
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
-            "tls": self.v["tls"].get(),
+            # Mail speaks TLS: its switch brings the HTTPS stack and the card.
+            "tls": self.v["tls"].get() or self.v["mail"].get(),
             "journal": self.v["journal"].get(),
             "lazyweb": self.v["lazyweb"].get(),
+            "mail": self.v["mail"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -126,7 +128,8 @@ class Launcher:
                          self.v["simple_devices"], self.v["simple_doom"],
                          self.v["simple_modplayer"], self.v["simple_net"], self._run,
                          self.v["simple_linuxapps"], self.v["simple_hidpi"],
-                         self.v["simple_tls"], self.v["simple_lazyweb"])
+                         self.v["simple_tls"], self.v["simple_lazyweb"],
+                         self.v["simple_mail"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -152,6 +155,7 @@ class Launcher:
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
+        self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")

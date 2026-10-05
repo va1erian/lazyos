@@ -147,6 +147,17 @@ const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 /// the host can reach). Without the stack they would have nothing to show.
 const NETWORK_XUI_APPS: &[&str] = &["xui-network.elf", "xui-nettools.elf"];
 
+/// Mail (esMail, docs/mail.md), shipped by `LAZYOS_MAIL=1` desktop images:
+/// `python tools/xui/build.py --mail` builds it (`run_demo.py --mail` does
+/// both), and a missing one fails such a build.
+const MAIL_XUI_APPS: &[&str] = &["xui-mail.elf"];
+
+/// Whether this build asks for Mail.
+fn mail_app() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_MAIL");
+    std::env::var_os("LAZYOS_MAIL").as_deref() == Some(OsStr::new("1"))
+}
+
 /// Whether this build has the network stack, which brings the network apps.
 fn network_stack() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
@@ -182,6 +193,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .chain(DOCUMENT_XUI_APPS)
             .chain(OPTIONAL_XUI_APPS)
             .chain(NETWORK_XUI_APPS.iter().filter(|_| network_stack()))
+            .chain(MAIL_XUI_APPS.iter().filter(|_| mail_app()))
             .map(|name| dir.join(name))
             .collect(),
         None => Vec::new(),

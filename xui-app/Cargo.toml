@@ -11,6 +11,7 @@ description = "An ordinary xui application running on LazyOS (issue #114)"
 resolver = "2"
 members = [
     "docs",
+    "mail",
     # LazyWeb, the web browser (NetSurf, GPL-2.0-only); built with zig like Docs.
     "web",
     "crates/code-editor",
