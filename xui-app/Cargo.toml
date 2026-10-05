@@ -21,6 +21,8 @@ members = [
     "crates/testkit",
     # LazyWriter's portable core (issue #533); `src/bin/writer.rs` hosts it.
     "crates/writer",
+    # The print spooler (docs/printing-plan.md P6); `src/bin/printd.rs` serves it.
+    "crates/printd",
     "crates/shell",
     # The Archiver (docs/archiver-plan.md): its format library and app core.
     "crates/archive",

@@ -10,7 +10,8 @@
 //!   format is an error, never a guess, and nothing it says sizes an
 //!   allocation beyond the bytes actually received.
 //! * [`request`]: the operations a print client sends (Get-Printer-Attributes,
-//!   Validate-Job, Print-Job, Get-Job-Attributes, Cancel-Job) with the
+//!   Validate-Job, Print-Job, Create-Job, Send-Document, Get-Job-Attributes,
+//!   Cancel-Job) with the
 //!   operation attributes RFC 8011 requires, in its order.
 //! * [`http`] (feature `std`): the HTTP/1.1 transport, a chunked `POST` of
 //!   `application/ipp` followed by the document, and a bounded reply reader.
@@ -287,6 +288,8 @@ pub mod job_state {
 pub mod op {
     pub const PRINT_JOB: u16 = 0x0002;
     pub const VALIDATE_JOB: u16 = 0x0004;
+    pub const CREATE_JOB: u16 = 0x0005;
+    pub const SEND_DOCUMENT: u16 = 0x0006;
     pub const CANCEL_JOB: u16 = 0x0008;
     pub const GET_JOB_ATTRIBUTES: u16 = 0x0009;
     pub const GET_PRINTER_ATTRIBUTES: u16 = 0x000B;

@@ -188,6 +188,64 @@ fn a_print_job_carries_the_ticket_and_the_document_follows() {
 }
 
 #[test]
+fn create_job_then_send_document_split_the_print_job() {
+    let ticket = Ticket {
+        name: String::from("Letter to Bob"),
+        format: String::from("image/pwg-raster"),
+        copies: Some(1),
+        media: Some(String::from("iso_a4_210x297mm")),
+        ..Ticket::default()
+    };
+    let create = request::create_job(&CLIENT, 2, &ticket);
+    assert_eq!(create.code, op::CREATE_JOB);
+    let names: Vec<&str> = create.groups[0]
+        .attributes
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect();
+    // No document attributes: the format travels with the document.
+    assert_eq!(
+        names,
+        [
+            "attributes-charset",
+            "attributes-natural-language",
+            "printer-uri",
+            "requesting-user-name",
+            "job-name",
+        ]
+    );
+    assert_eq!(create.text(tag::JOB, "media"), Some("iso_a4_210x297mm"));
+
+    let send = request::send_document(&CLIENT, 3, 12, "image/pwg-raster", true);
+    assert_eq!(send.code, op::SEND_DOCUMENT);
+    let names: Vec<&str> = send.groups[0]
+        .attributes
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "attributes-charset",
+            "attributes-natural-language",
+            "printer-uri",
+            "job-id",
+            "requesting-user-name",
+            "document-format",
+            "last-document",
+        ]
+    );
+    assert_eq!(send.int(tag::OPERATION, "job-id"), Some(12));
+    assert_eq!(
+        send.get(tag::OPERATION, "last-document").map(|a| a.values.clone()),
+        Some(vec![Value::Boolean(true)])
+    );
+    assert_eq!(send.groups.len(), 1);
+    let wire = send.encode().unwrap();
+    assert_eq!(Message::decode(&wire).unwrap().0, send);
+}
+
+#[test]
 fn a_bare_ticket_sends_no_job_group() {
     let ticket = Ticket {
         name: String::from("x"),
