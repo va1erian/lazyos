@@ -105,8 +105,9 @@ impl Timing {
 }
 
 /// `url` without what could be a secret: the user name and password, and
-/// the query's values (`?token=…` becomes `?token=_`).
+/// the query's values (`?token=…` becomes `?token=_`) and the fragment.
 fn redacted(url: &str) -> String {
+    let url = url.split_once('#').map_or(url, |(url, _)| url);
     let (url, query) = match url.split_once('?') {
         Some((url, query)) => (url, Some(query)),
         None => (url, None),
@@ -123,7 +124,6 @@ fn redacted(url: &str) -> String {
         None => url.to_string(),
     };
     if let Some(query) = query {
-        let query = query.split('#').next().unwrap_or("");
         let names: Vec<&str> = query
             .split('&')
             .map(|pair| pair.split('=').next().unwrap_or(""))
@@ -180,5 +180,9 @@ mod tests {
         );
         assert_eq!(redacted("http://a.test/@x?q"), "http://a.test/@x?q=_");
         assert_eq!(redacted("http://a.test/"), "http://a.test/");
+        assert_eq!(
+            redacted("http://a.test/#access_token=secret"),
+            "http://a.test/"
+        );
     }
 }
