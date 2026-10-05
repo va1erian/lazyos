@@ -34,10 +34,22 @@ modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
 ``mouse_click`` (left|middle|right),
 ``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
 caller can hold a button across steps, e.g. through a drag & drop),
-``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``wait``
+``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``click_at`` (a pixel
+``[x, y]`` or a target name; moves the tablet there and clicks; see below), ``wait``
 (seconds), ``wait_for`` (serial marker), ``qmp`` (a raw QMP command with
 optional ``args``, e.g. hot-plugging a device:
 ``{"qmp": "device_add", "args": {"driver": "usb-kbd", "id": "kbd"}}``), ``quit``.
+
+Clicking by position or name (issue #538)
+-----------------------------------------
+``{"click_at": [640, 400]}`` clicks at a screen pixel and
+``{"click_at": "play_button", "button": "right"}`` at a named target, with
+no corner reset and no hand-measured relative moves. It needs ``--tablet`` (and
+a guest that enumerates USB). Pixels are converted to the tablet's 0..32767
+axes using ``--screen WxH`` (default 1280x720). Names come from the
+``--targets FILE`` JSON object (``{"name": [x, y]}``) so a layout change is
+fixed in one place; a name that is not listed fails the session. Until the
+guest can report widget rectangles itself, the file is read off screenshots.
 
 Readiness gating
 ----------------
@@ -111,12 +123,12 @@ import qemu_net  # noqa: E402
 _ACTIONS = {
     "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
-    "wait", "wait_for", "qmp", "quit",
+    "click_at", "wait", "wait_for", "qmp", "quit",
 }
 # Actions that send input and so may carry an `until` confirmation.
 _INPUT_ACTIONS = {
     "type", "key", "keys", "key_down", "key_up", "mouse_move", "mouse_click",
-    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
+    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "click_at",
 }
 _POLL_SECONDS = 0.25
 
@@ -215,6 +227,24 @@ def capture_hang_state(qmp: Qmp, out_dir: Path, serial: SerialLog,
         print(f"(could not capture hang state: {error})", file=sys.stderr)
 
 
+# Set by main(): the screen size for `click_at` pixels and its named targets.
+POINTER: dict = {"screen": (1280, 720), "targets": {}}
+TABLET_MAX = 32767
+
+
+def resolve_click_at(target, screen: tuple[int, int], targets: dict) -> tuple[int, int]:
+    """Tablet axis values (0..32767) for a `click_at` pixel pair or name."""
+    if isinstance(target, str):
+        if target not in targets:
+            raise StepFailed(f"click_at: unknown target {target!r} (add it to --targets)")
+        target = targets[target]
+    x, y = target
+    width, height = screen
+    if not (0 <= x < width and 0 <= y < height):
+        raise StepFailed(f"click_at: ({x}, {y}) is outside the {width}x{height} screen")
+    return x * TABLET_MAX // (width - 1), y * TABLET_MAX // (height - 1)
+
+
 def perform(qmp: Qmp, action: str, step: dict) -> None:
     """Send one input action to the guest."""
     if action == "type":
@@ -244,6 +274,11 @@ def perform(qmp: Qmp, action: str, step: dict) -> None:
     elif action == "mouse_abs":
         x, y = step["mouse_abs"]
         qmp.mouse_abs(x, y)
+    elif action == "click_at":
+        x, y = resolve_click_at(step["click_at"], POINTER["screen"], POINTER["targets"])
+        qmp.mouse_abs(x, y)
+        time.sleep(0.1)  # let the guest move its cursor before the button
+        qmp.mouse_click(step.get("button", "left"))
 
 
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -379,6 +414,9 @@ def main() -> int:
                         help="guest RAM (default: %(default)s)")
     parser.add_argument("--tablet", action="store_true",
                         help="attach a usb-tablet for absolute pointer positioning")
+    parser.add_argument("--screen", default="1280x720",
+                        help="WxH of the guest screen, for click_at pixels (default: %(default)s)")
+    parser.add_argument("--targets", help="JSON {name: [x, y]} of click_at target names")
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator (auto: whpx/kvm if available)")
@@ -416,6 +454,14 @@ def main() -> int:
         if not image_path.is_file():
             sys.exit(f"--image not found: {image_path}")
         image = str(image_path)
+
+    try:
+        width, height = (int(n) for n in args.screen.lower().split("x"))
+    except ValueError:
+        sys.exit(f"--screen must be WxH, got {args.screen!r}")
+    POINTER["screen"] = (width, height)
+    if args.targets:
+        POINTER["targets"] = json.loads(Path(args.targets).read_text(encoding="utf-8"))
 
     extra = list(args.extra_arg)
     if args.tablet:

@@ -20,6 +20,21 @@ def write_log(directory: Path, text: str) -> Path:
     return path
 
 
+class ClickAtTests(unittest.TestCase):
+    def test_pixels_map_onto_the_tablet_axes(self):
+        r = qemu_session.resolve_click_at
+        self.assertEqual(r([0, 0], (1280, 720), {}), (0, 0))
+        self.assertEqual(r([1279, 719], (1280, 720), {}), (32767, 32767))
+
+    def test_names_resolve_and_unknown_or_offscreen_fail(self):
+        r = qemu_session.resolve_click_at
+        self.assertEqual(r("a", (101, 101), {"a": [50, 100]}), (16383, 32767))
+        with self.assertRaises(qemu_session.StepFailed):
+            r("b", (1280, 720), {})
+        with self.assertRaises(qemu_session.StepFailed):
+            r([1280, 0], (1280, 720), {})
+
+
 class SerialOccurrenceTests(unittest.TestCase):
     def test_first_occurrence_is_the_default(self):
         with tempfile.TemporaryDirectory() as work:

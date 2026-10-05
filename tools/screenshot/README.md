@@ -110,6 +110,7 @@ or since the latest `wait_for` gate) and one action:
 | click | `{"mouse_click": "left"}` |
 | scroll | `{"mouse_scroll": 3}` |
 | absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |
+| click a pixel or named target | `{"click_at": [x, y]}` or `{"click_at": "name"}` (needs `--tablet`; `--screen WxH`, `--targets FILE`) |
 | wait / quit | `{"wait": 1.5}` / `{"quit": true}` |
 | wait for a serial marker (N-th match) | `{"wait_for": "SYSMON:UP:PASS", "timeout": 240, "occurrence": 2}` |
 | confirm an input was handled | `{"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2}` |
