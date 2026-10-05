@@ -107,6 +107,14 @@ impl LazyOSBackend {
         *self.dnd.on_gesture.borrow_mut() = Some(Box::new(hook));
     }
 
+    /// The modifier keys held now, as far as this app knows: in client mode
+    /// from its `inputd` session's key events, which reach the focused
+    /// window (a drag's source keeps the keyboard while the compositor moves
+    /// the drag). A drop target reads it to pick copy or move.
+    pub fn held_modifiers(&self) -> xui_core::Modifiers {
+        self.modifiers.get()
+    }
+
     /// Whether a drag this app started is in flight.
     pub fn is_dragging(&self) -> bool {
         self.dnd.dragging.get()

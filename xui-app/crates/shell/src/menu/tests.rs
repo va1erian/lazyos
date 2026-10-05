@@ -25,7 +25,8 @@ fn hidden_apps_leave_both_row_groups() {
     let configured = visible(deskmenu::defaults(), hides);
     let menu = Menu::build(&installed, &configured, Shipped::Unknown, H);
     let ids = ids(&menu);
-    assert_eq!(ids[1], "org.lazy.dots", "under its category header");
+    let listed = sub_ids(&menu, "accessories");
+    assert_eq!(listed, ["org.lazy.dots"], "in its category's submenu");
     for gone in ["os.lazy.paint", "os.lazy.files", "org.lazy.snake"] {
         assert!(!ids.contains(&gone), "{gone} is hidden");
     }
@@ -62,6 +63,18 @@ fn ids(menu: &Menu) -> Vec<&str> {
     menu.rows().iter().map(|row| row.app.as_str()).collect()
 }
 
+/// The apps category `id`'s submenu lists.
+fn sub_ids(menu: &Menu, id: &str) -> Vec<String> {
+    let row = menu.find_category(id).expect("category row");
+    let sub = menu.submenu(row, H).expect("a submenu");
+    sub.rows().iter().map(|row| row.app.clone()).collect()
+}
+
+/// The rows' labels, top-down.
+fn labels(menu: &Menu) -> Vec<&str> {
+    menu.rows().iter().map(|row| row.label.as_str()).collect()
+}
+
 const H: i32 = 768;
 
 #[test]
@@ -74,17 +87,12 @@ fn installed_apps_come_first_then_the_configured_entries() {
         .collect();
     let menu = Menu::build(&installed, &configured, Shipped::Known(&shipped), H);
     assert_eq!(menu.rows()[0].label, "Accessories");
-    assert_eq!(menu.rows()[0].action, Action::Header);
-    assert!(!menu.rows()[0].enabled, "a header is never chosen");
-    assert_eq!(ids(&menu)[1], "snake");
-    assert_eq!(ids(&menu)[2], "terminal");
-    assert_eq!(
-        menu.rows().len(),
-        17,
-        "header, 1 installed, 13 configured, 2 power"
-    );
-    assert!(menu.rows()[1].enabled);
-    assert!(menu.rows()[2].enabled, "terminal is shipped");
+    assert_eq!(menu.rows()[0].action, Action::Submenu(0));
+    assert!(menu.rows()[0].enabled, "a category row opens its submenu");
+    assert_eq!(sub_ids(&menu, "accessories"), ["snake"]);
+    assert_eq!(ids(&menu)[1], "terminal");
+    assert_eq!(menu.rows().len(), 16, "1 category, 13 configured, 2 power");
+    assert!(menu.rows()[1].enabled, "terminal is shipped");
     let docs = menu.find("os.lazy.docs").unwrap();
     assert!(!menu.rows()[docs].enabled, "unshipped rows stay, disabled");
 }
@@ -127,20 +135,26 @@ fn configured_rows_keep_the_contract_centres() {
 }
 
 #[test]
-fn a_configured_app_is_not_listed_twice() {
+fn a_pinned_app_is_also_in_its_category() {
     let installed = vec![app("terminal", "Terminal (pkg)"), app("snake", "Snake")];
     let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
     assert_eq!(ids(&menu).iter().filter(|id| **id == "terminal").count(), 1);
-    assert_eq!(menu.rows()[1].app, "snake");
+    assert_eq!(sub_ids(&menu, "accessories"), ["snake", "terminal"]);
+}
+
+/// One app in each of the eight categories.
+fn one_per_category() -> Vec<InstalledApp> {
+    groups::CATEGORIES
+        .iter()
+        .map(|(id, _)| in_category(&format!("org.x.{id}"), id, id))
+        .collect()
 }
 
 #[test]
-fn rows_that_do_not_fit_drop_installed_apps_first() {
-    let installed: Vec<InstalledApp> = (0..20)
-        .map(|i| app(&format!("app{i:02}"), &format!("x{i:02}")))
-        .collect();
+fn rows_that_do_not_fit_drop_category_rows_first() {
+    let installed = one_per_category();
     let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 400);
-    // (400 - 32 - 8) / 24 = 15 rows: 13 configured + 2 power, no installed.
+    // (400 - 32 - 8) / 24 = 15 rows: 13 configured + 2 power, no category.
     assert_eq!(menu.rows().len(), 15);
     assert_eq!(menu.rows()[0].app, "terminal");
     assert!(menu.origin(400).1 >= 0);
@@ -150,10 +164,21 @@ fn rows_that_do_not_fit_drop_installed_apps_first() {
         "terminal",
         "17 rows: 2 of the section"
     );
-    // One category lists at most MAX_PER_CATEGORY apps, plus its header.
     let roomy = Menu::build(&installed, &[], Shipped::Unknown, 2000);
-    assert_eq!(roomy.rows().len(), 1 + MAX_PER_CATEGORY + POWER_ROWS);
+    assert_eq!(roomy.rows().len(), 8 + POWER_ROWS, "one row per category");
     assert_eq!(roomy.scroll(), None, "everything fits");
+}
+
+#[test]
+fn a_submenu_lists_at_most_max_per_category() {
+    let installed: Vec<InstalledApp> = (0..20)
+        .map(|i| app(&format!("app{i:02}"), &format!("x{i:02}")))
+        .collect();
+    let menu = Menu::build(&installed, &[], Shipped::Unknown, 2000);
+    assert_eq!(menu.rows().len(), 1 + POWER_ROWS);
+    let sub = menu.submenu(0, 2000).unwrap();
+    assert_eq!(sub.rows().len(), MAX_PER_CATEGORY);
+    assert_eq!(sub.app(0), Some("app00"));
 }
 
 #[test]
@@ -266,8 +291,8 @@ fn a_menu_saved_with_short_ids_still_matches_the_core_apps() {
     let installed = vec![app("os.lazy.editor", "Editor")];
     let shipped = vec![String::from("os.lazy.editor")];
     let menu = Menu::build(&installed, &configured, Shipped::Known(&shipped), H);
-    assert_eq!(ids(&menu)[0], "editor", "no second Editor row");
-    assert!(menu.rows()[0].enabled, "the short id is shipped");
+    assert_eq!(ids(&menu)[1], "editor", "under the category row");
+    assert!(menu.rows()[1].enabled, "the short id is shipped");
 }
 
 #[test]
@@ -279,79 +304,103 @@ fn installed_apps_group_by_category_in_menu_order() {
         in_category("org.x.odd", "Odd", "no-such-category"),
     ];
     let menu = Menu::build(&installed, &[], Shipped::Unknown, H);
-    let labels: Vec<&str> = menu.rows().iter().map(|r| r.label.as_str()).collect();
     assert_eq!(
-        labels[..7],
-        [
-            "Accessories",
-            "Odd",
-            "Graphics",
-            "Alpha",
-            "paint",
-            "System",
-            "Zeta"
-        ],
-        "an unknown category files under accessories; labels sort without case"
+        labels(&menu)[..3],
+        ["Accessories", "Graphics", "System"],
+        "an unknown category files under accessories"
     );
-    let headers = menu
-        .rows()
-        .iter()
-        .filter(|r| r.action == Action::Header)
-        .count();
-    assert_eq!(headers, 3);
-    assert_eq!(menu.find(""), None, "a header is never an app");
+    assert_eq!(sub_ids(&menu, "accessories"), ["org.x.odd"]);
+    assert_eq!(
+        sub_ids(&menu, "graphics"),
+        ["org.x.alpha", "org.x.paint"],
+        "labels sort without case"
+    );
+    assert_eq!(sub_ids(&menu, "system"), ["org.x.zeta"]);
+    assert_eq!(menu.find(""), None, "a category row is never an app");
 }
 
 #[test]
 fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
-    // Two full categories: 2 headers + 32 apps = 34 section rows.
-    let mut installed: Vec<InstalledApp> = (0..20)
-        .map(|i| in_category(&format!("org.a.app{i:02}"), &format!("A{i:02}"), "office"))
-        .collect();
-    installed.extend((0..20).map(|i| {
-        in_category(
-            &format!("org.b.app{i:02}"),
-            &format!("B{i:02}"),
-            "utilities",
-        )
-    }));
-    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
-    // (768 - 32 - 8) / 24 = 30 rows: 13 configured + 2 power leave 15.
-    let scroll = menu.scroll().expect("34 rows do not fit in 15");
-    assert_eq!((scroll.first, scroll.shown, scroll.total), (0, 15, 34));
-    assert_eq!(menu.rows()[0].label, "Office");
+    let installed = one_per_category();
+    // (448 - 32 - 8) / 24 = 17 rows: 13 configured + 2 power leave 2.
+    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 448);
+    let scroll = menu.scroll().expect("8 rows do not fit in 2");
+    assert_eq!((scroll.first, scroll.shown, scroll.total), (0, 2, 8));
+    assert_eq!(menu.rows()[0].label, "Accessories");
     let terminal = menu.find("terminal").unwrap();
     assert!(!menu.scroll_by(-3), "already at the top");
     assert!(menu.scroll_by(3));
-    assert_eq!(menu.rows()[0].label, "A02");
+    assert_eq!(menu.rows()[0].label, "Graphics");
+    assert_eq!(menu.rows()[0].action, Action::Submenu(3));
     assert_eq!(
         menu.find("terminal"),
         Some(terminal),
         "configured rows do not move"
     );
     assert!(menu.scroll_by(1000));
-    let end = menu.scroll().unwrap();
-    assert_eq!(end.first, 34 - 15);
-    assert_eq!(
-        menu.rows()[14].label,
-        "B15",
-        "the last listed app of the last category"
-    );
+    assert_eq!(menu.scroll().unwrap().first, 6);
+    assert_eq!(menu.rows()[1].label, "Utilities", "the last category");
     assert!(!menu.scroll_by(1));
     assert!(menu.scroll_by(-1000));
-    assert_eq!(menu.rows()[0].label, "Office");
+    assert_eq!(menu.rows()[0].label, "Accessories");
 }
 
 #[test]
 fn scrolling_keeps_a_pending_power_confirmation() {
-    let installed: Vec<InstalledApp> = (0..16)
-        .map(|i| app(&format!("org.a.app{i:02}"), &format!("A{i:02}")))
-        .collect();
-    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
+    let mut menu = Menu::build(
+        &one_per_category(),
+        &deskmenu::defaults(),
+        Shipped::Unknown,
+        448,
+    );
     let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
     assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
     assert!(menu.scroll_by(1));
     assert!(menu.confirming());
+}
+
+#[test]
+fn a_category_row_opens_its_submenu_beside_it() {
+    let installed = vec![
+        in_category("org.x.chess", "Chess", "games"),
+        in_category("org.x.snake", "Snake", "games"),
+        in_category("org.x.paint", "Paint", "graphics"),
+    ];
+    let mut menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, H);
+    let games = menu.find_category("games").unwrap();
+    assert_eq!(menu.choose(games, false), Choice::Submenu(games));
+    let sub = menu.submenu(games, H).unwrap();
+    assert_eq!(sub.id, "games");
+    let (_, oy) = menu.origin(H);
+    let row_top = oy + menu.row_rect(games).unwrap().y;
+    let (sx, sy) = sub.origin();
+    assert_eq!(sx, WIDTH - 2, "overlapping the menu's right edge");
+    assert_eq!(sy + PAD, row_top, "first row level with the category row");
+    assert_eq!(sub.height(), 2 * ROW_H + 2 * PAD);
+    assert_eq!(sub.row_at(10, PAD + ROW_H + 3), Some(1));
+    assert_eq!(sub.row_at(SUB_WIDTH, PAD + 3), None);
+    assert_eq!(sub.app(1), Some("org.x.snake"));
+    assert_eq!(sub.find("org.x.chess"), Some(0));
+    assert!(menu.submenu(menu.find("terminal").unwrap(), H).is_none());
+}
+
+#[test]
+fn a_low_submenu_slides_up_onto_the_taskbar_edge() {
+    let installed: Vec<InstalledApp> = (0..10)
+        .map(|i| in_category(&format!("org.x.a{i}"), &format!("A{i}"), "utilities"))
+        .collect();
+    let category = &groups::categories(&installed)[0];
+    let sub = Submenu::new(0, category, H - 60, H);
+    let (_, y) = sub.origin();
+    assert_eq!(y + sub.height(), H - 32, "flush with the taskbar top");
+    // A screen too short for all ten keeps what fits, from the top.
+    let short = Submenu::new(0, category, 10, 200);
+    assert_eq!(short.rows().len(), ((200 - 32 - 8) / ROW_H) as usize);
+    assert_eq!(
+        short.origin().1,
+        10 - PAD,
+        "it fits below the row: no slide"
+    );
 }
 
 #[test]
@@ -410,6 +459,6 @@ fn built_in_desktop_programs_are_listed_and_console_ones_are_not() {
     assert_eq!(ids, ["terminal", "os.lazy.paint"]);
     // A menu that pins neither shows the Terminal under System.
     let menu = Menu::build(&rows, &[], Shipped::Unknown, H);
-    let labels: Vec<&str> = menu.rows().iter().map(|r| r.label.as_str()).collect();
-    assert_eq!(labels[..4], ["Graphics", "Paint", "System", "Terminal"]);
+    assert_eq!(labels(&menu)[..2], ["Graphics", "System"]);
+    assert_eq!(sub_ids(&menu, "system"), ["terminal"]);
 }

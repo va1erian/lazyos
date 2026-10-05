@@ -564,14 +564,15 @@ sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
 read back from the kernel.
 
 LazyShell's start menu is re-read each time it opens: the configured
-`sys/ui/menu` entries keep their order and positions at the bottom, and the
-installed apps no entry pins sit above them, grouped under one header per
-`category` (at most 16 apps per category; the section scrolls with the wheel
-when it does not fit). Apps `ListApps` marks `hidden` leave the menu and the
-desktop launchers, nothing else. Each installed app's `AppInfo.icon` is its
-`icons/app-32.png` in the install directory, which the desktop launchers draw
-(read with a size cap and a PNG header check; a missing one falls back to the
-built-in picture).
+`sys/ui/menu` entries keep their order and positions at the bottom, and above
+them sits one row per `category` that has a desktop app; resting the pointer
+on a category row (or clicking it) opens a submenu beside the menu listing
+that category's apps, pinned or not (at most 16 per category; the category
+rows scroll with the wheel when they do not fit). Apps `ListApps` marks
+`hidden` leave the menu and the desktop's shortcuts, nothing else. Each
+installed app's `AppInfo.icon` is its `icons/app-32.png` in the install
+directory, which a desktop shortcut to it draws (read with a size cap and a
+PNG header check; a missing one falls back to the built-in picture).
 
 `ListApps` lists the core apps first, then the others by `system_name`, each
 with its `origin` (`core`, `user`, or `system` for a built-in program),
@@ -631,9 +632,8 @@ documents in it; plain text and Markdown stay with the Editor and Docs.
 cargo bin `xui-archiver` is built as `target/xui/xui-archiver.elf` and packaged
 as `bin/archiver.elf`. It declares the archive types `mimed` maps from `.zip`,
 `.tar`, `.gz`/`.tgz`, `.xz`/`.txz`, `.zst`/`.tzst` and `.7z` (`open`), and the
-clipboard, which carries its drag-and-drop payloads. Accessories is the first
-category of the start menu's installed section and held no unpinned app, so
-its two rows move no other row the sessions click.
+clipboard, which carries its drag-and-drop payloads. It is listed in the
+start menu's Accessories submenu.
 
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,

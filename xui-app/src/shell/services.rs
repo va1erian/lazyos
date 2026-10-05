@@ -101,12 +101,12 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
         .collect())
 }
 
-/// `init.Launch(app, "", 0)`: start `app` in the shell's own session; the
-/// new task's pid.
-pub fn launch(app: &str) -> Result<u64, i64> {
+/// `init.Launch(app, arg, 0)`: start `app` in the shell's own session, with
+/// `arg` (one absolute path, or `""`); the new task's pid.
+pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {
     let body = init_wire::encode_launch_args(&init_wire::LaunchArgs {
         app: app.to_owned(),
-        args: String::new(),
+        args: arg.to_owned(),
         session: 0,
     })
     .map_err(|_| -errno::EINVAL)?;

@@ -50,7 +50,10 @@ impl LazyOSBackend {
                 sym,
                 mods,
                 state,
-            } => self.session_key(window, code, sym, modifiers_of(mods), state),
+            } => {
+                self.track_modifiers(sym, modifiers_of(mods), state);
+                self.session_key(window, code, sym, modifiers_of(mods), state)
+            }
             InputEvent::Text(text) => {
                 let target = self.focused.get().unwrap_or(WidgetId::NONE);
                 for character in text.chars() {
@@ -59,7 +62,10 @@ impl LazyOSBackend {
             }
             // Focus left: nothing may stay pressed, or a key held while the
             // window lost the keyboard would repeat its release forever.
-            InputEvent::Leave => self.release_held_keys(window),
+            InputEvent::Leave => {
+                self.modifiers.set(Modifiers::NONE);
+                self.release_held_keys(window);
+            }
             InputEvent::Enter(_) | InputEvent::Layout(_) => {}
         }
     }
@@ -123,6 +129,23 @@ impl LazyOSBackend {
                 }
             }
         }
+    }
+
+    /// Remember the modifiers held after this key event, for
+    /// [`LazyOSBackend::held_modifiers`]: the event's bits, corrected by the
+    /// modifier key itself when the event is one (whether `inputd` reports
+    /// the bits before or after a modifier's own transition).
+    fn track_modifiers(&self, sym: u32, bits: Modifiers, state: KeyState) {
+        let mut held = bits;
+        let down = state != KeyState::Up;
+        match sym {
+            keysym::SHIFT_L | keysym::SHIFT_R => held.shift = down,
+            keysym::CONTROL_L | keysym::CONTROL_R => held.ctrl = down,
+            keysym::ALT_L | keysym::ALT_R => held.alt = down,
+            keysym::SUPER_L | keysym::SUPER_R => held.win = down,
+            _ => {}
+        }
+        self.modifiers.set(held);
     }
 
     /// Release every key the session reported down.

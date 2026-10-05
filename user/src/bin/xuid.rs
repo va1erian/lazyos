@@ -144,6 +144,8 @@ mod resize;
 mod shell;
 #[path = "xuid/shellcalls.rs"]
 mod shellcalls;
+#[path = "xuid/spinner.rs"]
+mod spinner;
 #[path = "xuid/surface.rs"]
 mod surface;
 #[path = "xuid/theme.rs"]
@@ -254,6 +256,7 @@ fn run() -> ! {
         geometry::selftest_geometry,
         anim::selftest_anim,
         wheel::selftest_wheel_routing,
+        drag::selftest_drag_target,
         reap::selftest_reap,
         pointer_feed::selftest_pointer_feed,
         held::selftest_held,
@@ -287,6 +290,7 @@ fn run() -> ! {
         comp.reap_dead_shell();
         comp.tick_theme();
         comp.tick_power();
+        comp.tick_spinner();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Park until a request, a shell event from `inputd` (pointer

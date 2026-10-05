@@ -1,13 +1,18 @@
-//! The desktop launchers (`sys/ui/desktop` in confd): the icons on the
-//! desktop surface, each launching one `init` registry app.
+//! The desktop: the icons of the user's desktop folder ([`folder`], laid out
+//! by [`grid`]), and the launchers (`sys/ui/desktop` in confd) that seed it.
 //!
-//! The stored value uses the start menu's `deskmenu` format (one
+//! The launchers are what a new desktop folder starts with (one shortcut
+//! each), and what the desktop shows when there is no folder to show (no
+//! `$HOME`). The stored value uses the start menu's `deskmenu` format (one
 //! `<app id>\t<label>` line per icon) and the same validation, so a corrupt or
 //! hostile value can only produce well-formed rows. An absent, mistyped or
 //! all-invalid value yields [`defaults`].
 
 use confd::Value;
 use deskmenu::Entry;
+
+pub mod folder;
+pub mod grid;
 
 /// The confd key, under `sys/ui/` like the theme and the menu.
 pub const KEY: &str = "sys/ui/desktop";

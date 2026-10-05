@@ -52,7 +52,7 @@ pub fn copy_into(sources: &[PathBuf], dir: &Path) -> CopyReport {
 
 /// Copy one file, link or folder (recursively) to `target`, which must not
 /// exist.
-fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
+pub(super) fn copy_entry(source: &Path, target: &Path) -> io::Result<()> {
     let meta = fs::symlink_metadata(source)?;
     let kind = meta.file_type();
     if kind.is_symlink() {

@@ -12009,7 +12009,8 @@ pub mod os_lazy_shell_v1 {
     /// The window title.
     /// Whether the window is minimized.
     /// One start-menu row or desktop icon: the `init` registry app it
-    /// launches and the label it shows.
+    /// launches (for a desktop icon that is not an app shortcut, its absolute
+    /// path in the desktop folder) and the label it shows.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Launcher {
         pub app: alloc::string::String,
@@ -12206,7 +12207,8 @@ pub mod os_lazy_shell_v1 {
     }
 
     /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
-    /// desktop icons (`sys/ui/desktop`); returns how many rows each has.
+    /// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
+    /// without one); returns how many rows each has.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RefreshReply {
         pub menu: u32,

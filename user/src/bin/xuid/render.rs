@@ -12,6 +12,7 @@ use super::drag::draw_drag;
 use super::icons;
 use super::region::Region;
 use super::shell::AltTab;
+use super::spinner;
 use super::surface::Surface;
 use super::theme::{
     background, border_color, border_color_focus, button, button_gap, button_margin, empty_bg,
@@ -170,7 +171,7 @@ impl Compositor {
 /// Whether the surface has a mapped buffer big enough for the dimensions it
 /// was attached at. The window may since have been resized; the old buffer is
 /// cropped or padded.
-fn has_pixels(surface: &Surface) -> bool {
+pub(super) fn has_pixels(surface: &Surface) -> bool {
     surface.pixels != 0
         && surface.buf_w > 0
         && surface.buf_h > 0
@@ -392,7 +393,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
     }
     icons::draw_minimize(screen, surface.minimize_button(), ink, clip);
 
-    // The app's pixels, or an explicit placeholder before AttachBuffer.
+    // The app's pixels, or the spinner before AttachBuffer.
     let content = surface.content();
     if has_pixels(surface) {
         // The window may have grown since the buffer was attached: the strips
@@ -422,13 +423,6 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         screen.blit(pixels, surface.buf_w, surface.buf_h, content, clip);
     } else {
         screen.fill(content, clip, empty_bg());
-        screen.text_face(
-            content.x + px(10),
-            content.y + px(10),
-            "Waiting for buffer...",
-            Face::Serif,
-            empty_text(),
-            clip,
-        );
+        spinner::draw(screen, content, spinner::phase(), empty_text(), empty_bg(), clip);
     }
 }

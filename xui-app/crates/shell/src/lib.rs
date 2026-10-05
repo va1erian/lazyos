@@ -7,7 +7,9 @@
 //! * [`menu`]: the start-menu rows (installed apps, the configured
 //!   `sys/ui/menu` entries, then the power rows with their confirmation) and
 //!   their geometry.
-//! * [`desktop`]: the desktop launchers from `sys/ui/desktop`.
+//! * [`desktop`]: the desktop icons from the user's desktop folder, their
+//!   layout, and the `sys/ui/desktop` launchers that seed the folder.
+//! * [`shortcut`]: the `.lnk` shortcut files the desktop folder holds.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
 //! * [`policy`]: who may call the `os.lazy.shell` service.
 //! * [`wallpaper`]: the desktop picture's size check, crop and brightness.
@@ -21,6 +23,7 @@ pub mod clock;
 pub mod desktop;
 pub mod menu;
 pub mod policy;
+pub mod shortcut;
 pub mod taskbar;
 pub mod wallpaper;
 

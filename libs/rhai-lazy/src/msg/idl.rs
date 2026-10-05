@@ -2283,7 +2283,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Refresh",
                 id: 4,
                 oneway: false,
-                doc: "Re-read the start menu (`sys/ui/menu` plus installed apps) and the\ndesktop icons (`sys/ui/desktop`); returns how many rows each has.",
+                doc: "Re-read the start menu (`sys/ui/menu` plus installed apps) and the\ndesktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`\nwithout one); returns how many rows each has.",
                 params: &[],
                 returns: &[Field { name: "menu", ty: Ty::U32 }, Field { name: "desktop", ty: Ty::U32 }],
                 transfers: &[],
@@ -2306,7 +2306,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "Launcher",
-                doc: "The compositor's surface id.\nThe window title.\nWhether the window is minimized.\nOne start-menu row or desktop icon: the `init` registry app it\nlaunches and the label it shows.",
+                doc: "The compositor's surface id.\nThe window title.\nWhether the window is minimized.\nOne start-menu row or desktop icon: the `init` registry app it\nlaunches (for a desktop icon that is not an app shortcut, its absolute\npath in the desktop folder) and the label it shows.",
                 fields: &[Field { name: "app", ty: Ty::String }, Field { name: "label", ty: Ty::String }],
             },
         ],

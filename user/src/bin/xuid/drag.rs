@@ -35,7 +35,9 @@ pub(super) struct DragSession {
     pub(super) target: Option<u64>,
 }
 /// The topmost visible window whose content contains `point`, ignoring
-/// `source`; nothing under a shell panel (panels paint above every window).
+/// `source`; where no window shows at all, the shell's desktop (its icons
+/// are a folder that takes drops). Nothing under a shell panel (panels paint
+/// above every window).
 fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Option<u64> {
     if surfaces
         .iter()
@@ -43,7 +45,7 @@ fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Optio
     {
         return None;
     }
-    surfaces
+    let window = surfaces
         .iter()
         .rev()
         .find(|surface| {
@@ -51,6 +53,22 @@ fn drag_target_at(surfaces: &[Surface], source: u64, point: (i32, i32)) -> Optio
                 && surface.is_window()
                 && surface.id != source
                 && contains(surface.content(), point)
+        })
+        .map(|surface| surface.id);
+    if window.is_some() {
+        return window;
+    }
+    // Over a window's chrome (or the source itself) is not over the desktop.
+    let covered = surfaces.iter().any(|surface| {
+        surface.is_window() && !surface.minimized && contains(surface.window(), point)
+    });
+    if covered {
+        return None;
+    }
+    surfaces
+        .iter()
+        .find(|surface| {
+            surface.is_desktop() && surface.id != source && contains(surface.window(), point)
         })
         .map(|surface| surface.id)
 }
@@ -230,7 +248,8 @@ fn drag_leave_target(
 }
 
 /// Paint the active drag & drop session over the composited frame: a frame
-/// around the target surface and a payload ghost at the cursor.
+/// around the target window (not the desktop, which is the whole screen)
+/// and a payload ghost at the cursor.
 pub(super) fn draw_drag(
     screen: &mut Canvas,
     surfaces: &[Surface],
@@ -238,7 +257,8 @@ pub(super) fn draw_drag(
     pointer: (i32, i32),
     clip: Rect,
 ) {
-    if let Some(surface) = session.target.and_then(|id| surface_by_id(surfaces, id)) {
+    let target = session.target.and_then(|id| surface_by_id(surfaces, id));
+    if let Some(surface) = target.filter(|surface| surface.is_window()) {
         let content = surface.content();
         let edge = px(3);
         screen.fill(
@@ -286,4 +306,42 @@ pub(super) fn draw_drag(
         DRAG_ACCENT,
         clip.intersect(label),
     );
+}
+
+/// Boot check of [`drag_target_at`]: a window's content takes the drop, the
+/// desktop takes it only where no window shows (not under a window's chrome,
+/// not under a panel), and the source never does. `XUID:DRAGTARGET:PASS` or
+/// `XUID:DRAGTARGET:FAIL`.
+pub(super) fn selftest_drag_target() -> &'static str {
+    use super::window::test_surface;
+
+    let mut desktop = test_surface(1, false, true);
+    (desktop.w, desktop.h) = (800, 600);
+    let mut window = test_surface(2, false, false);
+    (window.x, window.y) = (100, 100);
+    let mut source = test_surface(3, false, false);
+    (source.x, source.y) = (400, 100);
+    let content = window.content();
+    let title = window.title_bar();
+    let own = source.content();
+    let mut stack = alloc::vec![desktop, window, source];
+    let inside = |rect: Rect| (rect.x + 1, rect.y + 1);
+
+    let to_window = drag_target_at(&stack, 3, inside(content)) == Some(2);
+    let to_desktop = drag_target_at(&stack, 3, (700, 500)) == Some(1);
+    let not_chrome = drag_target_at(&stack, 3, inside(title)).is_none();
+    let not_source = drag_target_at(&stack, 3, inside(own)).is_none();
+    // The desktop's own drag (an icon dragged out) never drops on itself.
+    let not_own_desktop = drag_target_at(&stack, 1, (700, 500)).is_none();
+    let mut panel = test_surface(4, false, false);
+    panel.role = wire::ROLE_PANEL;
+    (panel.x, panel.y, panel.w, panel.h) = (600, 400, 200, 200);
+    stack.push(panel);
+    let not_panel = drag_target_at(&stack, 3, (700, 500)).is_none();
+
+    if to_window && to_desktop && not_chrome && not_source && not_own_desktop && not_panel {
+        "XUID:DRAGTARGET:PASS\n"
+    } else {
+        "XUID:DRAGTARGET:FAIL\n"
+    }
 }
