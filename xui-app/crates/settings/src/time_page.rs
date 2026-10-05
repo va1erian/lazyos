@@ -5,9 +5,14 @@
 //! `CAP_SYS_TIME`, [`System::set_zone`] persists to confd); the format
 //! toggles are confd keys the LazyShell taskbar follows live ([`time_ops`]).
 
+use std::rc::Rc;
+
 use xui_core::app::Ui;
-use xui_core::backend::Result;
-use xui_core::widget::{Button, CheckBox, Edit, Label, ListView, Panel};
+use xui_core::arrange::{
+    build, button, checkbox, column, edit, label, row, Handle, LayoutExt, Mounted,
+};
+use xui_core::backend::{Result, WidgetId};
+use xui_core::widget::{CheckBox, Edit, Label, ListView};
 use xui_core::{HasText, Rect};
 
 use crate::app::Msg;
@@ -28,68 +33,80 @@ pub enum TimeMsg {
     Seconds(bool),
 }
 
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
-}
-
-fn send(msg: TimeMsg) -> Option<Msg> {
-    Some(Msg::Time(msg))
-}
-
 /// The page's widgets.
 pub struct TimePage {
-    panel: Panel<Msg>,
-    now: Label<Msg>,
-    date: Edit<Msg>,
-    time: Edit<Msg>,
-    zones: ListView<Msg>,
-    clock24: CheckBox<Msg>,
-    seconds: CheckBox<Msg>,
-    _labels: Vec<Label<Msg>>,
-    _buttons: Vec<Button<Msg>>,
+    now: Rc<Label<Msg>>,
+    date: Rc<Edit<Msg>>,
+    time: Rc<Edit<Msg>>,
+    zones: Rc<ListView<Msg>>,
+    clock24: Rc<CheckBox<Msg>>,
+    seconds: Rc<CheckBox<Msg>>,
+    _mounted: Mounted<Msg>,
 }
 
 impl TimePage {
-    /// Build the page (hidden state is the caller's job) inside `bounds`.
-    pub fn build(ui: &Ui<Msg>, bounds: Rect) -> Result<TimePage> {
-        let panel = Panel::new(ui, bounds)?;
-        let p = panel.ui();
-        let labels = vec![
-            Label::new(p, rect(20, 14, 300, 20), "Current time")?,
-            Label::new(p, rect(20, 72, 300, 20), "Set the date and local time")?,
-            Label::new(p, rect(20, 140, 220, 20), "Time zone")?,
-            Label::new(p, rect(260, 140, 210, 20), "Taskbar clock")?,
-        ];
-        let now = Label::new(p, rect(20, 38, 450, 20), "")?;
-        let date = Edit::new(p, rect(20, 96, 120, 26), "")?.cue("YYYY-MM-DD");
-        let time = Edit::new(p, rect(148, 96, 96, 26), "")?.cue("HH:MM:SS");
-        let buttons = vec![
-            Button::new(p, rect(252, 95, 70, 28), "Apply")?.on_click(|| send(TimeMsg::Apply)),
-            Button::new(p, rect(328, 95, 70, 28), "Now")?.on_click(|| send(TimeMsg::Now)),
-        ];
-        let names: Vec<&str> = timezone::ZONES.iter().map(|zone| zone.name).collect();
-        let zones = ListView::new(p, rect(20, 164, 220, 200), &names)?
-            .multi_select(false)
-            .on_select(|i| send(TimeMsg::Zone(i)));
-        let clock24 = CheckBox::new(p, rect(260, 164, 210, 24), "24-hour clock")?
-            .on_toggle(|on| send(TimeMsg::Clock24(on)));
-        let seconds = CheckBox::new(p, rect(260, 194, 210, 24), "Show seconds")?
-            .on_toggle(|on| send(TimeMsg::Seconds(on)));
+    /// Lays the page out in the container `page`.
+    pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<TimePage> {
+        let (now, date, time, zones) = (Handle::new(), Handle::new(), Handle::new(), Handle::new());
+        let (clock24, seconds) = (Handle::new(), Handle::new());
+        let mounted = ui.mount_in(
+            page,
+            column().padding(20).gap(16).children((
+                column()
+                    .gap(4)
+                    .children((label("Current time"), label("").bind(&now))),
+                column().gap(6).children((
+                    label("Set the date and local time"),
+                    row().gap(8).children((
+                        edit().placeholder("YYYY-MM-DD").bind(&date).width(120),
+                        edit().placeholder("HH:MM:SS").bind(&time).width(96),
+                        button("Apply").on_click(Msg::Time(TimeMsg::Apply)),
+                        button("Now").on_click(Msg::Time(TimeMsg::Now)),
+                    )),
+                )),
+                row()
+                    .gap(20)
+                    .children((
+                        column()
+                            .gap(8)
+                            .children((
+                                label("Time zone"),
+                                build(|ui| {
+                                    let names: Vec<&str> =
+                                        timezone::ZONES.iter().map(|zone| zone.name).collect();
+                                    Ok(ListView::new(ui, Rect::default(), &names)?
+                                        .multi_select(false)
+                                        .on_select(|i| Some(Msg::Time(TimeMsg::Zone(i)))))
+                                })
+                                .bind(&zones)
+                                .fill(1),
+                            ))
+                            .fill(1),
+                        column()
+                            .gap(8)
+                            .children((
+                                label("Taskbar clock"),
+                                checkbox("24-hour clock")
+                                    .on_toggle(|on| Msg::Time(TimeMsg::Clock24(on)))
+                                    .bind(&clock24),
+                                checkbox("Show seconds")
+                                    .on_toggle(|on| Msg::Time(TimeMsg::Seconds(on)))
+                                    .bind(&seconds),
+                            ))
+                            .fill(1),
+                    ))
+                    .fill(1),
+            )),
+        )?;
         Ok(TimePage {
-            panel,
-            now,
-            date,
-            time,
-            zones,
-            clock24,
-            seconds,
-            _labels: labels,
-            _buttons: buttons,
+            now: now.get(),
+            date: date.get(),
+            time: time.get(),
+            zones: zones.get(),
+            clock24: clock24.get(),
+            seconds: seconds.get(),
+            _mounted: mounted,
         })
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.panel.set_visible(visible);
     }
 
     /// Show the current time and zone, prefill the fields, and point the

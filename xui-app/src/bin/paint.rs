@@ -17,12 +17,9 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
+use xui_app::launch;
 use xui_app::platform::argv;
 use xui_app::platform::storage::PngStorage;
-use xui_app::themed::run_themed;
-use xui_core::backend::PlatformSpec;
-use xui_core::units::Dip;
 use xui_core::widget::StdFileSystem;
 use xui_paint::storage::Storage;
 use xui_paint::view::PaintApp;
@@ -108,30 +105,19 @@ fn start_dir(requested: Option<&Path>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn main() -> std::process::ExitCode {
+fn main() {
     let requested = argv::file_arg(std::env::args_os());
     let path = requested.clone().unwrap_or_else(default_path);
     let storage = Rc::new(ReportingStorage {
         inner: PngStorage::new(path),
     });
 
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("PAINT:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    // Paint's document is fixed; only the viewport follows the window, so it
-    // can be resized down to a workable drawing area.
-    backend.set_size_hints(320, 240, 0, 0);
-    backend.on_first_frame(|| println!("PAINT:UP:PASS"));
-
-    let spec = PlatformSpec::new("Paint").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, move |ui| {
-        let app = PaintApp::build_with_files(ui, storage.clone(), Rc::new(StdFileSystem))
-            .expect("the paint widgets built");
+    launch::run("PAINT", "Paint", WINDOW, move |ui, backend| {
+        // Paint's document is fixed; only the viewport follows the window, so
+        // it can be resized down to a workable drawing area.
+        backend.set_size_hints(320, 240, 0, 0);
+        backend.on_first_frame(|| println!("PAINT:UP:PASS"));
+        let app = PaintApp::build_with_files(ui, storage, Rc::new(StdFileSystem))?;
         app.set_start_dir(start_dir(requested.as_deref()));
         if requested.is_some() {
             // A one-shot Open loads the file named on the command line. The
@@ -149,14 +135,6 @@ fn main() -> std::process::ExitCode {
                 }
             });
         }
-        app
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("PAINT:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+        Ok(app)
+    })
 }

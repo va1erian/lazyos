@@ -1,17 +1,20 @@
 //! The app must work with a storage whose every method fails: Save/Open are
 //! disabled and a forced save/open surfaces in the status bar, never panics.
 
+mod common;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use xui_canvas::snapshot::{Snapshot, render_with};
 use xui_core::Dip;
 use xui_core::backend::Event;
-use xui_core::geometry::Rect;
 use xui_core::message::{Modifiers, MouseButton};
 use xui_paint::Msg;
 use xui_paint::storage::{FailingStorage, Storage};
-use xui_paint::view::{Observer, PaintApp, layout};
+use xui_paint::view::{Observer, PaintApp};
+
+use common::Widgets;
 
 #[test]
 fn nothing_depends_on_io() {
@@ -19,11 +22,19 @@ fn nothing_depends_on_io() {
 
     let observer = Rc::new(RefCell::new(Observer::default()));
     let build_probe = Rc::clone(&observer);
+    let widgets = Widgets::default();
+    let built = widgets.clone();
     let image = render_with(
         Snapshot::new(Dip(800.0), Dip(600.0)),
-        move |ui| PaintApp::build_observed(ui, Rc::new(FailingStorage), build_probe),
+        move |ui| {
+            built.record(PaintApp::build_observed(
+                ui,
+                Rc::new(FailingStorage),
+                build_probe,
+            ))
+        },
         move |stage| {
-            let areas = layout(Rect::new(0, 0, 800, 600), 96, false);
+            let areas = widgets.areas(stage.ui());
             let y = areas.canvas.top + 40;
             // A forced save and open both report the failure in the status bar.
             stage.emit(Msg::Save);

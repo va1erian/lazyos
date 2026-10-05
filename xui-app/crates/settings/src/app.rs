@@ -1,9 +1,11 @@
 //! The Settings window: a vertical `IconView` of sections on the left, the
 //! active section's page on the right.
 //!
-//! Each page is a [`Panel`]; switching sections shows one and hides the rest.
-//! Colours are chosen with xui's own pickers: swatch grids ([`ColorPicker`])
-//! for the quick accent and background choices, and the full [`ColorPanel`]
+//! The window is one layout: the sidebar, then the page title, a container per
+//! section and the status line. Each page lays its widgets out in its own
+//! container; switching sections shows one container and hides the rest.
+//! Colours are chosen with xui's own pickers: swatch grids (`ColorPicker`)
+//! for the quick accent and background choices, and the full `ColorPanel`
 //! (HSV field, hue slider, HEX/RGB boxes) for any of the five themed colours.
 //! The Appearance page also lists the desktop pictures ([`wallpaper_ops`]).
 //! Every change is written straight to the [`ConfigStore`] (confd on LazyOS),
@@ -15,34 +17,36 @@ use std::rc::Rc;
 
 use uitheme::Mode;
 use xui_core::app::{App, Ui};
-use xui_core::backend::Result;
-use xui_core::backend::{NodeKind, NodeSpec};
-use xui_core::widget::{
-    Button, ColorPanel, Control, Edit, IconSize, IconView, Label, ListView, Panel,
-};
-use xui_core::{Color, HasText, Point, Rect, Rgba};
+use xui_core::arrange::{build, column, label, row, Handle, LayoutExt, Mounted};
+use xui_core::backend::{NodeKind, NodeSpec, Result};
+use xui_core::layout::Insets;
+use xui_core::widget::{Control, IconSize, IconView, Label, Panel};
+use xui_core::{Color, Dip, HasText, Point, Rect, Rgba};
 
 use crate::about_page::AboutPage;
 use crate::appearance_page::AppearancePage;
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard;
+use crate::keyboard_page::KeyboardPage;
 use crate::menu_page::{MenuMsg, MenuPage};
+use crate::place::{placed, Placed};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
 use crate::system::System;
 use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
 use crate::wallpaper_ops;
+use crate::windows_page::WindowsPage;
 
 /// Window size (DIP) the app asks for: tall enough for every section row in
 /// the sidebar without scrolling.
 pub const WINDOW: (i32, i32) = (660, 560);
 /// Width of the section sidebar.
 const SIDEBAR_W: i32 = 150;
-/// Top of the pages, under the page title.
-const PAGE_TOP: i32 = 56;
-/// Height reserved under the pages for the status line.
-const STATUS_H: i32 = 28;
+/// Height of the page title, above the pages.
+const TITLE_H: i32 = 38;
+/// Height of the status line, under the pages.
+const STATUS_H: i32 = 20;
 
 /// The colours the Windows page can edit: label, confd key.
 const TARGETS: [(&str, &str); 5] = [
@@ -79,48 +83,32 @@ pub enum Msg {
     Close,
 }
 
-/// A `Color` as `0xRRGGBB`.
-fn pack(color: Color) -> u32 {
-    (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b)
-}
-
-/// The pages' widgets, kept alive for the life of the window.
+/// The pages, kept alive for the life of the window.
 struct Pages {
     appearance: AppearancePage,
-    windows: Panel<Msg>,
-    keyboard: Panel<Msg>,
+    windows: WindowsPage,
+    keyboard: KeyboardPage,
     menu: MenuPage,
     hidden: HiddenPage,
     time: TimePage,
     about: AboutPage,
-    _target: ListView<Msg>,
-    panel: ColorPanel<Msg>,
-    layout: ListView<Msg>,
-    layout_hint: Label<Msg>,
-    // Owned only to keep their nodes registered.
-    _labels: Vec<Label<Msg>>,
-    _buttons: Vec<Button<Msg>>,
-    _test: Edit<Msg>,
 }
 
 /// The Settings app.
 pub struct SettingsApp {
     store: Rc<dyn ConfigStore>,
     system: Rc<dyn System>,
-    _sidebar: IconView<Msg>,
-    _sidebar_back: Control<Msg>,
     /// The page title: the selected section's name.
-    title: Label<Msg>,
+    title: Rc<Label<Msg>>,
+    /// One container per section, in [`Section::ALL`] order.
+    frames: Vec<Rc<Placed<Panel<Msg>>>>,
     pages: Pages,
-    status: Label<Msg>,
+    status: Rc<Label<Msg>>,
+    _sidebar: Mounted<Msg>,
     /// The Windows page's selected colour target.
     target: usize,
     /// The desktop pictures listed, in row order after "None".
     pictures: Vec<String>,
-}
-
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    crate::layout::rect(x, y, w, h)
 }
 
 impl SettingsApp {
@@ -130,113 +118,86 @@ impl SettingsApp {
         store: Rc<dyn ConfigStore>,
         system: Rc<dyn System>,
     ) -> Result<SettingsApp> {
-        crate::layout::set_dpi(ui.dpi());
-        let sidebar_back = sidebar_backdrop(ui)?;
-        let sidebar = IconView::with_model(
-            ui,
-            rect(6, 10, SIDEBAR_W - 12, WINDOW.1 - 20),
-            SectionsModel,
-        )?
-        .multi_select(false)
-        .on_select(|index| Some(Msg::Section(index)));
-        sidebar.set_icon_size(IconSize::Medium);
-        sidebar.select(Some(0));
         ui.on_close(|| Some(Msg::Close));
+        let (sidebar, title, status) = (Handle::new(), Handle::new(), Handle::new());
+        let frames: Vec<Handle<Placed<Panel<Msg>>>> =
+            Section::ALL.iter().map(|_| Handle::new()).collect();
 
-        let title = Label::new(ui, rect(SIDEBAR_W + 18, 10, 400, 38), "")?.title();
-        // A card per page; Appearance draws its own cards on the window.
-        let page = rect(
-            SIDEBAR_W + 16,
-            PAGE_TOP,
-            WINDOW.0 - SIDEBAR_W - 32,
-            WINDOW.1 - STATUS_H - PAGE_TOP - 8,
+        let mut main = vec![label("").title().bind(&title).fixed(TITLE_H)];
+        for (section, frame) in Section::ALL.into_iter().zip(&frames) {
+            // Appearance draws its own sections on the window; the others
+            // sit on a card.
+            let card = section != Section::Appearance;
+            let panel = placed(0, 0, move |ui, bounds| {
+                if card {
+                    Panel::new(ui, bounds)
+                } else {
+                    Panel::plain(ui, bounds)
+                }
+            });
+            main.push(panel.bind(frame).fill(1));
+        }
+        main.push(
+            row()
+                .padding(Insets::new(Dip(4.0), Dip(0.0), Dip(0.0), Dip(0.0)))
+                .child(label("").bind(&status).fill(1))
+                .fixed(STATUS_H),
         );
-        let mut labels = Vec::new();
-        let mut buttons = Vec::new();
+        ui.root(
+            row().children((
+                placed(SIDEBAR_W, 0, sidebar_backdrop)
+                    .bind(&sidebar)
+                    .width(SIDEBAR_W),
+                column()
+                    .padding(Insets::new(Dip(16.0), Dip(10.0), Dip(16.0), Dip(8.0)))
+                    .gap(8)
+                    .children(main)
+                    .fill(1),
+            )),
+        )?;
+        let sidebar = ui.mount_in(
+            sidebar.get().widget.id(),
+            column()
+                .padding(Insets::symmetric(Dip(6.0), Dip(10.0)))
+                .child(
+                    build(|ui| {
+                        let view = IconView::with_model(ui, Rect::default(), SectionsModel)?
+                            .multi_select(false)
+                            .on_select(|index| Some(Msg::Section(index)));
+                        view.set_icon_size(IconSize::Medium);
+                        view.select(Some(0));
+                        Ok(view)
+                    })
+                    .fill(1),
+                ),
+        )?;
 
+        let frames: Vec<Rc<Placed<Panel<Msg>>>> = frames.iter().map(Handle::get).collect();
+        let page = |section: Section| frames[section.index()].widget.id();
         let pictures = system.wallpapers();
-        let appearance = AppearancePage::build(
-            ui,
-            rect(
-                SIDEBAR_W,
-                PAGE_TOP,
-                WINDOW.0 - SIDEBAR_W,
-                WINDOW.1 - STATUS_H - PAGE_TOP,
-            ),
-            &pictures,
-        )?;
-
-        let windows = Panel::new(ui, page)?;
-        let (target, panel) = {
-            let p = windows.ui();
-            labels.push(Label::new(p, rect(20, 14, 160, 20), "Color to change")?);
-            let names: Vec<&str> = TARGETS.iter().map(|(n, _)| *n).collect();
-            let target = ListView::new(p, rect(20, 38, 160, 150), &names)?
-                .multi_select(false)
-                .on_select(|i| Some(Msg::Target(i)));
-            buttons.push(
-                Button::new(p, rect(20, 200, 160, 30), "Use default")?
-                    .on_click(|| Some(Msg::UseDefault)),
-            );
-            let panel = ColorPanel::new(p, rect(196, 14, 476 - 196, 360))?
-                .on_commit(|c| Some(Msg::Commit(pack(c))));
-            (target, panel)
+        let names: Vec<&'static str> = TARGETS.iter().map(|(n, _)| *n).collect();
+        let pages = Pages {
+            appearance: AppearancePage::build(ui, page(Section::Appearance), &pictures)?,
+            windows: WindowsPage::build(ui, page(Section::Windows), names)?,
+            keyboard: KeyboardPage::build(ui, page(Section::Keyboard))?,
+            menu: MenuPage::build(ui, page(Section::Menu))?,
+            hidden: HiddenPage::build(ui, page(Section::Hidden))?,
+            time: TimePage::build(ui, page(Section::Time))?,
+            about: AboutPage::build(ui, page(Section::About))?,
         };
-        target.select(Some(0));
-
-        let keyboard = Panel::new(ui, page)?;
-        let (layout, layout_hint, test) = {
-            let p = keyboard.ui();
-            labels.push(Label::new(p, rect(20, 14, 300, 20), "Keyboard layout")?);
-            let names: Vec<&str> = keyboard::LAYOUTS.iter().map(|(_, n)| *n).collect();
-            let layout = ListView::new(p, rect(20, 38, 280, 60), &names)?
-                .multi_select(false)
-                .on_select(|i| Some(Msg::Layout(i)));
-            let hint = Label::new(p, rect(20, 108, 400, 20), "")?;
-            labels.push(Label::new(p, rect(20, 150, 300, 20), "Try it")?);
-            let test =
-                Edit::new(p, rect(20, 174, 280, 26), "")?.cue("Type here to test the layout");
-            (layout, hint, test)
-        };
-
-        let menu = MenuPage::build(ui, page)?;
-        let hidden = HiddenPage::build(ui, page)?;
-        let time = TimePage::build(ui, page)?;
-        let about = AboutPage::build(ui, page)?;
-
-        let status = Label::new(
-            ui,
-            rect(SIDEBAR_W + 20, WINDOW.1 - STATUS_H + 4, 460, 20),
-            "",
-        )?;
 
         let mut app = SettingsApp {
             store,
             system,
+            title: title.get(),
+            frames,
+            pages,
+            status: status.get(),
             _sidebar: sidebar,
-            _sidebar_back: sidebar_back,
-            title,
-            pages: Pages {
-                appearance,
-                windows,
-                keyboard,
-                menu,
-                hidden,
-                time,
-                about,
-                _target: target,
-                panel,
-                layout,
-                layout_hint,
-                _labels: labels,
-                _buttons: buttons,
-                _test: test,
-            },
-            status,
             target: 0,
             pictures,
         };
-        app.show(Section::Appearance);
+        app.show(ui, Section::Appearance);
         app.load_state();
         app.retheme(ui);
         if !app.store.persistent() {
@@ -249,16 +210,12 @@ impl SettingsApp {
     /// Show `section`'s page and hide the others. The Time & Date, Hidden
     /// apps and About pages show live values, so they are re-read each time
     /// they appear.
-    fn show(&mut self, section: Section) {
+    fn show(&mut self, ui: &Ui<Msg>, section: Section) {
         self.title.set_text(section.label());
+        for (index, frame) in self.frames.iter().enumerate() {
+            ui.set_visible(frame.widget.id(), index == section.index());
+        }
         let p = &mut self.pages;
-        p.appearance.set_visible(section == Section::Appearance);
-        p.windows.set_visible(section == Section::Windows);
-        p.time.set_visible(section == Section::Time);
-        p.keyboard.set_visible(section == Section::Keyboard);
-        p.menu.set_visible(section == Section::Menu);
-        p.hidden.set_visible(section == Section::Hidden);
-        p.about.set_visible(section == Section::About);
         match section {
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
@@ -278,25 +235,22 @@ impl SettingsApp {
         let settings = theme_ops::load(self.store.as_ref());
         let p = &self.pages;
         let a = &p.appearance;
-        a.mode.select(usize::from(settings.mode == Mode::Light));
+        a.mode
+            .widget
+            .select(usize::from(settings.mode == Mode::Light));
         a.anim.set_checked(settings.anim);
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
-        a.accent.select(Color::hex(accent));
+        a.accent.widget.select(Color::hex(accent));
         a.background
+            .widget
             .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
         let picture = wallpaper_ops::current(self.store.as_ref());
         a.wallpaper
             .select(wallpaper_ops::row_of(&self.pictures, picture.as_deref()));
         match keyboard::current(self.store.as_ref()) {
-            Some(i) => {
-                p.layout.select(Some(i));
-                p.layout_hint
-                    .set_text(&format!("Active: {}", keyboard::LAYOUTS[i].1));
-            }
-            None => p
-                .layout_hint
-                .set_text("No layout chosen yet (using the boot default)."),
+            Some(i) => p.keyboard.show_layout(i),
+            None => p.keyboard.show_default(),
         }
         self.load_target(self.target);
         self.pages.menu.load(self.store.as_ref());
@@ -314,7 +268,7 @@ impl SettingsApp {
             3 => palette.taskbar_bg,
             _ => palette.taskbar_entry_focus,
         };
-        self.pages.panel.set_color(Color::hex(rgb));
+        self.pages.windows.set_color(rgb);
     }
 
     fn report(&self, result: std::result::Result<(), String>, ok: &str) {
@@ -340,7 +294,7 @@ impl App for SettingsApp {
             }
             Msg::Section(i) => {
                 if let Some(section) = Section::from_index(i) {
-                    self.show(section);
+                    self.show(ui, section);
                 }
             }
             Msg::Mode(i) => {
@@ -398,12 +352,12 @@ impl App for SettingsApp {
                 );
                 // Keep the Appearance swatches in step with the new override.
                 let settings = theme_ops::load(store);
-                self.pages.appearance.accent.select(Color::hex(
+                let a = &self.pages.appearance;
+                a.accent.widget.select(Color::hex(
                     settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT),
                 ));
-                self.pages
-                    .appearance
-                    .background
+                a.background
+                    .widget
                     .select(Color::hex(settings.bg.unwrap_or(u32::MAX)));
                 self.retheme(ui);
             }
@@ -418,9 +372,7 @@ impl App for SettingsApp {
             }
             Msg::Layout(i) => {
                 self.report(keyboard::set(store, i), "Keyboard layout changed.");
-                if let Some((_, name)) = keyboard::LAYOUTS.get(i) {
-                    self.pages.layout_hint.set_text(&format!("Active: {name}"));
-                }
+                self.pages.keyboard.show_active(i);
             }
             Msg::Time(msg) => {
                 let text = self.pages.time.update(msg, store, self.system.as_ref());
@@ -445,32 +397,11 @@ impl App for SettingsApp {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pack_is_the_inverse_of_hex() {
-        for rgb in [0x000000, 0xFFFFFF, 0x336699, 0x0E1C3C] {
-            assert_eq!(pack(Color::hex(rgb)), rgb);
-        }
-    }
-
-    #[test]
-    fn every_target_key_is_a_theme_color_key() {
-        for (_, key) in TARGETS {
-            assert!(uitheme::COLOR_KEYS.contains(&key), "{key}");
-        }
-    }
-}
-
-/// The sidebar's own background: the window darkened, with a hairline on its
-/// right edge, so the section list reads as a column apart from the page.
-fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Control<Msg>> {
-    let back = Control::new(
-        ui,
-        &NodeSpec::new(NodeKind::Custom, rect(0, 0, SIDEBAR_W, WINDOW.1)),
-    )?;
+/// The sidebar's own background, laid out at `bounds`: the window darkened,
+/// with a hairline on its right edge, so the section list reads as a column
+/// apart from the page. A container, so the section list sits inside it.
+fn sidebar_backdrop(ui: &Ui<Msg>, bounds: Rect) -> Result<Control<Msg>> {
+    let back = Control::new(ui, &NodeSpec::new(NodeKind::Container, bounds))?;
     let theme = ui.theme_handle();
     back.set_painter(Rc::new(move |canvas| {
         let theme = theme.get();
@@ -486,4 +417,24 @@ fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Control<Msg>> {
         );
     }));
     Ok(back)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::appearance_page::pack;
+
+    #[test]
+    fn pack_is_the_inverse_of_hex() {
+        for rgb in [0x000000, 0xFFFFFF, 0x336699, 0x0E1C3C] {
+            assert_eq!(pack(Color::hex(rgb)), rgb);
+        }
+    }
+
+    #[test]
+    fn every_target_key_is_a_theme_color_key() {
+        for (_, key) in TARGETS {
+            assert!(uitheme::COLOR_KEYS.contains(&key), "{key}");
+        }
+    }
 }

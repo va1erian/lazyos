@@ -1,93 +1,117 @@
 //! Net Tools' window: four group boxes (Ping, Look up a name, Fetch a web
-//! page, Web server) under a one-line network headline. Built once; the app
+//! page, Web server) under a one-line network headline. Mounted once; the app
 //! only changes texts and list rows afterwards.
 
-use xui_core::app::Ui;
-use xui_core::backend::Result;
-use xui_core::widget::{Button, Edit, GroupBox, Label, ListView};
-use xui_core::Rect;
+use xui_core::prelude::*;
 
 use super::Msg;
 
 /// The window size when a compositor lays the app out.
 pub const WINDOW: (i32, i32) = (720, 590);
 
-fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
-    // Design pixels, at the desktop's UI scale (docs/hidpi-plan.md).
-    xui_app::hidpi::rect(x, y, w, h)
+/// The width of the captions in front of the fields.
+const CAPTION: i32 = 52;
+/// The height of a one-line result.
+const RESULT: i32 = 20;
+
+/// What the app changes after start-up.
+#[derive(Default)]
+pub struct Widgets {
+    pub headline: Handle<Label<Msg>>,
+    pub host: Handle<Edit<Msg>>,
+    pub ping_result: Handle<Label<Msg>>,
+    pub name: Handle<Edit<Msg>>,
+    pub lookup_result: Handle<Label<Msg>>,
+    pub url: Handle<Edit<Msg>>,
+    pub fetch_result: Handle<Label<Msg>>,
+    pub preview: Handle<ListView<Msg>>,
+    pub server_status: Handle<Label<Msg>>,
+    pub server_button: Handle<Button<Msg>>,
+    pub server_log: Handle<ListView<Msg>>,
 }
 
-/// Widgets held only so they live as long as the window.
-type Keep = (Vec<Label<Msg>>, Vec<Button<Msg>>, Vec<GroupBox<Msg>>);
+/// A caption in front of a field, centred on the row.
+fn caption(text: &str) -> Entry<Msg> {
+    label(text).width(CAPTION).align(Align::Center)
+}
 
-/// What the app changes after building.
-pub struct Widgets {
-    pub headline: Label<Msg>,
-    pub host: Edit<Msg>,
-    pub ping_result: Label<Msg>,
-    pub name: Edit<Msg>,
-    pub lookup_result: Label<Msg>,
-    pub url: Edit<Msg>,
-    pub fetch_result: Label<Msg>,
-    pub preview: ListView<Msg>,
-    pub server_status: Label<Msg>,
-    pub server_button: Button<Msg>,
-    pub server_log: ListView<Msg>,
-    _keep: Keep,
+/// A plain list of text rows.
+fn rows(handle: &Handle<ListView<Msg>>) -> Build<ListView<Msg>, Msg> {
+    list().then(|list| list.multi_select(false)).bind(handle)
 }
 
 impl Widgets {
-    pub fn build(ui: &Ui<Msg>) -> Result<Widgets> {
-        let width = xui_app::hidpi::design_rect(ui).width().max(WINDOW.0);
-        let inner = width - 24;
-        let groups = vec![
-            GroupBox::new(ui, rect(12, 38, inner, 92), "Ping")?,
-            GroupBox::new(ui, rect(12, 138, inner, 66), "Look up a name")?,
-            GroupBox::new(ui, rect(12, 212, inner, 160), "Fetch a web page")?,
-            GroupBox::new(
-                ui,
-                rect(12, 380, inner, 200),
-                "Web server: reach this machine from the host",
-            )?,
-        ];
-        let labels = vec![
-            Label::new(ui, rect(28, 66, 50, 20), "Host")?,
-            Label::new(ui, rect(28, 166, 50, 20), "Name")?,
-            Label::new(ui, rect(28, 240, 50, 20), "URL")?,
-        ];
-        let headline = Label::new(ui, rect(16, 10, inner, 22), "Reading the network stack...")?;
-        let host = Edit::new(ui, rect(80, 62, 220, 26), "10.0.2.2")?.cue("address or name");
-        let name = Edit::new(ui, rect(80, 162, 220, 26), "example.com")?.cue("host name");
-        let url =
-            Edit::new(ui, rect(80, 236, 330, 26), "http://example.com/")?.cue("http://host/path");
-        let buttons = vec![
-            Button::new(ui, rect(310, 61, 80, 28), "Ping")?.on_click(|| Some(Msg::Ping)),
-            Button::new(ui, rect(398, 61, 70, 28), "Stop")?.on_click(|| Some(Msg::StopPing)),
-            Button::new(ui, rect(310, 161, 90, 28), "Look up")?.on_click(|| Some(Msg::Lookup)),
-            Button::new(ui, rect(420, 235, 80, 28), "Fetch")?.on_click(|| Some(Msg::Fetch)),
-        ];
-        let ping_result = Label::new(ui, rect(28, 98, inner - 32, 20), "")?;
-        let lookup_result = Label::new(ui, rect(410, 166, inner - 400, 20), "")?;
-        let fetch_result = Label::new(ui, rect(28, 270, inner - 32, 20), "")?;
-        let preview = ListView::new(ui, rect(28, 294, inner - 32, 68), &[])?.multi_select(false);
-        let server_status = Label::new(ui, rect(28, 404, inner - 140, 40), "Starting...")?;
-        let server_button = Button::new(ui, rect(inner - 92, 404, 90, 28), "Stop")?
-            .on_click(|| Some(Msg::ToggleServer));
-        let server_log =
-            ListView::new(ui, rect(28, 450, inner - 32, 120), &[])?.multi_select(false);
-        Ok(Widgets {
-            headline,
-            host,
-            ping_result,
-            name,
-            lookup_result,
-            url,
-            fetch_result,
-            preview,
-            server_status,
-            server_button,
-            server_log,
-            _keep: (labels, buttons, groups),
-        })
+    /// The whole window. The sizes keep the buttons and the URL field where
+    /// the `net_apps` session clicks.
+    pub fn layout(&self) -> Layout<Msg> {
+        column()
+            .padding(Insets::new(Dip(12.0), Dip(8.0), Dip(12.0), Dip(10.0)))
+            .gap(8)
+            .children((
+                label("Reading the network stack...").bind(&self.headline),
+                group(
+                    "Ping",
+                    column().gap(6).children((
+                        row().gap(8).children((
+                            caption("Host"),
+                            edit()
+                                .text("10.0.2.2")
+                                .placeholder("address or name")
+                                .bind(&self.host)
+                                .width(222),
+                            button("Ping").on_click(Msg::Ping).width(80),
+                            button("Stop").on_click(Msg::StopPing).width(70),
+                        )),
+                        label("").bind(&self.ping_result).fixed(RESULT),
+                    )),
+                ),
+                group(
+                    "Look up a name",
+                    row().gap(8).children((
+                        caption("Name"),
+                        edit()
+                            .text("example.com")
+                            .placeholder("host name")
+                            .bind(&self.name)
+                            .width(222),
+                        button("Look up").on_click(Msg::Lookup).width(90),
+                        label("")
+                            .bind(&self.lookup_result)
+                            .fill(1)
+                            .align(Align::Center),
+                    )),
+                ),
+                group(
+                    "Fetch a web page",
+                    column().gap(6).children((
+                        row().gap(8).children((
+                            caption("URL"),
+                            edit()
+                                .text("http://example.com/")
+                                .placeholder("http://host/path")
+                                .bind(&self.url)
+                                .width(330),
+                            button("Fetch").on_click(Msg::Fetch).width(80),
+                        )),
+                        label("").bind(&self.fetch_result).fixed(RESULT),
+                        rows(&self.preview).fixed(68),
+                    )),
+                ),
+                group(
+                    "Web server: reach this machine from the host",
+                    column().gap(6).children((
+                        row().gap(8).children((
+                            label("Starting...").bind(&self.server_status).fill(1),
+                            button("Stop")
+                                .on_click(Msg::ToggleServer)
+                                .bind(&self.server_button)
+                                .width(90)
+                                .align(Align::Start),
+                        )),
+                        rows(&self.server_log).fill(1),
+                    )),
+                )
+                .fill(1),
+            ))
     }
 }

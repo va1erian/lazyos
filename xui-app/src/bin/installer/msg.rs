@@ -46,8 +46,6 @@ pub enum Msg {
     KeyQ,
     /// The window close button.
     Quit,
-    /// The compositor resized the window; re-lay the screen out.
-    Resize,
     /// A timer fired; the install timer uses this to run outside the click.
     Tick(TimerId),
 }

@@ -7,181 +7,106 @@
 //! than overflowing. A package with problems stops at Review: the problems
 //! replace the file types and `Next` is disabled.
 
-use xui_core::app::Ui;
-use xui_core::widget::{Label, ListView, Panel};
+use xui_core::arrange::{build, column, label, Build, Layout, LayoutExt};
+use xui_core::widget::ListView;
+use xui_core::Rect;
 
 use xui_app::installer::{elide, group_by_risk, permission_line, short_digest, Model, Package};
 
 use crate::msg::Msg;
-use crate::view::{fail, rect, MARGIN};
-use crate::wizard::{banner, Header, NavBar, CONTENT_TOP, FOOTER_H};
+use crate::wizard::{page, Next};
 
-/// Step 2: the package's identity and the file types it handles.
-pub struct ReviewScreen {
-    _panel: Panel<Msg>,
-    _header: Header,
-    _name: Label<Msg>,
-    _author: Label<Msg>,
-    _meta: Label<Msg>,
-    _description: Label<Msg>,
-    _list_label: Label<Msg>,
-    _list: ListView<Msg>,
-    _banner: Label<Msg>,
-    _nav: NavBar,
+/// A list of `items` with nothing selected.
+pub fn items_list<M: 'static>(items: Vec<String>) -> Build<ListView<M>, M> {
+    build(move |ui| {
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        let list = ListView::new(ui, Rect::default(), &refs)?;
+        list.select(None);
+        Ok(list)
+    })
 }
 
-impl ReviewScreen {
-    /// Builds the screen at `width` x `height` from `model`.
-    pub fn build(
-        ui: &Ui<Msg>,
-        width: i32,
-        height: i32,
-        model: &Model,
-    ) -> Result<ReviewScreen, String> {
-        let fallback = Package::default();
-        let package = model.inspected.as_ref().unwrap_or(&fallback);
-        let has_problems = !package.problems.is_empty();
+/// Step 2: the package's identity and the file types it handles.
+pub fn review(model: &Model) -> Layout<Msg> {
+    let fallback = Package::default();
+    let package = model.inspected.as_ref().unwrap_or(&fallback);
+    let has_problems = !package.problems.is_empty();
 
-        let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
-        let page = panel.ui();
-        let header = Header::build(page, width, model.screen)?;
-        let inner = width - 2 * MARGIN;
-        let top = CONTENT_TOP;
-
-        let name =
-            Label::new(page, rect(MARGIN, top, inner, 24), &display_name(package)).map_err(fail)?;
-        let author = format!("Author (unverified): {}", or_unknown(&package.author, 60));
-        let author = Label::new(page, rect(MARGIN, top + 26, inner, 16), &author).map_err(fail)?;
-        let meta = format!(
-            "Version {}   ·   installs to {}/{}   ·   sha256 {}",
-            or_unknown(&package.version, 20),
-            fhs::state::APPS_ROOT,
-            elide(&package.install_dir, 60),
-            short_digest(&package.digest),
-        );
-        let meta = Label::new(page, rect(MARGIN, top + 44, inner, 16), &meta).map_err(fail)?;
-        // "Updates built-in app <name>" / "Starts when you log in" lead the
-        // description line, so the layout below does not move.
-        let mut about = model.consent_notes();
-        let summary = elide(&package.description, 180);
-        if !summary.is_empty() {
-            about.push(summary);
-        }
-        let description = Label::new(
-            page,
-            rect(MARGIN, top + 64, inner, 16),
-            &elide(&about.join("   ·   "), 200),
-        )
-        .map_err(fail)?;
-
-        // A broken package shows its problems where the file types would be.
-        let (title, items) = if has_problems {
-            ("This package cannot be installed", problem_items(package))
-        } else {
-            ("Handled file types", mime_items(package))
-        };
-        let list_label =
-            Label::new(page, rect(MARGIN, top + 92, inner, 16), title).map_err(fail)?;
-        let list_top = top + 110;
-        let list_h = (height - FOOTER_H - list_top).max(40);
-        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-        let list =
-            ListView::new(page, rect(MARGIN, list_top, inner, list_h), &refs).map_err(fail)?;
-        list.select(None);
-
-        let banner = banner(page, width, height, model)?;
-        let nav = NavBar::build(page, width, height, true, ("Next >", Msg::Next))?;
-        nav.set_next_enabled(model.can_advance());
-        if !has_problems {
-            nav.focus_next(page);
-        }
-
-        Ok(ReviewScreen {
-            _panel: panel,
-            _header: header,
-            _name: name,
-            _author: author,
-            _meta: meta,
-            _description: description,
-            _list_label: list_label,
-            _list: list,
-            _banner: banner,
-            _nav: nav,
-        })
+    let meta = format!(
+        "Version {}   ·   installs to {}/{}   ·   sha256 {}",
+        or_unknown(&package.version, 20),
+        fhs::state::APPS_ROOT,
+        elide(&package.install_dir, 60),
+        short_digest(&package.digest),
+    );
+    // "Updates built-in app <name>" / "Starts when you log in" lead the
+    // description line.
+    let mut about = model.consent_notes();
+    let summary = elide(&package.description, 180);
+    if !summary.is_empty() {
+        about.push(summary);
     }
+    // A broken package shows its problems where the file types would be.
+    let (title, items) = if has_problems {
+        ("This package cannot be installed", problem_items(package))
+    } else {
+        ("Handled file types", mime_items(package))
+    };
+    let content = column().gap(4).children((
+        label(display_name(package)),
+        label(format!(
+            "Author (unverified): {}",
+            or_unknown(&package.author, 60)
+        )),
+        label(meta),
+        label(elide(&about.join("   ·   "), 200)),
+        label(title),
+        items_list(items).fill(1),
+    ));
+    page(
+        model.screen,
+        model,
+        content,
+        true,
+        Next {
+            text: "Next >",
+            msg: Msg::Next,
+            enabled: model.can_advance(),
+            focus: !has_problems,
+        },
+    )
 }
 
 /// Step 3: the consent. `Install` forwards the user's yes to `pkgd`.
-pub struct PermissionsScreen {
-    _panel: Panel<Msg>,
-    _header: Header,
-    _intro: Label<Msg>,
-    _notes: Label<Msg>,
-    _perms: ListView<Msg>,
-    _banner: Label<Msg>,
-    _nav: NavBar,
-}
-
-impl PermissionsScreen {
-    /// Builds the screen at `width` x `height` from `model`.
-    pub fn build(
-        ui: &Ui<Msg>,
-        width: i32,
-        height: i32,
-        model: &Model,
-    ) -> Result<PermissionsScreen, String> {
-        let fallback = Package::default();
-        let package = model.inspected.as_ref().unwrap_or(&fallback);
-
-        let panel = Panel::new(ui, rect(0, 0, width, height)).map_err(fail)?;
-        let page = panel.ui();
-        let header = Header::build(page, width, model.screen)?;
-        let inner = width - 2 * MARGIN;
-
-        let intro = format!(
-            "{} asks for these permissions. Install only if you trust it.",
-            display_name(package)
-        );
-        let intro = Label::new(
-            page,
-            rect(MARGIN, CONTENT_TOP, inner, 18),
-            &elide(&intro, 120),
-        )
-        .map_err(fail)?;
-        // What installing does beyond the permissions (replace a built-in
-        // app, start at log-in); the list moves down only when it says
-        // something.
-        let notes = model.consent_notes().join("   ·   ");
-        let notes_label = Label::new(
-            page,
-            rect(MARGIN, CONTENT_TOP + 22, inner, 18),
-            &elide(&notes, 160),
-        )
-        .map_err(fail)?;
-        let list_top = CONTENT_TOP + if notes.is_empty() { 24 } else { 46 };
-        let list_h = (height - FOOTER_H - list_top).max(40);
-        let items = permission_items(package);
-        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-        let perms =
-            ListView::new(page, rect(MARGIN, list_top, inner, list_h), &refs).map_err(fail)?;
-        perms.select(None);
-
-        let banner = banner(page, width, height, model)?;
-        let nav = NavBar::build(page, width, height, true, ("Install", Msg::Install))?;
-        nav.set_next_enabled(model.can_install());
-        // Install is deliberately not focused: a second Enter after Review's
-        // Next must not consent on the user's behalf.
-
-        Ok(PermissionsScreen {
-            _panel: panel,
-            _header: header,
-            _intro: intro,
-            _notes: notes_label,
-            _perms: perms,
-            _banner: banner,
-            _nav: nav,
-        })
+pub fn permissions(model: &Model) -> Layout<Msg> {
+    let fallback = Package::default();
+    let package = model.inspected.as_ref().unwrap_or(&fallback);
+    let intro = format!(
+        "{} asks for these permissions. Install only if you trust it.",
+        display_name(package)
+    );
+    let mut content = column().gap(6).child(label(elide(&intro, 120)));
+    // What installing does beyond the permissions (replace a built-in app,
+    // start at log-in), only when it says something.
+    let notes = model.consent_notes().join("   ·   ");
+    if !notes.is_empty() {
+        content = content.child(label(elide(&notes, 160)));
     }
+    let content = content.child(items_list(permission_items(package)).fill(1));
+    // Install is deliberately not focused: a second Enter after Review's
+    // Next must not consent on the user's behalf.
+    page(
+        model.screen,
+        model,
+        content,
+        true,
+        Next {
+            text: "Install",
+            msg: Msg::Install,
+            enabled: model.can_install(),
+            focus: false,
+        },
+    )
 }
 
 /// The package's display name, or a placeholder when it sent none.

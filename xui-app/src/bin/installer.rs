@@ -35,13 +35,11 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
 use xui_app::installer::{clean, Model, Request, Screen};
+use xui_app::launch;
 use xui_app::platform::{argv, pkg};
-use xui_app::themed::run_themed;
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Event, PlatformSpec, TimerId, WidgetId};
-use xui_core::units::Dip;
+use xui_core::backend::{BackendError, TimerId};
 use xui_core::Key;
 
 #[path = "installer/consent.rs"]
@@ -56,6 +54,9 @@ mod msg;
 mod picker;
 #[path = "installer/simple.rs"]
 mod simple;
+#[cfg(test)]
+#[path = "installer/tests.rs"]
+mod tests;
 #[path = "installer/view.rs"]
 mod view;
 #[path = "installer/wizard.rs"]
@@ -72,7 +73,8 @@ const WINDOW: (i32, i32) = (640, 480);
 struct Installer {
     model: Model,
     /// The widgets of the shown screen. Held so their nodes stay alive; the
-    /// previous view is dropped (destroying its nodes) when a new one is built.
+    /// previous view is dropped (destroying its nodes) when a new one is
+    /// mounted.
     _view: View,
     /// Which screen `_view` was built for, so a change rebuilds it.
     shown: Screen,
@@ -263,7 +265,6 @@ impl App for Installer {
                 }
             }
             Msg::Quit => ui.quit(),
-            Msg::Resize => dirty = true,
         }
         if dirty || self.shown != self.model.screen {
             self.rebuild(ui);
@@ -271,7 +272,7 @@ impl App for Installer {
     }
 }
 
-/// Registers the window-level hooks: close, shortcuts, timer and resize.
+/// Registers the window-level hooks: close, shortcuts and timer.
 /// `picker_open` keeps the shortcuts away from the file picker's own keys.
 fn install_hooks(ui: &Ui<Msg>, picker_open: Rc<Cell<bool>>) {
     ui.on_close(|| Some(Msg::Quit));
@@ -282,12 +283,6 @@ fn install_hooks(ui: &Ui<Msg>, picker_open: Rc<Cell<bool>>) {
         _ => None,
     });
     ui.on_timer(|id| Some(Msg::Tick(id)));
-    // A window-level resize maps to a message so the re-layout runs in
-    // `update`, outside the event dispatch.
-    ui.register_events(WidgetId::NONE, |event| match event {
-        Event::Resize { .. } => Some(Msg::Resize),
-        _ => None,
-    });
 }
 
 /// Queries `pkgd.List` and reports the serial evidence.
@@ -340,36 +335,15 @@ fn main() -> ExitCode {
     if let Some(path) = develop::requested(std::env::args_os()) {
         return develop::main(path);
     }
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("INSTALLER:BIND:FAIL:{code}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    // Resizable; the screens re-lay out to the client area. The minimum keeps
-    // the consent screen's three stacked lists from overlapping.
-    backend.set_size_hints(480, 360, 0, 0);
-    backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
-
     let start = argv::file_arg(std::env::args_os());
-    let spec = PlatformSpec::new("Installer").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, move |ui| {
-        match Installer::build(ui, start) {
-            Ok(app) => app,
-            Err(error) => {
-                println!("INSTALLER:BUILD:FAIL:{error}");
-                std::process::exit(1);
-            }
-        }
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            println!("INSTALLER:RUN:FAIL:{error}");
-            ExitCode::FAILURE
-        }
-    }
+    launch::run("INSTALLER", "Installer", WINDOW, move |ui, backend| {
+        // Resizable; the screens' layouts follow the client area. The
+        // minimum keeps the consent screen's lists readable.
+        backend.set_size_hints(480, 360, 0, 0);
+        backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
+        Installer::build(ui, start).map_err(|error| {
+            println!("INSTALLER:BUILD:FAIL:{error}");
+            BackendError::Other(error)
+        })
+    })
 }
