@@ -287,15 +287,19 @@ impl Compositor {
         let Ok(args) = wire::decode_request_size_args(body) else {
             return error_reply(message.method(), messenger::errno::EINVAL);
         };
-        // An app may ask for its size while its window still flies in; the
-        // window is only hidden for the zoom, not minimized, so land it.
-        self.finish_opening_of(args.surface);
         let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
             return error_reply(message.method(), messenger::errno::ENOENT);
         };
         if surface.owner != message.sender {
             return error_reply(message.method(), messenger::errno::EACCES);
         }
+        // The owner may ask for its size while its window still flies in; the
+        // window is only hidden for the zoom, not minimized, so land it (only
+        // after the owner check: nobody else may show someone's window early).
+        self.finish_opening_of(args.surface);
+        let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
+            return error_reply(message.method(), messenger::errno::ENOENT);
+        };
         let Some(hints) = surface.hints.filter(|_| surface.resizable()) else {
             return error_reply(message.method(), messenger::errno::EINVAL);
         };
