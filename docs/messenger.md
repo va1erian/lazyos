@@ -320,6 +320,16 @@ health rows, `logd` appends hash-chained records and serves queries, and
   activation). Services declare names in their manifest.
 - **Leases:** handles and names are reference-counted; process death releases all
   handles and, optionally, marks the service unhealthy for supervision.
+- **Namespaces** (`kernel/src/ipc/policy.rs`, `docs/architecture/ipc-security.md`):
+  `os.lazy.*` service names belong to the platform (a `system:*` task or a
+  privileged unlabelled one registers them); an app labelled `app:<id>` may
+  register only `app.<id>.<name>` (`<name>` is one dot-free segment, so a name
+  maps to exactly one id) and publish or subscribe topics at or under
+  `app/<id>/`. A development run (`dev:<id>`) owns the same names and topics.
+  Registering anything else is refused with `EACCES` and audited; resolving
+  another name needs an allow rule loaded for the label. Interface ids are
+  `fnv1a64` hashes, so the kernel cannot check that an advertised interface
+  sits under the app's own domain (#495 keeps that open).
 
 ---
 
