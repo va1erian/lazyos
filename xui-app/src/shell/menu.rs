@@ -80,6 +80,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     match ui.open_window(spec, move |ui| MenuApp::build(built, ui)) {
         Ok(handle) => {
             *ctx.menu_window.borrow_mut() = Some(handle);
+            super::probe::menu(ctx);
             println!("SHELL:MENU:OPEN");
             ctx.repaint_bar();
         }
@@ -240,6 +241,7 @@ impl App for MenuApp {
                     // sits beside its row.
                     submenu::close(&self.ctx);
                     self.ctx.menu_hover.set(None);
+                    super::probe::menu(&self.ctx);
                     ui.invalidate(self.root.id());
                 }
             }

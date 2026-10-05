@@ -65,11 +65,12 @@ lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7a
 lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7aad3cd231445076f8e0139f87e42d5c64", default-features = false }
 lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7aad3cd231445076f8e0139f87e42d5c64", default-features = false }
 lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7aad3cd231445076f8e0139f87e42d5c64", default-features = false }
+# The form document: the player's UI probe reads control rectangles from it
+# (`probe`, issue #538), and the sample tests read form values back
+# (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7aad3cd231445076f8e0139f87e42d5c64" }
 
 [dev-dependencies]
-# The form values the sample tests read back (`tests/modplayer.rs`); pinned
-# with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "25903a7aad3cd231445076f8e0139f87e42d5c64" }
 # `modplay::synth` builds the songs the `modplay` script tests play.
 modplay = { path = "../libs/modplay", features = ["fuzz"] }
 

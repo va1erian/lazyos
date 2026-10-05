@@ -91,6 +91,7 @@ fn main() -> ExitCode {
         backend.on_first_frame(|| MARK.pass("UP"));
         lazyrad_os::desktop_mode::set_theme(backend.desktop_theme());
         if let Some(runtime) = runtime {
+            lazyrad_os::probe::print_startup_form(runtime, backend.scale() as i32);
             let seen = Rc::clone(&first_event);
             runtime.set_handler_observer(Rc::new(move |_form, _control, _event| seen()));
         }

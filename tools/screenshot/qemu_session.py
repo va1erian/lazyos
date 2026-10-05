@@ -7,7 +7,7 @@ keyboard. Boots QEMU with ``-display none`` and talks to it over QMP.
 
 Input is injected with the QMP ``input-send-event`` command. Keyboard uses a US
 layout; mouse uses relative motion/buttons (PS/2) by default. For absolute
-pointer positioning add ``--tablet`` (attaches ``usb-tablet``; the guest must
+pointer positioning add ``--tablet`` (attaches ``usb-tablet`` on its own xHCI; the guest must
 enumerate USB).
 
 Script format (JSON)
@@ -34,22 +34,18 @@ modifier across steps, e.g. Alt+Tab or Ctrl+Esc), ``mouse_move`` ([dx, dy]),
 ``mouse_click`` (left|middle|right),
 ``mouse_down`` / ``mouse_up`` (left|middle|right; separate transitions, so a
 caller can hold a button across steps, e.g. through a drag & drop),
-``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``click_at`` (a pixel
-``[x, y]`` or a target name; moves the tablet there and clicks; see below), ``wait``
+``mouse_scroll`` (int), ``mouse_abs`` ([x, y]), ``click_at`` / ``move_to``
+(a pixel or a named target; moves the pointer there, and clicks; see below), ``wait``
 (seconds), ``wait_for`` (serial marker), ``qmp`` (a raw QMP command with
 optional ``args``, e.g. hot-plugging a device:
 ``{"qmp": "device_add", "args": {"driver": "usb-kbd", "id": "kbd"}}``), ``quit``.
 
 Clicking by position or name (issue #538)
 -----------------------------------------
-``{"click_at": [640, 400]}`` clicks at a screen pixel and
-``{"click_at": "play_button", "button": "right"}`` at a named target, with
-no corner reset and no hand-measured relative moves. It needs ``--tablet`` (and
-a guest that enumerates USB). Pixels are converted to the tablet's 0..32767
-axes using ``--screen WxH`` (default 1280x720). Names come from the
-``--targets FILE`` JSON object (``{"name": [x, y]}``) so a layout change is
-fixed in one place; a name that is not listed fails the session. Until the
-guest can report widget rectangles itself, the file is read off screenshots.
+``{"click_at": {"window": "MOD Player", "widget": "play_button"}}`` clicks a
+control by name (``[x, y]``, ``{"menu": ...}`` and more in
+``session_pointer.py``, from an image built with ``LAZYOS_UI_PROBE=1``);
+``move_to`` only moves. ``--tablet`` jumps there, else it moves from the corner.
 
 Readiness gating
 ----------------
@@ -116,6 +112,9 @@ from pathlib import Path
 from qemu_qmp import (DEFAULT_MEMORY, Qmp, accel_args, add_data_disk_option, add_home_disk_option,
                       build_qemu_command, existing_data_disk, existing_home_disk,
                       find_qemu, free_port)
+from session_hang import capture_hang_state
+from session_pointer import (POINTER, TABLET_MAX, StepFailed, load_targets,  # noqa: F401
+                             parse_screen, point, resolve_click_at)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "net"))
 import qemu_net  # noqa: E402
@@ -123,18 +122,14 @@ import qemu_net  # noqa: E402
 _ACTIONS = {
     "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
-    "click_at", "wait", "wait_for", "qmp", "quit",
+    "click_at", "move_to", "wait", "wait_for", "qmp", "quit",
 }
 # Actions that send input and so may carry an `until` confirmation.
 _INPUT_ACTIONS = {
     "type", "key", "keys", "key_down", "key_up", "mouse_move", "mouse_click",
-    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "click_at",
+    "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "click_at", "move_to",
 }
 _POLL_SECONDS = 0.25
-
-
-class StepFailed(Exception):
-    """A readiness gate timed out or a ``--fail-on`` pattern appeared."""
 
 
 class SerialLog:
@@ -198,55 +193,9 @@ class SerialLog:
         return "\n".join(self.text().splitlines()[-lines:])
 
 
-def capture_hang_state(qmp: Qmp, out_dir: Path, serial: SerialLog,
-                       settle: float = 2.0) -> None:
-    """Record why a guest stopped making progress (issue #382).
-
-    A hung kernel is usually spinning with interrupts off, so its serial log
-    just stops. The monitor's ``info registers`` shows where the CPU is from
-    outside (saved to ``hang_registers.txt``), and an injected NMI makes the
-    kernel print its ``HANG:`` report (``kernel/src/arch/nmi.rs``) into the
-    serial log; its lines are echoed here too.
-    """
-    try:
-        # The stack words matter where an accelerator drops injected NMIs
-        # (WHPX does): they are then the only view of the call chain.
-        state = "\n".join(
-            qmp.execute("human-monitor-command", **{"command-line": command})
-            for command in ("info registers", "x /48gx $rsp")
-        )
-        (out_dir / "hang_registers.txt").write_text(state, encoding="utf-8")
-        print("--- info registers ---", file=sys.stderr)
-        print(state, file=sys.stderr, flush=True)
-        qmp.execute("inject-nmi")
-        time.sleep(settle)
-        report = [line for line in serial.text().splitlines() if "HANG:" in line]
-        print("--- hang report ---", file=sys.stderr)
-        print("\n".join(report) or "(no HANG: lines)", file=sys.stderr, flush=True)
-    except Exception as error:
-        print(f"(could not capture hang state: {error})", file=sys.stderr)
-
-
-# Set by main(): the screen size for `click_at` pixels and its named targets.
-POINTER: dict = {"screen": (1280, 720), "targets": {}}
-TABLET_MAX = 32767
-
-
-def resolve_click_at(target, screen: tuple[int, int], targets: dict) -> tuple[int, int]:
-    """Tablet axis values (0..32767) for a `click_at` pixel pair or name."""
-    if isinstance(target, str):
-        if target not in targets:
-            raise StepFailed(f"click_at: unknown target {target!r} (add it to --targets)")
-        target = targets[target]
-    x, y = target
-    width, height = screen
-    if not (0 <= x < width and 0 <= y < height):
-        raise StepFailed(f"click_at: ({x}, {y}) is outside the {width}x{height} screen")
-    return x * TABLET_MAX // (width - 1), y * TABLET_MAX // (height - 1)
-
-
-def perform(qmp: Qmp, action: str, step: dict) -> None:
-    """Send one input action to the guest."""
+def perform(qmp: Qmp, action: str, step: dict, serial: SerialLog | None = None,
+            timeout: float = 30.0) -> None:
+    """Send one input action to the guest (``serial`` resolves probe names)."""
     if action == "type":
         # `"delay"`: seconds between characters (default 0.01); a busy TCG
         # host drops keys at the default pace.
@@ -274,11 +223,8 @@ def perform(qmp: Qmp, action: str, step: dict) -> None:
     elif action == "mouse_abs":
         x, y = step["mouse_abs"]
         qmp.mouse_abs(x, y)
-    elif action == "click_at":
-        x, y = resolve_click_at(step["click_at"], POINTER["screen"], POINTER["targets"])
-        qmp.mouse_abs(x, y)
-        time.sleep(0.1)  # let the guest move its cursor before the button
-        qmp.mouse_click(step.get("button", "left"))
+    elif action in ("click_at", "move_to"):
+        point(qmp, step, action, serial.text if serial else (lambda: ""), timeout)
 
 
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -343,7 +289,10 @@ def run_steps(qmp: Qmp, steps: list[dict], out_dir: Path, started: float,
             attempts = 1 + int(step.get("retries", 0)) if until else 1
             for attempt in range(attempts):
                 since = serial.size()
-                perform(qmp, action, step)
+                try:
+                    perform(qmp, action, step, serial, timeout)
+                except StepFailed as failure:  # an unresolvable pointer target
+                    raise StepFailed(f"step {index} ({action}): {failure}") from None
                 if not until:
                     break
                 try:
@@ -416,7 +365,7 @@ def main() -> int:
                         help="attach a usb-tablet for absolute pointer positioning")
     parser.add_argument("--screen", default="1280x720",
                         help="WxH of the guest screen, for click_at pixels (default: %(default)s)")
-    parser.add_argument("--targets", help="JSON {name: [x, y]} of click_at target names")
+    parser.add_argument("--targets", help="JSON {name: [x, y]} of click_at/move_to target names")
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator (auto: whpx/kvm if available)")
@@ -456,16 +405,15 @@ def main() -> int:
         image = str(image_path)
 
     try:
-        width, height = (int(n) for n in args.screen.lower().split("x"))
-    except ValueError:
-        sys.exit(f"--screen must be WxH, got {args.screen!r}")
-    POINTER["screen"] = (width, height)
-    if args.targets:
-        POINTER["targets"] = json.loads(Path(args.targets).read_text(encoding="utf-8"))
+        POINTER["screen"] = parse_screen(args.screen)
+        POINTER["targets"] = load_targets(args.targets) if args.targets else {}
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
+    POINTER["tablet"] = args.tablet
 
     extra = list(args.extra_arg)
     if args.tablet:
-        extra += ["-device", "usb-tablet"]
+        extra += ["-device", "qemu-xhci,id=tabletbus", "-device", "usb-tablet,bus=tabletbus.0"]
     extra += net_extra
     extra += accel_args(args.accel, qemu)
 

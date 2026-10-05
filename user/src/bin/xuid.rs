@@ -128,6 +128,8 @@ mod pointer_feed;
 mod powerfeed;
 #[path = "xuid/present.rs"]
 mod present;
+#[path = "xuid/probe.rs"]
+mod probe;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[cfg(lazyos_desktop)]
@@ -241,6 +243,7 @@ fn run() -> ! {
         sys::write_str("xuid: composing in BGRA (present is a row copy)\n");
     }
     let mut comp = Compositor::new(screen);
+    probe::announce();
     // One receive buffer and one input batch for the whole life of the
     // compositor: the user bump allocator never reclaims, so the loop reuses
     // them instead of allocating per message.

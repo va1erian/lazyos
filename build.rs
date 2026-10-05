@@ -47,6 +47,8 @@ mod rhai_embed;
 mod samples_embed;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
+#[path = "build_support/ui_probe_embed.rs"]
+mod ui_probe_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]
@@ -440,10 +442,8 @@ fn main() {
     // The resolver's host table and the TLS trust anchors, in every image
     // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
     // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
-    println!("cargo:rerun-if-changed=build_support/hosts_embed.rs");
-    println!("cargo:rerun-if-changed=build_support/ca_bundle.rs");
-    println!("cargo:rerun-if-changed=build_support/tls_embed.rs");
     hosts_embed::embed(&mut files);
+    ui_probe_embed::embed(&mut files); // `LAZYOS_UI_PROBE=1` only (issue #538)
     let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
     ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
     tls_embed::embed(&mut files, &manifest_dir);
