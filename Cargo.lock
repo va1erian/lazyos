@@ -564,6 +564,7 @@ dependencies = [
  "libmessenger",
  "linked_list_allocator",
  "logstore",
+ "membook",
  "messenger-generated",
  "netpolicy",
  "nvme",
@@ -693,6 +694,10 @@ dependencies = [
  "serde-big-array",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "membook"
+version = "0.1.0"
 
 [[package]]
 name = "memchr"

@@ -1,0 +1,58 @@
+name: miri
+
+# Issue #485: the allocators' bookkeeping (`libs/membook`: the slab free list
+# that writes links into the slots themselves, and the frame refcount rules)
+# runs under Miri, which catches undefined behaviour the host tests cannot see
+# (out-of-bounds or misaligned link writes, use of a freed slot, provenance
+# loss). The kernel builds its slab, heap front and frame allocator on this
+# crate, so the code checked here is the code that boots.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/membook/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/miri.yml"
+  pull_request:
+    paths:
+      - "libs/membook/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/miri.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: miri-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: miri
+
+      # rust-toolchain.toml pins the nightly; Miri is a component of it.
+      - name: Install Miri
+        run: |
+          rustup component add miri
+          cargo miri setup
+
+      - name: Host tests (full soak)
+        run: cargo test -p membook
+
+      # `cargo miri` is nightly-only; the pinned toolchain is a nightly, so
+      # this is `cargo +nightly miri test` on exactly the compiler the kernel
+      # is built with.
+      - name: Miri
+        run: cargo miri test -p membook
+        env:
+          # Miri's default is permissive provenance; the free list keeps real
+          # pointers in the slots, so it must also pass the strict model.
+          MIRIFLAGS: -Zmiri-strict-provenance
