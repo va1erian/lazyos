@@ -12,6 +12,7 @@ use ureq::{Agent, Body, Error};
 use super::decode::{self, Coding};
 use super::resolve::InlineResolver;
 use super::tls::{self, LazyConfig, TlsConnector};
+use super::trace::Timing;
 use super::{Method, Options, Request, Sink};
 
 /// The size of the chunks handed to the sink.
@@ -60,29 +61,48 @@ pub(crate) fn agent(options: &Options) -> Agent {
     Agent::with_parts(config, connector, InlineResolver)
 }
 
-/// Runs `request` and reports it to `sink`.
+/// Runs `request` and reports it to `sink`, then its `WEB:FETCH` line.
 pub(crate) fn run<S: Sink>(agent: &Agent, options: &Options, request: Request, sink: S) {
+    let url = request.url.clone();
+    let mut timing = Timing::start();
+    let outcome = exchange(agent, options, request, sink, &mut timing);
+    timing.report(&outcome, &url);
+}
+
+/// Does the fetch; its status, or `FAIL`.
+fn exchange<S: Sink>(
+    agent: &Agent,
+    options: &Options,
+    request: Request,
+    sink: S,
+    timing: &mut Timing,
+) -> String {
+    let failed = |sink: S, why: &str| {
+        sink.fail(why);
+        "FAIL".to_string()
+    };
     if sink.is_aborted() {
-        return sink.fail("aborted");
+        return failed(sink, "aborted");
     }
     let host = host_of(&request.url);
     let head = request.method == Method::Head;
     let response = match send(agent, options, request) {
         Ok(response) => response,
-        Err(why) => return sink.fail(&why.describe(&host)),
+        Err(why) => return failed(sink, &why.describe(&host)),
     };
+    timing.headers();
     let (parts, body) = response.into_parts();
     let status = parts.status.as_u16();
     let coding = Coding::of(header_str(&parts.headers, "content-encoding").as_deref());
     sink.status(status);
     report_headers(&sink, &parts.headers, coding);
-    if head || !has_body(status) {
-        return sink.finish();
+    if !head && has_body(status) {
+        if let Err(why) = stream(&sink, body, coding, options.max_body, timing) {
+            return failed(sink, &why);
+        }
     }
-    match stream(&sink, body, coding, options.max_body) {
-        Ok(()) => sink.finish(),
-        Err(why) => sink.fail(&why),
-    }
+    sink.finish();
+    status.to_string()
 }
 
 /// Why a request got no response.
@@ -177,7 +197,13 @@ fn has_body(status: u16) -> bool {
 }
 
 /// Streams the body to `sink`, decoded, stopping at the cap or an abort.
-fn stream<S: Sink>(sink: &S, body: Body, coding: Coding, max: u64) -> Result<(), String> {
+fn stream<S: Sink>(
+    sink: &S,
+    body: Body,
+    coding: Coding,
+    max: u64,
+    timing: &mut Timing,
+) -> Result<(), String> {
     // The raw body is capped too, so a slow trickle of compressed bytes that
     // never inflates past the cap still cannot run forever (ureq's body
     // timeout also applies).
@@ -196,6 +222,7 @@ fn stream<S: Sink>(sink: &S, body: Body, coding: Coding, max: u64) -> Result<(),
             Err(e) => return Err(read_error(&e, max)),
         };
         total += n as u64;
+        timing.add(n);
         if total > max {
             return Err(too_large(max));
         }
