@@ -33,9 +33,12 @@ impl WindowsPage {
                     .children((
                         label("Color to change"),
                         build(move |ui| {
-                            Ok(ListView::new(ui, Rect::default(), &names)?
+                            let list = ListView::new(ui, Rect::default(), &names)?
                                 .multi_select(false)
-                                .on_select(|i| Some(Msg::Target(i))))
+                                .on_select(|i| Some(Msg::Target(i)));
+                            // The panel opens on target 0; show which one.
+                            list.select(Some(0));
+                            Ok(list)
                         })
                         .height(150),
                         button("Use default")

@@ -35,9 +35,12 @@ fn watchdog<T: Send + 'static>(test: impl FnOnce() -> T + Send + 'static) -> T {
             let _ = handle.join();
             value
         }
-        Err(_) => match handle.join() {
+        // A worker still running past the deadline has hung: joining it would
+        // hang the run too, so fail now.
+        Err(mpsc::RecvTimeoutError::Timeout) => panic!("the window test hung"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => match handle.join() {
             Err(panic) => std::panic::resume_unwind(panic),
-            Ok(()) => panic!("the window test hung"),
+            Ok(()) => panic!("the window test ended without a result"),
         },
     }
 }
