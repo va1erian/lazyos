@@ -6,7 +6,7 @@
 //! anyone else is told it does not exist rather than that it is not theirs.
 
 use std::collections::BTreeMap;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,8 +18,8 @@ use ipp::uri::PrinterUri;
 use crate::send;
 use crate::store::{Record, Store};
 use crate::{
-    HISTORY, JobId, JobInfo, MAX_ACTIVE, MAX_FIELD, MAX_JOB_BYTES, MAX_OPEN_PER_OWNER,
-    MAX_SPOOL_BYTES, Request, State,
+    HISTORY, JobId, JobInfo, MAX_ACTIVE, MAX_JOB_BYTES, MAX_OPEN_PER_OWNER, MAX_SPOOL_BYTES,
+    Request, State,
 };
 
 /// An open job no write has touched for this long is dropped: its app is
@@ -42,6 +42,9 @@ struct Job {
     touched: Instant,
     /// Set to stop the job while it is being sent.
     cancel: Arc<AtomicBool>,
+    /// A job an earlier run had fully sent: the sending thread asks its
+    /// printer how it ended rather than sending it again.
+    resume: bool,
 }
 
 impl Job {
@@ -129,17 +132,11 @@ impl Spooler {
 
     /// Opens a job for `owner`.
     pub fn open_job(&self, owner: u32, request: &Request) -> Result<JobId, String> {
-        let printer = PrinterUri::parse(&request.printer)?.to_ipp();
-        let ticket = &request.ticket;
-        let fields = [&request.user, &ticket.name, &ticket.format];
-        let choices = [&ticket.media, &ticket.color_mode];
-        if fields.iter().any(|f| f.len() > MAX_FIELD)
-            || choices
-                .iter()
-                .any(|c| c.as_ref().is_some_and(|c| c.len() > MAX_FIELD))
-        {
+        if !request.fields_fit() {
             return Err("A print job field is too long".into());
         }
+        let printer = PrinterUri::parse(&request.printer)?.to_ipp();
+        let ticket = &request.ticket;
         if ticket.format.is_empty() {
             return Err("The job does not say what format its document is".into());
         }
@@ -187,6 +184,7 @@ impl Spooler {
                 bytes: 0,
                 touched: Instant::now(),
                 cancel: Arc::new(AtomicBool::new(false)),
+                resume: false,
             },
         );
         Ok(id)
@@ -229,11 +227,19 @@ impl Spooler {
         if job.bytes == 0 {
             return Err("The job has nothing to print".into());
         }
-        job.record.state = State::Queued;
-        job.record.line = "Waiting for the printer...".into();
-        let record = job.record.clone();
+        // The document reaches the disk before the record says it is whole,
+        // and the job is queued only once that record is saved: a restart
+        // never finds a queued job with half a document, nor loses one the
+        // app was told is queued.
+        let mut record = job.record.clone();
+        record.state = State::Queued;
+        record.line = "Waiting for the printer...".into();
+        fs::File::open(self.store.document(id))
+            .and_then(|file| file.sync_all())
+            .and_then(|()| self.store.save(&record))
+            .map_err(|e| spool_error(&e))?;
+        job.record = record;
         drop(inner);
-        self.save(&record);
         self.wake.notify_all();
         Ok(())
     }
@@ -276,35 +282,33 @@ impl Spooler {
             .collect()
     }
 
-    fn save(&self, record: &Record) {
-        // A record that fails to save only costs recovery after a restart;
-        // the job itself goes on.
-        let _ = self.store.save(record);
-    }
-
     /// Updates job `id` from the sending thread: `edit` changes its record
-    /// and ink; the record is saved when `persist` is set.
+    /// and ink; the record is saved when `persist` is set, and a failed save
+    /// is returned.
     pub(crate) fn update(
         &self,
         id: JobId,
         persist: bool,
         edit: impl FnOnce(&mut Record, &mut String),
-    ) {
+    ) -> io::Result<()> {
         let mut inner = self.lock();
         let Some(job) = inner.jobs.get_mut(&id) else {
-            return;
+            return Ok(());
         };
         edit(&mut job.record, &mut job.ink);
         let record = job.record.clone();
         drop(inner);
         if persist {
-            self.save(&record);
+            self.store.save(&record)
+        } else {
+            Ok(())
         }
     }
 
     /// Ends job `id` as `state`, with `line`, dropping its document.
     pub(crate) fn finish(&self, id: JobId, state: State, line: String) {
-        self.update(id, true, |record, _| {
+        // A failed save leaves the last saved state for recovery to judge.
+        let _ = self.update(id, true, |record, _| {
             record.state = state;
             record.line = line;
         });
@@ -323,20 +327,25 @@ impl Spooler {
         if let Some(orphan) = inner.orphans.pop() {
             return Some(Work::Orphan(orphan));
         }
-        if !inner.jobs.values().any(|j| j.record.state == State::Queued) {
+        let ready = |j: &Job| j.record.state == State::Queued || j.resume;
+        if !inner.jobs.values().any(ready) {
             inner = self
                 .wake
                 .wait_timeout(inner, TICK)
                 .unwrap_or_else(|e| e.into_inner())
                 .0;
         }
-        let job = inner
-            .jobs
-            .values_mut()
-            .find(|j| j.record.state == State::Queued)?;
-        job.record.state = State::Sending;
-        job.record.line = "Connecting to the printer...".into();
+        let job = inner.jobs.values_mut().find(|j| ready(j))?;
+        let resume = if job.resume {
+            job.resume = false;
+            job.record.printer_job
+        } else {
+            job.record.state = State::Sending;
+            job.record.line = "Connecting to the printer...".into();
+            None
+        };
         Some(Work::Job(send::Order {
+            resume,
             id: job.record.id,
             printer: job.record.printer.clone(),
             user: job.record.user.clone(),
@@ -395,10 +404,10 @@ fn spool_error(error: &io::Error) -> String {
 }
 
 /// What an earlier run's record means now. A job never closed lost its app
-/// with that run and is dropped; a queued one waits again; one the printer
-/// was being sent is canceled there, since its document stopped arriving
-/// and the printer would otherwise print what it got; one fully sent is
-/// left to the printer.
+/// with that run and is dropped; a queued one waits again, unless its
+/// document is gone; one the printer was being sent is canceled there,
+/// since its document stopped arriving and the printer would otherwise
+/// print what it got; one fully sent is followed at the printer again.
 fn recover(store: &Store, mut record: Record, orphans: &mut Vec<Orphan>) -> Option<Job> {
     match (record.state, record.printer_job) {
         (State::Open, _) => {
@@ -420,20 +429,28 @@ fn recover(store: &Store, mut record: Record, orphans: &mut Vec<Orphan>) -> Opti
             record.state = State::Failed;
             record.line = "The print service restarted while sending; the job was canceled".into();
         }
-        (State::Printing, _) => {
-            record.state = State::Done;
-            record.line = "Sent to the printer".into();
+        (State::Printing, None) => {
+            // Without the printer's job number there is nothing to ask it.
+            record.state = State::Failed;
+            record.line = "The print service restarted; the job's end is unknown".into();
         }
-        (State::Queued | State::Done | State::Failed | State::Canceled, _) => {}
+        (State::Queued | State::Printing | State::Done | State::Failed | State::Canceled, _) => {}
+    }
+    let bytes = fs::metadata(store.document(record.id)).map_or(0, |m| m.len());
+    if record.state == State::Queued && bytes == 0 {
+        record.state = State::Failed;
+        record.line = "The print service lost the document".into();
+        store.remove_document(record.id);
     }
     let _ = store.save(&record);
-    let bytes = std::fs::metadata(store.document(record.id)).map_or(0, |m| m.len());
+    let resume = record.state == State::Printing;
     Some(Job {
         record,
         ink: String::new(),
         bytes,
         touched: Instant::now(),
         cancel: Arc::new(AtomicBool::new(false)),
+        resume,
     })
 }
 

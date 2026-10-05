@@ -124,6 +124,20 @@ pub struct Request {
     pub ticket: Ticket,
 }
 
+impl Request {
+    /// Whether every text field is at most [`MAX_FIELD`] bytes, as the
+    /// spooler requires.
+    pub fn fields_fit(&self) -> bool {
+        let ticket = &self.ticket;
+        [&self.printer, &self.user, &ticket.name, &ticket.format]
+            .iter()
+            .all(|f| f.len() <= MAX_FIELD)
+            && [&ticket.media, &ticket.color_mode]
+                .iter()
+                .all(|c| c.as_ref().is_none_or(|c| c.len() <= MAX_FIELD))
+    }
+}
+
 /// What an app needs from a print spooler. Errors are one line for the
 /// user.
 pub trait Queue {

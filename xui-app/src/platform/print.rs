@@ -8,6 +8,7 @@ use printd::{JobId, JobInfo, Queue, Request, State, Ticket};
 
 use super::messenger::Service;
 use crate::server::ERROR_FIELD;
+use crate::sys::errno::ETIMEDOUT;
 
 /// The service's registered name.
 pub const NAME: &str = "os.lazy.print";
@@ -15,6 +16,9 @@ pub const NAME: &str = "os.lazy.print";
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 /// Most document bytes one `Write` carries; a longer write is split.
 pub const MAX_WRITE: usize = 256 * 1024;
+/// How long one call may take, in 100 Hz PIT ticks (10 s): LazyWriter calls
+/// from its UI thread, so a stalled printd must not freeze the window.
+const CALL_TICKS: u64 = 1000;
 
 /// The ticket on the wire: an unset choice is `0` or empty.
 pub fn ticket_to_wire(ticket: &Ticket) -> wire::Ticket {
@@ -104,9 +108,12 @@ impl PrintService {
         let service = Service::connect(NAME).map_err(|_| {
             "Printing needs the print service (printd), which is not running".to_owned()
         })?;
-        match service.call_detailed(INTERFACE, method, ERROR_FIELD, body) {
+        match service.call_detailed_within(INTERFACE, method, ERROR_FIELD, body, CALL_TICKS) {
             Ok(reply) => Ok(reply.body),
             Err(error) if !error.message.is_empty() => Err(error.message),
+            Err(error) if error.code == -ETIMEDOUT => {
+                Err("The print service is not answering".to_owned())
+            }
             Err(error) => Err(format!(
                 "The print service did not answer (error {})",
                 -error.code
@@ -121,6 +128,10 @@ fn bad_reply(_: libmessenger::Error) -> String {
 
 impl Queue for PrintService {
     fn open(&self, request: &Request) -> Result<JobId, String> {
+        // Checked here too, so no call is ever larger than printd reads.
+        if !request.fields_fit() {
+            return Err("A print job field is too long".into());
+        }
         let body = wire::encode_open_args(&wire::OpenArgs {
             printer: request.printer.clone(),
             user: request.user.clone(),

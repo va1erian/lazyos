@@ -70,7 +70,11 @@ impl Store {
         file.write_all(encode(record).as_bytes())?;
         file.sync_all()?;
         drop(file);
-        fs::rename(&temp, &path)
+        fs::rename(&temp, &path)?;
+        // The rename itself reaches the disk only with its directory.
+        #[cfg(unix)]
+        fs::File::open(&self.dir)?.sync_all()?;
+        Ok(())
     }
 
     /// Forgets job `id`: both its files.

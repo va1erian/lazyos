@@ -227,6 +227,53 @@ fn a_queued_job_survives_a_restart_and_is_sent() {
 }
 
 #[test]
+fn a_restart_while_printing_asks_the_printer_how_the_job_ended() {
+    let printer = FakePrinter::start(Behaviour::default());
+    let dir = Dir::new("printing");
+    std::fs::create_dir_all(&dir.0).unwrap();
+    // A run that died after the printer had the whole document.
+    std::fs::write(
+        dir.0.join("6.job"),
+        format!(
+            "owner=1000\nstate=printing\nprinter=ipp://{}/ipp/print\nuser=alice\n\
+             name=Letter\nformat=image/pwg-raster\nprinter-job=31\nline=Printing\n",
+            printer.address()
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.0.join("6.doc"), b"RaS2 whole").unwrap();
+    let queue = local(&dir, 1000);
+    let info = done(&queue, 6);
+    assert_eq!(info.state, State::Done, "{info:?}");
+    let seen = printer.seen();
+    // Followed, never sent again.
+    assert!(seen.operations.contains(&op::GET_JOB_ATTRIBUTES));
+    assert!(!seen.operations.contains(&op::CREATE_JOB));
+    assert!(seen.document.is_empty());
+}
+
+#[test]
+fn a_queued_job_whose_document_is_gone_fails_on_restart() {
+    let printer = FakePrinter::start(Behaviour::default());
+    let dir = Dir::new("lost");
+    std::fs::create_dir_all(&dir.0).unwrap();
+    std::fs::write(
+        dir.0.join("3.job"),
+        format!(
+            "owner=1000\nstate=queued\nprinter=ipp://{}/ipp/print\nuser=alice\n\
+             name=Letter\nformat=image/pwg-raster\nline=Waiting\n",
+            printer.address()
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.0.join("3.doc"), b"").unwrap();
+    let queue = local(&dir, 1000);
+    assert_eq!(queue.status(3).unwrap().state, State::Failed);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(printer.seen().operations.is_empty());
+}
+
+#[test]
 fn jobs_answer_only_to_their_owner_and_root() {
     let printer = FakePrinter::start(Behaviour::default());
     let dir = Dir::new("owner");

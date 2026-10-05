@@ -37,6 +37,9 @@ const GIVE_UP: u32 = 5;
 /// A queued job, as the sending thread takes it.
 pub(crate) struct Order {
     pub id: JobId,
+    /// The printer's number for a job an earlier run sent whole: it is only
+    /// followed, not sent again.
+    pub resume: Option<i32>,
     /// `ipp://host:port/path`, checked when the job was opened.
     pub printer: String,
     pub user: String,
@@ -129,7 +132,11 @@ pub(crate) fn run(spooler: &Spooler, order: &Order) -> (State, String) {
         order,
         printer,
     };
-    match run.send() {
+    let outcome = match order.resume {
+        Some(printer_job) => run.resume(printer_job),
+        None => run.send(),
+    };
+    match outcome {
         Ok(line) => (State::Done, line),
         Err((state, line)) => (state, line),
     }
@@ -149,8 +156,16 @@ impl Run<'_> {
     }
 
     fn line(&self, line: String) {
-        self.spooler
+        // Not persisted, so it cannot fail.
+        let _ = self
+            .spooler
             .update(self.order.id, false, |record, _| record.line = line);
+    }
+
+    /// Follows a job an earlier run sent whole, from its next state.
+    fn resume(&self, printer_job: i32) -> Outcome {
+        self.line("Printing...".into());
+        self.follow(&self.printer.client(), printer_job, JobStatus::default())
     }
 
     fn send(&self) -> Outcome {
@@ -171,7 +186,7 @@ impl Run<'_> {
             ))
             .map_err(unreachable)?;
         let ink = ink(&info);
-        self.spooler.update(self.order.id, false, |_, i| *i = ink);
+        let _ = self.spooler.update(self.order.id, false, |_, i| *i = ink);
         if self.canceled() {
             return Err((State::Canceled, "Printing canceled".into()));
         }
@@ -186,11 +201,19 @@ impl Run<'_> {
         let Some(printer_job) = JobStatus::of(&created).id else {
             return Err((State::Failed, "The printer gave the job no number".into()));
         };
-        // Recorded before any page leaves, so a restart can cancel it.
-        self.spooler.update(self.order.id, true, |record, _| {
+        // Recorded before any page leaves, so a restart can cancel it; a job
+        // that cannot be recorded is not sent.
+        let recorded = self.spooler.update(self.order.id, true, |record, _| {
             record.printer_job = Some(printer_job);
             record.line = "Sending the pages...".into();
         });
+        if let Err(e) = recorded {
+            self.printer.cancel(4, printer_job);
+            return Err((
+                State::Failed,
+                format!("The print queue could not record the job: {e}"),
+            ));
+        }
 
         let reply = match self.send_document(&client, printer_job) {
             Ok(reply) => reply,
@@ -209,7 +232,9 @@ impl Run<'_> {
             self.printer.cancel(4, printer_job);
             return Err((State::Failed, refusal(&reply)));
         }
-        self.spooler.update(self.order.id, true, |record, _| {
+        // A failed save leaves the record at Sending, so a restart cancels a
+        // job that may still print: the safe side.
+        let _ = self.spooler.update(self.order.id, true, |record, _| {
             record.state = State::Printing;
             record.line = "Printing...".into();
         });
