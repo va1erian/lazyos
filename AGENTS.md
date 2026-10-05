@@ -672,7 +672,11 @@ regressions, not kernel-internal correctness or resource leaks.
   `tools/screenshot/examples/core_apps.json` launches every core app), so `pkgd`
   installs it at boot and Settings -> Menu offers it (`docs/packages.md`, core
   packages). Verify it by starting it through the launcher or `run_demo.py`, not
-  only by hand-built env vars.
+  only by hand-built env vars. Start a desktop app with
+  `python tools/xui/new_app.py <short> --name "..." --description "..."`: it
+  writes a working app on xui layouts (`xui_app::launch::run`, `UP`/`QUIT`
+  evidence) and registers it for (a)-(d), icons included; then derive its
+  permissions from a traced run.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 
