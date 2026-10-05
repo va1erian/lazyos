@@ -13,7 +13,7 @@ screen shows half-size UI (`docs/xui-plan.md`: "DPI fixed 96").
 | Mode | BIOS stage 2 of `bootloader` 0.11.17 caps VESA at 1280x720 (`bios-stage-2/src/main.rs:131`); QEMU's default std VGA (Bochs DISPI, 16 MiB VRAM) can do 2560x1600 | no 1440p mode at all |
 | Kernel console | JetBrains Mono 20 px atlas, 12x16 cursor sprite | tiny at 1440p |
 | Limits | already derived from the screen (`limits/derive.rs`); 4K binds (#537) | none, if re-derived after a mode change |
-| `xuid` | every metric a px `const` (`theme.rs`), 13 px Droid atlases (`user/build.rs`), 10 px cursor | no scale concept |
+| `xuid` | every metric a px `const` (`theme.rs`), 13 px Droid atlases (`user/build.rs`), 10 px cursor | no scale concept (cursor: now an antialiased vector sprite rendered at `size x scale`, [`cursor-plan.md`](cursor-plan.md)) |
 | Protocol | `os.lazy.display.v1`: sizes, damage, pointer all physical px | clients cannot learn the scale |
 | xui | every Dip goes through `to_px(dpi)`, text shaped at `size.to_px(dpi)`; `Event::DpiChanged` exists | `LazyOSBackend` pins `DEFAULT_DPI = 96` |
 | xui-app | Terminal, dashboard family, LazyShell, desktop icons use raw px constants next to Dip text | text doubles, geometry does not |

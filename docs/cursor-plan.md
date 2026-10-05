@@ -1,6 +1,6 @@
 # Cursor plan: antialiased, resizable, HiDPI cursors with a shape API
 
-Status: planned. Owner branch: `claude/high-dpi-cursor-api-aeff76`.
+Status: C1-C8 landed on `claude/high-dpi-cursor-api-aeff76`, except the xui revision bump (see Status). Owner branch: `claude/high-dpi-cursor-api-aeff76`.
 
 ## Goal
 
@@ -279,3 +279,37 @@ Global checks before finishing: `python tools/check_file_length.py`,
 Custom app-supplied bitmaps (only the named shapes), animated cursors other
 than Busy, hardware cursor planes, fractional scales, live HiDPI scale change,
 the kernel mux cursor.
+
+## Status and deviations
+
+| # | State | Evidence |
+|---|-------|----------|
+| C1 | done | `cargo test -p cursorgfx`; `cargo run -p cursorgfx --example dump -- 64 sheet.ppm` draws every shape |
+| C2 | done | `cursor_fast.json`, `cursor_hidpi.json` (2x: a 32 px antialiased arrow) |
+| C3 | done | `cursor_shapes.json` (every border and corner, a resize in progress), `window_resize.json` |
+| C4 | done | `core_apps.json` under `LAZYOS_LABEL_TRACE=1`: no `LABEL:DENY`; `cargo test -p messenger-generated -p pkgstore` |
+| C5 | done | `cursor_docs.json` (hand over a link, I-beam over text, arrow over a button); `cursor_xdemo.json` (all eight shapes through `SetCursor`, busy animating); host tests in `xui-app/src/backend/cursor/tests.rs` |
+| C6 | xui PR open, **not merged, pin not bumped** | `va1erian/xui` PR 279 (`Cursor::Busy`, NetSurf pointer shapes). Verified in LazyOS with an uncommitted `[patch]`: `python tools/web/run.py` passes and `shot_hover_link.png` shows the hand. After the PR merges: bump the rev everywhere it is pinned (`grep -rn c0007e478c090651767efe9253ab4691b14d4bb1`; LazyRAD's pin moves with it, #602), then add `Cursor::Busy => wire::CURSOR_SHAPE_BUSY` to `wire_shape` in `xui-app/src/backend/cursor.rs` (the arm cannot compile against the old rev) |
+| C7 | done | `xui_settings`-style session `cursor_size.json` (Large, Extra large, reset: the pointer resizes live); `cargo test -p xui-settings` |
+| C8 | done | this file, `docs/architecture/display.md`, `docs/hidpi-plan.md`, `docs/window-resize-plan.md`, `docs/packages.md`, `docs/settings-app-plan.md`, `docs/lazyweb.md`, `AGENTS.md` |
+
+Deviations from the design above:
+
+- **D3/D4: `SetCursor` is its own interface**, `os.lazy.display.cursor.v1`
+  (`idl/display_cursor.midl`, method 1), not method 44 of `display.v1`:
+  `display.midl` is at its allowlisted length, and the scope the kernel checks
+  is an interface id, so one interface is both the wire and the scope with no
+  hand-written constant. It is served on the display endpoint and also
+  registered under its own name (the generated Rhai module connects by name).
+  `pkgstore` knows it as an ordinary (declared, not implied) interface.
+- **D1: the arrow is the old silhouette** (a right triangle with a short tail,
+  traced from the 8x8 bitmap) but drawn light with a dark outside outline, per
+  the plan's colours, not the old white-ring-on-black look. No soft shadow.
+- **D5: the busy tick** is the main loop's existing 100 ms idle wake; no timer.
+- **D6**: LazyRAD's packaged players (`lazyrad-os`) do not list the scope; the
+  IDE package does. A form app that wants shapes adds it to its manifest.
+- **Limit**: a window only gets pointer moves while it is focused (`xuid`
+  forwards moves to the focused surface), so shapes over an unfocused window's
+  content appear after it is focused, like hover highlights.
+- `pkgstore`'s explanation table lacked `os.lazy.messenger.topics.bell.v1`
+  (a pre-existing failing test once `idl/manifest.json` listed it): added.

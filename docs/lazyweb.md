@@ -162,6 +162,16 @@ too. Known flaws: a floated infobox can run past the section rule under it,
 and some inline text loses its spacing (Hacker News' header, "Firstappeared"
 in infoboxes).
 
+## The pointer
+
+NetSurf tells the host which pointer to show as the mouse moves over links,
+text fields and `cursor:` styles (`gui_pointer_shape`). `xui-netsurf` maps that
+to an xui `Cursor` (hand, I-beam, busy, the resize arrows), `LazyOSBackend`
+passes it to the compositor with `SetCursor` (the package lists
+`os.lazy.display.cursor.v1`), and `xuid` draws it
+([`cursor-plan.md`](cursor-plan.md)). `python tools/web/run.py` takes
+`shot_hover_link.png` with the pointer on the example.com link: the hand.
+
 ## Testing it
 
 ```bash
