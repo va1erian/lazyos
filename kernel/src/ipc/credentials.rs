@@ -95,6 +95,10 @@ pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
 /// storage driver (`usbd`) needs. The kernel also requires the caller's uid
 /// to be a block-provider uid (`usbpolicy::BLOCK_PROVIDER_UIDS`).
 pub const CAP_BLOCK_PROVIDER: u32 = 1 << 11;
+/// Serve a directory tree to the VFS from user space and mount it under
+/// `/mnt` (syscall 35, `fs::fuse`, docs/smb-plan.md F1): what a
+/// user-space filesystem daemon (`memfuse`, later `smbfuse`) needs.
+pub const CAP_FS_PROVIDER: u32 = 1 << 12;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -107,7 +111,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_DEV_CLAIM
     | CAP_INPUT_RAW
     | CAP_INPUT_SOURCE
-    | CAP_BLOCK_PROVIDER;
+    | CAP_BLOCK_PROVIDER
+    | CAP_FS_PROVIDER;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy

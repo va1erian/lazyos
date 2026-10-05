@@ -58,6 +58,8 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     // A dead storage driver's disks die with it: their pending and future
     // requests fail instead of waiting out their timeouts.
     crate::block::provider::teardown_task(slot);
+    // A dead filesystem daemon's mount fails fast; the flusher unmounts it.
+    crate::fs::fuse::teardown_task(slot);
     registry::release_owner(slot);
     for (handle, entry) in handles::entries_for_task(slot) {
         match entry.kind {

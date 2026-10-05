@@ -49,6 +49,7 @@ pub const SERVICE_ERROR: u64 = u64::MAX;
 
 mod cred;
 mod display;
+pub mod fuse;
 mod inetpump;
 mod input;
 mod introspect;

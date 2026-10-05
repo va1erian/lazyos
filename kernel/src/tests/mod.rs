@@ -177,6 +177,7 @@ mod fault_suite;
 mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
+mod fuse_suite;
 mod hardening_suite;
 mod heap_slab_suite;
 mod heap_suite;
@@ -310,6 +311,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
     provider_suite::CASES,
+    fuse_suite::CASES,
     topics_suite::CASES,
     topics_gate_suite::CASES,
     service_suite::CASES,

@@ -1,6 +1,9 @@
 # Network directories and SMB — exploration and plan
 
-Status: **draft, nothing built.** This is the S0 deliverable. It is built
+Status: **F0 reviewed, F1 (the FUSE mechanism) built**: syscall 35,
+`kernel/src/fs/fuse/`, `libs/fused`, `memfuse`, `fuse_suite` and
+`tools/fuse/run.py` (§3.1 records what the review changed). F2 onwards is not
+started. It is built
 inside-out from a **FUSE mechanism** — a user-space filesystem framework whose
 kernel side is as thin and generic as we can make it — so that every
 filesystem behaviour, including SMB, lives in userspace. SMB is then just one
@@ -46,12 +49,12 @@ Related: [networking-plan.md](networking-plan.md),
 | Question | Recommendation |
 |---|---|
 | Architecture | **FUSE first**: a generic kernel bridge plus a user-space daemon protocol. Any later network filesystem (9p, NFS, an sshfs-style one) reuses it; SMB is the first daemon |
-| Kernel delta | **One generic `Filesystem` backend** (`kernel/src/fs/fuse.rs`) and **one provider syscall**, a sibling of the block provider (syscall 33). No SMB, NTLM, network or filesystem-specific code |
+| Kernel delta | **One generic `Filesystem` backend** (`kernel/src/fs/fuse/`) and **one provider syscall** (35), a sibling of the block provider (syscall 33). No SMB, NTLM, network or filesystem-specific code |
 | Where SMB runs | A **user-space daemon** (`smbfuse`); the `smb` command links the same library in-process. Never the kernel |
 | Language | **Native `no_std`** in the `user/` workspace, over the existing Messenger socket client (`netsock`), as `ftp` and `nc` are. The mount removes the need for local file I/O in the client, so no musl program is needed |
 | Filesystem data path | A **64 KiB bounce buffer** first (the block provider's model: one copy each way, tiny kernel); a shared fenced buffer is a later optimisation |
 | Blocking | A VFS op parks the calling task while the daemon serves it; `flush`/`writeback` must never block (the flusher rule) |
-| Mount | The daemon registers a provider and names a mount point; the bridge mounts it into **both** the native and ABI `Vfs` tables. Authority is a policy rule, not mechanism |
+| Mount | The daemon registers a provider under a **name**; the bridge mounts it at `/mnt/<name>` in **both** the native and ABI `Vfs` tables, always `nosuid`. Registering needs `CAP_FS_PROVIDER` |
 | Protocol | **SMB2, dialect 2.1 (0x0210)**, over **Direct TCP 445**. Not SMB1 (modern Samba disables it), not SMB3 first |
 | Authentication | **NTLMv2** inside `SESSION_SETUP`; the NTLM **domain** comes from the server's challenge target info |
 | Signing | **HMAC-SHA256 truncated to 16 bytes** on established sessions; `--sign`/`--sign-required` |
@@ -100,29 +103,40 @@ Everything below is generic: it knows nothing about SMB or the network.
 
 | Piece | Change | Why it is small |
 |---|---|---|
-| `kernel/src/fs/fuse.rs` | A `Filesystem` impl that translates each trait call into a provider request and returns the reply | The trait already exists; this is a translator, not a filesystem |
-| A provider syscall (say 34, a sibling of the block provider's 33) | `OPEN`, `NEXT`, `REPLY`, `CLOSE`, and the mount/umount edge | Copies the block provider's parking, deadline, provider-death and one-outstanding-request design |
-| Mount registration | Attach a provider at a path in **both** `FS` and `ABI_FS`, as `mounts.rs`/`late.rs` do | One call into `Vfs::mount` |
-| `FsError` | Add `Io` and `Timeout` (or map to `Invalid`), and the errno mapping | A handful of arms in one enum and the two errno tables |
+| `kernel/src/fs/fuse/` | A `Filesystem` impl (`backend.rs`) that translates each trait call into a provider request and returns the reply; the slot, channel and mount edge beside it | The trait already exists; this is a translator, not a filesystem |
+| Provider syscall **35** (34 is the monotonic clock) | `REGISTER` (mounts), `NEXT`, `REPLY`, `UNREGISTER` (unmounts) | Copies the block provider's parking, deadline, provider-death and one-outstanding-request design |
+| Mount registration | Attach a provider at `/mnt/<name>` in **both** `FS` and `ABI_FS`; `Vfs::unmount` (new) takes it out | `Vfs::mount`, plus the unmount the VFS lacked |
+| `FsError` | Add `Io` (`EIO`); a timeout is an I/O error too | One variant and the two errno tables |
 | Kernel tests | Correctness + soak for the new syscall and backend (hostile paths, bad handles, provider death mid-op, fd/lifecycle, thousands of ops) | AGENTS.md requires it for any kernel component |
 
-**Data plane.** The first cut uses a per-provider **64 KiB bounce buffer**, the
-same bound as the block provider (`MAX_REQUEST_BYTES`). Each request carries at
-most 64 KiB: a larger `read` or `write` is split into sequential chunks, and the
-backend advances the file offset and the buffer position by the bytes each chunk
-completed. It stops on a short chunk and returns the accumulated count; if a
-chunk fails it returns that error, though earlier write chunks may already have
-reached the server. The kernel copies each chunk into or out of the request: one
+**Data plane.** The first cut uses a per-provider **bounce buffer** of 64 KiB
+of data plus one path (`fused::wire::MAX_PAYLOAD`), the same data bound as the
+block provider (`MAX_REQUEST_BYTES`). Each request carries at most 64 KiB: a
+larger `read` or `write` is split into sequential chunks, and the backend
+advances the file offset and the buffer position by the bytes each chunk
+completed. It stops on a short chunk and returns the accumulated count; a chunk
+that fails returns its error when nothing was transferred yet, and otherwise
+the count so far (a short write, as POSIX allows), since earlier chunks may
+already have reached the server. The kernel copies each chunk into or out of the request: one
 copy each way, no pinning, no mapping, and the daemon never sees caller memory.
 A shared, fenced buffer (as the NIC rings and audio streams use) removes the
 copies later and is a pure optimisation — it changes no interface.
 
-**Requests and replies.** A request is `(op, handle, path, offset, len, flags)`
-plus the bounce payload; a reply is `(result/errno, len, attributes)` plus the
-payload. `readdir` returns encoded entries; `lookup`/`stat` return a fixed
+**Requests and replies.** The records are `libs/fused::wire`, linked by both
+sides. A request is ten words `(tag, op, ino, generation, offset, len,
+path_len, mode, uid, gid)` plus the bounce payload (the path, then a write's
+data, a rename target or a `SETATTR` record); a reply is thirteen words
+`(tag, status, count, data_len, attributes)` plus its payload. `readdir`
+returns encoded entries from an index on, as many as fit, and the kernel asks
+again until a batch is empty (at most 65536 entries); `lookup` returns the
 attribute block; `read`/`write` use the payload. Paths are relative to the
-mount root and length-bounded; the daemon treats every field as hostile, the
-same rule `libs/ftpwire` applies to server replies.
+mount root and length-bounded; an op word with `FLAG_NODE` names the
+`(ino, generation)` a lookup returned instead of a path, which is how open
+files are read and written. Each side treats every field as hostile, the same
+rule `libs/ftpwire` applies to server replies: the kernel refuses a node type
+other than file or directory, an id wider than 32 bits, a count above what it
+asked for, reply data longer than the request's room, and a malformed
+directory payload, each as `EIO`.
 
 **Blocking and the flusher.** A VFS operation is synchronous: the backend posts
 the request and **parks the caller** (as the block provider parks a `read`),
@@ -135,26 +149,69 @@ it) parks its caller until the daemon has completed the SMB `FLUSH` and
 acknowledged the data, so a success can never precede durability. The daemon
 owns durability; the flusher never waits.
 
-**Authority.** Registering a provider and mounting are privileged edges: a
-capability (like `CAP_BLOCK_PROVIDER`) plus a service uid allow it, and the
-default-deny ACL can further restrict the mount. The mechanism carries no
-policy; the label rules do ([security-model.md](security-model.md) §5).
+**Authority.** Registering a provider and mounting are privileged edges:
+`CAP_FS_PROVIDER` (bit 12; root holds it) allows it, and only under `/mnt`, so
+a daemon can never shadow a system directory. Unlike the block provider there
+is no uid allow-list yet: F3 adds one (or a label rule) when `smbfuse` gets its
+service account ([security-model.md](security-model.md) §5).
 
 **Caching and coherence.** The kernel backend is stateless; the daemon caches
-SMB metadata and handles. The VFS's own dentry/inode cache sits above and needs
-no change, but a remote tree can change underneath it, so the first cut treats
-FUSE attributes as short-lived and the daemon invalidates on its own writes.
-Making that explicit (an attribute-timeout field in the reply) is part of §3.4.
+SMB metadata and handles. The VFS's own dentry/inode cache sits above and
+**keeps entries until a mutation through the VFS invalidates them** (the
+review's correction: the draft said it needs no change). That is right for
+`memfuse`, whose tree only changes through the mount, and wrong for a share
+another client writes. F3 must add an expiry to the VFS cache for FUSE mounts
+(a per-mount TTL, or an attribute-timeout field in the reply) before `smbfuse`
+ships; until then a remote change is invisible to `stat` and `ls` of a path
+already looked up. The two mount tables also cache separately, so a change
+made through one (a native `chmod`) is not seen by the other's cache (a Linux
+`stat`) until that path is invalidated there: the same expiry fixes both, and
+the kernel suite shows the gap.
+
+**The mount table lock** (found in review). The VFS holds its mount table (a
+`YieldMutex`) across every filesystem call, so a path operation (lookup,
+create, readdir) waiting on a daemon stalls *every* VFS caller, and a daemon
+that touches the VFS on its request path, directly or through a service it
+waits on (`logd` writing a journal, say), deadlocks until the deadline. Two
+mitigations are built: open files are read and written **by node**
+(`Filesystem::open_node`), and the ABI layer opens a FUSE file in place rather
+than copying it whole into a heap snapshot at `open` (`abi_persistent`, which
+only knew ext2), so the bulk of the traffic does not hold the table; and the
+rule that a daemon never uses the filesystem while serving is written into
+`fs/fuse/mod.rs`. F3 must check `smbfuse`'s path (`netd`, `logd`) against it;
+releasing the table across the call is the real fix if it bites.
+
+**Lifecycle.** `UNREGISTER` unmounts at once. A daemon that dies cannot be
+unmounted from its teardown (which may run where the table cannot be waited
+for): its mount fails every call with `EIO` until the periodic flusher (which
+never waits) or the next `REGISTER` of the same name removes it. A slot is
+reused only when no requester still holds it, and each registration has a new
+epoch, so an open file of a dead daemon can never reach its successor.
+`/mnt` is a directory of the image (`build_support/os_layout.rs`); a system
+without it refuses `REGISTER` with `ENOENT`.
 
 ### 3.2 The user-space side
 
 | Path (proposed) | Role |
 |---|---|
-| `libs/fused/` | A `no_std` daemon library: the NEXT/REPLY loop over the provider syscall, request decoding, payload handling, and a `FuseFs` trait a daemon implements. Host-tested against a fake provider |
+| `libs/fused/` | The protocol (`wire`, `payload`), shared with the kernel; a `no_std` daemon library (`daemon::serve_one` over a `Provider`, a `FuseFs` trait a daemon implements) and an in-memory tree (`memfs`). Host-tested against a scripted provider and seeded garbage; the kernel suite serves the same code through the real kernel path |
+| `user/src/sys/fuse.rs` | The syscall wrapper: `Mount`, a `Provider` over syscall 35 |
 | `libs/smbwire/` | The SMB2 + NTLMv2 protocol (no I/O); host-tested and fuzzed (§4.2) |
-| `user/src/bin/memfuse.rs` | A toy in-memory filesystem daemon that proves the mechanism with **no network at all** (stage F1) |
+| `user/src/bin/memfuse.rs` | A toy in-memory filesystem daemon that proves the mechanism with **no network at all** (stage F1); on every image |
+| `user/src/bin/ftpfuse.rs` | A proof of concept of a **network** filesystem daemon: an FTP server at `/mnt/<name>`, over `netsock` and `libs/ftpwire`, sharing the `ftp` client's session code (`LAZYOS_NETD=1` images) |
 | `user/src/bin/smbfuse.rs` | The SMB daemon: implements `FuseFs` over `smbwire` and `netsock` (§4.4) |
 | `user/src/bin/smb.rs` | The direct command for tests and diagnostics (§4.5) |
+
+**`ftpfuse`, the network PoC.** It has the shape `smbfuse` will have (a
+daemon owning a remote session, a metadata cache, reconnects) and shows what
+the mechanism leaves to a daemon when the protocol is not a filesystem. FTP
+has no random-access write, so a write at the end of a file is an `APPE` (a
+sequential `cp` or `>>` costs one upload per 64 KiB request) and any other
+write fetches the file whole, patches it and `STOR`s it back (files up to
+32 MiB); reads fetch a file whole on first use. Listings (`MLSD`, or Unix
+`LIST`) are believed for 3 s. Known limits, acceptable for a PoC and not for
+SMB: a connection lost mid-`APPE` is retried once and could duplicate the
+chunk, and the VFS cache above it has the expiry gap of §3.1.
 
 ### 3.3 What we deliberately do **not** put in the kernel
 
@@ -382,9 +439,10 @@ harness needs no host privilege; the live run uses the usual **445**.
 
 | Layer | What | Run |
 |---|---|---|
-| Host unit | `libs/smbwire`: framing (length bounds, compound `NextCommand`), header encode/decode, every command, NTLMv2 vectors from `MS-NLMP`, signing vectors, hostile/truncated/oversized frames, a seeded fuzz entry; `libs/fused` against a fake provider | `cargo test -p smbwire -p fused` |
-| Kernel | The FUSE provider and backend: correctness (bad paths, bad handles, provider death mid-op) and soak (thousands of ops, fd lifecycle) | `python tools/test/run.py --accel none` |
-| Mechanism e2e | `tools/smb/run.py --memfuse`: mount, `cp` a file in and out, compare bytes | new |
+| Host unit | `libs/smbwire`: framing (length bounds, compound `NextCommand`), header encode/decode, every command, NTLMv2 vectors from `MS-NLMP`, signing vectors, hostile/truncated/oversized frames, a seeded fuzz entry; `libs/fused` against a scripted provider (built) | `cargo test -p smbwire -p fused` |
+| Kernel | `fuse_suite`: the real path with `memfs` served by `serve_one`, both tables, nodes across renames, in-place open files, a 3000-entry directory, read-only mounts, unmount/remount epochs; hostile daemons (error statuses, silence, death mid-request, stale and oversized replies, faulting data, lying attributes and listings); the syscall gate and hostile buffers; a soak (1500 write/read rounds, 200 mount generations) | `LAZYOS_TEST_FILTER=fuse python tools/test/run.py --accel none` |
+| Mechanism e2e | `tools/fuse/run.py`: start `memfuse`, `cp` a file in and out and `cmp` it, rename, append, remove, `statfs`, kill the daemon and remount | built |
+| Network daemon PoC | `tools/fuse/ftp_run.py` (`--list` for servers without `MLSD`): `ftpfuse` against a host FTP server (`tools/fuse/ftpserver.py`, checked by `test_ftpserver.py` against `ftplib`); list, read, `md5sum`, `cp` in, `>>`, an in-place `dd` patch, `mkdir`/`mv`/`rm`/`rmdir`, judged from the server's directory | built |
 | SMB e2e | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share mounts; `ls` equals the server's directory; `cp` out hashes equal to the server's; `cp` in equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
 | Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes | in `run.py` |
 | Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned accepted only when signing is optional and not requested) | `tools/smb/` pcap judge + `test_judge.py` (the judge must fail when it should) |
@@ -401,9 +459,9 @@ is a daemon on top of it.
 | Stage | Deliverable | Kernel change | Evidence |
 |---|---|---|---|
 | **F0** | This plan reviewed; FUSE provider ABI, dialect, crypto and harness pinned | none | this document |
-| **F1** | The **FUSE mechanism**: the provider syscall, `kernel/src/fs/fuse.rs`, mount registration, `FsError` additions, `libs/fused`, the `memfuse` toy daemon; correctness + soak tests | **yes**, generic, with full tests | `memfuse` is mounted; `cp`/`ls`/`cat` round-trip byte-exact; `python tools/test/run.py --accel none` |
+| **F1** (built) | The **FUSE mechanism**: syscall 35, `kernel/src/fs/fuse/`, mount registration and `Vfs::unmount`, `FsError::Io`, `libs/fused`, the `memfuse` toy daemon; correctness + soak tests | **yes**, generic, with full tests | `memfuse` is mounted; `cp`/`ls`/`cat` round-trip byte-exact (`tools/fuse/run.py`); `python tools/test/run.py --accel none` |
 | **F2** | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
-| **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view | none (the bridge is F1) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
+| **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view; a VFS cache expiry for FUSE mounts (§3.1) and the daemon's uid/label rule | the cache expiry (generic) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
 | **F4** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none | `chatonnas` resolves; `-L` lists the server's shares; live mount and `cp` |
 | **F5** | Hardening: shared fenced data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |
 | **F6** | SMB3: 3.1.1 negotiation, preauth integrity, AES-CMAC/GCM signing, encryption policy | none | dialect 0x0311, encrypted share round-trip |

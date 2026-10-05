@@ -1,4 +1,5 @@
-//! The control connection and the passive data connections of `ftp`.
+//! The control connection and the passive data connections of `ftp` and
+//! `ftpfuse` (which includes this file too).
 //!
 //! Every byte a server sends goes through `ftpwire` before it is believed, and
 //! every command is built by `ftpwire::command`, which refuses an argument that
@@ -23,7 +24,7 @@ const REPLY_MS: u64 = 20_000;
 /// Milliseconds one read waits before the clock is checked.
 const SLICE_MS: u32 = 200;
 /// Milliseconds a data transfer may stall.
-pub(super) const STALL_MS: u64 = 15_000;
+const STALL_MS: u64 = 15_000;
 
 pub(super) fn describe(error: &MsgError) -> String {
     use user::messenger::netsock::errno as e;
@@ -142,8 +143,68 @@ impl Control {
         }
     }
 
+    /// Start a transfer command on a fresh passive connection; the
+    /// preliminary reply (125 or 150) has been read.
+    pub(super) fn transfer(
+        &mut self,
+        verb: &str,
+        argument: Option<&str>,
+    ) -> Result<TcpStream, String> {
+        let data = self.passive()?;
+        self.request(verb, argument, &[1])?;
+        Ok(data)
+    }
+
     pub(super) fn quit(&mut self) {
         let _ = self.send("QUIT", None);
         let _ = self.reply();
     }
+}
+
+/// Read a data connection to its end, handing each chunk to `sink`. A stall of
+/// [`STALL_MS`] is an error; so is more than `limit` bytes.
+pub(super) fn drain(
+    data: &TcpStream,
+    limit: usize,
+    mut sink: impl FnMut(&[u8]),
+) -> Result<usize, String> {
+    let mut total = 0usize;
+    let mut idle_until = sys::clock() + STALL_MS / 10;
+    loop {
+        match data.read(16 * 1024, SLICE_MS) {
+            Ok(chunk) if chunk.is_empty() => return Ok(total),
+            Ok(chunk) => {
+                total += chunk.len();
+                if total > limit {
+                    return Err(format!("more than {limit} bytes"));
+                }
+                sink(&chunk);
+                idle_until = sys::clock() + STALL_MS / 10;
+            }
+            Err(e) if is_timeout(&e) => {
+                if sys::clock() >= idle_until {
+                    return Err(String::from("the transfer stalled"));
+                }
+            }
+            Err(e) => return Err(format!("data read: {}", describe(&e))),
+        }
+    }
+}
+
+/// Write all of `bytes` to a data connection; a stall of [`STALL_MS`] is an
+/// error.
+pub(super) fn send_all(data: &TcpStream, bytes: &[u8]) -> Result<(), String> {
+    let mut at = 0;
+    let mut stalled = sys::clock() + STALL_MS / 10;
+    while at < bytes.len() {
+        match data.write_some(&bytes[at..], SLICE_MS) {
+            Ok(k) => {
+                at += k;
+                stalled = sys::clock() + STALL_MS / 10;
+            }
+            Err(e) if is_timeout(&e) && sys::clock() < stalled => {}
+            Err(e) => return Err(format!("data write: {}", describe(&e))),
+        }
+    }
+    Ok(())
 }

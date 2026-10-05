@@ -364,3 +364,61 @@ fn random_text_never_panics_the_address_parsers() {
         let _ = parse_epsv(&text);
     });
 }
+
+mod listing {
+    use super::super::listing::*;
+
+    #[test]
+    fn mlsd_lines() {
+        let e = parse_mlsd_line("type=file;size=1234;modify=20260101120000; notes v2.txt").unwrap();
+        assert_eq!(
+            (e.name.as_str(), e.dir, e.size),
+            ("notes v2.txt", false, 1234)
+        );
+        assert_eq!(e.mtime, Some(1_767_268_800));
+        let d = parse_mlsd_line("Type=dir;Modify=19700101000000.123; sub").unwrap();
+        assert!(d.dir && d.mtime == Some(0));
+        for skipped in [
+            "type=cdir; .",
+            "type=pdir; ..",
+            "type=OS.unix=symlink; l",
+            "size=1; nokind",
+            "type=file;size=x; bad",
+            "type=file; a/b",
+            "type=file; ",
+            "type=file;size=1;nospace",
+        ] {
+            assert_eq!(parse_mlsd_line(skipped), None, "{skipped:?}");
+        }
+    }
+
+    #[test]
+    fn list_lines() {
+        let e = parse_list_line("-rw-r--r--    1 lazy lazy     4096 Jan  1 00:00 a file").unwrap();
+        assert_eq!((e.name.as_str(), e.dir, e.size), ("a file", false, 4096));
+        let d = parse_list_line("drwxr-xr-x 2 0 0 0 Oct 04  2026 pub").unwrap();
+        assert!(d.dir && d.name == "pub");
+        for skipped in [
+            "lrwxrwxrwx 1 a a 3 Jan 1 00:00 l -> x",
+            "total 12",
+            "-rw-r--r-- 1 a a big Jan 1 00:00 x",
+            "-rw-r--r-- 1 a a 3 Jan 1 00:00",
+            "drwxr-xr-x 2 a a 0 Jan 1 00:00 ..",
+            "",
+        ] {
+            assert_eq!(parse_list_line(skipped), None, "{skipped:?}");
+        }
+    }
+
+    #[test]
+    fn whole_listings() {
+        let body = b"type=dir; d\r\ntype=file;size=3; f\r\ngarbage\r\ntype=file; bad\x01name\r\n";
+        let entries = parse_listing(body, true);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].size, 3);
+        let list = b"-rw-r--r-- 1 a a 5 Jan 1 00:00 x\n\xff\xfe\n";
+        assert_eq!(parse_listing(list, false).len(), 1);
+        assert_eq!(parse_modify("20261332000000"), None);
+        assert_eq!(parse_modify("2026"), None);
+    }
+}
