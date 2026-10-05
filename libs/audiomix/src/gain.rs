@@ -110,6 +110,15 @@ mod tests {
     }
 
     #[test]
+    fn half_gain_is_minus_six_db() {
+        // A full-scale-ish square of +-20000: the peak at half gain is -6.02 dB.
+        let before = 20000f64;
+        let after = Gain::new(UNITY / 2).unwrap().scale(20000) as f64;
+        let db = 20.0 * (after / before).log10();
+        assert!((db + 6.02).abs() < 0.01, "{db} dB");
+    }
+
+    #[test]
     fn out_of_range_gains_are_refused() {
         assert!(Gain::new(MAX_Q16 + 1).is_none());
         assert!(Gain::new(u32::MAX).is_none());
