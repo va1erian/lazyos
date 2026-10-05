@@ -140,6 +140,10 @@ impl Compositor {
             self.notify_surface(id, wire::CHANGE_CREATED);
             self.repaint(Rect::new(0, 0, w, h));
         } else {
+            // A window still flying in is hidden (minimized) and placement
+            // skips hidden windows: land it so the new one does not take its
+            // cell.
+            self.finish_opening();
             let origin = place_window(self.work_area(), &self.surfaces, w, h);
             self.surfaces
                 .push(new_surface(message, id, title, origin, (w, h), role));
@@ -283,6 +287,9 @@ impl Compositor {
         let Ok(args) = wire::decode_request_size_args(body) else {
             return error_reply(message.method(), messenger::errno::EINVAL);
         };
+        // An app may ask for its size while its window still flies in; the
+        // window is only hidden for the zoom, not minimized, so land it.
+        self.finish_opening_of(args.surface);
         let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
             return error_reply(message.method(), messenger::errno::ENOENT);
         };

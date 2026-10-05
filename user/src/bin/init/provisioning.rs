@@ -60,6 +60,13 @@ pub(super) fn observe(services: &[Service], message: &Message) {
     STATE.fetch_max(state, Ordering::Relaxed);
 }
 
+/// Whether the image has a `pkgd` manifest row at all.
+pub(super) fn listed(services: &[Service]) -> bool {
+    services
+        .iter()
+        .any(|service| !service.launched && service.name == "pkgd")
+}
+
 /// Whether there is a `pkgd` whose provisioning is worth waiting for: its
 /// manifest row exists and has not settled for good (`Stopped`, `Failed`).
 /// An image without one, or one whose `pkgd` cannot start, opens the session

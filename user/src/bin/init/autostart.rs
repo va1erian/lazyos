@@ -175,14 +175,19 @@ impl Autostart {
         until: u64,
     ) -> bool {
         let done = super::provisioning::done();
-        let awaited = super::provisioning::awaited(services);
+        let listed = super::provisioning::listed(services);
+        let awaited = listed && super::provisioning::awaited(services);
         if !done && awaited && now < until {
             return false;
         }
-        if done || !awaited {
+        // Without a `pkgd` row there is nothing to provision: ready. A `pkgd`
+        // that stopped or ran out of time before `done` left the pass short.
+        if done || !listed {
             sys::write_str("INIT:AUTOSTART:READY pkgd\n");
-        } else {
+        } else if awaited {
             sys::write_str("INIT:AUTOSTART:PARTIAL pkgd did not finish provisioning\n");
+        } else {
+            sys::write_str("INIT:AUTOSTART:PARTIAL pkgd stopped before provisioning finished\n");
         }
         installed.refresh();
         for id in installed.autostart_ids() {

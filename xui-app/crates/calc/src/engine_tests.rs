@@ -162,6 +162,15 @@ fn overflow_is_an_error() {
 }
 
 #[test]
+fn a_percent_that_overflows_is_an_error() {
+    // 999999999999 to the 14th power (about 1e168) is finite; its percent of
+    // itself is not.
+    let keys = format!("999999999999*{}+%", "=".repeat(13));
+    let engine = run(&keys);
+    assert!(engine.is_error(), "{}", engine.display());
+}
+
+#[test]
 fn large_results_go_scientific() {
     assert_eq!(shown("999999999999+1="), "1e12");
     assert_eq!(shown("123456789*1000000="), "1.2345679e14");

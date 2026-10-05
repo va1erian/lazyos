@@ -294,7 +294,10 @@ impl Engine {
             Some(Op::Add | Op::Sub) => self.acc * value / 100.0,
             _ => value / 100.0,
         };
-        if self.show(Some(number::round(result))).is_some() {
+        // Like an operator's result, an overflow is the error state, never
+        // an `inf` on the display.
+        let result = result.is_finite().then(|| number::round(result));
+        if self.show(result).is_some() {
             self.input = Input::Operand;
         }
     }

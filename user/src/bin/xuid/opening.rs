@@ -16,8 +16,9 @@
 //! content and the spinner is never seen.
 //!
 //! The window is hidden (minimized) while it flies in, so anything that
-//! changes window state (minimize, maximize, restore) or opens another window
-//! first lands the zoom in flight ([`Compositor::finish_opening`]).
+//! reads or changes window state (minimize, maximize, restore, the owner's
+//! `RequestSize`, placing another new window) first lands the zoom in flight
+//! ([`Compositor::finish_opening`], [`Compositor::finish_opening_of`]).
 
 use user::messenger::display::Rect;
 use user::sys;
@@ -104,6 +105,17 @@ impl Compositor {
     pub(super) fn finish_opening(&mut self) {
         if let Some(opening) = self.opening.take() {
             self.show_opened(opening.id);
+        }
+    }
+
+    /// Land the zoom in flight if it is window `id`'s.
+    pub(super) fn finish_opening_of(&mut self, id: u64) {
+        if self
+            .opening
+            .as_ref()
+            .is_some_and(|opening| opening.id == id)
+        {
+            self.finish_opening();
         }
     }
 
