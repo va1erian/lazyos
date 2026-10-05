@@ -93,6 +93,13 @@ fn the_dashboard_lays_out_and_renders_light_and_dark() {
             widgets.show_status(360_000, 3, None);
             widgets.set_compact(ui, false);
             ui.relayout();
+            assert_eq!(widgets.tasks.get().len(), 4, "the sample's live tasks");
+            widgets.show_unavailable(5);
+            assert!(
+                widgets.tasks.get().is_empty(),
+                "a failed read clears the table"
+            );
+            widgets.show_snapshot(&sample());
             seen.borrow_mut().extend([
                 ui.bounds(widgets.tabs.get().id()),
                 ui.bounds(widgets.status.get().id()),
