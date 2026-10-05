@@ -87,12 +87,21 @@ impl Printer {
     /// One request with no document, on its own connection.
     fn ask(&self, request: &Message) -> io::Result<Message> {
         let mut stream = self.connect()?;
-        http::exchange(&mut stream, &self.uri.host_header(), &self.uri.path, request)
+        http::exchange(
+            &mut stream,
+            &self.uri.host_header(),
+            &self.uri.path,
+            request,
+        )
     }
 
     /// Cancel-Job, best effort: the printer may have ended the job already.
     fn cancel(&self, request_id: u32, printer_job: i32) {
-        let _ = self.ask(&request::cancel_job(&self.client(), request_id, printer_job));
+        let _ = self.ask(&request::cancel_job(
+            &self.client(),
+            request_id,
+            printer_job,
+        ));
     }
 }
 
@@ -140,7 +149,8 @@ impl Run<'_> {
     }
 
     fn line(&self, line: String) {
-        self.spooler.update(self.order.id, false, |record, _| record.line = line);
+        self.spooler
+            .update(self.order.id, false, |record, _| record.line = line);
     }
 
     fn send(&self) -> Outcome {
@@ -255,10 +265,11 @@ impl Run<'_> {
             }
             self.sleep(POLL);
             request_id += 1;
-            match self
-                .printer
-                .ask(&request::get_job_attributes(client, request_id, printer_job))
-            {
+            match self.printer.ask(&request::get_job_attributes(
+                client,
+                request_id,
+                printer_job,
+            )) {
                 Ok(reply) if reply.is_success() => {
                     unanswered = 0;
                     job = JobStatus::of(&reply);
@@ -319,7 +330,10 @@ fn describe(job: &JobStatus) -> String {
 fn finished(state: i32, job: &JobStatus) -> Outcome {
     match state {
         job_state::COMPLETED => Ok("Printed".into()),
-        job_state::CANCELED => Err((State::Canceled, "The job was canceled at the printer".into())),
+        job_state::CANCELED => Err((
+            State::Canceled,
+            "The job was canceled at the printer".into(),
+        )),
         _ => Err((
             State::Failed,
             match &job.message {

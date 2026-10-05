@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 //! New, Open, Save, Export, Insert image and Quit, with the unsaved-changes
-//! prompt, ported from the wordpad example's `commands.rs`.
+//! prompt, ported from the wordpad example's `commands.rs`, and the prompt of
+//! a quit while a print job is still being prepared.
 //!
 //! Serial evidence for the QEMU sessions, one line each:
 //! `WRITER:OPEN:PASS|FAIL:<path>`, `WRITER:SAVE:PASS|FAIL:<path>`,
@@ -18,7 +19,7 @@ use xui_rich_text::edit::Command;
 use xui_rich_text::model::{Document, Selection};
 
 use crate::app::{After, Msg, Writer};
-use crate::commands::{format, refresh_table, refresh_title, selection, words_label};
+use crate::commands::{format, print, refresh_table, refresh_title, selection, words_label};
 use crate::files;
 use crate::names;
 
@@ -26,6 +27,13 @@ use crate::names;
 /// when the document is modified.
 pub fn guard(app: &mut Writer, ui: &mut Ui<Msg>, after: After) {
     if app.dialog_open.get() {
+        return;
+    }
+    // A job the spooler does not have whole yet dies with the window.
+    let preparing = app.printing.as_ref().is_some_and(|s| s.is_preparing());
+    if after == After::Quit && preparing {
+        app.dialog_open.set(true);
+        app.dialogs.printing.open();
         return;
     }
     if app.dirty {
@@ -67,6 +75,18 @@ pub fn unsaved(app: &mut Writer, ui: &mut Ui<Msg>, action: TaskDialogAction) {
             app.after = None;
             app.editor.focus();
         }
+    }
+}
+
+/// The "Stop printing?" prompt was dismissed: Stop printing cancels the job
+/// and goes on quitting; anything else keeps printing.
+pub fn stop_printing(app: &mut Writer, ui: &mut Ui<Msg>, action: TaskDialogAction) {
+    app.dialog_open.set(false);
+    if action == TaskDialogAction::Command(0) {
+        print::stop(app, ui);
+        guard(app, ui, After::Quit);
+    } else {
+        app.editor.focus();
     }
 }
 

@@ -1,14 +1,14 @@
 #![forbid(unsafe_code)]
 
 //! Printing to an IPP Everywhere printer such as the HP DeskJet 3700
-//! (docs/printing-plan.md): the print bar's choices ([`Options`]), rendering
-//! pages to PWG Raster ([`render`]) and the job sent over IPP ([`job`]).
+//! (docs/printing-plan.md): the print bar's choices ([`Options`]) and
+//! rendering pages to PWG Raster ([`render`]). The job itself is the print
+//! spooler's (`printd`, through [`crate::Host::print_queue`]).
 //!
 //! Pages are rendered on the UI thread, one per timer tick, because the
-//! document and its shaper live there; the encoded bytes go to a worker
-//! thread that owns the connection, so the window never waits on the network.
+//! document and its shaper live there; the encoded bytes go to the spooler,
+//! which owns the connection, so the window never waits on the network.
 
-pub mod job;
 pub mod render;
 
 use xui_rich_text::model::PageSetup;

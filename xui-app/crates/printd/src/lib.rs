@@ -27,7 +27,7 @@ mod store;
 use std::sync::Arc;
 
 pub use ipp::request::Ticket;
-pub use spooler::Spooler;
+pub use spooler::{Report, Spooler};
 
 /// A job's number, unique in its spooler.
 pub type JobId = u32;

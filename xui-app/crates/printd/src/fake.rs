@@ -242,9 +242,7 @@ fn serve(stream: TcpStream, shared: &Shared) {
             seen.document = body[end..].to_vec();
             seen.finished.push(job_id);
             seen.send = Some(request);
-            answer
-                .groups
-                .push(job_group(job_id, job_state::PROCESSING));
+            answer.groups.push(job_group(job_id, job_state::PROCESSING));
         }
         op::GET_JOB_ATTRIBUTES => {
             seen.polls += 1;

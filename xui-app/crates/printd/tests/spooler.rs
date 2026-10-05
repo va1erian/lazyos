@@ -94,7 +94,10 @@ fn a_closed_job_is_sent_whole_and_followed_to_the_end() {
         ]
     );
     let created = seen.ticket.clone().unwrap();
-    assert_eq!(created.text(tag::OPERATION, "requesting-user-name"), Some("alice"));
+    assert_eq!(
+        created.text(tag::OPERATION, "requesting-user-name"),
+        Some("alice")
+    );
     assert_eq!(created.int(tag::JOB, "copies"), Some(2));
     let send = seen.send.clone().unwrap();
     assert_eq!(send.int(tag::OPERATION, "job-id"), Some(FIRST_JOB));
@@ -163,7 +166,11 @@ fn a_refused_document_cancels_the_created_job() {
     queue.close(job).unwrap();
     let info = done(&queue, job);
     assert_eq!(info.state, State::Failed);
-    assert!(info.line.starts_with("The printer refused the job"), "{}", info.line);
+    assert!(
+        info.line.starts_with("The printer refused the job"),
+        "{}",
+        info.line
+    );
     assert_eq!(printer.seen().canceled, [FIRST_JOB]);
 }
 
@@ -261,5 +268,8 @@ fn bad_requests_and_limits_are_refused() {
     assert!(queue.open(&request(&printer)).is_err());
     queue.write(job, b"RaS2").unwrap();
     queue.close(job).unwrap();
-    assert!(queue.write(job, b"more").is_err(), "a closed job takes no more");
+    assert!(
+        queue.write(job, b"more").is_err(),
+        "a closed job takes no more"
+    );
 }

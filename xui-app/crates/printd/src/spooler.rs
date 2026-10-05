@@ -71,11 +71,15 @@ struct Inner {
     orphans: Vec<Orphan>,
 }
 
+/// Told each job that ends, for a service's log.
+pub type Report = Box<dyn Fn(&JobInfo) + Send + Sync>;
+
 /// The print queue over one spool directory.
 pub struct Spooler {
     store: Store,
     inner: Mutex<Inner>,
     wake: Condvar,
+    report: Option<Report>,
 }
 
 /// The work the sending thread takes next.
@@ -89,6 +93,11 @@ impl Spooler {
     /// with its sending thread started. The thread ends once the last
     /// handle is dropped.
     pub fn open(dir: &Path) -> io::Result<Arc<Spooler>> {
+        Spooler::open_reporting(dir, None)
+    }
+
+    /// [`Spooler::open`], telling `report` about every job that ends.
+    pub fn open_reporting(dir: &Path, report: Option<Report>) -> io::Result<Arc<Spooler>> {
         let store = Store::open(dir)?;
         let mut inner = Inner {
             jobs: BTreeMap::new(),
@@ -105,6 +114,7 @@ impl Spooler {
             store,
             inner: Mutex::new(inner),
             wake: Condvar::new(),
+            report,
         });
         let weak = Arc::downgrade(&spooler);
         std::thread::Builder::new()
@@ -124,7 +134,9 @@ impl Spooler {
         let fields = [&request.user, &ticket.name, &ticket.format];
         let choices = [&ticket.media, &ticket.color_mode];
         if fields.iter().any(|f| f.len() > MAX_FIELD)
-            || choices.iter().any(|c| c.as_ref().is_some_and(|c| c.len() > MAX_FIELD))
+            || choices
+                .iter()
+                .any(|c| c.as_ref().is_some_and(|c| c.len() > MAX_FIELD))
         {
             return Err("A print job field is too long".into());
         }
@@ -147,7 +159,9 @@ impl Spooler {
             return Err("Too many print jobs are being prepared at once".into());
         }
         let id = inner.next;
-        inner.next = id.checked_add(1).ok_or("The print queue ran out of job numbers")?;
+        inner.next = id
+            .checked_add(1)
+            .ok_or("The print queue ran out of job numbers")?;
         let user = if request.user.trim().is_empty() {
             DEFAULT_USER.to_owned()
         } else {
@@ -231,12 +245,10 @@ impl Spooler {
         let job = owned(&mut inner, owner, id)?;
         match job.record.state {
             State::Open | State::Queued => {
+                // Final under the lock, so the sending thread cannot take it.
                 job.record.state = State::Canceled;
-                job.record.line = "Printing canceled".into();
-                let record = job.record.clone();
                 drop(inner);
-                self.store.remove_document(id);
-                self.save(&record);
+                self.finish(id, State::Canceled, "Printing canceled".into());
             }
             State::Sending | State::Printing => {
                 job.cancel.store(true, Ordering::Relaxed);
@@ -272,7 +284,12 @@ impl Spooler {
 
     /// Updates job `id` from the sending thread: `edit` changes its record
     /// and ink; the record is saved when `persist` is set.
-    pub(crate) fn update(&self, id: JobId, persist: bool, edit: impl FnOnce(&mut Record, &mut String)) {
+    pub(crate) fn update(
+        &self,
+        id: JobId,
+        persist: bool,
+        edit: impl FnOnce(&mut Record, &mut String),
+    ) {
         let mut inner = self.lock();
         let Some(job) = inner.jobs.get_mut(&id) else {
             return;
@@ -292,6 +309,11 @@ impl Spooler {
             record.line = line;
         });
         self.store.remove_document(id);
+        // The record is copied out first: the report runs without the lock.
+        let info = self.lock().jobs.get(&id).map(Job::info);
+        if let (Some(report), Some(info)) = (&self.report, info) {
+            report(&info);
+        }
         self.prune();
     }
 
@@ -335,7 +357,11 @@ impl Spooler {
             .map(|j| j.record.id)
             .collect();
         for id in idle {
-            self.finish(id, State::Canceled, "The app stopped sending the document".into());
+            self.finish(
+                id,
+                State::Canceled,
+                "The app stopped sending the document".into(),
+            );
         }
     }
 

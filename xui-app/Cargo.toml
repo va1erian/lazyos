@@ -75,6 +75,9 @@ xui-paint = { path = "crates/paint" }
 # LazyWriter's app core (state, commands, file logic, widget tree); the
 # `writer` binary supplies the LazyOS platform through `xui_writer::Host`.
 xui-writer = { path = "crates/writer" }
+# The print spooler (docs/printing-plan.md P6): the `xui-printd` binary serves
+# it as `os.lazy.print.v1`; the platform layer's client prints through it.
+printd = { path = "crates/printd" }
 # The LazyOS Files app ships the multi-colour Global Village tiles: the
 # `village-icons` feature pulls in `xui-icons` and makes `village::paint` draw
 # the coloured set instead of the Lucide fallback.
@@ -198,3 +201,8 @@ path = "src/bin/lazyshell.rs"
 [[bin]]
 name = "xui-calc"
 path = "src/bin/calc.rs"
+
+# The print spooler service, `/system/bin/printd` (no window).
+[[bin]]
+name = "xui-printd"
+path = "src/bin/printd.rs"
