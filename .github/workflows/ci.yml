@@ -37,6 +37,15 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain (with rustfmt/clippy).
       - run: cargo fmt --all -- --check
 
+  file-length:
+    # Source files stay under 500 lines (issue #484); oversized ones are
+    # allowlisted in tools/check_file_length.py and may not grow.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/check_file_length.py
+      - run: python tools/test_check_file_length.py
+
   fhs:
     # Well-known paths come from libs/fhs, never string literals (F0).
     runs-on: ubuntu-latest
