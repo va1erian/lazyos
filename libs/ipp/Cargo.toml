@@ -1,0 +1,22 @@
+[package]
+name = "ipp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "IPP/2.0 messages (RFC 8010) and the requests a print client sends: pure no_std + alloc, with an optional std HTTP transport"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "ipp"
+path = "src/lib.rs"
+
+[features]
+# The HTTP/1.1 transport (`http`) over any `Read + Write`: a chunked POST of
+# `application/ipp` and a bounded response reader. The codec stays `no_std`.
+std = []
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/ipp.rs`).
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

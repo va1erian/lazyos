@@ -3,20 +3,25 @@
 //! A `xuid` desktop client. The app itself (state, commands, file logic and
 //! widget tree, ported from xui's wordpad example) is the portable
 //! `xui-writer` crate; this file supplies the LazyOS platform: the backend,
-//! the bundled fonts, atomic writes, the pickers' start folder, a file named
-//! on the command line, and the serial evidence the sessions grep for.
+//! the bundled fonts, atomic writes, the pickers' start folder, the printer
+//! remembered in `confd`, a file named on the command line, and the serial
+//! evidence the sessions grep for.
 //!
 //! Serial evidence: `WRITER:UP:PASS` after the first frame;
 //! `WRITER:BIND:FAIL:<code>` when the display cannot be bound and
 //! `WRITER:RUN:FAIL:<err>` when the loop fails. The crate prints
-//! `WRITER:OPEN|SAVE|EXPORT|IMAGE:PASS|FAIL:<path>` as files are used.
+//! `WRITER:OPEN|SAVE|EXPORT|IMAGE:PASS|FAIL:<path>` as files are used and
+//! `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>` as a print job
+//! ends.
 
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
+use xui_app::platform::confd_store::ConfdStore;
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
+use xui_settings::store::{ConfigStore, Value};
 use xui_writer::Host;
 
 /// Window size a compositor lays LazyWriter out at. The issue's 960x680 does
@@ -24,14 +29,30 @@ use xui_writer::Host;
 /// than the 688 px above the taskbar, so the status bar ended up off screen.
 const WINDOW: (i32, i32) = (960, 600);
 
-/// LazyOS's side of the app: atomic writes, `$HOME` (or `/transient`) and the
-/// families `register_writer` registered.
+/// LazyOS's side of the app: atomic writes, `$HOME` (or `/transient`), the
+/// families `register_writer` registered and the last printer.
 fn host() -> Host {
     let mut host = Host::std(xui_app::platform::dirs::default_dir());
     host.write = Rc::new(xui_app::platform::storage::write_atomic);
     host.serif_family = xui_app::font::SERIF_FAMILY.to_owned();
     host.mono_family = xui_app::font::MONO_FAMILY.to_owned();
+    host.last_printer = Rc::new(|| match ConfdStore::new().get(&printer_key()?) {
+        Some(Value::Str(printer)) => Some(printer),
+        _ => None,
+    });
+    host.remember_printer = Rc::new(|printer| {
+        if let Some(key) = printer_key() {
+            // Losing the address only means typing it again next time.
+            let _ = ConfdStore::new().set(&key, Value::Str(printer.to_owned()));
+        }
+    });
     host
+}
+
+/// Where the last printer is kept: the user's own `confd` subtree.
+fn printer_key() -> Option<String> {
+    let uid = ConfdStore::new().uid()?;
+    Some(format!("user/{uid}/writer/printer"))
 }
 
 fn main() -> std::process::ExitCode {

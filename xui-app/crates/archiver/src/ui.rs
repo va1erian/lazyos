@@ -7,10 +7,13 @@ use std::rc::Rc;
 
 use lazyarc::format::{Format, Level, ALL as FORMATS};
 use xui_core::app::Ui;
-use xui_core::arrange::{column, row, widget, LayoutExt, Mounted};
+use xui_core::arrange::{
+    build as create, button, column, combo_box, label, progress, row, status_bar, Handle,
+    LayoutExt, Mounted,
+};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
-use xui_core::layout::Insets;
+use xui_core::layout::{Constraints, Insets};
 use xui_core::widget::{
     Button, ComboBox, Dialog, FileDialog, Fill, Label, ListView, Lucide, Menu, MenuId, Placeable,
     ProgressBar, StatusBar, TaskDialog, TaskDialogIcon, Toolbar,
@@ -88,13 +91,13 @@ impl Placeable<Msg> for ToolbarPane {
         self.0.id()
     }
 
-    fn natural_size(&self, _ui: &Ui<Msg>, _dpi: u32) -> Size {
+    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 }
 
-fn toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
-    Ok(Toolbar::empty(ui, Rect::default())?
+fn toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
+    let toolbar = Toolbar::empty(ui, Rect::default())?
         .item_with_text(Lucide::FolderOpen, "Open an archive (Ctrl+O)", "Open")
         .item_with_text(Lucide::Package, "New archive (Ctrl+N)", "New")
         .item_with_text(Lucide::Plus, "Add a file to the archive", "Add")
@@ -111,7 +114,8 @@ fn toolbar(ui: &Ui<Msg>) -> Result<Toolbar<Msg>> {
         )
         .separator()
         .item_with_text(Lucide::ChevronUp, "Up one folder (Backspace)", "Up")
-        .on_click(|index| COMMANDS.get(index).map(|msg| msg())))
+        .on_click(|index| COMMANDS.get(index).map(|msg| msg()));
+    Ok(ToolbarPane(toolbar))
 }
 
 fn list(ui: &Ui<Msg>) -> Result<ListView<Msg>> {
@@ -181,24 +185,14 @@ fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
 
 /// Builds the window's widgets and mounts the layout.
 pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
-    let list = Rc::new(list(ui)?);
-    let address = Rc::new(Label::auto(ui, "")?);
-    let welcome = Rc::new(Label::auto(
-        ui,
-        "Drop an archive here to open it, or files and folders to make a new one.",
-    )?);
-    let labels: Vec<&str> = Level::ALL.iter().map(|level| level.label()).collect();
-    let level = Rc::new(ComboBox::auto(ui, &labels)?.on_select(|index| Some(Msg::Level(index))));
-    level.select(
-        Level::ALL
-            .iter()
-            .position(|l| *l == Level::Normal)
-            .unwrap_or(0),
-    );
-    let progress = Rc::new(ProgressBar::auto(ui, 1000)?);
-    let progress_label = Rc::new(Label::auto(ui, "")?);
-    let cancel = Rc::new(Button::auto(ui, "Cancel")?.on_click(|| Some(Msg::Cancel)));
-    let status = Rc::new(StatusBar::auto(ui, &["Ready", "", ""])?);
+    let list = Handle::new();
+    let address = Handle::new();
+    let welcome = Handle::new();
+    let level = Handle::new();
+    let progress_bar = Handle::new();
+    let progress_label = Handle::new();
+    let cancel = Handle::new();
+    let status = Handle::new();
     let menu = Menu::context(ui)
         .build(|scope| {
             scope.item(MENU_OPEN, "Open");
@@ -210,56 +204,71 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
         .on_select(|id| Some(Msg::Menu(id)));
     let dialogs = dialogs(ui, host)?;
 
-    let gap = Dip(6.0);
-    let root = column()
-        .child(
-            row()
-                .spacing(gap)
-                .margins(Insets::symmetric(Dip(0.0), Dip(0.0)))
-                .child(widget(ToolbarPane(toolbar(ui)?)).fill(1))
-                .child(
-                    row()
-                        .spacing(gap)
-                        .margins(Insets::symmetric(Dip(6.0), Dip(5.0)))
-                        .child(Label::auto(ui, "Level"))
-                        .child((&level).width(Dip(104.0)))
-                        .fixed(Dip(166.0)),
-                )
-                .fixed(TOOLBAR_HEIGHT),
-        )
-        .child(
-            row()
-                .margins(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .child((&address).fill(1))
-                .fixed(ADDRESS_HEIGHT),
-        )
-        .child((&list).fill(1))
-        .child(
-            row()
-                .margins(Insets::symmetric(Dip(16.0), Dip(0.0)))
-                .child((&welcome).fill(1))
-                .fill(1),
-        )
-        .child(
-            row()
-                .spacing(gap)
-                .margins(Insets::symmetric(Dip(8.0), Dip(3.0)))
-                .child((&progress_label).width(Dip(300.0)))
-                .child((&progress).fill(1))
-                .child((&cancel).width(Dip(84.0)))
-                .fixed(PROGRESS_HEIGHT),
-        )
-        .child(&status);
+    let levels: Vec<&str> = Level::ALL.iter().map(|level| level.label()).collect();
+    let normal = Level::ALL
+        .iter()
+        .position(|l| *l == Level::Normal)
+        .unwrap_or(0);
+    let gap = 6;
+    let root = column().children((
+        row()
+            .gap(gap)
+            .children((
+                create(toolbar).fill(1),
+                row()
+                    .gap(gap)
+                    .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
+                    .children((
+                        label("Level"),
+                        combo_box(&levels)
+                            .bind(&level)
+                            .on_select(Msg::Level)
+                            .then(move |level| {
+                                level.select(normal);
+                                level
+                            })
+                            .width(104),
+                    ))
+                    .fixed(166),
+            ))
+            .fixed(TOOLBAR_HEIGHT),
+        row()
+            .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
+            .child(label("").bind(&address).fill(1))
+            .fixed(ADDRESS_HEIGHT),
+        create(self::list).bind(&list).fill(1),
+        row()
+            .padding(Insets::symmetric(Dip(16.0), Dip(0.0)))
+            .child(
+                label("Drop an archive here to open it, or files and folders to make a new one.")
+                    .bind(&welcome)
+                    .fill(1),
+            )
+            .fill(1),
+        row()
+            .gap(gap)
+            .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
+            .children((
+                label("").bind(&progress_label).width(300),
+                progress(1000).bind(&progress_bar).fill(1),
+                button("Cancel")
+                    .bind(&cancel)
+                    .on_click_with(|| Some(Msg::Cancel))
+                    .width(84),
+            ))
+            .fixed(PROGRESS_HEIGHT),
+        status_bar(&["Ready", "", ""]).bind(&status),
+    ));
     let mounted = ui.mount(root)?;
     let widgets = Widgets {
-        list,
-        address,
-        welcome,
-        level,
-        progress,
-        progress_label,
-        cancel,
-        status,
+        list: list.get(),
+        address: address.get(),
+        welcome: welcome.get(),
+        level: level.get(),
+        progress: progress_bar.get(),
+        progress_label: progress_label.get(),
+        cancel: cancel.get(),
+        status: status.get(),
         menu,
         mounted,
     };
