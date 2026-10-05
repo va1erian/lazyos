@@ -48,13 +48,14 @@ pub fn toggle_bar(app: &mut Writer, ui: &mut Ui<Msg>) {
         close(app, ui);
         return;
     }
-    if bar.printer.text().trim().is_empty()
+    let printer = bar.printer.get();
+    if printer.text().trim().is_empty()
         && let Some(last) = (app.host.last_printer)()
     {
-        bar.printer.set_text(&last);
+        printer.set_text(&last);
     }
     bar.set_shown(ui, true);
-    bar.printer.focus();
+    printer.focus();
 }
 
 /// Close: cancels a running job, else hides the bar.

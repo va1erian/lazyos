@@ -136,10 +136,10 @@ pub fn render(
             *built.borrow_mut() = Some(Rig {
                 editor: Rc::clone(&app.editor),
                 status: Rc::clone(&app.status),
-                bold: Rc::clone(&app.tools.marks[0]),
+                bold: app.tools.marks[0].get(),
                 dialog_open: Rc::clone(&app.dialog_open),
-                print_printer: Rc::clone(&app.print_bar.printer),
-                print_status: Rc::clone(&app.print_bar.status),
+                print_printer: app.print_bar.printer.get(),
+                print_status: app.print_bar.status.get(),
             });
             Ok::<_, BackendError>(app)
         },
