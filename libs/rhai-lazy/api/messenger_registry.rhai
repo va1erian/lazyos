@@ -27,13 +27,20 @@ fn connect() {
     msg::connect("os.lazy.messenger.registry.v1")
 }
 
-/// `Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64) -> ()`
+/// `Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64, interface_names: Array<String>) -> ()`
 ///
 /// Publish `endpoint` (a handle in the owner's table) under `name`. The
 /// owner becomes the registering task. A `lease_ticks` of `0` registers a
 /// permanent name; otherwise the name expires after that many ticks.
-fn register(name, endpoint, interfaces, lease_ticks) {
-    msg::connect("os.lazy.messenger.registry.v1").invoke("Register", [name, endpoint, interfaces, lease_ticks])
+/// `interface_names` spells out `interfaces`, in order (issue #495): an
+/// id is the FNV-1a 64 hash of its name, so the kernel cannot tell from
+/// an id alone which domain an interface belongs to. When present it must
+/// match `interfaces` one for one, hash for hash. A task labelled
+/// `app:<id>` (or `dev:<id>`) must send it, and every name must lie in its
+/// own domain, `<id>.<name>.v<N>`; anything else is refused (`EACCES`,
+/// audited). Other callers may leave it empty.
+fn register(name, endpoint, interfaces, lease_ticks, interface_names) {
+    msg::connect("os.lazy.messenger.registry.v1").invoke("Register", [name, endpoint, interfaces, lease_ticks, interface_names])
 }
 
 /// `Resolve(name: String) -> (handle: U64)`

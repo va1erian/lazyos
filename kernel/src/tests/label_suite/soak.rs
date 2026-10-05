@@ -1,6 +1,7 @@
 //! Soak: thousands of register/resolve/unregister/load cycles across labels,
-//! including tasks that die mid-registration, must leave the label table, the
-//! ACL storage, the registry and the handle tables exactly where they started.
+//! including tasks that die mid-registration and registrations that advertise
+//! another app's interface (issue #495), must leave the label table, the ACL
+//! storage, the registry and the handle tables exactly where they started.
 
 use super::*;
 
@@ -11,6 +12,13 @@ const CYCLES_PER_PASS: usize = 1500;
 /// One cycle in this many ends with the owning task exiting while it still
 /// holds a registered name.
 const EXIT_EVERY: usize = 100;
+/// One cycle in this many also tries to serve the peer app's interface.
+const FOREIGN_EVERY: usize = 4;
+
+/// App `app`'s own interface, `soak<app>.svc.v1`.
+fn interface_of(app: usize) -> String {
+    format!("soak{app}.svc.v1")
+}
 
 fn name_of(app: usize) -> String {
     format!("app.soak{app}.svc")
@@ -46,13 +54,36 @@ fn cycle(index: usize, tasks: &[usize]) -> Result<(), String> {
     let name = name_of(k);
     let peer_label = format!("app:soak{}", (k + 1) % APPS);
 
+    if index % FOREIGN_EVERY == 0 {
+        let foreign = interface_of((k + 1) % APPS);
+        let id = crate::ipc::topics::fnv1a64(&foreign);
+        let code = as_task(owner, || {
+            let (code, pair) = register_current_with(&name, &[id], &[&foreign])?;
+            close_pair(pair);
+            Ok(code)
+        })?;
+        check!(
+            code == failed(EACCES),
+            "cycle {index}: served {foreign} -> {code:#x}"
+        );
+        check!(
+            registry::list().is_empty(),
+            "cycle {index}: refusal registered"
+        );
+    }
+    let own = interface_of(k);
+    let own_id = crate::ipc::topics::fnv1a64(&own);
     let code = as_task(owner, || {
-        let (code, pair) = register_current(&name)?;
+        let (code, pair) = register_current_with(&name, &[own_id], &[&own])?;
         close_pair(pair);
         Ok(code)
     })?;
     check!(code == 0, "cycle {index}: register -> {code:#x}");
     check!(registry::list().len() == 1, "cycle {index}: registry size");
+    check!(
+        registry::list()[0].interfaces == [own_id],
+        "cycle {index}: interfaces not kept"
+    );
     check!(
         as_task(owner, || resolve_current(&name))? == 0,
         "cycle {index}: an app could not resolve its own name"
@@ -171,9 +202,12 @@ pub fn register_load_cycles() -> Result<(), String> {
         "the label table grew across passes: {label_counts:?}"
     );
     let denied = audit::denials() - denials_before;
+    // One foreign resolve per cycle, plus the foreign interfaces.
+    let cycles = PASSES * CYCLES_PER_PASS;
+    let expected = cycles + cycles / FOREIGN_EVERY;
     check!(
-        denied >= (PASSES * CYCLES_PER_PASS) as u64,
-        "only {denied} denials audited"
+        denied >= expected as u64,
+        "only {denied} denials audited (expected at least {expected})"
     );
     // Hash chain still verifies end to end after the churn.
     check!(audit::count() > 0, "audit ring is empty");

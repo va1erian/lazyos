@@ -360,6 +360,9 @@ def emit_rust(interface: Interface) -> str:
         "",
         "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
+        "    /// The interface name [`INTERFACE_ID`] hashes, for a registration that",
+        "    /// spells out what it serves (`Register.interface_names`, issue #495).",
+        f"    pub const INTERFACE_NAME: &str = \"{interface.name}\";",
         "",
     ]
     # Enums travel as `U32` on the wire; the variant indices are emitted as

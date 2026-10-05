@@ -130,6 +130,7 @@ class CodegenTests(unittest.TestCase):
     def test_emit_rust_includes_interface_id(self) -> None:
         interface = midlc.Parser(midlc.lex(SAMPLE)).parse_interface()
         self.assertIn(f"pub const INTERFACE_ID: u64 = {interface.id:#x};", midlc.emit_rust(interface))
+        self.assertIn(f'pub const INTERFACE_NAME: &str = "{interface.name}";', midlc.emit_rust(interface))
 
     def test_array_and_option_encode_into_nested_encoder(self) -> None:
         # Regression: the element of an Array/Option must be written into the

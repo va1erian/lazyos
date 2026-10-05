@@ -15,9 +15,14 @@
 //!   which is `app:com.foo.bar`'s.
 //! * Topics. A task labelled `app:<id>` may publish and subscribe anything at
 //!   or under `app/<id>/`.
+//! * Interfaces. A service registered by a task labelled `app:<id>` may only
+//!   advertise interfaces in its own domain, `<id>.<name>.v<N>` (issue #495).
+//!   Interface ids are FNV-1a hashes, so the registration spells each one out
+//!   (`Register.interface_names`) and the kernel checks both the hash and the
+//!   domain ([`check_interfaces`]).
 //! * A `dev:<id>` label (an app run from an IDE, issue #529) owns exactly the
-//!   names and topics of `app:<id>`; its other rules are the ones `pkgd`
-//!   loaded for it after the user approved them.
+//!   names, topics and interface domain of `app:<id>`; its other rules are the
+//!   ones `pkgd` loaded for it after the user approved them.
 //! * Everything else a labelled task does (resolve a name, call an interface,
 //!   touch another topic) is default-deny unless an allow rule for its label
 //!   was loaded ([`super::acl::load_label`]). Resolving a name is checked as a
@@ -209,6 +214,103 @@ pub fn check_name(slot: usize, op: NameOp, name: &str) -> Result<(), NameDenied>
         .map_err(|reason_code| NameDenied { reason_code })
 }
 
+/// Whether interface `name` lies in app `id`'s own domain: `<id>.<name>.v<N>`,
+/// where `<name>` is one or more non-empty segments of ASCII letters, digits,
+/// `_` and `-`, and `<N>` is a decimal version. The `.` after `<id>` is
+/// required, so `com.x` does not own `com.xy.*`; like DNS, it does own the
+/// interfaces of a sub-domain such as `com.x.y.chat.v1`.
+pub fn interface_in_domain(name: &str, id: &str) -> bool {
+    let Some(rest) = name
+        .strip_prefix(id)
+        .and_then(|rest| rest.strip_prefix('.'))
+    else {
+        return false;
+    };
+    let Some((middle, version)) = rest.rsplit_once('.') else {
+        return false;
+    };
+    let digits = version.strip_prefix('v').unwrap_or("");
+    let segment_ok = |segment: &str| {
+        !segment.is_empty()
+            && segment
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    };
+    middle.split('.').all(segment_ok)
+        && !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Decide the interfaces a registration advertises without auditing it:
+/// `Err((reason, offending id))`. Names, when sent, must spell out the ids
+/// one for one; a task labelled `app:<id>`/`dev:<id>` must send them, all in
+/// its own domain; `system:` tasks and unlabelled tasks are not limited.
+fn interfaces_verdict(cred: &Cred, ids: &[u64], names: &[String]) -> Result<(), (u32, u64)> {
+    let first = ids.first().copied().unwrap_or(0);
+    let spelled = names.len() == ids.len();
+    if let Some((&id, _)) = ids
+        .iter()
+        .zip(names)
+        .find(|&(&id, name)| fnv1a64(name) != id)
+    {
+        return Err((reason::UNNAMED_INTERFACE, id));
+    }
+    if !names.is_empty() && !spelled {
+        return Err((reason::UNNAMED_INTERFACE, first));
+    }
+    if cred.label_id == 0 || ids.is_empty() {
+        return Ok(());
+    }
+    if labels::kind_of(cred.label_id) == Some(Kind::System) {
+        return Ok(());
+    }
+    let Some(own) = app_id_of(cred.label_id) else {
+        return Err((reason::FOREIGN_INTERFACE, first));
+    };
+    if !spelled {
+        return Err((reason::UNNAMED_INTERFACE, first));
+    }
+    match ids
+        .iter()
+        .zip(names)
+        .find(|(_, name)| !interface_in_domain(name, &own))
+    {
+        Some((&id, _)) => Err((reason::FOREIGN_INTERFACE, id)),
+        None => Ok(()),
+    }
+}
+
+/// Authorize the interfaces a registration by the task in `slot` advertises
+/// (`ids`, spelled out by `names`), auditing every refusal (and, when tracing
+/// is on, every allow). The audit record is a registry `Register` whose
+/// `txn_id` is the offending interface id.
+pub fn check_interfaces(slot: usize, ids: &[u64], names: &[String]) -> Result<(), NameDenied> {
+    let cred = credentials::of(slot);
+    let verdict = interfaces_verdict(&cred, ids, names);
+    #[cfg(lazyos_label_trace)]
+    if let Err((_, id)) = verdict {
+        super::label_trace::denied(cred.label_id, format_args!("interface={id:#x}"));
+    }
+    if verdict.is_err() || audit::trace() {
+        let (allow, reason_code, txn_id) = match verdict {
+            Ok(()) => (true, reason::ALLOWED_BY_NAMESPACE, 0),
+            Err((code, id)) => (false, code, id),
+        };
+        audit::record(AuditEvent {
+            ticks: crate::task::ticks(),
+            actor_slot: slot,
+            uid: cred.uid,
+            label_id: cred.label_id,
+            interface_id: registry::INTERFACE,
+            method: registry::method::REGISTER,
+            allow,
+            reason_code,
+            txn_id,
+        });
+    }
+    verdict.map_err(|(reason_code, _)| NameDenied { reason_code })
+}
+
 /// Whether `name` (a validated topic or filter) lies in the `app/<id>/`
 /// namespace of the actor's own `app:<id>` label.
 pub fn owns_topic(cred: &Cred, name: &str) -> bool {
@@ -245,14 +347,17 @@ pub fn evaluate_labelled(cred: &Cred, interface_id: u64, method: u32) -> (Decisi
 pub fn explain(label_id: u32, reason_code: u32) -> String {
     let own = app_id_of(label_id);
     let may = match own {
-        Some(id) => {
-            format!("it may publish services named app.{id}.<name> and topics under app/{id}/")
-        }
+        Some(id) => format!(
+            "it may publish services named app.{id}.<name> serving interfaces \
+             named {id}.<name>.v<N>, and topics under app/{id}/"
+        ),
         None => String::from("ask an administrator which names it may use"),
     };
     let why = match reason_code {
         reason::RESERVED_NAMESPACE => "that name belongs to the system or to another app",
         reason::OUTSIDE_NAMESPACE => "apps may only publish names in their own namespace",
+        reason::UNNAMED_INTERFACE => "an app must name every interface it serves, as its id",
+        reason::FOREIGN_INTERFACE => "apps may only serve interfaces in their own domain",
         _ => "it was not granted access to that Messenger interface",
     };
     format!("denied: {why}; {may}")

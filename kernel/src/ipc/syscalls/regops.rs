@@ -82,6 +82,9 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
     // Name policy first, keyed by the task that will own the name (the client
     // when `messengerd` proxies), so a denied app learns nothing about handles.
     policy::check_name(target, NameOp::Register, &args.name).map_err(|_| errno::EACCES)?;
+    // Then what it claims to serve: an app only its own domain (issue #495).
+    policy::check_interfaces(target, &args.interfaces, &args.interface_names)
+        .map_err(|_| errno::EACCES)?;
     let entry = handles::get_for_task(target, endpoint).map_err(handles_errno)?;
     if !matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint) {
         return Err(errno::EINVAL);

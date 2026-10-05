@@ -126,7 +126,7 @@ pub fn serve(
     }
     let endpoint = fabric
         .bus()
-        .register(name, &[iface.id])
+        .register(name, &[iface.id], &[iface.name])
         .map_err(|e| script_error(format!("msg::serve: cannot register `{name}`: {e}")))?;
     let kind = SourceKind::Service {
         name: name.into(),
@@ -299,7 +299,9 @@ pub fn run(
     let now_ms = || fabric.bus().clock_ms();
     let mine = |fabric: &Fabric| -> Vec<usize> {
         let sources = fabric.sources.borrow();
-        (0..sources.len()).filter(|&i| sources[i].owner == owner).collect()
+        (0..sources.len())
+            .filter(|&i| sources[i].owner == owner)
+            .collect()
     };
     if mine(fabric).is_empty() {
         return Err(script_error(
@@ -317,7 +319,11 @@ pub fn run(
             if fabric.stop.get() || remaining == Some(0) {
                 return Ok(handled);
             }
-            let slice = if indices.len() == 1 { SLICE_MS } else { POLL_MS };
+            let slice = if indices.len() == 1 {
+                SLICE_MS
+            } else {
+                POLL_MS
+            };
             let wait = Wait::Ms(remaining.map_or(slice, |r| r.min(slice)).max(1));
             if let Some(work) = poll(fabric, index, wait)? {
                 handle(fabric, work, &mut call)?;

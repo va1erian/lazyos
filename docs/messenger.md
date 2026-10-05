@@ -329,9 +329,16 @@ health rows, `logd` appends hash-chained records and serves queries, and
   maps to exactly one id) and publish or subscribe topics at or under
   `app/<id>/`. A development run (`dev:<id>`) owns the same names and topics.
   Registering anything else is refused with `EACCES` and audited; resolving
-  another name needs an allow rule loaded for the label. Interface ids are
-  `fnv1a64` hashes, so the kernel cannot check that an advertised interface
-  sits under the app's own domain (#495 keeps that open).
+  another name needs an allow rule loaded for the label.
+- **Interface domains** (#495): an app's registration may only advertise
+  interfaces of its own domain, `<id>.<name>.v<N>` (`<name>` one or more
+  segments). Interface ids are `fnv1a64` hashes, so `Register` carries
+  `interface_names` beside `interfaces` (`idl/registry.midl`; each generated
+  module has an `INTERFACE_NAME`): the kernel checks every name hashes to its
+  id and lies in the label's domain, and refuses anything else with `EACCES`,
+  audited as `UNNAMED_INTERFACE` or `FOREIGN_INTERFACE` with the offending id
+  as the record's `txn_id`. Platform services (unlabelled or `system:*`) may
+  leave the names empty; names they send must still be true.
 
 ---
 

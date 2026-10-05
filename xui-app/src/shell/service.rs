@@ -40,7 +40,7 @@ impl ShellService {
     /// held), then answer what is queued.
     pub fn pump<M: 'static>(&mut self, ctx: &Rc<Ctx>, ui: &Ui<M>, beat: &mut Heartbeat) {
         if self.server.is_none() && beat.register_due() {
-            match Server::register(NAME, &[wire::INTERFACE_ID]) {
+            match Server::register(NAME, &[wire::INTERFACE_ID], &[wire::INTERFACE_NAME]) {
                 Ok(server) => {
                     self.server = Some(server);
                     println!("SHELL:SERVICE:PASS");

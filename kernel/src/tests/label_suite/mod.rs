@@ -127,15 +127,26 @@ fn send(op: u64, bytes: &[u8]) -> u64 {
     dispatch(op, &args).0
 }
 
-/// Register `name` as the current task, publishing a fresh channel. Returns
-/// the syscall code and the two handles the test must close afterwards.
+/// Register `name` as the current task, publishing a fresh channel and no
+/// interfaces. Returns the syscall code and the two handles the test must
+/// close afterwards.
 fn register_current(name: &str) -> Result<(u64, (u64, u64)), String> {
+    register_current_with(name, &[], &[])
+}
+
+/// [`register_current`] advertising `interfaces`, spelled out by `names`.
+fn register_current_with(
+    name: &str,
+    interfaces: &[u64],
+    names: &[&str],
+) -> Result<(u64, (u64, u64)), String> {
     let (service, callable) = channels::create().map_err(|error| String::from(error.message()))?;
     let body = registry::wire::encode_register_args(&registry::wire::RegisterArgs {
         name: name.into(),
         endpoint: Some(callable),
-        interfaces: vec![1],
+        interfaces: interfaces.to_vec(),
         lease_ticks: 0,
+        interface_names: names.iter().map(|&n| n.into()).collect(),
     })
     .map_err(|error| String::from(error.message()))?;
     let bytes = parcel_bytes(registry::INTERFACE, registry::method::REGISTER, body)?;
@@ -212,6 +223,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("label_gate_syscalls", identity::gate_syscalls),
     ("label_reserved_os_lazy_names", names::reserved_os_lazy),
     ("label_app_namespace_names", names::app_namespace),
+    (
+        "label_interfaces_own_domain_allowed",
+        names::own_domain_interfaces,
+    ),
+    (
+        "label_interfaces_foreign_denied",
+        names::foreign_interfaces_denied,
+    ),
+    (
+        "label_interfaces_unlabelled_and_system",
+        names::interfaces_unlabelled_and_system,
+    ),
     (
         "label_cross_app_resolve_needs_rule",
         names::cross_app_resolve,

@@ -3,6 +3,7 @@
 use super::*;
 use crate::ipc::acl::reason;
 use crate::ipc::credentials::{CAP_DEV_CLAIM, CAP_IPC_CONTROL};
+use crate::ipc::topics::fnv1a64;
 
 const EPERM: i64 = 1;
 const EACCES: i64 = 13;
@@ -297,6 +298,184 @@ pub fn load_gate_and_revoke() -> Result<(), String> {
         // Revoke by loading nothing.
         check!(load_current("app:com.load", &[])? == 0, "revoke");
         check!(acl::label_rule_count(id) == 0, "revoke left rules");
+        Ok(())
+    })
+}
+
+/// Register `name` as `slot` advertising `names` (their real ids) and return
+/// the syscall code; the handles are closed again.
+fn serve_as(slot: usize, name: &str, names: &[&str]) -> Result<u64, String> {
+    let ids: Vec<u64> = names.iter().map(|n| fnv1a64(n)).collect();
+    serve_raw(slot, name, &ids, names)
+}
+
+/// [`serve_as`] with the ids given separately, to send mismatches.
+fn serve_raw(slot: usize, name: &str, ids: &[u64], names: &[&str]) -> Result<u64, String> {
+    task::harness::switch_current(slot);
+    let (code, pair) = register_current_with(name, ids, names)?;
+    close_pair(pair);
+    task::harness::switch_current(task::KERNEL_TASK);
+    Ok(code)
+}
+
+/// An app serves interfaces of its own domain, `<id>.<name>.v<N>` (one or
+/// more name segments, any version), and the registry keeps their ids; a
+/// `dev:` run of the app has the same domain.
+pub fn own_domain_interfaces() -> Result<(), String> {
+    fresh()?;
+    let x = labelled_task("app:com.x", 1000, 0)?;
+    let dev = labelled_task("dev:com.x", 1000, 0)?;
+    in_space(|| -> Result<(), String> {
+        let names = ["com.x.chat.v1", "com.x.files.admin.v12", "com.x.y.sub.v2"];
+        check!(
+            serve_as(x, "app.com.x.svc", &names)? == 0,
+            "app:com.x could not serve its own interfaces"
+        );
+        let entry = registry::list()
+            .into_iter()
+            .next()
+            .ok_or("nothing registered")?;
+        let ids: Vec<u64> = names.iter().map(|n| fnv1a64(n)).collect();
+        check!(entry.interfaces == ids, "registered {:?}", entry.interfaces);
+        // No interfaces at all needs no names.
+        check!(
+            serve_as(x, "app.com.x.bare", &[])? == 0,
+            "a service with no interfaces was refused"
+        );
+        check!(
+            serve_as(dev, "app.com.x.dev", &["com.x.chat.v1"])? == 0,
+            "dev:com.x could not serve com.x's interface"
+        );
+        for (name, ok) in [
+            ("com.x.a.v0", true),
+            ("com.x.a_b-c.v99", true),
+            ("com.x.v1", false),
+            ("com.x.chat", false),
+            ("com.x.chat.v", false),
+            ("com.x.chat.vx", false),
+            ("com.x.chat.1", false),
+            ("com.x..v1", false),
+            ("com.xy.chat.v1", false),
+            ("com.x", false),
+            ("com.x.chat room.v1", false),
+        ] {
+            check!(
+                policy::interface_in_domain(name, "com.x") == ok,
+                "interface_in_domain({name}) != {ok}"
+            );
+        }
+        Ok(())
+    })
+}
+
+/// One refused registration: `(what, ids, names, expected reason)`.
+type Refusal = (&'static str, &'static [u64], &'static [&'static str], u32);
+
+const ECHO: u64 = fnv1a64("os.lazy.echo.v1");
+const COM_X_CHAT: u64 = fnv1a64("com.x.chat.v1");
+const COM_Y_CHAT: u64 = fnv1a64("com.y.chat.v1");
+const COM_XY_CHAT: u64 = fnv1a64("com.xy.chat.v1");
+
+const REFUSALS: [Refusal; 7] = [
+    // Ids with no names: the kernel cannot see the domain.
+    ("unnamed", &[ECHO], &[], reason::UNNAMED_INTERFACE),
+    // A name that is not the id's.
+    (
+        "lying",
+        &[ECHO],
+        &["com.x.chat.v1"],
+        reason::UNNAMED_INTERFACE,
+    ),
+    // More names than ids.
+    ("extra", &[], &["com.x.chat.v1"], reason::UNNAMED_INTERFACE),
+    // The platform's, another app's, a look-alike domain.
+    (
+        "system",
+        &[ECHO],
+        &["os.lazy.echo.v1"],
+        reason::FOREIGN_INTERFACE,
+    ),
+    (
+        "other",
+        &[COM_Y_CHAT],
+        &["com.y.chat.v1"],
+        reason::FOREIGN_INTERFACE,
+    ),
+    (
+        "prefix",
+        &[COM_XY_CHAT],
+        &["com.xy.chat.v1"],
+        reason::FOREIGN_INTERFACE,
+    ),
+    // One foreign interface spoils the whole registration.
+    (
+        "mixed",
+        &[COM_X_CHAT, ECHO],
+        &["com.x.chat.v1", "os.lazy.echo.v1"],
+        reason::FOREIGN_INTERFACE,
+    ),
+];
+
+/// Everything else a labelled app advertises is refused with an audited
+/// reason, and a refused registration leaves the table untouched.
+pub fn foreign_interfaces_denied() -> Result<(), String> {
+    fresh()?;
+    let x = labelled_task("app:com.x", 1000, 0)?;
+    let id = credentials::of(x).label_id;
+    in_space(|| -> Result<(), String> {
+        for (what, ids, names, why) in REFUSALS {
+            let code = serve_raw(x, &format!("app.com.x.{what}"), ids, names)?;
+            check!(code == failed(EACCES), "{what}: -> {code:#x}");
+            let event = last_denial(id, why)?;
+            check!(
+                event.interface_id == registry::INTERFACE
+                    && event.method == registry::method::REGISTER,
+                "{what}: audited as {event:?}"
+            );
+            check!(registry::list().is_empty(), "{what}: the table changed");
+        }
+        // The offending id is the record's transaction id.
+        check!(
+            audit::recent(1).first().map(|e| e.txn_id) == Some(ECHO),
+            "the mixed refusal did not name os.lazy.echo.v1"
+        );
+        check!(
+            policy::explain(id, reason::FOREIGN_INTERFACE).contains("com.x.<name>.v<N>"),
+            "the refusal does not name the app's domain"
+        );
+        Ok(())
+    })
+}
+
+/// Unlabelled services and `system:` tasks serve any interface, named or not
+/// (the platform's own services); names they do send must still be true.
+pub fn interfaces_unlabelled_and_system() -> Result<(), String> {
+    fresh()?;
+    let system = labelled_task("system:confd", 0, 0)?;
+    let root = labelled_task("", 0, credentials::CAP_ALL)?;
+    in_space(|| -> Result<(), String> {
+        let confd = fnv1a64("os.lazy.confd.v1");
+        check!(
+            serve_raw(system, "os.lazy.confd", &[confd], &[])? == 0,
+            "system: refused an unnamed interface"
+        );
+        check!(
+            serve_as(root, "os.lazy.echo", &["os.lazy.echo.v1"])? == 0,
+            "unlabelled root refused a named interface"
+        );
+        check!(
+            serve_raw(root, "os.lazy.timed", &[fnv1a64("os.lazy.timed.v1")], &[])? == 0,
+            "unlabelled root refused an unnamed interface"
+        );
+        check!(
+            serve_raw(root, "os.lazy.liar", &[confd], &["os.lazy.echo.v1"])? == failed(EACCES),
+            "a name that is not its id's was accepted from root"
+        );
+        check!(
+            registry::list().len() == 3,
+            "{} names",
+            registry::list().len()
+        );
         Ok(())
     })
 }

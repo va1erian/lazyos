@@ -137,8 +137,15 @@ pub trait Bus {
     fn names(&self) -> Result<Vec<String>, BusError>;
 
     /// Serving: create an endpoint pair, publish one side under `name`
-    /// (declaring `interfaces`), and return the side to receive on.
-    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError>;
+    /// (declaring `interfaces`, spelled out in `interface_names` so the
+    /// kernel can check an app serves only its own domain, issue #495), and
+    /// return the side to receive on.
+    fn register(
+        &self,
+        name: &str,
+        interfaces: &[u64],
+        interface_names: &[&str],
+    ) -> Result<u64, BusError>;
     /// Serving: the next request on `endpoint`, waiting as `wait` allows;
     /// `Ok(None)` when nothing arrived in time.
     fn recv(&self, endpoint: u64, wait: Wait) -> Result<Option<Incoming>, BusError>;

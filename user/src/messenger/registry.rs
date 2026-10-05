@@ -117,6 +117,9 @@ fn register_body(
         endpoint: Some(endpoint),
         interfaces: interfaces.to_vec(),
         lease_ticks,
+        // Platform services are unlabelled or `system:`; the kernel needs
+        // interface names only from apps (issue #495).
+        interface_names: Vec::new(),
     })
     .map_err(Error::Parcel)
 }

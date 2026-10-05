@@ -302,14 +302,22 @@ impl SenderId {
 }
 
 /// Publish `endpoint` (a handle in this task) under `name` as a permanent
-/// registration implementing `interfaces`; this task becomes the owner. The
-/// body comes from the generated `os.lazy.messenger.registry.v1` stubs.
-pub fn msg_register(name: &str, endpoint: u64, interfaces: &[u64]) -> Result<(), i64> {
+/// registration implementing `interfaces`, spelled out in `interface_names`
+/// (an app must name what it serves, issue #495); this task becomes the
+/// owner. The body comes from the generated `os.lazy.messenger.registry.v1`
+/// stubs.
+pub fn msg_register(
+    name: &str,
+    endpoint: u64,
+    interfaces: &[u64],
+    interface_names: &[&str],
+) -> Result<(), i64> {
     let body = registry::encode_register_args(&registry::RegisterArgs {
         name: name.into(),
         endpoint: Some(endpoint),
         interfaces: interfaces.to_vec(),
         lease_ticks: 0,
+        interface_names: interface_names.iter().map(|&n| n.into()).collect(),
     })
     .map_err(|_| -errno::EINVAL)?;
     let parcel = Parcel {

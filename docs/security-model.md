@@ -203,6 +203,11 @@ unless the profile is privileged.
   topics at or under `app/<id>/`; a `dev:<id>` label (an app run from the IDE
   before it is installed) owns the same names and topics. Anything else is
   refused and audited with a reason (`RESERVED_NAMESPACE`, `OUTSIDE_NAMESPACE`).
+  The interfaces a service advertises are held to the app's own domain too,
+  `<id>.<name>.v<N>`: the registration spells each interface id out by name and
+  the kernel refuses a name outside the domain (`FOREIGN_INTERFACE`) or one
+  that is missing or does not hash to its id (`UNNAMED_INTERFACE`), so an app
+  cannot pose as an implementation of a platform or another app's interface.
   Details: `docs/architecture/ipc-security.md`.
 - **Label assignment**: `init` stamps a label when it spawns a task: `pkgd`
   asks for `app:<system_name>` after it has loaded the package's rules. Before a
