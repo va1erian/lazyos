@@ -238,16 +238,14 @@ fn write_file(
     }
 }
 
-/// A unique temporary name beside `target` for a file being written.
+/// A unique temporary name beside `target` for a file being written. It is
+/// opaque (not derived from the member's name) so a legitimately long name
+/// near the filesystem's component limit still has room for its partial.
 fn partial_sibling(target: &Path) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let name = target
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    target.with_file_name(format!(".{name}.part-{}-{n}", std::process::id()))
+    target.with_file_name(format!(".lazyarc-part-{}-{n}", std::process::id()))
 }
 
 /// Restore what the archive says about a file's mode and time, best-effort

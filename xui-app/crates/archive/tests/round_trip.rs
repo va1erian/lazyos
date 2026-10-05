@@ -377,7 +377,32 @@ fn a_damaged_member_never_costs_the_file_it_would_replace() {
     assert!(
         names
             .iter()
-            .all(|n| !n.to_string_lossy().contains(".part-")),
+            .all(|n| !n.to_string_lossy().contains("lazyarc-part-")),
         "{names:?}"
     );
+}
+
+#[test]
+fn a_member_name_near_the_component_limit_extracts() {
+    // 250 bytes: within every filesystem's 255-byte limit, but not with a
+    // temporary prefix and suffix around it.
+    let scratch = Scratch::new("long-name");
+    let name = format!("{}.txt", "n".repeat(246));
+    let file = scratch.join(&name);
+    fs::write(&file, "long").unwrap();
+    let dest = scratch.join("a.zip");
+    create::create(
+        &dest,
+        Format::Zip,
+        Level::Normal,
+        &Source::under("", std::slice::from_ref(&file)),
+        &progress(),
+    )
+    .unwrap();
+    let archive = Archive::open(&dest, &progress()).unwrap();
+    let out = scratch.join("out");
+    let report =
+        extract::extract(&archive, &|_| true, &out, &Options::default(), &progress()).unwrap();
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(fs::read_to_string(out.join(&name)).unwrap(), "long");
 }
