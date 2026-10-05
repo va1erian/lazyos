@@ -139,7 +139,10 @@ mod tests {
     fn table() -> Vec<(WidgetId, Node)> {
         let panel = WidgetId::from_raw(1);
         vec![
-            (panel, node(ParentRef::Window(W), Rect::new(10, 10, 110, 60))),
+            (
+                panel,
+                node(ParentRef::Window(W), Rect::new(10, 10, 110, 60)),
+            ),
             (
                 WidgetId::from_raw(2),
                 node(ParentRef::Widget(panel), Rect::new(5, 5, 45, 25)),
