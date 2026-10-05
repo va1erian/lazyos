@@ -154,6 +154,8 @@ programs! {
     CLIPCP = "clipcp";
     /// The clipboard paste demo.
     CLIPPASTE = "clippaste";
+    /// The async Messenger and `wait` op demo (issues #91, #309).
+    ASYNC_ECHO = "async-echo";
     /// `rhai`, the scripting command (Linux ABI).
     RHAI = "rhai";
     /// `dash`, the Debian Almquist shell (`LAZYOS_LINUXAPPS=1`, Linux ABI).

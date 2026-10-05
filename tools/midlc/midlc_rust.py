@@ -27,7 +27,14 @@ RUST_TYPE = {
 }
 
 
+def wire_name(ty: Type) -> str:
+    """The builtin `ty` travels as: an enum is a `U32`, anything else itself."""
+    return "U32" if ty.enum else ty.name
+
+
 def rust_type(ty: Type) -> str:
+    if ty.enum:
+        return "u32"
     if ty.name in SCALARS:
         return SCALARS[ty.name][0]
     if ty.name in RUST_TYPE:
@@ -55,8 +62,8 @@ def encode_lines(ty: Type, *, id: int, value: str, indent: str, target: str = "t
     into a fresh `nested` encoder: writing the element into the outer encoder
     would emit a field at the wrong depth (and, for a struct's first field,
     collide with an earlier sibling id)."""
-    if ty.name in SCALARS:
-        return [f"{indent}{target}.{SCALARS[ty.name][1]}({id}, {deref(value)})?;"]
+    if wire_name(ty) in SCALARS:
+        return [f"{indent}{target}.{SCALARS[wire_name(ty)][1]}({id}, {deref(value)})?;"]
     if ty.name == "String":
         return [f"{indent}{target}.string({id}, {value})?;"]
     if ty.name == "Bytes":
@@ -113,23 +120,23 @@ ITEM_EXPR = {
 
 def decode_block(ty: Type, *, target: str, indent: str) -> list[str]:
     """Lines that fill `target` from the current `field`."""
-    if ty.name in DECODE_EXPR:
-        return [f"{indent}{target} = {DECODE_EXPR[ty.name]};"]
+    if wire_name(ty) in DECODE_EXPR:
+        return [f"{indent}{target} = {DECODE_EXPR[wire_name(ty)]};"]
     if ty.name == "Array":
         inner = ty.args[0]
         lines = [
             f"{indent}let mut nested = field.nested(0)?;",
             f"{indent}while let Some(item) = nested.next()? {{",
         ]
-        if inner.name in ITEM_EXPR:
-            lines.append(f"{indent}    {target}.push({ITEM_EXPR[inner.name]});")
+        if wire_name(inner) in ITEM_EXPR:
+            lines.append(f"{indent}    {target}.push({ITEM_EXPR[wire_name(inner)]});")
         else:
             lines.append(f"{indent}    {target}.push(decode_{snake_case(inner.name)}(item.payload)?);")
         lines.append(f"{indent}}}")
         return lines
     if ty.name == "Option":
         inner = ty.args[0]
-        expr = ITEM_EXPR.get(inner.name, f"decode_{snake_case(inner.name)}(item.payload)?")
+        expr = ITEM_EXPR.get(wire_name(inner), f"decode_{snake_case(inner.name)}(item.payload)?")
         return [
             f"{indent}if field.payload.is_empty() {{",
             f"{indent}    {target} = None;",
@@ -148,13 +155,13 @@ def emit_field_dispatch(fields: list[Param], target_prefix: str, indent: str) ->
     check), more than one is a real `match`."""
     if len(fields) == 1:
         f = fields[0]
-        lines = [f"{indent}if field.id == 1 {{"]
+        lines = [f"{indent}if field.id == {f.id} {{"]
         lines += decode_block(f.ty, target=f"{target_prefix}.{f.name}", indent=indent + "    ")
         lines.append(f"{indent}}}")
         return lines
     lines = [f"{indent}match field.id {{"]
-    for index, f in enumerate(fields, start=1):
-        lines.append(f"{indent}    {index} => {{")
+    for f in fields:
+        lines.append(f"{indent}    {f.id} => {{")
         lines += decode_block(f.ty, target=f"{target_prefix}.{f.name}", indent=indent + "        ")
         lines.append(f"{indent}    }}")
     lines.append(f"{indent}    _ => {{}}")
@@ -178,8 +185,8 @@ def emit_struct(name: str, fields: list[Param], doc: str) -> str:
     lines.append("")
     lines.append(f"    pub fn encode_{snake_case(name)}(value: &{name}) -> Result<Vec<u8>, Error> {{")
     lines.append("        let mut target = Encoder::new();")
-    for index, f in enumerate(fields, start=1):
-        lines += encode_lines(f.ty, id=index, value=f"&value.{f.name}", indent="        ")
+    for f in fields:
+        lines += encode_lines(f.ty, id=f.id, value=f"&value.{f.name}", indent="        ")
     lines.append("        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
@@ -204,8 +211,8 @@ def emit_message(method_name: str, kind: str, params: list[Param]) -> str:
     lines.append("")
     lines.append(f"    pub fn encode_{snake_case(method_name)}_{kind}(value: &{struct_name}) -> Result<Vec<u8>, Error> {{")
     lines.append("        let mut target = Encoder::new();")
-    for index, p in enumerate(params, start=1):
-        lines += encode_lines(p.ty, id=index, value=f"&value.{p.name}", indent="        ")
+    for p in params:
+        lines += encode_lines(p.ty, id=p.id, value=f"&value.{p.name}", indent="        ")
     lines.append("        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
@@ -360,6 +367,9 @@ def emit_rust(interface: Interface) -> str:
         "",
         "    /// The interface id: the FNV-1a hash of the `.vN` interface name.",
         f"    pub const INTERFACE_ID: u64 = {interface.id:#x};",
+        "    /// The interface name [`INTERFACE_ID`] hashes, for a registration that",
+        "    /// spells out what it serves (`Register.interface_names`, issue #495).",
+        f"    pub const INTERFACE_NAME: &str = \"{interface.name}\";",
         "",
     ]
     # Enums travel as `U32` on the wire; the variant indices are emitted as

@@ -23,7 +23,9 @@
 //! * [`messenger`]: the `msg` module for form scripts (Messenger calls,
 //!   topics, services), registered as a LazyRAD script extension;
 //! * [`tracker`]: the `modplay` module for form scripts (ProTracker songs
-//!   played through the system mixer), registered the same way.
+//!   played through the system mixer), registered the same way;
+//! * [`probe`]: the startup form's control rectangles for session scripts
+//!   (`LAZYOS_UI_PROBE=1` images, issue #538).
 
 pub mod args;
 pub mod desktop_mode;
@@ -36,5 +38,6 @@ pub mod messenger;
 pub mod migrate;
 pub mod platform;
 pub mod playdev;
+pub mod probe;
 pub mod tracker;
 pub mod transport;

@@ -65,7 +65,9 @@ userspace never names another task's handles.
   clients share its channel. One shared `MESSENGER` wait
   queue with advisory wakeups handles all blocking.
 - **Wait sets** (`channels/recv/waitset.rs`, native op `wait` = 19): park on
-  up to 8 endpoints at once, and optionally on the caller's raw input ring
+  up to 8 items at once, endpoints or the caller's own pending calls
+  (`WAIT_ITEM_CALL`, `channels/recv/waitcall.rs`, ready when the transaction
+  ended; issue #309, [wait-any.md](wait-any.md)), and optionally on the caller's raw input ring
   (`WAIT_RAW_INPUT`, `inputd` only), until one is ready; nothing is received,
   the op returns a ready mask and the caller takes the message with
   `try_recv`. Registration is `recv`'s (each endpoint's waiter list under the

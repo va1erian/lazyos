@@ -28,6 +28,10 @@ members = [
     "libs/passwd",
     # Buffer-slot state machines for the pipelined display present (#361).
     "libs/surfbuf",
+    # The slab and frame allocators' bookkeeping (issue #485): size classes,
+    # the intrusive slab free list, refcount rules and the frame free chain,
+    # host-tested and run under Miri (.github/workflows/miri.yml).
+    "libs/membook",
     # Time-zone and DST resolution for the `timed` service (issue #369): pure
     # `no_std` logic with host tests.
     "libs/timed",

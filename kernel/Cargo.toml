@@ -14,6 +14,9 @@ unused_dependencies = "allow"
 [dependencies]
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# The slab and frame allocators' bookkeeping (issue #485), host- and
+# Miri-tested; mem/slab.rs, mem/heap.rs and mem/frames.rs build on it.
+membook = { path = "../libs/membook" }
 # The ext2 driver, shared with the host image build (docs/filesystem-plan.md F2);
 # fs/ext2/fsimpl.rs adapts it to the VFS.
 ext2fs = { path = "../libs/ext2fs" }

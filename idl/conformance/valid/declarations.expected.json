@@ -1,0 +1,221 @@
+{
+  "error_field": 15,
+  "interfaces": [
+    {
+      "name": "os.lazy.conformance.events.v1",
+      "id": "0xd47ef877a2df181c",
+      "doc": "The receiving side of a channel.",
+      "methods": [
+        {
+          "name": "Changed",
+          "id": 163913787,
+          "oneway": true,
+          "params": [
+            {
+              "name": "path",
+              "type": "String",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "transfers": []
+        }
+      ],
+      "structs": [],
+      "enums": [],
+      "topics": [],
+      "rings": []
+    },
+    {
+      "name": "os.lazy.conformance.decl.v1",
+      "id": "0xa186445ec166d00f",
+      "doc": "Kernel objects beside the body, declared topics and a ring.",
+      "methods": [
+        {
+          "name": "Watch",
+          "id": 1,
+          "oneway": false,
+          "params": [
+            {
+              "name": "prefix",
+              "type": "String",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "watch",
+              "type": "U64",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "transfers": [
+            {
+              "name": "events",
+              "kind": "channel",
+              "slot": 0,
+              "interface": "os.lazy.conformance.events.v1"
+            }
+          ]
+        },
+        {
+          "name": "Share",
+          "id": 2,
+          "oneway": false,
+          "params": [
+            {
+              "name": "len",
+              "type": "U64",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "transfers": [
+            {
+              "name": "pixels",
+              "kind": "buffer",
+              "slot": 0
+            }
+          ]
+        },
+        {
+          "name": "Attach",
+          "id": 3,
+          "oneway": false,
+          "params": [
+            {
+              "name": "slots",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "ring",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "transfers": [
+            {
+              "name": "rings",
+              "kind": "rings",
+              "slot": 0,
+              "rings": [
+                "Out"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Kick",
+          "id": 754690623,
+          "oneway": true,
+          "params": [
+            {
+              "name": "ring",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "transfers": []
+        }
+      ],
+      "structs": [
+        {
+          "name": "Moved",
+          "fields": [
+            {
+              "name": "path",
+              "type": "String",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "x",
+              "type": "I32",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "y",
+              "type": "I32",
+              "id": 3,
+              "explicit": true
+            }
+          ]
+        }
+      ],
+      "enums": [
+        {
+          "name": "Mode",
+          "variants": [
+            {
+              "name": "Off",
+              "value": 0
+            },
+            {
+              "name": "On",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "pattern": "session/+/moved/#",
+          "source": "session/{session}/moved/{rest...}",
+          "payload": "Moved",
+          "qos": "reliable",
+          "retained": true
+        },
+        {
+          "pattern": "system/conformance/mode",
+          "source": "system/conformance/mode",
+          "payload": "Mode",
+          "qos": "latest",
+          "retained": false
+        }
+      ],
+      "rings": [
+        {
+          "name": "Out",
+          "layout": "frames",
+          "producer": "client",
+          "doorbell": "Kick"
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "vectors": [
+    {
+      "name": "moved",
+      "interface": "os.lazy.conformance.decl.v1",
+      "message": "Moved",
+      "value": {
+        "path": "/a/b",
+        "x": 10,
+        "y": -20
+      },
+      "bytes": "07010000040000002f612f6202020000040000000a0000000203000004000000ecffffff"
+    },
+    {
+      "name": "changed_args",
+      "interface": "os.lazy.conformance.events.v1",
+      "message": "Changed.args",
+      "value": {
+        "path": "sys/ui/scale"
+      },
+      "bytes": "070100000c0000007379732f75692f7363616c65"
+    }
+  ]
+}

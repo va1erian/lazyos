@@ -52,7 +52,7 @@ fn int_in(what: &str, value: &Dynamic, min: INT, max: INT) -> Result<INT> {
     Ok(n)
 }
 
-/// Encode `values` as the fields `fields` (ids 1..), positionally.
+/// Encode `values` as the fields `fields`, positionally (each under its id).
 pub fn encode_positional(
     iface: &Interface,
     fields: &[Field],
@@ -66,16 +66,8 @@ pub fn encode_positional(
         ));
     }
     let mut target = Encoder::new();
-    for (index, (field, value)) in fields.iter().zip(values).enumerate() {
-        encode_value(
-            &mut target,
-            index as u16 + 1,
-            field.ty,
-            value,
-            iface,
-            0,
-            field.name,
-        )?;
+    for (field, value) in fields.iter().zip(values) {
+        encode_value(&mut target, field.id, field.ty, value, iface, 0, field.name)?;
     }
     Ok(target.finish())
 }
@@ -93,8 +85,8 @@ pub fn encode_named(iface: &Interface, fields: &[Field], map: &Map, depth: u8) -
         ));
     }
     let mut target = Encoder::new();
-    for (index, field) in fields.iter().enumerate() {
-        let id = index as u16 + 1;
+    for field in fields {
+        let id = field.id;
         match map.get(field.name) {
             Some(value) => {
                 encode_value(&mut target, id, field.ty, value, iface, depth, field.name)?
@@ -257,7 +249,7 @@ pub fn decode_named(iface: &Interface, fields: &[Field], body: &[u8], depth: u8)
         if tlv.kind == Kind::Error {
             continue;
         }
-        let Some(field) = (tlv.id as usize).checked_sub(1).and_then(|i| fields.get(i)) else {
+        let Some(field) = fields.iter().find(|f| f.id == tlv.id) else {
             continue; // a newer peer's field
         };
         let value = decode_value(&tlv, field.ty, iface, depth)

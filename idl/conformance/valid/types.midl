@@ -1,0 +1,32 @@
+// Conformance case: every body type, explicit and hashed method ids,
+// explicit field ids (out of order, with gaps) and implicit ones.
+
+/// Every MIDL body type in one interface.
+interface os.lazy.conformance.types.v1 {
+    /// Hashed method id; arguments pinned out of declaration order.
+    method Put(text: String = 2, count: U32 = 1, flags: U64 = 7) -> (ok: Bool = 1);
+    /// Explicit method id; implicit (positional) field ids, which warn.
+    method Get(key: String) -> (value: Option<Scalars>, level: Level) = 9;
+    method Ping() -> () oneway;
+    method Many(items: Array<Point> = 1, tags: Array<String> = 2, maybe: Option<Point> = 3) -> (levels: Array<Level> = 16);
+
+    /// One of each scalar plus strings and bytes.
+    struct Scalars {
+        flag: Bool = 1,
+        small: I32 = 2,
+        big: I64 = 3,
+        count: U32 = 4,
+        total: U64 = 5,
+        ratio: F64 = 6,
+        name: String = 7,
+        blob: Bytes = 8
+    }
+
+    /// Field ids with a gap: 1, then 40000.
+    struct Point {
+        x: I32 = 1
+        y: I32 = 40000
+    }
+
+    enum Level { Low, Mid, High }
+}

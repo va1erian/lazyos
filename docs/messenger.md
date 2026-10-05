@@ -112,7 +112,9 @@ old readers can **skip** unknown fields.
 
 `BOOL`, `I32`, `I64`, `U32`, `U64`, `F64`, `STRING` (UTF-8, length-prefixed),
 `BYTES`, `ARRAY<T>` (element TD), `STRUCT` (nested TLVs), `HANDLE`, `BUFFER`,
-`MAP<K,V>`, `OPTION<T>`, `ERROR` (see section 12).
+`MAP<K,V>`, `OPTION<T>`, `ERROR` (see section 12). The runtime codec defines
+`MAP`, but MIDL has no `Map` type yet: `midlc` rejects it and an IDL models a
+map as an `ARRAY` of key/value structs ([`docs/midl.md`](midl.md#types)).
 
 Unknown kinds and fields are skipped; required fields are declared per method in
 the IDL. MIDL never puts a `HANDLE` or `BUFFER` in a body (the number would
@@ -320,6 +322,23 @@ health rows, `logd` appends hash-chained records and serves queries, and
   activation). Services declare names in their manifest.
 - **Leases:** handles and names are reference-counted; process death releases all
   handles and, optionally, marks the service unhealthy for supervision.
+- **Namespaces** (`kernel/src/ipc/policy.rs`, `docs/architecture/ipc-security.md`):
+  `os.lazy.*` service names belong to the platform (a `system:*` task or a
+  privileged unlabelled one registers them); an app labelled `app:<id>` may
+  register only `app.<id>.<name>` (`<name>` is one dot-free segment, so a name
+  maps to exactly one id) and publish or subscribe topics at or under
+  `app/<id>/`. A development run (`dev:<id>`) owns the same names and topics.
+  Registering anything else is refused with `EACCES` and audited; resolving
+  another name needs an allow rule loaded for the label.
+- **Interface domains** (#495): an app's registration may only advertise
+  interfaces of its own domain, `<id>.<name>.v<N>` (`<name>` one or more
+  segments). Interface ids are `fnv1a64` hashes, so `Register` carries
+  `interface_names` beside `interfaces` (`idl/registry.midl`; each generated
+  module has an `INTERFACE_NAME`): the kernel checks every name hashes to its
+  id and lies in the label's domain, and refuses anything else with `EACCES`,
+  audited as `UNNAMED_INTERFACE` or `FOREIGN_INTERFACE` with the offending id
+  as the record's `txn_id`. Platform services (unlabelled or `system:*`) may
+  leave the names empty; names they send must still be true.
 
 ---
 
@@ -402,7 +421,10 @@ interface os.lazy.notify.v1 {
 
 ## 12. Errors (friendly by construction)
 
-Every reply may carry a structured error:
+Every reply may carry a structured error. On the wire it is the standard
+error field (id 15, generated as `messenger_generated::errors`); its encoding
+and which parts are implemented today (`code`, `message`, `domain`, `hint`,
+`docs`; not yet `detail`) are in [`midl.md`](midl.md), "Errors":
 
 ```
 Error {
@@ -486,7 +508,7 @@ stays cheap under load.
 - **Syscalls** (native ABI), each taking a small op structure validated on entry:
   `msg_endpoint`, `msg_connect`, `msg_register`, `msg_resolve`, `msg_call`,
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
-  `msg_recv`, `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
+  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
 - **Service supervision calls:** ahead of the Messenger family, the S2
   supervisor adds four small native calls — `spawn` (start a program as the
   caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT

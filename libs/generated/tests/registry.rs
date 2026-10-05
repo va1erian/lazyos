@@ -22,10 +22,33 @@ fn register_args_roundtrip_with_interface_arrays() {
             endpoint: Some(42),
             interfaces,
             lease_ticks: u64::MAX,
+            interface_names: Vec::new(),
         };
         let body = encode_register_args(&args).unwrap();
         assert_eq!(decode_register_args(&body).unwrap(), args);
     }
+}
+
+/// Issue #495: `interface_names` (field 5) round-trips, and a sender that
+/// leaves it empty (every platform service) decodes with no names.
+#[test]
+fn register_args_carry_interface_names() {
+    let args = RegisterArgs {
+        name: "app.com.x.svc".into(),
+        endpoint: Some(7),
+        interfaces: vec![1, 2],
+        lease_ticks: 0,
+        interface_names: vec!["com.x.chat.v1".into(), "com.x.files.v2".into()],
+    };
+    let body = encode_register_args(&args).unwrap();
+    assert_eq!(decode_register_args(&body).unwrap(), args);
+    let old = RegisterArgs {
+        interface_names: Vec::new(),
+        ..args.clone()
+    };
+    let decoded = decode_register_args(&encode_register_args(&old).unwrap()).unwrap();
+    assert!(decoded.interface_names.is_empty());
+    assert_eq!(decoded.interfaces, args.interfaces);
 }
 
 #[test]
@@ -105,6 +128,7 @@ fn truncated_body_is_rejected() {
         endpoint: Some(1),
         interfaces: vec![1, 2],
         lease_ticks: 3,
+        interface_names: Vec::new(),
     })
     .unwrap();
     for cut in [1, body.len() / 2, body.len() - 1] {
@@ -124,13 +148,17 @@ fn decoders_ignore_unknown_fields_such_as_the_error_field() {
     let mut named = Encoder::new();
     named.string(1, "os.lazy.echo").unwrap();
     named.u64(99, 1).unwrap();
-    named.error(15, 3, "denied").unwrap();
+    named
+        .error(messenger_generated::errors::ERROR_FIELD, 3, "denied")
+        .unwrap();
     let args = decode_resolve_args(&named.finish()).unwrap();
     assert_eq!(args.name, "os.lazy.echo");
 
     let mut failure = Encoder::new();
     failure.u64(99, 1).unwrap();
-    failure.error(15, 3, "denied").unwrap();
+    failure
+        .error(messenger_generated::errors::ERROR_FIELD, 3, "denied")
+        .unwrap();
     let failure = failure.finish();
     assert_eq!(decode_resolve_reply(&failure).unwrap().handle, 0);
     assert!(decode_list_reply(&failure).unwrap().entries.is_empty());
@@ -153,6 +181,7 @@ fn absent_endpoint_is_distinguishable_from_handle_zero() {
         endpoint: None,
         interfaces: vec![],
         lease_ticks: 0,
+        interface_names: Vec::new(),
     })
     .unwrap();
     assert_eq!(decode_register_args(&absent).unwrap().endpoint, None);
@@ -161,6 +190,7 @@ fn absent_endpoint_is_distinguishable_from_handle_zero() {
         endpoint: Some(0),
         interfaces: vec![],
         lease_ticks: 0,
+        interface_names: Vec::new(),
     })
     .unwrap();
     assert_eq!(decode_register_args(&zero).unwrap().endpoint, Some(0));

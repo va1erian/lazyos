@@ -312,7 +312,12 @@ impl Bus for Gate {
         Ok(list.entries.into_iter().map(|entry| entry.name).collect())
     }
 
-    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError> {
+    fn register(
+        &self,
+        name: &str,
+        interfaces: &[u64],
+        interface_names: &[&str],
+    ) -> Result<u64, BusError> {
         let mut pair = MsgResult::default();
         messenger(op::CREATE_PAIR, &MsgArgs::default(), &mut pair)?;
         let (published, server) = (pair.value, pair.aux);
@@ -321,6 +326,7 @@ impl Bus for Gate {
             endpoint: Some(published),
             interfaces: interfaces.to_vec(),
             lease_ticks: 0,
+            interface_names: interface_names.iter().map(|&n| n.into()).collect(),
         })
         .map_err(invalid)?;
         Self::registry_op(op::REGISTER, registry::METHOD_REGISTER, &body)?;
@@ -328,8 +334,9 @@ impl Bus for Gate {
     }
 
     fn unregister(&self, name: &str, endpoint: u64) -> Result<(), BusError> {
-        let body = registry::encode_unregister_args(&registry::UnregisterArgs { name: name.into() })
-            .map_err(invalid)?;
+        let body =
+            registry::encode_unregister_args(&registry::UnregisterArgs { name: name.into() })
+                .map_err(invalid)?;
         let withdrawn = Self::registry_op(op::UNREGISTER, registry::METHOD_UNREGISTER, &body);
         // Close the receive side even when the name was already gone, so
         // callers holding the old endpoint fail with `EPIPE` at once.

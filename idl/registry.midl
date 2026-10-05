@@ -8,32 +8,39 @@
 /// kernel publishes `os.lazy.messenger.registry` itself at boot, so it is the
 /// one name every task can resolve.
 ///
-/// A daemon failure is answered with a hand-written structured `ERROR` field
-/// (id 15, outside the generated field range) instead of a typed reply; the
+/// A daemon failure is answered with the standard error field (`docs/midl.md`)
+/// (id 15, which no reply field may take) instead of a typed reply; the
 /// kernel gate reports failures as negative errno values.
 interface os.lazy.messenger.registry.v1 {
     /// Publish `endpoint` (a handle in the owner's table) under `name`. The
     /// owner becomes the registering task. A `lease_ticks` of `0` registers a
     /// permanent name; otherwise the name expires after that many ticks.
-    method Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64) -> ();
+    /// `interface_names` spells out `interfaces`, in order (issue #495): an
+    /// id is the FNV-1a 64 hash of its name, so the kernel cannot tell from
+    /// an id alone which domain an interface belongs to. When present it must
+    /// match `interfaces` one for one, hash for hash. A task labelled
+    /// `app:<id>` (or `dev:<id>`) must send it, and every name must lie in its
+    /// own domain, `<id>.<name>.v<N>`; anything else is refused (`EACCES`,
+    /// audited). Other callers may leave it empty.
+    method Register(name: String = 1, endpoint: Option<U64> = 2, interfaces: Array<U64> = 3, lease_ticks: U64 = 4, interface_names: Array<String> = 5) -> ();
     /// Look `name` up. Over the gate the new handle is the call's return value;
     /// over the daemon it is `handle`, already open in the caller's table.
-    method Resolve(name: String) -> (handle: U64);
+    method Resolve(name: String = 1) -> (handle: U64 = 1);
     /// Withdraw `name`. Only its owner (or an administrator) may.
-    method Unregister(name: String) -> ();
+    method Unregister(name: String = 1) -> ();
     /// Snapshot the name table.
-    method List() -> (entries: Array<Entry>);
+    method List() -> (entries: Array<Entry> = 1);
 
     /// One registered name.
     struct Entry {
-        name: String,
+        name: String = 1,
         /// Kernel object the name refers to (diagnostic).
-        object: U64,
+        object: U64 = 2,
         /// Task slot that owns the name.
-        owner: U64,
+        owner: U64 = 3,
         /// Interface ids the service implements.
-        interfaces: Array<U64>,
+        interfaces: Array<U64> = 4,
         /// Remaining lease ticks; `0` when permanent.
-        lease_remaining: U64
+        lease_remaining: U64 = 5
     }
 }

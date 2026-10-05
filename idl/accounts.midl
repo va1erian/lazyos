@@ -3,39 +3,39 @@
 interface os.lazy.accounts.v1 {
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
-    method Lookup(name: Option<String>, uid: Option<U32>) -> (found: Bool, user: Option<User>);
+    method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2);
     /// Verify `secret` against the stored verifier of `name`.
-    method Authenticate(name: String, secret: String) -> (ok: Bool);
+    method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1);
     /// Create a user (admin only). `detail` explains a refusal.
-    method Create(user: NewUser) -> (ok: Bool, detail: String);
+    method Create(user: NewUser = 1) -> (ok: Bool = 1, detail: String = 2);
 
     /// One account record as a lookup returns it (never the secret).
     struct User {
         /// Account name.
-        name: String,
+        name: String = 1,
         /// Numeric user id (`0` = root).
-        uid: U32,
+        uid: U32 = 2,
         /// Primary group id.
-        gid: U32,
+        gid: U32 = 3,
         /// Home directory.
-        home: String,
+        home: String = 4,
         /// Login shell path.
-        shell: String
+        shell: String = 5
     }
 
     /// A create request's full payload, including the initial secret.
     struct NewUser {
         /// Account name.
-        name: String,
+        name: String = 1,
         /// Numeric user id.
-        uid: U32,
+        uid: U32 = 2,
         /// Primary group id.
-        gid: U32,
+        gid: U32 = 3,
         /// The new user's initial secret.
-        secret: String,
+        secret: String = 4,
         /// Home directory.
-        home: String,
+        home: String = 5,
         /// Login shell path.
-        shell: String
+        shell: String = 6
     }
 }

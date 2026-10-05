@@ -1,0 +1,3 @@
+{
+  "error": "line 3: M (args) field 'a': id 65536 is outside 1..65535"
+}

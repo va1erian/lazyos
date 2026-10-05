@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): Field ids start at 1.
+interface os.lazy.conformance.bad.v1 {
+    method M(a: U32 = 0) -> ();
+}

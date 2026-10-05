@@ -120,6 +120,14 @@ fn main() {
     if env::var_os("LAZYOS_USB").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_usb");
     }
+    // `LAZYOS_UI_PROBE=1` (issue #538, debug images): `xuid` prints each
+    // window's content rectangle as a `UI:RECT` line for session scripts. A
+    // compile-time switch: the compositor never touches the file system for it.
+    println!("cargo:rerun-if-env-changed=LAZYOS_UI_PROBE");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_ui_probe)");
+    if env::var_os("LAZYOS_UI_PROBE").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_ui_probe");
+    }
     // `LAZYOS_USB_TRACE=1` (test images only, set by `tools/usb/run.py`):
     // `usbd` echoes every report and key edge on serial for the harness's
     // judge. Never on by default: the trace would carry typed passwords.

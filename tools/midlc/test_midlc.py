@@ -130,6 +130,7 @@ class CodegenTests(unittest.TestCase):
     def test_emit_rust_includes_interface_id(self) -> None:
         interface = midlc.Parser(midlc.lex(SAMPLE)).parse_interface()
         self.assertIn(f"pub const INTERFACE_ID: u64 = {interface.id:#x};", midlc.emit_rust(interface))
+        self.assertIn(f'pub const INTERFACE_NAME: &str = "{interface.name}";', midlc.emit_rust(interface))
 
     def test_array_and_option_encode_into_nested_encoder(self) -> None:
         # Regression: the element of an Array/Option must be written into the
@@ -460,9 +461,9 @@ class SchemaTests(unittest.TestCase):
 
     def test_types_resolve_to_structs_enums_and_containers(self) -> None:
         text = self.schema()
-        self.assertIn('Field { name: "items", ty: Ty::Array(&Ty::Struct("Point")) }', text)
-        self.assertIn('Field { name: "tag", ty: Ty::Option(&Ty::String) }', text)
-        self.assertIn('Field { name: "level", ty: Ty::Enum("Level") }', text)
+        self.assertIn('Field { name: "items", id: 1, ty: Ty::Array(&Ty::Struct("Point")) }', text)
+        self.assertIn('Field { name: "tag", id: 2, ty: Ty::Option(&Ty::String) }', text)
+        self.assertIn('Field { name: "level", id: 3, ty: Ty::Enum("Level") }', text)
         self.assertIn('variants: &["Low", "High"]', text)
 
     def test_ids_docs_and_topics_are_carried(self) -> None:

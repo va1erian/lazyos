@@ -1,0 +1,87 @@
+{
+  "error_field": 15,
+  "interfaces": [
+    {
+      "name": "os.lazy.conformance.errors.v1",
+      "id": "0x7ea3d3eeacf8881e",
+      "doc": "",
+      "methods": [
+        {
+          "name": "Read",
+          "id": 1326182373,
+          "oneway": false,
+          "params": [
+            {
+              "name": "path",
+              "type": "String",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "data",
+              "type": "Bytes",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "size",
+              "type": "U64",
+              "id": 16,
+              "explicit": true
+            }
+          ],
+          "transfers": []
+        }
+      ],
+      "structs": [],
+      "enums": [],
+      "topics": [],
+      "rings": []
+    }
+  ],
+  "warnings": [],
+  "vectors": [
+    {
+      "name": "read_reply",
+      "message": "Read.reply",
+      "value": {
+        "data": "cafe",
+        "size": 2
+      },
+      "bytes": "0801000002000000cafe05100000080000000200000000000000"
+    },
+    {
+      "name": "plain_error",
+      "message": "$error",
+      "value": {
+        "code": 2,
+        "message": "no such file"
+      },
+      "bytes": "0d0f000010000000020000006e6f20737563682066696c65"
+    },
+    {
+      "name": "detailed_error",
+      "message": "$error",
+      "value": {
+        "code": 1,
+        "message": "you cannot call os.lazy.fs.reader.Read",
+        "domain": "os.lazy.messenger",
+        "hint": "approve it in Settings > Apps",
+        "docs": "err.messenger.denied"
+      },
+      "bytes": "0d0f00008500000001000000796f752063616e6e6f742063616c6c206f732e6c617a792e66732e7265616465722e526561640007010000110000006f732e6c617a792e6d657373656e676572070200001d000000617070726f766520697420696e2053657474696e6773203e204170707307030000140000006572722e6d657373656e6765722e64656e696564"
+    },
+    {
+      "name": "hint_only_error",
+      "message": "$error",
+      "value": {
+        "code": 22,
+        "message": "bad",
+        "hint": "check the path"
+      },
+      "bytes": "0d0f00001e0000001600000062616400070200000e000000636865636b207468652070617468"
+    }
+  ]
+}

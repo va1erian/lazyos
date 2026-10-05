@@ -1,0 +1,28 @@
+[
+  {
+    "name": "read_reply",
+    "message": "Read.reply",
+    "value": {"data": "cafe", "size": 2}
+  },
+  {
+    "name": "plain_error",
+    "message": "$error",
+    "value": {"code": 2, "message": "no such file"}
+  },
+  {
+    "name": "detailed_error",
+    "message": "$error",
+    "value": {
+      "code": 1,
+      "message": "you cannot call os.lazy.fs.reader.Read",
+      "domain": "os.lazy.messenger",
+      "hint": "approve it in Settings > Apps",
+      "docs": "err.messenger.denied"
+    }
+  },
+  {
+    "name": "hint_only_error",
+    "message": "$error",
+    "value": {"code": 22, "message": "bad", "hint": "check the path"}
+  }
+]

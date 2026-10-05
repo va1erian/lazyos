@@ -157,15 +157,11 @@ pub fn init(boot_info: &'static mut BootInfo) {
         ends,
         count,
         refcounts: table_phys,
-        free_head: FREE_LIST_END,
+        ledger: membook::frames::Ledger::new(),
         untouched: untouched::Untouched::new(&starts),
         pool: dma::DmaPool::empty(),
         total: 0,
-        allocated: 0,
-        freed: 0,
         reserved: table_frames,
-        double_frees: 0,
-        invalid_frees: 0,
     };
     // Zero the table and reserve its frames; `RESERVED` entries keep them out
     // of circulation. Safety: the table is a reserved contiguous run.

@@ -173,6 +173,8 @@ macro_rules! entry_body {
     };
 }
 
+// Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
+// "Entry stub contract".
 global_asm!(
     concat!(
         r#"

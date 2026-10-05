@@ -78,7 +78,8 @@ fn unknown_trailing_fields_are_ignored() {
 #[test]
 fn error_field_is_ignored_by_decoders() {
     let mut body = libmessenger::Encoder::new();
-    body.error(15, 2, "no store").unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, 2, "no store")
+        .unwrap();
     assert_eq!(
         decode_tail_reply(&body.finish()).unwrap(),
         TailReply::default()

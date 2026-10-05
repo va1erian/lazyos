@@ -11,40 +11,40 @@
 /// polling `Snapshot`.
 interface os.lazy.sysmond.v1 {
     /// Return one live system-stats snapshot.
-    method Snapshot() -> (data: Bytes);
+    method Snapshot() -> (data: Bytes = 1);
 
     /// The memory counters of one snapshot: the payload of the retained
     /// `system/stats/memory` topic.
     struct MemoryStats {
-        ticks: U64,
-        frames_total: U64,
-        frames_live: U64,
-        frames_free: U64,
-        slab_live: U64,
-        slab_peak: U64,
-        heap_used: U64,
-        heap_total: U64
+        ticks: U64 = 1,
+        frames_total: U64 = 2,
+        frames_live: U64 = 3,
+        frames_free: U64 = 4,
+        slab_live: U64 = 5,
+        slab_peak: U64 = 6,
+        heap_used: U64 = 7,
+        heap_total: U64 = 8
     }
 
     /// One live scheduler slot: `state`, `wait` and `class` are the short
     /// labels the text view used to print, and `name` the NUL-trimmed short
     /// name.
     struct TaskRow {
-        pid: U64,
-        ppid: U64,
-        state: String,
-        wait: String,
-        class: String,
-        cpu: U64,
-        name: String
+        pid: U64 = 1,
+        ppid: U64 = 2,
+        state: String = 3,
+        wait: String = 4,
+        class: String = 5,
+        cpu: U64 = 6,
+        name: String = 7
     }
 
     /// The live-task table of one snapshot: `live` is the count and `tasks`
     /// one row per live slot. The payload of the retained
     /// `system/stats/tasks` topic.
     struct TasksStats {
-        live: U64,
-        tasks: Array<TaskRow>
+        live: U64 = 1,
+        tasks: Array<TaskRow> = 2
     }
 
     /// The retained memory counters (issue #307): a late subscriber is handed

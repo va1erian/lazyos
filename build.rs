@@ -47,6 +47,8 @@ mod rhai_embed;
 mod samples_embed;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
+#[path = "build_support/ui_probe_embed.rs"]
+mod ui_probe_embed;
 #[path = "build_support/usb_fat.rs"]
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]
@@ -226,17 +228,17 @@ fn main() {
     // profile, so the image leaves their ELFs out entirely: the deliberate
     // crash service (issue #93), whose restart-with-backoff demo is the
     // `flaky` row, and the clipboard demo pair (issue #115), which
-    // `clipboardd` spawns under `demo=1`.
+    // `clipboardd` spawns under `demo=1`, and `async_echo` (#91, #309).
     if !desktop {
-        let flaky =
-            std::env::var_os("CARGO_BIN_FILE_USER_flaky").expect("user flaky artifact not found");
-        files.add_file(fhs::bin::FLAKY, PathBuf::from(flaky));
-        let clipcopy = std::env::var_os("CARGO_BIN_FILE_USER_clipcopy")
-            .expect("user clipcopy artifact not found");
-        files.add_file(fhs::bin::CLIPCP, PathBuf::from(clipcopy));
-        let clippaste = std::env::var_os("CARGO_BIN_FILE_USER_clippaste")
-            .expect("user clippaste artifact not found");
-        files.add_file(fhs::bin::CLIPPASTE, PathBuf::from(clippaste));
+        for (artifact, path) in [
+            ("CARGO_BIN_FILE_USER_flaky", fhs::bin::FLAKY),
+            ("CARGO_BIN_FILE_USER_clipcopy", fhs::bin::CLIPCP),
+            ("CARGO_BIN_FILE_USER_clippaste", fhs::bin::CLIPPASTE),
+            ("CARGO_BIN_FILE_USER_async_echo", fhs::bin::ASYNC_ECHO),
+        ] {
+            let elf = std::env::var_os(artifact).unwrap_or_else(|| panic!("{artifact} not found"));
+            files.add_file(path, PathBuf::from(elf));
+        }
     }
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
@@ -440,10 +442,8 @@ fn main() {
     // The resolver's host table and the TLS trust anchors, in every image
     // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
     // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
-    println!("cargo:rerun-if-changed=build_support/hosts_embed.rs");
-    println!("cargo:rerun-if-changed=build_support/ca_bundle.rs");
-    println!("cargo:rerun-if-changed=build_support/tls_embed.rs");
     hosts_embed::embed(&mut files);
+    ui_probe_embed::embed(&mut files); // `LAZYOS_UI_PROBE=1` only (issue #538)
     let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
     ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
     tls_embed::embed(&mut files, &manifest_dir);

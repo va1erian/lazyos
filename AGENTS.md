@@ -49,6 +49,10 @@ Then Read the resulting `shots/session/shot_*.png`. For custom agent loops,
 import `tools/screenshot/qemu_qmp.py` and call `type_text`, `press_key`,
 `mouse_move`, `mouse_click`, `mouse_scroll`, `mouse_abs`, and `screenshot`.
 Input is delivered via QMP `input-send-event`, so it works headless.
+Click by name, not by measured relative moves: `{"click_at": {"window":
+"MOD Player", "widget": "play_button"}}`, `{"click_at": {"menu": "Games"}}`
+(and `move_to`) resolve against the `UI:RECT`/`UI:WIDGET` lines an image built
+with `LAZYOS_UI_PROBE=1` prints (`tools/screenshot/README.md`, issue #538).
 
 ## Running the demo
 
@@ -222,7 +226,7 @@ package `org.lazy.doom` with the Freedoom IWAD inside; see
 python tools/doom/build.py          # target/doom/doom.elf + target/pkg/doom.lzp (fetches doomgeneric, Freedoom)
 python tools/run_demo.py --doom     # desktop with /system/share/samples/doom.lzp (a user package)
 cargo test --manifest-path doom/Cargo.toml --lib
-python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1)
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1) and LAZYOS_UI_PROBE=1
 ```
 
 The Terminal reports one `TERM:OUT` per command, and a command that wraps past

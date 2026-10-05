@@ -1,4 +1,11 @@
 //! The physical frame allocator: refcount table, free list and frame syscalls.
+//!
+//! The refcount rules, the free chain and the counters are `membook::frames`
+//! (host-tested, issue #485); this module supplies the physical memory they
+//! live in ([`PhysTable`]), the usable regions, the untouched frames and the
+//! DMA pool.
+
+use membook::frames::{FrameMemory, Ledger, Refused};
 
 use super::dma::DmaPool;
 use super::*;
@@ -7,13 +14,10 @@ use super::*;
 /// metadata in the first megabyte.
 pub(super) const LOWEST_FRAME: u64 = 0x10_0000;
 /// Physical frame size; the unit of allocation and refcounting.
-pub(super) const FRAME_SIZE: u64 = 4096;
+pub(super) use membook::frames::FRAME_SIZE;
 /// Refcount value for frames the allocator owns itself and must never hand out
 /// or free: the refcount side table.
-pub(super) const RESERVED: u32 = u32::MAX;
-/// An empty free list's head. Physical address 0 is never a usable frame (they
-/// start at [`LOWEST_FRAME`]), so it is a safe sentinel.
-pub(super) const FREE_LIST_END: u64 = 0;
+pub(super) use membook::frames::RESERVED;
 
 pub(super) static PHYS_OFFSET: AtomicU64 = AtomicU64::new(0);
 
@@ -37,8 +41,8 @@ pub(super) struct Frames {
     pub(super) count: usize,
     /// Physical base of the refcount table (`u32` per frame).
     pub(super) refcounts: u64,
-    /// Physical address of the first free frame ([`FREE_LIST_END`] if none).
-    pub(super) free_head: u64,
+    /// The free chain and the allocation counters (`membook`).
+    pub(super) ledger: Ledger,
     /// Frames never handed out, consumed lazily after the free list runs dry.
     pub(super) untouched: untouched::Untouched,
     /// Contiguous DMA region reserved at boot (issue #241). Its frames are in
@@ -48,16 +52,60 @@ pub(super) struct Frames {
     /// Frames the allocator can hand out (excludes reserved metadata and DMA
     /// pool frames; see [`FrameStats`]).
     pub(super) total: usize,
-    /// Cumulative successful allocations.
-    pub(super) allocated: usize,
-    /// Cumulative frees that returned a frame to the free pool.
-    pub(super) freed: usize,
     /// Frames held back for the refcount table.
     pub(super) reserved: usize,
-    /// Frees of an already-free frame (a bug indicator; should stay zero).
-    pub(super) double_frees: usize,
-    /// Frees of an address outside every usable region (should stay zero).
-    pub(super) invalid_frees: usize,
+}
+
+/// The refcount table and the free frames' link words, reached through the
+/// bootloader's physical-memory mapping: the memory `membook` keeps its
+/// books in.
+#[derive(Clone, Copy)]
+pub(super) struct PhysTable {
+    /// Physical base of the refcount table.
+    refcounts: u64,
+}
+
+impl PhysTable {
+    fn refcount_ptr(self, phys: u64) -> *mut u32 {
+        // Safety: `init` sized the table to cover every usable frame, and
+        // the ledger only passes frames the caller found usable.
+        unsafe {
+            phys_to_virt(PhysAddr::new(self.refcounts))
+                .as_mut_ptr::<u32>()
+                .add(Frames::index(phys))
+        }
+    }
+}
+
+impl FrameMemory for PhysTable {
+    fn refcount(&self, phys: u64) -> u32 {
+        // Safety: see `refcount_ptr`.
+        unsafe { self.refcount_ptr(phys).read_volatile() }
+    }
+
+    fn set_refcount(&mut self, phys: u64, value: u32) {
+        // Safety: see `refcount_ptr`.
+        unsafe { self.refcount_ptr(phys).write_volatile(value) }
+    }
+
+    fn link(&self, phys: u64) -> u64 {
+        // Safety: the chain only links free usable frames, whose first word
+        // holds the link `set_link` wrote.
+        unsafe {
+            phys_to_virt(PhysAddr::new(phys))
+                .as_ptr::<u64>()
+                .read_unaligned()
+        }
+    }
+
+    fn set_link(&mut self, phys: u64, next: u64) {
+        // Safety: `phys` is a free usable frame, so its first bytes are ours.
+        unsafe {
+            phys_to_virt(PhysAddr::new(phys))
+                .as_mut_ptr::<u64>()
+                .write_unaligned(next);
+        }
+    }
 }
 
 pub(super) static FRAMES: Mutex<Option<Frames>> = Mutex::new(None);
@@ -116,123 +164,83 @@ impl Frames {
         (0..self.count).any(|i| phys >= self.starts[i] && phys < self.ends[i])
     }
 
-    pub(super) fn refcount_ptr(&self, index: usize) -> *mut u32 {
-        // Safety: `init` sized the table to cover every usable frame, and
-        // callers only pass indices derived from usable physical addresses.
-        unsafe {
-            phys_to_virt(PhysAddr::new(self.refcounts))
-                .as_mut_ptr::<u32>()
-                .add(index)
+    /// The memory the ledger keeps its books in.
+    pub(super) fn table(&self) -> PhysTable {
+        PhysTable {
+            refcounts: self.refcounts,
         }
     }
 
+    /// The refcount of the usable frame at table index `index`.
     pub(super) fn refcount(&self, index: usize) -> u32 {
-        // Safety: see `refcount_ptr`.
-        unsafe { self.refcount_ptr(index).read_volatile() }
+        self.table().refcount(index as u64 * FRAME_SIZE)
     }
 
+    /// Set the refcount of the usable frame at table index `index`.
     pub(super) fn set_refcount(&self, index: usize, value: u32) {
-        // Safety: see `refcount_ptr`.
-        unsafe { self.refcount_ptr(index).write_volatile(value) }
-    }
-
-    /// Link `phys` at the head of the free list.
-    pub(super) fn push_free(&mut self, phys: u64) {
-        // Safety: `phys` is a free usable frame, so its first bytes are ours.
-        unsafe {
-            phys_to_virt(PhysAddr::new(phys))
-                .as_mut_ptr::<u64>()
-                .write_unaligned(self.free_head);
-        }
-        self.free_head = phys;
+        self.table().set_refcount(index as u64 * FRAME_SIZE, value);
     }
 
     /// Unlink and return the head of the free list, else the next frame that
     /// was never handed out (skipping the allocator's own reserved frames).
     pub(super) fn pop_free(&mut self) -> Option<u64> {
-        if self.free_head == FREE_LIST_END {
-            loop {
-                let phys = self.untouched.next(&self.ends, self.count)?;
-                if self.refcount(Self::index(phys)) != RESERVED && !self.pool.contains(phys) {
-                    return Some(phys);
-                }
+        if let Some(phys) = self.ledger.pop_free(&self.table()) {
+            return Some(phys);
+        }
+        loop {
+            let phys = self.untouched.next(&self.ends, self.count)?;
+            if self.refcount(Self::index(phys)) != RESERVED && !self.pool.contains(phys) {
+                return Some(phys);
             }
         }
-        let phys = self.free_head;
-        // Safety: the free list only links free usable frames.
-        self.free_head = unsafe {
-            phys_to_virt(PhysAddr::new(phys))
-                .as_ptr::<u64>()
-                .read_unaligned()
-        };
-        Some(phys)
     }
 
     /// Increment a live frame's reference count.
     pub(super) fn share(&mut self, phys: u64) -> bool {
-        if phys & (FRAME_SIZE - 1) != 0 || !self.contains(phys) {
-            crate::serial_println!("mem: share of non-usable frame {:#x}", phys);
-            debug_assert!(false, "sharing a non-usable frame");
-            return false;
+        let usable = self.contains(phys);
+        match self.ledger.share(&mut self.table(), phys, usable) {
+            Ok(()) => true,
+            Err(Refused::Unusable) => {
+                crate::serial_println!("mem: share of non-usable frame {:#x}", phys);
+                debug_assert!(false, "sharing a non-usable frame");
+                false
+            }
+            Err(why) => {
+                crate::serial_println!("mem: share of dead frame {:#x} ({:?})", phys, why);
+                debug_assert!(false, "sharing a frame that is not live");
+                false
+            }
         }
-        let index = Self::index(phys);
-        let count = self.refcount(index);
-        if count == 0 || count == RESERVED || count >= RESERVED - 1 {
-            crate::serial_println!("mem: share of dead frame {:#x} (refcount {})", phys, count);
-            debug_assert!(false, "sharing a frame that is not live");
-            return false;
-        }
-        self.set_refcount(index, count + 1);
-        true
     }
 
     /// Drop one reference to a frame, returning it to the free pool at zero.
+    /// A DMA pool frame returns to the pool, not the general free list; the
+    /// ledger marks it `RESERVED` so `pop_free` skips it and leaves it out of
+    /// `total`/`allocated`/`freed`, so DMA traffic never moves `live()`.
     pub(super) fn release(&mut self, phys: u64) -> Release {
-        if phys & (FRAME_SIZE - 1) != 0 || !self.contains(phys) {
-            self.invalid_frees += 1;
-            crate::serial_println!("mem: free of non-usable frame {:#x}", phys);
-            debug_assert!(false, "freeing a non-usable frame");
-            return Release::Invalid;
-        }
-        let index = Self::index(phys);
-        let count = self.refcount(index);
-        if count == 0 {
-            self.double_frees += 1;
-            crate::serial_println!("mem: double free of frame {:#x}", phys);
-            debug_assert!(false, "double free");
-            return Release::Invalid;
-        }
-        if count == RESERVED {
-            self.invalid_frees += 1;
-            crate::serial_println!("mem: free of reserved frame {:#x}", phys);
-            debug_assert!(false, "freeing a reserved frame");
-            return Release::Invalid;
-        }
-        // A DMA pool frame returns to the pool, not the general free list. It
-        // is marked `RESERVED` at zero so `pop_free` skips it. Pool frames are
-        // outside `total`/`allocated`/`freed`, so the general counters and
-        // `live()` are untouched by DMA traffic.
-        if self.pool.contains(phys) {
-            let remaining = count - 1;
-            if remaining == 0 {
-                self.set_refcount(index, RESERVED);
+        let usable = self.contains(phys);
+        let in_pool = usable && self.pool.contains(phys);
+        match self
+            .ledger
+            .release(&mut self.table(), phys, usable, in_pool)
+        {
+            membook::frames::Release::Freed => Release::Pooled,
+            membook::frames::Release::PoolFreed => {
                 self.pool.free(phys);
                 #[cfg(lazyos_tests)]
                 super::dma::order::note(super::dma::order::DMA_FREE);
                 Release::Pooled
-            } else {
-                self.set_refcount(index, remaining);
-                Release::Shared
             }
-        } else {
-            let remaining = count - 1;
-            self.set_refcount(index, remaining);
-            if remaining == 0 {
-                self.push_free(phys);
-                self.freed += 1;
-                Release::Pooled
-            } else {
-                Release::Shared
+            membook::frames::Release::Shared(_) => Release::Shared,
+            membook::frames::Release::Invalid(why) => {
+                let what = match why {
+                    Refused::Unusable => "non-usable",
+                    Refused::DoubleFree => "already free (double free)",
+                    _ => "reserved",
+                };
+                crate::serial_println!("mem: free of {} frame {:#x}", what, phys);
+                debug_assert!(false, "invalid frame free");
+                Release::Invalid
             }
         }
     }
@@ -262,12 +270,12 @@ impl Frames {
     pub(super) fn stats(&self) -> FrameStats {
         FrameStats {
             total: self.total,
-            allocated: self.allocated,
-            freed: self.freed,
-            free: self.total - (self.allocated - self.freed),
+            allocated: self.ledger.allocated,
+            freed: self.ledger.freed,
+            free: self.total - self.ledger.live(),
             reserved: self.reserved,
-            double_frees: self.double_frees,
-            invalid_frees: self.invalid_frees,
+            double_frees: self.ledger.double_frees,
+            invalid_frees: self.ledger.invalid_frees,
         }
     }
 }
@@ -289,8 +297,8 @@ pub fn alloc_frame() -> Option<PhysAddr> {
     let mut guard = FRAMES.lock();
     let frames = guard.as_mut()?;
     let phys = frames.pop_free()?;
-    frames.set_refcount(Frames::index(phys), 1);
-    frames.allocated += 1;
+    let mut table = frames.table();
+    frames.ledger.note_alloc(&mut table, phys);
     Some(PhysAddr::new(phys))
 }
 

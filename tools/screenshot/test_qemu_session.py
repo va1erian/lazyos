@@ -12,12 +12,121 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import qemu_session  # noqa: E402
+import session_pointer  # noqa: E402
 
 
 def write_log(directory: Path, text: str) -> Path:
     path = directory / "serial.log"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+class ClickAtTests(unittest.TestCase):
+    def test_pixels_map_onto_the_tablet_axes(self):
+        r = qemu_session.resolve_click_at
+        self.assertEqual(r([0, 0], (1280, 720), {}), (0, 0))
+        self.assertEqual(r([1279, 719], (1280, 720), {}), (32767, 32767))
+
+    def test_names_resolve_and_unknown_or_offscreen_fail(self):
+        r = qemu_session.resolve_click_at
+        self.assertEqual(r("a", (101, 101), {"a": [50, 100]}), (16383, 32767))
+        with self.assertRaises(qemu_session.StepFailed):
+            r("b", (1280, 720), {})
+        with self.assertRaises(qemu_session.StepFailed):
+            r([1280, 0], (1280, 720), {})
+
+    def test_malformed_targets_fail_the_step(self):
+        # A StepFailed (not a ValueError/TypeError) is what keeps the failure
+        # screenshot and summary.json.
+        r = qemu_session.resolve_click_at
+        for target, targets in [([10], {}), ("a", {"a": None}), ("a", {"a": [1, "2"]}),
+                                ([True, 3], {}), (7, {}), ({"window": "W", "menu": "M"}, {}),
+                                ({"widget": "w"}, {}), ({"window": "W", "offset": [1]}, {})]:
+            with self.subTest(target=target), self.assertRaises(qemu_session.StepFailed):
+                r(target, (1280, 720), targets, "UI:RECT x=0 y=0 w=10 h=10 name=window:W\n")
+
+    def test_a_malformed_target_ends_the_session_as_a_failed_step(self):
+        class FakeQmp:
+            pass
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work)
+            write_log(path, "")
+            serial = qemu_session.SerialLog(path / "serial.log", [])
+            with self.assertRaises(qemu_session.StepFailed):
+                qemu_session.run_steps(FakeQmp(), [{"click_at": [10]}], path, time.time(), serial)
+
+    def test_the_screen_must_be_at_least_two_pixels_each_way(self):
+        parse = session_pointer.parse_screen
+        self.assertEqual(parse("1280x720"), (1280, 720))
+        for text in ("1x720", "1280x1", "0x0", "1280", "axb"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse(text)
+
+
+PROBE = (
+    "UI:RECT x=100 y=50 w=724 h=458 name=window:MOD Player\n"
+    "noise UI:WIDGET x=68 y=142 w=52 h=28 name=play_button window=MOD Player\r\n"
+    "UI:RECT x=28 y=500 w=212 h=24 name=menu:Accessories\n"
+    "UI:RECT x=4 y=690 w=80 h=28 name=taskbar:start\n"
+    "UI:RECT x=28 y=476 w=212 h=24 name=menu:Accessories\n"
+)
+
+
+class ProbeTargetTests(unittest.TestCase):
+    def pixel(self, target, probe=PROBE, targets=None):
+        return session_pointer.resolve_pixel(target, targets or {}, probe)
+
+    def test_a_widget_is_offset_by_its_window(self):
+        self.assertEqual(self.pixel({"window": "MOD Player", "widget": "play_button"}),
+                         (100 + 68 + 26, 50 + 142 + 14))
+        self.assertEqual(self.pixel({"window": "MOD Player"}), (100 + 362, 50 + 229))
+
+    def test_menus_targets_names_and_offsets(self):
+        self.assertEqual(self.pixel({"menu": "Accessories"}), (134, 488), "the newest line wins")
+        self.assertEqual(self.pixel({"target": "taskbar:start"}), (44, 704))
+        self.assertEqual(self.pixel("taskbar:start"), (44, 704))
+        self.assertEqual(self.pixel({"target": "taskbar:start", "offset": [-10, 2]}), (34, 706))
+        self.assertEqual(self.pixel("taskbar:start", targets={"taskbar:start": [1, 2]}), (1, 2))
+
+    def test_an_unseen_name_is_none_until_printed(self):
+        self.assertIsNone(self.pixel({"window": "MOD Player", "widget": "stop"}))
+        self.assertIsNone(self.pixel({"menu": "Games"}))
+        self.assertIsNone(self.pixel("nothing"))
+
+    def test_waiting_times_out_as_a_failed_step(self):
+        with self.assertRaises(qemu_session.StepFailed) as caught:
+            session_pointer.wait_pixel({"menu": "Games"}, lambda: PROBE, 0.3)
+        self.assertIn("LAZYOS_UI_PROBE", str(caught.exception))
+
+    def test_click_at_moves_then_clicks_with_or_without_a_tablet(self):
+        class FakeQmp:
+            def __init__(self):
+                self.calls = []
+
+            def __getattr__(self, name):
+                return lambda *args: self.calls.append((name, *args))
+
+        step = {"click_at": {"menu": "Accessories"}}
+        for tablet, expected in [
+            (True, [("mouse_abs", 134 * 32767 // 1279, 488 * 32767 // 719),
+                    ("mouse_click", "left")]),
+            (False, [("mouse_move", -300, -300)] * 4 + [("mouse_move", 134, 488),
+                                                        ("mouse_click", "left")]),
+        ]:
+            qmp = FakeQmp()
+            session_pointer.POINTER.update(tablet=tablet, screen=(1280, 720), targets={})
+            try:
+                session_pointer.point(qmp, step, "click_at", lambda: PROBE, 1)
+            finally:
+                session_pointer.POINTER["tablet"] = False
+            self.assertEqual(qmp.calls, expected)
+        qmp = FakeQmp()
+        session_pointer.POINTER["tablet"] = True
+        try:
+            session_pointer.point(qmp, {"move_to": [0, 0]}, "move_to", lambda: "", 1)
+        finally:
+            session_pointer.POINTER["tablet"] = False
+        self.assertEqual(qmp.calls, [("mouse_abs", 0, 0)])
 
 
 class SerialOccurrenceTests(unittest.TestCase):
@@ -148,7 +257,7 @@ class CaptureTests(unittest.TestCase):
         typed: list[str] = []
 
         class FakeQmp:
-            def type_text(self, text):
+            def type_text(self, text, delay=0.01):
                 typed.append(text)
 
         with tempfile.TemporaryDirectory() as work:

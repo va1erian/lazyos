@@ -261,7 +261,40 @@ fn fuzz_decode_never_panics() {
                 let _ = field.as_str();
                 let _ = field.nested(0);
                 let _ = field.error_parts();
+                if let Some(mut detail) = field.error_detail() {
+                    while let Ok(Some(_)) = detail.next() {}
+                }
             }
         }
     }
+}
+
+#[test]
+fn an_error_detail_record_rides_after_the_message() {
+    let mut detail = Encoder::new();
+    detail.string(1, "os.lazy.fs").unwrap();
+    let mut body = Encoder::new();
+    body.error_detail(15, 13, "denied", &detail).unwrap();
+    let bytes = body.finish();
+    let field = Decoder::new(&bytes).next().unwrap().unwrap();
+    assert_eq!(field.error_parts().unwrap(), (13, "denied"));
+    let mut record = field.error_detail().unwrap();
+    let domain = record.next().unwrap().unwrap();
+    assert_eq!((domain.id, domain.as_str().unwrap()), (1, "os.lazy.fs"));
+    assert!(record.next().unwrap().is_none());
+}
+
+#[test]
+fn a_plain_error_has_no_detail_and_a_nul_message_is_refused() {
+    let mut body = Encoder::new();
+    body.error(15, 2, "gone").unwrap();
+    let bytes = body.finish();
+    let field = Decoder::new(&bytes).next().unwrap().unwrap();
+    assert!(field.error_detail().is_none());
+    let mut refused = Encoder::new();
+    let detail = Encoder::new();
+    assert_eq!(
+        refused.error_detail(15, 2, "a\0b", &detail),
+        Err(Error::BadString)
+    );
 }

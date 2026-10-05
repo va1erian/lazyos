@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): Array takes exactly one parameter.
+interface os.lazy.conformance.bad.v1 {
+    struct P { a: Array<U32, U32> = 1 }
+}

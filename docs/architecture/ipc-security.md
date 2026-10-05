@@ -101,7 +101,14 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   one dot-free segment so a name names exactly one id); a labelled task may
   register nothing else. A topic at or under `app/<id>/` (publish or subscribe)
   is allowed for `app:<id>`. `dev:<id>` owns exactly the same names and topics
-  as `app:<id>`, so a development run behaves like the installed app. Resolving any other name (checked as
+  as `app:<id>`, so a development run behaves like the installed app. A
+  labelled app's `Register` must also name every interface it advertises
+  (`interface_names`, one per id; `fnv1a64(name)` must equal the id) and every
+  name must lie in its domain, `<id>.<name>.v<N>`
+  (`policy::check_interfaces`, `policy::interface_in_domain`); `system:*` and
+  unlabelled tasks are not limited, but names they send must match. Refusals
+  are audited as `UNNAMED_INTERFACE` (10) or `FOREIGN_INTERFACE` (11) with the
+  offending interface id as `txn_id` (issue #495). Resolving any other name (checked as
   `os.lazy.messenger.names.resolve.v1` with `fnv1a32(name)` as the method, so a
   rule grants one exact name), calling any interface and every other topic
   segment need an allow rule for the label. Checks run against the *client's*

@@ -17,6 +17,10 @@
 //! that queue. All of this runs with interrupts off (syscall context) on one
 //! CPU, so nothing can slip in between the checks and the park.
 //!
+//! A pending call is an item too ([`WAIT_ITEM_CALL`], `waitcall`, issue
+//! #309): an event loop with requests in flight parks on their replies beside
+//! its endpoints instead of blocking on the oldest call.
+//!
 //! Two flags widen the wait (P3 follow-ups). [`WAIT_DEADLINE_NS`] makes the
 //! deadline absolute `arch::clock::monotonic_ns` instead of 100 Hz ticks, so
 //! a 60 Hz frame or a client timer is not rounded to the tick. [`WAIT_FD`]
@@ -33,7 +37,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::*;
 
-/// Most endpoints one wait may name.
+/// Most items (endpoints and pending calls) one wait may name.
 pub const MAX_WAIT_ENDPOINTS: usize = 8;
 /// Doorbell: the caller's raw input ring (syscall 25; `inputd`).
 pub const WAIT_RAW_INPUT: u64 = 1;
@@ -108,17 +112,25 @@ pub fn wait_flags_known(flags: u64) -> bool {
     low & !(WAIT_DOORBELLS | WAIT_DEADLINE_NS) == 0 && (fd == 0 || low & WAIT_FD != 0)
 }
 
-/// Park until one of `handles` has a message (or its peer closed), or until
-/// one of the doorbells in `flags` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`],
-/// [`WAIT_INET`], [`WAIT_FD`]) rings, or until `deadline` passes (absolute
-/// ticks, or monotonic nanoseconds with [`WAIT_DEADLINE_NS`]). Returns the
-/// ready mask: bit `i` for `handles[i]`, [`RAW_INPUT_READY`],
-/// [`DISPLAY_INPUT_READY`], [`INET_READY`] and [`FD_READY`] for the doorbells.
+/// Park until one of `handles` is ready, or until one of the doorbells in
+/// `flags` ([`WAIT_RAW_INPUT`], [`WAIT_DISPLAY_KEYS`], [`WAIT_INET`],
+/// [`WAIT_FD`]) rings, or until `deadline` passes (absolute ticks, or
+/// monotonic nanoseconds with [`WAIT_DEADLINE_NS`]). A word of `handles` is
+/// an endpoint, ready when it has a message (or its peer closed), or, with
+/// [`WAIT_ITEM_CALL`], a call the caller began and has not awaited, ready
+/// when its transaction ended (`waitcall`). Returns the ready mask: bit `i`
+/// for `handles[i]`, [`RAW_INPUT_READY`], [`DISPLAY_INPUT_READY`],
+/// [`INET_READY`] and [`FD_READY`] for the doorbells.
+///
+/// A pending call's own deadline bounds the park: when it passes, the call
+/// is expired (as `await_reply` would) and reported ready, so the caller's
+/// await returns `TimedOut`; the wait itself times out only at `deadline`.
 ///
 /// Errors: `BadParcel` for an empty or oversized set, an unknown flag, or a
 /// descriptor number without [`WAIT_FD`]; the handle errors of `recv` for a
-/// bad handle; `WrongKind` for a doorbell the caller may not ring (no raw
-/// ring; not the display owner; no such descriptor), `TimedOut`, and
+/// bad handle; `NoTransaction` / `NotCaller` for a call that does not exist
+/// or is not the caller's; `WrongKind` for a doorbell the caller may not ring
+/// (no raw ring; not the display owner; no such descriptor), `TimedOut`, and
 /// `Canceled` when a fatal signal must end the task.
 pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u64, Error> {
     let fd = flags >> WAIT_FD_SHIFT;
@@ -132,33 +144,44 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
     }
     // `fd` came from 32 bits, so it fits a `usize` on this 64-bit kernel.
     let fd = (doorbells & WAIT_FD != 0).then_some(fd as usize);
-    let mut ends = [(0u64, 0usize); MAX_WAIT_ENDPOINTS];
-    for (end, &handle) in ends.iter_mut().zip(handles) {
-        *end = endpoint_of(handle, rights::CALL)?;
-    }
-    let ends = &ends[..handles.len()];
     let me = task::current();
+    let mut items = [Item::NONE; MAX_WAIT_ENDPOINTS];
+    for (item, &word) in items.iter_mut().zip(handles) {
+        *item = resolve_item(word, me)?;
+    }
+    let items = &items[..handles.len()];
+    // Everything below parks in nanoseconds; the caller's deadline is ticks
+    // unless it asked otherwise.
+    let deadline_ns = deadline.map(|d| if in_ns { d } else { task::ticks_to_ns(d) });
     loop {
-        let mut ready = ready_or_register(ends, me);
+        let (mut ready, call_deadline) = ready_or_register(items, me);
         match arm_doorbells(doorbells, fd, me) {
             Ok(rung) => ready |= rung,
             Err(error) => {
-                unregister(ends, me, doorbells);
+                unregister(items, me, doorbells);
                 return Err(error);
             }
         }
         if ready != 0 {
-            unregister(ends, me, doorbells);
+            unregister(items, me, doorbells);
             return Ok(ready);
         }
-        let reason = if in_ns {
-            MESSENGER.wait_ns(me, deadline)
-        } else {
-            MESSENGER.wait(me, deadline)
-        };
-        unregister(ends, me, doorbells);
+        let park_until = earlier(deadline_ns, call_deadline.map(task::ticks_to_ns));
+        let reason = MESSENGER.wait_ns(me, park_until);
+        unregister(items, me, doorbells);
         if reason == WakeReason::TimedOut {
-            return Err(Error::TimedOut);
+            // A due call is expired here and reported by the rescan; only
+            // the caller's own deadline ends the wait with `TimedOut`.
+            // With no call deadline in play the park ended on the caller's
+            // deadline, exactly as before calls could be waited on.
+            if call_deadline.is_none() {
+                return Err(Error::TimedOut);
+            }
+            expire_due_calls(items);
+            let due = deadline_ns.is_some_and(|d| d <= crate::arch::clock::monotonic_ns());
+            if due && !any_call_ready(items) {
+                return Err(Error::TimedOut);
+            }
         }
         // As in `recv`: a fatal signal, a kill, and for a Linux task any
         // deliverable signal must reach the syscall return (`-ECANCELED`,
@@ -171,26 +194,45 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
     }
 }
 
-/// The ready mask of `ends`; `me` is registered on every endpoint that is not
-/// ready, under the one lock that saw it empty. A vanished channel counts as
-/// ready, so the caller's receive reports what happened to it.
-fn ready_or_register(ends: &[(u64, usize)], me: usize) -> u64 {
+/// The ready mask of `items` and the earliest deadline (ticks) of their
+/// pending calls; `me` is registered on every endpoint that is not ready,
+/// under the one lock that saw it empty. A vanished channel counts as ready,
+/// so the caller's receive reports what happened to it; a call needs no
+/// registration (its caller is woken by every terminal transition).
+fn ready_or_register(items: &[Item], me: usize) -> (u64, Option<u64>) {
     let mut channels = CHANNELS.lock();
     let mut ready = 0;
-    for (index, &(id, side)) in ends.iter().enumerate() {
-        match find_channel(&mut channels, id) {
-            Ok(channel) => {
-                let inbox_ready = !channel.endpoints[side].inbox.is_empty();
-                if inbox_ready || channel.endpoints[1 - side].closed {
-                    ready |= 1 << index;
-                } else {
-                    add_waiter(&mut channel.endpoints[side], me);
+    let mut call_deadline = None;
+    for (index, item) in items.iter().enumerate() {
+        match *item {
+            Item::Endpoint(id, side) => match find_channel(&mut channels, id) {
+                Ok(channel) => {
+                    let inbox_ready = !channel.endpoints[side].inbox.is_empty();
+                    if inbox_ready || channel.endpoints[1 - side].closed {
+                        ready |= 1 << index;
+                    } else {
+                        add_waiter(&mut channel.endpoints[side], me);
+                    }
                 }
-            }
-            Err(_) => ready |= 1 << index,
+                Err(_) => ready |= 1 << index,
+            },
+            Item::Call(txn_id) => match call_state(&mut channels, txn_id) {
+                Ok(()) => ready |= 1 << index,
+                Err(deadline) => call_deadline = earlier(call_deadline, deadline),
+            },
         }
     }
-    ready
+    (ready, call_deadline)
+}
+
+/// Whether any call of `items` has ended (after a timed-out park expired the
+/// due ones).
+fn any_call_ready(items: &[Item]) -> bool {
+    let mut channels = CHANNELS.lock();
+    items.iter().any(|item| match *item {
+        Item::Call(txn_id) => call_state(&mut channels, txn_id).is_ok(),
+        Item::Endpoint(..) => false,
+    })
 }
 
 /// Arm each requested doorbell; the ready bits of those already ringing
@@ -236,9 +278,11 @@ fn arm_doorbells(doorbells: u64, fd: Option<usize>, me: usize) -> Result<u64, Er
 }
 
 /// Drop every registration [`ready_or_register`] and the doorbells made.
-fn unregister(ends: &[(u64, usize)], me: usize, doorbells: u64) {
-    for &(id, side) in ends {
-        remove_waiter(id, side, me);
+fn unregister(items: &[Item], me: usize, doorbells: u64) {
+    for item in items {
+        if let Item::Endpoint(id, side) = *item {
+            remove_waiter(id, side, me);
+        }
     }
     if doorbells & WAIT_RAW_INPUT != 0 {
         crate::input::bus::disarm_doorbell(me);

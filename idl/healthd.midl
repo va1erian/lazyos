@@ -7,21 +7,21 @@
 /// error field (errno-style code, friendly text), not as a typed reply.
 interface os.lazy.healthd.v1 {
     /// Publish `health/<name>` with `status`/`detail`.
-    method Report(name: String, status: String, detail: String) -> (summary: HealthRecord, records: Array<HealthRecord>);
+    method Report(name: String = 1, status: String = 2, detail: String = 3) -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2);
 
     /// Snapshot retained health rows plus the aggregate.
-    method Status() -> (summary: HealthRecord, records: Array<HealthRecord>);
+    method Status() -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2);
 
     /// One retained health row.
     struct HealthRecord {
         /// Service name (`summary` for the aggregate row).
-        name: String,
+        name: String = 1,
         /// Health status (`ok`/`degraded`/`down`).
-        status: String,
+        status: String = 2,
         /// Human-readable detail.
-        detail: String,
+        detail: String = 3,
         /// Tick the row was produced.
-        tick: U64
+        tick: U64 = 4
     }
 
     /// The retained aggregate snapshot (issue #307), published on

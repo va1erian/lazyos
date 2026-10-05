@@ -1,0 +1,5 @@
+// Conformance case (must be rejected): Two methods share an id.
+interface os.lazy.conformance.bad.v1 {
+    method A() -> () = 3;
+    method B() -> () = 3;
+}

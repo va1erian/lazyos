@@ -229,6 +229,7 @@ mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod virtio_suite;
+mod waitset_call_suite;
 mod waitset_ext_suite;
 mod waitset_suite;
 mod wallclock_suite;
@@ -261,6 +262,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ipc_channel_suite::CASES,
     waitset_suite::CASES,
     waitset_ext_suite::CASES,
+    waitset_call_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,
     label_suite::CASES,

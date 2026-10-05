@@ -110,10 +110,44 @@ or since the latest `wait_for` gate) and one action:
 | click | `{"mouse_click": "left"}` |
 | scroll | `{"mouse_scroll": 3}` |
 | absolute pointer | `{"mouse_abs": [x, y]}` (needs `--tablet`) |
+| click a pixel or a named widget | `{"click_at": {"window": "MOD Player", "widget": "play_button"}}`, `{"click_at": {"menu": "Accessories"}}`, `{"click_at": [x, y]}` (see below) |
+| move the pointer there only | `{"move_to": {"window": "Doom"}}` |
 | wait / quit | `{"wait": 1.5}` / `{"quit": true}` |
 | wait for a serial marker (N-th match) | `{"wait_for": "SYSMON:UP:PASS", "timeout": 240, "occurrence": 2}` |
 | confirm an input was handled | `{"key": "r", "until": "SYSMON:REFRESH:PASS", "timeout": 60, "retries": 2}` |
 | capture part of a marker | `{"wait_for": "app=lazyshell pid=(\\d+)", "regex": true, "capture": "pid"}`, then `{"type": "kill -9 ${pid}"}` |
+
+### Clicking by position or name (issue #538)
+
+`click_at` and `move_to` name where the pointer goes, so a layout change does
+not break the script (`session_pointer.py`):
+
+| Target | Resolves to |
+|--------|-------------|
+| `[x, y]` | that screen pixel |
+| `{"window": "<title>"}` | the centre of the window's content |
+| `{"window": "<title>", "widget": "<name>"}` | the centre of a named control in it |
+| `{"menu": "<label>"}` | a start-menu or submenu row (category, app or power row) |
+| `{"target": "<name>"}` or `"<name>"` | any probe rectangle (`taskbar:start`), or a `--targets FILE` entry (`{"name": [x, y]}`) |
+
+Add `"offset": [dx, dy]` to move off the centre and `"button": "right"` to
+change the button. The named rectangles come from the guest: an image built
+with **`LAZYOS_UI_PROBE=1`** (a debug switch like `LAZYOS_LABEL_TRACE`; it
+writes `fhs::etc::UI_PROBE`, and a normal image prints nothing) prints
+
+```text
+UI:RECT x=114 y=132 w=724 h=458 name=window:MOD Player        (xuid, per window change)
+UI:WIDGET x=68 y=142 w=52 h=28 name=play_button window=MOD Player   (lrplay, form controls)
+UI:RECT x=28 y=476 w=212 h=24 name=menu:Accessories           (LazyShell, menu rows)
+UI:RECT x=4 y=690 w=80 h=28 name=taskbar:start                 (LazyShell)
+```
+
+in physical pixels; the newest line for a name wins and a step waits up to its
+`timeout` for it. With `--tablet` (a guest that enumerates USB:
+`LAZYOS_USB=1`) the pointer jumps to the point on the tablet's axes, scaled
+from `--screen WxH` (default 1280x720, each at least 2); without it, it is
+slammed into the top-left corner and moved there relatively. An unresolvable
+or malformed target fails the step like a timed-out gate.
 
 ### Readiness gating (prefer it to fixed `at` times)
 
@@ -185,6 +219,14 @@ to hunt a rare fault. To symbolize a freeze, subtract the kernel load base
 `addr2line -f -C -e <kernel ELF>`. Findings keep `shot_fault.png`,
 `serial_tail.txt`, `report.json` and the registers; freeze findings also keep
 `freeze_registers.txt` and `freeze_hang_report.txt`. Exit status is 1.
+
+A frozen display with the CPU in ring 0 at a port instruction (`in`/`out`,
+`ins`/`outs`; decoded by `freeze_probe.py` from the monitor) may be a long
+device poll rather than a hang (issue #449), so the guest first gets
+`--io-grace` seconds (default 20, `0` disables) to draw again; a recovery is
+recorded under `io_stalls` in `report.json` and the run goes on. `--ide-disk`
+attaches the image as IDE, so the ATA driver serves the disk as it did when
+#449 was found. `python tools/screenshot/test_freeze_probe.py` tests the decoder.
 
 ## CI
 

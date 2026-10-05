@@ -8,9 +8,14 @@
 //! and drives the futures. Every check prints an `ASYNC:<step>:PASS` marker on
 //! the console and serial log; the run ends with `ASYNC:ALL:PASS`.
 //!
-//! Boot it as the hello window from a throwaway image (the PR notes the
-//! one-line `build.rs` wiring a permanent demo would need) and grep the serial
-//! log for `ASYNC:ECHO:PASS` and `ASYNC:ALL:PASS`.
+//! The `ASYNC:WAIT:*` checks (`wait.rs`, issue #309) park one task on calls,
+//! endpoints and a topic subscription at once through the `wait` op.
+//!
+//! Every non-desktop image ships it as `/system/bin/async-echo`; run it from
+//! the shell and look for `ASYNC:ALL:PASS`. The scripted run is
+//! `LAZYOS_CLI=1 LAZYOS_MESSENGERD=1 cargo build` (the broker for the topic
+//! check, no hello window to take the keys), then
+//! `tools/screenshot/examples/async_echo.json`.
 
 #![no_std]
 #![no_main]
@@ -23,6 +28,9 @@ use libmessenger::{flags, Decoder, Encoder, Header, Parcel, VERSION};
 use user::messenger::{self, Endpoint, Error, Result};
 use user::messenger_async::{self, Call, Event, Selector};
 use user::sys;
+
+#[path = "async_echo/wait.rs"]
+mod wait;
 
 /// Interface id this demo speaks.
 const IFACE: u64 = 0xE5C0_0001;
@@ -60,7 +68,7 @@ fn main() -> core::result::Result<(), ()> {
     select_check()?;
     one_way_check()?;
     cancel_check()?;
-    Ok(())
+    wait::checks()
 }
 
 /// A call registered with `begin`, served from the local end, awaited with
@@ -153,7 +161,7 @@ fn cancel_check() -> core::result::Result<(), ()> {
 
 /// Receive one message and echo the parcel back, the way the kernel's
 /// `messengerd` stub does.
-fn serve_once(endpoint: Endpoint) -> Result<()> {
+pub(crate) fn serve_once(endpoint: Endpoint) -> Result<()> {
     let message = endpoint.recv(None)?;
     if let Some(txn) = message.txn {
         endpoint.reply(txn, &message.parcel)?;
@@ -162,12 +170,12 @@ fn serve_once(endpoint: Endpoint) -> Result<()> {
 }
 
 /// A synchronous request parcel carrying one text field.
-fn request(method: u32, text: &str) -> Parcel {
+pub(crate) fn request(method: u32, text: &str) -> Parcel {
     parcel(method, flags::SYNC, text)
 }
 
 /// A one-way parcel carrying one text field.
-fn note(text: &str) -> Parcel {
+pub(crate) fn note(text: &str) -> Parcel {
     parcel(1, flags::ONE_WAY, text)
 }
 
@@ -189,7 +197,7 @@ fn parcel(method: u32, parcel_flags: u16, text: &str) -> Parcel {
 }
 
 /// First string field of a parcel body.
-fn text_of(parcel: &Parcel) -> Option<String> {
+pub(crate) fn text_of(parcel: &Parcel) -> Option<String> {
     let mut decoder = Decoder::new(&parcel.body);
     while let Ok(Some(field)) = decoder.next() {
         if field.id == FIELD_TEXT {
@@ -202,7 +210,7 @@ fn text_of(parcel: &Parcel) -> Option<String> {
 }
 
 /// Print one step marker; returns whether the step passed.
-fn require(name: &str, passed: bool) -> core::result::Result<(), ()> {
+pub(crate) fn require(name: &str, passed: bool) -> core::result::Result<(), ()> {
     sys::write_str("ASYNC:");
     sys::write_str(name);
     sys::write_str(if passed { ":PASS\n" } else { ":FAIL\n" });
@@ -215,7 +223,7 @@ fn require(name: &str, passed: bool) -> core::result::Result<(), ()> {
 
 /// Turn a Messenger failure into a console line, then keep the `Result<(), ()>`
 /// shape the checks use.
-fn report(error: Error) {
+pub(crate) fn report(error: Error) {
     sys::write_str("async_echo: ");
     sys::write_str(error.message());
     sys::write_str("\n");

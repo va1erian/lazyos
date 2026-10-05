@@ -36,44 +36,44 @@ interface os.lazy.display.v1 {
     /// and below every window, has no chrome, never takes focus and replaces
     /// the previous desktop. The desktop role is compositor-privileged. The
     /// parcel transfers the event endpoint the compositor sends input on.
-    method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1
+    method CreateSurface(width: U32 = 1, height: U32 = 2, title: String = 3, role: U32 = 4) -> (surface: U64 = 1) = 1
         transfers (events: Channel<os.lazy.display.v1>);
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
     /// once the surface has used `Present`, which owns slot ownership from
     /// then on.
-    method AttachBuffer(surface: U64) -> () = 2
+    method AttachBuffer(surface: U64 = 1) -> () = 2
         transfers (pixels: Buffer);
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
-    method Commit(surface: U64, x: U32, y: U32, w: U32, h: U32) -> () = 3;
+    method Commit(surface: U64 = 1, x: U32 = 2, y: U32 = 3, w: U32 = 4, h: U32 = 5) -> () = 3;
     /// Drop a surface; the compositor forgets it and repaints.
-    method DestroySurface(surface: U64) -> () = 4;
+    method DestroySurface(surface: U64 = 1) -> () = 4;
     /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
-    method PointerMove(x: I32, y: I32) -> () = 5 oneway;
+    method PointerMove(x: I32 = 1, y: I32 = 2) -> () = 5 oneway;
     /// Event: pointer button `button` went down at `(x, y)`, relative to the
     /// surface.
-    method PointerDown(x: I32, y: I32, button: U32) -> () = 6 oneway;
+    method PointerDown(x: I32 = 1, y: I32 = 2, button: U32 = 3) -> () = 6 oneway;
     /// Event: pointer button `button` went up at `(x, y)`, relative to the
     /// surface.
-    method PointerUp(x: I32, y: I32, button: U32) -> () = 7 oneway;
+    method PointerUp(x: I32 = 1, y: I32 = 2, button: U32 = 3) -> () = 7 oneway;
     /// Event: key `key` was pressed (a character or a non-printable code).
-    method KeyDown(key: U32) -> () = 8 oneway;
+    method KeyDown(key: U32 = 1) -> () = 8 oneway;
     /// Event: key `key` was released.
-    method KeyUp(key: U32) -> () = 9 oneway;
+    method KeyUp(key: U32 = 1) -> () = 9 oneway;
     /// Event: the window manager closed this surface (the X button or Alt+F4).
     /// The app is expected to exit or re-create it.
     method WindowClose() -> () = 10 oneway;
     /// Begin a compositor-mediated drag from `surface` carrying clipboard
     /// `token` of type `mime`. Only the surface's creator may start one, while
     /// a pointer button is held; one drag at a time.
-    method DragStart(surface: U64, token: U64, mime: String) -> () = 11;
+    method DragStart(surface: U64 = 1, token: U64 = 2, mime: String = 3) -> () = 11;
     /// Cancel the drag that started at `surface`.
-    method DragCancel(surface: U64) -> () = 12;
+    method DragCancel(surface: U64 = 1) -> () = 12;
     /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
-    method DragEnter(x: I32, y: I32, mime: String) -> () = 13 oneway;
+    method DragEnter(x: I32 = 1, y: I32 = 2, mime: String = 3) -> () = 13 oneway;
     /// Event: a drag moved inside this surface to `(x, y)`.
-    method DragOver(x: I32, y: I32) -> () = 14 oneway;
+    method DragOver(x: I32 = 1, y: I32 = 2) -> () = 14 oneway;
     /// Event: a drag left this surface.
     method DragLeave() -> () = 15 oneway;
     /// Event: a drag was released over this surface at `(x, y)`; the target
@@ -83,17 +83,17 @@ interface os.lazy.display.v1 {
     /// itself) and `source` is the surface the drag started from, so a
     /// client can tell a drag between its own windows from another app's.
     /// Both are absent from an older compositor.
-    method Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () = 16 oneway;
+    method Drop(x: I32 = 1, y: I32 = 2, token: U64 = 3, mime: String = 4, modifiers: Option<U32> = 5, source: Option<U64> = 6) -> () = 16 oneway;
     /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
-    method DragEnded(dropped: Bool) -> () = 17 oneway;
+    method DragEnded(dropped: Bool = 1) -> () = 17 oneway;
     /// Every surface in z-order (bottom first), including the desktop and
     /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
     /// `CAP_SETUID`).
-    method ListSurfaces() -> (surfaces: Array<SurfaceRow>) = 18;
+    method ListSurfaces() -> (surfaces: Array<SurfaceRow> = 1) = 18;
     /// The rectangle available to windows: what the shell set with
     /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
     /// own since issue #157).
-    method GetWorkArea() -> (x: I32, y: I32, w: I32, h: I32) = 19;
+    method GetWorkArea() -> (x: I32 = 1, y: I32 = 2, w: I32 = 3, h: I32 = 4) = 19;
     /// Register this task as a subscriber under `subscriber_role`; the parcel
     /// transfers the event endpoint for the shell events. The role `shell`
     /// makes the task *the* shell (it may then create desktop and panel
@@ -105,19 +105,19 @@ interface os.lazy.display.v1 {
     /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
-    method Subscribe(subscriber_role: String) -> () = 20
+    method Subscribe(subscriber_role: String = 1) -> () = 20
         transfers (events: Channel<os.lazy.display.v1>);
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
     /// effect, so an app can match its own widgets to the desktop.
-    method GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32) = 21;
+    method GetTheme() -> (title_bg_active: U32 = 1, title_bg_inactive: U32 = 2, border: U32 = 3, taskbar: U32 = 4, text: U32 = 5, mode: String = 6, accent: U32 = 7) = 21;
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
     /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
-    method SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () = 22 oneway;
+    method SurfaceChanged(surface: U64 = 1, kind: U32 = 2, x: I32 = 3, y: I32 = 4, w: I32 = 5, h: I32 = 6, minimized: Bool = 7, focused: Bool = 8, title: Option<String> = 9, role: U32 = 10, maximized: Bool = 11) -> () = 22 oneway;
     /// Shell event: the focused surface changed; absent when nothing is
     /// focused.
-    method FocusChanged(surface: Option<U64>) -> () = 23 oneway;
+    method FocusChanged(surface: Option<U64> = 1) -> () = 23 oneway;
     /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
     method StartMenu() -> () = 24 oneway;
     /// Register a pixel buffer (the parcel's `buffers[0]`, at least
@@ -125,7 +125,7 @@ interface os.lazy.display.v1 {
     /// The compositor only reads the *current* slot, so attaching to any
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
-    method AttachBufferSlot(surface: U64, slot: U32) -> () = 25
+    method AttachBufferSlot(surface: U64 = 1, slot: U32 = 2) -> () = 25
         transfers (pixels: Buffer);
     /// Pipelined present (no reply): make `slot` the surface's current buffer
     /// and composite `damage` (content-relative, clipped to the content; an
@@ -138,13 +138,13 @@ interface os.lazy.display.v1 {
     /// changes nothing: the compositor sends `BufferRelease` for the
     /// submitted slot, since it never read it, and then `FrameDone`. A
     /// present from a task that does not own `surface` is dropped silently.
-    method Present(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> () = 26 oneway;
+    method Present(surface: U64 = 1, slot: U32 = 2, seq: U64 = 3, damage: Array<Rect> = 4) -> () = 26 oneway;
     /// Event: the compositor no longer reads `slot` of `surface`; the client
     /// may write it again. Only sent to surfaces that use `Present`.
-    method BufferRelease(surface: U64, slot: U32) -> () = 27 oneway;
+    method BufferRelease(surface: U64 = 1, slot: U32 = 2) -> () = 27 oneway;
     /// Event: the compositor consumed the `Present` numbered `seq`. Frames
     /// complete in submission order.
-    method FrameDone(surface: U64, seq: U64) -> () = 28 oneway;
+    method FrameDone(surface: U64 = 1, seq: U64 = 2) -> () = 28 oneway;
     /// Rename `surface`'s window (its title bar, taskbar entry and switcher
     /// row) to `title`, so a document window can show the file it holds. Only
     /// the surface's creator may rename it (`EACCES` otherwise; `ENOENT` for
@@ -154,7 +154,7 @@ interface os.lazy.display.v1 {
     /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
-    method SetTitle(surface: U64, title: String) -> () = 29;
+    method SetTitle(surface: U64 = 1, title: String = 2) -> () = 29;
     /// Hint where the *next* `CreateSurface` from this task should open from:
     /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
     /// (which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown
@@ -168,13 +168,13 @@ interface os.lazy.display.v1 {
     /// `CreateSurface` from that task, or expires after about two seconds.
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
-    method HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> () = 30;
+    method HintOpenOrigin(surface: U64 = 1, x: I32 = 2, y: I32 = 3, w: U32 = 4, h: U32 = 5) -> () = 30;
     /// Event: the mouse wheel rolled `delta` notches over this surface's
     /// content at `(x, y)` (relative to the content origin). Positive scrolls
     /// up (the wheel rolled away from the user), negative down. The compositor
     /// sends it to the topmost window under the pointer, which need not be the
     /// focused one, and never to the title bar or an area outside every window.
-    method PointerWheel(x: I32, y: I32, delta: I32) -> () = 31 oneway;
+    method PointerWheel(x: I32 = 1, y: I32 = 2, delta: I32 = 3) -> () = 31 oneway;
     /// Declare `surface` resizable within these content-size bounds (pixels).
     /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
     /// surface). A `max_*` of 0 means the largest size the screen allows.
@@ -183,13 +183,13 @@ interface os.lazy.display.v1 {
     /// window is fixed-size: no resize edges and no maximize button, so old
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
-    method SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> () = 32;
+    method SetSizeHints(surface: U64 = 1, min_w: U32 = 2, min_h: U32 = 3, max_w: U32 = 4, max_h: U32 = 5) -> () = 32;
     /// Event: the window manager changed the surface's content size to
     /// `width` x `height` (`state` is a `WindowState`). The client should
     /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
     /// on non-current slots for `Present` users) and present a full frame.
     /// Until it does the compositor shows the old buffer cropped or padded.
-    method Configure(surface: U64, width: U32, height: U32, state: U32) -> () = 33 oneway;
+    method Configure(surface: U64 = 1, width: U32 = 2, height: U32 = 3, state: U32 = 4) -> () = 33 oneway;
     /// Ask the compositor to change `surface`'s content size to `width` x
     /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
     /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
@@ -198,7 +198,7 @@ interface os.lazy.display.v1 {
     /// bounds and to the screen; the compositor answers by sending a
     /// `Configure` with the size it actually applied (also when that equals
     /// the current size), which is the only confirmation the client needs.
-    method RequestSize(surface: U64, width: U32, height: U32) -> () = 34;
+    method RequestSize(surface: U64 = 1, width: U32 = 2, height: U32 = 3) -> () = 34;
     /// Event: a liveness probe. The compositor sends it to each window's
     /// event endpoint about once a second; a send that fails with `EPIPE`
     /// tells it the client died without calling `DestroySurface`, and it
@@ -219,31 +219,31 @@ interface os.lazy.display.v1 {
     /// (`EINVAL` for any other role; `ENOENT` for an unknown surface). The
     /// position is clamped so the panel stays on screen. A new panel opens at
     /// `(0, 0)`, so a shell places it before its first `Commit`.
-    method PlaceSurface(surface: U64, x: I32, y: I32) -> () = 36;
+    method PlaceSurface(surface: U64 = 1, x: I32 = 2, y: I32 = 3) -> () = 36;
     /// Shell-only: restore `surface` if minimized, raise it and give it focus
     /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
     /// a desktop or panel.
-    method ActivateSurface(surface: U64) -> () = 37;
+    method ActivateSurface(surface: U64 = 1) -> () = 37;
     /// Shell-only: minimize `surface` (a click on the focused taskbar entry).
     /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
     /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
-    method MinimizeSurface(surface: U64) -> () = 38;
+    method MinimizeSurface(surface: U64 = 1) -> () = 38;
     /// Shell-only: the rectangle windows may occupy (the screen minus the
     /// shell's taskbar). Clamped to the screen; an empty result is `EINVAL`.
     /// Maximized windows are re-fitted to it. When the shell goes away the
     /// work area returns to the whole screen.
-    method SetWorkArea(x: I32, y: I32, w: I32, h: I32) -> () = 39;
+    method SetWorkArea(x: I32 = 1, y: I32 = 2, w: I32 = 3, h: I32 = 4) -> () = 39;
     /// Shell-only: where `surface`'s taskbar entry is on screen, so the
     /// minimize/restore zoom flies to and from it. A window without one zooms
     /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
     /// unknown surface; an empty rectangle forgets the geometry.
-    method SetIconGeometry(surface: U64, x: I32, y: I32, w: I32, h: I32) -> () = 40;
+    method SetIconGeometry(surface: U64 = 1, x: I32 = 2, y: I32 = 3, w: I32 = 4, h: I32 = 5) -> () = 40;
     /// Shell-only: the next window *any* task creates within about two seconds
     /// zooms open from this screen rectangle (the start-menu row or desktop
     /// icon the user just activated) instead of from its taskbar entry. The
     /// shell sends it right before asking `init` to launch an app. A task's
     /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
-    method HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> () = 41;
+    method HintLaunchOrigin(x: I32 = 1, y: I32 = 2, w: U32 = 3, h: U32 = 4) -> () = 41;
     /// Shell event: a pointer button went down outside every `Panel` surface
     /// (on a window, the desktop or the bare background), so the shell closes
     /// any open popup panel such as the start menu.
@@ -253,7 +253,7 @@ interface os.lazy.display.v1 {
     /// interface stays in physical pixels; a scale-aware client draws at
     /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
     /// The scale is fixed for the compositor's lifetime.
-    method GetOutput() -> (width: U32, height: U32, scale: U32) = 43;
+    method GetOutput() -> (width: U32 = 1, height: U32 = 2, scale: U32 = 3) = 43;
 
     /// What a surface is. Numeric values are the wire values. A `Panel`
     /// (issue #157) is a shell-owned, chromeless surface painted above every
@@ -275,32 +275,32 @@ interface os.lazy.display.v1 {
 
     /// A damage rectangle relative to a surface's content origin.
     struct Rect {
-        x: U32,
-        y: U32,
-        w: U32,
-        h: U32
+        x: U32 = 1,
+        y: U32 = 2,
+        w: U32 = 3,
+        h: U32 = 4
     }
 
     /// One row of a `ListSurfaces` reply.
     struct SurfaceRow {
         /// Protocol surface id.
-        id: U64,
+        id: U64 = 1,
         /// Window title from `CreateSurface`.
-        title: String,
+        title: String = 2,
         /// Window origin (the decorated window's top-left for a window; the
         /// surface origin for a desktop).
-        x: I32,
-        y: I32,
+        x: I32 = 3,
+        y: I32 = 4,
         /// Window content size in pixels.
-        w: I32,
-        h: I32,
+        w: I32 = 5,
+        h: I32 = 6,
         /// Hidden by the minimize button.
-        minimized: Bool,
+        minimized: Bool = 7,
         /// The compositor's focused surface.
-        focused: Bool,
+        focused: Bool = 8,
         /// A `Role` value.
-        role: U32,
+        role: U32 = 9,
         /// Whether the window is maximized (also a `WindowState` value).
-        maximized: Bool
+        maximized: Bool = 10
     }
 }

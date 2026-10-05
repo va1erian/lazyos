@@ -1,0 +1,3 @@
+{
+  "error": "Handle cannot travel in a message body (a handle number means nothing in the receiver's table); declare it in the method's `transfers (...)` clause"
+}

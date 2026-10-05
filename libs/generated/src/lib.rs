@@ -4,6 +4,133 @@
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
+/// The standard reply error (`docs/midl.md`, "Errors"): one `Error` field at
+/// [`errors::ERROR_FIELD`] answers a failed call instead of the declared reply.
+#[rustfmt::skip]
+pub mod errors {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+    use libmessenger::{Decoder, Encoder, Error, Field, Kind};
+
+    /// The reply field id of the standard error, the same in every reply of
+    /// every interface (`midlc` refuses it as a declared reply field id).
+    pub const ERROR_FIELD: u16 = 15;
+    const DOMAIN: u16 = 1;
+    const HINT: u16 = 2;
+    const DOCS: u16 = 3;
+
+    /// A decoded standard error. `domain` is empty for the service's own
+    /// errno-style codes.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct ReplyError {
+        pub domain: String,
+        pub code: u32,
+        pub message: String,
+        pub hint: Option<String>,
+        pub docs: Option<String>,
+    }
+
+    impl ReplyError {
+        /// An error with a code and a message and nothing else.
+        pub fn new(code: u32, message: &str) -> Self {
+            ReplyError { code, message: message.into(), ..ReplyError::default() }
+        }
+
+        /// The same error in `domain`.
+        pub fn with_domain(mut self, domain: &str) -> Self {
+            self.domain = domain.into();
+            self
+        }
+
+        /// The same error with a hint on how to fix it.
+        pub fn with_hint(mut self, hint: &str) -> Self {
+            self.hint = Some(hint.into());
+            self
+        }
+
+        /// The same error with a documentation id.
+        pub fn with_docs(mut self, docs: &str) -> Self {
+            self.docs = Some(docs.into());
+            self
+        }
+    }
+
+    /// Whether `field` is the standard error.
+    pub fn is_error(field: &Field<'_>) -> bool {
+        field.kind == Kind::Error && field.id == ERROR_FIELD
+    }
+
+    /// Append `error` to `target` as the standard error field. Without a
+    /// domain, hint or docs it is exactly a code and a message.
+    pub fn write(target: &mut Encoder, error: &ReplyError) -> Result<(), Error> {
+        if error.domain.is_empty() && error.hint.is_none() && error.docs.is_none() {
+            return target.error(ERROR_FIELD, error.code, &error.message);
+        }
+        let mut detail = Encoder::new();
+        if !error.domain.is_empty() {
+            detail.string(DOMAIN, &error.domain)?;
+        }
+        if let Some(hint) = &error.hint {
+            detail.string(HINT, hint)?;
+        }
+        if let Some(docs) = &error.docs {
+            detail.string(DOCS, docs)?;
+        }
+        target.error_detail(ERROR_FIELD, error.code, &error.message, &detail)
+    }
+
+    /// Append an errno-style `code` and `message` as the standard error.
+    pub fn write_code(target: &mut Encoder, code: u32, message: &str) -> Result<(), Error> {
+        target.error(ERROR_FIELD, code, message)
+    }
+
+    /// A reply body holding only `error`.
+    pub fn encode(error: &ReplyError) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        write(&mut target, error)?;
+        Ok(target.finish())
+    }
+
+    /// Decode one standard error field (see [`is_error`]).
+    pub fn decode(field: &Field<'_>) -> Result<ReplyError, Error> {
+        let (code, message) = field.error_parts()?;
+        let mut error = ReplyError::new(code, message);
+        if let Some(mut detail) = field.error_detail() {
+            while let Some(item) = detail.next()? {
+                match item.id {
+                    DOMAIN => error.domain = item.as_str()?.into(),
+                    HINT => error.hint = Some(item.as_str()?.into()),
+                    DOCS => error.docs = Some(item.as_str()?.into()),
+                    _ => {}
+                }
+            }
+        }
+        Ok(error)
+    }
+
+    /// The standard error of a reply `body`, or `None` for a success.
+    pub fn find(body: &[u8]) -> Result<Option<ReplyError>, Error> {
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if is_error(&field) {
+                return decode(&field).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
+    /// The code and message of a reply `body`'s standard error, borrowed.
+    pub fn find_code(body: &[u8]) -> Result<Option<(u32, &str)>, Error> {
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if is_error(&field) {
+                return field.error_parts().map(Some);
+            }
+        }
+        Ok(None)
+    }
+}
+
 /// Shared runtime for the topic helpers generated from `topic` declarations
 /// (issue #307, `docs/midl.md`).
 // Generated code is not hand-formatted; skip rustfmt so the generator's output
@@ -273,6 +400,9 @@ pub mod os_lazy_accounts_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2cbf60abbc1951bc;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.accounts.v1";
 
     /// One account record as a lookup returns it (never the secret).
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -623,6 +753,9 @@ pub mod os_lazy_audio_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x536f1f4639cf07f0;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.audio.v1";
 
     /// `EventKind::Underrun` wire value.
     pub const EVENT_KIND_UNDERRUN: u32 = 0;
@@ -1378,6 +1511,9 @@ pub mod os_lazy_audio_mixer_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x39a0c9a99b23a265;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.audio.mixer.v1";
 
     /// `StreamState::Idle` wire value.
     pub const STREAM_STATE_IDLE: u32 = 0;
@@ -1672,6 +1808,9 @@ pub mod os_lazy_clipboard_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5a8da8f22670b758;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.clipboard.v1";
 
     /// One inline `{MIME, bytes}` payload of an eager offer.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -2315,6 +2454,9 @@ pub mod os_lazy_confd_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xdf3c79dfb9f8f2e0;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.confd.v1";
 
     /// One typed value. `kind` selects which optional payload field is set:
     /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
@@ -2764,6 +2906,9 @@ pub mod os_lazy_display_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5ef41f254d43c2b4;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.display.v1";
 
     /// `Role::Window` wire value.
     pub const ROLE_WINDOW: u32 = 0;
@@ -4643,6 +4788,9 @@ pub mod os_lazy_echo_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xcc4ac1057e84db93;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.echo.v1";
 
     /// `Level::Info` wire value.
     pub const LEVEL_INFO: u32 = 0;
@@ -4815,6 +4963,9 @@ pub mod os_lazy_healthd_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd022082ef0aaed78;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.healthd.v1";
 
     /// One retained health row.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -5102,6 +5253,9 @@ pub mod os_lazy_init_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xa549dce4687b08e;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.init.v1";
 
     /// `PowerMode::PowerOff` wire value.
     pub const POWER_MODE_POWER_OFF: u32 = 0;
@@ -5774,6 +5928,9 @@ pub mod os_lazy_input_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5026bd54a60f1ff6;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.input.v1";
 
     /// `KeyState::Down` wire value.
     pub const KEY_STATE_DOWN: u32 = 0;
@@ -6110,6 +6267,9 @@ pub mod os_lazy_input_shell_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc258ed5b9b5debfe;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.input.shell.v1";
 
     /// `Attach` method id.
     pub const METHOD_ATTACH: u32 = 1;
@@ -6730,6 +6890,9 @@ pub mod os_lazy_keyd_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd948c3355ba590bf;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.keyd.v1";
 
     /// One row of the key list: identity and counters only, never material.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -7188,6 +7351,9 @@ pub mod os_lazy_lifecycle_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x778a92e489f41682;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.lifecycle.v1";
 
     /// `Shutdown` method id.
     pub const METHOD_SHUTDOWN: u32 = 1911669355;
@@ -7242,6 +7408,9 @@ pub mod os_lazy_logd_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x9c5197a46ce8a872;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.logd.v1";
 
     /// One hash-chained log record.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -7544,6 +7713,9 @@ pub mod os_lazy_logind_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x98121a421f33722d;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.logind.v1";
 
     /// One login session.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -8042,6 +8214,9 @@ pub mod os_lazy_mimed_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x69d01278f9971fe6;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.mimed.v1";
 
     /// One fire-and-forget launch record: the payload of the
     /// `system/events/open/<app>` topic. The app id is the topic's `<app>`
@@ -8493,6 +8668,9 @@ pub mod os_lazy_net_nic_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x6748c83c2024715b;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.net.nic.v1";
 
     /// `NotifyBit::RxReady` wire value.
     pub const NOTIFY_BIT_RX_READY: u32 = 0;
@@ -9049,6 +9227,9 @@ pub mod os_lazy_net_stack_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xb80ce5d5fc59627d;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.net.stack.v1";
 
     /// `ConfigMode::Dhcp` wire value.
     pub const CONFIG_MODE_DHCP: u32 = 0;
@@ -9780,6 +9961,9 @@ pub mod os_lazy_net_socket_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cbc5b5a07e2bb16;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.net.socket.v1";
 
     /// `SockKind::Stream` wire value.
     pub const SOCK_KIND_STREAM: u32 = 0;
@@ -10673,6 +10857,9 @@ pub mod os_lazy_pkgd_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2e65545739956542;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.pkgd.v1";
 
     /// `Origin::User` wire value.
     pub const ORIGIN_USER: u32 = 0;
@@ -11541,6 +11728,9 @@ pub mod os_lazy_messenger_policy_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xe625b4ee97525d37;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.policy.v1";
 
     /// One rule. `interface_id` and `method` accept the wildcards
     /// `0xFFFFFFFFFFFFFFFF` and `0xFFFFFFFF`; `allow` of `false` is an
@@ -11651,6 +11841,9 @@ pub mod os_lazy_messenger_names_resolve_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x51c42ba74885199f;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.names.resolve.v1";
 
     /// `Resolve` method id.
     pub const METHOD_RESOLVE: u32 = 1645633795;
@@ -11705,6 +11898,9 @@ pub mod os_lazy_process_label_spawn_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x2b9f30ad1cbea35e;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.process.label.spawn.v1";
 
     /// `Assign` method id.
     pub const METHOD_ASSIGN: u32 = 938075628;
@@ -12136,6 +12332,9 @@ pub mod os_lazy_messenger_registry_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x51d501afec09806c;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.registry.v1";
 
     /// One registered name.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12202,12 +12401,20 @@ pub mod os_lazy_messenger_registry_v1 {
     /// Publish `endpoint` (a handle in the owner's table) under `name`. The
     /// owner becomes the registering task. A `lease_ticks` of `0` registers a
     /// permanent name; otherwise the name expires after that many ticks.
+    /// `interface_names` spells out `interfaces`, in order (issue #495): an
+    /// id is the FNV-1a 64 hash of its name, so the kernel cannot tell from
+    /// an id alone which domain an interface belongs to. When present it must
+    /// match `interfaces` one for one, hash for hash. A task labelled
+    /// `app:<id>` (or `dev:<id>`) must send it, and every name must lie in its
+    /// own domain, `<id>.<name>.v<N>`; anything else is refused (`EACCES`,
+    /// audited). Other callers may leave it empty.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterArgs {
         pub name: alloc::string::String,
         pub endpoint: core::option::Option<u64>,
         pub interfaces: alloc::vec::Vec<u64>,
         pub lease_ticks: u64,
+        pub interface_names: alloc::vec::Vec<alloc::string::String>,
     }
 
     pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
@@ -12229,6 +12436,11 @@ pub mod os_lazy_messenger_registry_v1 {
         }
         target.array(3, &nested)?;
         target.u64(4, value.lease_ticks)?;
+        let mut nested = Encoder::new();
+        for item in &value.interface_names {
+            nested.string(1, item)?;
+        }
+        target.array(5, &nested)?;
         Ok(target.finish())
     }
 
@@ -12257,6 +12469,12 @@ pub mod os_lazy_messenger_registry_v1 {
                 }
                 4 => {
                     out.lease_ticks = field.as_u64()?;
+                }
+                5 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.interface_names.push(item.as_str()?.into());
+                    }
                 }
                 _ => {}
             }
@@ -12390,6 +12608,9 @@ pub mod os_lazy_shell_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x591939ff6e05f1c8;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.shell.v1";
 
     /// One taskbar entry.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12712,6 +12933,9 @@ pub mod os_lazy_sysmond_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x5cd4605eb47c3d8f;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.sysmond.v1";
 
     /// The memory counters of one snapshot: the payload of the retained
     /// `system/stats/memory` topic.
@@ -13020,6 +13244,9 @@ pub mod os_lazy_timed_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc3982ac21906d77;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.timed.v1";
 
     /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
     /// seconds, `offset` the local offset in seconds with DST included, and
@@ -13254,6 +13481,9 @@ pub mod os_lazy_messenger_topics_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xc5734f978fef7231;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.topics.v1";
 
     /// `Qos::Latest` wire value.
     pub const QOS_LATEST: u32 = 0;
@@ -13785,6 +14015,9 @@ pub mod os_lazy_messenger_topics_bell_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xd4c79d9b36918ea0;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.topics.bell.v1";
 
     /// `Ready` method id.
     pub const METHOD_READY: u32 = 197800596;
@@ -13839,6 +14072,9 @@ pub mod os_lazy_messenger_topics_publish_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x7ffc19b03e941e16;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.topics.publish.v1";
 
     /// `Mode::Publish` wire value.
     pub const MODE_PUBLISH: u32 = 0;
@@ -13913,6 +14149,9 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xefbc15f14c9d4bef;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.messenger.topics.subscribe.v1";
 
     /// `Mode::Publish` wire value.
     pub const MODE_PUBLISH: u32 = 0;

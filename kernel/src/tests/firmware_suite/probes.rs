@@ -16,6 +16,12 @@ struct FakeAta<F: FnMut(u32) -> u8> {
     identify_issued: bool,
     words: [u16; 256],
     next_word: usize,
+    /// Nanoseconds the fake clock advances per `now_ns` call; 0 means the
+    /// channel has no clock.
+    clock_step: u64,
+    clock: u64,
+    /// Times a wait offered the kernel an interrupt window (`pace`).
+    paces: u32,
 }
 
 impl<F: FnMut(u32) -> u8> FakeAta<F> {
@@ -26,7 +32,16 @@ impl<F: FnMut(u32) -> u8> FakeAta<F> {
             identify_issued: false,
             words: [0; 256],
             next_word: 0,
+            clock_step: 0,
+            clock: 0,
+            paces: 0,
         }
+    }
+
+    /// Give the channel a clock that ticks `step_ns` on every reading.
+    fn with_clock(mut self, step_ns: u64) -> Self {
+        self.clock_step = step_ns;
+        self
     }
 }
 
@@ -44,6 +59,16 @@ impl<F: FnMut(u32) -> u8> Channel for FakeAta<F> {
         let word = self.words[self.next_word % 256];
         self.next_word += 1;
         word
+    }
+    fn pace(&mut self) {
+        self.paces += 1;
+    }
+    fn now_ns(&mut self) -> Option<u64> {
+        if self.clock_step == 0 {
+            return None;
+        }
+        self.clock += self.clock_step;
+        Some(self.clock)
     }
 }
 
@@ -131,6 +156,64 @@ pub fn ata_waits_are_bounded() -> Result<(), String> {
         ata::identify_on(&mut good) == Some(0x2_1000),
         "good drive misread"
     );
+    Ok(())
+}
+
+/// With a clock the wait ends by time, not by read count: a drive stuck busy
+/// is given up on after `POLL_TIMEOUT_NS` whether reads are fast (a million
+/// of them fit) or slow (a VM exit each, issue #449: a few thousand).
+pub fn ata_waits_end_by_deadline() -> Result<(), String> {
+    for step in [10_000u64, 1_000_000] {
+        let mut stuck = FakeAta::new(|read| if read <= 2 { 0x50 } else { 0x80 }).with_clock(step);
+        check!(
+            ata::identify_on(&mut stuck).is_none(),
+            "step {step}: a stuck drive identified"
+        );
+        // One clock reading at the start of the wait, then one per status
+        // read in `expired`: the clock advances `step` per read, so the wait
+        // ends after exactly `POLL_TIMEOUT_NS / step` busy reads, plus the
+        // two absence-check reads `identify_on` makes first.
+        let expected = ata::POLL_TIMEOUT_NS / step;
+        let reads = u64::from(stuck.reads);
+        check!(
+            reads >= expected && reads <= expected + 4,
+            "step {step}: {reads} reads, expected about {expected}"
+        );
+    }
+    // A drive that answers inside the deadline is not cut short.
+    let mut slow = FakeAta::new(|read| if read < 500 { 0x80 } else { 0x58 }).with_clock(1_000_000);
+    check!(
+        ata::wait_for_data_on(&mut slow),
+        "a drive ready after 500 reads was abandoned"
+    );
+    Ok(())
+}
+
+/// Every busy status read of a wait offers the kernel an interrupt window
+/// (`Channel::pace`, `irq_window::poll_point` on the real ports), so a drive
+/// stuck busy for the whole deadline no longer keeps interrupts off for a
+/// second (issue #449: the timer and the compositor starved).
+pub fn ata_waits_pace_every_read() -> Result<(), String> {
+    let mut stuck = FakeAta::new(|_| 0x80).with_clock(1_000_000);
+    check!(!ata::wait_not_busy_on(&mut stuck), "a stuck drive settled");
+    check!(
+        stuck.paces + 1 >= stuck.reads && stuck.paces <= stuck.reads,
+        "{} paces for {} busy reads",
+        stuck.paces,
+        stuck.reads
+    );
+    let mut no_drq = FakeAta::new(|_| 0x50).with_clock(1_000_000);
+    check!(!ata::wait_for_data_on(&mut no_drq), "DRQ appeared");
+    check!(
+        no_drq.paces + 1 >= no_drq.reads,
+        "{} paces for {} reads waiting for DRQ",
+        no_drq.paces,
+        no_drq.reads
+    );
+    // A drive that is ready at once costs no window at all.
+    let mut ready = FakeAta::new(|_| 0x58);
+    check!(ata::wait_for_data_on(&mut ready), "a ready drive failed");
+    check!(ready.paces == 0, "{} paces on a ready drive", ready.paces);
     Ok(())
 }
 

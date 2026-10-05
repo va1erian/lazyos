@@ -1,0 +1,8 @@
+[package]
+name = "membook"
+version = "0.1.0"
+edition = "2021"
+description = "The kernel memory allocators' bookkeeping: slab size classes and free lists, frame refcounts"
+license = "GPL-3.0-or-later"
+
+[dependencies]

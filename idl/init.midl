@@ -7,20 +7,20 @@
 /// reply, so the error field is hand-written next to these stubs.
 interface os.lazy.init.v1 {
     /// Snapshot the supervision table.
-    method Services() -> (services: Array<ServiceStatus>);
+    method Services() -> (services: Array<ServiceStatus> = 1);
 
     /// Launch an app as a session child. `session` 0 means the caller's own
     /// session; only the session's owner (or root) may launch into it. `args`
     /// is empty or one absolute path (at most 1024 bytes, no control
     /// character or `"`), appended to the app's fixed arguments as a single
     /// `argv` item; any other value is refused with `EINVAL`.
-    method Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64);
+    method Launch(app: String = 1, args: String = 2, session: U64 = 3) -> (app: String = 1, pid: U64 = 2, session: U64 = 3);
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
     /// package manager installed (`AppInfo.installed`; the core packages
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
-    method ListApps() -> (apps: Array<AppInfo>);
+    method ListApps() -> (apps: Array<AppInfo> = 1);
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
     /// takes it): each is killed and its supervision row retired without a
@@ -28,7 +28,7 @@ interface os.lazy.init.v1 {
     /// `CAP_SETUID` (the package manager) or the session owner may stop; an
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
-    method Stop(app: String) -> (stopped: U64);
+    method Stop(app: String = 1) -> (stopped: U64 = 1);
 
     /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
     /// value. The reply is immediate; `init` then stops the session apps, the
@@ -39,7 +39,7 @@ interface os.lazy.init.v1 {
     /// while a shutdown is already running is not an error: `accepted` is true
     /// and `phase` is the current phase. `force` skips the graceful stop: every
     /// remaining child is killed at once and the machine stops.
-    method Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String);
+    method Shutdown(mode: U32 = 1, reason: String = 2, force: Bool = 3) -> (accepted: Bool = 1, phase: String = 2);
 
     /// A supervised service tells `init` it is serving (docs/performance-plan.md
     /// P7.3): its name is registered and requests are answered. Rows that
@@ -55,13 +55,13 @@ interface os.lazy.init.v1 {
     struct PowerState {
         /// Phase name: `stopping` (requested), `apps`, `services`,
         /// `quiesced`, then `power` just before the kernel call.
-        phase: String,
+        phase: String = 1,
         /// A `PowerMode` value.
-        mode: U32,
+        mode: U32 = 2,
         /// The requester's reason text.
-        reason: String,
+        reason: String = 3,
         /// Absolute tick (100 Hz) by which `init` forces the stop.
-        deadline: U64
+        deadline: U64 = 4
     }
 
     /// The retained shutdown progress topic: absent until a shutdown starts,
@@ -72,53 +72,53 @@ interface os.lazy.init.v1 {
     /// One row of `init`'s supervision table.
     struct ServiceStatus {
         /// Service name.
-        name: String,
+        name: String = 1,
         /// Service phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
-        state: String,
+        state: String = 2,
         /// Task slot the supervisor started, or 0.
-        pid: U64,
+        pid: U64 = 3,
         /// Restart count.
-        restarts: U64,
+        restarts: U64 = 4,
         /// Comma-separated dependency names.
-        deps: String,
+        deps: String = 5,
         /// Last known health string for the service.
-        health: String
+        health: String = 6
     }
 
     /// One row of `init`'s built-in app registry (issue #158): the S5 start
     /// menu's enumeration unit and the resolution table `Launch` uses.
     struct AppInfo {
         /// App id: the lowercase program stem (`top` -> `/system/bin/top`).
-        id: String,
+        id: String = 1,
         /// Display name for menus.
-        name: String,
+        name: String = 2,
         /// On-disk ELF path.
-        path: String,
+        path: String = 3,
         /// Default restart policy (`always`/`on-failure`/`once`).
-        restart: String,
+        restart: String = 4,
         /// MIME verbs the app handles, in registration order.
-        verbs: Array<String>,
+        verbs: Array<String> = 5,
         /// Whether the package manager installed the app (`id` is then its
         /// `system_name`) rather than the image shipping it.
-        installed: Bool,
+        installed: Bool = 6,
         /// `core` (a package the image ships, not removable), `user` (a
         /// package someone installed) or `system` (a built-in program such as
         /// the desktop shell or the installer).
-        origin: String,
+        origin: String = 7,
         /// The menu group (`lazypkg::Category`): the package's, `system` (or
         /// `development` for LazyRAD) for a built-in desktop program, empty for
         /// a console one, which the start menu leaves out.
-        category: String,
+        category: String = 8,
         /// Whether the start menu leaves the app out for the caller: their
         /// `user/<uid>/menu/hidden/<id>`, else the machine's
         /// `sys/menu/hidden/<id>`. A hidden app still launches and opens files.
-        hidden: Bool,
+        hidden: Bool = 9,
         /// Whether the app opens when a session starts.
-        autostart: Bool,
+        autostart: Bool = 10,
         /// An installed app's 32-pixel icon, `icons/app-32.png` in its
         /// install directory (every package ships one); empty for a
         /// built-in, which the shell draws from its own icon set.
-        icon: String
+        icon: String = 11
     }
 
     /// One service lifecycle event (issue #307): the payload of
@@ -127,17 +127,17 @@ interface os.lazy.init.v1 {
     /// topic, for display by a consumer that only logs the event.
     struct ServiceEvent {
         /// Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
-        state: String,
+        state: String = 1,
         /// Task slot of the running child, or 0.
-        pid: U64,
+        pid: U64 = 2,
         /// Restart count.
-        restarts: U64,
+        restarts: U64 = 3,
         /// Exit status of the last run (0 while running).
-        status: U64,
+        status: U64 = 4,
         /// The service's retained health topic (`system/health/<name>`).
-        health: String,
+        health: String = 5,
         /// Human-readable detail, empty when there is none.
-        detail: String
+        detail: String = 6
     }
 
     /// The retained service lifecycle topic (issue #307): `init` publishes one

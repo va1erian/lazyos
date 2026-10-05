@@ -8,6 +8,7 @@ surface used by every address space.
 | Path | Role |
 |---|---|
 | `kernel/src/mem/frames.rs` | `Frames` allocator and frame refcounts |
+| `libs/membook/src/frames.rs` | The refcount rules (`shared`/`dropped`), the free chain and the counters (`Ledger`), over a `FrameMemory` trait the kernel implements on the physical-memory mapping (`PhysTable`); host-tested with a model soak and under Miri (issue #485) |
 | `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool, stats and test ordering log |
 | `kernel/src/mem/uspace.rs` | User tables, COW, teardown, `demand_fault`/`cow_fault` |
 | `kernel/src/mem/mod.rs` | Kernel tables, `init`, `map_kernel_range`, re-exports |

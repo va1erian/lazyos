@@ -90,52 +90,9 @@
   "shot": "01_installed"
  },
  {
-  "mouse_move": [
-   -300,
-   -300
-  ]
- },
- {
-  "wait": 0.2
- },
- {
-  "mouse_move": [
-   -300,
-   -300
-  ]
- },
- {
-  "wait": 0.2
- },
- {
-  "mouse_move": [
-   -300,
-   -300
-  ]
- },
- {
-  "wait": 0.2
- },
- {
-  "mouse_move": [
-   -300,
-   -300
-  ]
- },
- {
-  "wait": 0.2
- },
- {
-  "mouse_move": [
-   44,
-   702
-  ]
- },
- {
-  "wait": 0.4
- },
- {
-  "mouse_click": "left",
+  "click_at": {
+   "target": "taskbar:start"
+  },
   "until": "SHELL:MENU:OPEN",
   "timeout": 30,
   "retries": 2
@@ -147,30 +104,23 @@
   "shot": "02_menu"
  },
  {
-  "mouse_move": [23, -198], "note": "start menu: the Accessories row (67,504)"
- },
- {
-  "wait_for": "SHELL:SUBMENU:OPEN category=accessories",
-  "timeout": 30
- },
- {
-  "mouse_move": [233, 96], "note": "Accessories submenu: ModPlayer (300,600), after Archiver, Calculator, Counter, Editor"
- },
- {
-  "wait": 0.4
- },
- {
-  "wait": 0.4
- },
- {
-  "mouse_click": "left",
-  "until": "LRPLAY:UP:PASS",
-  "timeout": 120,
+  "move_to": {
+   "menu": "Accessories"
+  },
+  "until": "SHELL:SUBMENU:OPEN category=accessories",
+  "timeout": 30,
   "retries": 1
  },
  {
-  "mouse_move": [-233, -386],
-  "note": "back to where the click used to leave the pointer"
+  "wait": 0.4
+ },
+ {
+  "click_at": {
+   "menu": "ModPlayer"
+  },
+  "until": "LRPLAY:UP:PASS",
+  "timeout": 120,
+  "retries": 1
  },
  {
   "wait_for": "PKGD:LAUNCH:LABEL app:org.lazy.modplayer",
@@ -183,16 +133,10 @@
   "shot": "03_launched"
  },
  {
-  "mouse_move": [
-   141,
-   74
-  ]
- },
- {
-  "wait": 0.4
- },
- {
-  "mouse_click": "left",
+  "click_at": {
+   "window": "MOD Player",
+   "widget": "play_button"
+  },
   "until": "LRPLAY:MODPLAY:PASS",
   "timeout": 30,
   "retries": 2

@@ -245,6 +245,15 @@ impl<T: Transport> PlaybackStream<T> {
         let left = self.written.saturating_sub(self.position()?);
         let nominal = left * TICK_HZ / u64::from(self.grant.rate).max(1);
         let deadline = self.client.transport().now() + nominal + self.stall_ticks;
+        self.drain_until(deadline)
+    }
+
+    /// Like [`drain`](Self::drain) with an absolute `deadline` (a transport
+    /// tick) of the caller's choosing; fails with `ETIMEDOUT` at it.
+    pub fn drain_until(&mut self, deadline: u64) -> Result<u64> {
+        if !self.started {
+            self.start()?;
+        }
         self.client.drain(self.grant.stream, Some(deadline))?;
         self.position()
     }

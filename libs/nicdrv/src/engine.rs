@@ -19,6 +19,7 @@
 //! anything afterwards.
 
 use framering::{valid_slots, FrameBuf, PopError, Producer, PushError, Ring, MAX_FRAME};
+use messenger_generated::os_lazy_net_nic_v1 as nic;
 use virtio_net::frame::{classify, rx_frame, FrameClass, RxError};
 use virtio_net::queue as qi;
 
@@ -179,8 +180,9 @@ impl Engine {
         true
     }
 
-    /// Attach `owner`'s rings: `len` bytes at `base` holding the receive ring
-    /// then the transmit ring, each `ring_bytes(slots)` long. Returns the ring
+    /// Attach `owner`'s rings: `len` bytes at `base` holding the receive and
+    /// transmit rings as `AttachRing` declares them (`attach_ring_rings`), each
+    /// `ring_bytes(slots)` long. Returns the ring
     /// id. The rings must have been created by the client (`Ring::create`); a
     /// header that is wrong, or rings that are not exactly the size `slots`
     /// implies, are refused.
@@ -200,15 +202,23 @@ impl Engine {
         if self.session.is_some() {
             return Err(AttachError::Busy);
         }
-        let one = framering::ring_bytes(slots);
-        if !valid_slots(slots) || len != one * 2 {
+        if !valid_slots(slots) {
             return Err(AttachError::Invalid);
         }
-        // SAFETY: both halves lie inside the `len` bytes the caller vouches for.
+        let one = framering::ring_bytes(slots);
+        // The layout comes from `AttachRing`'s `Ring<Rx, Tx>` declaration in
+        // `idl/net.midl`, the same function the client lays its buffer out with.
+        let layout = nic::attach_ring_rings(one as u64).ok_or(AttachError::Invalid)?;
+        if len as u64 != layout.total {
+            return Err(AttachError::Invalid);
+        }
+        let (rx_at, tx_at) = (layout.rx as usize, layout.tx as usize);
+        // SAFETY: the layout's offsets and `one`-byte rings lie inside
+        // `layout.total == len` bytes, which the caller vouches for.
         let (rx, tx) = unsafe {
             (
-                Ring::attach(base, one, slots),
-                Ring::attach(base.add(one), one, slots),
+                Ring::attach(base.add(rx_at), one, slots),
+                Ring::attach(base.add(tx_at), one, slots),
             )
         };
         let (Ok(rx), Ok(tx)) = (rx, tx) else {

@@ -73,7 +73,7 @@ unsafe impl GlobalAlloc for IrqSafeHeap {
         if let Some(class) = small_class(layout) {
             return guarded(|| loop {
                 if let Some(slot) = small_alloc(class) {
-                    return slot as *mut u8;
+                    return slot.as_ptr();
                 }
                 if !grow(SLAB_PAGE) {
                     return core::ptr::null_mut();
@@ -93,7 +93,11 @@ unsafe impl GlobalAlloc for IrqSafeHeap {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // Every layout a class fits was served by that class.
         if let Some(class) = small_class(layout) {
-            guarded(|| small_free(class, ptr as usize));
+            if let Some(slot) = core::ptr::NonNull::new(ptr) {
+                // SAFETY: the caller's contract: `ptr` came from `alloc` with
+                // this layout, so from this class, and is not used again.
+                guarded(|| unsafe { small_free(class, slot) });
+            }
             return;
         }
         if let Some(ptr) = core::ptr::NonNull::new(ptr) {
@@ -135,15 +139,16 @@ fn small_pages_bytes(classes: &[Class; SMALL_CLASSES]) -> usize {
 
 /// Pop a slot of `class`, carving a page from the list when the class is
 /// empty; `None` when the list has no page left (the caller grows it).
-fn small_alloc(class: usize) -> Option<usize> {
+fn small_alloc(class: usize) -> Option<core::ptr::NonNull<u8>> {
     let mut classes = SMALL.lock();
-    if classes[class].pop_free().is_none() {
+    if !classes[class].has_free() {
         let page = ALLOCATOR.0.lock().allocate_first_fit(SLAB_PAGE).ok()?;
-        classes[class].carve(page.as_ptr() as usize, class);
+        // SAFETY: a fresh list allocation of one page, page aligned
+        // (`SLAB_PAGE`), handed to this class for good: slab pages are never
+        // given back to the list.
+        unsafe { classes[class].carve(page, class) };
     }
-    let slot = classes[class].pop()?;
-    classes[class].live += 1;
-    Some(slot)
+    classes[class].alloc()
 }
 
 /// Test hook: slots handed out per small class.
@@ -154,10 +159,14 @@ pub fn small_live() -> [usize; SMALL_CLASSES] {
 }
 
 /// Push a slot back onto `class`.
-fn small_free(class: usize, slot: usize) {
+///
+/// # Safety
+/// `slot` came from [`small_alloc`] for `class` and is not used again.
+unsafe fn small_free(class: usize, slot: core::ptr::NonNull<u8>) {
     let mut classes = SMALL.lock();
-    classes[class].live = classes[class].live.saturating_sub(1);
-    classes[class].push(slot);
+    // SAFETY: the caller's contract is `Class::free`'s.
+    let freed = unsafe { classes[class].free(slot) };
+    debug_assert!(freed.is_ok(), "heap: slab double free in class {class}");
 }
 
 /// `(page bytes, bytes handed out)` of the heap's slabs.

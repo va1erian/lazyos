@@ -273,12 +273,14 @@ fn dynamic_encoding_decodes_with_the_compiled_codec() {
         Dynamic::from_int(7),
         Dynamic::from_array(vec![Dynamic::from_int(big as i64), Dynamic::from_int(1)]),
         Dynamic::from_int(0),
+        Dynamic::from_array(vec![Dynamic::from("com.x.chat.v1".to_string())]),
     ];
     let body = codec::encode_positional(iface, method.params, &args).unwrap();
     let decoded = registry::decode_register_args(&body).unwrap();
     assert_eq!(decoded.name, "svc");
     assert_eq!(decoded.endpoint, Some(7));
     assert_eq!(decoded.interfaces, vec![big, 1]);
+    assert_eq!(decoded.interface_names, vec!["com.x.chat.v1"]);
 }
 
 #[test]

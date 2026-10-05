@@ -1,0 +1,3 @@
+{
+  "error": "line 3: struct P fields 'x' and 'y' both have id 1"
+}

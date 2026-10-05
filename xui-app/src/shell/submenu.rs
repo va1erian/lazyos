@@ -58,6 +58,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, row: usize) {
     match ui.open_window(spec, move |ui| SubmenuApp::build(built, ui)) {
         Ok(handle) => {
             *ctx.submenu_window.borrow_mut() = Some(handle);
+            super::probe::submenu(ctx);
             println!("SHELL:SUBMENU:OPEN category={id} apps={apps}");
         }
         Err(error) => {

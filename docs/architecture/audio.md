@@ -95,7 +95,14 @@ copied out; the server consumes whole periods as they are committed, and a final
 short period during `Drain`. If the device runs dry it plays silence. `Drain` is
 terminal for a stream; `Stop` discards the uncommitted tail and restarts frame
 numbering at 0. `SetVolume(stream, gain_q16)` and `SetMute` scale the server's
-own copy of the samples (16.16 gain, at most four times unity, saturating).
+own copy of the samples (16.16 gain, at most four times unity, saturating;
+`EINVAL` above that, `ENOTSUP` for a gain other than unity on a format other
+than `S16Le`). Mute stages silence and keeps the gain, and the stream keeps
+consuming. The cost is one multiply and shift per staged sample, none at
+unity. In `sndd` the state and the staging step are `audiomix::volume`
+(`StreamVolume`), host-tested through the generated codec in
+`libs/audiomix/src/tests_volume.rs`; `audiod` applies the same `gain` math per
+stream and to the master.
 `libs/audioclient`'s `PlaybackStream` does all of this for a client:
 
 ```rust

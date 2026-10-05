@@ -1,0 +1,67 @@
+[
+  {
+    "name": "put_args",
+    "message": "Put.args",
+    "value": {"text": "héllo", "count": 3, "flags": 18446744073709551615}
+  },
+  {
+    "name": "put_reply",
+    "message": "Put.reply",
+    "value": {"ok": true}
+  },
+  {
+    "name": "scalars",
+    "message": "Scalars",
+    "value": {
+      "flag": false,
+      "small": -7,
+      "big": -9000000000,
+      "count": 4294967295,
+      "total": 1,
+      "ratio": 3.5,
+      "name": "",
+      "blob": "00ff10"
+    }
+  },
+  {
+    "name": "get_reply_some",
+    "message": "Get.reply",
+    "value": {
+      "value": {
+        "flag": true,
+        "small": 2147483647,
+        "big": 0,
+        "count": 0,
+        "total": 0,
+        "ratio": -0.25,
+        "name": "x",
+        "blob": ""
+      },
+      "level": "High"
+    }
+  },
+  {
+    "name": "get_reply_none",
+    "message": "Get.reply",
+    "value": {"value": null, "level": "Low"}
+  },
+  {
+    "name": "many_args",
+    "message": "Many.args",
+    "value": {
+      "items": [{"x": 1, "y": -1}, {"x": 0, "y": 0}],
+      "tags": ["a", "bc"],
+      "maybe": {"x": -2147483648, "y": 5}
+    }
+  },
+  {
+    "name": "many_args_empty",
+    "message": "Many.args",
+    "value": {"items": [], "tags": [], "maybe": null}
+  },
+  {
+    "name": "many_reply",
+    "message": "Many.reply",
+    "value": {"levels": ["Mid", "Low", "High"]}
+  }
+]

@@ -30,6 +30,7 @@ mod icons;
 mod link;
 mod menu;
 mod power;
+mod probe;
 mod service;
 mod services;
 mod submenu;

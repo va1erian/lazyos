@@ -98,8 +98,11 @@ pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 pub const OP_ACL_LOAD: u64 = 18;
 
 /// Park until one of several endpoints is ready (docs/performance-plan.md
-/// P1.3, P1.4): `parcel_ptr` points at `parcel_len` endpoint handles (`u64`,
-/// at most `channels::MAX_WAIT_ENDPOINTS`), `deadline` as for `recv`, and
+/// P1.3, P1.4): `parcel_ptr` points at `parcel_len` items (`u64`, at most
+/// `channels::MAX_WAIT_ENDPOINTS`), each an endpoint handle or, with
+/// `channels::WAIT_ITEM_CALL` set, the transaction id of a call the caller
+/// began and has not awaited (ready when it ended; issue #309), `deadline`
+/// as for `recv`, and
 /// `flags` may hold the doorbells `channels::WAIT_RAW_INPUT` (the caller's
 /// raw input ring, syscall 25) and `channels::WAIT_DISPLAY_KEYS` (a key in
 /// the display owner's input queue) and `channels::WAIT_INET` (the `AF_INET`

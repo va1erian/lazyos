@@ -18,7 +18,7 @@ file. `Offer` travels on `fnv1a64("os.lazy.clipboard.write.v1")`,
 an offer's owner, not the service) on the owner scope, and `Ping` and
 `Current` on this interface's own id. The scope names are ACL names, not
 wire fields, so they live as constants in `user/src/messenger/clipboard`.
-Failures reply with a structured error field (id 13) instead of the
+Failures reply with the standard error field (id 15, `docs/midl.md`) instead of the
 declared reply fields, which never use that id.
 
 ## Methods

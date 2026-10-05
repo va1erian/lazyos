@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): An explicit id equal to another field's position collides.
+interface os.lazy.conformance.bad.v1 {
+    struct P { x: I32, y: I32 = 1 }
+}

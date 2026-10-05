@@ -113,7 +113,7 @@ never reclaims the stream.
 
 | Layer | Run |
 |---|---|
-| Engine + wire layer (stream contract, mixing, resampler, gain, service errnos, ring adoption, seeded scripts) | `cargo test -p audiomix` (`FUZZ_CASES=3000` for a soak) |
+| Engine + wire layer (stream contract, mixing, resampler, gain, service errnos, ring adoption, seeded scripts; `sndd`'s `SetVolume`/`SetMute` path, `tests_volume.rs`, including a half gain measuring -6 dB) | `cargo test -p audiomix` (`FUZZ_CASES=3000` for a soak) |
 | Client library against the real engine (ring wrap, start/drain, volume, two streams, stalls, seeded write patterns) | `cargo test -p audioclient` |
 | Generated codecs | `cargo test -p messenger-generated --test audio` |
 | Mix detector must fail when it should | `python tools/sound/test_mixcheck.py` |

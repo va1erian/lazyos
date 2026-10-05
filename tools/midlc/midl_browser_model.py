@@ -16,7 +16,9 @@ import midlc  # noqa: E402
 import midlc_transfers  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SKIP_DIRS = {".git", ".claude", "target", "node_modules", "__pycache__", ".venv"}
+# `conformance` is the MIDL test corpus (`idl/conformance/`): sample and
+# deliberately invalid files, not interfaces anyone serves.
+SKIP_DIRS = {".git", ".claude", "target", "node_modules", "__pycache__", ".venv", "conformance"}
 
 
 @dataclass

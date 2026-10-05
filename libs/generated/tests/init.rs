@@ -138,7 +138,8 @@ fn error_field_is_ignored_by_decoders() {
     // A service failure carries only the structured error field (id 15);
     // a decoder must yield defaults rather than fail on it.
     let mut body = libmessenger::Encoder::new();
-    body.error(15, 22, "bad").unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, 22, "bad")
+        .unwrap();
     assert_eq!(
         decode_services_reply(&body.finish()).unwrap(),
         ServicesReply::default()

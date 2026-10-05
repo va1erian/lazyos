@@ -1,0 +1,323 @@
+{
+  "error_field": 15,
+  "interfaces": [
+    {
+      "name": "os.lazy.conformance.types.v1",
+      "id": "0x9507444b8cb05f7c",
+      "doc": "Every MIDL body type in one interface.",
+      "methods": [
+        {
+          "name": "Put",
+          "id": 1316564366,
+          "oneway": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "String",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "count",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "flags",
+              "type": "U64",
+              "id": 7,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "ok",
+              "type": "Bool",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "transfers": []
+        },
+        {
+          "name": "Get",
+          "id": 9,
+          "oneway": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "String",
+              "id": 1,
+              "explicit": false
+            }
+          ],
+          "returns": [
+            {
+              "name": "value",
+              "type": "Option<Scalars>",
+              "id": 1,
+              "explicit": false
+            },
+            {
+              "name": "level",
+              "type": "Level",
+              "id": 2,
+              "explicit": false
+            }
+          ],
+          "transfers": []
+        },
+        {
+          "name": "Ping",
+          "id": 2142761129,
+          "oneway": true,
+          "params": [],
+          "returns": [],
+          "transfers": []
+        },
+        {
+          "name": "Many",
+          "id": 1215871426,
+          "oneway": false,
+          "params": [
+            {
+              "name": "items",
+              "type": "Array<Point>",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "tags",
+              "type": "Array<String>",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "maybe",
+              "type": "Option<Point>",
+              "id": 3,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "levels",
+              "type": "Array<Level>",
+              "id": 16,
+              "explicit": true
+            }
+          ],
+          "transfers": []
+        }
+      ],
+      "structs": [
+        {
+          "name": "Scalars",
+          "fields": [
+            {
+              "name": "flag",
+              "type": "Bool",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "small",
+              "type": "I32",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "big",
+              "type": "I64",
+              "id": 3,
+              "explicit": true
+            },
+            {
+              "name": "count",
+              "type": "U32",
+              "id": 4,
+              "explicit": true
+            },
+            {
+              "name": "total",
+              "type": "U64",
+              "id": 5,
+              "explicit": true
+            },
+            {
+              "name": "ratio",
+              "type": "F64",
+              "id": 6,
+              "explicit": true
+            },
+            {
+              "name": "name",
+              "type": "String",
+              "id": 7,
+              "explicit": true
+            },
+            {
+              "name": "blob",
+              "type": "Bytes",
+              "id": 8,
+              "explicit": true
+            }
+          ]
+        },
+        {
+          "name": "Point",
+          "fields": [
+            {
+              "name": "x",
+              "type": "I32",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "y",
+              "type": "I32",
+              "id": 40000,
+              "explicit": true
+            }
+          ]
+        }
+      ],
+      "enums": [
+        {
+          "name": "Level",
+          "variants": [
+            {
+              "name": "Low",
+              "value": 0
+            },
+            {
+              "name": "Mid",
+              "value": 1
+            },
+            {
+              "name": "High",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "topics": [],
+      "rings": []
+    }
+  ],
+  "warnings": [
+    "line 9: Get (args) field 'key' has the implicit id 1; pin it with `= 1` (midlc --pin-field-ids)",
+    "line 9: Get (reply) field 'value' has the implicit id 1; pin it with `= 1` (midlc --pin-field-ids)",
+    "line 9: Get (reply) field 'level' has the implicit id 2; pin it with `= 2` (midlc --pin-field-ids)"
+  ],
+  "vectors": [
+    {
+      "name": "put_args",
+      "message": "Put.args",
+      "value": {
+        "text": "héllo",
+        "count": 3,
+        "flags": 18446744073709551615
+      },
+      "bytes": "070200000600000068c3a96c6c6f0401000004000000030000000507000008000000ffffffffffffffff"
+    },
+    {
+      "name": "put_reply",
+      "message": "Put.reply",
+      "value": {
+        "ok": true
+      },
+      "bytes": "010100000100000001"
+    },
+    {
+      "name": "scalars",
+      "message": "Scalars",
+      "value": {
+        "flag": false,
+        "small": -7,
+        "big": -9000000000,
+        "count": 4294967295,
+        "total": 1,
+        "ratio": 3.5,
+        "name": "",
+        "blob": "00ff10"
+      },
+      "bytes": "0101000001000000000202000004000000f9ffffff030300000800000000e68ee7fdffffff0404000004000000ffffffff0505000008000000010000000000000006060000080000000000000000000c400707000000000000080800000300000000ff10"
+    },
+    {
+      "name": "get_reply_some",
+      "message": "Get.reply",
+      "value": {
+        "value": {
+          "flag": true,
+          "small": 2147483647,
+          "big": 0,
+          "count": 0,
+          "total": 0,
+          "ratio": -0.25,
+          "name": "x",
+          "blob": ""
+        },
+        "level": "High"
+      },
+      "bytes": "0c0100006a0000000a010000620000000101000001000000010202000004000000ffffff7f03030000080000000000000000000000040400000400000000000000050500000800000000000000000000000606000008000000000000000000d0bf0707000001000000780808000000000000040200000400000002000000"
+    },
+    {
+      "name": "get_reply_none",
+      "message": "Get.reply",
+      "value": {
+        "value": null,
+        "level": "Low"
+      },
+      "bytes": "0c01000000000000040200000400000000000000"
+    },
+    {
+      "name": "many_args",
+      "message": "Many.args",
+      "value": {
+        "items": [
+          {
+            "x": 1,
+            "y": -1
+          },
+          {
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "tags": [
+          "a",
+          "bc"
+        ],
+        "maybe": {
+          "x": -2147483648,
+          "y": 5
+        }
+      },
+      "bytes": "09010000400000000a0100001800000002010000040000000100000002409c0004000000ffffffff0a0100001800000002010000040000000000000002409c0004000000000000000902000013000000070100000100000061070100000200000062630c030000200000000a0100001800000002010000040000000000008002409c000400000005000000"
+    },
+    {
+      "name": "many_args_empty",
+      "message": "Many.args",
+      "value": {
+        "items": [],
+        "tags": [],
+        "maybe": null
+      },
+      "bytes": "090100000000000009020000000000000c03000000000000"
+    },
+    {
+      "name": "many_reply",
+      "message": "Many.reply",
+      "value": {
+        "levels": [
+          "Mid",
+          "Low",
+          "High"
+        ]
+      },
+      "bytes": "0910000024000000040100000400000001000000040100000400000000000000040100000400000002000000"
+    }
+  ]
+}

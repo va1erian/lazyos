@@ -122,7 +122,14 @@ impl Bus for MockBus {
         Ok(self.names.borrow().iter().map(|(n, _)| n.clone()).collect())
     }
 
-    fn register(&self, name: &str, interfaces: &[u64]) -> Result<u64, BusError> {
+    fn register(
+        &self,
+        name: &str,
+        interfaces: &[u64],
+        interface_names: &[&str],
+    ) -> Result<u64, BusError> {
+        // The kernel checks names against ids (issue #495); so does the mock.
+        assert_eq!(interfaces.len(), interface_names.len());
         if self.names.borrow().iter().any(|(n, _)| n == name) {
             return Err(BusError::errno(-17));
         }
@@ -249,7 +256,8 @@ fn parcel_error(_: libmessenger::Error) -> BusError {
 /// A structured service error reply, as `confd` sends it (field 15).
 pub fn error_reply(code: u32, message: &str) -> Vec<u8> {
     let mut body = libmessenger::Encoder::new();
-    body.error(15, code, message).unwrap();
+    body.error(messenger_generated::errors::ERROR_FIELD, code, message)
+        .unwrap();
     body.finish()
 }
 

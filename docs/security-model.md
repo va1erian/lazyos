@@ -198,6 +198,22 @@ unless the profile is privileged.
 - Names and topics are policy-controlled too: an app can `Resolve("os.lazy.fs")`
   only if its profile permits it, and can publish/subscribe only to granted topic
   segments (wildcards included).
+- **Namespaces**: `os.lazy.*` service names are the platform's. An app labelled
+  `app:<id>` registers only `app.<id>.<name>` (one dot-free segment) and owns the
+  topics at or under `app/<id>/`; a `dev:<id>` label (an app run from the IDE
+  before it is installed) owns the same names and topics. Anything else is
+  refused and audited with a reason (`RESERVED_NAMESPACE`, `OUTSIDE_NAMESPACE`).
+  The interfaces a service advertises are held to the app's own domain too,
+  `<id>.<name>.v<N>`: the registration spells each interface id out by name and
+  the kernel refuses a name outside the domain (`FOREIGN_INTERFACE`) or one
+  that is missing or does not hash to its id (`UNNAMED_INTERFACE`), so an app
+  cannot pose as an implementation of a platform or another app's interface.
+  Details: `docs/architecture/ipc-security.md`.
+- **Label assignment**: `init` stamps a label when it spawns a task: `pkgd`
+  asks for `app:<system_name>` after it has loaded the package's rules. Before a
+  package is installed (development mode) an IDE with `develop = true` spawns
+  the project under `dev:<system_name>`, whose rules `pkgd` loads only after
+  the user approves them (`docs/packages.md`, "Development runs").
 - **Default deny**: a new app can do nothing until its manifest permissions are
   approved.
 

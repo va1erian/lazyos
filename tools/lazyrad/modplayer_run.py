@@ -72,6 +72,8 @@ def image_env() -> dict[str, str]:
         "LAZYOS_LAZYRAD": "1",
         "LAZYOS_MODPLAYER": "1",
         "LAZYOS_SOUND": "1",
+        # The sessions click the player's controls and the start menu by name.
+        "LAZYOS_UI_PROBE": "1",
         "LAZYRAD_SAMPLES": os.pathsep.join(SAMPLES),
     })
     return env

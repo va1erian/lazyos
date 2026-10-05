@@ -28,6 +28,11 @@
 //! poison word would cost payload from every object, so precise detection is
 //! left to the typed wrappers that will layer on this raw API.
 //!
+//! The bookkeeping itself (size classes, the intrusive free list, the class
+//! and owner ledgers) is `membook::slab`, a host crate tested on real pages
+//! and under Miri (issue #485); this module adds the frames, the lock and the
+//! oversized fallback.
+//!
 //! Accounting: [`stats`] reports live/peak bytes per class plus totals, and
 //! [`charge`]/[`uncharge`] apportion bytes to an *owner* (a task slot) for the
 //! per-process kernel-memory quotas in issue #61. Wiring handle/channel/VMA
@@ -41,15 +46,12 @@ use core::alloc::Layout;
 use core::ptr::NonNull;
 use spin::Mutex;
 
-/// Size classes in bytes, ascending. Slot sizes divide the 4 KiB frame, so a
-/// slab has no remainder.
-pub const CLASSES: [usize; 8] = [32, 64, 128, 256, 512, 1024, 2048, 4096];
-
-/// Number of size classes.
-pub const CLASS_COUNT: usize = CLASSES.len();
-
+pub(super) use membook::slab::Class;
+use membook::slab::Owner;
 /// Largest allocation served by a slab; bigger requests take the heap fallback.
-pub const MAX_SLAB_SIZE: usize = CLASSES[CLASS_COUNT - 1];
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // read by the suite
+pub use membook::slab::MAX_SLAB_SIZE;
+pub use membook::slab::{class_for_size, CLASSES, CLASS_COUNT};
 
 /// Owners tracked by [`charge`]/[`uncharge`], indexed by task slot. Slot 0 is
 /// the kernel task, so kernel objects are chargeable too.
@@ -59,26 +61,12 @@ pub const MAX_OWNERS: usize = crate::task::MAX_TASKS;
 /// class, which is also the guaranteed alignment of every slab slot.
 const HEAP_ALIGN: usize = CLASSES[0];
 
-/// Frame size. One frame backs exactly one slab in this simple design.
-const FRAME_SIZE: usize = 4096;
-
 /// Slot size of `class` in bytes.
 ///
 /// # Panics
 /// Panics when `class` is not a valid index into [`CLASSES`].
 pub fn class_size(class: usize) -> usize {
     CLASSES[class]
-}
-
-/// Index of the smallest class that fits `bytes`, or `None` when the request
-/// is larger than [`MAX_SLAB_SIZE`] (use [`alloc_bytes`] for that fallback).
-pub fn class_for_size(bytes: usize) -> Option<usize> {
-    CLASSES.iter().position(|&size| bytes <= size)
-}
-
-/// Slots carved out of one frame for `class`.
-fn slots_per_slab(class: usize) -> usize {
-    FRAME_SIZE / CLASSES[class]
 }
 
 /// Counters for one size class.
@@ -139,106 +127,19 @@ pub struct OwnerStats {
     pub uncharges: usize,
 }
 
-/// One size class: a free list plus counters.
-///
-/// The free list is intrusive: a free slot's first word holds the virtual
-/// address of the next free slot (`0` ends the list). That is why a slot is
-/// never smaller than a pointer; the smallest class is 32 B.
-///
-/// The kernel heap's small-object front (`heap`, P6.4) keeps its own set of
-/// these, apart from the typed-object slabs below, so neither perturbs the
-/// other's accounting.
-pub(super) struct Class {
-    /// Virtual address of the free-list head, `0` when the list is empty.
-    free: usize,
-    /// Slots handed out and not returned.
-    pub(super) live: usize,
-    /// High-water mark of [`Class::live`].
-    peak: usize,
-    /// Frames carved into this class.
-    pub(super) slabs: usize,
-    /// Cumulative allocations.
-    allocations: usize,
-    /// Cumulative frees.
-    frees: usize,
-}
-
-impl Class {
-    pub(super) const fn new() -> Self {
-        Class {
-            free: 0,
-            live: 0,
-            peak: 0,
-            slabs: 0,
-            allocations: 0,
-            frees: 0,
-        }
-    }
-
-    /// The free-list head without taking it, or `None` when the class has no
-    /// free slot.
-    pub(super) fn pop_free(&self) -> Option<usize> {
-        (self.free != 0).then_some(self.free)
-    }
-
-    /// Thread the slots of the page at `base` (page aligned, owned by the
-    /// caller from now on by this class) into the free list.
-    pub(super) fn carve(&mut self, base: usize, class: usize) {
-        for offset in (0..FRAME_SIZE).step_by(CLASSES[class]) {
-            self.push(base + offset);
-        }
-        self.slabs += 1;
-    }
-
-    /// Pop the free-list head.
-    pub(super) fn pop(&mut self) -> Option<usize> {
-        if self.free == 0 {
-            return None;
-        }
-        let slot = self.free;
-        // Safety: a free slot's first word holds the next link, written by
-        // `push` when the slot was freed.
-        self.free = unsafe { (slot as *const usize).read_unaligned() };
-        Some(slot)
-    }
-
-    /// Push `slot` onto the free-list head.
-    pub(super) fn push(&mut self, slot: usize) {
-        // Safety: the caller owns `slot` and only hands back slots of this
-        // class, so overwriting its first word with the link is sound.
-        unsafe { (slot as *mut usize).write_unaligned(self.free) };
-        self.free = slot;
-    }
-
-    /// Carve one fresh frame into slots of `class` and link them all into the
-    /// free list. Returns false when the frame allocator is out of memory, in
-    /// which case the class is left untouched.
-    pub(super) fn grow(&mut self, class: usize) -> bool {
-        let Some(phys) = super::alloc_frame() else {
-            return false;
-        };
-        self.carve(super::phys_to_virt(phys).as_u64() as usize, class);
-        true
-    }
-}
-
-/// One owner's kernel-memory ledger.
-struct Owner {
-    live: usize,
-    peak: usize,
-    charges: usize,
-    uncharges: usize,
-}
-
-impl Owner {
-    const fn new() -> Self {
-        Owner {
-            live: 0,
-            peak: 0,
-            charges: 0,
-            uncharges: 0,
-        }
-    }
+/// Carve one fresh frame into slots of `class` for `state`. False when the
+/// frame allocator is out of memory; the class is then untouched.
+pub(super) fn grow(state: &mut Class, class: usize) -> bool {
+    let Some(phys) = super::alloc_frame() else {
+        return false;
+    };
+    let page = super::phys_to_virt(phys).as_mut_ptr::<u8>();
+    // SAFETY: a frame fresh from the allocator is 4 KiB of usable RAM, page
+    // (so class) aligned, mapped writable through the physical-memory
+    // mapping, and owned by this class from now on: slab frames are never
+    // returned. The mapping never yields address zero.
+    unsafe { state.carve(NonNull::new_unchecked(page), class) };
+    true
 }
 
 /// The allocator: per-class free lists and counters, plus oversized and owner
@@ -287,24 +188,16 @@ pub fn alloc(class: usize) -> Option<NonNull<u8>> {
     let size = *CLASSES.get(class)?;
     let mut slab = SLAB.lock();
     let state = &mut slab.classes[class];
-    if state.free == 0 && !state.grow(class) {
+    if !state.has_free() && !grow(state, class) {
         return None;
     }
-    // INVARIANT: `state.grow` either returned `false` above (and we already
-    // bailed out) or left at least one slot on the free list, so `pop` here
-    // always has one to hand back.
-    #[allow(clippy::expect_used)]
-    let slot = state.pop().expect("a grown class always has a free slot");
-    state.live += 1;
-    state.allocations += 1;
-    state.peak = state.peak.max(state.live);
+    let slot = state.alloc()?;
     slab.live_bytes += size;
     slab.peak_bytes = slab.peak_bytes.max(slab.live_bytes);
     // Kernel objects must not leak whatever the previous occupant stored.
     // Safety: the slot is exclusively ours and at least `size` bytes long.
-    unsafe { core::ptr::write_bytes(slot as *mut u8, 0, size) };
-    // Safety: `slot` is a live, non-null address.
-    Some(unsafe { NonNull::new_unchecked(slot as *mut u8) })
+    unsafe { core::ptr::write_bytes(slot.as_ptr(), 0, size) };
+    Some(slot)
 }
 
 /// Return a slot to its class.
@@ -325,16 +218,14 @@ pub unsafe fn dealloc(class: usize, ptr: NonNull<u8>) {
         ptr.as_ptr() as usize
     );
     let mut slab = SLAB.lock();
-    let state = &mut slab.classes[class];
-    if state.live == 0 {
+    // SAFETY: the caller's contract: `ptr` is a live slot of this class that
+    // is never used again.
+    if unsafe { slab.classes[class].free(ptr) }.is_err() {
         slab.double_frees += 1;
         crate::serial_println!("mem: slab double free in class {class}");
         debug_assert!(false, "slab: double free");
         return;
     }
-    state.live -= 1;
-    state.frees += 1;
-    state.push(ptr.as_ptr() as usize);
     slab.live_bytes -= size;
 }
 
@@ -413,7 +304,7 @@ pub fn stats() -> SlabStats {
             size: CLASSES[class],
             live: state.live,
             peak: state.peak,
-            free: state.slabs * slots_per_slab(class) - state.live,
+            free: state.free_slots(class),
             slabs: state.slabs,
             allocations: state.allocations,
             frees: state.frees,
@@ -442,11 +333,7 @@ pub fn charge(owner: usize, bytes: usize) -> bool {
         SLAB.lock().accounting_errors += 1;
         return false;
     }
-    let mut slab = SLAB.lock();
-    let state = &mut slab.owners[owner];
-    state.live += bytes;
-    state.peak = state.peak.max(state.live);
-    state.charges += 1;
+    SLAB.lock().owners[owner].charge(bytes);
     true
 }
 
@@ -461,14 +348,10 @@ pub fn uncharge(owner: usize, bytes: usize) -> bool {
         return false;
     }
     let mut slab = SLAB.lock();
-    let state = &mut slab.owners[owner];
-    if bytes > state.live {
-        state.live = 0;
+    if !slab.owners[owner].uncharge(bytes) {
         slab.accounting_errors += 1;
         return false;
     }
-    state.live -= bytes;
-    state.uncharges += 1;
     true
 }
 

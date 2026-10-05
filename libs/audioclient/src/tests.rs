@@ -300,6 +300,8 @@ fn a_frozen_card_stalls_writes_and_drains_instead_of_hanging() {
         Err(Error::Stalled)
     );
     assert_eq!(stream.drain(), Err(Error::Errno(ETIMEDOUT)));
+    let soon = fake.now() + 5;
+    assert_eq!(stream.drain_until(soon), Err(Error::Errno(ETIMEDOUT)));
 }
 
 #[test]

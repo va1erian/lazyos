@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): an interface name ends in .vN.
+interface os.lazy.conformance.bad {
+    method M() -> ();
+}

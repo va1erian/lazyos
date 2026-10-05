@@ -310,7 +310,10 @@ fn open_bar<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     let spec = PlatformSpec::new("LazyShell taskbar").size(Dip(w as f32), Dip(BAR_H as f32));
     let built = Rc::clone(ctx);
     match ui.open_window(spec, move |ui| BarApp::build(built, ui)) {
-        Ok(handle) => *ctx.bar.borrow_mut() = Some(handle),
+        Ok(handle) => {
+            *ctx.bar.borrow_mut() = Some(handle);
+            super::probe::start_button(ctx);
+        }
         Err(error) => ctx.note("bar-open", || format!("SHELL:TASKBAR:FAIL {error}")),
     }
 }

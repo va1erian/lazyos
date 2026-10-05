@@ -264,6 +264,86 @@ ISR that performs context switches.
   other objects still notify everyone (`notify_poll`). `poll_keys_suite`
   checks the rules and a 200000-event soak.
 
+## Entry stub contract
+
+Every way into the kernel from user code is a hand-written assembly stub, and
+the Rust it calls trusts the exact layout the stub leaves on the stack. Change
+a stub and its consumers together. Each stub's source comment points here.
+
+| Stub | Source | Entered by |
+|---|---|---|
+| `timer_isr`, `yield_isr` | `task/switch.rs` | IDT 32 (PIT), 0x81 (DPL 0) |
+| `page_fault_isr` | `arch/idt.rs` | IDT 14 |
+| `divide_error_isr`, `invalid_opcode_isr`, `general_protection_isr` | `arch/idt.rs` (`exception_isr`) | IDT 0, 6, 13 |
+| `syscall_isr` | `process/gate.rs` | IDT 0x80 (DPL 3) |
+| `linux_syscall_entry` | `arch/linux.rs` | `syscall` instruction |
+
+**Saved frame (scheduler gates and exception stubs).** The stub pushes the
+CPU's frame first and then 15 GPRs, so from the saved `rsp` upward the qwords
+are: `r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax` (word 0 is
+`r15`), then, for `page_fault_isr` and `general_protection_isr` only, the
+CPU's error code (word 15), then the iret frame `RIP CS RFLAGS RSP SS` (words
+15..19, or 16..20 after an error code). In 64-bit mode the CPU pushes `SS:RSP` on every interrupt or exception, and
+a ring 3 to ring 0 trap also loads the stack from TSS `RSP0`, so the frame
+always has all five words, whether the fault came from user or kernel mode.
+`timer_isr` and `yield_isr` push `rax` first and then use `eax` as the
+"real tick" flag, so both leave the identical layout and a task parked by one
+resumes through the other. `build_user_frame`/`build_thread_frame` write the
+same 20 words; `signal::regs_from_frame(rsp, rip_index)` and
+`task::sys::frame_word` read them (`rip_index` is 15 or 16). The Rust callee
+(`schedule`, `exception_dispatch`, `page_fault_dispatch`) takes the saved `rsp`
+and returns the `rsp` to pop from: the same one, or another task's frame.
+`exception_isr` aligns `rsp` to 16 for the call and reloads the returned
+`rsp`, so the returned value is the only thing that locates the frame.
+
+**`syscall_isr` (native `int 0x80`)** saves only `rdi rsi rdx r8 r9 r10 rax`
+(`rax` last, so it is `[rsp]` for `syscall_dispatch`) and returns the result
+in `rax`; the other registers are callee-saved in Rust or preserved by the
+caller's convention. It does not switch tasks itself.
+
+**`linux_syscall_entry`** is not an interrupt: `syscall` leaves `rcx` = user
+RIP and `r11` = user RFLAGS and does not change `rsp`. The stub saves the
+user context to `USER_CONTEXT`, saves the user `rsp` in `SAVED_USER_RSP`, and
+moves to the task's kernel stack (`KERNEL_STACK`, the stack top). It then
+pushes 15 qwords (`ENTRY_PUSHED_QWORDS`: user RSP, RFLAGS, RIP and 12
+registers) plus `ENTRY_CALL_PAD`, so `rsp` is 16-aligned at
+`call linux_dispatch`, with the seventh argument (Linux `r9`) at `[rsp]`.
+`lazyos_entry_probe` runs the same `entry_body!` macro in tests so a change
+to the push count is caught by `ENTRY_PUSHED_QWORDS`' test.
+
+**Direction flag (#405).** An interrupt gate keeps the caller's `RFLAGS.DF`,
+and user code legitimately runs with it set (musl `memmove`). The kernel's
+`memcpy`/`memset` are `rep movs`/`rep stos` and assume DF clear, so every
+interrupt-gate stub executes `cld` after its pushes and before any Rust, and
+`iretq` restores the caller's flags. The `syscall` path needs no `cld`:
+`IA32_FMASK` (0x700) clears TF, IF and DF on entry. The `x86-interrupt`
+handlers get a `cld` from LLVM. A new stub must do the same; the
+`direction_flag` task test covers the gates.
+
+**Interrupts are off** for the whole stub: interrupt gates clear IF, and
+`FMASK` clears it for `syscall`. A voluntary switch from inside a syscall
+resumes with IF off again; long work calls `arch::irq_window::poll_point()`.
+
+**What changes at a task switch** (`task/schedule.rs`, after `select_next`
+picked a slot and before the stub pops its frame), in this order:
+
+1. `CURRENT` is updated.
+2. `mem::switch_to(pml4)` writes CR3. It runs first among the hardware
+   switches, and everything after it (and the caller's later stack pops)
+   must only touch memory mapped in every address space: the kernel half
+   (kernel image, heap, kernel stacks, the frame `rsp` points into) is shared
+   by every PML4, user pages are not.
+3. If the task has a kernel stack: TSS `RSP0` (`gdt::set_kernel_stack`, where
+   the CPU lands on the next ring 3 to ring 0 trap) and
+   `arch::linux::KERNEL_STACK` (where `linux_syscall_entry` switches to) are
+   both set to its `kstack_top`. They must always move together; a task entered
+   with one stale would trap onto another task's stack.
+4. `IA32_FS_BASE` and the FPU state are restored.
+5. Only then is the new `rsp` returned and the frame popped.
+
+The `signal::deliver_on_resume` step (#375) runs between 4 and 5 and may
+rewrite the saved frame; it must go through the same word indices above.
+
 **Status.** Working: preemptive RR-with-priorities demo, native/Linux spawn,
 fork/threads, CPU accounting (`cpu_usage`), per-task fds, per-class run
 queues. Not yet: SMP, per-CPU run queues, Linux nice mapping, keyed wakeups

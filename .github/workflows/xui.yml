@@ -116,6 +116,7 @@ jobs:
           python tools/xui/test_zig.py
           python tools/xui/test_core_packages.py
           python tools/screenshot/test_qmp_mouse.py
+          python tools/screenshot/test_freeze_probe.py
 
       - name: Build the app (static musl)
         id: app

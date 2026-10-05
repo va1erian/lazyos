@@ -3,6 +3,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
+use crate::messenger::wait::{wait_items, WaitItem, MAX_ENDPOINTS};
 use crate::messenger::{errno, Endpoint, Error, Message, Result};
 
 use super::executor::FlagWaker;
@@ -34,23 +35,37 @@ pub enum Event {
     Idle,
 }
 
+/// What bit `i` of a wait mask stands for.
+#[derive(Clone, Copy)]
+enum Slot {
+    Call(usize),
+    Recv(usize),
+}
+
 /// A `select`-style multiplexer over pending calls and one-way receives.
 ///
 /// Calls are registered as they are queued, so all of them are in flight
 /// before the first wait. [`Selector::step`] first drains already-queued
-/// one-way messages without blocking, then waits for the oldest in-flight call
-/// (a no-op when its reply is already queued). Because every reply wakes the
-/// shared Messenger wait queue, once one call completes the next `step` finds
-/// any other completed replies without waiting again.
+/// one-way messages without blocking, then parks once on every in-flight
+/// call's transaction and every queued receive's endpoint together (the
+/// kernel's `wait` op, issue #309) and reports whichever is ready first: a
+/// newer call that finishes before an older one is reported first, and a
+/// message on any endpoint wakes the task while calls are still in flight.
 ///
-/// There is no wall clock and no readiness op for a single transaction, so a
-/// step can block on the oldest call even when a newer call already finished;
-/// it does not lose that newer reply, it just reports it in a later step.
+/// One wait names at most [`MAX_ENDPOINTS`] items. With more queued, every
+/// item still wakes the step: the wait watches a window of that many, parks
+/// for at most one tick, and the window rotates over the rest on each timeout,
+/// so anything outside the current window is seen within a few ticks (and a
+/// queued message on any receive is taken before every wait). With
+/// [`MAX_ENDPOINTS`] items or fewer the wait has no deadline.
 #[derive(Default)]
 pub struct Selector {
     calls: Vec<Option<Call>>,
     recvs: Vec<Option<Recv>>,
     waker: Option<Waker>,
+    /// First item of the next window when more than [`MAX_ENDPOINTS`] are
+    /// queued.
+    rotation: usize,
 }
 
 impl Selector {
@@ -60,6 +75,7 @@ impl Selector {
             calls: Vec::new(),
             recvs: Vec::new(),
             waker: Some(Waker::from(FlagWaker::new())),
+            rotation: 0,
         }
     }
 
@@ -102,72 +118,112 @@ impl Selector {
         self.pending() == 0
     }
 
-    /// Run one multiplexing pass, reporting at most one event.
+    /// Run one multiplexing pass, reporting exactly one event.
     ///
     /// 1. Any queued one-way message is delivered without blocking.
-    /// 2. Otherwise the oldest unfinished call is polled to completion (its
-    ///    poll parks the task only if the reply is not queued yet).
-    /// 3. Otherwise the oldest queued receive blocks until a message arrives.
-    /// 4. Otherwise [`Event::Idle`].
+    /// 2. Otherwise the task parks on every in-flight call and queued receive
+    ///    at once and reports the first that is ready: a finished call (its
+    ///    await returns at once), or a delivered message.
+    /// 3. With nothing queued, [`Event::Idle`].
     pub fn step(&mut self) -> Result<Event> {
-        // 1. One-way messages that already landed never block.
+        loop {
+            if let Some(event) = self.take_queued_message()? {
+                return Ok(event);
+            }
+            let (items, slots, deadline) = self.wait_set();
+            if items.is_empty() {
+                return Ok(Event::Idle);
+            }
+            let ready = match wait_items(&items, 0, deadline) {
+                Ok(ready) => ready,
+                // Only a windowed wait has a deadline: watch the next window.
+                Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {
+                    self.rotation = self.rotation.wrapping_add(MAX_ENDPOINTS);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            for (bit, slot) in slots.iter().enumerate() {
+                if ready & (1 << bit) == 0 {
+                    continue;
+                }
+                match *slot {
+                    Slot::Call(index) => return Ok(self.finish_call(index)),
+                    Slot::Recv(index) => {
+                        if let Some(event) = self.take_message(index)? {
+                            return Ok(event);
+                        }
+                    }
+                }
+            }
+            // A ready endpoint whose message is already gone (another holder
+            // took it): wait again.
+        }
+    }
+
+    /// Deliver the first queued one-way message, without blocking.
+    fn take_queued_message(&mut self) -> Result<Option<Event>> {
         for index in 0..self.recvs.len() {
-            let Some(recv) = self.recvs[index].as_ref() else {
-                continue;
-            };
-            if let Some(message) = recv.poll_ready()? {
-                self.recvs[index] = None;
-                return Ok(Event::Recv { index, message });
+            if let Some(event) = self.take_message(index)? {
+                return Ok(Some(event));
             }
         }
-        // 2. Advance the oldest in-flight call. Its reply may already be
-        //    queued; if not, this parks until it is.
-        if let Some(index) = self.calls.iter().position(Option::is_some) {
-            let result = {
-                let call = self.calls[index]
-                    .as_mut()
-                    .expect("the position is an unfinished call");
-                let waker = self
-                    .waker
-                    .clone()
-                    .unwrap_or_else(|| Waker::from(FlagWaker::new()));
-                let mut context = Context::from_waker(&waker);
-                match Pin::new(call).poll(&mut context) {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                }
-            };
-            if let Some(result) = result {
-                self.calls[index] = None;
-                return Ok(Event::Call { index, result });
-            }
-            return Ok(Event::Idle);
+        Ok(None)
+    }
+
+    /// Take receive `index`'s message if one is queued.
+    fn take_message(&mut self, index: usize) -> Result<Option<Event>> {
+        let Some(recv) = self.recvs[index].as_ref() else {
+            return Ok(None);
+        };
+        let Some(message) = recv.poll_ready()? else {
+            return Ok(None);
+        };
+        self.recvs[index] = None;
+        Ok(Some(Event::Recv { index, message }))
+    }
+
+    /// The items of one wait (calls first, then receives), what each bit of
+    /// its mask stands for, and its deadline: none when everything fits, else
+    /// the next tick, for a window of [`MAX_ENDPOINTS`] starting at the
+    /// rotation.
+    fn wait_set(&self) -> (Vec<WaitItem>, Vec<Slot>, Option<u64>) {
+        let calls = self.calls.iter().enumerate().filter_map(|(index, call)| {
+            let txn = call.as_ref()?.txn_id()?;
+            Some((WaitItem::Call(txn), Slot::Call(index)))
+        });
+        let recvs = self.recvs.iter().enumerate().filter_map(|(index, recv)| {
+            let endpoint = recv.as_ref()?.endpoint();
+            Some((WaitItem::Endpoint(endpoint), Slot::Recv(index)))
+        });
+        let all: Vec<(WaitItem, Slot)> = calls.chain(recvs).collect();
+        if all.len() <= MAX_ENDPOINTS {
+            let (items, slots) = all.into_iter().unzip();
+            return (items, slots, None);
         }
-        // 3. No calls in flight: a queued receive may block, which is the
-        //    task's only wait when the selector is idle.
-        if let Some(index) = self.recvs.iter().position(Option::is_some) {
-            let result = {
-                let recv = self.recvs[index]
-                    .as_mut()
-                    .expect("the position is an unfinished receive");
-                let waker = self
-                    .waker
-                    .clone()
-                    .unwrap_or_else(|| Waker::from(FlagWaker::new()));
-                let mut context = Context::from_waker(&waker);
-                match Pin::new(recv).poll(&mut context) {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                }
-            };
-            if let Some(message) = result {
-                self.recvs[index] = None;
-                return Ok(Event::Recv {
-                    index,
-                    message: message?,
-                });
-            }
-        }
-        Ok(Event::Idle)
+        let start = self.rotation % all.len();
+        let window = all.iter().cycle().skip(start).take(MAX_ENDPOINTS);
+        let (items, slots) = window.copied().unzip();
+        (items, slots, Some(crate::sys::clock() + 1))
+    }
+
+    /// Finish call `index`, which the wait reported ready: its await returns
+    /// at once with the reply or the error that ended it.
+    fn finish_call(&mut self, index: usize) -> Event {
+        let mut call = self.calls[index]
+            .take()
+            .expect("a ready slot is an unfinished call");
+        let waker = self
+            .waker
+            .clone()
+            .unwrap_or_else(|| Waker::from(FlagWaker::new()));
+        let mut context = Context::from_waker(&waker);
+        let result = match Pin::new(&mut call).poll(&mut context) {
+            Poll::Ready(result) => result,
+            // A registered call's poll always resolves (it awaits in the
+            // kernel); keep the shape total anyway.
+            Poll::Pending => Err(Error::Errno(-errno::EAGAIN)),
+        };
+        Event::Call { index, result }
     }
 }

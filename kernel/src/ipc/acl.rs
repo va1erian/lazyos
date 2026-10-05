@@ -57,6 +57,13 @@ pub mod reason {
     pub const RESERVED_NAMESPACE: u32 = 8;
     /// The caller lacks the capability the policy loader requires.
     pub const LOADER_NOT_PRIVILEGED: u32 = 9;
+    /// A registration's interface names do not spell out its interface ids
+    /// (missing, a different count, or a name that hashes to another id); a
+    /// labelled app must name every interface it advertises (issue #495).
+    pub const UNNAMED_INTERFACE: u32 = 10;
+    /// A labelled app advertised an interface outside its own domain
+    /// (`<id>.<name>.v<N>`, issue #495).
+    pub const FOREIGN_INTERFACE: u32 = 11;
 }
 
 /// Most rules one label may hold.

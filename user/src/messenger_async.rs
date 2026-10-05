@@ -4,9 +4,9 @@
 //!
 //! # Why the futures look like this
 //!
-//! LazyOS syscalls are blocking and the native surface has no "probe this
-//! transaction" op (`OP_CALL_AWAIT` parks until the transaction is terminal),
-//! so a leaf future here parks the calling task inside the kernel rather than
+//! LazyOS syscalls are blocking (`OP_CALL_AWAIT` parks until the transaction
+//! is terminal; the `wait` op reports a terminal transaction without taking
+//! it, which is how [`Selector`] multiplexes), so a leaf future here parks the calling task inside the kernel rather than
 //! returning [`Poll::Pending`](core::task::Poll::Pending). What still makes the API asynchronous is the
 //! split at the start: `Call` (and [`Selector::call`]) registers the request
 //! with `OP_CALL_BEGIN` *before* anything waits, so any number of requests are
@@ -20,8 +20,10 @@
 //!   `async fn` wrappers, and [`block_on`] runs a single future to completion.
 //! * [`Selector`] is the multiplexer: queue calls and one-way receives, then
 //!   call [`Selector::step`]. Each step drains ready one-way messages without
-//!   blocking, then waits for the oldest in-flight call; [`Selector::cancel`]
-//!   cancels a pending call with `OP_CANCEL`.
+//!   blocking, then parks once on every in-flight call and queued receive
+//!   together (the `wait` op names pending calls too, issue #309) and reports
+//!   whichever is ready first; [`Selector::cancel`] cancels a pending call
+//!   with `OP_CANCEL`.
 //!
 //! A begun call that is never awaited leaves the task parked in the kernel
 //! until some Messenger event wakes it (any reply, send, or cancel notifies the
@@ -72,6 +74,7 @@
 //! ```
 
 use libmessenger::{Encoder, Header, VERSION};
+use messenger_generated::errors::ERROR_FIELD;
 
 /// Parcel type the generated handlers speak; re-exported so macro expansions
 /// do not need to name `libmessenger` themselves.
@@ -115,12 +118,13 @@ pub enum Concurrency {
     Mailbox,
 }
 
-/// Build a parcel carrying one structured `Error` field. Used for replies to
+/// Build a parcel carrying the standard error field. Used for replies to
 /// unknown interfaces/methods and for handler failures, so a synchronous
 /// caller never hangs on a request the service refused.
 pub fn error_parcel(interface_id: u64, method: u32, code: u32, message: &str) -> Result<Parcel> {
     let mut body = Encoder::new();
-    body.error(1, code, message).map_err(Error::Parcel)?;
+    body.error(ERROR_FIELD, code, message)
+        .map_err(Error::Parcel)?;
     Ok(Parcel {
         header: Header {
             version: VERSION,

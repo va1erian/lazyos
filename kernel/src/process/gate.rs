@@ -26,6 +26,8 @@ struct Regs {
     rdi: u64,
 }
 
+// Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
+// "Entry stub contract".
 // Syscall entry stub: save argument registers, dispatch, restore, iretq. An
 // interrupt gate keeps the caller's direction flag, so it is cleared before
 // any Rust runs (issue #405; `task::switch` has the full story).

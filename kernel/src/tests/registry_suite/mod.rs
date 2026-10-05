@@ -124,6 +124,7 @@ fn register_parcel(
         endpoint: Some(endpoint),
         interfaces: interfaces.to_vec(),
         lease_ticks: lease,
+        interface_names: Vec::new(),
     })
     .map_err(friendly)?;
     encode_parcel(registry::method::REGISTER, body)

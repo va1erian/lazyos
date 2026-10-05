@@ -2,7 +2,9 @@
 
 use super::*;
 
+mod waitcall;
 mod waitset;
+pub use waitcall::*;
 pub use waitset::*;
 
 /// Receive the next message without blocking; `Ok(None)` means "try later".

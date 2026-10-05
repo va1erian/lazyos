@@ -105,6 +105,7 @@ impl Compositor {
             role: surface.role,
             maximized: surface.maximized.is_some(),
         };
+        super::probe::window(surface);
         self.notify_shell(
             wire::METHOD_SURFACECHANGED,
             wire::encode_surface_changed_args(&args),

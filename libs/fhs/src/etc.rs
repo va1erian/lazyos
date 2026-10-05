@@ -14,6 +14,14 @@ pub const CA_BUNDLE: &str = "/system/etc/ssl/certs/ca-certificates.crt";
 /// programs as [`LINUX_HOSTS`]. Written by the image build.
 pub const HOSTS: &str = "/system/etc/hosts";
 
+/// Present only in an image built with `LAZYOS_UI_PROBE=1` (issue #538): the
+/// shell and the LazyRAD player then print the screen rectangles of their
+/// named widgets as `UI:` serial lines (the compositor's window lines are
+/// compiled in by the same switch), so session scripts click by name
+/// (`tools/screenshot/README.md`). Its content is irrelevant; a normal image
+/// has no such file and prints nothing.
+pub const UI_PROBE: &str = "/system/etc/ui-probe";
+
 /// Where Linux programs look for [`CA_BUNDLE`] by convention
 /// (`rustls-native-certs`, OpenSSL, `SSL_CERT_FILE` defaults). Synthesised by
 /// the Linux personality's `/etc`.
@@ -48,6 +56,7 @@ mod tests {
         assert!(PASSWD.starts_with(crate::SYSTEM_ETC));
         assert!(CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
         assert!(HOSTS.starts_with(crate::SYSTEM_ETC));
+        assert!(UI_PROBE.starts_with(crate::SYSTEM_ETC));
     }
 
     #[test]

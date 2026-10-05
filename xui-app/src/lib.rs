@@ -28,6 +28,7 @@ pub mod installer;
 pub mod launch;
 pub mod net;
 pub mod platform;
+pub mod probe;
 pub mod server;
 pub mod services;
 pub mod shell;
