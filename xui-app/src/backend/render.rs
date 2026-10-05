@@ -24,13 +24,13 @@ impl LazyOSBackend {
     /// damage keep the previous frame, so a whole-window `damage` is a full
     /// repaint (the first frame, a resize, a theme change).
     ///
-    /// Painters run unclipped on the painting surface and only the damaged
-    /// rectangle is copied into the frame. A canvas clip is not an option:
-    /// `SkiaCanvas` trims each shape's rectangle to the clip before stroking
-    /// it, so a node straddling the damage would get its border drawn along
-    /// the damage edge. Unclipped, every pixel inside the damage is exactly
-    /// what a full repaint produces; what a straddling node overdraws outside
-    /// it never reaches the frame.
+    /// Everything is painted through one `Surface::paint_region` over the
+    /// damage: painters draw at their real bounds, but only the damaged pixels
+    /// are rasterised, so a hover over a big node costs the damage, not the
+    /// node (#605). A canvas clip is not an option: `SkiaCanvas` trims each
+    /// shape's rectangle to the clip before stroking it, so a node straddling
+    /// the damage would get its border drawn along the damage edge; a region
+    /// cuts pixels, not shapes. Pixels outside the damage keep the last frame.
     ///
     /// The surface is taken out of the window table before the painters run and
     /// put back afterwards: a painter can call back into the backend (the
@@ -53,19 +53,12 @@ impl LazyOSBackend {
                 std::mem::take(&mut entry.background),
             )
         };
-        // The window background (the theme's vertical gradient, spanning the
-        // whole window so a partial repaint matches the rest), and over it a
-        // backdrop (LazyShell's wallpaper) the widgets draw on like on any
-        // container: one cached picture, copied into the damage.
-        surface.with_canvas_at(damage, dpi, |canvas| {
-            background.paint(canvas, damage, (width, height), &theme, backdrop.as_deref());
-        });
         // Bounds are parent-relative: paint at the window-absolute position,
         // and skip a node hidden through any ancestor. A node just outside the
         // damage still runs: anti-aliased edges and focus rings spill a pixel
         // or two past a node's bounds. A node entirely outside an ancestor's
         // clip (a scroll view's row scrolled out of its viewport) is skipped:
-        // painters are not clipped, so it would draw over its neighbours.
+        // painters are not clipped to it, so it would draw over its neighbours.
         let reach = inflate(damage, PAINT_SPILL * self.scale() as i32);
         let paints: Vec<(Rect, Painter)> = {
             let nodes = self.nodes.borrow();
@@ -81,12 +74,22 @@ impl LazyOSBackend {
                 })
                 .collect()
         };
-        // In creation order a container paints before the widgets in it, so
-        // the widgets draw on it instead of filling their own background.
         self.paint_damage.set(Some(damage));
-        for (bounds, painter) in paints {
-            surface.with_canvas_over_parents(bounds, dpi, |canvas| painter(canvas));
-        }
+        surface.paint_region(damage, |region| {
+            // The window background (the theme's vertical gradient, spanning
+            // the whole window so a partial repaint matches the rest), and over
+            // it a backdrop (LazyShell's wallpaper) the widgets draw on like on
+            // any container: one cached picture, copied into the damage.
+            region.with_canvas_at(damage, dpi, |canvas| {
+                background.paint(canvas, damage, (width, height), &theme, backdrop.as_deref());
+            });
+            // In creation order a container paints before the widgets in it,
+            // so the widgets draw on it instead of filling their own
+            // background.
+            for (bounds, painter) in paints {
+                region.with_canvas_over_parents(bounds, dpi, |canvas| painter(canvas));
+            }
+        });
         self.paint_damage.set(None);
         // Put the real surface back and fold the damage into the frame; a
         // painter that closed this window leaves no entry, so both drop.
@@ -387,6 +390,20 @@ mod tests {
         assert_eq!(pixel(&backend, 10, 10), rgba(BLUE), "inside the damage");
         assert_eq!(pixel(&backend, 2, 2), rgba(RED), "outside: the old frame");
         assert_eq!(pixel(&backend, 25, 30), rgba(RED), "outside: the old frame");
+    }
+
+    #[test]
+    fn a_painter_bigger_than_the_damage_rasterises_only_the_damage() {
+        let (backend, _, _) = rig();
+        backend.nodes.borrow_mut()[0].1 = painted(Rect::new(0, 0, 32, 64), BLUE, Rc::default());
+        assert!(backend.composite(W, Rect::new(4, 4, 20, 20)));
+        // The painting surface itself, not only the frame, kept the rest.
+        let windows = backend.windows.borrow();
+        let surface = windows[&W.raw()].surface.pixels();
+        let at = |x: usize, y: usize| &surface[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
+        assert_eq!(at(10, 10), rgba(BLUE), "inside the damage");
+        assert_eq!(at(2, 2), rgba(RED), "outside: never painted");
+        assert_eq!(at(25, 30), rgba(RED), "outside: never painted");
     }
 
     #[test]
