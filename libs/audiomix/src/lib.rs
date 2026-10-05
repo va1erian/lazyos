@@ -28,6 +28,7 @@ mod mixer;
 pub mod resample;
 pub mod service;
 mod stream;
+pub mod volume;
 
 #[cfg(test)]
 mod tests;
@@ -37,6 +38,8 @@ mod tests_fuzz;
 mod tests_mix;
 #[cfg(test)]
 mod tests_service;
+#[cfg(test)]
+mod tests_volume;
 
 pub use mixer::{Config, MixError, Mixer, Status};
 pub use stream::State;
