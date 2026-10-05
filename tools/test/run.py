@@ -245,6 +245,12 @@ def main() -> int:
         "device interrupt test (issue #283)",
     )
     parser.add_argument(
+        "--nvme",
+        action="store_true",
+        help="add a blank 16 MiB NVMe disk (QEMU -device nvme) for the NVMe "
+        "request-path tests (docs/nvme-install-plan.md N1)",
+    )
+    parser.add_argument(
         "--extra-arg",
         action="append",
         default=[],
@@ -291,6 +297,21 @@ def main() -> int:
             "-drive", f"if=none,id=scratch,format=raw,file={scratch.as_posix()}",
             "-device", "virtio-blk-pci,drive=scratch,disable-modern=on",
         ]
+    nvme_scratch: Path | None = None
+    if args.nvme:
+        # A blank NVMe disk of the same size, written by nvme_suite; never
+        # the boot disk.
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="nvme-", suffix=".img", delete=False
+        ) as handle:
+            nvme_scratch = Path(handle.name).resolve()
+            if nvme_scratch == image:
+                sys.exit(f"NVMe scratch disk {nvme_scratch} is the boot image")
+            handle.truncate(SCRATCH_BYTES)
+        extra += [
+            "-drive", f"if=none,id=nvmescratch,format=raw,file={nvme_scratch.as_posix()}",
+            "-device", "nvme,serial=lazyos-scratch,drive=nvmescratch",
+        ]
     command = build_qemu_command(
         qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk
     )
@@ -308,6 +329,8 @@ def main() -> int:
         stop_qemu(proc, qmp)
         if scratch is not None:
             scratch.unlink(missing_ok=True)
+        if nvme_scratch is not None:
+            nvme_scratch.unlink(missing_ok=True)
 
     if serial_log.is_file():
         text = serial_log.read_text(errors="replace")

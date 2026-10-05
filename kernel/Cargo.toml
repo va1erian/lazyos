@@ -21,6 +21,9 @@ bootloader_api = "0.11.17"
 # ACPI table walker (docs/real-pc-boot-plan.md H2): the timer code reads the
 # FADT's PM timer, the MADT's local APIC and the HPET through it.
 acpi = { path = "../libs/acpi" }
+# NVMe protocol core (docs/nvme-install-plan.md N1): bring-up, queues, PRP
+# planning and Identify parsing behind `block::nvme`'s platform seam.
+nvme = { path = "../libs/nvme" }
 # Issue #102: the in-kernel suite runs the crypto wrapper's round-trip and
 # SHARE_ONLY key-isolation checks against the same crate `keyd` links.
 lazyos-crypto = { path = "../libs/crypto" }
