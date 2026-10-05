@@ -20,6 +20,8 @@ struct FakeAta<F: FnMut(u32) -> u8> {
     /// channel has no clock.
     clock_step: u64,
     clock: u64,
+    /// Times a wait offered the kernel an interrupt window (`pace`).
+    paces: u32,
 }
 
 impl<F: FnMut(u32) -> u8> FakeAta<F> {
@@ -32,6 +34,7 @@ impl<F: FnMut(u32) -> u8> FakeAta<F> {
             next_word: 0,
             clock_step: 0,
             clock: 0,
+            paces: 0,
         }
     }
 
@@ -56,6 +59,9 @@ impl<F: FnMut(u32) -> u8> Channel for FakeAta<F> {
         let word = self.words[self.next_word % 256];
         self.next_word += 1;
         word
+    }
+    fn pace(&mut self) {
+        self.paces += 1;
     }
     fn now_ns(&mut self) -> Option<u64> {
         if self.clock_step == 0 {
@@ -163,11 +169,14 @@ pub fn ata_waits_end_by_deadline() -> Result<(), String> {
             ata::identify_on(&mut stuck).is_none(),
             "step {step}: a stuck drive identified"
         );
-        // Two clock readings per poll (start, then each expiry check).
+        // One clock reading at the start of the wait, then one per status
+        // read in `expired`: the clock advances `step` per read, so the wait
+        // ends after exactly `POLL_TIMEOUT_NS / step` busy reads, plus the
+        // two absence-check reads `identify_on` makes first.
         let expected = ata::POLL_TIMEOUT_NS / step;
         let reads = u64::from(stuck.reads);
         check!(
-            reads >= expected / 2 && reads <= expected + 8,
+            reads >= expected && reads <= expected + 4,
             "step {step}: {reads} reads, expected about {expected}"
         );
     }
@@ -177,6 +186,34 @@ pub fn ata_waits_end_by_deadline() -> Result<(), String> {
         ata::wait_for_data_on(&mut slow),
         "a drive ready after 500 reads was abandoned"
     );
+    Ok(())
+}
+
+/// Every busy status read of a wait offers the kernel an interrupt window
+/// (`Channel::pace`, `irq_window::poll_point` on the real ports), so a drive
+/// stuck busy for the whole deadline no longer keeps interrupts off for a
+/// second (issue #449: the timer and the compositor starved).
+pub fn ata_waits_pace_every_read() -> Result<(), String> {
+    let mut stuck = FakeAta::new(|_| 0x80).with_clock(1_000_000);
+    check!(!ata::wait_not_busy_on(&mut stuck), "a stuck drive settled");
+    check!(
+        stuck.paces + 1 >= stuck.reads && stuck.paces <= stuck.reads,
+        "{} paces for {} busy reads",
+        stuck.paces,
+        stuck.reads
+    );
+    let mut no_drq = FakeAta::new(|_| 0x50).with_clock(1_000_000);
+    check!(!ata::wait_for_data_on(&mut no_drq), "DRQ appeared");
+    check!(
+        no_drq.paces + 1 >= no_drq.reads,
+        "{} paces for {} reads waiting for DRQ",
+        no_drq.paces,
+        no_drq.reads
+    );
+    // A drive that is ready at once costs no window at all.
+    let mut ready = FakeAta::new(|_| 0x58);
+    check!(ata::wait_for_data_on(&mut ready), "a ready drive failed");
+    check!(ready.paces == 0, "{} paces on a ready drive", ready.paces);
     Ok(())
 }
 

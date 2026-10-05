@@ -187,6 +187,14 @@ to hunt a rare fault. To symbolize a freeze, subtract the kernel load base
 `serial_tail.txt`, `report.json` and the registers; freeze findings also keep
 `freeze_registers.txt` and `freeze_hang_report.txt`. Exit status is 1.
 
+A frozen display with the CPU in ring 0 at a port instruction (`in`/`out`,
+`ins`/`outs`; decoded by `freeze_probe.py` from the monitor) may be a long
+device poll rather than a hang (issue #449), so the guest first gets
+`--io-grace` seconds (default 20, `0` disables) to draw again; a recovery is
+recorded under `io_stalls` in `report.json` and the run goes on. `--ide-disk`
+attaches the image as IDE, so the ATA driver serves the disk as it did when
+#449 was found. `python tools/screenshot/test_freeze_probe.py` tests the decoder.
+
 ## CI
 
 `.github/workflows/screenshots.yml` runs on push, pull requests, and manually.

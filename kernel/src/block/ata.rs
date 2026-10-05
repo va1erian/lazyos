@@ -10,11 +10,27 @@
 //! [`probe`] returns the driver singleton for registration; filesystems read
 //! through the [`BlockDevice`] trait, so the FAT volume reaches this driver
 //! through whichever handle it mounted.
+//!
+//! # Interrupts while polling (issue #449)
+//!
+//! Syscalls run with interrupts off, and a drive can stay busy for a long
+//! time (a host stalling the image file, a device out of step after an
+//! aborted transfer). Two things keep that from freezing the machine:
+//!
+//! * every busy status read is a poll point ([`Channel::pace`],
+//!   `arch::irq_window`), so the timer and the i8042 are served within a
+//!   millisecond however long a wait spins, up to [`POLL_TIMEOUT_NS`];
+//! * a caller that may sleep ([`Wait::MaySleep`], the ext2 adapter) parks in
+//!   [`iowait`] while the drive is busy instead of spinning, so other tasks
+//!   (the compositor) run. The channel lock is a [`YieldMutex`] for that
+//!   reason: a contender yields to the parked holder rather than spinning
+//!   with interrupts off.
 
-use super::{BlockDevice, BlockError, SECTOR_SIZE};
+use super::iowait::{self, Expect};
+use super::{BlockDevice, BlockError, Wait, SECTOR_SIZE};
 use crate::arch::io::{inb, insw_bytes, inw, outb};
+use crate::task::relax::YieldMutex;
 use core::sync::atomic::{AtomicU64, Ordering};
-use spin::Mutex;
 
 const DATA: u16 = 0x1F0;
 const SECTORS: u16 = 0x1F2;
@@ -32,8 +48,13 @@ const COMMAND_IDENTIFY: u8 = 0xEC;
 const COMMAND_READ: u8 = 0x20;
 
 /// Serialises PIO sequences: the scheduler can have several tasks reading the
-/// filesystem, and interleaving command bytes would corrupt a transfer.
-static IO: Mutex<()> = Mutex::new(());
+/// filesystem, and interleaving command bytes would corrupt a transfer. Held
+/// across a sleeping wait, so contenders yield (module docs).
+static IO: YieldMutex<()> = YieldMutex::new(());
+
+/// How long the drive usually takes to raise a sector, for the first look of
+/// a sleeping wait.
+static EXPECT: Expect = Expect::new();
 
 /// The primary master's size, discovered by `probe` with `IDENTIFY DEVICE`.
 static SECTORS_ON_DISK: AtomicU64 = AtomicU64::new(0);
@@ -48,7 +69,12 @@ static ATA: AtaPio = AtaPio;
 /// at least ~100ns on real hardware (more under a hypervisor, where it is a VM
 /// exit), so `reads` is a lower bound on the wait, never an upper one.
 fn delay_alt_status_reads(reads: u32) {
-    for _ in 0..reads {
+    for read in 0..reads {
+        // The reset's settle is 20,000 reads, each a VM exit under a
+        // hypervisor: take pending interrupts along the way.
+        if read % 256 == 255 {
+            crate::arch::irq_window::poll_point();
+        }
         // Safety: reading the alternate status register has no side effect
         // the driver needs to guard against; it exists to be polled.
         let _: u8 = unsafe { inb(ALT_STATUS) };
@@ -113,6 +139,9 @@ pub trait Channel {
     fn now_ns(&mut self) -> Option<u64> {
         None
     }
+    /// Called once per busy status read: a chance to take pending
+    /// interrupts (the real channel is a poll point, `arch::irq_window`).
+    fn pace(&mut self) {}
 }
 
 /// When a status poll gives up: [`POLL_TIMEOUT_NS`] after it began, or
@@ -180,6 +209,10 @@ impl Channel for Ports {
     fn now_ns(&mut self) -> Option<u64> {
         crate::arch::clock::tsc_ns()
     }
+
+    fn pace(&mut self) {
+        crate::arch::irq_window::poll_point();
+    }
 }
 
 /// Poll until BSY clears. False on timeout, and at once on a floating bus.
@@ -196,6 +229,7 @@ pub fn wait_not_busy_on(channel: &mut impl Channel) -> bool {
         if deadline.expired(channel) {
             return false;
         }
+        channel.pace();
     }
 }
 
@@ -220,6 +254,7 @@ pub fn wait_for_data_on(channel: &mut impl Channel) -> bool {
         if deadline.expired(channel) {
             return false;
         }
+        channel.pace();
     }
 }
 
@@ -231,6 +266,22 @@ fn wait_for_data() -> bool {
     // Once per sector: PIO runs with interrupts off (`arch::irq_window`).
     crate::arch::irq_window::poll_point();
     wait_for_data_on(&mut Ports)
+}
+
+/// Wait until the drive has the next sector ready. A caller that may sleep
+/// parks while the drive is busy (module docs); the spin waits after it then
+/// only confirm DRQ, normally on their first read.
+fn wait_for_sector(wait: Wait) -> bool {
+    if iowait::can_sleep(wait) {
+        let settled = iowait::wait_until(wait, &EXPECT, POLL_TIMEOUT_NS, || {
+            let status = Ports.status();
+            status == FLOATING_BUS || status & STATUS_BSY == 0
+        });
+        if !settled {
+            return false;
+        }
+    }
+    wait_not_busy() && wait_for_data()
 }
 
 /// Most sectors one `READ SECTORS` command carries. The count register is 8
@@ -263,9 +314,9 @@ pub fn retried_runs() -> u64 {
 
 /// Read one run, re-issuing it after an aborted transfer (up to
 /// [`RUN_ATTEMPTS`] issues). Callers hold [`IO`].
-fn read_run(lba: u32, buf: &mut [u8]) -> Result<(), BlockError> {
+fn read_run(lba: u32, buf: &mut [u8], wait: Wait) -> Result<(), BlockError> {
     for _ in 0..RUN_ATTEMPTS {
-        match pio_read_run(lba, buf) {
+        match pio_read_run(lba, buf, wait) {
             Ok(()) => return Ok(()),
             Err(RunError::Device) => return Err(BlockError::Io),
             Err(RunError::Aborted) => {
@@ -299,7 +350,7 @@ fn reset_channel() -> bool {
 /// the register setup and the 400ns delay, and the data goes straight into
 /// `buf` with `rep insw` (one VM exit per string instruction under a
 /// hypervisor rather than one per word). Callers hold [`IO`].
-fn pio_read_run(lba: u32, buf: &mut [u8]) -> Result<(), RunError> {
+fn pio_read_run(lba: u32, buf: &mut [u8], wait: Wait) -> Result<(), RunError> {
     let count = buf.len() / SECTOR_SIZE;
     if count == 0 || count > MAX_RUN || !buf.len().is_multiple_of(SECTOR_SIZE) {
         return Err(RunError::Device);
@@ -322,7 +373,7 @@ fn pio_read_run(lba: u32, buf: &mut [u8]) -> Result<(), RunError> {
 
     for sector in buf.as_chunks_mut::<SECTOR_SIZE>().0 {
         // The device raises DRQ once per sector of the run.
-        if !wait_not_busy() || !wait_for_data() {
+        if !wait_for_sector(wait) {
             return Err(RunError::Device);
         }
         // Safety: the data port is read-many within one sector transfer;
@@ -390,16 +441,41 @@ impl BlockDevice for AtaPio {
     }
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
-        self.check_range(lba, buf.len())?;
+        self.read_sectors_vectored_with(lba, &mut [buf], Wait::Spin)
+    }
+
+    fn read_sectors_vectored(&self, lba: u64, bufs: &mut [&mut [u8]]) -> Result<(), BlockError> {
+        self.read_sectors_vectored_with(lba, bufs, Wait::Spin)
+    }
+
+    /// Reads `bufs` back to back under one hold of the channel; a caller that
+    /// may sleep parks while the drive is busy ([`wait_for_sector`]).
+    fn read_sectors_vectored_with(
+        &self,
+        lba: u64,
+        bufs: &mut [&mut [u8]],
+        wait: Wait,
+    ) -> Result<(), BlockError> {
+        if bufs
+            .iter()
+            .any(|buf| !buf.len().is_multiple_of(SECTOR_SIZE))
+        {
+            return Err(BlockError::Unsupported);
+        }
+        let total: usize = bufs.iter().map(|buf| buf.len()).sum();
+        self.check_range(lba, total)?;
         // 28-bit LBA limit: refuse rather than truncate.
-        let end = lba + (buf.len() / SECTOR_SIZE) as u64;
+        let end = lba + (total / SECTOR_SIZE) as u64;
         if end > 1 << 28 {
             return Err(BlockError::Unsupported);
         }
         let _guard = IO.lock();
-        for (index, run) in buf.chunks_mut(MAX_RUN * SECTOR_SIZE).enumerate() {
-            let start = lba as u32 + (index * MAX_RUN) as u32;
-            read_run(start, run)?;
+        let mut at = lba as u32;
+        for buf in bufs.iter_mut() {
+            for run in buf.chunks_mut(MAX_RUN * SECTOR_SIZE) {
+                read_run(at, run, wait)?;
+                at += (run.len() / SECTOR_SIZE) as u32;
+            }
         }
         Ok(())
     }

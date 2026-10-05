@@ -15,6 +15,7 @@ use crate::block::{self, BlockDevice};
 use crate::task::wait::WaitQueue;
 use crate::task::WaitKind;
 
+mod ata;
 mod ext2;
 mod plan;
 mod virtio;
@@ -28,6 +29,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "block_sleep_virtio_killed_waiter",
         virtio::killed_waiter_finishes,
     ),
+    ("block_sleep_ata_threads", ata::threads_and_a_spinner),
     (
         "block_sleep_soak_ext2_threads",
         ext2::soak_threads_on_one_volume,

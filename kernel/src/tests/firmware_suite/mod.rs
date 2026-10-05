@@ -18,6 +18,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("fw_ata_waits_are_bounded", ata_waits_are_bounded),
     ("fw_ata_waits_end_by_deadline", ata_waits_end_by_deadline),
+    ("fw_ata_waits_pace_every_read", ata_waits_pace_every_read),
     ("fw_ata_probe_soak", ata_probe_soak),
     ("fw_i8042_probe_cases", i8042_probe_cases),
     ("fw_com1_probe_cases", com1_probe_cases),

@@ -24,6 +24,13 @@ On a finding the run keeps ``shot_fault.png``, ``serial.log``, ``report.json``
 ``info registers``), prints ``MONKEY: FAULT ...`` and exits 1. A clean run
 prints ``MONKEY: OK`` and exits 0. The image runs with ``-snapshot`` so the
 guest can never damage it.
+
+A display that stops changing is a freeze, except when the monitor shows the
+CPU in ring 0 at a port instruction (``freeze_probe``): that may be a long
+device poll rather than a hang (issue #449), so the guest gets ``--io-grace``
+more seconds to draw again; a recovery is noted in ``report.json`` as an
+``io_stalls`` entry instead of a finding. ``--ide-disk`` boots the image from
+IDE, as images did before virtio-blk, to exercise the ATA driver.
 """
 
 from __future__ import annotations
@@ -41,6 +48,7 @@ import sys
 import time
 from pathlib import Path
 
+from freeze_probe import port_io_stall
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
 DEFAULT_FATAL = [
@@ -204,6 +212,20 @@ def is_frozen(qmp: Qmp, out: Path, probes: int) -> bool:
     return True
 
 
+def monitor(qmp: Qmp):
+    """A ``command -> text`` view of the human monitor."""
+    return lambda command: str(qmp.execute("human-monitor-command", **{"command-line": command}))
+
+
+def recovers_from_io_stall(qmp: Qmp, out: Path, grace: float) -> bool:
+    """Whether a guest stalled at port I/O draws again within ``grace`` s."""
+    deadline = time.time() + grace
+    while time.time() < deadline:
+        if not is_frozen(qmp, out, 2):
+            return True
+    return False
+
+
 def capture_freeze(qmp: Qmp, out: Path, tail: Tail) -> str:
     """Registers, stack and an NMI-triggered HANG report for a frozen guest."""
     text = ""
@@ -241,7 +263,7 @@ def start_guest(args: argparse.Namespace, qemu: str, out: Path):
     port = free_port()
     extra = ["-snapshot", *args.extra_arg, *accel_args(args.accel, qemu)]
     command = build_qemu_command(qemu, str(Path(args.image).resolve()), port, serial,
-                                 args.memory, extra)
+                                 args.memory, extra, ide=args.ide_disk)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     try:
         return proc, Qmp("127.0.0.1", port, 60), serial
@@ -270,9 +292,9 @@ def build_desktop_image() -> None:
     ``cargo build`` yields a userspace-less image that never shows a desktop.
     """
     root = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location("catalog", root / "tools/lazygui/catalog.py")
-    catalog = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(catalog)
+    # `lazygui` is a package (catalog.py imports its siblings relatively).
+    sys.path.insert(0, str(root / "tools"))
+    catalog = importlib.import_module("lazygui.catalog")
     cfg = catalog.simple_config({"accel": "auto", "memory": DEFAULT_MEMORY, "qemu": "", "extra": ""},
                                 "dev", "Desktop")
     # The Terminal no longer opens by default; keep it in the soak so random
@@ -353,9 +375,18 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
             if args.probe_every > 0 and not report["found"] and now >= next_probe:
                 next_probe = time.time() + args.probe_every
                 if is_frozen(qmp, out, args.freeze_probes):
+                    stall = port_io_stall(monitor(qmp)) if args.io_grace > 0 else None
+                    if stall and recovers_from_io_stall(qmp, out, args.io_grace):
+                        note = {"t": round(time.time() - began, 1), "action": index, "where": stall}
+                        report.setdefault("io_stalls", []).append(note)
+                        print(f"monkey seed={seed}: display stalled ({stall}), recovered", flush=True)
+                        next_probe = time.time() + args.probe_every
+                        continue
                     hang = capture_freeze(qmp, out, tail)
+                    where = f" ({stall}, still frozen after {args.io_grace:g}s)" if stall else ""
                     report.update(found=True, kind="freeze",
-                                  detail="display unchanged after mouse input; " + (hang or "no HANG: report"))
+                                  detail="display unchanged after mouse input" + where + "; "
+                                  + (hang or "no HANG: report"))
                     break
             if now >= next_shot:
                 next_shot = now + args.shot_every
@@ -416,6 +447,11 @@ def main() -> int:
                    help="seconds between freeze probes (0 disables)")
     p.add_argument("--freeze-probes", type=int, default=3,
                    help="identical frames in a row that mean the guest is frozen")
+    p.add_argument("--io-grace", type=float, default=20.0,
+                   help="extra seconds a frozen display gets when the CPU is in ring 0 at "
+                        "port I/O, a possible long device poll (0: no grace)")
+    p.add_argument("--ide-disk", action="store_true",
+                   help="attach the image as IDE (the ATA driver) instead of virtio-blk")
     p.add_argument("--replay", metavar="ACTIONS.JSONL", help="re-send a recorded sequence")
     p.add_argument("--replay-tail", type=int, help="with --replay, only the last N actions")
     p.add_argument("--shot-every", type=float, default=15.0, help="seconds between shot_latest.png")
