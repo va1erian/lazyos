@@ -1,0 +1,11 @@
+[package]
+name = "cursorgfx"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Antialiased vector mouse-cursor sprites for xuid and Settings (docs/cursor-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "cursorgfx"
+path = "src/lib.rs"
