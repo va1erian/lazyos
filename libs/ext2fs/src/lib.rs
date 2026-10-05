@@ -34,8 +34,9 @@
 //!
 //! # Deliberate limits
 //!
-//! * No journal and no guessing: feature bits that change the layout we do not
-//!   understand (extents, 64-bit, htree, ...) are rejected in [`Ext2::open`].
+//! * No guessing: feature bits that change the layout we do not understand
+//!   (extents, 64-bit, htree, external journals, ...) are rejected in
+//!   [`Ext2::open`]. An internal JBD2 journal is understood (`journal/`).
 //! * Files are capped at [`MAX_FILE_SIZE`] (2 GiB - 1); directories may use
 //!   only the direct and single-indirect blocks.
 //! * No symlinks or device nodes yet: only files and directories are modelled,
@@ -61,6 +62,14 @@
 //! requests, and frees wait for that commit (`commit.rs`). The kernel and the
 //! host image build mount through the cache; the crash-ordering tests use the
 //! direct path. `docs/architecture/block-cache.md` has the crash semantics.
+//!
+//! # Journaling
+//!
+//! A volume formatted with a journal ([`Ext2::add_journal`]) mounts through
+//! the cache with metadata journaling: each commit logs the dirty metadata as
+//! one JBD2 transaction after the file data it points at is on the disk, and
+//! [`Ext2::open`] replays a log the last mount left behind.
+//! `docs/architecture/journal.md` has the design.
 
 #![no_std]
 
@@ -86,6 +95,7 @@ mod geometry;
 mod handle;
 mod indirect;
 mod io;
+mod journal;
 mod layout;
 mod links;
 mod open;
@@ -120,6 +130,7 @@ pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;
 pub use handle::FileHandle;
+pub use journal::MIN_JOURNAL_BLOCKS;
 pub use layout::MAX_FILE_SIZE;
 pub use orphans::{OrphanReport, MAX_SCAN_DIRS};
 #[cfg(any(test, feature = "check"))]
@@ -194,6 +205,11 @@ pub struct Ext2 {
     /// Whether frees wait for the next commit (`commit.rs`); on with a cache.
     defer_frees: bool,
     pending: Mutex<commit::Pending>,
+    /// The volume has a journal (`FEATURE_COMPAT_HAS_JOURNAL`); a cached
+    /// mount logs its metadata commits there (`journal/`).
+    journaled: bool,
+    /// Mount replayed a journal that held committed work.
+    recovered: bool,
     /// A write-back failed this mount: `s_state` will carry the error bit.
     errored: AtomicBool,
     /// ... and no `flush` caller has been told yet.
@@ -219,6 +235,11 @@ impl Ext2 {
     /// [`Ext2Error::ReadOnly`].
     pub fn is_read_only(&self) -> bool {
         self.read_only
+    }
+
+    /// Whether mounting replayed committed work from the journal.
+    pub fn journal_recovered(&self) -> bool {
+        self.recovered
     }
 
     /// Bytes per filesystem block.

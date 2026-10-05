@@ -1,0 +1,122 @@
+name: release
+
+# Release images (platform plan S9, docs/update-plan.md "Release pipeline"):
+# a `v*` tag builds the desktop USB stick image, boots it under OVMF from
+# usb-storage only and judges it (tools/boot/run.py), then attaches the
+# compressed image and its SHA-256 to a draft GitHub release that a person
+# publishes by hand. `workflow_dispatch` runs the same build and judge and
+# keeps the files as a workflow artifact, without a release, and so does a
+# pull request that changes this file.
+#
+# Signing joins this workflow with update phase U1: a `sign` job in the
+# `release` environment (required reviewer, tags only) will be the only step
+# that sees the Ed25519 key, and it signs the `.lzu` bundle's manifest.
+
+on:
+  push:
+    tags: ["v*"]
+  # A change to this workflow runs the build and judge on its PR (no release).
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Hermetic CI (docs/filesystem-plan.md F2): every image is created fresh.
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  build:
+    name: build and judge the USB stick image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # OVMF for the UEFI boot judge, musl-tools for the static programs.
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools ovmf
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: release
+          workspaces: |
+            . -> target
+            xui-app -> target
+
+      - uses: ./.github/actions/busybox
+
+      # The Docs app embeds litehtml (C++), built with zig (docs/xui-docs.md);
+      # a release must ship every desktop app, so zig is required here.
+      - name: Install zig (C++ toolchain for the Docs app)
+        run: python -m pip install ziglang==0.16.0
+
+      - name: Build the desktop apps
+        run: python tools/xui/build.py
+
+      - name: Build the images
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_USB: "1"
+          LAZYOS_USB_IMAGE: "1"
+        run: cargo build
+
+      # The verdict is the guest: UEFI boot from usb-storage alone, the RAM
+      # root, USB input bound and the desktop drawn (docs/usb-stick.md).
+      - name: Boot and judge (OVMF, USB only)
+        run: python tools/boot/run.py --no-build --out shots/release
+
+      - name: Compress and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="lazyos-${GITHUB_REF_NAME//\//-}-usb.img"
+          mkdir -p dist
+          cp --sparse=always target/lazyos-usb.img "dist/$name"
+          xz -T0 -6 "dist/$name"
+          (cd dist && sha256sum "$name.xz" > "$name.xz.sha256")
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-images
+          path: dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-boot-evidence
+          path: shots/release/
+          if-no-files-found: ignore
+
+  publish:
+    name: draft the GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-images
+          path: dist
+
+      # A draft: nothing is public until a person reads it and publishes it.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --draft --verify-tag --generate-notes --title "LazyOS $GITHUB_REF_NAME"

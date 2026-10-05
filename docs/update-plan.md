@@ -201,6 +201,36 @@ from the stick; see "Sources".
 | Dev host push | NIC, `netd` | `tools/update/push.py --host <ip>`: the build host serves the fresh bundle and asks `updated` to fetch it; the fast loop for testing on the real machine |
 | Reinstall | nothing new | boot the USB stick image and run the installer (NVMe install effort) over the active slot, keeping `state` and `lazyhome`: the update path before `updated` exists, and the repair path after |
 
+## Release pipeline
+
+**Decided (2026-10-04): GitHub Actions signs releases.** `.github/workflows/release.yml`
+builds every `v*` tag: the desktop USB stick image, booted under OVMF from
+`usb-storage` alone and judged by `tools/boot/run.py`, compressed with its
+SHA-256 and attached to a **draft** release that a person publishes. The NVMe
+image (#564) and, from U1, the `.lzu` bundle join the same job.
+
+Signing is a separate job so the key is exposed to as little as possible:
+
+- The Ed25519 private key is a secret of a GitHub **environment** named
+  `release`, never a repository secret. The environment only accepts tag refs
+  matching `v*`, and it requires the maintainer's approval, so a tag pushed by
+  a compromised token waits for a person before anything is signed.
+- The `sign` job only downloads the built bundle, signs `manifest.toml` and
+  uploads `manifest.sig`. It checks out no code and runs no build, so the
+  key is never in a process that compiled or ran something from the
+  repository.
+- `v*` tags are protected (a tag ruleset: only the maintainer creates them,
+  nobody can update or delete them).
+- The matching public key is committed under the image's
+  `/system/etc/update/keys/`. Rotating it means one release signed by the old
+  key that ships the new public key; the old one is then removed.
+- An offline copy of the private key (a password manager or a USB key) is the
+  recovery path if the GitHub account is lost. Without it, a lost key means a
+  reinstall from the stick to trust a new one.
+
+Pull requests and `main` never see the key. `workflow_dispatch` and pull
+requests that change the workflow run the build and judge, with no release.
+
 ## Phases
 
 Each is independently shippable. Kernel-facing phases ship correctness and
@@ -212,7 +242,7 @@ out as above), because a broken updater is found in CI, not on the mini PC.
 | Phase | Deliverable | Tests and evidence |
 |---|---|---|
 | **U0** Layout | With the NVMe install (#564): its GPT reader and layout, state moved from slot A to the `state` partition, the build writing the slot volume and the state volume separately, `system=` in `lazyos.cfg`, `/` on the state volume and `/system` mounted read-only from the slot, `/docs/os` moved to `/system/docs`; reinstall-over-slot keeping state and home | `fs` suite: `system=` mounts, writes to `/system` fail with `EROFS`; harness: install, write a file to `/home` and a confd key, reinstall a newer build, both survive |
-| **U1** Bundles | `libs/lzupdate` (manifest schema with `deny_unknown_fields`, container via `lazypkg`'s reader, Ed25519 verify), `tools/update/build.py` (images from `target/`, manifest, sign with a key file), `cargo build` writes `target/lazyos-<rel>.lzu` when `LAZYOS_UPDATE_KEY` is set; CI attaches unsigned bundles to every run and signed ones to tags | `cargo test -p lzupdate`: wrong key, flipped byte in each image, manifest with an unknown field, downgrade, wrong hardware profile, oversize entry, zip64; fuzz entry on the manifest and container; `test_build.py` cross-checks host and guest rules |
+| **U1** Bundles | `libs/lzupdate` (manifest schema with `deny_unknown_fields`, container via `lazypkg`'s reader, Ed25519 verify), `tools/update/build.py` (images from `target/`, manifest, sign with a key file), `cargo build` writes `target/lazyos-<rel>.lzu` when `LAZYOS_UPDATE_KEY` is set; `release.yml` gains the `sign` job above, CI attaches unsigned bundles to every run and signed ones to tags | `cargo test -p lzupdate`: wrong key, flipped byte in each image, manifest with an unknown field, downgrade, wrong hardware profile, oversize entry, zip64; fuzz entry on the manifest and container; `test_build.py` cross-checks host and guest rules |
 | **U2** Boot shim and control block | `libs/bootctl` (host-tested), the forked UEFI stage as `build_support/shim/` producing `BOOTX64.EFI` (control block, ext2 read of the slot's kernel, fallback to the ESP kernel), kernel reads the block, `UPDATE:SLOT` line, trial-boot panic reboots after 10 s | `cargo test -p bootctl`: torn writes of either copy, CRC errors, sequence wrap, every rule above; harness under OVMF: boot A; mark B pending with a kernel that panics, the machine ends on A after three tries with `UPDATE:FALLBACK` logged, `UPDATE:SLOT:a`, `/system` mounted from `lazyos-a`, and a `/conf` key written by the failing B restored to A's value; corrupt `lazyboot` entirely, the ESP kernel still boots |
 | **U3** `updated` and `updatectl` | the service, the `os.lazy.update.v1` IDL, the kernel partition grant, install from a file, mark-good from health, rollback, `/logs/update.log` | harness: install bundle N+1 from `/home`, reboot, `UPDATE:GOOD b`, `/system` is N+1, `/apps` core packages upgraded, settings kept; power off QEMU mid-write, reboot, still on N and `updatectl status` explains; `updatectl rollback` returns to N; security suite: an unlabelled app cannot reach `os.lazy.update.v1` and no process but `updated` can open a slot partition |
 | **U4** Network and UI | feed client in `updated` (rustls, the system CA bundle, the feed's TLS pinned to GitHub's hosts), channels `stable` and `dev`, daily check, a Settings "Updates" page (check, release notes, install, restart, rollback, last result), `tools/update/push.py` | harness with a local HTTPS server under the test CA (as `tools/net/tls_run.py`): update found, downloaded, installed, booted; truncated download, wrong digest, expired feed are refused and explained; screenshot of the Settings page read |
@@ -232,9 +262,6 @@ Order of what has to exist before the machine can update itself:
 
 ## Open questions
 
-- **Who signs releases?** A key held only on the developer's machine (sign
-  locally, upload by hand) or a GitHub Actions secret (every tag signed by
-  CI). The second is convenient and makes the CI account the root of trust.
 - **Where does state live?** This plan adds a `state` partition. The
   alternative is keeping `/apps`, `/conf`, `/logs` on the home volume, which
   saves a partition but mixes system state with user files on a volume users

@@ -113,6 +113,7 @@ impl<'a> Checker<'a> {
 
     fn run(&mut self) {
         self.mark_metadata();
+        self.check_journal();
         let links = self.walk_tree();
         self.check_inode_bitmaps(&links);
         self.check_block_bitmaps();
@@ -157,6 +158,35 @@ impl<'a> Checker<'a> {
                     _ => self.problem(format!("metadata block {n} out of range or doubly used")),
                 }
             }
+        }
+    }
+
+    /// The journal inode owns the log, and the log must be empty: a log with
+    /// committed work is what `e2fsck` replays, so an image in that state is
+    /// reported until a mount (or the check) has replayed it.
+    fn check_journal(&mut self) {
+        let sb = |at: usize| le32(self.d, 1024 + at);
+        if sb(0x5C) & 0x4 == 0 {
+            return;
+        }
+        if sb(0xE0) != 8 || self.inodes < 8 {
+            return self.problem("journal inode is not inode 8".to_string());
+        }
+        if sb(0x60) & 0x4 != 0 {
+            self.problem("journal needs recovery (needs_recovery flag)".to_string());
+        }
+        let inode = self.inode(8);
+        self.claim_blocks(8, inode);
+        let first = le32(inode, 0x28) as usize;
+        if first == 0 || (first + 1) * self.bs > self.d.len() {
+            return self.problem("journal inode has no first block".to_string());
+        }
+        let jsb = &self.d[first * self.bs..(first + 1) * self.bs];
+        let be = |at: usize| u32::from_be_bytes([jsb[at], jsb[at + 1], jsb[at + 2], jsb[at + 3]]);
+        if be(0) != 0xC03B_3998 {
+            self.problem("journal superblock has no magic".to_string());
+        } else if be(0x1C) != 0 {
+            self.problem("journal needs recovery (log not empty)".to_string());
         }
     }
 

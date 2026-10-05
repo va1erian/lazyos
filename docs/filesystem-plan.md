@@ -74,7 +74,7 @@ directories are a **separate volume**.
 | Accounts | Two hardcoded accounts, no account management: `admin` (uid 0, home `/home/admin`) and `user` (uid 1000, home `/home/user`). They replace `root` and `alice`. Defaults in `/system/etc/passwd`; `CreateUser` stays out of scope. |
 | Core apps | Shipped as lzp in `/system/packages`, installed by `pkgd` into `/apps` with `origin = core`. They **cannot be removed** (`pkgd` refuses and audits; the installer shows no Remove button) but can be **hidden from the menu**: per-user confd key `user/menu/hidden/<system_name>`, machine default under `sys/menu/hidden/`. Hiding affects only the menu: MIME "open with" and launch-by-name still work. A user may install a newer version of a core app over it. |
 | Rebuilds | The image is created on first build or `--reset-os`; later builds **update it offline** (rewrite `/boot`, `/system`, `/docs/os`), keeping `/apps`, `/conf`, `/logs` and `/docs/apps`. `pkgd` upgrades core packages at the next boot. `home.img` is created once and erased only by `--reset-home`. CI always uses a fresh image and no home disk. |
-| Deferred to the next iteration | Real account management, crash safety in the kernel (journal or boot-time fsck; the image build already repairs what a crash leaves, offline, see section 5), symlinks, quotas, AHCI/NVMe. |
+| Deferred to the next iteration | Real account management, crash safety in the kernel (a journal now exists as an opt-in, `LAZYOS_JOURNAL=1`, docs/architecture/journal.md; boot-time fsck; the image build already repairs what a crash leaves, offline, see section 5), symlinks, quotas, AHCI/NVMe. |
 
 ## 4. Phases
 

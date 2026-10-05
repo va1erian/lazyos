@@ -23,6 +23,9 @@ impl BlockCache {
         if self.dirty == 0 {
             return Ok(());
         }
+        if self.journal.is_some() {
+            return self.flush_journaled(io);
+        }
         let order = self.order(io);
         self.stats.writebacks += 1;
         let mut start = 0;
@@ -60,7 +63,7 @@ impl BlockCache {
 
     /// One past the last entry of the run starting at `start`: same phase,
     /// consecutive blocks, at most `max_run` long.
-    fn run_end(&self, order: &[(Phase, u64, usize)], start: usize) -> usize {
+    pub(super) fn run_end(&self, order: &[(Phase, u64, usize)], start: usize) -> usize {
         let (phase, first, _) = order[start];
         let mut end = start + 1;
         while end < order.len()
@@ -74,7 +77,11 @@ impl BlockCache {
     }
 
     /// Write one run as a single request and mark it clean.
-    fn write_run(&mut self, io: &dyn BlockIo, run: &[(Phase, u64, usize)]) -> Result<(), IoError> {
+    pub(super) fn write_run(
+        &mut self,
+        io: &dyn BlockIo,
+        run: &[(Phase, u64, usize)],
+    ) -> Result<(), IoError> {
         let first = run[0].1;
         let result = {
             let bufs: Vec<&[u8]> = run

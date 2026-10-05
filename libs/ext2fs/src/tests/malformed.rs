@@ -99,9 +99,13 @@ fn unknown_feature_bits_are_not_supported() {
         let io = with_superblock(|sb| set32(sb, 0x64, 0x3 | bit));
         assert_eq!(open_err(&io), Ext2Error::NotSupported, "ro_compat {bit:#x}");
     }
-    // Compat bits (journal, dir_index, ...) do not change how blocks are read.
-    let ok = with_superblock(|sb| set32(sb, 0x5C, 0x3C));
+    // Compat bits (dir_index, ...) do not change how blocks are read.
+    let ok = with_superblock(|sb| set32(sb, 0x5C, 0x38));
     assert!(Ext2::open(Box::new(ok), clock).is_ok());
+    // The journal bit does: a volume that claims a journal it does not have
+    // (no journal inode) is refused rather than mounted without one.
+    let claimed = with_superblock(|sb| set32(sb, 0x5C, 0x4));
+    assert_eq!(open_err(&claimed), Ext2Error::NotSupported);
 }
 
 #[test]

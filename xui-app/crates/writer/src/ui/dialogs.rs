@@ -62,6 +62,7 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
 
     Ok(Dialogs {
         page: super::page_menu::build(ui),
+        table: super::table_menu::build(ui),
         open,
         save,
         export,

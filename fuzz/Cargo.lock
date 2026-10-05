@@ -276,7 +276,9 @@ dependencies = [
  "modplay",
  "netstack",
  "nicdrv",
+ "nvme",
  "usbhid",
+ "usbmsc",
  "virtio-net",
 ]
 
@@ -352,6 +354,10 @@ dependencies = [
  "virtio",
  "virtio-net",
 ]
+
+[[package]]
+name = "nvme"
+version = "0.1.0"
 
 [[package]]
 name = "password-hash"
@@ -578,6 +584,10 @@ checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
 
 [[package]]
 name = "usbhid"
+version = "0.1.0"
+
+[[package]]
+name = "usbmsc"
 version = "0.1.0"
 
 [[package]]

@@ -24,6 +24,7 @@
 pub mod ata;
 pub mod iowait;
 pub mod mem;
+pub mod nvme;
 pub mod partition;
 pub mod provider;
 pub mod stats;
@@ -312,6 +313,29 @@ pub(crate) fn install_virtio(
     let device = virtio::attach_function(function)?;
     let _ = register(device);
     if !boot_device().is_some_and(|boot| boot.name().starts_with("virtio")) {
+        set_boot_device(device);
+    }
+    serial_println!(
+        "block: {} ready, {} sectors",
+        device.name(),
+        device.sector_count()
+    );
+    Some(device)
+}
+
+/// Attach one NVMe controller and register it. It takes the boot slot only
+/// when no earlier driver found a disk (docs/nvme-install-plan.md N1): the
+/// root is chosen by UUID from `lazyos.cfg` on any device, so the boot slot
+/// is only the legacy fallback. Called by the device core's driver entry
+/// once per matching function.
+pub(crate) fn install_nvme(
+    function: crate::dev::pci::Function,
+    bar: u64,
+    len: u64,
+) -> Option<&'static dyn BlockDevice> {
+    let device = nvme::attach_function(function, bar, len)?;
+    let _ = register(device);
+    if boot_device().is_none() {
         set_boot_device(device);
     }
     serial_println!(

@@ -49,6 +49,8 @@ pub struct Tools {
     pub page_view: Rc<ToggleButton<Msg>>,
     /// Opens the Page setup menu under itself.
     pub page_setup: Rc<Button<Msg>>,
+    /// Opens the Table menu under itself.
+    pub table: Rc<Button<Msg>>,
     /// The icon-only buttons' names, shown on hover.
     pub tips: Vec<Tooltip<Msg>>,
 }

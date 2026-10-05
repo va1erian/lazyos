@@ -479,6 +479,16 @@ A session's `quit` kills QEMU without a sync, so a session whose files a later
 boot reads (`lazyrad_home.json` before `lazyrad_home_project.json`) waits a few
 seconds past the flusher's 5 s before it quits.
 
+## ext2 journal (`LAZYOS_JOURNAL=1`)
+
+The OS volume can carry an internal JBD2 journal ([`docs/architecture/journal.md`](docs/architecture/journal.md)):
+metadata commits are atomic transactions, replayed at mount, so a power cut
+needs no repair. `python tools/run_demo.py --journal` (or the launcher's
+Advanced tab) builds it in; an existing image gets one on the next in-place
+update. Host tests: `cargo test -p ext2fs journal` (a power cut at every write,
+then the independent checker must find nothing) and
+`cargo test -p build-support-tests journal`.
+
 ## Shutdown and reboot
 
 Only `init` stops the machine ([`docs/shutdown.md`](docs/shutdown.md)): its

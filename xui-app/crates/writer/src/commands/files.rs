@@ -18,7 +18,7 @@ use xui_rich_text::edit::Command;
 use xui_rich_text::model::{Document, Selection};
 
 use crate::app::{After, Msg, Writer};
-use crate::commands::{format, refresh_title, selection, words_label};
+use crate::commands::{format, refresh_table, refresh_title, selection, words_label};
 use crate::files;
 use crate::names;
 
@@ -105,6 +105,7 @@ fn saved_path(app: &Writer) -> Option<PathBuf> {
 fn load(app: &mut Writer, ui: &mut Ui<Msg>, doc: Document, path: Option<PathBuf>) {
     let words = files::word_count(&doc);
     app.editor.set_document(doc);
+    refresh_table(app);
     app.path = path;
     app.dirty = false;
     app.summary = None;

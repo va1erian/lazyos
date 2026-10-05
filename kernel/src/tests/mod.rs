@@ -195,6 +195,7 @@ mod mem_suite;
 mod messenger_suite;
 mod mount_suite;
 mod native_exec_suite;
+mod nvme_suite;
 mod overlay_suite;
 mod partition_suite;
 mod pipe_suite;
@@ -267,6 +268,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    nvme_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,

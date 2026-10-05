@@ -35,6 +35,15 @@ delivery.
   `actions[NSIG]`, `infos[NSIG]`, `altstack`, `on_altstack`. `NSIG = 65`.
 - `Disposition`: `Default`, `Ignore`, or `Handler { handler, flags, restorer,
   mask }`. `SIGKILL`/`SIGSTOP` are uncatchable (`UNCATCHABLE`).
+- `SIGKILL` and a task parked inside the kernel (#558): a task whose saved
+  frame is a user frame is ended where it stands; one blocked, stopped or
+  mid-call in the kernel may hold a lock or request slot (an ext2 gate, a block
+  provider request), so it only gets `SIGKILL` pending and a
+  `WakeReason::Interrupted` wake, unwinds through its syscall and dies at the
+  syscall return or in the sweep. Kernel waits that would park again check
+  `signal::killed(slot)`; a killed requester waiting on a block provider
+  naps one tick at a time until its request completes (never abandoned).
+  `execve` carries a pending kill over to the new image.
 - `default_action` classifies term / core / stop / cont / ignore.
 - `kill` implements Linux pid encoding: pid, 0 (own group), -1 (all but init),
   negative (process group). `send_tid`/`kill` share `send_to_slot`.

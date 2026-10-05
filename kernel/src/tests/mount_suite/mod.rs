@@ -49,6 +49,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         library_image::library_formatted_root_mounts,
     ),
     (
+        "mount_journaled_root_power_cut_sweep",
+        library_image::library_journaled_root_power_cut_sweep,
+    ),
+    (
         "mount_root_power_cycle_marks_clean",
         power_cycle::root_power_cycle_marks_clean,
     ),

@@ -48,6 +48,7 @@ Where to read next:
 - [`docs/platform-plan.md`](docs/platform-plan.md): current baseline, the staged roadmap (S0-S9) and where each stage stands.
 - [`docs/architecture.md`](docs/architecture.md): terse per-subsystem reference (boot, memory, tasks, filesystem, IPC, processes, display).
 - [`docs/messenger.md`](docs/messenger.md), [`docs/security-model.md`](docs/security-model.md), [`docs/linux-abi-plan.md`](docs/linux-abi-plan.md), [`docs/xui-plan.md`](docs/xui-plan.md).
+- [`docs/lazyweb.md`](docs/lazyweb.md) (the browser), [`docs/tls-plan.md`](docs/tls-plan.md) (HTTPS), [`docs/performance-plan.md`](docs/performance-plan.md) (latency and responsiveness), [`docs/hidpi-plan.md`](docs/hidpi-plan.md) (2x desktop).
 
 ## Prerequisites
 
@@ -100,7 +101,8 @@ window focus and typed input goes to the focused program.
 `LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo build` also writes
 `target/lazyos-usb.img`, one image that boots a PC in UEFI or legacy BIOS mode
 from a USB stick and runs from RAM, with `/home` kept on the stick;
-`tools/boot/write_stick.py` writes it and
+`tools/boot/stick_gui.py` builds and writes it from a window
+(`tools/boot/write_stick.py` from the command line) and
 `tools/boot/run.py` boots it in QEMU. See [`docs/usb-stick.md`](docs/usb-stick.md).
 
 ### Scripted sessions and screenshots

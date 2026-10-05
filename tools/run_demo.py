@@ -26,6 +26,7 @@ Examples
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -202,6 +203,8 @@ def main(argv: list[str]) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
+    parser.add_argument("--build-only", action="store_true",
+                        help="build the image(s) and exit without booting QEMU")
     parser.add_argument("--release", action="store_true",
                         help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
@@ -298,6 +301,12 @@ def main(argv: list[str]) -> int:
                              "`wget` and `fetch` in /system/bin, one rustls program that "
                              "verifies certificates against /etc/ssl/certs, built by "
                              "tools/nettls/build.py (docs/tls-plan.md)")
+    parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
+                        help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
+                             "commits are logged and replayed after a crash, so an unclean "
+                             "stop needs no repair (docs/architecture/journal.md). BLOCKS "
+                             "sets the log size; default 4096 blocks (16 MiB). An existing "
+                             "image gets one on the next in-place update")
     parser.add_argument("--lazyweb", action="store_true",
                         help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
                              "a core package; NetSurf compiled with zig by tools/xui/build.py), "
@@ -334,6 +343,8 @@ def main(argv: list[str]) -> int:
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:
         parser.error("--reset-home conflicts with --no-home-disk")
+    if args.build_only and args.no_build:
+        parser.error("--build-only conflicts with --no-build")
     if args.reset_os and args.no_build:
         parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
     try:
@@ -390,6 +401,8 @@ def main(argv: list[str]) -> int:
             if not build_tls():
                 return 1
             env["LAZYOS_TLS"] = "1"
+        if args.journal:
+            env["LAZYOS_JOURNAL"] = args.journal
         if args.lazyweb:
             if not build_lazyweb():
                 return 1
@@ -432,6 +445,8 @@ def main(argv: list[str]) -> int:
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
+        if args.build_only:
+            return 0
 
     image = Path(args.image)
     if not image.is_file():

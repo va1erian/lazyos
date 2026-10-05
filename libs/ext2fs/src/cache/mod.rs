@@ -24,9 +24,11 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
+use crate::journal::Journal;
 use crate::{BlockIo, IoError, SECTOR_SIZE};
 
 mod flush;
+mod journaled;
 pub mod memory;
 mod range;
 pub mod roles;
@@ -63,6 +65,9 @@ struct Slot {
     dirty: bool,
     /// Allocated and not written back since ([`roles::Phase::Fresh`]).
     fresh: bool,
+    /// Holds file data, which a journaled volume writes straight home ahead
+    /// of the transaction instead of logging it.
+    data: bool,
     /// CLOCK's second-chance bit.
     referenced: bool,
 }
@@ -92,6 +97,8 @@ pub(crate) struct BlockCache {
     last_miss: Option<u64>,
     /// A writeback request failed since [`BlockCache::take_failure`].
     failed: bool,
+    /// The volume journal, when metadata commits go through it.
+    journal: Option<Journal>,
     stats: CacheStats,
 }
 
@@ -117,6 +124,7 @@ impl BlockCache {
             hand: 0,
             last_miss: None,
             failed: false,
+            journal: None,
             stats: CacheStats::default(),
         }
     }
@@ -156,19 +164,21 @@ impl BlockCache {
     }
 
     /// Replace `block` with `buf` (one block long) and mark it dirty. `fresh`
-    /// says the block was just allocated (see [`roles::Phase::Fresh`]).
+    /// says the block was just allocated (see [`roles::Phase::Fresh`]); `data`
+    /// says it holds file data rather than metadata.
     pub fn write(
         &mut self,
         io: &dyn BlockIo,
         block: u64,
         buf: &[u8],
         fresh: bool,
+        data: bool,
     ) -> Result<(), IoError> {
         let index = match self.map.get(&block) {
             Some(&index) => index,
             None => {
                 if self.dirty >= self.dirty_limit {
-                    self.flush(io)?; // bound the dirty set before it grows
+                    self.relieve(io)?; // bound the dirty set before it grows
                 }
                 let index = self.take_slot(io, true)?;
                 self.map.insert(block, index);
@@ -180,6 +190,7 @@ impl BlockCache {
         page_mut(slot)[..self.block_size].copy_from_slice(buf);
         slot.referenced = true;
         slot.fresh |= fresh;
+        slot.data = data;
         if !slot.dirty {
             slot.dirty = true;
             self.dirty += 1;
@@ -264,6 +275,7 @@ impl BlockCache {
                     page: Some(page),
                     dirty: false,
                     fresh: false,
+                    data: false,
                     referenced: false,
                 };
                 return Ok(match self.bare.pop() {
@@ -284,6 +296,12 @@ impl BlockCache {
         if !may_flush || self.dirty == 0 {
             return Err(IoError::Failed); // no memory at all
         }
+        self.relieve(io)?;
+        if let Some(index) = self.evict() {
+            return Ok(index);
+        }
+        // Only metadata is dirty: commit it, accepting a transaction that
+        // ends mid-operation, since no page can be had otherwise.
         self.flush(io)?;
         self.evict().ok_or(IoError::Failed)
     }

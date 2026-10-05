@@ -101,6 +101,9 @@ fn sync_filesystems() {
         Ok(()) => crate::serial_println!("power: filesystems synced"),
         Err(error) => crate::serial_println!("power: sync failed: {}", error.message()),
     }
+    // NVMe controllers write their caches back and say when power may go
+    // (docs/nvme-install-plan.md N1); nothing writes after this.
+    crate::block::nvme::shutdown_all();
 }
 
 /// The 8042 status port and its input-buffer-full bit.
