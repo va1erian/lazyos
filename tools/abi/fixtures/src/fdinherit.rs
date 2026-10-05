@@ -2,11 +2,13 @@
 //! the child it `fork`s and `execve`s, and the child's `write`/`writev` land in
 //! the file: the shell's `prog >/tmp/out 2>&1` and `prog >>/tmp/out`, done by
 //! hand with raw syscalls, plus the same through `std::process::Command`.
+//! The read side too: `prog <file`, a file as the child's descriptor 0.
 
 mod common;
 
 use std::ffi::CString;
 use std::fs::OpenOptions;
+use std::io::Read;
 use std::os::raw::{c_char, c_int, c_void};
 use std::process::Command;
 
@@ -14,6 +16,11 @@ use std::process::Command;
 /// finds it again through the `/system/bin` lookup.
 const PROGRAM: &str = "abi-init";
 const OUT: &str = "/tmp/fdinherit.out";
+const IN: &str = "/tmp/fdinherit.in";
+/// What the `<` runs' input file holds.
+const INPUT: &str = "line one\nline two\nline three\n";
+
+const O_RDONLY: c_int = 0;
 
 const O_WRONLY: c_int = 0o1;
 const O_CREAT: c_int = 0o100;
@@ -43,6 +50,15 @@ unsafe extern "C" {
 /// `write` on stderr (redirected to the same file by `2>&1`).
 fn expected(tag: &str) -> String {
     format!("{tag}:write\n{tag}:writev-a{tag}:writev-b\n{tag}:stderr\n")
+}
+
+/// Child mode `readin`: read descriptor 0 to its end and exit 0 only if it
+/// is `INPUT` (a `<` redirection starts at offset 0 and ends at EOF).
+fn readin() -> ! {
+    let mut got = String::new();
+    let ok = std::io::stdin().lock().read_to_string(&mut got).is_ok() && got == INPUT;
+    // SAFETY: `_exit` takes no pointers.
+    unsafe { _exit(if ok { 0 } else { 3 }) }
 }
 
 /// Child mode: write the run's lines through descriptors 1 and 2 and exit 0
@@ -115,6 +131,44 @@ fn redirect_run(tag: &str, flags: c_int, exec: bool) -> Result<c_int, String> {
     Ok(status)
 }
 
+/// `fork`; in the child open `IN` read-only, `dup2` it onto 0 and (with
+/// `exec`) `execve` this program as `readin`, else read in place.
+fn stdin_run(exec: bool) -> Result<c_int, String> {
+    let path = CString::new(IN).unwrap();
+    let program = CString::new(PROGRAM).unwrap();
+    let arg1 = CString::new("readin").unwrap();
+    let argv = [program.as_ptr(), arg1.as_ptr(), std::ptr::null()];
+    let envp = [std::ptr::null()];
+    // SAFETY: the child only calls async-signal-safe libc functions (open,
+    // dup2, close, execve, _exit) on buffers prepared before the fork, and
+    // then `readin`, which touches no other thread's state.
+    let pid = unsafe { fork() };
+    if pid < 0 {
+        return Err("fork failed".into());
+    }
+    if pid == 0 {
+        // SAFETY: as above; `path`, `argv` and `envp` are NUL-terminated and live.
+        unsafe {
+            let fd = open(path.as_ptr(), O_RDONLY);
+            if fd < 0 || dup2(fd, 0) != 0 {
+                _exit(4);
+            }
+            close(fd);
+            if !exec {
+                readin();
+            }
+            execve(program.as_ptr(), argv.as_ptr(), envp.as_ptr());
+            _exit(5);
+        }
+    }
+    let mut status: c_int = 0;
+    // SAFETY: `status` is a live c_int.
+    if unsafe { waitpid(pid, &mut status, 0) } != pid {
+        return Err("waitpid failed".into());
+    }
+    Ok(status)
+}
+
 /// Record a failed check; every failure is reported, not only the first.
 fn check(failures: &mut Vec<String>, what: &str, ok: bool) {
     if !ok {
@@ -130,6 +184,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("child") {
         child(args.get(2).map(String::as_str).unwrap_or("?"));
+    }
+    if args.get(1).map(String::as_str) == Some("readin") {
+        readin();
     }
     let mut failures = Vec::new();
 
@@ -199,6 +256,25 @@ fn main() {
             );
         }
         Err(e) => check(&mut failures, &format!("open for std: {e}"), false),
+    }
+
+    // `prog <IN`: through fork + execve, in a forked child, and std's spawn.
+    match std::fs::write(IN, INPUT) {
+        Ok(()) => {
+            let status = stdin_run(true);
+            check(&mut failures, &format!("exec < status {status:?}"), status == Ok(0));
+            let status = stdin_run(false);
+            check(&mut failures, &format!("fork < status {status:?}"), status == Ok(0));
+            match std::fs::File::open(IN) {
+                Ok(input) => {
+                    let status = Command::new(PROGRAM).arg("readin").stdin(input).status();
+                    let ok = matches!(&status, Ok(s) if s.success());
+                    check(&mut failures, &format!("std < status {status:?}"), ok);
+                }
+                Err(e) => check(&mut failures, &format!("open for std <: {e}"), false),
+            }
+        }
+        Err(e) => check(&mut failures, &format!("write {IN}: {e}"), false),
     }
 
     common::report("fdinherit", failures.is_empty(), &failures.join("; "));

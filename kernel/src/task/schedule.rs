@@ -189,6 +189,7 @@ fn install(slot: usize) -> u64 {
         // that selection on today's single-CPU scheduler. Revisit if SMP
         // (platform-plan.md S8) introduces a window where another core can
         // clear a slot without holding this same lock across the whole span.
+        #[allow(clippy::unwrap_used)]
         let task = tasks[slot].as_ref().unwrap();
         (task.pml4, task.kstack_top, task.rsp, task.fs_base)
     };

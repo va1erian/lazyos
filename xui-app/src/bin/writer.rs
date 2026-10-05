@@ -86,11 +86,5 @@ fn main() -> std::process::ExitCode {
         writer
     });
     backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("WRITER:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    std::process::ExitCode::from(xui_app::launch::finish("WRITER", outcome))
 }

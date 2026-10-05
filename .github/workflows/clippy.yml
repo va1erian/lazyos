@@ -39,7 +39,11 @@ jobs:
 
       # rust-toolchain.toml pins the nightly toolchain, target, and the
       # clippy component; rustup installs it on first use.
-      - name: Clippy (kernel, unsafe-comment lint denied)
+      # Issue #486: a bare unwrap/expect in kernel/src fails here. The
+      # `unwrap_used`/`expect_used` lints are denied by the crate attributes in
+      # kernel/src/main.rs (kernel/src/tests/ is exempt) instead of with `-D`
+      # on the command line, which would also hit the path dependencies.
+      - name: Clippy (kernel, unsafe-comment and unwrap/expect lints denied)
         run: |
           cargo clippy -p kernel --target x86_64-unknown-none \
             -Zbuild-std=core,alloc \

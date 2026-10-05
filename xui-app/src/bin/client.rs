@@ -131,11 +131,5 @@ fn main() {
         });
 
     backend.unbind();
-    match outcome {
-        Ok(()) => std::process::exit(0),
-        Err(error) => {
-            println!("XUIAPP:RUN:FAIL:{error}");
-            std::process::exit(1);
-        }
-    }
+    std::process::exit(i32::from(xui_app::launch::finish("XUIAPP", outcome)))
 }

@@ -73,11 +73,33 @@ where
         .backend(Rc::clone(&backend) as Rc<dyn Backend>)
         .run(|ui| make(ui, &backend));
     backend.unbind();
+    std::process::exit(i32::from(finish(marker, outcome)))
+}
+
+/// The process exit status for an app's `run` outcome, reporting a failure as
+/// `<marker>:RUN:FAIL:<error>`.
+///
+/// A window closed before its first attach (issue #498: the user, or monkey
+/// input, dismissed it while it opened) is not a failure: it prints
+/// `<marker>:RUN:CLOSED` and exits 0, so `init` does not mark the app
+/// degraded.
+pub fn finish<E: std::fmt::Display>(marker: &str, outcome: Result<(), E>) -> u8 {
     match outcome {
-        Ok(()) => std::process::exit(0),
+        Ok(()) => 0,
+        // The flag is process-wide, so the error must also be the close the
+        // backend reported (its text), not an unrelated failure of the app.
+        Err(error)
+            if crate::client_window::closed_while_opening()
+                && error
+                    .to_string()
+                    .contains(&crate::client_window::OpenError::Closed.to_string()) =>
+        {
+            println!("{marker}:RUN:CLOSED");
+            0
+        }
         Err(error) => {
             println!("{marker}:RUN:FAIL:{error}");
-            std::process::exit(1);
+            1
         }
     }
 }

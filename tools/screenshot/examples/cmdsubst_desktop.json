@@ -15,6 +15,12 @@
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:pwd:/system", "timeout": 60},
   {"at": 1.0, "type": "echo SUB:pipe:$(ls / | wc -l)"},
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:pipe:", "timeout": 60},
+  {"at": 1.0, "type": "echo SUB:tr:$(echo hello | tr a-z A-Z)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:tr:HELLO", "timeout": 60},
+  {"at": 1.0, "type": "echo SUB:nested:$(echo $(echo deep))"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:nested:deep", "timeout": 60},
+  {"at": 1.0, "type": "echo hi | echo SUB:inpipe:$(echo ok)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:SUB:inpipe:ok", "timeout": 60},
   {"at": 3.0, "shot": "01_desktop_subst"},
   {"at": 4.0, "quit": true}
 ]

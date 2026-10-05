@@ -136,7 +136,7 @@ def fetch(name: str) -> Path | None:
     if (tree / EXTRACTED_MARK).is_file():
         return tree
     archive = CACHE / pin.archive
-    if not doom_fetch.download(pin.url, archive, pin.sha256):
+    if not doom_fetch.download(pin.url, archive, pin.sha256, log):
         return None
     staging = CACHE / f".extract-{name}"
     shutil.rmtree(staging, ignore_errors=True)

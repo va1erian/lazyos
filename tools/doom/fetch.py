@@ -54,8 +54,10 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download(url: str, dest: Path, digest: str) -> bool:
-    """`dest` holding `url`'s bytes with SHA-256 `digest`; cached when valid."""
+def download(url: str, dest: Path, digest: str, log=log) -> bool:
+    """`dest` holding `url`'s bytes with SHA-256 `digest`; cached when valid.
+
+    `log` is the caller's logger, so its messages carry the caller's prefix."""
     if dest.is_file():
         if sha256(dest) == digest:
             return True

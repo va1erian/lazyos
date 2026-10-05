@@ -11,6 +11,12 @@
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:rhai: Variable not found", "timeout": 60, "retries": 2},
   {"at": 1.0, "type": "wc -l /tmp/d"},
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:2 /tmp/d", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "wc -l </tmp/d"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:2", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "head -n 1 </tmp/d"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:REDIR:42", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "echo $(cat </tmp/d | head -n 1)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:REDIR:42", "timeout": 60, "retries": 2},
   {"at": 3.0, "shot": "01_redirected_output"},
   {"at": 4.0, "quit": true}
 ]

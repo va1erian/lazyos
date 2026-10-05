@@ -335,6 +335,14 @@ def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
     return classify(name, capture(name, image, at, accel))
 
 
+# skip / unavailable (n/a) stay non-fatal; a fixture that failed or never ran gates CI.
+FATAL_STATUSES = ("fail", "not-run")
+
+
+def failing_rows(rows: list[dict]) -> list[str]:
+    return [r["fixture"] for r in rows if r["status"] in FATAL_STATUSES]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--at", default="8", help="capture time in seconds (default 8)")
@@ -430,6 +438,10 @@ def main() -> int:
 
     passed = sum(1 for r in rows_out if r["status"] == "pass")
     print(f"\n{passed}/{len(rows_out)} fixtures passing")
+    failing = failing_rows(rows_out)
+    if failing:
+        print(f"failing: {', '.join(failing)}", file=sys.stderr)
+        return 1
     return 0
 
 

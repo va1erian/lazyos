@@ -335,6 +335,7 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
                 // (platform-plan.md S8) lets another core touch `TASKS`
                 // concurrently with a lock that isn't held for the whole
                 // read-then-use span.
+                #[allow(clippy::unwrap_used)]
                 let task = tasks[index].as_ref().unwrap();
                 let status = task.exit_status;
                 let pml4 = task.pml4;

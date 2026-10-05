@@ -54,11 +54,5 @@ fn main() -> std::process::ExitCode {
         docs
     });
     backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("DOCS:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    std::process::ExitCode::from(xui_app::launch::finish("DOCS", outcome))
 }
