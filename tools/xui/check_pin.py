@@ -60,6 +60,9 @@ class Pin:
     path: str  # relative to the root, `/` separated
     what: str  # the dependency or package it pins
     rev: str | None  # None for a git dependency without `rev`
+    # A lockfile entry whose resolved commit is not the `rev` it asked for: a
+    # stale lock, always a problem whatever the other pins say.
+    mismatch: str | None = None
 
 
 def is_xui(url: str) -> bool:
@@ -102,10 +105,10 @@ def lock_pins(path: str, lock: dict) -> list[Pin]:
             continue
         rev = parse_qs(parts.query).get("rev", [None])[0]
         what = f"package {package.get('name')}"
+        mismatch = None
         if rev is not None and commit and not commit.startswith(rev):
-            what += f" (resolved {commit}, not its rev)"
-            rev = commit
-        pins.append(Pin(path, what, rev))
+            mismatch = commit
+        pins.append(Pin(path, what, rev, mismatch))
     return pins
 
 
@@ -149,6 +152,11 @@ def check(
         if pin.rev is None:
             problems.append(f"{pin.path}: {pin.what} has no `rev`")
             continue
+        if pin.mismatch is not None:
+            problems.append(
+                f"{pin.path}: {pin.what} asks for {pin.rev} but resolved "
+                f"{pin.mismatch}: the lockfile is stale"
+            )
         directory = lagging_entry(pin.path, lagging)
         if directory is None:
             by_rev.setdefault(pin.rev, []).append(pin)

@@ -684,9 +684,8 @@ regressions, not kernel-internal correctness or resource leaks.
   `python tools/lazyrad/package.py --project <dir> --out <app>.lzp` or the
   IDE's Make LazyOS App packages it). Write Rust only for apps that need it:
   editors, Paint, browsers, a custom painter, heavy data or threads; a Rust
-  app starts from `tools/xui/new_app.py` (above). The `xui-app` skill
-  (`.claude/skills/xui-app/SKILL.md`) walks both paths, and verification goes
-  headless first (offscreen renders and host tests), QEMU sessions last.
+  app starts from `tools/xui/new_app.py` (above). Verification goes headless
+  first (offscreen renders and host tests), QEMU sessions last.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

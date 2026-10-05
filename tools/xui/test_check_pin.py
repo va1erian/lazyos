@@ -84,6 +84,15 @@ class CheckPinTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("xui-app/Cargo.lock: package xui-core", out)
 
+    def test_a_lock_resolving_another_commit_than_its_rev_fails_alone(self):
+        # Even with nothing else to disagree with, a lock that asked for one
+        # revision and resolved another is stale.
+        self.write("xui-app/Cargo.toml", manifest(NEW))
+        self.write("xui-app/Cargo.lock", lock(NEW).replace(f"#{NEW}", f"#{OLD}"))
+        status, out = self.run_check()
+        self.assertEqual(status, 1)
+        self.assertIn(f"asks for {NEW} but resolved {OLD}", out)
+
     def test_patch_entries_and_the_www_alias_count(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))
         self.write(
