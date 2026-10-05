@@ -22,8 +22,6 @@ pub mod keyboard;
 pub mod keyboard_page;
 pub mod menu_ops;
 pub mod menu_page;
-#[path = "../../shared/place.rs"]
-pub mod place;
 pub mod sections;
 pub mod store;
 pub mod system;

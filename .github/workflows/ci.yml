@@ -49,6 +49,15 @@ jobs:
       - run: python -m unittest discover -s tools/fhs -p "test_*.py"
       - run: cargo test -p fhs --features alloc
 
+  xui-pin:
+    # One xui revision across every manifest and lockfile (xui-app, doom,
+    # lazyrad-os), so a bump cannot miss a workspace.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/xui/test_check_pin.py
+      - run: python tools/xui/check_pin.py
+
   lint:
     runs-on: ubuntu-latest
     steps:

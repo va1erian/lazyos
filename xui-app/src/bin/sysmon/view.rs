@@ -48,6 +48,7 @@ impl Gauge {
                 grid([Track::Auto, Track::Fill(1)]).gap(6).children(rows),
             )),
         )
+        .into_entry()
     }
 
     fn show(&self, fraction: f64, lines: &[String]) {

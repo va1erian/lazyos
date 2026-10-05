@@ -10,7 +10,7 @@ use crate::client_window::copy_rect;
 use crate::display::{Client, FrameEvent};
 use crate::sys::{self, DisplayInfo};
 
-use super::geometry::{absolute_bounds, effectively_visible};
+use super::geometry::{absolute_bounds, ancestor_clip, effectively_visible};
 use super::{LazyOSBackend, Mode};
 
 /// How far past its bounds a painter may draw (anti-aliasing, focus rings),
@@ -63,7 +63,9 @@ impl LazyOSBackend {
         // Bounds are parent-relative: paint at the window-absolute position,
         // and skip a node hidden through any ancestor. A node just outside the
         // damage still runs: anti-aliased edges and focus rings spill a pixel
-        // or two past a node's bounds.
+        // or two past a node's bounds. A node entirely outside an ancestor's
+        // clip (a scroll view's row scrolled out of its viewport) is skipped:
+        // painters are not clipped, so it would draw over its neighbours.
         let reach = inflate(damage, PAINT_SPILL * self.scale() as i32);
         let paints: Vec<(Rect, Painter)> = {
             let nodes = self.nodes.borrow();
@@ -73,7 +75,9 @@ impl LazyOSBackend {
                 .filter_map(|(id, node)| {
                     let painter = node.painter.clone()?;
                     let bounds = absolute_bounds(&nodes, *id)?;
-                    intersects(bounds, reach).then_some((bounds, painter))
+                    let shown =
+                        ancestor_clip(&nodes, *id).is_none_or(|clip| intersects(bounds, clip));
+                    (shown && intersects(bounds, reach)).then_some((bounds, painter))
                 })
                 .collect()
         };
@@ -397,6 +401,25 @@ mod tests {
         assert_eq!(pixel(&backend, 40, 10), rgba(BLUE));
         assert_eq!(pixel(&backend, 20, 10), rgba(RED));
         assert_eq!(pixel(&backend, 28, 10), rgba(RED), "outside: the old frame");
+    }
+
+    #[test]
+    fn a_node_outside_its_ancestors_clip_is_not_painted() {
+        let (backend, left, _) = rig();
+        // The right node clips its children to its left half: a child wholly
+        // in the right half is a row scrolled out of a viewport.
+        let row = Rc::new(Cell::new(0));
+        {
+            let mut nodes = backend.nodes.borrow_mut();
+            nodes[1].1.clip = Some(Rect::new(0, 0, 16, 64));
+            let mut child = painted(Rect::new(20, 0, 32, 64), RED, row.clone());
+            child.parent = ParentRef::Widget(WidgetId::from_raw(2));
+            nodes.push((WidgetId::from_raw(3), child));
+        }
+        assert!(backend.composite(W, Rect::new(0, 0, 64, 64)));
+        assert_eq!(row.get(), 0, "the clipped-out row did not paint");
+        assert_eq!(left.get(), 2);
+        assert_eq!(pixel(&backend, 58, 10), rgba(BLUE));
     }
 
     #[test]

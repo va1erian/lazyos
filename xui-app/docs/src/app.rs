@@ -12,10 +12,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
+use xui_core::arrange::{absolute, button, label, Handle, LayoutExt};
 use xui_core::backend::Result;
 use xui_core::widget::StdFileSystem;
-use xui_core::widget::{Button, FileDialog, HasText, Label};
-use xui_core::{Key, Rect};
+use xui_core::widget::{FileDialog, HasText, Label};
+use xui_core::{Key, Px, Rect};
 use xui_docs::{error_page, load_file, themed};
 use xui_litehtml::{HtmlView, HtmlViewEvent};
 
@@ -64,7 +65,7 @@ pub struct Docs {
     view: HtmlView<Msg>,
     /// Where the page view sits (below the toolbar).
     view_bounds: Rect,
-    path_label: Label<Msg>,
+    path_label: Rc<Label<Msg>>,
     open_dialog: FileDialog<Msg>,
     /// While the modal dialog is up the hotkey must not open a second one.
     dialog_open: Rc<Cell<bool>>,
@@ -74,8 +75,6 @@ pub struct Docs {
     /// (empty for the welcome page, `:<path>` for a document); `None` once
     /// reported.
     render_marker: Option<String>,
-    // Held so the widget lives as long as the window.
-    _open_button: Button<Msg>,
 }
 
 impl Docs {
@@ -83,10 +82,27 @@ impl Docs {
     /// document it came from, if any.
     pub fn build(ui: &mut Ui<Msg>, html: String, path: Option<PathBuf>) -> Result<Docs> {
         let client = ui.client_rect();
-        // `Rect::new` is (left, top, right, bottom).
-        let open_button =
-            Button::new(ui, Rect::new(8, 5, 100, 31), "Open...")?.on_click(|| Some(Msg::Open));
-        let path_label = Label::new(ui, Rect::new(110, 8, (client.width() - 8).max(110), 30), "")?;
+        // The toolbar is laid out in pixels, like the page view under it.
+        let dpi = ui.dpi();
+        let px = |value: i32| Px(value).to_dip(dpi);
+        let path_label = Handle::new();
+        ui.root(absolute().children(
+            (
+                button("Open...").on_click_with(|| Some(Msg::Open)).at(
+                    px(8),
+                    px(5),
+                    px(92),
+                    px(26),
+                ),
+                label("").bind(&path_label).at(
+                    px(110),
+                    px(8),
+                    px((client.width() - 118).max(0)),
+                    px(22),
+                ),
+            ),
+        ))?;
+        let path_label = path_label.get();
 
         let dialog_open = Rc::new(Cell::new(false));
         let closed = Rc::clone(&dialog_open);
@@ -121,7 +137,6 @@ impl Docs {
             dialog_open,
             current: None,
             render_marker: Some(String::new()),
-            _open_button: open_button,
         };
         docs.show(ui, path);
         Ok(docs)

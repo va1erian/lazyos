@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
-use xui_core::arrange::{column, label, row, Handle, LayoutExt, Mounted};
+use xui_core::arrange::{column, label, panel, row, LayoutExt};
 use xui_core::backend::Result;
 use xui_core::layout::Insets;
 use xui_core::{Dip, HasText};
@@ -20,7 +20,7 @@ use crate::sections::{self, CreateOutcome, KeyEditor, NewKeyEditor};
 use crate::store::ConfStore;
 use crate::tree::{Row, Tree};
 use crate::value_edit::{self, Kind};
-use crate::view::{card, Widgets};
+use crate::view::Widgets;
 
 /// Window size (DIP) the app asks for.
 pub const WINDOW: (i32, i32) = (720, 500);
@@ -81,7 +81,6 @@ pub struct ConfdEditorApp {
     status_text: String,
     banner_text: String,
     widgets: Widgets,
-    _panes: [Mounted<Msg>; 2],
 }
 
 /// Sets a widget's text only when it differs, so a focused field's caret is
@@ -97,13 +96,12 @@ impl ConfdEditorApp {
     pub fn build(ui: &mut Ui<Msg>, store: Rc<dyn ConfStore>) -> Result<ConfdEditorApp> {
         ui.on_close(|| Some(Msg::Close));
         let widgets = Widgets::default();
-        let (left, right) = (Handle::new(), Handle::new());
         ui.root(
             column().children((
                 row()
                     .children((
-                        card().bind(&left).width(LEFT_W),
-                        card().bind(&right).fill(1),
+                        panel(widgets.tree_pane()).width(LEFT_W),
+                        panel(widgets.key_pane()).fill(1),
                     ))
                     .fill(1),
                 row()
@@ -112,10 +110,6 @@ impl ConfdEditorApp {
                     .fixed(STATUS_H),
             )),
         )?;
-        let panes = [
-            ui.mount_in(left.get().widget.id(), widgets.tree_pane())?,
-            ui.mount_in(right.get().widget.id(), widgets.key_pane())?,
-        ];
 
         let mut app = ConfdEditorApp {
             store,
@@ -129,7 +123,6 @@ impl ConfdEditorApp {
             status_text: String::new(),
             banner_text: String::new(),
             widgets,
-            _panes: panes,
         };
         match app.store.info() {
             Ok(info) => app.persistent = info.persistent,
@@ -250,7 +243,7 @@ impl ConfdEditorApp {
                 .map(|path| format!("Key: {path}"))
                 .unwrap_or_else(|| "No key selected".into()),
         );
-        w.kind.get().widget.select(self.editor.kind().index());
+        w.kind.get().select(self.editor.kind().index());
         let (value, bool_button) = (w.value.get(), w.bool_button.get());
         set_text(&*value, self.editor.text());
         bool_button.set_text(self.editor.text());
@@ -277,7 +270,7 @@ impl ConfdEditorApp {
             "New key"
         });
         let new_kind = w.new_kind.get();
-        new_kind.widget.select(self.new_key.kind.index());
+        new_kind.select(self.new_key.kind.index());
         let (new_path, new_value, create) = (w.new_path.get(), w.new_value.get(), w.create.get());
         set_text(&*new_path, &self.new_key.path);
         set_text(&*new_value, &self.new_key.text);
@@ -288,7 +281,7 @@ impl ConfdEditorApp {
         });
         let show_new = self.new_key.active;
         let mut new_ids = vec![new_path.id(), new_value.id(), create.id()];
-        new_ids.extend(new_kind.widget.ids());
+        new_ids.extend(new_kind.ids());
         for id in new_ids {
             ui.set_visible(id, show_new);
         }
