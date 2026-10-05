@@ -102,7 +102,7 @@ pub(crate) struct Widgets {
     slab: Gauge,
     heap: Gauge,
     tasks_heading: Handle<Label<Msg>>,
-    tasks: Handle<ListView<Msg>>,
+    pub(crate) tasks: Handle<ListView<Msg>>,
     services_heading: Handle<Label<Msg>>,
     services_note: Handle<Label<Msg>>,
     services: Handle<ListView<Msg>>,
@@ -285,10 +285,23 @@ impl Widgets {
     }
 
     /// Says the snapshot cannot be read, where the task heading goes.
+    /// Says the snapshot cannot be read and clears the values it would show,
+    /// so neither view keeps the last successful read; the compact meters
+    /// (shown without the tabs or the status bar) carry the errno.
     pub(crate) fn show_unavailable(&self, code: i64) {
         self.tasks_heading.get().set_text(&format!(
             "System snapshot unavailable: syscall 14 returned errno {code}"
         ));
+        for gauge in [&self.frames, &self.slab, &self.heap] {
+            gauge.show(0.0, &[]);
+            for value in &gauge.values {
+                value.get().set_text("");
+            }
+        }
+        for meter in &self.compact {
+            meter.show(0.0, format!("errno {code}"));
+        }
+        self.tasks.get().refresh_model(Vec::<Vec<String>>::new());
     }
 
     /// Fills the Services tab. The note line is hidden while there is
