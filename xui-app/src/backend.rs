@@ -35,6 +35,7 @@ mod focus;
 mod geometry;
 mod handlers;
 mod input;
+mod moves;
 mod node;
 mod origin;
 mod pointer;
