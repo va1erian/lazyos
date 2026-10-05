@@ -20,8 +20,9 @@
 //!   `async fn` wrappers, and [`block_on`] runs a single future to completion.
 //! * [`Selector`] is the multiplexer: queue calls and one-way receives, then
 //!   call [`Selector::step`]. Each step drains ready one-way messages without
-//!   blocking, then waits for the oldest in-flight call; [`Selector::cancel`]
-//!   cancels a pending call with `OP_CANCEL`.
+//!   blocking, then waits for the oldest in-flight call, or, with no calls in
+//!   flight, parks on every queued receive at once (`wait_any`);
+//!   [`Selector::cancel`] cancels a pending call with `OP_CANCEL`.
 //!
 //! A begun call that is never awaited leaves the task parked in the kernel
 //! until some Messenger event wakes it (any reply, send, or cancel notifies the

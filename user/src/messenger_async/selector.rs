@@ -3,6 +3,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
+use crate::messenger::wait::{wait_any, MAX_ENDPOINTS};
 use crate::messenger::{errno, Endpoint, Error, Message, Result};
 
 use super::executor::FlagWaker;
@@ -43,8 +44,11 @@ pub enum Event {
 /// shared Messenger wait queue, once one call completes the next `step` finds
 /// any other completed replies without waiting again.
 ///
-/// There is no wall clock and no readiness op for a single transaction, so a
-/// step can block on the oldest call even when a newer call already finished;
+/// With only receives queued, a step parks once on all their endpoints
+/// (`wait_any`) and wakes on whichever is ready first. `wait_any` cannot name
+/// a pending call's reply (there is no readiness op for a single
+/// transaction, issue #309), so while calls are in flight a step can block on
+/// the oldest call even when a newer call already finished;
 /// it does not lose that newer reply, it just reports it in a later step.
 #[derive(Default)]
 pub struct Selector {
@@ -102,12 +106,27 @@ impl Selector {
         self.pending() == 0
     }
 
+    /// Park until one of the queued receives' endpoints is ready (up to
+    /// [`MAX_ENDPOINTS`]; with more queued, the first that many are watched
+    /// and the rest are still polled on every pass). A no-op with none queued.
+    fn wait_recvs(&self) -> Result<()> {
+        let mut endpoints = Vec::new();
+        for recv in self.recvs.iter().flatten().take(MAX_ENDPOINTS) {
+            endpoints.push(recv.endpoint());
+        }
+        if endpoints.is_empty() {
+            return Ok(());
+        }
+        wait_any(&endpoints, 0, None).map(|_| ())
+    }
+
     /// Run one multiplexing pass, reporting at most one event.
     ///
     /// 1. Any queued one-way message is delivered without blocking.
     /// 2. Otherwise the oldest unfinished call is polled to completion (its
     ///    poll parks the task only if the reply is not queued yet).
-    /// 3. Otherwise the oldest queued receive blocks until a message arrives.
+    /// 3. Otherwise the task parks on all queued receives at once
+    ///    (`wait_any`) until one has a message.
     /// 4. Otherwise [`Event::Idle`].
     pub fn step(&mut self) -> Result<Event> {
         // 1. One-way messages that already landed never block.
@@ -143,29 +162,17 @@ impl Selector {
             }
             return Ok(Event::Idle);
         }
-        // 3. No calls in flight: a queued receive may block, which is the
-        //    task's only wait when the selector is idle.
-        if let Some(index) = self.recvs.iter().position(Option::is_some) {
-            let result = {
-                let recv = self.recvs[index]
-                    .as_mut()
-                    .expect("the position is an unfinished receive");
-                let waker = self
-                    .waker
-                    .clone()
-                    .unwrap_or_else(|| Waker::from(FlagWaker::new()));
-                let mut context = Context::from_waker(&waker);
-                match Pin::new(recv).poll(&mut context) {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                }
+        // 3. No calls in flight: park once on every queued receive's endpoint
+        //    (`wait_any`), so a message on any of them wakes the task with no
+        //    spinning and no head-of-line wait on the oldest.
+        self.wait_recvs()?;
+        for index in 0..self.recvs.len() {
+            let Some(recv) = self.recvs[index].as_ref() else {
+                continue;
             };
-            if let Some(message) = result {
+            if let Some(message) = recv.poll_ready()? {
                 self.recvs[index] = None;
-                return Ok(Event::Recv {
-                    index,
-                    message: message?,
-                });
+                return Ok(Event::Recv { index, message });
             }
         }
         Ok(Event::Idle)
