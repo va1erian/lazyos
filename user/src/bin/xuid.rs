@@ -258,6 +258,15 @@ fn run() -> ! {
         fail("register", errno_code(error));
     }
     sys::write_str("xuid: display bound, os.lazy.display.v1 published\n");
+    // The same endpoint under the cursor scope's name, for scripts.
+    let cursor_scope = messenger_generated::os_lazy_display_cursor_v1::INTERFACE_ID;
+    match registry::register(display::CURSOR_NAME, &published, &[cursor_scope], 0) {
+        Ok(()) => sys::write_str("xuid: os.lazy.display.cursor.v1 published\n"),
+        Err(error) => sys::write_str(&alloc::format!(
+            "xuid: cursor scope name not published ({})\n",
+            errno_code(error)
+        )),
+    }
 
     let (screen_w, screen_h) = (info.width as i32, info.height as i32);
     // Safety: `va`/`size` come from the display bind and describe an RGBA8

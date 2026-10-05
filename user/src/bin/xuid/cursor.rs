@@ -321,6 +321,22 @@ pub(super) fn selftest_cursor() -> &'static str {
         return "XUID:CURSOR:FAIL hand lift
 ";
     }
+    // The busy spinner: two frames draw differently and both lift cleanly.
+    let busy = |frame| Look {
+        shape: Shape::Busy,
+        frame,
+    };
+    overlay.set_look(busy(0));
+    overlay.stamp(&mut screen, (40, 40));
+    let first_frame = read(&screen);
+    overlay.lift(&mut screen);
+    overlay.set_look(busy(3));
+    overlay.stamp(&mut screen, (40, 40));
+    let moved_on = read(&screen) != first_frame;
+    overlay.lift(&mut screen);
+    if !moved_on || read(&screen) != scene {
+        return "XUID:CURSOR:FAIL busy frames\n";
+    }
     // Clipped at the bottom-right corner, then lifted: the scene is back.
     let clipped = overlay.stamp(&mut screen, (W - 2, H - 2));
     overlay.lift(&mut screen);

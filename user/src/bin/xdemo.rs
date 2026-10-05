@@ -6,8 +6,10 @@
 //! `Present`s it (issue #361: pipelined present, `BufferRelease`/`FrameDone`
 //! pacing, double buffering).
 //! Input forwarded by the compositor updates the picture: a click advances the
-//! palette, a key press bumps the key counter and the last key code, and the
-//! pointer leaves a marker square.
+//! palette and the pointer shape over the window (`SetCursor`, so every shape
+//! is a click away: arrow, busy, I-beam, hand, the four resize arrows), a key
+//! press bumps the key counter and the last key code, and the pointer leaves a
+//! marker square.
 //!
 //! Boot it with `LAZYOS_XUID=1`; the kernel starts `xuid` first.
 
@@ -146,6 +148,11 @@ fn run() -> ! {
                     }
                 } else if let Some(event) = display::decode_event(&message) {
                     apply(&mut demo, event);
+                    if matches!(event, Event::PointerDown { .. }) {
+                        // The shape numbers are `CursorShape`'s wire values.
+                        // Refused (no scope) or unsupported: the arrow stays.
+                        let _ = client.set_cursor(surface, (demo.clicks % 8) as u32);
+                    }
                     dirty = true;
                 }
             }
