@@ -15,9 +15,7 @@ use xui_core::{Rect, Theme};
 use crate::client_window::{ClientWindow, SurfaceRole};
 use crate::sys;
 
-use super::geometry::absolute_bounds;
-use super::zorder::family;
-use super::{LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
+use super::{moves, LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
     /// The desktop's mode and accent, so every app window opens in the
@@ -245,38 +243,16 @@ impl Backend for LazyOSBackend {
     }
 
     fn apply_moves(&self, window: WindowId, moves: &[(WidgetId, Rect)]) {
-        let mut resized = Vec::new();
-        let mut nodes = self.nodes.borrow_mut();
-        for (id, rect) in moves {
-            let Some(index) = nodes.iter().position(|(node_id, _)| node_id == id) else {
-                continue;
-            };
-            if nodes[index].1.bounds.size() != rect.size() {
-                resized.push((*id, *rect));
-            }
-            // Damage is window-absolute: the old and the new position of the
-            // node and of every descendant (a child may extend past its parent).
-            let family = self.is_client().then(|| family(&nodes, *id));
-            let before: Vec<Rect> = family
-                .iter()
-                .flatten()
-                .filter_map(|member| absolute_bounds(&nodes, *member))
-                .collect();
-            nodes[index].1.bounds = *rect;
-            let after = family
-                .iter()
-                .flatten()
-                .filter_map(|member| absolute_bounds(&nodes, *member));
-            for area in before.into_iter().chain(after) {
-                self.add_damage(window, area);
-            }
+        let track_damage = self.is_client();
+        let moved = moves::apply(&mut self.nodes.borrow_mut(), moves, track_damage);
+        if let Some(area) = moved.damage {
+            self.add_damage(window, area);
         }
-        drop(nodes);
         // As xui-canvas does: a moved node gets no other size notification,
         // so a resized one is told directly. A layout mounted in a container
         // (a tab page, a settings page) re-flows on it, and a widget with
         // satellite nodes (a tree's scrollbar) re-lays them.
-        for (id, rect) in resized {
+        for (id, rect) in moved.resized {
             self.deliver(
                 window,
                 id,
