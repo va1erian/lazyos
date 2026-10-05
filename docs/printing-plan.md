@@ -1,11 +1,12 @@
 # LazyWriter printing to an HP DeskJet 3700 — exploration and plan (blue sky)
 
-> **Status: revision 2 (2026-10-04). P0 to P5 are built**: `libs/ipp`,
-> `libs/raster`, xui-rich-text's `Printout` and LazyWriter's print bar
-> (`Ctrl+P`), checked end to end against a fake printer in CI
-> (`tools/print/run.py`); how to use it is in
-> [xui-writer.md](xui-writer.md#printing). Not built: P6 (`printd`), URF,
-> `ipps://`. Not yet tried on the real DeskJet.
+> **Status: revision 3 (2026-10-05). P0 to P6 are built**: `libs/ipp`,
+> `libs/raster`, xui-rich-text's `Printout`, LazyWriter's print bar
+> (`Ctrl+P`) and the `printd` spooler (`os.lazy.print.v1`), checked end to
+> end against a fake printer in CI (`tools/print/run.py`, and `--quit` for a
+> job that outlives LazyWriter); how to use it is in
+> [xui-writer.md](xui-writer.md#printing). Not built: URF, `ipps://`. Not yet
+> tried on the real DeskJet.
 >
 > This answers one question: how could LazyWriter on LazyOS print to an HP
 > DeskJet 3700? Short answer: send each page as PWG Raster over plain IPP to
@@ -179,7 +180,12 @@ LazyWriter process (P2–P5)
    printer's own words and ink levels from `marker-levels`. *Done* as a bar
    above the status bar rather than a dialog.
 7. **P6, `printd` (optional).** A spooler serving `os.lazy.print.v1` (new MIDL),
-   so other apps print and a job outlives LazyWriter.
+   so other apps print and a job outlives LazyWriter. *Done*: apps `Open` a
+   job, `Write` the whole document, `Close` it, then follow it with `Status`;
+   `printd` keeps it in `/conf/svc/printd` and sends it as `Create-Job` and
+   `Send-Document`, with `Cancel-Job` on every abort, so the printer never
+   holds half a request. Code: `xui-app/crates/printd` (the queue) and
+   `xui-app/src/bin/printd.rs` (the service).
 
 Later, outside this plan: DNS-SD discovery (needs multicast in `netstack` and a
 bridged network in QEMU), route D for USB-only printers, PCLm for printers

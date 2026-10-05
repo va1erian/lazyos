@@ -93,6 +93,9 @@ BINS = {
     # desktop image ships them with the network stack (`LAZYOS_NETD=1`).
     "xui-network": "xui-network.elf",
     "xui-nettools": "xui-nettools.elf",
+    # The print spooler service (no window, docs/printing-plan.md P6); a
+    # desktop image with the network stack ships it at /system/bin/printd.
+    "xui-printd": "xui-printd.elf",
     # The Installer app (`.lzp` package consent and removal, `docs/packages.md`).
     # `build_support/xui_embed.rs` places it at /system/bin/installer.
     "xui-installer": "xui-installer.elf",

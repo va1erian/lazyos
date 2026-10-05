@@ -12,7 +12,7 @@ use user::sys::Cred as SysCred;
 
 use super::apps::AppSpec;
 use super::installed::InstalledApp;
-use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE};
+use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE, LINUX_ROWS};
 
 /// Runtime phase of a service; `label` is the word published in events and
 /// shown by `messengerctl services`.
@@ -125,7 +125,7 @@ impl Service {
             label: None,
             env: Vec::new(),
             launched: false,
-            linux: false,
+            linux: LINUX_ROWS.contains(&spec.name),
             autostart: false,
             phase: Phase::Pending,
             pid: 0,

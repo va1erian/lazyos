@@ -16,7 +16,13 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767
 xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767efe9253ab4691b14d4bb1", features = ["serde"] }
 
 # Printing (docs/printing-plan.md): sheets are painted offscreen, encoded
-# as PWG Raster and sent over IPP.
+# as PWG Raster and handed to the print spooler (`printd`), which sends them
+# over IPP.
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c0007e478c090651767efe9253ab4691b14d4bb1", default-features = false }
 ipp = { path = "../../../libs/ipp", features = ["std"] }
 raster = { path = "../../../libs/raster" }
+printd = { path = "../printd" }
+
+[dev-dependencies]
+# The loopback IPP printer the print tests send to.
+printd = { path = "../printd", features = ["fake"] }

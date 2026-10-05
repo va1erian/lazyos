@@ -4,15 +4,17 @@
 //! widget tree, ported from xui's wordpad example) is the portable
 //! `xui-writer` crate; this file supplies the LazyOS platform: the backend,
 //! the bundled fonts, atomic writes, the pickers' start folder, the printer
-//! remembered in `confd`, a file named on the command line, and the serial
-//! evidence the sessions grep for.
+//! remembered in `confd`, the print spooler (`printd`, over Messenger), a
+//! file named on the command line, and the serial evidence the sessions grep
+//! for.
 //!
 //! Serial evidence: `WRITER:UP:PASS` after the first frame;
 //! `WRITER:BIND:FAIL:<code>` when the display cannot be bound and
 //! `WRITER:RUN:FAIL:<err>` when the loop fails. The crate prints
 //! `WRITER:OPEN|SAVE|EXPORT|IMAGE:PASS|FAIL:<path>` as files are used and
-//! `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>` as a print job
-//! ends.
+//! `WRITER:PRINT:QUEUED:<pages>` once the print spooler has a job whole,
+//! `WRITER:PRINT:PASS:<pages>` or `WRITER:PRINT:FAIL:<reason>` as it ends, and
+//! `WRITER:QUIT:PASS` when the window closes.
 
 use std::rc::Rc;
 
@@ -30,7 +32,7 @@ use xui_writer::Host;
 const WINDOW: (i32, i32) = (960, 600);
 
 /// LazyOS's side of the app: atomic writes, `$HOME` (or `/transient`), the
-/// families `register_writer` registered and the last printer.
+/// families `register_writer` registered, the last printer and `printd`.
 fn host() -> Host {
     let mut host = Host::std(xui_app::platform::dirs::default_dir());
     host.write = Rc::new(xui_app::platform::storage::write_atomic);
@@ -40,6 +42,7 @@ fn host() -> Host {
         Some(Value::Str(printer)) => Some(printer),
         _ => None,
     });
+    host.print_queue = Rc::new(xui_app::platform::print::PrintService);
     host.remember_printer = Rc::new(|printer| {
         if let Some(key) = printer_key() {
             // Losing the address only means typing it again next time.
@@ -86,5 +89,8 @@ fn main() -> std::process::ExitCode {
         writer
     });
     backend.unbind();
+    if outcome.is_ok() {
+        println!("WRITER:QUIT:PASS");
+    }
     std::process::ExitCode::from(xui_app::launch::finish("WRITER", outcome))
 }

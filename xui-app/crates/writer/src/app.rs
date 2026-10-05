@@ -88,6 +88,8 @@ pub enum Msg {
     TableChoice(usize, bool),
     /// The Save / Discard / Cancel prompt was dismissed.
     Unsaved(TaskDialogAction),
+    /// The "Stop printing?" prompt of a quit mid-print was dismissed.
+    StopPrinting(TaskDialogAction),
     /// The error message was dismissed.
     MessageClosed,
     /// A file picker was cancelled.
@@ -120,6 +122,8 @@ pub struct Dialogs {
     pub image: FileDialog<Msg>,
     /// Save / Discard / Cancel for a modified document.
     pub unsaved: TaskDialog<Msg>,
+    /// Stop printing / Keep printing, for a quit while a job is prepared.
+    pub printing: TaskDialog<Msg>,
     /// The link address prompt.
     pub link: Dialog<Msg>,
     /// An error message.
@@ -202,6 +206,7 @@ impl App for Writer {
             Msg::InsertImage => files::insert_image(self),
             Msg::ImageChosen(path) => files::image_chosen(self, path),
             Msg::Unsaved(action) => files::unsaved(self, ui, action),
+            Msg::StopPrinting(action) => files::stop_printing(self, ui, action),
             Msg::MessageClosed | Msg::PickerClosed => files::dialog_closed(self, ui),
             Msg::Link => commands::link(self),
             Msg::LinkChosen(action) => commands::link_chosen(self, action),

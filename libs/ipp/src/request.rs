@@ -115,17 +115,71 @@ pub fn print_job(client: &Client, request_id: u32, ticket: &Ticket) -> Message {
     job_request(client, op::PRINT_JOB, request_id, ticket)
 }
 
-fn job_request(client: &Client, code: u16, request_id: u32, ticket: &Ticket) -> Message {
-    let (mut message, mut group) = operation(client, code, request_id);
+/// Create-Job: the job without its document, so the printer gives the job
+/// its id before any page is sent and every later abort can name it in
+/// Cancel-Job. The document follows in [`send_document`]. As RFC 8011 4.2.4
+/// says, it carries no document attributes: `document-format` travels with
+/// the document.
+pub fn create_job(client: &Client, request_id: u32, ticket: &Ticket) -> Message {
+    let (mut message, group) = job_operation_group(client, op::CREATE_JOB, request_id, ticket);
+    message.groups.push(group);
+    push_template(&mut message, ticket);
+    message
+}
+
+/// Send-Document for job `job_id` (from [`create_job`]): the document
+/// follows the encoded message on the wire. `last` is `last-document`; a
+/// printer that takes one document per job is always sent `true`.
+pub fn send_document(
+    client: &Client,
+    request_id: u32,
+    job_id: i32,
+    format: &str,
+    last: bool,
+) -> Message {
+    let (mut message, mut group) = operation(client, op::SEND_DOCUMENT, request_id);
+    group
+        .attributes
+        .push(Attribute::new("job-id", Value::Integer(job_id)));
+    user(&mut group, client);
+    group
+        .attributes
+        .push(Attribute::new("document-format", Value::mime(format)));
+    group
+        .attributes
+        .push(Attribute::new("last-document", Value::Boolean(last)));
+    message.groups.push(group);
+    message
+}
+
+/// The operation group of a job-creating request, up to `job-name`.
+fn job_operation_group(
+    client: &Client,
+    code: u16,
+    request_id: u32,
+    ticket: &Ticket,
+) -> (Message, Group) {
+    let (message, mut group) = operation(client, code, request_id);
     user(&mut group, client);
     group
         .attributes
         .push(Attribute::new("job-name", Value::name(&ticket.name)));
+    (message, group)
+}
+
+fn job_request(client: &Client, code: u16, request_id: u32, ticket: &Ticket) -> Message {
+    let (mut message, mut group) = job_operation_group(client, code, request_id, ticket);
     group.attributes.push(Attribute::new(
         "document-format",
         Value::mime(&ticket.format),
     ));
     message.groups.push(group);
+    push_template(&mut message, ticket);
+    message
+}
+
+/// The ticket's job template attributes, as a job group when it has any.
+fn push_template(message: &mut Message, ticket: &Ticket) {
     let mut job = Group::new(tag::JOB);
     if let Some(copies) = ticket.copies {
         job.attributes
@@ -146,7 +200,6 @@ fn job_request(client: &Client, code: u16, request_id: u32, ticket: &Ticket) -> 
     if !job.attributes.is_empty() {
         message.groups.push(job);
     }
-    message
 }
 
 /// Get-Job-Attributes for job `job_id`.

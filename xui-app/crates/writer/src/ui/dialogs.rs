@@ -50,6 +50,15 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
     .command("Save")?
     .command("Discard")?
     .on_action(|action| Some(Msg::Unsaved(action)));
+    let printing = TaskDialog::new(
+        ui,
+        "Stop printing?",
+        "LazyWriter is still preparing the document for the printer. If you quit now, \
+         nothing is printed.",
+    )?
+    .icon(TaskDialogIcon::Warning)
+    .command("Stop printing")?
+    .on_action(|action| Some(Msg::StopPrinting(action)));
     let link = Dialog::prompt(
         ui,
         "Link",
@@ -68,6 +77,7 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
         export,
         image,
         unsaved,
+        printing,
         link,
         message,
     })
