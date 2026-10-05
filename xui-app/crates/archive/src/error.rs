@@ -66,9 +66,10 @@ impl From<io::Error> for Error {
         // Decoders report a damaged stream as `InvalidData`; say so in the
         // archive's terms rather than as an I/O failure.
         match error.kind() {
-            io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof => {
-                Error::Corrupt(error.to_string())
-            }
+            // flate2 reports a corrupt deflate stream as `InvalidInput`.
+            io::ErrorKind::InvalidData
+            | io::ErrorKind::InvalidInput
+            | io::ErrorKind::UnexpectedEof => Error::Corrupt(error.to_string()),
             io::ErrorKind::Unsupported => Error::Unsupported(error.to_string()),
             _ => Error::Io(error),
         }

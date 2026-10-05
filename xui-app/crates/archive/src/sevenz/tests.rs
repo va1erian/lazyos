@@ -95,3 +95,30 @@ fn a_damaged_7z_header_is_refused() {
     assert!(matches!(result, Err(Error::Corrupt(_))));
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_damaged_member_of_a_non_solid_7z_fails_alone() {
+    // deflate.7z is non-solid: one folder per file. Damage the first
+    // folder's packed bytes; the other file must still come out.
+    let mut bytes = std::fs::read(fixture("deflate.7z")).unwrap();
+    for byte in &mut bytes[34..44] {
+        *byte ^= 0x5a;
+    }
+    let path = std::env::temp_dir().join(format!("lazyarc-7z-damaged-{}.7z", std::process::id()));
+    std::fs::write(&path, &bytes).unwrap();
+    let archive = Archive::open(&path, &Arc::new(Progress::new())).unwrap();
+    let dest = std::env::temp_dir().join(format!("lazyarc-7z-damaged-out-{}", std::process::id()));
+    let report = extract::extract(
+        &archive,
+        &|_| true,
+        &dest,
+        &extract::Options::default(),
+        &Arc::new(Progress::new()),
+    )
+    .expect("a damaged member is reported, not fatal");
+    assert_eq!(report.skipped.len(), 1, "{:?}", report.skipped);
+    // The empty file and the undamaged member are written.
+    assert!(report.files >= 2, "{report:?}");
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(dest);
+}

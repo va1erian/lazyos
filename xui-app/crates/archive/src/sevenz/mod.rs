@@ -40,6 +40,8 @@ pub struct SevenZArchive {
     streams: Streams,
     /// Absolute offset of each folder's first pack stream.
     folder_starts: Vec<u64>,
+    /// Index of each folder's first pack stream.
+    folder_packs: Vec<usize>,
     /// Per entry: where its data is (`None` for empty streams).
     locations: Vec<Option<Location>>,
     len: u64,
@@ -66,6 +68,7 @@ impl SevenZArchive {
                 entries: Vec::new(),
                 streams: Streams::default(),
                 folder_starts: Vec::new(),
+                folder_packs: Vec::new(),
                 locations: Vec::new(),
                 len,
             });
@@ -96,18 +99,20 @@ impl SevenZArchive {
                 visit(entry, &mut io::empty())?;
             }
         }
-        for folder in 0..self.streams.folders.len() {
-            let members: Vec<(&Entry, Location)> = entries
-                .iter()
-                .zip(&self.locations)
-                .filter_map(|(entry, location)| {
-                    location.filter(|l| l.folder == folder).map(|l| (entry, l))
-                })
-                .collect();
-            if !members.iter().any(|(entry, _)| wanted(entry)) {
-                continue;
+        // One pass groups the members by folder (a non-solid archive has a
+        // folder per file, so scanning every entry per folder is quadratic).
+        let mut groups: Vec<Vec<(&Entry, Location)>> = vec![Vec::new(); self.streams.folders.len()];
+        for (entry, location) in entries.iter().zip(&self.locations) {
+            if let Some(location) = location {
+                if let Some(group) = groups.get_mut(location.folder) {
+                    group.push((entry, *location));
+                }
             }
-            self.visit_folder(path, folder, &members, wanted, progress, visit)?;
+        }
+        for (folder, members) in groups.iter().enumerate() {
+            if members.iter().any(|(entry, _)| wanted(entry)) {
+                self.visit_folder(path, folder, members, wanted, progress, visit)?;
+            }
         }
         Ok(())
     }
@@ -127,7 +132,7 @@ impl SevenZArchive {
         let packed = self
             .streams
             .pack_sizes
-            .get(folder_pack_index(&self.streams, folder))
+            .get(self.folder_packs[folder])
             .copied()
             .unwrap_or(0);
         if start.saturating_add(packed) > self.len {
@@ -138,13 +143,7 @@ impl SevenZArchive {
             Ok(stream) => stream,
             Err(error @ (Error::Unsupported(_) | Error::Corrupt(_))) => {
                 // Every wanted member of an unreadable folder fails alone.
-                let message = error.to_string();
-                for (entry, _) in members.iter().filter(|(entry, _)| wanted(entry)) {
-                    progress.begin(&entry.path);
-                    let failure = io::Error::new(io::ErrorKind::Unsupported, message.clone());
-                    visit(entry, &mut crate::archive::Failing(Some(failure)))?;
-                }
-                return Ok(());
+                return fail_members(members, &error.to_string(), wanted, progress, visit);
             }
             Err(error) => return Err(error),
         };
@@ -155,10 +154,10 @@ impl SevenZArchive {
             .unwrap_or(0);
         for (n, (entry, location)) in members.iter().enumerate() {
             if location.offset > position {
-                io::copy(
-                    &mut (&mut stream).take(location.offset - position),
-                    &mut io::sink(),
-                )?;
+                let gap = location.offset - position;
+                if let Err(error) = io::copy(&mut (&mut stream).take(gap), &mut io::sink()) {
+                    return damaged(error, &members[n..], wanted, progress, visit);
+                }
                 position = location.offset;
             }
             if !wanted(entry) {
@@ -173,7 +172,11 @@ impl SevenZArchive {
             };
             visit(entry, &mut data)?;
             // Whatever the visitor left unread still has to be decoded past.
-            io::copy(&mut data, &mut io::sink())?;
+            // A stream that fails here cannot go on: the member just visited
+            // has had its error, and the rest of this folder fails with it.
+            if let Err(error) = io::copy(&mut data, &mut io::sink()) {
+                return damaged(error, &members[n + 1..], wanted, progress, visit);
+            }
             position += entry.size;
             if n == last_wanted {
                 break;
@@ -183,12 +186,39 @@ impl SevenZArchive {
     }
 }
 
-/// The index of `folder`'s first pack stream.
-fn folder_pack_index(streams: &Streams, folder: usize) -> usize {
-    streams.folders[..folder]
-        .iter()
-        .map(|f| f.packed_streams)
-        .sum()
+/// A folder's stream broke at `rest`: a cancellation or I/O failure ends the
+/// visit; damaged data fails the remaining wanted members and the visit goes
+/// on with the next folder.
+fn damaged(
+    error: io::Error,
+    rest: &[(&Entry, Location)],
+    wanted: &dyn Fn(&Entry) -> bool,
+    progress: &Arc<Progress>,
+    visit: &mut Visitor<'_>,
+) -> Result<()> {
+    match Error::from(error) {
+        error @ (Error::Corrupt(_) | Error::Unsupported(_)) => {
+            fail_members(rest, &error.to_string(), wanted, progress, visit)
+        }
+        other => Err(other),
+    }
+}
+
+/// Visit each wanted member of `members` with a reader that fails with
+/// `message`, so each is reported on its own.
+fn fail_members(
+    members: &[(&Entry, Location)],
+    message: &str,
+    wanted: &dyn Fn(&Entry) -> bool,
+    progress: &Arc<Progress>,
+    visit: &mut Visitor<'_>,
+) -> Result<()> {
+    for (entry, _) in members.iter().filter(|(entry, _)| wanted(entry)) {
+        progress.begin(&entry.path);
+        let failure = io::Error::new(io::ErrorKind::InvalidData, message.to_owned());
+        visit(entry, &mut crate::archive::Failing(Some(failure)))?;
+    }
+    Ok(())
 }
 
 /// Decode an encoded header (possibly several levels) and parse the plain one.
@@ -238,15 +268,31 @@ fn parse(file: &mut File, len: u64, mut bytes: Vec<u8>) -> Result<Header> {
 fn build(header: Header, len: u64) -> Result<SevenZArchive> {
     let streams = header.streams;
     let mut folder_starts = Vec::new();
+    let mut folder_packs = Vec::new();
     let mut pack_index = 0usize;
+    let mut offset = 0u64;
     for folder in &streams.folders {
-        let offset: u64 = streams.pack_sizes.iter().take(pack_index).sum();
         folder_starts.push(
             32u64
                 .saturating_add(streams.pack_pos)
                 .saturating_add(offset),
         );
-        pack_index += folder.packed_streams;
+        folder_packs.push(pack_index);
+        // Sizes come from the header: a running, checked sum (never a
+        // re-summed prefix, which is quadratic and can overflow).
+        for size in streams
+            .pack_sizes
+            .iter()
+            .skip(pack_index)
+            .take(folder.packed_streams)
+        {
+            offset = offset
+                .checked_add(*size)
+                .ok_or_else(|| Error::corrupt("7z: pack sizes overflow"))?;
+        }
+        pack_index = pack_index
+            .checked_add(folder.packed_streams)
+            .ok_or_else(|| Error::corrupt("7z: too many pack streams"))?;
     }
     if pack_index > streams.pack_sizes.len() {
         return Err(Error::corrupt(
@@ -311,6 +357,7 @@ fn build(header: Header, len: u64) -> Result<SevenZArchive> {
         entries,
         streams,
         folder_starts,
+        folder_packs,
         locations,
         len,
     })
