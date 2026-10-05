@@ -42,7 +42,6 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "tools" / "xui"))
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
 import fetch  # noqa: E402
-import git_checkout  # noqa: E402
 import zig  # noqa: E402
 
 TARGET = "x86_64-unknown-linux-musl"
@@ -81,11 +80,6 @@ def build_engine(debug: bool) -> Path | None:
     env = dict(os.environ)
     env.update(zig.cargo_env(TARGET, wrappers))
     env["DOOMGENERIC_SRC"] = str(source)
-    # Windows: doom pulls the pinned xui, whose NetSurf submodules name files
-    # Windows cannot check out; resolve (and seed cargo's checkout) first so the
-    # real build does not trip on the submodule.
-    if os.name == "nt" and not git_checkout.resolve(CRATE / "Cargo.toml", env=env):
-        raise SystemExit(1)
     cargo = ["cargo", "build", "--manifest-path", str(CRATE / "Cargo.toml"),
              "--target", TARGET, "--target-dir", str(CARGO_TARGET_DIR)]
     if not debug:
