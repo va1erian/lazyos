@@ -9,7 +9,7 @@ use std::rc::Rc;
 use xui_code_editor::{Editor, FontConfig, Options};
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build as build_with, button, checkbox, column, edit, label, row, status_bar, Handle, Layout,
+    build as create, button, checkbox, column, edit, label, row, status_bar, Handle, Layout,
     LayoutExt,
 };
 use xui_core::backend::{Result, WidgetId};
@@ -77,9 +77,8 @@ impl<M: 'static> Placeable<M> for MenuPane<M> {
         self.0.id().expect("a menu bar owns a node")
     }
 
-    fn measure(&self, _ui: &Ui<M>, constraints: Constraints) -> Size {
-        let dpi = constraints.dpi;
-        Size::new(0, MENU_HEIGHT.to_px(dpi).value())
+    fn measure(&self, ui: &Ui<M>, _constraints: Constraints) -> Size {
+        Size::new(0, MENU_HEIGHT.to_px(ui.dpi()).value())
     }
 }
 
@@ -102,91 +101,7 @@ impl<M: 'static> Placeable<M> for EditorPane<M> {
     }
 }
 
-/// Builds the app's widgets and mounts the layout.
-pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
-    let editor_pane = Handle::new();
-    let find = FindHandles::default();
-    let status = Handle::new();
-
-    let mounted = ui.mount(
-        column()
-            .child(build_with(menu_bar).height(MENU_HEIGHT))
-            .child(find.row().fixed(FIND_HEIGHT))
-            .child(build_with(new_editor).bind(&editor_pane).fill(1))
-            .child(status_bar(&["Ln 1, Col 1", "Sel 0", "LF", "Saved"]).bind(&status)),
-    )?;
-    let editor = Rc::clone(&editor_pane.get().0);
-    let find_bar = find.find_bar();
-    find_bar.set_visible(ui, false);
-
-    let confirm = Dialog::confirm(
-        ui,
-        "Discard unsaved changes?",
-        "This document has unsaved changes. Discard them?",
-    )?
-    .on_action(dialog_msg);
-    let message = Dialog::message(ui, "Error", "")?.on_action(dialog_msg);
-
-    let dialog_open = Rc::new(Cell::new(false));
-    let find_open = Rc::new(Cell::new(false));
-
-    let open_dialog = FileDialog::open_file(ui, "Open")?
-        .file_system(Rc::new(StdFileSystem))
-        .initial_dir(START_DIR)
-        .require_existing(true)
-        .on_accept(|path| Some(Msg::OpenChosen(path)))
-        .on_cancel(refocus(&editor, &dialog_open));
-    let save_dialog = FileDialog::save_file(ui, "Save As")?
-        .file_system(Rc::new(StdFileSystem))
-        .initial_dir(START_DIR)
-        .filter("Text files", &["txt", "md", "rs"])
-        .filter("All files", &[])
-        .on_accept(|path| Some(Msg::SaveChosen(path)))
-        .on_cancel(refocus(&editor, &dialog_open));
-    ui.on_close(|| Some(Msg::CloseRequested));
-    {
-        let dialog_open = Rc::clone(&dialog_open);
-        let find_open = Rc::clone(&find_open);
-        ui.on_key(move |key, modifiers| {
-            crate::app::shortcut(key, modifiers, &dialog_open, &find_open)
-        });
-    }
-
-    editor.focus();
-
-    Ok(Notepad {
-        editor,
-        document: xui_code_editor::Document::untitled(),
-        search: Default::default(),
-        find_bar,
-        status: status.get(),
-        open_dialog,
-        save_dialog,
-        confirm,
-        message,
-        pending: crate::app::Pending::None,
-        dialog_open,
-        find_open,
-        _mounted: mounted,
-    })
-}
-
-/// Creates the editor: a monospace grid, since the default UI font is
-/// proportional and would space the glyphs apart.
-fn new_editor(ui: &Ui<Msg>) -> Result<EditorPane<Msg>> {
-    let options = Options {
-        font: FontConfig {
-            family: Some(xui_app::font::MONO_FAMILY.to_owned()),
-            ..FontConfig::default()
-        },
-        ..Options::default()
-    };
-    let editor =
-        Editor::with_options(ui, Rect::default(), options)?.on_change(|_text| Some(Msg::Edited));
-    Ok(EditorPane(Rc::new(editor)))
-}
-
-/// Creates the File and Edit menu bar.
+/// The menu bar.
 fn menu_bar(ui: &Ui<Msg>) -> Result<MenuPane<Msg>> {
     let menu = Menu::bar(ui, Rect::default())?
         .on_select(menu_msg)
@@ -216,22 +131,108 @@ fn menu_bar(ui: &Ui<Msg>) -> Result<MenuPane<Msg>> {
     Ok(MenuPane(menu))
 }
 
-/// A file dialog's cancel handler: it closes the dialog state and gives the
-/// editor its focus back.
-fn refocus(
-    editor: &Rc<Editor<Msg>>,
-    dialog_open: &Rc<Cell<bool>>,
-) -> impl Fn() -> Option<Msg> + 'static {
-    let editor = Rc::clone(editor);
-    let dialog_open = Rc::clone(dialog_open);
-    move || {
-        dialog_open.set(false);
-        editor.focus();
-        None
-    }
+/// The code editor, in the monospace UI font.
+fn new_editor(ui: &Ui<Msg>) -> Result<EditorPane<Msg>> {
+    // The editor is a monospace grid: the default UI font is proportional and
+    // would space the glyphs apart.
+    let options = Options {
+        font: FontConfig {
+            family: Some(xui_app::font::MONO_FAMILY.to_owned()),
+            ..FontConfig::default()
+        },
+        ..Options::default()
+    };
+    let editor =
+        Editor::with_options(ui, Rect::default(), options)?.on_change(|_text| Some(Msg::Edited));
+    Ok(EditorPane(Rc::new(editor)))
 }
 
-/// The find/replace bar's widgets before the layout is mounted.
+/// Builds the app's widgets and mounts the layout.
+pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
+    let editor = Handle::new();
+    let find = FindHandles::default();
+    let status = Handle::new();
+    let mounted = ui.mount(column().children((
+        create(menu_bar).height(MENU_HEIGHT),
+        find.row().fixed(FIND_HEIGHT),
+        create(new_editor).bind(&editor).fill(1),
+        status_bar(&["Ln 1, Col 1", "Sel 0", "LF", "Saved"]).bind(&status),
+    )))?;
+    let editor = Rc::clone(&editor.get().0);
+    let find_bar = find.get();
+    find_bar.set_visible(ui, false);
+
+    let confirm = Dialog::confirm(
+        ui,
+        "Discard unsaved changes?",
+        "This document has unsaved changes. Discard them?",
+    )?
+    .on_action(dialog_msg);
+    let message = Dialog::message(ui, "Error", "")?.on_action(dialog_msg);
+
+    let dialog_open = Rc::new(Cell::new(false));
+    let find_open = Rc::new(Cell::new(false));
+
+    let cancel = {
+        let editor = Rc::clone(&editor);
+        let dialog_open = Rc::clone(&dialog_open);
+        move || {
+            dialog_open.set(false);
+            editor.focus();
+            None
+        }
+    };
+    let open_dialog = FileDialog::open_file(ui, "Open")?
+        .file_system(Rc::new(StdFileSystem))
+        .initial_dir(START_DIR)
+        .require_existing(true)
+        .on_accept(|path| Some(Msg::OpenChosen(path)))
+        .on_cancel(cancel);
+    let cancel = {
+        let editor = Rc::clone(&editor);
+        let dialog_open = Rc::clone(&dialog_open);
+        move || {
+            dialog_open.set(false);
+            editor.focus();
+            None
+        }
+    };
+    let save_dialog = FileDialog::save_file(ui, "Save As")?
+        .file_system(Rc::new(StdFileSystem))
+        .initial_dir(START_DIR)
+        .filter("Text files", &["txt", "md", "rs"])
+        .filter("All files", &[])
+        .on_accept(|path| Some(Msg::SaveChosen(path)))
+        .on_cancel(cancel);
+    ui.on_close(|| Some(Msg::CloseRequested));
+    {
+        let dialog_open = Rc::clone(&dialog_open);
+        let find_open = Rc::clone(&find_open);
+        ui.on_key(move |key, modifiers| {
+            crate::app::shortcut(key, modifiers, &dialog_open, &find_open)
+        });
+    }
+
+    editor.focus();
+
+    Ok(Notepad {
+        editor,
+        document: xui_code_editor::Document::untitled(),
+        search: Default::default(),
+        find_bar,
+        status: status.get(),
+        open_dialog,
+        save_dialog,
+        confirm,
+        message,
+        pending: crate::app::Pending::None,
+        dialog_open,
+        find_open,
+        _mounted: mounted,
+    })
+}
+
+/// The find/replace bar's widgets, filled when its row is mounted.
 #[derive(Default)]
 struct FindHandles {
     query: Handle<Edit<Msg>>,
@@ -243,50 +244,45 @@ struct FindHandles {
 }
 
 impl FindHandles {
-    /// The find/replace row, wired to its messages and bound to these
-    /// handles.
+    /// The find/replace bar, wired to its messages.
     fn row(&self) -> Layout<Msg> {
         let [next, prev, replace, replace_all] = &self.buttons;
         row().gap(4).children((
             edit()
                 .placeholder("Find")
-                .on_change(Msg::QueryChanged)
-                .bind(&self.query),
+                .bind(&self.query)
+                .on_change(Msg::QueryChanged),
             edit().placeholder("Replace").bind(&self.replacement),
             button("Next")
-                .on_click_with(|| Some(Msg::FindNext))
-                .bind(next),
+                .bind(next)
+                .on_click_with(|| Some(Msg::FindNext)),
             button("Previous")
-                .on_click_with(|| Some(Msg::FindPrevious))
-                .bind(prev),
+                .bind(prev)
+                .on_click_with(|| Some(Msg::FindPrevious)),
             button("Replace")
-                .on_click_with(|| Some(Msg::ReplaceCurrent))
-                .bind(replace),
+                .bind(replace)
+                .on_click_with(|| Some(Msg::ReplaceCurrent)),
             button("Replace all")
-                .on_click_with(|| Some(Msg::ReplaceAll))
-                .bind(replace_all),
+                .bind(replace_all)
+                .on_click_with(|| Some(Msg::ReplaceAll)),
             checkbox("Regex")
-                .on_toggle(Msg::RegexToggled)
-                .bind(&self.regex),
+                .bind(&self.regex)
+                .on_toggle(Msg::RegexToggled),
             checkbox("Match case")
-                .on_toggle(Msg::CaseToggled)
-                .bind(&self.case),
+                .bind(&self.case)
+                .on_toggle(Msg::CaseToggled),
             label("").bind(&self.status),
         ))
     }
 
-    /// The mounted bar's widgets.
-    fn find_bar(&self) -> FindBar {
-        let query = self.query.get();
-        let replacement = self.replacement.get();
-        let status = self.status.get();
-        let regex = self.regex.get();
-        let case = self.case.get();
-        let nodes = [query.id(), replacement.id()]
-            .into_iter()
-            .chain(self.buttons.iter().map(|button| button.get().id()))
-            .chain([regex.id(), case.id(), status.id()])
-            .collect();
+    /// The mounted bar.
+    fn get(&self) -> FindBar {
+        let buttons = self.buttons.each_ref().map(Handle::get);
+        let (query, replacement) = (self.query.get(), self.replacement.get());
+        let (regex, case, status) = (self.regex.get(), self.case.get(), self.status.get());
+        let mut nodes = vec![query.id(), replacement.id()];
+        nodes.extend(buttons.iter().map(|button| button.id()));
+        nodes.extend([regex.id(), case.id(), status.id()]);
         FindBar {
             query,
             replacement,

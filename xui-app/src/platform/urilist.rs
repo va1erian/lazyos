@@ -6,8 +6,6 @@
 //! another app: only absolute local `file:` URIs (an empty or `localhost`
 //! host), no NUL, a bounded number of paths; comment lines are skipped.
 
-use std::ffi::OsString;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 /// The MIME type.
@@ -23,7 +21,7 @@ fn plain(byte: u8) -> bool {
 /// One path as a `file://` URI.
 pub fn uri(path: &Path) -> String {
     let mut out = String::from("file://");
-    for &byte in path.as_os_str().as_bytes() {
+    for &byte in path.as_os_str().as_encoded_bytes() {
         if plain(byte) {
             out.push(byte as char);
         } else {
@@ -71,7 +69,20 @@ pub fn path_of(line: &str) -> Option<PathBuf> {
     if out.contains(&0) {
         return None;
     }
-    Some(PathBuf::from(OsString::from_vec(out)))
+    path_from_bytes(out)
+}
+
+/// A decoded path's bytes as a path: any bytes on Unix (LazyOS), UTF-8
+/// elsewhere (the host tools that link this crate, such as the packager).
+#[cfg(unix)]
+fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    String::from_utf8(bytes).ok().map(PathBuf::from)
 }
 
 /// The local paths of a uri-list payload (invalid lines are dropped).

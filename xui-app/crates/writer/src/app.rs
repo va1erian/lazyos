@@ -23,6 +23,7 @@ use xui_rich_text::model::{Align, ListKind, StyleSummary};
 use crate::commands::{self, files};
 use crate::host::Host;
 use crate::ui::Tools;
+use crate::ui::print_bar::PrintBar;
 
 /// A character attribute the B / I / U / S buttons toggle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +92,14 @@ pub enum Msg {
     MessageClosed,
     /// A file picker was cancelled.
     PickerClosed,
+    /// Print (Ctrl+P): show or hide the print bar.
+    Print,
+    /// The print bar's Print button.
+    PrintStart,
+    /// The print bar's Close (or Cancel) button.
+    PrintClose,
+    /// The print timer: render or send the next page, follow the job.
+    PrintTick,
     /// Ctrl+Q or the window's close button.
     Quit,
 }
@@ -127,6 +136,9 @@ pub struct Writer {
     pub tools: Tools,
     pub status: Rc<StatusBar<Msg>>,
     pub dialogs: Dialogs,
+    pub print_bar: PrintBar,
+    /// The job being printed, if any.
+    pub printing: Option<commands::print::Session>,
     pub host: Host,
     /// The file the document was opened from or saved to, if any.
     pub path: Option<PathBuf>,
@@ -154,7 +166,7 @@ impl Writer {
     }
 }
 
-/// Maps Ctrl+N / O / S / Shift+S / E / Q to messages. The editor handles
+/// Maps Ctrl+N / O / S / Shift+S / E / P / Q to messages. The editor handles
 /// Ctrl+B / I / U / Z / Y / X / C / V / A itself. While a dialog is open no
 /// key is taken, so Esc and Enter reach the dialog, not the document.
 pub fn shortcut(key: Key, modifiers: Modifiers, dialog_open: &Cell<bool>) -> Option<Msg> {
@@ -167,6 +179,7 @@ pub fn shortcut(key: Key, modifiers: Modifiers, dialog_open: &Cell<bool>) -> Opt
         Key::S if modifiers.shift => Some(Msg::SaveAs),
         Key::S => Some(Msg::Save),
         Key::E => Some(Msg::Export),
+        Key::P => Some(Msg::Print),
         Key::Q => Some(Msg::Quit),
         _ => None,
     }
@@ -213,6 +226,10 @@ impl App for Writer {
             Msg::PageView(on) => commands::page_view(self, on),
             Msg::PageSetup => commands::page_menu(self, ui),
             Msg::PageChoice(id) => commands::page_choice(self, id),
+            Msg::Print => commands::print::toggle_bar(self, ui),
+            Msg::PrintStart => commands::print::start(self, ui),
+            Msg::PrintClose => commands::print::close(self, ui),
+            Msg::PrintTick => commands::print::tick(self, ui),
             Msg::Table => commands::table_menu(self, ui),
             Msg::TableChoice(index, on) => commands::table_choice(self, index, on),
         }
@@ -243,6 +260,7 @@ mod tests {
         };
         assert!(matches!(key(Key::S, shift), Some(Msg::SaveAs)));
         assert!(matches!(key(Key::E, CTRL), Some(Msg::Export)));
+        assert!(matches!(key(Key::P, CTRL), Some(Msg::Print)));
         assert!(matches!(key(Key::Q, CTRL), Some(Msg::Quit)));
     }
 
