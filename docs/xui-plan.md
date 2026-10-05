@@ -194,6 +194,9 @@ only the three xui packages, and re-run
 `cargo tree --target x86_64-unknown-linux-musl | grep -E
 'winit|softbuffer|glutin|glow|arboard|xui-gpu'` to confirm the windowing crates
 are still absent.
+`doom/` and `lazyrad-os/` (including its `[patch]`) pin the same commit;
+`python tools/xui/check_pin.py` (run by CI) fails when any manifest or lockfile
+disagrees, and lists a workspace that has to wait (`LAGGING`) with the reason.
 
 **Compositor client (M3a, issue #168)** — `src/bin/client.rs` (`xui-client`)
 runs the same counter + an `Edit` text field as a `xuid` client:
