@@ -6,6 +6,7 @@
 //! page cannot be opened or fetched, `WEB:NAV:<url>` when the app starts a
 //! navigation.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use lazyweb::address::{self, START};
@@ -67,6 +68,10 @@ pub struct Browser {
     /// The user is typing an address: the page's own news (its URL as it
     /// loads, redirects) must not replace what they typed.
     editing: bool,
+    /// Back, Forward and Reload as last enabled (`None` before the first
+    /// update): setting a button repaints it, and the page's frames arrive
+    /// many times a second.
+    buttons: Cell<Option<[bool; 3]>>,
 }
 
 impl Browser {
@@ -115,6 +120,7 @@ impl Browser {
             title: String::new(),
             failed: false,
             editing: false,
+            buttons: Cell::new(None),
         };
         browser.show_url(&first);
         browser.set_status(&format!("Opening {}", browser.shown(&first)));
@@ -145,10 +151,21 @@ impl Browser {
         self.status.set_text(text);
     }
 
+    /// Enables Back, Forward and Reload as the history allows, touching them
+    /// only when that changed: each `set_enabled` damages its button, which
+    /// would otherwise add the toolbar to every page frame's repaint.
     fn update_buttons(&self) {
-        self.back.set_enabled(self.history.can_go_back());
-        self.forward.set_enabled(self.history.can_go_forward());
-        self.reload.set_enabled(self.history.current().is_some());
+        let state = [
+            self.history.can_go_back(),
+            self.history.can_go_forward(),
+            self.history.current().is_some(),
+        ];
+        if self.buttons.replace(Some(state)) == Some(state) {
+            return;
+        }
+        self.back.set_enabled(state[0]);
+        self.forward.set_enabled(state[1]);
+        self.reload.set_enabled(state[2]);
     }
 
     /// Opens `url` in the view.

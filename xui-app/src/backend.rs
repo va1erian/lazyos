@@ -27,6 +27,7 @@
 //! [`run`]: Backend::run
 
 mod backdrop;
+mod background;
 mod dnd;
 mod double_click;
 mod event_loop;
@@ -186,6 +187,8 @@ struct Window {
     theme: xui_core::Theme,
     /// A picture drawn over the background, under every node (`backdrop`).
     backdrop: Option<Rc<xui_core::image::Image>>,
+    /// The background and backdrop, rendered once for the window's size.
+    background: background::Background,
     dpi: u32,
     width: i32,
     height: i32,
@@ -454,6 +457,7 @@ mod test_support {
                 sink: Some(sink),
                 theme: xui_core::Theme::light(),
                 backdrop: None,
+                background: Default::default(),
                 dpi: DEFAULT_DPI,
                 width: 64,
                 height: 64,
