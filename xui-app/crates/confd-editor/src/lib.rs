@@ -11,8 +11,6 @@
 //! on the host.
 
 pub mod app;
-#[path = "../../shared/place.rs"]
-mod place;
 pub mod sections;
 pub mod store;
 pub mod tree;

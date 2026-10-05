@@ -2,14 +2,13 @@
 //! app mirrors its state onto.
 
 use xui_core::arrange::{
-    build, button, column, edit, label, row, spacer, Build, Handle, Layout, LayoutExt,
+    button, column, edit, label, list, radio_group, row, spacer, Entry, Handle, Layout, LayoutExt,
 };
 use xui_core::layout::{Align, Insets};
-use xui_core::widget::{Button, Edit, Label, ListView, Panel, RadioGroup};
-use xui_core::{Dip, Rect};
+use xui_core::widget::{Button, Edit, Label, ListView, RadioGroup};
+use xui_core::Dip;
 
 use crate::app::Msg;
-use crate::place::{placed, Placed};
 use crate::value_edit::Kind;
 
 /// Height of a kind radio group: one 28-dip row per kind.
@@ -21,7 +20,7 @@ pub struct Widgets {
     pub filter: Handle<Edit<Msg>>,
     pub list: Handle<ListView<Msg>>,
     pub path: Handle<Label<Msg>>,
-    pub kind: Handle<Placed<RadioGroup<Msg>>>,
+    pub kind: Handle<RadioGroup<Msg>>,
     pub value: Handle<Edit<Msg>>,
     pub bool_button: Handle<Button<Msg>>,
     pub apply: Handle<Button<Msg>>,
@@ -30,24 +29,21 @@ pub struct Widgets {
     pub preview: Handle<Label<Msg>>,
     pub new_toggle: Handle<Button<Msg>>,
     pub new_path: Handle<Edit<Msg>>,
-    pub new_kind: Handle<Placed<RadioGroup<Msg>>>,
+    pub new_kind: Handle<RadioGroup<Msg>>,
     pub new_value: Handle<Edit<Msg>>,
     pub create: Handle<Button<Msg>>,
     pub banner: Handle<Label<Msg>>,
     pub status: Handle<Label<Msg>>,
 }
 
-/// A kind radio group raising `msg` with the picked index.
-fn kinds(msg: fn(usize) -> Msg) -> Build<Placed<RadioGroup<Msg>>, Msg> {
-    placed(140, KINDS_H, move |ui, bounds| {
-        let labels: Vec<&str> = Kind::ALL.iter().map(|kind| kind.label()).collect();
-        Ok(RadioGroup::new(ui, bounds, &labels)?.on_select(move |index| Some(msg(index))))
-    })
-}
-
-/// A card for a pane, laid out by the window.
-pub fn card() -> Build<Placed<Panel<Msg>>, Msg> {
-    placed(0, 0, Panel::new)
+/// A kind radio group raising `msg` with the picked index, bound to `handle`.
+fn kinds(msg: fn(usize) -> Msg, handle: &Handle<RadioGroup<Msg>>) -> Entry<Msg> {
+    let labels = Kind::ALL.map(Kind::label);
+    radio_group(&labels)
+        .on_select(msg)
+        .bind(handle)
+        .size(140, KINDS_H)
+        .align(Align::Start)
 }
 
 impl Widgets {
@@ -62,13 +58,11 @@ impl Widgets {
                     .fill(1),
                 button("Refresh").on_click(Msg::Refresh),
             )),
-            build(|ui| {
-                Ok(ListView::new(ui, Rect::default(), &[])?
-                    .multi_select(false)
-                    .on_select(|index| Some(Msg::Select(index))))
-            })
-            .bind(&self.list)
-            .fill(1),
+            list()
+                .then(|list| list.multi_select(false))
+                .on_select(Msg::Select)
+                .bind(&self.list)
+                .fill(1),
         ))
     }
 
@@ -79,7 +73,7 @@ impl Widgets {
             .gap(8)
             .children((
                 label("No key selected").bind(&self.path),
-                kinds(Msg::Kind).bind(&self.kind).align(Align::Start),
+                kinds(Msg::Kind, &self.kind),
                 // Only one of the two shows: a bool is toggled, not typed.
                 row().children((
                     edit().on_change(Msg::Value).bind(&self.value).fill(1),
@@ -120,7 +114,7 @@ impl Widgets {
                                 .align(Align::Start),
                         ))
                         .fill(1),
-                    kinds(Msg::NewKind).bind(&self.new_kind).align(Align::Start),
+                    kinds(Msg::NewKind, &self.new_kind),
                 )),
                 spacer(),
                 label("").bind(&self.banner),

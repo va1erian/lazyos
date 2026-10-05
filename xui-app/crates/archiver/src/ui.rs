@@ -8,20 +8,18 @@ use std::rc::Rc;
 use lazyarc::format::{Format, Level, ALL as FORMATS};
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build as create, button, column, combo_box, label, progress, row, status_bar, Handle,
+    button, column, combo_box, label, list, progress, row, status_bar, toolbar, Build, Handle,
     LayoutExt, Mounted,
 };
-use xui_core::backend::{Result, WidgetId};
-use xui_core::geometry::{Rect, Size};
-use xui_core::layout::{Constraints, Insets};
+use xui_core::backend::Result;
+use xui_core::layout::Insets;
 use xui_core::widget::{
-    Button, ComboBox, Dialog, FileDialog, Fill, Label, ListView, Lucide, Menu, MenuId, Placeable,
-    ProgressBar, StatusBar, TaskDialog, TaskDialogIcon, Toolbar,
+    Button, ComboBox, Dialog, FileDialog, Fill, Label, ListView, Lucide, Menu, MenuId, ProgressBar,
+    StatusBar, TaskDialog, TaskDialogIcon, Toolbar,
 };
 use xui_core::Dip;
 
 use crate::app::Msg;
-use crate::cells::Cells;
 use crate::folder::Column;
 use crate::host::Host;
 
@@ -83,21 +81,9 @@ impl Dialogs {
     }
 }
 
-/// The toolbar as a layout entry (it takes the row's leftover width).
-struct ToolbarPane(Toolbar<Msg>);
-
-impl Placeable<Msg> for ToolbarPane {
-    fn id(&self) -> WidgetId {
-        self.0.id()
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
-        Size::new(0, 0)
-    }
-}
-
-fn toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
-    let toolbar = Toolbar::empty(ui, Rect::default())?
+/// The command toolbar.
+fn commands() -> Build<Toolbar<Msg>, Msg> {
+    toolbar()
         .item_with_text(Lucide::FolderOpen, "Open an archive (Ctrl+O)", "Open")
         .item_with_text(Lucide::Package, "New archive (Ctrl+N)", "New")
         .item_with_text(Lucide::Plus, "Add a file to the archive", "Add")
@@ -114,12 +100,12 @@ fn toolbar(ui: &Ui<Msg>) -> Result<ToolbarPane> {
         )
         .separator()
         .item_with_text(Lucide::ChevronUp, "Up one folder (Backspace)", "Up")
-        .on_click(|index| COMMANDS.get(index).map(|msg| msg()));
-    Ok(ToolbarPane(toolbar))
+        .then(|bar| bar.on_click(|index| COMMANDS.get(index).map(|msg| msg())))
 }
 
-fn list(ui: &Ui<Msg>) -> Result<ListView<Msg>> {
-    let mut list = ListView::auto(ui, Cells::new(&[]))?;
+/// The report list: one column per [`Column`], filled by the app.
+fn report() -> Build<ListView<Msg>, Msg> {
+    let mut list = list();
     for column in Column::ALL {
         list = match column {
             Column::Name => list.column(column.title(), Fill),
@@ -128,12 +114,13 @@ fn list(ui: &Ui<Msg>) -> Result<ListView<Msg>> {
             Column::Method => list.column(column.title(), Dip(90.0)),
         };
     }
-    Ok(list
-        .multi_select(true)
-        .on_selection(|rows| Some(Msg::Selection(rows.to_vec())))
-        .on_activate(|row| Some(Msg::Activate(row)))
-        .on_sort(|column| Some(Msg::Sort(column)))
-        .on_context(|row, at| Some(Msg::Context(row, at))))
+    list.then(|list| {
+        list.multi_select(true)
+            .on_selection(|rows| Some(Msg::Selection(rows.to_vec())))
+            .on_activate(|row| Some(Msg::Activate(row)))
+            .on_sort(|column| Some(Msg::Sort(column)))
+            .on_context(|row, at| Some(Msg::Context(row, at)))
+    })
 }
 
 /// Every extension the app reads, for the Open picker's filter.
@@ -214,7 +201,7 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
         row()
             .gap(gap)
             .children((
-                create(toolbar).fill(1),
+                commands().fill(1),
                 row()
                     .gap(gap)
                     .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
@@ -236,7 +223,7 @@ pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
             .padding(Insets::symmetric(Dip(8.0), Dip(3.0)))
             .child(label("").bind(&address).fill(1))
             .fixed(ADDRESS_HEIGHT),
-        create(self::list).bind(&list).fill(1),
+        report().bind(&list).fill(1),
         row()
             .padding(Insets::symmetric(Dip(16.0), Dip(0.0)))
             .child(

@@ -13,8 +13,9 @@ use lazyshell::desktop::grid::Grid;
 use lazyshell::taskbar::BAR_H;
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
+use xui_core::arrange::{absolute, build, icon_view_with, Handle, LayoutExt, Mounted};
 use xui_core::backend::PlatformSpec;
-use xui_core::widget::{IconSize, IconView, Placeable};
+use xui_core::widget::{IconSize, IconView};
 use xui_core::{Dip, Rect};
 
 use super::ctx::Ctx;
@@ -54,7 +55,9 @@ pub enum DeskMsg {
 /// The desktop window's app.
 pub struct DesktopApp {
     ctx: Rc<Ctx>,
-    icons: IconView<DeskMsg>,
+    icons: Rc<IconView<DeskMsg>>,
+    /// The layout that places the icon view at its columns.
+    placement: Mounted<DeskMsg>,
     beat: heartbeat::Heartbeat,
     service: service::ShellService,
     /// The package icons decoded so far.
@@ -91,10 +94,22 @@ impl DesktopApp {
             dark,
             grid,
         };
-        let icons = IconView::with_model(ui, area, model)
-            .expect("desktop icons")
-            .on_activate(|index| Some(DeskMsg::Launch(index)))
-            .on_selection(|_| Some(DeskMsg::Selection));
+        let handle = Handle::new();
+        let (x, y, w, h) = icons_design(&ctx, grid);
+        let placement = ui
+            .mount(
+                absolute().child(
+                    icon_view_with(model)
+                        .then(|view| {
+                            view.on_activate(|index| Some(DeskMsg::Launch(index)))
+                                .on_selection(|_| Some(DeskMsg::Selection))
+                        })
+                        .bind(&handle)
+                        .at(x, y, w, h),
+                ),
+            )
+            .expect("desktop icons");
+        let icons = handle.get();
         icons.set_icon_size(IconSize::Medium);
         icons.select(None);
         let drag = Rc::new(RefCell::new(DragSource {
@@ -119,6 +134,7 @@ impl DesktopApp {
         DesktopApp {
             ctx,
             icons,
+            placement,
             beat: heartbeat::Heartbeat::new(),
             service: service::ShellService::default(),
             images: IconCache::default(),
@@ -223,8 +239,13 @@ impl DesktopApp {
         let grid = Grid::new(self.ctx.icons.borrow().len(), rows_fit(&self.ctx));
         if grid.columns != self.grid.columns {
             let area = icons_area(&self.ctx, grid);
-            ui.apply_moves(&[(self.icons.id(), area)]);
-            self.icons.placed(ui, area);
+            // Re-place the same view at the new columns: a fresh layout
+            // around it, not a hand move a later relayout would undo.
+            let view = Rc::clone(&self.icons);
+            let (x, y, w, h) = icons_design(&self.ctx, grid);
+            self.placement = ui
+                .mount(absolute().child(build(move |_| Ok(view)).at(x, y, w, h)))
+                .expect("desktop icons");
             self.labels = ShellRect::new(area.left, area.top, area.width(), area.height());
         }
         self.grid = grid;
@@ -245,16 +266,22 @@ fn rows_fit(ctx: &Ctx) -> usize {
     usize::try_from((height + TILE_GAP) / (TILE_H + TILE_GAP)).unwrap_or(1)
 }
 
-/// The icon view's rectangle (screen pixels) for `grid`: as many columns as
-/// it has, anchored to the top-right corner.
-fn icons_area(ctx: &Ctx, grid: Grid) -> Rect {
+/// The icon view's rectangle in design pixels for `grid`, as `(x, y, width,
+/// height)`: as many columns as it has, anchored to the top-right corner.
+fn icons_design(ctx: &Ctx, grid: Grid) -> (i32, i32, i32, i32) {
     let columns = i32::try_from(grid.columns).unwrap_or(1);
     let width = columns * (TILE_W + TILE_GAP) - TILE_GAP + COLUMN_SLACK;
     let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
     let right = ctx.screen.0 - ICONS_INSET;
     let left = (right - width).max(0);
+    (left, ICONS_INSET, right - left, bottom - ICONS_INSET)
+}
+
+/// The same rectangle in screen pixels: where the labels sit.
+fn icons_area(ctx: &Ctx, grid: Grid) -> Rect {
+    let (x, y, w, h) = icons_design(ctx, grid);
     let s = ctx.scale();
-    Rect::new(left * s, ICONS_INSET * s, right * s, bottom * s)
+    Rect::new(x * s, y * s, (x + w) * s, (y + h) * s)
 }
 
 impl App for DesktopApp {

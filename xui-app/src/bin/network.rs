@@ -22,19 +22,14 @@ use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_confd_editor::store::StoreError as ConfStoreError;
 use xui_core::app::{App, Ui};
-use xui_core::backend::WidgetId;
-use xui_core::geometry::{Rect, Size};
-use xui_core::layout::Constraints;
 use xui_core::prelude::*;
-use xui_core::widget::{Placeable, RadioGroup};
+use xui_core::widget::RadioGroup;
 use xui_settings::store::{ConfigStore, Value};
 
 /// The window size when a compositor lays the app out.
 const WINDOW: (i32, i32) = (600, 470);
 /// How often the status refreshes.
 const REFRESH_MILLIS: u32 = 1000;
-/// The design height of one radio option (`RadioGroup` draws them 28 tall).
-const RADIO_ROW: Dip = Dip(28.0);
 
 #[derive(Clone)]
 enum Msg {
@@ -48,56 +43,11 @@ enum Msg {
 /// The status rows: caption, then the line it shows.
 const STATUS_ROWS: [&str; 5] = ["Interface", "Mode", "Address", "Gateway", "Traffic"];
 
-/// The mode choice as a layout entry. A `RadioGroup` is one node per option
-/// and not `Placeable`, so this stacks the options in the rectangle the layout
-/// gives the first one.
-struct ModeChoice {
-    group: RadioGroup<Msg>,
-    ids: Vec<WidgetId>,
-}
-
-impl ModeChoice {
-    fn new(ui: &Ui<Msg>) -> xui_core::backend::Result<ModeChoice> {
-        let group = RadioGroup::new(
-            ui,
-            Rect::default(),
-            &["Automatic (DHCP)", "Manual (static address)"],
-        )?;
-        let ids = group.ids();
-        Ok(ModeChoice { group, ids })
-    }
-}
-
-impl Placeable<Msg> for ModeChoice {
-    fn id(&self) -> WidgetId {
-        self.ids[0]
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, constraints: Constraints) -> Size {
-        let row = RADIO_ROW.to_px(constraints.dpi).value();
-        Size::new(0, row * self.ids.len() as i32)
-    }
-
-    fn placed(&self, ui: &Ui<Msg>, rect: Rect) {
-        let row = rect.height() / self.ids.len() as i32;
-        let moves: Vec<(WidgetId, Rect)> = self
-            .ids
-            .iter()
-            .enumerate()
-            .map(|(index, id)| {
-                let top = rect.top + row * index as i32;
-                (*id, Rect::new(rect.left, top, rect.right, top + row))
-            })
-            .collect();
-        ui.apply_moves(&moves);
-    }
-}
-
 /// Every widget the app reads or changes after start-up.
 #[derive(Default)]
 struct Widgets {
     values: [Handle<Label<Msg>>; 5],
-    mode: Handle<ModeChoice>,
+    mode: Handle<RadioGroup<Msg>>,
     address: Handle<Edit<Msg>>,
     gateway: Handle<Edit<Msg>>,
     dns: Handle<Edit<Msg>>,
@@ -141,7 +91,8 @@ impl Widgets {
                 group(
                     "Configuration",
                     column().gap(8).children((
-                        build(ModeChoice::new).bind(&self.mode),
+                        radio_group(&["Automatic (DHCP)", "Manual (static address)"])
+                            .bind(&self.mode),
                         row().gap(12).children((
                             column().gap(8).children(fields),
                             label("Used in Manual mode.").align(Align::Start),
@@ -249,7 +200,7 @@ impl Network {
             stored,
             self.status.as_ref().unwrap_or(&NetStatus::default()),
         );
-        self.w.mode.get().group.select(usize::from(form.manual));
+        self.w.mode.get().select(usize::from(form.manual));
         self.w.address.get().set_text(&form.address);
         self.w.gateway.get().set_text(&form.gateway);
         self.w.dns.get().set_text(&form.dns);
@@ -257,7 +208,7 @@ impl Network {
 
     fn form(&self) -> Form {
         Form {
-            manual: self.w.mode.get().group.selected() == 1,
+            manual: self.w.mode.get().selected() == 1,
             address: self.w.address.get().text(),
             gateway: self.w.gateway.get().text(),
             dns: self.w.dns.get().text(),

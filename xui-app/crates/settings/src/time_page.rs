@@ -8,14 +8,12 @@
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::arrange::{
-    build, button, checkbox, column, edit, label, row, Handle, LayoutExt, Mounted,
-};
+use xui_core::arrange::{button, checkbox, column, edit, label, row, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::widget::{CheckBox, Edit, Label, ListView};
-use xui_core::{HasText, Rect};
+use xui_core::HasText;
 
-use crate::app::Msg;
+use crate::app::{choice_list, Msg};
 use crate::store::ConfigStore;
 use crate::system::System;
 use crate::time_ops;
@@ -49,6 +47,7 @@ impl TimePage {
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<TimePage> {
         let (now, date, time, zones) = (Handle::new(), Handle::new(), Handle::new(), Handle::new());
         let (clock24, seconds) = (Handle::new(), Handle::new());
+        let zone_names: Vec<&str> = timezone::ZONES.iter().map(|zone| zone.name).collect();
         let mounted = ui.mount_in(
             page,
             column().padding(20).gap(16).children((
@@ -71,15 +70,10 @@ impl TimePage {
                             .gap(8)
                             .children((
                                 label("Time zone"),
-                                build(|ui| {
-                                    let names: Vec<&str> =
-                                        timezone::ZONES.iter().map(|zone| zone.name).collect();
-                                    Ok(ListView::new(ui, Rect::default(), &names)?
-                                        .multi_select(false)
-                                        .on_select(|i| Some(Msg::Time(TimeMsg::Zone(i)))))
-                                })
-                                .bind(&zones)
-                                .fill(1),
+                                choice_list(&zone_names)
+                                    .on_select(|i| Msg::Time(TimeMsg::Zone(i)))
+                                    .bind(&zones)
+                                    .fill(1),
                             ))
                             .fill(1),
                         column()

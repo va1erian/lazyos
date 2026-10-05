@@ -284,7 +284,7 @@ fn main() {
     // wrapped tail of the echo instead of the output (the Doom session's
     // 75-column timedemo command). Columns past the window are clipped, as
     // they always were.
-    let rows = (((height as i32 - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
+    let rows = (((height - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
     let cols = COLS;
     let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
         Ok(spawned) => spawned,

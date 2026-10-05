@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::arrange::{button, column, label, Handle, LayoutExt, Mounted};
+use xui_core::arrange::{button, column, label, tree_view, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::layout::Align;
 use xui_core::widget::{CheckState, Label, TreeRow, TreeView};
@@ -16,7 +16,6 @@ use xui_core::HasText;
 
 use crate::app::Msg;
 use crate::hidden_ops::{self, HiddenList};
-use crate::place::{placed, Placed};
 use crate::store::ConfigStore;
 
 /// Messages the Hidden apps page's widgets raise.
@@ -29,7 +28,7 @@ pub enum HiddenMsg {
 
 /// The page's widgets and working state.
 pub struct HiddenPage {
-    tree: Rc<Placed<TreeView<Msg>>>,
+    tree: Rc<TreeView<Msg>>,
     hint: Rc<Label<Msg>>,
     _mounted: Mounted<Msg>,
     /// `None` when the user is unknown: the page then only explains why.
@@ -40,25 +39,24 @@ impl HiddenPage {
     /// Lays the page out in the container `page`.
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<HiddenPage> {
         let (tree, hint) = (Handle::new(), Handle::new());
-        // The tree keeps the size it is built at: it re-lays its scrollbar
-        // out on a resize event, which a layout's move does not send.
         let mounted = ui.mount_in(
             page,
             column().padding(20).gap(8).children((
                 label("Hide from the start menu"),
-                placed(440, 300, |ui, bounds| {
-                    Ok(TreeView::new(ui, bounds, &[])?
-                        .checkboxes(true)
-                        .indent_guides(false)
-                        .on_check(|row, state| {
-                            Some(Msg::Hidden(HiddenMsg::Toggle(
-                                row,
-                                state == CheckState::Checked,
-                            )))
-                        }))
-                })
-                .bind(&tree)
-                .align(Align::Start),
+                tree_view()
+                    .then(|tree| {
+                        tree.checkboxes(true)
+                            .indent_guides(false)
+                            .on_check(|row, state| {
+                                Some(Msg::Hidden(HiddenMsg::Toggle(
+                                    row,
+                                    state == CheckState::Checked,
+                                )))
+                            })
+                    })
+                    .bind(&tree)
+                    .size(440, 300)
+                    .align(Align::Start),
                 label("Hidden apps still run and open files.").bind(&hint),
                 button("Reset to defaults")
                     .on_click(Msg::Hidden(HiddenMsg::Reset))
@@ -103,7 +101,7 @@ impl HiddenPage {
                 TreeRow::new(row.text(), 0).checked(state)
             })
             .collect();
-        self.tree.widget.set_rows(&rows);
+        self.tree.set_rows(&rows);
     }
 
     /// Handle one message; returns the status line text.

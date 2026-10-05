@@ -10,14 +10,12 @@ use std::rc::Rc;
 
 use deskmenu::Entry;
 use xui_core::app::Ui;
-use xui_core::arrange::{
-    build, button, column, edit, label, row, Build, Handle, LayoutExt, Mounted,
-};
+use xui_core::arrange::{button, column, edit, label, row, Build, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::widget::{Button, Edit, ListView};
-use xui_core::{HasText, Rect};
+use xui_core::HasText;
 
-use crate::app::Msg;
+use crate::app::{choice_list, Msg};
 use crate::menu_ops;
 use crate::store::{AppChoice, ConfigStore};
 
@@ -43,11 +41,7 @@ fn command(text: &str, msg: MenuMsg) -> Build<Button<Msg>, Msg> {
 
 /// An empty single-column list raising `msg` with the selected row.
 fn rows(msg: fn(usize) -> MenuMsg) -> Build<ListView<Msg>, Msg> {
-    build(move |ui| {
-        Ok(ListView::new(ui, Rect::default(), &[])?
-            .multi_select(false)
-            .on_select(move |i| Some(Msg::Menu(msg(i)))))
-    })
+    choice_list(&[]).on_select(move |i| Msg::Menu(msg(i)))
 }
 
 /// The page's widgets and working state.

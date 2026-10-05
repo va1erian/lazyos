@@ -113,7 +113,7 @@ fn color(rgba: Rgba) -> Color {
 /// anti-aliased edges would otherwise come out too dark.
 fn unpremultiply(premultiplied: &[u8]) -> Vec<u8> {
     let mut pixels = premultiplied.to_vec();
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         let alpha = u16::from(px[3]);
         if alpha != 0 && alpha != 255 {
             for channel in &mut px[..3] {
@@ -161,7 +161,7 @@ mod tests {
             for size in SIZES {
                 let image = render(art, size);
                 let pixels = image.pixels();
-                let alpha = || pixels.chunks_exact(4).map(|px| px[3]);
+                let alpha = || pixels.as_chunks::<4>().0.iter().map(|px| px[3]);
                 let area = (size * size) as usize;
                 let inked = alpha().filter(|&a| a >= 128).count();
                 assert!(inked * 8 > area, "{dir} at {size}px is mostly empty");
