@@ -11,21 +11,32 @@ use std::rc::Rc;
 use lazyweb::address::{self, START};
 use lazyweb::fetch::trace;
 use lazyweb::history::History;
-use lazyweb::layout::{layout, Layout};
 use lazyweb::marker_text;
 use xui_app::backend::LazyOSBackend;
-use xui_app::hidpi;
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Event, Result, WidgetId};
+use xui_core::arrange::{build, button, column, edit, label, row, Handle, Layout, LayoutExt};
+use xui_core::backend::Result;
+use xui_core::layout::Insets;
 use xui_core::widget::{Button, Edit, HasText, Label};
-use xui_core::Key;
-use xui_netsurf::{NetSurfView, NetSurfViewEvent};
+use xui_core::{Dip, Key};
+use xui_netsurf::NetSurfViewEvent;
+
+use crate::page::Page;
 
 /// The built-in start page.
 const START_HTML: &str = include_str!("start.html");
 
 /// The name the window has while a page has no title.
 const APP_NAME: &str = "LazyWeb";
+
+/// The toolbar's height and its buttons' widths.
+const TOOLBAR_HEIGHT: Dip = Dip(36.0);
+const BACK_WIDTH: Dip = Dip(52.0);
+const FORWARD_WIDTH: Dip = Dip(64.0);
+const RELOAD_WIDTH: Dip = Dip(60.0);
+const GO_WIDTH: Dip = Dip(40.0);
+/// The status line's height.
+const STATUS_HEIGHT: Dip = Dip(24.0);
 
 /// Everything the window reacts to.
 pub enum Msg {
@@ -44,18 +55,16 @@ pub enum Msg {
     RestoreAddress,
     /// The user changed the address field's text.
     AddressEdited,
-    Resized,
 }
 
 /// The window's widgets and state.
 pub struct Browser {
-    view: NetSurfView<Msg>,
-    address: Edit<Msg>,
-    status: Label<Msg>,
-    back: Button<Msg>,
-    forward: Button<Msg>,
-    reload: Button<Msg>,
-    go: Button<Msg>,
+    page: Rc<Page>,
+    address: Rc<Edit<Msg>>,
+    status: Rc<Label<Msg>>,
+    back: Rc<Button<Msg>>,
+    forward: Rc<Button<Msg>>,
+    reload: Rc<Button<Msg>>,
     history: History,
     /// The start page's `data:` URL, shown as [`START`].
     start_url: String,
@@ -78,37 +87,37 @@ impl Browser {
     ) -> Result<Browser> {
         let start_url = address::html_data_url(START_HTML);
         let first = url.unwrap_or_else(|| start_url.clone());
-        let at = layout(ui.client_rect(), hidpi::layout_scale());
-
-        let back = Button::new(ui, at.back, "Back")?.on_click(|| Some(Msg::Back));
-        let forward = Button::new(ui, at.forward, "Forward")?.on_click(|| Some(Msg::Forward));
-        let reload = Button::new(ui, at.reload, "Reload")?.on_click(|| Some(Msg::Reload));
-        let address = Edit::new(ui, at.address, "")?
-            .cue("Type an address and press Enter")
-            .on_change(|_| Some(Msg::AddressEdited));
-        let go = Button::new(ui, at.go, "Go")?.on_click(|| Some(Msg::Go));
-        let status = Label::new(ui, at.status, "")?;
         // The first page loads without passing through `open`.
         let initial = if first == start_url { START } else { &first };
         println!("WEB:NAV:{}", marker_text(initial));
         println!("WEB:TIME:{}ms:nav", trace::now_ms());
-        let view = NetSurfView::new(ui, at.view, &first, || Msg::Frame)?;
 
+        let widgets = Widgets::default();
+        let url = first.clone();
+        ui.root(
+            column().children((
+                toolbar(&widgets).fixed(TOOLBAR_HEIGHT),
+                build(move |ui| Page::new(ui, &url))
+                    .bind(&widgets.page)
+                    .fill(1),
+                row()
+                    .padding(Insets::new(Dip(8.0), Dip(3.0), Dip(8.0), Dip(0.0)))
+                    .child(label("").bind(&widgets.status).fill(1))
+                    .fixed(STATUS_HEIGHT),
+            )),
+        )?;
+
+        let address = widgets.address.get();
         let field = address.id();
         ui.on_key(move |key, mods| shortcut(key, mods, backend.focused() == Some(field)));
-        ui.register_events(WidgetId::NONE, |event| match event {
-            Event::Resize { .. } => Some(Msg::Resized),
-            _ => None,
-        });
 
         let mut browser = Browser {
-            view,
+            page: widgets.page.get(),
             address,
-            status,
-            back,
-            forward,
-            reload,
-            go,
+            status: widgets.status.get(),
+            back: widgets.back.get(),
+            forward: widgets.forward.get(),
+            reload: widgets.reload.get(),
             history: History::new(),
             start_url,
             url: String::new(),
@@ -163,7 +172,7 @@ impl Browser {
         println!("WEB:TIME:{}ms:nav", trace::now_ms());
         self.failed = false;
         self.set_status(&format!("Opening {}", self.shown(&target)));
-        self.view.navigate(&target);
+        self.page.view().navigate(&target);
     }
 
     /// Opens what the address field holds.
@@ -175,20 +184,6 @@ impl Browser {
             }
             None => self.set_status("Type an address first"),
         }
-    }
-
-    fn relayout(&self, ui: &Ui<Msg>) {
-        let at: Layout = layout(ui.client_rect(), hidpi::layout_scale());
-        ui.apply_moves(&[
-            (self.back.id(), at.back),
-            (self.forward.id(), at.forward),
-            (self.reload.id(), at.reload),
-            (self.address.id(), at.address),
-            (self.go.id(), at.go),
-            (self.status.id(), at.status),
-        ]);
-        // The view tells the engine its new size on its next paint.
-        self.view.set_bounds(at.view);
     }
 
     /// Applies what the view reported.
@@ -246,6 +241,46 @@ impl Browser {
     }
 }
 
+/// The widgets the window changes after building.
+#[derive(Default)]
+struct Widgets {
+    page: Handle<Page>,
+    address: Handle<Edit<Msg>>,
+    status: Handle<Label<Msg>>,
+    back: Handle<Button<Msg>>,
+    forward: Handle<Button<Msg>>,
+    reload: Handle<Button<Msg>>,
+}
+
+/// Back, Forward and Reload, the address field taking the rest, and Go.
+fn toolbar(widgets: &Widgets) -> Layout<Msg> {
+    row()
+        .gap(6)
+        .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
+        .children((
+            row().gap(4).children((
+                button("Back")
+                    .bind(&widgets.back)
+                    .on_click_with(|| Some(Msg::Back))
+                    .width(BACK_WIDTH),
+                button("Forward")
+                    .bind(&widgets.forward)
+                    .on_click_with(|| Some(Msg::Forward))
+                    .width(FORWARD_WIDTH),
+                button("Reload")
+                    .bind(&widgets.reload)
+                    .on_click_with(|| Some(Msg::Reload))
+                    .width(RELOAD_WIDTH),
+            )),
+            edit()
+                .bind(&widgets.address)
+                .placeholder("Type an address and press Enter")
+                .on_change(|_| Msg::AddressEdited)
+                .fill(1),
+            button("Go").on_click_with(|| Some(Msg::Go)).width(GO_WIDTH),
+        ))
+}
+
 /// The window's keyboard shortcuts; Enter only while the address field has
 /// the focus, so a page's own forms still get it.
 fn shortcut(key: Key, mods: xui_core::Modifiers, in_address: bool) -> Option<Msg> {
@@ -266,7 +301,7 @@ impl App for Browser {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Frame => {
-                for event in self.view.update() {
+                for event in self.page.view().update() {
                     self.on_view_event(ui, event);
                 }
             }
@@ -297,7 +332,6 @@ impl App for Browser {
                 self.show_url(&url);
             }
             Msg::AddressEdited => self.editing = true,
-            Msg::Resized => self.relayout(ui),
         }
         self.update_buttons();
     }

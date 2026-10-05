@@ -7,18 +7,17 @@
 //! `app.rs` is the window; this file the LazyOS platform start-up.
 //!
 //! Serial evidence: `WEB:UP:PASS` after the first frame, the markers listed
-//! in `app.rs`, and `WEB:BIND:FAIL:<code>` when the display cannot be bound.
+//! in `app.rs`, and from `launch::run` `WEB:BIND:FAIL:<code>` when the display
+//! cannot be bound and `WEB:RUN:FAIL:<error>` when the window cannot be built.
 
 mod app;
+mod page;
 
 use std::rc::Rc;
 
 use lazyweb::address;
 use lazyweb::fetch::{self, Options};
-use xui_app::backend::LazyOSBackend;
-use xui_app::themed::run_themed;
-use xui_core::backend::PlatformSpec;
-use xui_core::units::Dip;
+use xui_app::launch;
 
 use app::Browser;
 
@@ -33,7 +32,7 @@ fn url_arg() -> Option<String> {
         .and_then(|arg| address::normalize(&arg))
 }
 
-fn main() -> std::process::ExitCode {
+fn main() {
     // Droid Sans (regular and bold), Droid Serif and JetBrains Mono: a page's
     // CSS families are drawn with these three (`xui_netsurf::FontFamilies`).
     xui_app::font::register_writer();
@@ -45,28 +44,9 @@ fn main() -> std::process::ExitCode {
     fetch::trace::now_ms();
     fetch::netsurf::install(Options::default());
     let url = url_arg();
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("WEB:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.set_size_hints(420, 300, 0, 0);
-    backend.on_first_frame(|| println!("WEB:UP:PASS"));
-
-    let spec = PlatformSpec::new("LazyWeb").size(Dip(width as f32), Dip(height as f32));
-    let shared = Rc::clone(&backend);
-    let outcome = run_themed(&backend, spec, move |ui| {
-        Browser::build(ui, shared, url).expect("the LazyWeb window was created")
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("WEB:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    launch::run("WEB", "LazyWeb", WINDOW, move |ui, backend| {
+        backend.set_size_hints(420, 300, 0, 0);
+        backend.on_first_frame(|| println!("WEB:UP:PASS"));
+        Browser::build(ui, Rc::clone(backend), url)
+    })
 }

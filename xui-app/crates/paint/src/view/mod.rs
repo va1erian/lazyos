@@ -11,7 +11,7 @@ mod toolbar;
 
 pub use app::PaintApp;
 pub use canvas::{CanvasMsg, PaintCanvas};
-pub use layout::{Layout, Observer, layout};
+pub use layout::Observer;
 pub use palette::Palette;
 pub use toolbar::{StripItem, ToolStrip};
 
@@ -62,8 +62,6 @@ pub enum Msg {
     SaveChosen,
     /// A dialog was dismissed without a choice; the canvas takes the focus back.
     DialogClosed,
-    /// The window was resized; the widgets re-flow to the new client rect.
-    WindowResized,
     /// A canvas interaction.
     Canvas(CanvasMsg),
 }

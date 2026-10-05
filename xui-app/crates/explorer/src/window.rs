@@ -18,20 +18,17 @@ use std::rc::Rc;
 pub use flash::FlashHandle;
 
 use xui_core::app::{App, Proxy, Ui};
-use xui_core::backend::{BackendError, Event, NodeKind, NodeSpec, TimerId, WidgetId};
+use xui_core::arrange::{Handle, LayoutExt, build, column, status_bar};
+use xui_core::backend::{BackendError, NodeKind, NodeSpec, TimerId};
 use xui_core::geometry::{Point, Rect};
 use xui_core::message::Key;
-use xui_core::units::Dip;
 use xui_core::widget::{
-    Control, Dialog, IconView, Menu, MenuId, Placeable, StatusBar, TaskDialog, TaskDialogAction,
+    Control, Dialog, IconView, Menu, MenuId, StatusBar, TaskDialog, TaskDialogAction,
 };
 
 use crate::model::{Clock, Flash, Listing, SharedListing, summarize, title};
 use crate::platform::Kind;
 use crate::shell::{Explorer, ViewState};
-
-/// The status bar's design height.
-const STATUS_HEIGHT: Dip = Dip(24.0);
 
 /// How often the open-folder flash is checked, in milliseconds. Short enough
 /// that a folder reverts close to its two-second deadline.
@@ -67,9 +64,6 @@ pub enum Msg {
     PropertiesClosed,
     /// The open-folder flash's repeating timer fired.
     FlashTick,
-    /// The window was resized; the view and status bar re-flow to the new
-    /// client rect.
-    WindowResized,
     /// A drag out of the view started carrying the selection the press
     /// collapsed: select it again.
     RestoreSelection,
@@ -130,19 +124,25 @@ impl ExplorerWindow {
         let listing = Rc::new(Listing::load(explorer.platform(), &dir));
         let flash = Rc::new(Flash::with_clock(clock));
         let timer = Control::new(ui, &NodeSpec::new(NodeKind::Container, Rect::default()))?;
-        let (view_rect, status_rect) = layout(ui);
-        let view = Rc::new(
-            IconView::with_model(
-                ui,
-                view_rect,
-                SharedListing::with_flash(Rc::clone(&listing), Rc::clone(&flash)),
-            )?
-            .multi_select(true)
-            .on_selection(|_| Some(Msg::Selection))
-            .on_activate(|index| Some(Msg::Activate(index)))
-            .on_context(|item, at| Some(Msg::Context(item, at))),
-        );
-        let status = Rc::new(StatusBar::new(ui, status_rect, &[""])?);
+        let model = SharedListing::with_flash(Rc::clone(&listing), Rc::clone(&flash));
+        let (view, status) = (Handle::new(), Handle::new());
+        // The view takes the window above the status bar; the layout re-flows
+        // both (and the view's scrollbar) when the window is resized.
+        ui.root(
+            column().children((
+                build(move |ui| {
+                    Ok(IconView::with_model(ui, Rect::default(), model)?
+                        .multi_select(true)
+                        .on_selection(|_| Some(Msg::Selection))
+                        .on_activate(|index| Some(Msg::Activate(index)))
+                        .on_context(|item, at| Some(Msg::Context(item, at))))
+                })
+                .bind(&view)
+                .fill(1),
+                status_bar(&[""]).bind(&status),
+            )),
+        )?;
+        let (view, status) = (view.get(), status.get());
         let menu = Menu::context(ui)
             .build(|scope| {
                 scope.item(MENU_OPEN, "Open");
@@ -158,13 +158,6 @@ impl ExplorerWindow {
             Key::DELETE => Some(Msg::Delete),
             Key::F5 => Some(Msg::Refresh),
             Key::RETURN if modifiers.alt => Some(Msg::Properties),
-            _ => None,
-        });
-
-        // The compositor announces a resize at the window level; map it to a
-        // message so the re-flow runs in `update`, outside event dispatch.
-        ui.register_events(WidgetId::NONE, |event| match event {
-            Event::Resize { .. } => Some(Msg::WindowResized),
             _ => None,
         });
 
@@ -279,16 +272,6 @@ impl ExplorerWindow {
         }
     }
 
-    /// Re-lays the view and status bar out for the window's current client
-    /// rect. The icon view owns a scrollbar child node, so it is told through
-    /// [`Placeable::placed`] after the batch move; each open folder window
-    /// re-flows on its own.
-    fn reflow(&self, ui: &Ui<Msg>) {
-        let (view_rect, status_rect) = layout(ui);
-        ui.apply_moves(&[(self.view.id(), view_rect), (self.status.id(), status_rect)]);
-        self.view.placed(ui, view_rect);
-    }
-
     /// Opens a directory in its own window (or reports it already open) or
     /// hands a file to the launcher.
     fn activate(&mut self, index: usize, ui: &mut Ui<Msg>) {
@@ -360,9 +343,6 @@ impl App for ExplorerWindow {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            // A resize re-flows even while a modal is open: the dialogs are
-            // window-level nodes and keep their own layout.
-            Msg::WindowResized => self.reflow(ui),
             Msg::Selection => self.selection_changed(),
             Msg::RestoreSelection => {
                 let previous = self.previous.clone();
@@ -410,17 +390,6 @@ impl Drop for ExplorerWindow {
     fn drop(&mut self) {
         self.explorer.forget_view(self.window);
     }
-}
-
-/// The icon view's and status bar's rectangles, in device pixels.
-fn layout(ui: &Ui<Msg>) -> (Rect, Rect) {
-    let client = ui.client_rect();
-    let status_height = STATUS_HEIGHT.to_px(ui.dpi()).value();
-    let status_top = (client.bottom - status_height).max(client.top);
-    (
-        Rect::new(client.left, client.top, client.right, status_top),
-        Rect::new(client.left, status_top, client.right, client.bottom),
-    )
 }
 
 #[cfg(test)]
