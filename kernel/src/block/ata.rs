@@ -66,8 +66,14 @@ const SRST_HOLD_READS: u32 = 64;
 /// spec gives the device before BSY may be trusted.
 const SRST_SETTLE_READS: u32 = 20_000;
 
-/// Status reads before a wait gives up. Each read is at least ~100ns (about
-/// 1us on a real chipset), so a wait is bounded near a second.
+/// How long a wait polls status before giving up. A time bound, not a read
+/// count: under a hypervisor every read is a VM exit of unknown cost, so a
+/// count of reads can stretch a "second" into many (issue #449).
+pub const POLL_TIMEOUT_NS: u64 = 1_000_000_000;
+
+/// Status reads before a wait gives up when no clock is available (the TSC is
+/// not calibrated). Each read is at least ~100ns, so this is a backstop that
+/// keeps a wait finite, not the bound the driver relies on.
 pub const POLL_LIMIT: u32 = 1_000_000;
 
 /// Status bits.
@@ -101,6 +107,37 @@ pub trait Channel {
     fn issue_identify(&mut self);
     /// Read one data word.
     fn read_data(&mut self) -> u16;
+    /// A nanosecond clock that runs with interrupts off (only differences are
+    /// used), or `None` when there is none: waits then fall back to
+    /// [`POLL_LIMIT`] reads.
+    fn now_ns(&mut self) -> Option<u64> {
+        None
+    }
+}
+
+/// When a status poll gives up: [`POLL_TIMEOUT_NS`] after it began, or
+/// [`POLL_LIMIT`] reads when the channel has no clock.
+struct Deadline {
+    start: Option<u64>,
+    reads: u32,
+}
+
+impl Deadline {
+    fn start(channel: &mut impl Channel) -> Self {
+        Deadline {
+            start: channel.now_ns(),
+            reads: 0,
+        }
+    }
+
+    /// Whether the wait should end; call once per status read.
+    fn expired(&mut self, channel: &mut impl Channel) -> bool {
+        self.reads += 1;
+        match (self.start, channel.now_ns()) {
+            (Some(start), Some(now)) => now.wrapping_sub(start) >= POLL_TIMEOUT_NS,
+            _ => self.reads >= POLL_LIMIT,
+        }
+    }
 }
 
 /// The real primary channel at 0x1F0/0x3F6.
@@ -139,11 +176,16 @@ impl Channel for Ports {
         // read after `wait_for_data_on` confirmed a word is ready.
         unsafe { inw(DATA) }
     }
+
+    fn now_ns(&mut self) -> Option<u64> {
+        crate::arch::clock::tsc_ns()
+    }
 }
 
 /// Poll until BSY clears. False on timeout, and at once on a floating bus.
 pub fn wait_not_busy_on(channel: &mut impl Channel) -> bool {
-    for _ in 0..POLL_LIMIT {
+    let mut deadline = Deadline::start(channel);
+    loop {
         let status = channel.status();
         if status == FLOATING_BUS {
             return false;
@@ -151,30 +193,34 @@ pub fn wait_not_busy_on(channel: &mut impl Channel) -> bool {
         if status & STATUS_BSY == 0 {
             return true;
         }
+        if deadline.expired(channel) {
+            return false;
+        }
     }
-    false
 }
 
 /// Poll until DRQ is set. False on timeout, on an error, or on a floating
 /// bus. ERR and DRQ are undefined while BSY is set, so they are read only
 /// once it clears.
 pub fn wait_for_data_on(channel: &mut impl Channel) -> bool {
-    for _ in 0..POLL_LIMIT {
+    let mut deadline = Deadline::start(channel);
+    loop {
         let status = channel.status();
         if status == FLOATING_BUS {
             return false;
         }
-        if status & STATUS_BSY != 0 {
-            continue;
+        if status & STATUS_BSY == 0 {
+            if status & STATUS_ERR != 0 {
+                return false;
+            }
+            if status & STATUS_DRQ != 0 {
+                return true;
+            }
         }
-        if status & STATUS_ERR != 0 {
+        if deadline.expired(channel) {
             return false;
         }
-        if status & STATUS_DRQ != 0 {
-            return true;
-        }
     }
-    false
 }
 
 fn wait_not_busy() -> bool {
@@ -297,7 +343,7 @@ fn identify() -> Option<u64> {
 /// [`identify`] over any [`Channel`]. Absence is decided from the first
 /// status read after the select, before any wait: a floating bus (`0xFF`, no
 /// IDE controller) or an empty channel (`0`, QEMU) returns at once. Every
-/// later wait is bounded by [`POLL_LIMIT`] reads.
+/// later wait is bounded by [`POLL_TIMEOUT_NS`].
 pub fn identify_on(channel: &mut impl Channel) -> Option<u64> {
     channel.select_master();
     channel.delay_400ns();

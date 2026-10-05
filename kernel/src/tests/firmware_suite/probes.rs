@@ -16,6 +16,10 @@ struct FakeAta<F: FnMut(u32) -> u8> {
     identify_issued: bool,
     words: [u16; 256],
     next_word: usize,
+    /// Nanoseconds the fake clock advances per `now_ns` call; 0 means the
+    /// channel has no clock.
+    clock_step: u64,
+    clock: u64,
 }
 
 impl<F: FnMut(u32) -> u8> FakeAta<F> {
@@ -26,7 +30,15 @@ impl<F: FnMut(u32) -> u8> FakeAta<F> {
             identify_issued: false,
             words: [0; 256],
             next_word: 0,
+            clock_step: 0,
+            clock: 0,
         }
+    }
+
+    /// Give the channel a clock that ticks `step_ns` on every reading.
+    fn with_clock(mut self, step_ns: u64) -> Self {
+        self.clock_step = step_ns;
+        self
     }
 }
 
@@ -44,6 +56,13 @@ impl<F: FnMut(u32) -> u8> Channel for FakeAta<F> {
         let word = self.words[self.next_word % 256];
         self.next_word += 1;
         word
+    }
+    fn now_ns(&mut self) -> Option<u64> {
+        if self.clock_step == 0 {
+            return None;
+        }
+        self.clock += self.clock_step;
+        Some(self.clock)
     }
 }
 
@@ -130,6 +149,33 @@ pub fn ata_waits_are_bounded() -> Result<(), String> {
     check!(
         ata::identify_on(&mut good) == Some(0x2_1000),
         "good drive misread"
+    );
+    Ok(())
+}
+
+/// With a clock the wait ends by time, not by read count: a drive stuck busy
+/// is given up on after `POLL_TIMEOUT_NS` whether reads are fast (a million
+/// of them fit) or slow (a VM exit each, issue #449: a few thousand).
+pub fn ata_waits_end_by_deadline() -> Result<(), String> {
+    for step in [10_000u64, 1_000_000] {
+        let mut stuck = FakeAta::new(|read| if read <= 2 { 0x50 } else { 0x80 }).with_clock(step);
+        check!(
+            ata::identify_on(&mut stuck).is_none(),
+            "step {step}: a stuck drive identified"
+        );
+        // Two clock readings per poll (start, then each expiry check).
+        let expected = ata::POLL_TIMEOUT_NS / step;
+        let reads = u64::from(stuck.reads);
+        check!(
+            reads >= expected / 2 && reads <= expected + 8,
+            "step {step}: {reads} reads, expected about {expected}"
+        );
+    }
+    // A drive that answers inside the deadline is not cut short.
+    let mut slow = FakeAta::new(|read| if read < 500 { 0x80 } else { 0x58 }).with_clock(1_000_000);
+    check!(
+        ata::wait_for_data_on(&mut slow),
+        "a drive ready after 500 reads was abandoned"
     );
     Ok(())
 }

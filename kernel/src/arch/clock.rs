@@ -191,3 +191,15 @@ pub fn resolution_ns() -> u64 {
 pub fn resync() {
     LAST_TSC.store(rdtsc(), Ordering::Relaxed);
 }
+
+/// A raw TSC reading in nanoseconds (`None` before the TSC is calibrated),
+/// for measuring a short span with interrupts off, where [`monotonic_ns`]
+/// saturates one period past the last timer entry. Only the difference of two
+/// readings is meaningful.
+pub fn tsc_ns() -> Option<u64> {
+    let per_tick = CYCLES_PER_TICK.load(Ordering::Relaxed);
+    if per_tick == 0 {
+        return None;
+    }
+    Some((u128::from(rdtsc()) * u128::from(PERIOD_NS) / u128::from(per_tick)) as u64)
+}
