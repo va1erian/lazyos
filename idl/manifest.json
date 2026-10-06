@@ -96,7 +96,7 @@
         "name": "system/audio/+/event",
         "source": "system/audio/{card}/event",
         "payload": "AudioEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": false,
         "publish_permission": "publish:system/audio/+/event",
         "subscribe_permission": "subscribe:system/audio/+/event"

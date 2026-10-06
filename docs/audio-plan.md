@@ -51,7 +51,7 @@ hardened, single-client pipe. This is the `audiod` that
 | A3 | `audiod`: the service, card pacing, deferred `Drain` replies, reclaim, `_audio` identity; `sndd` moves to `os.lazy.audio.card` and applies volume to its own copy | **done** |
 | A4 | `libs/audioclient` (#451): typed `Client`/`MixerControl` and the blocking `PlaybackStream` over a `Transport` trait; `user::audio` is the native transport; `beep` and `modplay` use it | **done** |
 | A5 | `mixer` shell command; harness `--mix` (chord + half-volume, judged by `tools/sound/mixcheck.py`); `mixer probe` and the reworked `beep probe` as boot evidence | **done** |
-| A6 | Events (#453): publish `system/audio/{card}/event` and per-stream underrun/drained; a client `write()` that sleeps on the topic instead of polling; tickless `audiod` and `sndd` loops | next |
+| A6 | Events (#453): publish `system/audio/{card}/event` with per-stream underrun/drained/period (**done**, `audiomix::events`, `tools/sound/run.py --starve`); a client `write()` that sleeps on the topic instead of polling; tickless `audiod` and `sndd` loops | in progress |
 | A7 | Persisted volumes (`confd` `user/<uid>/audio/...`, `driver-config-plan.md`), a Sound page in Settings on `MixerControl`, a std/musl `Transport` so xui apps get `PlaybackStream` | next |
 | A8 | Capture streams, `Float32`/`S24Le` clients, a better resampler (polyphase), per-session stream policy, MSI-X | later |
 

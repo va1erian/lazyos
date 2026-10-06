@@ -188,6 +188,20 @@ impl Server {
         }
     }
 
+    /// Hand the streams and this step's finished drains to `watch` (issue
+    /// #453); the events it finds land in `out`.
+    pub(super) fn observe(
+        &self,
+        watch: &mut audiomix::events::Watch,
+        now: u64,
+        periods: bool,
+        out: &mut Vec<audiomix::events::Event>,
+    ) {
+        if let Some(mixer) = self.mixer.as_ref() {
+            watch.step(mixer.statuses(), &self.finished, now, periods, out);
+        }
+    }
+
     /// Open the card when there is none and it is time to try.
     fn connect_card(&mut self, now: u64) {
         if self.card.is_some() || now < self.card_retry_at {

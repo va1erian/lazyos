@@ -114,8 +114,13 @@ interface os.lazy.audio.v1 {
         periods: U32 = 7
     }
 
-    /// Why a stream event was published.
-    enum EventKind { Underrun, Overrun, Drained, DeviceError }
+    /// Why a stream event was published (issue #453). `Underrun`: the
+    /// stream ran dry while playing, once per dry spell. `Drained`: a
+    /// `Drain` completed. `DeviceError`: the device failed and the stream was
+    /// taken back. `Period`: the stream's position advanced (room in the
+    /// ring again); the mixer sends it at most every 50 ms per stream and only
+    /// while someone subscribes. `Overrun` is reserved for capture.
+    enum EventKind { Underrun, Overrun, Drained, DeviceError, Period }
 
     /// One stream event, the payload of `system/audio/{card}/event`.
     /// `frames` is the stream position when it happened.
@@ -126,9 +131,12 @@ interface os.lazy.audio.v1 {
         frames: U64 = 3
     }
 
-    /// Xruns and drain completion, for clients that would rather not poll
-    /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
-    topic "system/audio/{card}/event" : AudioEvent qos=latest;
+    /// Xruns, drain completion and progress, for clients that would rather
+    /// not poll `Position` (issue #453), on the central broker. `{card}` is
+    /// `mixer` for the streams `audiod` serves applications (the stream ids
+    /// its `OpenStream` granted) and the driver's card name (`virtio-snd0`)
+    /// for the card's own stream, which belongs to the mixer.
+    topic "system/audio/{card}/event" : AudioEvent qos=buffered;
 
     /// Stream direction.
     enum Direction { Playback, Capture }

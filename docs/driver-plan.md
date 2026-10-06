@@ -294,8 +294,9 @@ buffers).
 `OpenStream(dir, format, rate, channels, period_bytes) → StreamGrant` (closest
 supported parameters), `AttachRing(stream)` (the request carries the shared
 ring), `Commit(stream, frames) → consumed`, `Start/Stop/Drain(stream)`,
-`Position(stream)`, `CloseStream(stream)`; underrun/xrun on
-`system/audio/<card>/event` (declared, not yet published). **The client owns the
+`Position(stream)`, `CloseStream(stream)`; underrun, drained, device error
+and progress on `system/audio/<card>/event` (#453,
+[`architecture/audio.md`](architecture/audio.md)). **The client owns the
 ring and the driver copies out of it**: replies cannot carry buffers, and this
 is also section 3.4's rule that driver rings stay driver-owned. Mixing and
 per-app volume are the `audiod` service's job, not the driver's: the mixer

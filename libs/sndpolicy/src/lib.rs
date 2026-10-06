@@ -15,6 +15,21 @@ pub const SND_UID: u32 = 901;
 /// maps the rings its clients hand it and owns the card's one stream.
 pub const AUDIO_UID: u32 = 905;
 
+/// The topics the audio services publish their stream events under
+/// (`system/audio/{card}/event`, issue #453).
+pub const AUDIO_TOPIC_PREFIX: &str = "system/audio/";
+
+/// Whether `uid` may publish `topic` in the broker's `system/` namespace,
+/// which only root may otherwise write: the driver (`_snd`) and the mixer
+/// (`_audio`) may publish their stream events under [`AUDIO_TOPIC_PREFIX`],
+/// and nothing else there.
+pub fn may_publish_audio_event(uid: u32, topic: &str) -> bool {
+    (uid == SND_UID || uid == AUDIO_UID)
+        && topic
+            .strip_prefix(AUDIO_TOPIC_PREFIX)
+            .is_some_and(|rest| !rest.is_empty())
+}
+
 /// The ACL device class of an audio function (`dev::class::AUDIO`, PCI
 /// `04/01` and `04/03`; virtio-sound is `04/01`).
 pub const AUDIO_CLASS: &str = "os.kernel.dev.audio";
@@ -74,6 +89,23 @@ mod tests {
         assert!(SND_DRIVER_CLASS_RULES
             .iter()
             .all(|rule| rule.actor != AUDIO_UID));
+    }
+
+    #[test]
+    fn only_the_audio_services_publish_audio_events_and_nothing_else() {
+        for uid in [SND_UID, AUDIO_UID] {
+            assert!(may_publish_audio_event(uid, "system/audio/mixer/event"));
+            assert!(may_publish_audio_event(
+                uid,
+                "system/audio/virtio-snd0/event"
+            ));
+            assert!(!may_publish_audio_event(uid, "system/audio/"));
+            assert!(!may_publish_audio_event(uid, "system/events/service/x"));
+            assert!(!may_publish_audio_event(uid, "system/audiox/y"));
+        }
+        for uid in [0, 902, 1000] {
+            assert!(!may_publish_audio_event(uid, "system/audio/mixer/event"));
+        }
     }
 
     #[test]

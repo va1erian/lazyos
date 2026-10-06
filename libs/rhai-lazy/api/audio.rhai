@@ -174,7 +174,7 @@ fn new_audio_event() {
 }
 
 // The variants of `EventKind`, in wire order.
-export const EVENT_KIND = ["Underrun", "Overrun", "Drained", "DeviceError"];
+export const EVENT_KIND = ["Underrun", "Overrun", "Drained", "DeviceError", "Period"];
 
 export const EVENT_KIND_UNDERRUN = "Underrun";
 
@@ -183,6 +183,8 @@ export const EVENT_KIND_OVERRUN = "Overrun";
 export const EVENT_KIND_DRAINED = "Drained";
 
 export const EVENT_KIND_DEVICE_ERROR = "DeviceError";
+
+export const EVENT_KIND_PERIOD = "Period";
 
 // The variants of `Direction`, in wire order.
 export const DIRECTION = ["Playback", "Capture"];
@@ -202,42 +204,45 @@ export const FORMAT_S32_LE = "S32Le";
 
 export const FORMAT_FLOAT32 = "Float32";
 
-// Filter for every event of the topic `system/audio/{card}/event` (payload `AudioEvent`, qos latest).
+// Filter for every event of the topic `system/audio/{card}/event` (payload `AudioEvent`, qos buffered).
 // An `EventKind` ordinal.
-// Xruns and drain completion, for clients that would rather not poll
-// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
+// Xruns, drain completion and progress, for clients that would rather
+// not poll `Position` (issue #453), on the central broker. `{card}` is
+// `mixer` for the streams `audiod` serves applications (the stream ids
+// its `OpenStream` granted) and the driver's card name (`virtio-snd0`)
+// for the card's own stream, which belongs to the mixer.
 export const EVENT_PATTERN = "system/audio/+/event";
 
-/// The topic name of `system/audio/{card}/event` (payload `AudioEvent`, qos latest) for these placeholder values.
+/// The topic name of `system/audio/{card}/event` (payload `AudioEvent`, qos buffered) for these placeholder values.
 fn event_topic(card) {
     `system/audio/${card}/event`
 }
 
-/// Run `handler(event)` for each event of `system/audio/{card}/event` (payload `AudioEvent`, qos latest); `event.payload` is
+/// Run `handler(event)` for each event of `system/audio/{card}/event` (payload `AudioEvent`, qos buffered); `event.payload` is
 /// the decoded `AudioEvent`. Returns the `Subscription`.
 fn on_event(handler) {
     msg::on("system/audio/+/event", handler)
 }
 
-/// Subscribe to `system/audio/{card}/event` (payload `AudioEvent`, qos latest) to pull events with `sub.next()`.
+/// Subscribe to `system/audio/{card}/event` (payload `AudioEvent`, qos buffered) to pull events with `sub.next()`.
 fn subscribe_event() {
     msg::subscribe("system/audio/+/event")
 }
 
-/// Run `handler(event)` for each event of `system/audio/{card}/event` (payload `AudioEvent`, qos latest); `event.payload` is
+/// Run `handler(event)` for each event of `system/audio/{card}/event` (payload `AudioEvent`, qos buffered); `event.payload` is
 /// the decoded `AudioEvent`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_event(card, handler) {
     msg::on(`system/audio/${card}/event`, handler)
 }
 
-/// Subscribe to `system/audio/{card}/event` (payload `AudioEvent`, qos latest) to pull events with `sub.next()`.
+/// Subscribe to `system/audio/{card}/event` (payload `AudioEvent`, qos buffered) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_event(card) {
     msg::subscribe(`system/audio/${card}/event`)
 }
 
-/// Publish `payload` (a `AudioEvent`) on `system/audio/{card}/event` (payload `AudioEvent`, qos latest).
+/// Publish `payload` (a `AudioEvent`) on `system/audio/{card}/event` (payload `AudioEvent`, qos buffered).
 fn publish_event(card, payload) {
     msg::publish(`system/audio/${card}/event`, payload)
 }

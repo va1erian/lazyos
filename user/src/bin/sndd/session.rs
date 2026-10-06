@@ -11,6 +11,7 @@
 
 use core::ptr;
 
+use audiomix::events::{Event, Kind, Starvation};
 use audiomix::volume::{StreamVolume, VolumeError};
 use libmessenger::BufferDesc;
 use user::messenger::{errno, Error as MsgError};
@@ -57,6 +58,10 @@ pub(super) struct Session {
     last_active: u64,
     /// `SetVolume` / `SetMute`, applied as each period is staged.
     volume: StreamVolume,
+    /// The device ran out of periods while running (issue #453).
+    starvation: Starvation,
+    /// A `Drain` completed and its event is not out yet.
+    drained: bool,
 }
 
 type Result<T> = core::result::Result<T, MsgError>;
@@ -107,6 +112,8 @@ impl Session {
             state: State::Idle,
             last_active: sys::clock(),
             volume: StreamVolume::new(),
+            starvation: Starvation::default(),
+            drained: false,
         })
     }
 
@@ -195,6 +202,7 @@ impl Session {
         self.committed = 0;
         self.consumed = 0;
         self.state = State::Stopped;
+        self.starvation.reset();
         Ok(())
     }
 
@@ -221,6 +229,7 @@ impl Session {
         }
         self.stream.halt(card).map_err(|e| errno_of(&e))?;
         self.state = State::Drained;
+        self.drained = true;
         Ok(())
     }
 
@@ -312,6 +321,25 @@ impl Session {
         idle && sys::clock().saturating_sub(self.last_active) > IDLE_RECLAIM_TICKS
     }
 
+    /// The stream's events since the last look (issue #453): one `Underrun`
+    /// when the running device has played every queued period and nothing
+    /// committed is left to queue (after it played something), and one
+    /// `Drained` when a `Drain` completed.
+    pub(super) fn events(&mut self, out: &mut alloc::vec::Vec<Event>) {
+        let frames = self.stream.frames_done;
+        let starved =
+            self.consumed > 0 && self.committed == self.consumed && !self.stream.has_busy();
+        if self
+            .starvation
+            .observe(self.state == State::Running, starved)
+        {
+            out.push(event(self.index(), Kind::Underrun, frames));
+        }
+        if core::mem::take(&mut self.drained) {
+            out.push(event(self.index(), Kind::Drained, frames));
+        }
+    }
+
     /// Whether the driver needs frequent wakeups to keep the device fed.
     pub(super) fn is_running(&self) -> bool {
         self.state == State::Running
@@ -339,3 +367,11 @@ impl Session {
 
 /// Ticks without progress before a `Drain` gives up.
 const STALL_TICKS: u64 = 500;
+
+fn event(stream: u32, kind: Kind, frames: u64) -> Event {
+    Event {
+        stream,
+        kind,
+        frames,
+    }
+}

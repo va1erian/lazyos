@@ -48,12 +48,14 @@ impl Broker {
                 // ACL above stays in its bootstrap-allow state until a policy
                 // is loaded, so without this check any task could forge audit
                 // records here. Every legitimate publisher (sysmond, clipboardd,
-                // mimed, init) runs as uid 0, so gate the namespace on that.
+                // mimed, init) runs as uid 0, so gate the namespace on that;
+                // the audio driver and mixer (`_snd`, `_audio`) may publish
+                // their stream events, `system/audio/...` alone (issue #453).
                 if is_system_topic(&topic) {
                     let mut cred = sys::Cred::default();
                     sys::cred_get(Some(sender), &mut cred)
                         .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                    if cred.uid != 0 {
+                    if cred.uid != 0 && !sndpolicy::may_publish_audio_event(cred.uid, &topic) {
                         return Err(messenger::Error::Topics(errno::EACCES));
                     }
                 }

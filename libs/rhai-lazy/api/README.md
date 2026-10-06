@@ -97,7 +97,7 @@ An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 
 Not callable from a script (the request transfers a kernel object): `AttachRing`.
 
-- `EVENT_KIND` = the `EventKind` variants; `EVENT_KIND_UNDERRUN`, `EVENT_KIND_OVERRUN`, `EVENT_KIND_DRAINED`, `EVENT_KIND_DEVICE_ERROR`
+- `EVENT_KIND` = the `EventKind` variants; `EVENT_KIND_UNDERRUN`, `EVENT_KIND_OVERRUN`, `EVENT_KIND_DRAINED`, `EVENT_KIND_DEVICE_ERROR`, `EVENT_KIND_PERIOD`
 - `DIRECTION` = the `Direction` variants; `DIRECTION_PLAYBACK`, `DIRECTION_CAPTURE`
 - `FORMAT` = the `Format` variants; `FORMAT_S16_LE`, `FORMAT_S24_LE`, `FORMAT_S32_LE`, `FORMAT_FLOAT32`
 

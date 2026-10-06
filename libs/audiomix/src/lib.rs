@@ -22,6 +22,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod events;
 pub mod gain;
 pub mod grant;
 mod mixer;
@@ -32,6 +33,8 @@ pub mod volume;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_events;
 #[cfg(test)]
 mod tests_fuzz;
 #[cfg(test)]

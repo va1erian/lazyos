@@ -30,6 +30,17 @@ current hand-built encoding. Only `session/+/clipboard/changed` and
 | `system/events/#` (filter) | n/a | logd | n/a | n/a | `user/src/bin/logd.rs:212` |
 | `system/health/#` (filter) | n/a | logd | n/a | n/a | `logd.rs:218` |
 
+Declared and published since this snapshot:
+
+| Topic pattern | Publisher | Subscribers | Retained | Payload | Declared in |
+|---|---|---|---|---|---|
+| `system/audio/mixer/event` | audiod (`_audio`) | apps on `os.lazy.audio` (`beep starve=1`) | no | `AudioEvent {stream, kind, frames}`: `Underrun` once per dry spell, `Drained`, `Period` (rate-limited, only while subscribed) | `idl/audio.midl` (#453) |
+| `system/audio/virtio-snd0/event` | sndd (`_snd`) | the mixer, diagnostics | no | `AudioEvent`: the card stream's `Underrun`, `Drained`, `DeviceError` | `idl/audio.midl` (#453) |
+| `system/events/app/<id>` | init (central broker) | LazyShell (`system/events/app/+`) | yes | `AppFailure {name, status, summary, reason, session, startup, at}` | `idl/init.midl` (#549) |
+
+`messengerd` admits `system/` publishes from uid 0, plus `_snd`/`_audio`
+under `system/audio/` only (`sndpolicy::may_publish_audio_event`).
+
 Test-only or probe topics, not to be declared: `system/events/selftest/forbidden`
 (`messengerctl/selftest.rs:73`), `system/events/network[/up]`, `system/events/t<N>`
 and `session/1/clipboard/changed` in `libs/generated/tests/*`, and the kernel
