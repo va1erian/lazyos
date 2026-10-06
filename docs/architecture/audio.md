@@ -188,7 +188,7 @@ stream dry and checks its own events).
 ## Not done
 
 See [`audio-plan.md`](../audio-plan.md) stages A6-A8: a `PlaybackStream`
-that sleeps on `system/audio/<card>/event` (published since #453, see below)
+that sleeps on `system/audio/<card>/event` (published since #453, see above)
 instead of polling, and tickless loops (both services still tick at 100 Hz
 while sound plays),
 persisted volumes and a Settings page, a std/musl transport for xui apps,

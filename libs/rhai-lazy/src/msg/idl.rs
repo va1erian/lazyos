@@ -2329,7 +2329,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Connected",
                 id: 2079757168,
                 oneway: true,
-                doc: "Posted by the kernel on a registered endpoint for each `Connect`: the\nservice serves the caller's requests on `connection`, which speaks the\nregistered name's interfaces. The message is stamped with the\nconnecting task's identity.",
+                doc: "Posted by the kernel on a registered endpoint for each `Connect`: the\nservice serves the caller's requests on `connection`, which speaks the\nregistered name's interfaces (the `Channel` type below is nominal: MIDL\nhas no untyped channel, and a service answers on its own interfaces,\nnot on this one). The message is stamped with the connecting task's\nidentity.",
                 params: &[Field { name: "name", id: 1, ty: Ty::String }],
                 returns: &[],
                 transfers: &[Transfer { name: "connection", channel: Some("os.lazy.messenger.registry.v1") }],

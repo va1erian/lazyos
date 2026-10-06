@@ -209,8 +209,16 @@ pub fn collect(root: &Path, limits: Limits) -> Result<Vec<Asset>, String> {
     let mut assets = Vec::with_capacity(entries.len());
     for entry in entries {
         let Some((file, len)) = files.remove(&entry.path) else {
+            // ext2 is case-sensitive, so the match is exact; say when only
+            // the case differs (an easy slip on a case-insensitive host).
+            let hint = files
+                .keys()
+                .find(|path| path.eq_ignore_ascii_case(&entry.path))
+                .map_or(String::new(), |path| {
+                    format!(" (the file is named `{path}`; names are case-sensitive)")
+                });
             return Err(format!(
-                "{} lists {}, which does not exist",
+                "{} lists {}, which does not exist{hint}",
                 manifest.display(),
                 entry.path
             ));

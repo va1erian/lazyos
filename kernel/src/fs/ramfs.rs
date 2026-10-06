@@ -20,6 +20,7 @@ mod space;
 
 use node::Node;
 use space::Owners;
+#[cfg(lazyos_tests)]
 pub use space::Usage;
 
 /// The root directory's inode. Inodes are allocated upward from here.
@@ -72,6 +73,7 @@ impl RamFs {
     }
 
     /// Replace the per-owner caps (bytes and nodes one non-root uid may own).
+    #[cfg(lazyos_tests)]
     pub fn set_user_limits(&self, max_bytes: usize, max_nodes: usize) {
         let mut inner = self.inner.lock();
         inner.owners.max_bytes = max_bytes;
