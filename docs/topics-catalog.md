@@ -13,6 +13,7 @@ current hand-built encoding. Only `session/+/clipboard/changed` and
 | Topic pattern | Publisher | Subscribers | Retained | Payload today | Where declared by hand |
 |---|---|---|---|---|---|
 | `session/<id>/clipboard/changed` | clipboardd | clipcopy, clippaste, `clipboard::Client::subscribe_changes` | yes | TLV `OfferMeta` (struct exists in `idl/clipboard.midl`, topic name not) | `user/src/messenger/clipboard/mod.rs:130` (`changes_topic`), `protocol.rs:154` |
+| `user/<uid>/confd/changed/<path>` | confd | `xuid` (the shell user's `ui/#`, issue #407), `confctl watch user/<uid>/confd/changed/#` | no | `Change` (`idl/confd.midl`); only that uid and root may subscribe (`kernel/src/ipc/topics/private.rs`) | `user/src/bin/confd.rs` (`TopicSink::changed`), `user/src/bin/xuid/themefeed.rs` |
 | `system/confd/changed/<path>` | confd | confctl (default `system/confd/changed/sys/#`), timed (`sys/time/zone`) | no | hand-coded `(path, deleted)` payload | `user/src/messenger/confd.rs:161-163` (`change_topic`, `change_payload`), `user/src/bin/confd.rs:165-172`, `confctl.rs:34`, `timed/state.rs:20` |
 | `time/tick` | timed | not verified | yes | text | `libs/timed/src/lib.rs:26`, duplicated in `user/src/messenger/timed.rs:100` |
 | `system/stats/memory` | sysmond | not verified; `starts_with("system/stats/")` filter in sysmond | yes | `key=value` line | `user/src/bin/sysmond.rs:196,227` |

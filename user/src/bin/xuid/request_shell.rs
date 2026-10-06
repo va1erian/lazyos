@@ -104,6 +104,10 @@ impl Compositor {
             self.display_session = Some(cred.session);
         }
         self.replace_shell(Some(sub));
+        // The desktop paints in the shell user's own theme (issue #407).
+        if self.themefeed.follow_user(cred.uid) {
+            self.repaint_full();
+        }
         empty_reply(message.method())
     }
 

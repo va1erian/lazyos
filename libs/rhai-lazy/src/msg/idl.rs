@@ -422,6 +422,13 @@ pub static INTERFACES: &[Interface] = &[
                 retained: false,
                 doc: "Announced for every committed `sys/` change (issue #260): the topic is\n`system/confd/changed/<path>`, where `<path>` is the changed path, so a\nsubscriber watches a subtree with `system/confd/changed/sys/#`. Not\nretained: a change is an event, not state.",
             },
+            Topic {
+                pattern: "user/+/confd/changed/#",
+                payload: "Change",
+                qos: 0,
+                retained: false,
+                doc: "Announced for every committed `user/<uid>/<path>` change (issue #407):\nthe topic is `user/<uid>/confd/changed/<path>`, in the kernel's per-uid\ntopic namespace, so only that uid and root may subscribe (as only they\nmay read the key). The payload's `path` is the full key. Not retained.",
+            },
         ],
     },
     Interface {

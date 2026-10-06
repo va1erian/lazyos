@@ -166,6 +166,7 @@ The hierarchical configuration registry (issue #260).
 | Topic | Payload | Helpers |
 |---|---|---|
 | `system/confd/changed/{path...}` | `Change` | `changed_topic(path)`, `on_changed(path, handler)`, `subscribe_changed(path)`, `publish_changed(path, payload)` |
+| `user/{uid}/confd/changed/{path...}` | `Change` | `user_changed_topic(uid, path)`, `on_user_changed(uid, path, handler)`, `subscribe_user_changed(uid, path)`, `publish_user_changed(uid, path, payload)` |
 
 ## `sys::display`
 

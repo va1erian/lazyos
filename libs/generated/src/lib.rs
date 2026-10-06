@@ -2910,6 +2910,55 @@ pub mod os_lazy_confd_v1 {
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFD_CHANGED_QOS)
     }
+
+    /// Announced for every committed `user/<uid>/<path>` change (issue #407):
+    /// the topic is `user/<uid>/confd/changed/<path>`, in the kernel's per-uid
+    /// topic namespace, so only that uid and root may subscribe (as only they
+    /// may read the key). The payload's `path` is the full key. Not retained.
+    /// The declared `user/+/confd/changed/#` topic (`Change`, `latest`).
+    pub const TOPIC_USER_CONFD_CHANGED: &str = "user/+/confd/changed/#";
+    /// The `user/+/confd/changed/#` delivery policy.
+    pub const TOPIC_USER_CONFD_CHANGED_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `user/+/confd/changed/#` publishes are retained.
+    pub const TOPIC_USER_CONFD_CHANGED_RETAINED: bool = false;
+
+    /// Build the concrete `user/+/confd/changed/#` name; each wildcard takes one literal segment.
+    pub fn name_user_confd_changed(uid: &str, path: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Publish)
+    }
+
+    /// Encode a `Change` payload for `user/+/confd/changed/#`.
+    pub fn encode_user_confd_changed(value: &Change) -> Result<Vec<u8>, Error> {
+        encode_change(value)
+    }
+
+    /// Decode a `user/+/confd/changed/#` payload; malformed bytes are an error.
+    pub fn decode_user_confd_changed(body: &[u8]) -> Result<Change, Error> {
+        decode_change(body)
+    }
+
+    /// Publish a typed `Change` on `user/+/confd/changed/#`.
+    pub fn publish_user_confd_changed<P>(publisher: &mut P, uid: &str, path: &str, value: &Change) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_user_confd_changed(uid, path).map_err(P::Error::from)?;
+        let payload = encode_user_confd_changed(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_USER_CONFD_CHANGED_RETAINED)
+    }
+
+    /// Subscribe to `user/+/confd/changed/#` with its declared QoS.
+    pub fn subscribe_user_confd_changed<S>(subscriber: &mut S, uid: &str, path: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_USER_CONFD_CHANGED_QOS)
+    }
 }
 
 /// `os.lazy.display.v1` (interface id `0x5ef41f254d43c2b4`).
@@ -14934,6 +14983,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/confd/changed/#",
         subscribe_permission: "subscribe:system/confd/changed/#",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.confd.v1",
+        name: "user/+/confd/changed/#",
+        payload: "Change",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:user/+/confd/changed/#",
+        subscribe_permission: "subscribe:user/+/confd/changed/#",
     },
     topics::TopicDecl {
         interface: "os.lazy.files.v1",

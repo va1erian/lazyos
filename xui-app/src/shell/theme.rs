@@ -8,7 +8,10 @@
 //! (`sys/ui/wallpaper`, [`super::wallpaper`]).
 //!
 //! The settings are re-read every [`POLL_TICKS`] (a few bounded `Get`s); a
-//! missing `confd` keeps the defaults (or the last values read).
+//! missing `confd` keeps the defaults (or the last values read). A shell
+//! running as a user other than the administrator reads that user's own
+//! `user/<uid>/ui/*` keys over the machine ones (issue #407), the same overlay
+//! `xuid` paints the window chrome with.
 
 use lazyshell::clock::{self, ClockFormat};
 use uitheme::{Mode, Palette, Settings};
@@ -26,6 +29,8 @@ pub struct ThemeFeed {
     clock: ClockFormat,
     /// The desktop picture's path; empty for the plain background colour.
     wallpaper: String,
+    /// The uid this shell runs as, read once (`None` until it is known).
+    uid: Option<u32>,
     next_poll: u64,
 }
 
@@ -36,6 +41,7 @@ impl ThemeFeed {
             settings: Settings::default(),
             clock: ClockFormat::default(),
             wallpaper: String::new(),
+            uid: None,
             next_poll: 0,
         }
     }
@@ -67,9 +73,12 @@ impl ThemeFeed {
             return false;
         }
         self.next_poll = now.saturating_add(POLL_TICKS);
+        if self.uid.is_none() {
+            self.uid = sys::cred_get(None).ok().map(|cred| cred.uid);
+        }
         let mut next = Settings::default();
         for key in uitheme::ALL_KEYS {
-            match services::confd_get(key) {
+            match self.theme_value(key) {
                 Ok(value) => next.apply(key, value.as_ref()),
                 // confd is not there (yet): keep what we have.
                 Err(_) => return false,
@@ -82,7 +91,7 @@ impl ThemeFeed {
             (Ok(hour24), Ok(seconds)) => clock::format_from(hour24.as_ref(), seconds.as_ref()),
             _ => self.clock,
         };
-        let wallpaper = match services::confd_get(uitheme::KEY_WALLPAPER) {
+        let wallpaper = match self.theme_value(uitheme::KEY_WALLPAPER) {
             Ok(value) => uitheme::wallpaper_path(value.as_ref())
                 .unwrap_or_default()
                 .to_owned(),
@@ -93,6 +102,17 @@ impl ThemeFeed {
         self.clock = format;
         self.wallpaper = wallpaper;
         changed
+    }
+
+    /// The value in effect for the machine theme key `key`: this user's own
+    /// `user/<uid>/ui/...` key when it has one, else the machine's.
+    fn theme_value(&self, key: &str) -> Result<Option<confd::Value>, i64> {
+        let machine = services::confd_get(key)?;
+        let own = match self.uid.and_then(|uid| uitheme::user_key(uid, key)) {
+            Some(path) => services::confd_get(&path)?,
+            None => None,
+        };
+        Ok(uitheme::overlay(machine, own))
     }
 }
 

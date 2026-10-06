@@ -34,7 +34,7 @@ pub static MODULES: &[ApiModule] = &[
         alias: "confd",
         interface: "os.lazy.confd.v1",
         source: include_str!("confd.rhai"),
-        topics: &[ApiTopic { helper: "changed", pattern: "system/confd/changed/#" }],
+        topics: &[ApiTopic { helper: "changed", pattern: "system/confd/changed/#" }, ApiTopic { helper: "user_changed", pattern: "user/+/confd/changed/#" }],
     },
     ApiModule {
         alias: "display",

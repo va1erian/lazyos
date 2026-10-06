@@ -112,6 +112,14 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   an empty list. The only implicit grants are the registry's
   register/unregister/resolve calls (checked per name, below) and the app's
   own namespaces.
+- **Per-uid topics** (`topics/private.rs`, issue #407): `user/<uid>/...` is
+  that uid's. A non-root task may publish or subscribe there only with its
+  own uid (canonical decimal) as the second segment, and no non-root filter
+  may reach into another uid's subtree (`user/+/...`, `user/#`, or a leading
+  `#`/`+`). Root may use any. The rule is checked before the per-segment
+  policy and no rule overrides it; a refusal is audited as
+  `PRIVATE_NAMESPACE` (12). `confd` announces `user/<uid>/<path>` changes
+  there (`user/<uid>/confd/changed/<path>`).
 - **Namespaces** (`policy.rs`, issue #308): `register` of `os.lazy.*` needs a
   `system:*` label, or no label plus uid 0, `CAP_IPC_CONTROL` or `CAP_DEV_CLAIM`
   (a provisioned driver); any other unlabelled task falls back to the uid rules

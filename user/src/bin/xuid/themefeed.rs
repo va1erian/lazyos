@@ -1,4 +1,5 @@
-//! Live theme: follows the `sys/ui/*` settings in `confd` (issue: Settings app).
+//! Live theme: follows the `sys/ui/*` settings in `confd` (issue: Settings app),
+//! overlaid with the desktop user's own `user/<uid>/ui/*` (issue #407).
 //! The clock format (`sys/time/*`) belongs to the LazyShell taskbar (#157).
 //!
 //! On the first successful poll the feed reads every key, then subscribes to
@@ -9,13 +10,22 @@
 //! fail because `confd` or the broker is late, in which case the compiled-in
 //! defaults simply stay in effect.
 //!
+//! The user is whoever runs the shell ([`ThemeFeed::follow_user`], from the
+//! shell's `Subscribe`): a graphical login's LazyShell runs as that user.
+//! For a user other than the administrator, each of its `user/<uid>/ui/*`
+//! keys shadows the machine key, and the feed also follows
+//! `user/<uid>/confd/changed/ui/#`, which only that uid and root (`xuid`) may
+//! subscribe to.
+//!
 //! Re-reads allocate (the user bump allocator never reclaims), but they happen
 //! only when a setting actually changes.
 
+use alloc::string::String;
 use alloc::vec::Vec;
+use messenger_generated::topics;
 use uitheme::Settings;
 use user::central::{Bus, Subscription};
-use user::messenger::confd::Client;
+use user::messenger::confd::{wire, Client};
 use user::messenger::topics_client::Qos;
 use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
@@ -36,6 +46,10 @@ pub(super) struct ThemeFeed {
     /// take the service down with it.
     client: Option<Client>,
     watch: Option<Subscription>,
+    /// The shell's uid when it has a personal theme ([`uitheme::personal`]).
+    user: Option<u32>,
+    /// The change subscription for `user`'s own theme keys.
+    user_watch: Option<Subscription>,
     next_poll: u64,
     next_connect: u64,
     /// The settings currently applied, for change detection.
@@ -52,6 +66,8 @@ impl ThemeFeed {
         ThemeFeed {
             client: None,
             watch: None,
+            user: None,
+            user_watch: None,
             next_poll: 0,
             next_connect: 0,
             settings,
@@ -89,6 +105,25 @@ impl ThemeFeed {
         self.settings.anim
     }
 
+    /// Paint for the shell's user `uid` from now on; `true` when the palette
+    /// changed and the screen needs a full repaint. The administrator (and
+    /// the boot-time shell, uid 0) paints from the machine keys alone.
+    pub(super) fn follow_user(&mut self, uid: u32) -> bool {
+        let user = uitheme::personal(uid).then_some(uid);
+        if user == self.user {
+            return false;
+        }
+        self.user = user;
+        if let Some(watch) = self.user_watch.take() {
+            let _ = watch.unsubscribe();
+        }
+        sys::write_str(&alloc::format!("THEME:USER uid={uid}\n"));
+        if let Some(uid) = user {
+            self.user_watch = self.subscribe_user(uid);
+        }
+        self.reload()
+    }
+
     /// Follow confd; `true` when the palette changed and the screen needs a
     /// full repaint.
     pub(super) fn poll(&mut self) -> bool {
@@ -97,14 +132,17 @@ impl ThemeFeed {
             return false;
         }
         self.next_poll = now + POLL_TICKS;
-        if self.client.is_none() || self.watch.is_none() {
+        let user_missing = self.user.is_some() && self.user_watch.is_none();
+        if self.client.is_none() || self.watch.is_none() || user_missing {
             if now < self.next_connect {
                 return false;
             }
             self.next_connect = now + RETRY_TICKS;
             return self.connect(now);
         }
-        if self.drain_events() {
+        let machine = drain(&mut self.watch, &mut self.buffer);
+        let own = drain(&mut self.user_watch, &mut self.buffer);
+        if machine || own {
             return self.reload();
         }
         false
@@ -120,47 +158,26 @@ impl ThemeFeed {
             return false;
         }
         if self.watch.is_none() {
-            // Bounded: the compositor must not stall on a silent broker.
-            let deadline = Some(now + SUBSCRIBE_TICKS);
-            let watch = Bus::connect()
-                .and_then(|mut bus| bus.subscribe_with_deadline(FILTER, Qos::Latest, deadline));
-            if let Err(error) = &watch {
-                sys::write_str(&alloc::format!(
-                    "THEME:WATCH:FAIL {error:?}
-"
-                ));
-            }
-            self.watch = watch.ok();
+            self.watch = subscribe(String::from(FILTER), now);
+        }
+        if let (Some(uid), None) = (self.user, &self.user_watch) {
+            self.user_watch = self.subscribe_user(uid);
         }
         // Read even without a subscription so settings written before the
         // broker came up still apply; the next retry subscribes.
         self.reload()
     }
 
-    /// Whether at least one change event arrived (all pending ones consumed).
-    fn drain_events(&mut self) -> bool {
-        let Some(watch) = &self.watch else {
-            return false;
-        };
-        let mut any = false;
-        loop {
-            // A poll (`EXPIRED_DEADLINE`), never a wait: the broker parks a
-            // `NextEvent` with no event until the caller's deadline, and a
-            // two-tick deadline here froze the compositor (and the cursor)
-            // for 10 to 20 ms every `POLL_TICKS`. The kernel keeps a poll open
-            // for the broker's whole service turn (`channels::POLL_DEADLINE`),
-            // so a queued event is still delivered.
-            match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
-                Ok(Some(_)) => any = true,
-                Ok(None) => break,
-                Err(_) => {
-                    // The broker went away: resubscribe on a later poll.
-                    self.watch = None;
-                    break;
-                }
-            }
-        }
-        any
+    /// Subscribe to `uid`'s own theme changes (`user/<uid>/confd/changed/ui/#`).
+    fn subscribe_user(&self, uid: u32) -> Option<Subscription> {
+        let uid = alloc::format!("{uid}");
+        let filter = topics::build(
+            wire::TOPIC_USER_CONFD_CHANGED,
+            &[&uid, uitheme::USER_FILTER_PATH],
+            topics::Mode::Subscribe,
+        )
+        .ok()?;
+        subscribe(filter, sys::clock())
     }
 
     /// Re-read the theme keys and install the resulting palette; `true` when
@@ -171,20 +188,62 @@ impl ThemeFeed {
         };
         let mut settings = Settings::default();
         for key in uitheme::ALL_KEYS {
-            match client.get(key) {
-                Ok(value) => settings.apply(key, value.as_ref()),
+            let Ok(machine) = client.get(key) else {
                 // A failing service keeps the previous theme.
-                Err(_) => return false,
-            }
+                return false;
+            };
+            let own = match self.user.and_then(|uid| uitheme::user_key(uid, key)) {
+                Some(path) => match client.get(&path) {
+                    Ok(value) => value,
+                    Err(_) => return false,
+                },
+                None => None,
+            };
+            settings.apply(key, uitheme::overlay(machine, own).as_ref());
         }
         self.settings = settings;
         let changed = theme::set_palette(&uitheme::resolve(&settings));
         if changed {
-            sys::write_str(
-                "THEME:APPLIED
-",
-            );
+            sys::write_str("THEME:APPLIED\n");
         }
         changed
     }
+}
+
+/// Subscribe to `filter`, bounded: the compositor must not stall on a silent
+/// broker. A failure is logged and retried by a later poll.
+fn subscribe(filter: String, now: u64) -> Option<Subscription> {
+    let deadline = Some(now + SUBSCRIBE_TICKS);
+    let watch = Bus::connect()
+        .and_then(|mut bus| bus.subscribe_with_deadline(&filter, Qos::Latest, deadline));
+    if let Err(error) = &watch {
+        sys::write_str(&alloc::format!("THEME:WATCH:FAIL {filter} {error:?}\n"));
+    }
+    watch.ok()
+}
+
+/// Whether at least one change event arrived on `watch` (all pending ones
+/// consumed). A broken subscription is dropped, so a later poll resubscribes.
+fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool {
+    let Some(subscription) = watch else {
+        return false;
+    };
+    let mut any = false;
+    loop {
+        // A poll (`EXPIRED_DEADLINE`), never a wait: the broker parks a
+        // `NextEvent` with no event until the caller's deadline, and a
+        // two-tick deadline here froze the compositor (and the cursor)
+        // for 10 to 20 ms every `POLL_TICKS`. The kernel keeps a poll open
+        // for the broker's whole service turn (`channels::POLL_DEADLINE`),
+        // so a queued event is still delivered.
+        match subscription.recv_with(buffer, Some(EXPIRED_DEADLINE)) {
+            Ok(Some(_)) => any = true,
+            Ok(None) => break,
+            Err(_) => {
+                *watch = None;
+                break;
+            }
+        }
+    }
+    any
 }

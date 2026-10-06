@@ -37,7 +37,8 @@ result deviates from the issue or could not be verified.
 - **Service** (`user/src/bin/confd.rs`): binds `StoreFs` to the VFS
   (`write store.tmp` → `fsync` → `rename store.tmp store`), takes the caller uid
   **only** from `sys::cred_get(Some(message.sender))`, and publishes committed
-  `sys/` changes on `system/confd/changed/<path>` with payload `(path, deleted)`
+  `sys/` changes on `system/confd/changed/<path>` (and, since issue #407,
+  `user/<uid>/<rest>` changes on `user/<uid>/confd/changed/<rest>`) with payload `(path, deleted)`
   and never the value.
 - **Storage**: `/system/confd` when it can be created and a probe write
   succeeds (`persistent=true`, health `ok`); otherwise `/tmp/confd` (ramfs) with

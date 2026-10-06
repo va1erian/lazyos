@@ -112,7 +112,8 @@ fn rebind_announces_paths_whose_value_changed_for_readers() {
     svc.rebind(dest).unwrap();
     let mut seen = svc.sink().events.clone();
     seen.sort();
-    // Only sys/ is announceable; `same` did not change, `user/` stays quiet.
+    // `same` did not change; `user/1000/x` is gone from the new store, and
+    // a rebind announces values, not removals.
     assert_eq!(
         seen,
         vec![

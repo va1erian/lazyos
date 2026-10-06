@@ -227,7 +227,8 @@ pub fn wallclock_reads_sane_time() -> Result<(), String> {
     Ok(())
 }
 
-/// `clock_settime` moves realtime, rejects bad input, and needs `CAP_SYS_TIME`.
+/// `clock_settime` moves realtime and the RTC, rejects bad input, and needs
+/// `CAP_SYS_TIME`.
 /// The original time is restored so later suites see a sane clock.
 pub fn clock_settime_contract() -> Result<(), String> {
     become_root()?;
@@ -243,6 +244,13 @@ pub fn clock_settime_contract() -> Result<(), String> {
         (target..target + 5).contains(&after),
         "realtime {after} after setting {target}"
     );
+    // The step reaches the CMOS chip, so it survives a reboot (#407).
+    if let Some(chip) = rtc::read_unix() {
+        check!(
+            (target..target + 5).contains(&chip),
+            "RTC reads {chip} after setting {target}"
+        );
+    }
     check!(
         settime(CLOCK_MONOTONIC, target, 0) == EINVAL,
         "monotonic was settable"

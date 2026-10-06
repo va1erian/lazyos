@@ -27,6 +27,8 @@
 //! the syscall layer only validates pointers and the proxy capability (a
 //! `messengerd` request carries the *client's* slot), never policy itself.
 
+pub mod private;
+
 /// FNV-1a 64, the interface-id hash from `tools/midlc` (`fnv1a64`).
 pub const fn fnv1a64(text: &str) -> u64 {
     let bytes = text.as_bytes();
@@ -179,6 +181,17 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
     let interface = interface(mode).ok_or(Error::BadMode)?;
     let segments = validate(name, mode)?;
     let cred = crate::ipc::credentials::of(actor_slot);
+    // The per-uid namespace is checked first and is never overridden by a
+    // policy rule: it is what keeps one user's events from another.
+    if !private::allows(cred.uid, name) {
+        private::deny(actor_slot, &cred, interface, txn_id);
+        #[cfg(lazyos_label_trace)]
+        crate::ipc::label_trace::denied(
+            cred.label_id,
+            format_args!("topic={name} mode={mode} private"),
+        );
+        return Err(Error::Denied);
+    }
     // An app owns the `app/<id>/` subtree for its label; that is the only
     // implicit grant, everything else goes through the per-segment rules.
     if crate::ipc::policy::owns_topic(&cred, name) {

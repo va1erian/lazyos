@@ -11,8 +11,9 @@
 //! * a `Set`/`Delete` is persisted before the reply, on a clone of the
 //!   committed store, so a write failure leaves the live store untouched;
 //! * a committed `sys/` change is announced best-effort on
-//!   `system/confd/changed/<path>`, payload `(path, deleted)` and never the
-//!   value.
+//!   `system/confd/changed/<path>`, and a `user/<uid>/<rest>` change on
+//!   `user/<uid>/confd/changed/<rest>` (the kernel's per-uid topic namespace,
+//!   issue #407); payload `(path, deleted)` and never the value.
 //!
 //! # Storage
 //!
@@ -138,7 +139,16 @@ impl ChangeSink for TopicSink {
             deleted,
         };
         // Best-effort: a change topic is an event, not state.
-        let _ = wire::publish_system_confd_changed(self, path, &value);
+        match ::confd::announcement(path) {
+            Some(::confd::Announcement::System) => {
+                let _ = wire::publish_system_confd_changed(self, path, &value);
+            }
+            Some(::confd::Announcement::User { uid, rest }) => {
+                let uid = format!("{uid}");
+                let _ = wire::publish_user_confd_changed(self, &uid, rest, &value);
+            }
+            None => {}
+        }
     }
 }
 

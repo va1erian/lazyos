@@ -237,6 +237,15 @@
         "retained": false,
         "publish_permission": "publish:system/confd/changed/#",
         "subscribe_permission": "subscribe:system/confd/changed/#"
+      },
+      {
+        "name": "user/+/confd/changed/#",
+        "source": "user/{uid}/confd/changed/{path...}",
+        "payload": "Change",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:user/+/confd/changed/#",
+        "subscribe_permission": "subscribe:user/+/confd/changed/#"
       }
     ]
   },

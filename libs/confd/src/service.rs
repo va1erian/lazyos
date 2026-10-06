@@ -75,25 +75,7 @@ pub trait ChangeSink {
     fn changed(&mut self, path: &str, deleted: bool);
 }
 
-/// Whether changes to `path` may be announced on a topic.
-///
-/// The kernel topic policy cannot express "`user/<uid>` is readable only by
-/// that uid", so announcing user paths would leak their existence and change
-/// timing to any subscriber. Until the policy hook grows a per-uid rule, only
-/// the world-readable `sys/` subtree is announced (the approved fallback in
-/// issue #260's follow-ups).
-pub fn announceable(path: &str) -> bool {
-    path == "sys" || starts_with_sys(path)
-}
-
-/// `str::starts_with("sys/")` without the trait machinery.
-fn starts_with_sys(path: &str) -> bool {
-    let bytes = path.as_bytes();
-    if bytes.len() < 4 {
-        return false;
-    }
-    bytes[0] == b's' && bytes[1] == b'y' && bytes[2] == b's' && bytes[3] == b'/'
-}
+pub use crate::announce::announceable;
 
 /// What merging another store into the live one did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -322,9 +304,9 @@ impl<F: StoreFs, S: ChangeSink> Confd<F, S> {
 
     /// Persist `draft`, swap it in on success, then announce the change.
     ///
-    /// The announced path is [`announceable`]; a `user/` change is committed
-    /// but never published (see [`announceable`]). A dropped sink call is
-    /// best-effort and never fails the operation.
+    /// Only an [`announceable`] path reaches the sink, which picks the topic
+    /// ([`crate::announce`]). A dropped sink call is best-effort and never
+    /// fails the operation.
     fn commit(&mut self, draft: Store, change: Change) -> Result<(), ServiceError> {
         if persist(&mut self.fs, &draft).is_err() {
             // `self.store` was never touched; the draft, and any temporary
