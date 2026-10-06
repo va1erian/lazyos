@@ -315,10 +315,15 @@ dependencies = [
 name = "devinspect"
 version = "0.1.0"
 dependencies = [
+ "devmatch",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
 ]
+
+[[package]]
+name = "devmatch"
+version = "0.1.0"
 
 [[package]]
 name = "digest"
@@ -613,11 +618,11 @@ dependencies = [
 [[package]]
 name = "lazyrad-designer"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "lazyrad-project",
  "thiserror",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592)",
+ "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98)",
  "xui-core",
  "xui-form",
 ]
@@ -625,7 +630,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-ide"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "embed-resource",
  "lazyrad-designer",
@@ -637,7 +642,7 @@ dependencies = [
  "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "xui-canvas",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592)",
+ "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98)",
  "xui-core",
  "xui-form",
 ]
@@ -669,7 +674,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-packager"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "editpe",
  "lazyrad-project",
@@ -683,7 +688,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-player"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "embed-resource",
  "lazyrad-packager",
@@ -696,7 +701,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-project"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "libc",
  "serde",
@@ -708,7 +713,7 @@ dependencies = [
 [[package]]
 name = "lazyrad-runtime"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "lazyrad-project",
  "rhai",
@@ -1772,7 +1777,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
+source = "git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98#112b411c0e0889e1757da9e09481c8e9c5acca98"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -1791,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "xui-code-editor"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
+source = "git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98#112b411c0e0889e1757da9e09481c8e9c5acca98"
 dependencies = [
  "regex",
  "ropey",
@@ -1809,7 +1814,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
+source = "git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98#112b411c0e0889e1757da9e09481c8e9c5acca98"
 dependencies = [
  "png",
  "zune-jpeg",
@@ -1826,7 +1831,7 @@ dependencies = [
 [[package]]
 name = "xui-form"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "serde",
  "thiserror",
@@ -1837,7 +1842,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
+source = "git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98#112b411c0e0889e1757da9e09481c8e9c5acca98"
 dependencies = [
  "xui-core",
 ]
@@ -1852,7 +1857,7 @@ dependencies = [
 [[package]]
 name = "xui-rhai"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/lazyrad?rev=1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54#1aed2014cb9797b8977b9cc1fc48d78ac8b6ff54"
+source = "git+https://github.com/va1erian/lazyrad?rev=89277b4165084900d2beea8ac3dd4ef3e0bd2833#89277b4165084900d2beea8ac3dd4ef3e0bd2833"
 dependencies = [
  "rhai",
  "xui-core",
@@ -1862,7 +1867,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
+source = "git+https://github.com/va1erian/xui?rev=112b411c0e0889e1757da9e09481c8e9c5acca98#112b411c0e0889e1757da9e09481c8e9c5acca98"
 dependencies = [
  "serde",
  "serde_json",
