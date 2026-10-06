@@ -314,6 +314,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "e1000"
+version = "0.1.0"
+dependencies = [
+ "framering",
+ "fuzzkit",
+ "nicdrv",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1236,6 +1245,7 @@ dependencies = [
  "confd",
  "deskmenu",
  "devinspect",
+ "e1000",
  "fhs",
  "font-atlas",
  "framering",

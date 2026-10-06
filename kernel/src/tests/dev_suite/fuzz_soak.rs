@@ -9,7 +9,7 @@
 //! and frames, quotas, the DMA pool and the PIC must be back where they were.
 
 use super::fixture::*;
-use super::fuzz_world::{Role, Rng, World};
+use super::fuzz_world::{Rng, Role, World};
 use super::*;
 use crate::dev::errno::*;
 use crate::dev::syscall::*;
@@ -66,9 +66,16 @@ fn step(world: &mut World, fx: &Fixture, rng: &mut Rng, served: &mut u32) -> Res
                 (Role::Nic | Role::Bridge, 2) => {
                     expect_ok(sys(OP_CFG_READ, handle, 0, 4, 0), "cfg_read")?;
                     // Bus mastering needs the DMA right a bridge never has.
-                    let want = if world.role(device) == Role::Bridge { -EPERM } else { 0 };
+                    let want = if world.role(device) == Role::Bridge {
+                        -EPERM
+                    } else {
+                        0
+                    };
                     check!(sys(OP_CFG_WRITE, handle, 4, 2, 0x0006) == want, "cfg_write");
-                    expect_ok(sys(OP_CFG_WRITE, handle, 4, 2, 0x0002), "cfg_write decode only")?;
+                    expect_ok(
+                        sys(OP_CFG_WRITE, handle, 4, 2, 0x0002),
+                        "cfg_write decode only",
+                    )?;
                 }
                 (Role::Nic | Role::Hostile | Role::Platform, 3) => {
                     let mut bus = 0;
@@ -86,9 +93,16 @@ fn step(world: &mut World, fx: &Fixture, rng: &mut Rng, served: &mut u32) -> Res
                 _ => {
                     // Arm or acknowledge; both may legitimately refuse (no
                     // endpoint, unroutable line, nothing to acknowledge).
-                    let op = if rng.chance(50) { OP_IRQ_ENABLE } else { OP_IRQ_ACK };
+                    let op = if rng.chance(50) {
+                        OP_IRQ_ENABLE
+                    } else {
+                        OP_IRQ_ACK
+                    };
                     let got = sys(op, handle, 0, 0, 0);
-                    check!(got >= 0 || [EPERM, EINVAL, ENOSYS, ENOENT].contains(&-got), "irq op {op}: {got}");
+                    check!(
+                        got >= 0 || [EPERM, EINVAL, ENOSYS, ENOENT].contains(&-got),
+                        "irq op {op}: {got}"
+                    );
                 }
             }
         }
@@ -126,8 +140,14 @@ fn drain_interrupts(world: &World) -> Result<u32, String> {
         for &(handle, endpoint) in &actor.irq {
             while queued(endpoint)? > 0 {
                 let (sender, ..) = take_irq(endpoint)?;
-                check!(sender == task::KERNEL_TASK, "an interrupt from task {sender}");
-                expect_ok(sys(OP_IRQ_ACK, handle, 0, 0, 0), "ack of a delivered interrupt")?;
+                check!(
+                    sender == task::KERNEL_TASK,
+                    "an interrupt from task {sender}"
+                );
+                expect_ok(
+                    sys(OP_IRQ_ACK, handle, 0, 0, 0),
+                    "ack of a delivered interrupt",
+                )?;
                 served += 1;
             }
         }
@@ -147,7 +167,10 @@ fn soak_once(fx: &Fixture) -> Result<u32, String> {
             .and_then(|()| world.verify("after the step"))
             .map_err(|e| format!("soak step {index}: {e}"))?;
     }
-    check!(served > 0, "no interrupt was ever acknowledged in {STEPS} steps");
+    check!(
+        served > 0,
+        "no interrupt was ever acknowledged in {STEPS} steps"
+    );
     world.finish(fx, before)?;
     Ok(served)
 }
@@ -161,7 +184,10 @@ pub fn dev_fuzz_lifecycle_soak() -> Result<(), String> {
     let warm = mem::frame_stats();
     let second = soak_once(&fx)?;
     let after = mem::frame_stats();
-    check!(first == second, "the same seed serviced {first} then {second} interrupts");
+    check!(
+        first == second,
+        "the same seed serviced {first} then {second} interrupts"
+    );
     check!(
         after.live() == warm.live() && after.double_frees == warm.double_frees,
         "frames {} -> {} over an identical second run (double frees {} -> {})",

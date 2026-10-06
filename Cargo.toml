@@ -79,6 +79,8 @@ members = [
     "libs/framering",
     "libs/virtio-net",
     "libs/nicdrv",
+    # The Intel 8254x NIC behind the same engine (issue #497, driver-plan D7).
+    "libs/e1000",
     "libs/ftpwire",
     # Printing (docs/printing-plan.md P1/P2): IPP messages and the PWG Raster
     # encoder, pure `no_std` + `alloc` with host tests and fuzz entry points.

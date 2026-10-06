@@ -215,7 +215,9 @@ impl World {
         self.actors[actor]
             .irq
             .retain(|(claim, _)| !ended.contains(claim));
-        self.actors[actor].claims.retain(|(_, held)| *held != device);
+        self.actors[actor]
+            .claims
+            .retain(|(_, held)| *held != device);
         self.actors[actor]
             .buffers
             .retain(|(_, through)| *through != device);
@@ -246,7 +248,8 @@ impl World {
         let mut live = 0;
         for device in 0..self.ids.len() {
             let (owner, generation) = table_state(self.ids[device]);
-            let expected = self.owner[device].map(|actor| crate::dev::TaskSlot(self.actors[actor].slot));
+            let expected =
+                self.owner[device].map(|actor| crate::dev::TaskSlot(self.actors[actor].slot));
             check!(
                 owner == expected && generation == self.generation[device],
                 "{step}: device {device:?} ({:?}) is owner {owner:?} gen {generation}, model {expected:?} gen {}",
@@ -270,7 +273,11 @@ impl World {
 
     /// Kill every actor and require that nothing is left: claims, quota,
     /// DMA pool pages, masked lines.
-    pub fn finish(mut self, fixture: &Fixture, before: crate::mem::dma::DmaStats) -> Result<(), String> {
+    pub fn finish(
+        mut self,
+        fixture: &Fixture,
+        before: crate::mem::dma::DmaStats,
+    ) -> Result<(), String> {
         for index in 0..self.actors.len() {
             leave(fixture);
             let slot = self.actors[index].slot;

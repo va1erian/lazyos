@@ -99,7 +99,9 @@ pub(super) unsafe fn free_window_tables(pdpt: PhysAddr) -> usize {
                 continue;
             }
             let pt = PhysAddr::new(e2 & ADDR);
-            stale += (0..512).filter(|&i| pte::read(pt, i) & PRESENT != 0).count();
+            stale += (0..512)
+                .filter(|&i| pte::read(pt, i) & PRESENT != 0)
+                .count();
             free_frame(pt);
         }
         free_frame(pd);

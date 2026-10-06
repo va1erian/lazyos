@@ -1,5 +1,5 @@
 //! The driver's tunables from `confd` (`docs/driver-config-plan.md` section 2,
-//! keys `sys/dev/net/virtio-net/*`).
+//! keys `sys/dev/net/virtio-net/*`, or `sys/dev/net/e1000/*` for an 8254x).
 //!
 //! `confd` is a **soft** dependency: the driver tries to resolve it for a
 //! second at most, runs on the defaults when it is absent, and looks again
@@ -15,23 +15,34 @@ use confd::Value;
 use user::messenger::confd::Client;
 use virtio_net::settings::{Raw, Settings};
 
+use super::device::Kind;
+
 /// Resolve attempts at start (about a second of ticks).
 const START_ATTEMPTS: usize = 20;
 /// Ticks between re-reads of the keys while the driver runs.
 pub(super) const REFRESH_TICKS: u64 = 500;
 
-const PREFIX: &str = "sys/dev/net/virtio-net";
+/// The key prefix for a card.
+pub(super) fn prefix(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Virtio => "sys/dev/net/virtio-net",
+        Kind::E1000(_) => "sys/dev/net/e1000",
+    }
+}
 
 pub(super) struct Config {
     client: Option<Client>,
+    prefix: &'static str,
 }
 
 impl Config {
-    /// Connect to `confd` if it is up and read the settings.
-    pub(super) fn load() -> (Config, Settings) {
+    /// Connect to `confd` if it is up and read the settings under `prefix`.
+    pub(super) fn load(prefix: &'static str) -> (Config, Settings) {
         let client = Client::connect_retry(START_ATTEMPTS).ok();
-        let settings = client.as_ref().map_or(Settings::DEFAULT, read);
-        (Config { client }, settings)
+        let settings = client
+            .as_ref()
+            .map_or(Settings::DEFAULT, |client| read(client, prefix));
+        (Config { client, prefix }, settings)
     }
 
     /// Read the settings again; `None` when `confd` is not reachable (the
@@ -48,38 +59,38 @@ impl Config {
             self.client = None;
             return None;
         }
-        Some(read(client))
+        Some(read(client, self.prefix))
     }
 }
 
-fn get(client: &Client, key: &str) -> Option<Value> {
-    client.get(&format!("{PREFIX}/{key}")).ok().flatten()
+fn get(client: &Client, prefix: &str, key: &str) -> Option<Value> {
+    client.get(&format!("{prefix}/{key}")).ok().flatten()
 }
 
-fn number(client: &Client, key: &str) -> Option<u64> {
-    match get(client, key)? {
+fn number(client: &Client, prefix: &str, key: &str) -> Option<u64> {
+    match get(client, prefix, key)? {
         Value::U64(n) => Some(n),
         Value::I64(n) if n >= 0 => Some(n as u64),
         _ => None,
     }
 }
 
-fn text(client: &Client, key: &str) -> Option<String> {
-    match get(client, key)? {
+fn text(client: &Client, prefix: &str, key: &str) -> Option<String> {
+    match get(client, prefix, key)? {
         Value::Str(t) => Some(t),
         _ => None,
     }
 }
 
-fn read(client: &Client) -> Settings {
-    let irq_mode = text(client, "irq_mode");
-    let mac = text(client, "mac_override");
+fn read(client: &Client, prefix: &str) -> Settings {
+    let irq_mode = text(client, prefix, "irq_mode");
+    let mac = text(client, prefix, "mac_override");
     Settings::from_raw(&Raw {
         irq_mode: irq_mode.as_deref(),
-        poll_interval_ms: number(client, "poll_interval_ms"),
-        rx_ring_entries: number(client, "rx_ring_entries"),
-        tx_ring_entries: number(client, "tx_ring_entries"),
-        mtu: number(client, "mtu"),
+        poll_interval_ms: number(client, prefix, "poll_interval_ms"),
+        rx_ring_entries: number(client, prefix, "rx_ring_entries"),
+        tx_ring_entries: number(client, prefix, "tx_ring_entries"),
+        mtu: number(client, prefix, "mtu"),
         mac_override: mac.as_deref(),
     })
 }

@@ -17,7 +17,7 @@
 //! replay just that seed.
 
 use super::fixture::*;
-use super::fuzz_world::{Role, Rng, World, EDGES};
+use super::fuzz_world::{Rng, Role, World, EDGES};
 use super::*;
 use crate::dev::errno::*;
 use crate::dev::syscall::*;
@@ -119,7 +119,11 @@ fn pointer_arg(call: &mut Call, words: usize, rng: &mut Rng) -> u64 {
     } else {
         // Validation is on: none of these is a writable user range.
         rng.pick(&[0, 8, 0x1000, u64::MAX - 7, 1 << 47, 0xFFFF_8000_0000_0000])
-            .wrapping_add(if rng.chance(20) { rng.next() & 0xFFF } else { 0 })
+            .wrapping_add(if rng.chance(20) {
+                rng.next() & 0xFFF
+            } else {
+                0
+            })
     }
 }
 
@@ -191,13 +195,21 @@ fn build_call(world: &World, actor: usize, rng: &mut Rng) -> Call {
         }
         OP_CFG_READ | OP_CFG_WRITE => {
             call.args[0] = handle_arg(world, actor, rng);
-            call.args[1] = if rng.chance(50) { 4 } else { edge_or_noise(rng) };
+            call.args[1] = if rng.chance(50) {
+                4
+            } else {
+                edge_or_noise(rng)
+            };
             call.args[2] = rng.pick(&[0u64, 1, 2, 3, 4, 8, u64::MAX]);
             call.args[3] = edge_or_noise(rng);
         }
         OP_IRQ_ENABLE | OP_IRQ_ACK | OP_RELEASE => {
             call.args[0] = handle_arg(world, actor, rng);
-            call.args[1] = if rng.chance(80) { 0 } else { edge_or_noise(rng) };
+            call.args[1] = if rng.chance(80) {
+                0
+            } else {
+                edge_or_noise(rng)
+            };
         }
         OP_DMA_ALLOC => {
             call.args[0] = handle_arg(world, actor, rng);
@@ -230,7 +242,13 @@ fn run(call: &Call) -> i64 {
 }
 
 /// Judge one result against the model and update the model.
-fn judge(world: &mut World, actor: usize, call: &Call, got: i64, reached: &mut Reached) -> Result<(), String> {
+fn judge(
+    world: &mut World,
+    actor: usize,
+    call: &Call,
+    got: i64,
+    reached: &mut Reached,
+) -> Result<(), String> {
     let what = || format!("op {:#x} args {:x?} by actor {actor}", call.op, call.args);
     check!(
         got >= 0 || ERRNOS.contains(&-got),
@@ -242,10 +260,18 @@ fn judge(world: &mut World, actor: usize, call: &Call, got: i64, reached: &mut R
     }
     if HANDLE_OPS.contains(&call.op) {
         let Some(device) = world.actors[actor].claim_of(call.args[0]) else {
-            check!(got == -EBADF, "{}: a foreign handle got {got}, not EBADF", what());
+            check!(
+                got == -EBADF,
+                "{}: a foreign handle got {got}, not EBADF",
+                what()
+            );
             return Ok(());
         };
-        check!(got != -EBADF, "{}: the caller's own live claim got EBADF", what());
+        check!(
+            got != -EBADF,
+            "{}: the caller's own live claim got EBADF",
+            what()
+        );
         if got < 0 {
             return Ok(());
         }
@@ -280,7 +306,11 @@ fn judge(world: &mut World, actor: usize, call: &Call, got: i64, reached: &mut R
         let device = world
             .device_of(call.args[0])
             .ok_or_else(|| format!("{}: claimed a device the fuzz never named", what()))?;
-        check!(world.actors[actor].cap, "{}: claimed without CAP_DEV_CLAIM", what());
+        check!(
+            world.actors[actor].cap,
+            "{}: claimed without CAP_DEV_CLAIM",
+            what()
+        );
         check!(
             world.owner[device].is_none(),
             "{}: claimed a device {:?} already holds",
@@ -331,7 +361,8 @@ fn fuzz_seed(seed: u64) -> Result<Reached, String> {
     let mut reached = Reached::default();
     for step in 0..CALLS {
         if rng.chance(8) {
-            perturb(&mut world, &fx, &mut rng).map_err(|e| format!("seed {seed:#x} step {step}: {e}"))?;
+            perturb(&mut world, &fx, &mut rng)
+                .map_err(|e| format!("seed {seed:#x} step {step}: {e}"))?;
         }
         let actor = rng.below(world.actors.len());
         enter(world.actors[actor].slot)?;
@@ -377,7 +408,5 @@ pub fn dev_fuzz_syscall_arguments() -> Result<(), String> {
     Ok(())
 }
 
-pub(super) const CASES: &[(&str, Test)] = &[(
-    "dev_fuzz_syscall_arguments",
-    dev_fuzz_syscall_arguments,
-)];
+pub(super) const CASES: &[(&str, Test)] =
+    &[("dev_fuzz_syscall_arguments", dev_fuzz_syscall_arguments)];

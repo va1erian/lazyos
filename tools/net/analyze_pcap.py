@@ -54,6 +54,9 @@ PROBE_ETHERTYPE = 0x88B5
 #: The lengths the probe sends at the legal extremes, and the ones just outside.
 PROBE_LEGAL = (14, 1514)
 PROBE_ILLEGAL = (13, 1515)
+#: The shortest frame an Ethernet MAC that pads (`--nic e1000`: the 8254x's
+#: `TCTL.PSP`) puts on the wire, without the CRC.
+PADDED_MIN = 60
 
 
 @dataclass
@@ -148,29 +151,49 @@ def probe_frames(frames: list[Frame], guest_mac: bytes) -> list[Frame]:
     return [f for f in frames if pcap.ethertype(f.data) == PROBE_ETHERTYPE and f.data[6:12] == guest_mac]
 
 
-def check_probe(frames: list[Frame], guest_mac: bytes) -> tuple[list[int], list[str]]:
+def probe_template(guest_mac: bytes, length: int) -> bytes:
+    """The first `length` bytes of the probe's frame (`nicctl/probe.rs`)."""
+    head = bytes([0xFF] * 6) + guest_mac + bytes([PROBE_ETHERTYPE >> 8, PROBE_ETHERTYPE & 0xFF])
+    return (head + bytes((i ^ 0x5A) & 0xFF for i in range(14, max(14, length))))[:length]
+
+
+def on_wire(frame: Frame, sent: bytes, padded: bool) -> bool:
+    """Whether `frame` is `sent` as it appears on the wire: exactly, or (on a
+    padding MAC) zero-padded to the Ethernet minimum."""
+    if frame.data == sent:
+        return True
+    pad = PADDED_MIN - len(sent)
+    return padded and pad > 0 and frame.data == sent + bytes(pad)
+
+
+def check_probe(frames: list[Frame], guest_mac: bytes, padded: bool = False) -> tuple[list[int], list[str]]:
     """The probe's boundary frames: legal extremes present and intact, frames
-    just outside them absent."""
+    just outside them absent. `padded`: the NIC pads short frames to 60 bytes,
+    so the 14-byte extreme arrives padded (and a leaked 13-byte one would too)."""
     problems = []
     found = probe_frames(frames, guest_mac)
     lengths = sorted({f.length for f in found})
+    legal_lengths = set(PROBE_LEGAL) | ({PADDED_MIN} if padded else set())
     for length in PROBE_LEGAL:
-        matching = [f for f in found if f.length == length]
+        expected = probe_template(guest_mac, length)
+        matching = [f for f in found if on_wire(f, expected, padded)]
         if not matching:
-            problems.append(f"no {length}-byte probe frame reached the wire (the legal extreme was dropped)")
-        for frame in matching:
-            expected = bytes([0xFF] * 6) + guest_mac + bytes([PROBE_ETHERTYPE >> 8, PROBE_ETHERTYPE & 0xFF])
-            expected += bytes((i ^ 0x5A) & 0xFF for i in range(14, length))
-            if frame.data != expected:
+            near = [f for f in found if f.length in (length, PADDED_MIN if padded and length < PADDED_MIN else length)]
+            if near:
+                frame = near[0]
                 first = next((i for i, (a, b) in enumerate(zip(frame.data, expected)) if a != b), None)
                 problems.append(f"frame {frame.index}: the {length}-byte probe frame's payload differs at byte {first}")
+            else:
+                problems.append(f"no {length}-byte probe frame reached the wire (the legal extreme was dropped)")
     for length in PROBE_ILLEGAL:
         # A 13-byte frame is cut from the template before the EtherType is
-        # complete, so look for it by length among frames from the guest too.
-        leaked = [f for f in frames if f.length == length and f.data[6:12] == guest_mac]
+        # complete, so look for it by its bytes among frames from the guest.
+        sent = probe_template(guest_mac, length)
+        leaked = [f for f in frames if f.data[6:12] == guest_mac
+                  and (f.length == length or (len(sent) < PADDED_MIN and on_wire(f, sent, padded)))]
         for frame in leaked:
             problems.append(f"frame {frame.index}: a {length}-byte frame reached the wire (it must be dropped)")
-    extra = [n for n in lengths if n not in PROBE_LEGAL]
+    extra = [n for n in lengths if n not in legal_lengths]
     if extra:
         problems.append(f"probe frames of unexpected lengths reached the wire: {extra}")
     return lengths, problems
@@ -356,7 +379,7 @@ def check_ping(frames: list[Frame], guest_mac: bytes, gateway_ip: bytes, min_pai
 
 
 def analyze(frames: list[Frame], *, guest_mac: bytes, gateway_ip: bytes, min_arp_pairs: int, expect_probe: bool,
-            min_frames: int = 1, min_dhcp: int = 0, min_pings: int = 0) -> Report:
+            min_frames: int = 1, min_dhcp: int = 0, min_pings: int = 0, padded: bool = False) -> Report:
     report = Report([])
     tx = sum(1 for f in frames if f.data[6:12] == guest_mac)
     report.lines.append(f"NET:PCAP:FRAMES total={len(frames)} from_guest={tx} to_guest={len(frames) - tx}")
@@ -393,7 +416,7 @@ def analyze(frames: list[Frame], *, guest_mac: bytes, gateway_ip: bytes, min_arp
         else:
             report.passed("PING", f"pairs={pairs} gateway={pcap.ip_text(gateway_ip)}")
     if expect_probe:
-        lengths, problems = check_probe(frames, guest_mac)
+        lengths, problems = check_probe(frames, guest_mac, padded)
         if problems:
             report.failed("PROBE", problems[:10])
         else:
