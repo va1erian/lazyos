@@ -136,7 +136,10 @@ fn tree(volume: &Ext2, path: &str, out: &mut dyn Write) -> Result<(), String> {
     let list = volume
         .readdir(if path.is_empty() { "/" } else { path })
         .map_err(|error| format!("{path}: {error:?}"))?;
-    let mut names: Vec<_> = list.iter().filter(|e| e.name != "." && e.name != "..").collect();
+    let mut names: Vec<_> = list
+        .iter()
+        .filter(|e| e.name != "." && e.name != "..")
+        .collect();
     names.sort_by(|a, b| a.name.cmp(&b.name));
     for entry in names {
         let full = format!("{path}/{}", entry.name);
@@ -149,7 +152,11 @@ fn tree(volume: &Ext2, path: &str, out: &mut dyn Write) -> Result<(), String> {
                 let data = volume
                     .read_file(&full)
                     .map_err(|error| format!("{full}: {error:?}"))?;
-                ('f', format!("{:016x}", fnv1a(&data)), meta.times.mtime.to_string())
+                (
+                    'f',
+                    format!("{:016x}", fnv1a(&data)),
+                    meta.times.mtime.to_string(),
+                )
             }
         };
         writeln!(

@@ -17,9 +17,31 @@ res() {
     *permitted*) e=EPERM ;;
     *"No such"*) e=ENOENT ;;
     *"Read-only"*) e=EROFS ;;
-    *) e=err ;;
+    *[Qq]uota*) e=EDQUOT ;;
+    *"No space"*) e=ENOSPC ;;
+    *)
+        # Not a recognised refusal: never let it pass as proof of isolation.
+        echo "ACCT:ATTACK:$name:ERROR:unrecognised"
+        return
+        ;;
     esac
     echo "ACCT:ATTACK:$name:BLOCKED:$e"
+}
+
+# probe <file> <snippet>: run the shell snippet (the file is its "$1") to
+# create <file>, which must not exist yet: the snippet runs under noclobber
+# (`sh -C`), so a success proves creation and nothing pre-existing is ever
+# overwritten. Then remove the file only if this call created it (also when
+# the snippet failed after creating it). 2>&1 outside the inner shell
+# captures its redirection errors too.
+probe() {
+    f=$1
+    existed=0
+    [ -e "$f" ] && existed=1
+    out=$(sh -C -c "$2" sh "$f" 2>&1)
+    rc=$?
+    [ "$existed" = 0 ] && rm -f "$f"
+    res $rc "$out"
 }
 
 case "$name" in
@@ -33,14 +55,12 @@ rm_system)
     ;;
 overwrite_init)
     # Opens for writing, appends nothing.
-    out=$(: >> /system/bin/init 2>&1)
+    out=$( (: >> /system/bin/init) 2>&1 )
     res $? "$out"
     ;;
 write_conf)
-    out=$(echo x > /conf/acct-probe 2>&1)
-    rc=$?
-    rm -f /conf/acct-probe 2>/dev/null
-    res $rc "$out"
+    f=/conf/acct-probe.$$
+    probe "$f" 'echo x > "$1"'
     ;;
 read_home_admin)
     out=$(ls /home/admin 2>&1)
@@ -72,11 +92,10 @@ fork_bomb)
     ;;
 disk_fill)
     # Bounded: 32 MiB into the home. A quota (U3) would refuse it.
-    f=${HOME:-/tmp}/acct-fill
-    out=$(dd if=/dev/zero of="$f" bs=1M count=32 2>&1)
-    rc=$?
-    rm -f "$f"
-    res $rc "$out"
+    # The file is created first (noclobber) so dd never writes over one that
+    # already existed.
+    f=${HOME:-/tmp}/acct-fill.$$
+    probe "$f" ': > "$1" && dd if=/dev/zero of="$1" bs=1M count=32'
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"
