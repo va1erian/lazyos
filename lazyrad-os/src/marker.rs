@@ -105,7 +105,7 @@ fn flatten(detail: &str) -> String {
 fn emit(line: &str) {
     let written = std::fs::OpenOptions::new()
         .write(true)
-        .open("/dev/console")
+        .open(fhs::dev::CONSOLE)
         .and_then(|mut device| writeln!(device, "{line}"));
     if written.is_err() {
         println!("{line}");
