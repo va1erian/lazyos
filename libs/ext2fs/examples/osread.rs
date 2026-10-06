@@ -8,7 +8,13 @@
 //! cargo run -q -p ext2fs --example osread -- IMAGE stat PATH    # mode uid gid size
 //! cargo run -q -p ext2fs --example osread -- IMAGE ls PATH
 //! cargo run -q -p ext2fs --example osread -- IMAGE fsck /     # the library's checker
+//! cargo run -q -p ext2fs --example osread -- IMAGE tree /    # every node, for audits
 //! ```
+//!
+//! `tree` prints one line per node below `PATH`, sorted by name:
+//! `<d|f> <mode> <uid> <gid> <size> <mtime> <fnv1a64 of the content> <path>`
+//! (the hash and mtime are `-` for a directory). `tools/accounts/` diffs two
+//! of them to prove an attack changed nothing outside the user's own files.
 //!
 //! `fsck` runs `ext2fs::check::fsck` (the host suite's fsck-style checker,
 //! behind the crate's `fuzz` feature: add `--features fuzz`) over the whole
@@ -90,6 +96,9 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     let volume = Ext2::open(Box::new(window), || 0).map_err(|error| format!("mount: {error:?}"))?;
     let mut out = std::io::stdout().lock();
+    if command == "tree" {
+        return tree(&volume, path.trim_end_matches('/'), &mut out);
+    }
     let result = match command.as_str() {
         "cat" => volume.read_file(path).map(|data| out.write_all(&data)),
         "stat" => volume.lookup(path).map(|meta| {
@@ -113,6 +122,50 @@ fn run(args: &[String]) -> Result<(), String> {
     result
         .map_err(|error| format!("{path}: {error:?}"))?
         .map_err(|error| format!("stdout: {error}"))
+}
+
+/// FNV-1a, 64 bits: a cheap content fingerprint for audits (not a security hash).
+fn fnv1a(data: &[u8]) -> u64 {
+    data.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// Print every node below `path` (see the module doc), depth first.
+fn tree(volume: &Ext2, path: &str, out: &mut dyn Write) -> Result<(), String> {
+    let list = volume
+        .readdir(if path.is_empty() { "/" } else { path })
+        .map_err(|error| format!("{path}: {error:?}"))?;
+    let mut names: Vec<_> = list.iter().filter(|e| e.name != "." && e.name != "..").collect();
+    names.sort_by(|a, b| a.name.cmp(&b.name));
+    for entry in names {
+        let full = format!("{path}/{}", entry.name);
+        let meta = volume
+            .lookup(&full)
+            .map_err(|error| format!("{full}: {error:?}"))?;
+        let (kind, hash, mtime) = match meta.kind {
+            ext2fs::FileKind::Dir => ('d', String::from("-"), String::from("-")),
+            ext2fs::FileKind::File => {
+                let data = volume
+                    .read_file(&full)
+                    .map_err(|error| format!("{full}: {error:?}"))?;
+                ('f', format!("{:016x}", fnv1a(&data)), meta.times.mtime.to_string())
+            }
+        };
+        writeln!(
+            out,
+            "{kind} {:o} {} {} {} {mtime} {hash} {full}",
+            meta.mode & 0o7777,
+            meta.uid,
+            meta.gid,
+            meta.size
+        )
+        .map_err(|error| format!("stdout: {error}"))?;
+        if matches!(meta.kind, ext2fs::FileKind::Dir) {
+            tree(volume, &full, out)?;
+        }
+    }
+    Ok(())
 }
 
 /// Check the volume that starts at sector `start` of `image`.

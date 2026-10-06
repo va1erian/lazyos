@@ -570,6 +570,20 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --extra-arg=-no-shutdown
 ```
 
+## Account attack harness
+
+`python tools/accounts/run.py` (issue #626, `docs/accounts-plan.md`) boots a
+copy of the desktop image, runs attacks as the session user from the Terminal
+(`rm` under `/system`, writes to `/conf`, confd `sys/**`, keyd `Provision`,
+signals, reading `/home/admin`, fork and disk fill), powers off, reboots (also
+after a hard kill) and audits the OS volume from the host
+(`osread ... tree /`). Each attack has an expectation (`blocked` or
+`xfail` with its issue) in `tools/accounts/attack_judge.py`: while the desktop
+runs as root (U0, #623) all are `xfail` and the harness passes; flip a row to
+`blocked` when its phase lands. A phase is not done until its scenarios are
+here. See `tools/accounts/README.md`; `python tools/accounts/test_judge.py`
+is the judges' self-test.
+
 ## Device manager (`devd`) and driver choices
 
 With a sound or network driver in the image, `init` starts `devd` (uid 906, no
