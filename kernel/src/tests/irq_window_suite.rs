@@ -45,7 +45,77 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "irqwin_soak_ticks_through_windows",
         soak_ticks_through_windows,
     ),
+    (
+        "irqwin_serial_drain_takes_windows",
+        serial_drain_takes_windows,
+    ),
+    (
+        "irqwin_soak_serial_drains_stay_bounded",
+        soak_serial_drains_stay_bounded,
+    ),
 ];
+
+/// One long serial line (`IRQWIN:SERIAL:` and padding), written as a syscall
+/// would write it.
+fn long_line(bytes: usize) -> String {
+    let mut line = String::from("IRQWIN:SERIAL:");
+    while line.len() < bytes {
+        line.push('.');
+    }
+    line.push('\n');
+    line
+}
+
+/// A kernel line drains whole with interrupts off (`serial::_write_str`);
+/// at the UART's baud rate a 2 KiB line takes far longer than the bound, so
+/// the drain must take interrupts at poll points (issue #400). Its worst
+/// stretch stays bounded, and a drain that took long opened windows.
+pub fn serial_drain_takes_windows() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let line = long_line(2048);
+    let latency = best_of(
+        "a 2 KiB serial line",
+        || {
+            let start = tsc();
+            let ((), latency) = in_syscall(NR_A, || crate::serial::_write_str(&line));
+            let took = elapsed_us(start);
+            check!(
+                took < 2 * BOUND_US || latency.opened >= 1,
+                "a {took} µs drain opened no window ({latency:?})"
+            );
+            Ok(latency)
+        },
+        |l| l.worst_us < BOUND_US && l.missed == 0,
+    )?;
+    check!(
+        !crate::serial::locked(),
+        "the port stayed locked ({latency:?})"
+    );
+    Ok(())
+}
+
+/// Soak: 32 long lines back to back inside one syscall. Every tick that
+/// came due arrived through a window (none missed) and the worst stretch
+/// stays bounded throughout.
+pub fn soak_serial_drains_stay_bounded() -> Result<(), String> {
+    calibrated()?;
+    kernel_task_only();
+    let line = long_line(2048);
+    best_of(
+        "32 serial lines",
+        || {
+            let ((), latency) = in_syscall(NR_A, || {
+                for _ in 0..32 {
+                    crate::serial::_write_str(&line);
+                }
+            });
+            Ok(latency)
+        },
+        |l| l.worst_us < BOUND_US && l.missed == 0 && l.window_ticks == l.ticks,
+    )?;
+    Ok(())
+}
 
 /// What one fake syscall saw.
 #[derive(Clone, Copy, Debug, Default)]

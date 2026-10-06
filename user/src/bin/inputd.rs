@@ -80,7 +80,7 @@ fn run() -> Result<(), &'static str> {
     user::messenger::services::init::notify_ready();
     let mut hub = hub::Hub::new(config::default_layout());
     let mut config = config::Config::new();
-    let trace = trace::Trace::from_args();
+    let mut trace = trace::Trace::from_args();
     let mut outputs: Vec<Output> = Vec::new();
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -103,7 +103,8 @@ fn run() -> Result<(), &'static str> {
         source.drain(|item| match item {
             Item::Key(raw) => hub.engine.feed(raw, now, &mut outputs),
             Item::Pointer(raw) => hub.pointer.engine.apply(raw, &mut pointer_outputs),
-            Item::Dropped { ts_ns, seq } => {
+            Item::Dropped { ts_ns, seq, lost } => {
+                trace::dropped(seq, lost);
                 hub.engine.resync(ts_ns, seq, &mut outputs);
                 hub.pointer.engine.resync(ts_ns, seq, &mut pointer_outputs);
             }
@@ -119,6 +120,9 @@ fn run() -> Result<(), &'static str> {
         hub.flush();
         hub.deliver(&outputs);
         outputs.clear();
+        // Evidence lines last, a bounded chunk at a time: the bus is never
+        // left waiting on the serial port (issue #400).
+        trace.flush();
 
         let idle = if hub.backlogged() {
             BACKLOG_TICKS
@@ -130,6 +134,9 @@ fn run() -> Result<(), &'static str> {
             .next_due()
             .map_or(now + idle, |due| due.min(now + idle))
             .max(now + 1);
+        // Trace lines waiting: only look for work, never park (a `trace=1`
+        // debug image), so they drain at the serial port's own pace.
+        let wake = if trace.pending() { now } else { wake };
         let ready = match wait::wait_any(&[server], wait::WAIT_RAW_INPUT, Some(wake)) {
             Ok(mask) => mask,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,

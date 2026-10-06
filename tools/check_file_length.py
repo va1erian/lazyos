@@ -33,7 +33,6 @@ ALLOWLIST: dict[str, int] = {
     "tools/net/test_analyze_pcap.py": 501,
     "tools/net/test_sockets_pcap.py": 505,
     "tools/run_demo.py": 511,
-    "tools/screenshot/qemu_qmp.py": 551,
     "xui-app/crates/archiver/src/commands.rs": 508,
     "xui-app/crates/explorer/tests/headless.rs": 507,
     "xui-app/src/backend.rs": 505,

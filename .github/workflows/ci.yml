@@ -216,11 +216,17 @@ jobs:
       # key for repeat) and `verify_trace.py` checks the `INPUTD:` serial trace
       # against what each layout must type. Runs last: the AZERTY image is a
       # separate build (`LAZYOS_KBD_LAYOUT=fr`).
+      # Keys are injected unpaced (issue #400): `input_burst.json` types 324
+      # characters at QMP speed and every one must arrive, in order, with no
+      # loss `inputd` or the PS/2 intake reports.
       - name: Input trace (US then AZERTY)
         run: |
+          python tools/screenshot/test_qmp_keys.py
           LAZYOS_SERVICES=1 cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img             --out shots/input_us --script tools/screenshot/examples/input_keys.json             --fail-on "PANIC" --fail-on "EXCEPTION:"
           python tools/input/verify_trace.py shots/input_us/serial.log --layout us
+          python tools/screenshot/qemu_session.py --image target/lazyos.img             --out shots/input_burst --script tools/screenshot/examples/input_burst.json             --fail-on "PANIC" --fail-on "EXCEPTION:"
+          python tools/input/verify_trace.py shots/input_burst/serial.log --layout us             --burst tools/screenshot/examples/input_burst.json
           LAZYOS_KBD_LAYOUT=fr LAZYOS_SERVICES=1 cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img             --out shots/input_fr --script tools/screenshot/examples/input_keys.json             --fail-on "PANIC" --fail-on "EXCEPTION:"
           python tools/input/verify_trace.py shots/input_fr/serial.log --layout fr
