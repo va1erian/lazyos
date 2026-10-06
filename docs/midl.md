@@ -143,6 +143,15 @@ each method's slots under **Transfers**, and the manifest gives each method a
 carries them too, and the Rhai `msg` module refuses to call a method that
 declares transfers, because a script cannot create a channel or a buffer.
 
+The crate also gets `DECLARED_TRANSFERS`, one `transfers::TransferDecl` per
+method with a clause (interface id, method id, counts), and
+`declared_transfers(interface, method)`. The kernel enforces it on every
+request (issue #516, `kernel/src/ipc/channels/declared.rs`): a parcel whose
+header names a method that declares fewer handles or buffers than it carries
+is refused with `EINVAL` before any handle moves, and so is any transfer to an
+interface no `.midl` declares. Fewer than declared passes the kernel; the
+server's exact `carries` check stays as defence in depth.
+
 ## Rings: bulk data through shared memory
 
 Bulk data (frames, samples) never travels in a message body. It goes through

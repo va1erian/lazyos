@@ -48,6 +48,11 @@
 //!
 //! Replies carry no transfers yet: a reply parcel with handles or buffers is
 //! refused with [`Error::UnsupportedTransfer`].
+//!
+//! A request carries at most what its `.midl` method declares (`transfers
+//! (...)`, issue #516): [`declared`] checks the parcel header's interface and
+//! method against the generated table before anything moves, and refuses the
+//! rest with [`Error::UndeclaredTransfer`]. An unknown interface declares none.
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -75,6 +80,7 @@ pub use kernel_post::{post_from_kernel, private_endpoint_of_task, seal_endpoint}
 
 mod call;
 mod close;
+pub mod declared;
 mod recv;
 mod registry;
 mod stats;
