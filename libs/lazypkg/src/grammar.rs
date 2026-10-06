@@ -69,7 +69,8 @@ pub(crate) fn valid_interface(interface: &str) -> bool {
 }
 
 /// `publish:`/`subscribe:` then `/`-separated segments of `[a-z0-9_.-]+`, `+`,
-/// or a final `#`.
+/// or a final `#`. A segment of dots only (`.`, `..`) is refused, as the kernel
+/// refuses it (`kernel/src/ipc/topics.rs`).
 pub(crate) fn valid_topic(topic: &str) -> bool {
     let rest = topic
         .strip_prefix("publish:")
@@ -91,6 +92,9 @@ pub(crate) fn valid_topic(topic: &str) -> bool {
         }
         if *segment == "+" {
             return true;
+        }
+        if segment.bytes().all(|b| b == b'.') {
+            return false;
         }
         segment.bytes().all(|b| {
             b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')

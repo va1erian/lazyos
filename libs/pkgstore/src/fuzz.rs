@@ -11,7 +11,7 @@
 //!   allows only, and is the same on every call; a refusal names a count
 //!   beyond the limit;
 //! * no `files` entry has a `..` segment or a `**` and every one is a `read:`
-//!   or `write:` rule; no topic has a `**`;
+//!   or `write:` rule; no topic has a `**` or a dot-only segment (`.`, `..`);
 //! * every permission is listed once, in order, with a known risk word and a
 //!   non-empty sentence.
 //!
@@ -61,6 +61,11 @@ fn check_manifest(text: &str) -> bool {
     }
     for entry in &wanted.topics {
         assert!(!entry.contains("**"), "{entry}");
+        let pattern = entry.split_once(':').map_or(entry.as_str(), |(_, rest)| rest);
+        assert!(
+            pattern.split('/').all(|segment| !segment.bytes().all(|b| b == b'.')),
+            "{entry}"
+        );
     }
 
     let shown = explain::permissions(&manifest);
