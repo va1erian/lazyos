@@ -17,7 +17,8 @@ use super::state::{
     Phase, Restart, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, LAUNCH_SELFTEST_ATTEMPTS,
     LAUNCH_SELFTEST_RETRY,
 };
-use super::supervise::{argv, restarts_after};
+use super::supervise::argv;
+use svcpolicy::restarts_after;
 
 /// The boot launch self-test: one `Launch("top")` into this supervisor's own
 /// session once the boot services are ready, retried while the task table is

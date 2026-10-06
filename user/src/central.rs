@@ -26,21 +26,13 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{Decoder, Encoder, Kind, Parcel};
+use libmessenger::{envelope, Parcel};
 use messenger_generated::topics;
 
 use crate::messenger::{
     create_pair, errno, router, topics_client, Endpoint, Error, Result, DEFAULT_BUFFER,
     EXPIRED_DEADLINE,
 };
-
-/// TLV field id of the wrapper's text payload.
-const FIELD_TEXT: u16 = 1;
-/// TLV field id of the wrapper's binary payload.
-const FIELD_BYTES: u16 = 2;
-/// The wrapper parcel's interface id: an opaque marker (the broker stores
-/// payloads verbatim), never delivered to a subscriber.
-const WRAPPER_INTERFACE: u64 = u64::from_le_bytes(*b"os.cntrl");
 
 /// A connection to `messengerd`'s central broker.
 pub struct Bus {
@@ -92,9 +84,24 @@ impl Bus {
     /// Publish raw payload bytes on `topic`; returns how many subscriptions
     /// matched. `retained` keeps the value for later subscribers.
     pub fn publish(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
+        self.publish_by(topic, payload, retained, None)
+    }
+
+    /// [`Bus::publish`] that gives up at `deadline` (an absolute tick, `None`
+    /// = wait forever) with `-ETIMEDOUT`, for a publisher such as `init` that
+    /// must never stall on a broker that stopped answering.
+    pub fn publish_by(
+        &mut self,
+        topic: &str,
+        payload: &[u8],
+        retained: bool,
+        deadline: Option<u64>,
+    ) -> Result<u64> {
         let wrapped = wrap(payload)?;
         let request = topics_client::publish_request(topic, &wrapped, retained)?;
-        let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
+        let reply = self
+            .endpoint
+            .call_with(&request, &mut self.scratch, deadline)?;
         if let Some(code) = error_code(&reply) {
             return Err(Error::Topics(code));
         }
@@ -308,67 +315,18 @@ fn encode_request(request: Parcel) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Wrap raw payload bytes in the one-field parcel the broker stores.
+/// Wrap raw payload bytes in the broker's envelope (`libmessenger::envelope`).
 fn wrap(payload: &[u8]) -> Result<Vec<u8>> {
-    let mut body = Encoder::new();
-    match core::str::from_utf8(payload) {
-        Ok(text) => body.string(FIELD_TEXT, text).map_err(Error::Parcel)?,
-        Err(_) => body.bytes(FIELD_BYTES, payload).map_err(Error::Parcel)?,
-    }
-    let parcel = Parcel {
-        header: libmessenger::Header {
-            version: libmessenger::VERSION,
-            flags: 0,
-            interface_id: WRAPPER_INTERFACE,
-            method: 1,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
-    };
-    let mut bytes = Vec::new();
-    parcel.encode(&mut bytes).map_err(Error::Parcel)?;
-    Ok(bytes)
+    envelope::wrap(payload).map_err(Error::Parcel)
 }
 
-/// Decode the wrapper and return the interim router shape. Only a parcel
-/// stamped with [`WRAPPER_INTERFACE`] is treated as this module's wrapper; a
-/// publisher outside this module (e.g. `messengerctl`'s self-test parcels)
-/// may carry an unrelated field with the same id (`FIELD_TEXT` collides with
-/// arbitrary interface field 1), so its payload is handed through unchanged
-/// rather than misread as wrapper text.
+/// The interim router shape of a broker event, its payload taken out of the
+/// envelope. A publisher outside the envelope (e.g. `messengerctl`'s
+/// self-test parcels) is handed through unchanged ([`envelope::unwrap`]).
 fn unwrap_event(event: topics_client::Event) -> Result<router::Event> {
-    let parcel = Parcel::decode(&event.payload).map_err(Error::Parcel)?;
-    if parcel.header.interface_id == WRAPPER_INTERFACE {
-        let mut decoder = Decoder::new(&parcel.body);
-        while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-            match (field.kind, field.id) {
-                (Kind::String, FIELD_TEXT) => {
-                    return Ok(router::Event {
-                        topic: event.topic,
-                        payload: field.as_str().map_err(Error::Parcel)?.as_bytes().to_vec(),
-                        retained: event.retained,
-                        seq: event.sequence,
-                    });
-                }
-                (Kind::Bytes, FIELD_BYTES) => {
-                    return Ok(router::Event {
-                        topic: event.topic,
-                        payload: field.as_bytes().to_vec(),
-                        retained: event.retained,
-                        seq: event.sequence,
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
     Ok(router::Event {
+        payload: envelope::unwrap(&event.payload),
         topic: event.topic,
-        payload: event.payload,
         retained: event.retained,
         seq: event.sequence,
     })

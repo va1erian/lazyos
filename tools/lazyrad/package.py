@@ -38,6 +38,14 @@ APPS = {
         "org.lazy.modplayer",
         "A ProTracker MOD player made with LazyRAD",
     ),
+    # A test app whose form_load always throws (issue #549): the app-crash
+    # notice session installs it (tools/screenshot/examples/app_crash_notice.json).
+    "crashload": (
+        ROOT / "lazyrad-os" / "samples" / "crashload",
+        PKG_DIR / "crashload.lzp",
+        "org.lazy.crashload",
+        "A test app that always fails while starting",
+    ),
 }
 
 

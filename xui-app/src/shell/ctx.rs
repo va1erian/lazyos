@@ -7,16 +7,20 @@
 //! `RefCell`/`Cell` that is never borrowed across a call into another window.
 
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use lazyshell::desktop::folder::Item;
 use lazyshell::menu::{listed_hidden, visible, Listed, Menu, Submenu};
+use lazyshell::notice::Failure;
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
 use lazyshell::Rect;
 use xui_core::app::WindowHandle;
 
 use super::deskdir::Watch;
+use super::failures::FailureFeed;
 use super::menu::MenuMsg;
+use super::notice::{NoticeMsg, Showing};
 use super::services;
 use super::submenu::SubMsg;
 use super::taskbar::BarMsg;
@@ -70,6 +74,12 @@ pub struct Ctx {
     pub submenu: RefCell<Option<Submenu>>,
     pub submenu_hover: Cell<Option<usize>>,
     pub submenu_window: RefCell<Option<WindowHandle<SubMsg>>>,
+    /// `init`'s app failures for this session, the notice on screen, its
+    /// window, and the failures waiting behind it (issue #549).
+    pub failures: RefCell<FailureFeed>,
+    pub notice: RefCell<Option<Showing>>,
+    pub notice_window: RefCell<Option<WindowHandle<NoticeMsg>>>,
+    pub pending_notices: RefCell<VecDeque<Failure>>,
     /// Keys of the one-time log lines already printed.
     noted: RefCell<Vec<&'static str>>,
 }
@@ -80,6 +90,7 @@ impl Ctx {
         client: Client,
         screen: (i32, i32),
         uid: Option<u32>,
+        session: Option<u64>,
         events: u64,
     ) -> Ctx {
         Ctx {
@@ -106,6 +117,10 @@ impl Ctx {
             submenu: RefCell::new(None),
             submenu_hover: Cell::new(None),
             submenu_window: RefCell::new(None),
+            failures: RefCell::new(FailureFeed::new(session)),
+            notice: RefCell::new(None),
+            notice_window: RefCell::new(None),
+            pending_notices: RefCell::new(VecDeque::new()),
             noted: RefCell::new(Vec::new()),
         }
     }

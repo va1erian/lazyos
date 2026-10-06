@@ -90,7 +90,7 @@ pub(super) struct Service {
     pub(super) phase: Phase,
     /// Task slot of the running child; `0` between runs.
     pub(super) pid: u64,
-    /// Rapid-crash counter (reset once a run is [`STABLE_TICKS`] old).
+    /// Rapid-crash counter (reset once a run is `svcpolicy::STABLE_TICKS` old).
     pub(super) restarts: u64,
     /// Tick the current run started at.
     pub(super) started_tick: u64,
@@ -104,6 +104,11 @@ pub(super) struct Service {
     pub(super) killed: bool,
     /// Whether the current run said it serves (`init.Ready`, `ready.rs`).
     pub(super) ready: bool,
+    /// The display name a failure notice shows (the app's, or the row name).
+    pub(super) title: String,
+    /// Why the current run says it is failing (`init.ReportFailure`, already
+    /// cleaned); cleared at every spawn.
+    pub(super) reason: Option<String>,
 }
 
 impl Service {
@@ -136,6 +141,8 @@ impl Service {
             stop_deadline: 0,
             killed: false,
             ready: false,
+            title: String::from(spec.name),
+            reason: None,
         }
     }
 
@@ -169,6 +176,8 @@ impl Service {
             stop_deadline: 0,
             killed: false,
             ready: false,
+            title: String::from(app.name),
+            reason: None,
         }
     }
 
@@ -203,6 +212,8 @@ impl Service {
             stop_deadline: 0,
             killed: false,
             ready: false,
+            title: app.name.clone(),
+            reason: None,
         }
     }
 }

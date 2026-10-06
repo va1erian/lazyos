@@ -87,6 +87,8 @@ mod home;
 mod installed;
 #[path = "init/launch.rs"]
 mod launch;
+#[path = "init/notice.rs"]
+mod notice;
 #[path = "init/protocol.rs"]
 mod protocol;
 #[path = "init/provisioning.rs"]
@@ -182,6 +184,8 @@ fn run() -> messenger::Result<()> {
     let mut selftest = LaunchSelftest::new();
     let mut autostart = Autostart::new();
     let mut installed = InstalledApps::new();
+    // The desktop's app-failure notices go out on the central broker.
+    let mut notices = notice::Notices::new();
     // Set by a `Shutdown` request; from then on nothing starts or restarts and
     // the loop steps the shutdown instead (docs/shutdown.md).
     let mut shutdown: Option<shutdown::Shutdown> = None;
@@ -241,16 +245,9 @@ fn run() -> messenger::Result<()> {
             Err(messenger::Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
         };
-        // Reap one exit; the bell stays ready while more are waiting.
-        if ready & wait::CHILD_READY != 0 {
-            if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
-                child_exited(&mut services, pid, status, &mut broker);
-                // The exit may unblock dependents (only a stop can; still cheap).
-                if shutdown.is_none() {
-                    start_ready(&mut services, &mut broker);
-                }
-            }
-        }
+        // Requests first: an app's `ReportFailure` sent just before it exited
+        // is queued ahead of the exit, and must reach its still-running row
+        // (issue #549).
         serve_pending(
             &mut Supervisor {
                 services: &mut services,
@@ -262,6 +259,18 @@ fn run() -> messenger::Result<()> {
             &server,
             &mut buffer,
         )?;
+        // Reap one exit; the bell stays ready while more are waiting.
+        if ready & wait::CHILD_READY != 0 {
+            if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
+                if let Some(failure) = child_exited(&mut services, pid, status, &mut broker) {
+                    notices.publish(&failure);
+                }
+                // The exit may unblock dependents (only a stop can; still cheap).
+                if shutdown.is_none() {
+                    start_ready(&mut services, &mut broker);
+                }
+            }
+        }
         if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
             stepped = true;

@@ -379,6 +379,21 @@ image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
 LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
 LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
+## App failures (the "stopped unexpectedly" notice)
+
+`init` restarts services and the desktop shell as before, but a launched app
+that fails while starting (or keeps crashing) is not restarted: `init`
+publishes `system/events/app/<id>` on the central broker and LazyShell shows
+one notice with the app's name, its exit status and the reason the app gave
+through `init.ReportFailure` (`lrplay` sends the player's error). The rules are
+`libs/svcpolicy` (host-tested), the notice `xui-app/src/shell/notice.rs`.
+
+```bash
+cargo test -p svcpolicy
+python tools/crash/run.py            # build, install crashload.lzp, open it from the menu, judge
+python tools/crash/test_judge.py     # the judge fails when it should
+```
+
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 
 A ProTracker player written as a LazyRAD project (`lazyrad-os/samples/modplayer`)

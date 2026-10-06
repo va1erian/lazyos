@@ -1,0 +1,15 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Crash Test"
+width = 320
+height = 100
+
+[[node]]
+kind = "Label"
+name = "status_label"
+left = 16
+top = 16
+width = 280
+text = "If you can read this, form_load did not throw."
