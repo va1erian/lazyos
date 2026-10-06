@@ -327,6 +327,7 @@ fn dispatch(
     }
     let caller = confd::Caller {
         uid: caller_uid(message)?,
+        system: message.caller().caps & user::sys::CAP_SETUID != 0,
     };
     let method = message.method();
     match method {

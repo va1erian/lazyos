@@ -5,8 +5,11 @@
 //! root* on a user's say-so would let that user install (and so copy out, into
 //! world-readable `/apps`) a package they could not read themselves. There is
 //! no "open as uid" call, so [`source_allowed`] confines an unprivileged caller
-//! to locations that are readable by design: the shared `/transient` and the
-//! caller's own home directory. Root may name any absolute path. The path is
+//! to locations that are readable by design: the shared `/transient`, the
+//! image's public data in `/system/share` (its sample packages) and the
+//! caller's own home directory. A system service may name any absolute path.
+//! Privilege is a capability, never a uid (issue #623): a root *login session*
+//! holds none and is confined like any other user. The path is
 //! normalised first (`//`, `.` and `..` folded; the volume has no symlinks, so
 //! that is the file that will be read) and `pkgd` reads the normalised path.
 
@@ -24,19 +27,23 @@ pub struct Caller {
     pub session: u64,
     /// Policy label id; non-zero for a sandboxed application.
     pub label_id: u32,
+    /// The caller is a system service: it holds `CAP_SETUID`, the authority
+    /// `init` keeps for the services it starts and never stamps on a login
+    /// session.
+    pub system: bool,
 }
 
-/// Whether `caller` may install or remove applications: root, or the owner of a
-/// login session. A sandboxed application never may, however it is labelled
+/// Whether `caller` may install or remove applications: a system service, or
+/// the owner of a login session. A sandboxed application never may, however it is labelled
 /// (the kernel's default-deny already stops it; this is the second lock).
 pub fn may_manage(caller: &Caller) -> Result<(), &'static str> {
     if caller.label_id != 0 {
         return Err("applications may not install or remove other applications");
     }
-    if caller.uid == 0 || caller.session != 0 {
+    if caller.system || caller.session != 0 {
         Ok(())
     } else {
-        Err("only a logged-in user or the administrator may install or remove applications")
+        Err("only a logged-in user or a system service may install or remove applications")
     }
 }
 
@@ -64,9 +71,13 @@ pub fn well_formed(path: &str) -> bool {
 
 /// The shared place any user may install from: the `/transient` ramfs.
 pub const SHARED_SOURCE: &str = fhs::mount::TRANSIENT;
+/// The image's public data, world-readable by construction (the build writes
+/// it 0644 under 0755 directories): its sample packages are meant for users.
+pub const SYSTEM_SOURCE: &str = fhs::SYSTEM_SHARE;
 
 /// The refusal an unprivileged caller gets for any other place.
-pub const SOURCE_RULE: &str = "packages can only be installed from /transient or your home folder";
+pub const SOURCE_RULE: &str =
+    "packages can only be installed from /transient, /system/share or your home folder";
 
 /// `path` folded lexically: repeated `/` and `.` components dropped, `..`
 /// removing the component before it. `None` when it is not absolute, climbs
@@ -109,7 +120,8 @@ pub fn under(path: &str, root: &str) -> bool {
 /// normalised path to read:
 ///
 /// ```text
-/// allowed = under(path, /transient) || under(path, caller_home) || caller_uid == 0
+/// allowed = under(path, /transient) || under(path, /system/share)
+///        || under(path, caller_home) || caller.system
 /// ```
 ///
 /// `home` is the caller's home directory from the account database, when
@@ -119,7 +131,7 @@ pub fn source_allowed(caller: &Caller, home: Option<&str>, path: &str) -> Result
         return Err(String::from("that is not a valid absolute file path"));
     };
     let own_home = home.is_some_and(|home| well_formed(home) && under(&path, home));
-    if caller.uid == 0 || under(&path, SHARED_SOURCE) || own_home {
+    if caller.system || under(&path, SHARED_SOURCE) || under(&path, SYSTEM_SOURCE) || own_home {
         Ok(path)
     } else {
         Err(String::from(SOURCE_RULE))
@@ -134,16 +146,26 @@ mod tests {
         uid: 0,
         session: 0,
         label_id: 0,
+        system: true,
+    };
+    /// A root login session: uid 0, no capability.
+    const ROOT_SESSION: Caller = Caller {
+        uid: 0,
+        session: 9,
+        label_id: 0,
+        system: false,
     };
     const DAEMON: Caller = Caller {
         uid: 901,
         session: 0,
         label_id: 0,
+        system: false,
     };
     const SANDBOXED: Caller = Caller {
         uid: 1000,
         session: 3,
         label_id: 7,
+        system: false,
     };
 
     #[test]
@@ -151,8 +173,17 @@ mod tests {
         assert!(may_manage(&ROOT).is_ok());
         assert!(may_manage(&USER).is_ok());
         assert!(may_manage(&DAEMON).is_err());
+        // A uid alone is nothing: a sessionless root task without the
+        // capability may not manage, a root login session may like any user.
+        let bare_root = Caller {
+            system: false,
+            ..ROOT
+        };
+        assert!(may_manage(&bare_root).is_err());
+        assert!(may_manage(&ROOT_SESSION).is_ok());
         let sandboxed_root = Caller {
             uid: 0,
+            system: true,
             ..SANDBOXED
         };
         assert!(may_manage(&SANDBOXED).is_err());
@@ -214,11 +245,13 @@ mod tests {
         uid: 1000,
         session: 3,
         label_id: 0,
+        system: false,
     };
     const OTHER: Caller = Caller {
         uid: 1001,
         session: 4,
         label_id: 0,
+        system: false,
     };
     const USER_HOME: Option<&str> = Some("/home/user");
     const OTHER_HOME: Option<&str> = Some("/home/other");
@@ -232,13 +265,12 @@ mod tests {
         assert!(allowed(&USER, USER_HOME, "/home/user/x.lzp"));
         assert!(!allowed(&OTHER, OTHER_HOME, "/home/user/x.lzp"));
         assert!(!allowed(&USER, USER_HOME, "/home/user/../admin/x.lzp"));
-        assert!(!allowed(
-            &USER,
-            USER_HOME,
-            "/system/share/samples/pkgdemo.lzp"
-        ));
+        // The image's samples are public data, for every user (issue #623).
+        assert!(allowed(&USER, USER_HOME, "/system/share/samples/pkgdemo.lzp"));
         assert!(allowed(&ROOT, None, "/system/share/samples/pkgdemo.lzp"));
-        let refusal = source_allowed(&USER, USER_HOME, "/system/share/samples/pkgdemo.lzp");
+        assert!(!allowed(&USER, USER_HOME, "/system/etc/x.lzp"));
+        assert!(!allowed(&ROOT_SESSION, None, "/home/other/x.lzp"));
+        let refusal = source_allowed(&USER, USER_HOME, "/system/etc/x.lzp");
         assert_eq!(refusal.unwrap_err(), SOURCE_RULE);
     }
 
