@@ -45,10 +45,13 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 /// `EINVAL`, for a request that cannot be encoded.
 const EINVAL: i64 = 22;
-/// The errors that mean the shell was not reached (`ENOENT`: no service
-/// registered, `EPIPE`: it died, `ETIMEDOUT`: it did not answer), so a
-/// later `Set` may succeed. Anything else is the shell's refusal.
-const TRANSIENT: [i64; 3] = [2, 32, 110];
+/// The errors a later `Set` may not get: the shell was not reached
+/// (`ENOENT`: no service registered, `EPIPE`: it died, `ETIMEDOUT`: it did
+/// not answer), or it did not find this task in `init`'s table yet (`ESRCH`:
+/// the shell reads that table once per heartbeat, so an app launched a
+/// moment ago can be missing from the copy its first `Set` is checked
+/// against). Anything else is the shell's refusal.
+const TRANSIENT: [i64; 4] = [2, 3, 32, 110];
 
 /// How requests reach the shell.
 pub trait Transport {
