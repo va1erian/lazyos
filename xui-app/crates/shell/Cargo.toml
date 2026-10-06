@@ -15,3 +15,9 @@ deskmenu = { path = "../../../libs/deskmenu" }
 confd = { path = "../../../libs/confd" }
 # The zone table and clock text `xuid`'s clock used (`libs/timed`).
 timezone = { path = "../../../libs/timed" }
+# The `os.lazy.shell.tray.v1` request types the tray model validates.
+messenger-generated = { path = "../../../libs/generated" }
+
+[dev-dependencies]
+# Seeded fuzz over set/update/clear/resident sequences (`tray::fuzz`).
+fuzzkit = { path = "../../../libs/fuzzkit" }

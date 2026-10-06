@@ -142,7 +142,8 @@ def _valid_topic(topic):
                 return False
         elif segment == "+":
             continue
-        elif not _TOPIC_SEGMENT.fullmatch(segment):
+        elif not _TOPIC_SEGMENT.fullmatch(segment) or not segment.strip("."):
+            # A dot-only segment (`.`, `..`) is refused, as the kernel refuses it.
             return False
     return True
 

@@ -30,6 +30,9 @@ acpi = { path = "../libs/acpi", features = ["fuzz"] }
 ipp = { path = "../libs/ipp", features = ["fuzz"] }
 raster = { path = "../libs/raster", features = ["fuzz"] }
 nvme = { path = "../libs/nvme", features = ["fuzz"] }
+passwd = { path = "../libs/passwd", features = ["fuzz"] }
+accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
+pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
 
 [workspace]
 
@@ -162,6 +165,27 @@ bench = false
 [[bin]]
 name = "nvme"
 path = "fuzz_targets/nvme.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "passwd"
+path = "fuzz_targets/passwd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "accountwire"
+path = "fuzz_targets/accountwire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pkgstore_rules"
+path = "fuzz_targets/pkgstore_rules.rs"
 test = false
 doc = false
 bench = false

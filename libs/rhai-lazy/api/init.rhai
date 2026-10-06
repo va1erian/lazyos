@@ -28,13 +28,16 @@ fn services() {
     msg::connect("os.lazy.init.v1").invoke("Services", [])
 }
 
-/// `Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)`
+/// `Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64, existing: Bool)`
 ///
 /// Launch an app as a session child. `session` 0 means the caller's own
 /// session; only the session's owner (or root) may launch into it. `args`
 /// is empty or one absolute path (at most 1024 bytes, no control
 /// character or `"`), appended to the app's fixed arguments as a single
-/// `argv` item; any other value is refused with `EINVAL`.
+/// `argv` item; any other value is refused with `EINVAL`. A resident app
+/// (`AppInfo.resident`) already running in that session starts nothing:
+/// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
+/// and answers `existing` true with that instance's pid.
 fn launch(app, args, session) {
     msg::connect("os.lazy.init.v1").invoke("Launch", [app, args, session])
 }
@@ -143,7 +146,7 @@ fn new_service_status() {
 /// One row of `init`'s built-in app registry (issue #158): the S5 start
 /// menu's enumeration unit and the resolution table `Launch` uses.
 fn new_app_info() {
-    #{ id: "", name: "", path: "", restart: "", verbs: [], installed: false, origin: "", category: "", hidden: false, autostart: false, icon: "" }
+    #{ id: "", name: "", path: "", restart: "", verbs: [], installed: false, origin: "", category: "", hidden: false, autostart: false, icon: "", resident: false }
 }
 
 /// A `ServiceEvent` with every field at its zero value.
@@ -168,6 +171,9 @@ fn new_app_info() {
 /// An installed app's 32-pixel icon, `icons/app-32.png` in its
 /// install directory (every package ships one); empty for a
 /// built-in, which the shell draws from its own icon set.
+/// Whether the package declared `resident` (docs/tray-plan.md
+/// section 5): it may run with no window, runs once per session and
+/// always has a tray icon.
 /// One service lifecycle event (issue #307): the payload of
 /// `system/events/service/<name>`. The topic carries the service name, so
 /// it is not repeated here; `health` is the service's retained health
@@ -185,6 +191,22 @@ fn new_service_event() {
 /// message rather than a window that flickers open and shut.
 fn new_app_failure() {
     #{ name: "", status: 0, summary: "", reason: "", session: 0, startup: false, at: 0 }
+}
+
+/// A `ResidentApp` with every field at its zero value.
+///
+/// One running resident app of a session.
+fn new_resident_app() {
+    #{ app: "", pid: 0 }
+}
+
+/// A `ResidentApps` with every field at its zero value.
+///
+/// The app id `Launch` took.
+/// The instance's task.
+/// The payload of `session/<session>/apps/resident`.
+fn new_resident_apps() {
+    #{ apps: [] }
 }
 
 // The variants of `PowerMode`, in wire order.
@@ -317,4 +339,45 @@ fn subscribe_app(app) {
 /// Publish `payload` (a `AppFailure`) on `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained).
 fn publish_app(app, payload) {
     msg::publish(`system/events/app/${app}`, payload)
+}
+
+// Filter for every event of the topic `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained).
+// The session's running resident apps (docs/tray-plan.md section 5),
+// published by `init` on the central broker on every start and exit of
+// one. Retained, so a (restarted) shell puts a default tray item on the
+// bar for each at once.
+export const SESSION_APPS_RESIDENT_PATTERN = "session/+/apps/resident";
+
+/// The topic name of `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained) for these placeholder values.
+fn session_apps_resident_topic(session) {
+    `session/${session}/apps/resident`
+}
+
+/// Run `handler(event)` for each event of `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained); `event.payload` is
+/// the decoded `ResidentApps`. Returns the `Subscription`.
+fn on_session_apps_resident(handler) {
+    msg::on("session/+/apps/resident", handler)
+}
+
+/// Subscribe to `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained) to pull events with `sub.next()`.
+fn subscribe_session_apps_resident() {
+    msg::subscribe("session/+/apps/resident")
+}
+
+/// Run `handler(event)` for each event of `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained); `event.payload` is
+/// the decoded `ResidentApps`. Returns the `Subscription`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn on_session_apps_resident(session, handler) {
+    msg::on(`session/${session}/apps/resident`, handler)
+}
+
+/// Subscribe to `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained) to pull events with `sub.next()`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn subscribe_session_apps_resident(session) {
+    msg::subscribe(`session/${session}/apps/resident`)
+}
+
+/// Publish `payload` (a `ResidentApps`) on `session/{session}/apps/resident` (payload `ResidentApps`, qos latest, retained).
+fn publish_session_apps_resident(session, payload) {
+    msg::publish(`session/${session}/apps/resident`, payload)
 }

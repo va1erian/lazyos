@@ -38,7 +38,7 @@ fields, which never use that id.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32) -> (surface: U64) transfers (events: Channel<os.lazy.display.v1>)` |
+| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32, popup: Option<U64>) -> (surface: U64) transfers (events: Channel<os.lazy.display.v1>)` |
 | AttachBuffer | 2 | sync | `(surface: U64) -> () transfers (pixels: Buffer)` |
 | Commit | 3 | sync | `(surface: U64, x: U32, y: U32, w: U32, h: U32) -> ()` |
 | DestroySurface | 4 | sync | `(surface: U64) -> ()` |
@@ -81,6 +81,7 @@ fields, which never use that id.
 | HintLaunchOrigin | 41 | sync | `(x: I32, y: I32, w: U32, h: U32) -> ()` |
 | Dismiss | 42 | oneway | `() -> ()` |
 | GetOutput | 43 | sync | `() -> (width: U32, height: U32, scale: U32)` |
+| AllowPopup | 44 | sync | `(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
 
 ## Transfers
 
@@ -116,7 +117,7 @@ Objects a request carries outside its body, in the parcel's
 
 ## enum `Role`
 
-- Window, Desktop, Panel
+- Window, Desktop, Panel, Popup
 
 ## enum `Change`
 

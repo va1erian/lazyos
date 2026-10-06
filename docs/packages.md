@@ -145,7 +145,8 @@ show them all at once.
 * **MIME `type`** — `type/subtype` using `[a-z0-9.+-]` only.
 * **`interfaces`** — each matches `[a-z0-9]+(\.[a-z0-9]+)*\.v[0-9]+`.
 * **`topics`** — `publish:` or `subscribe:` followed by `/`-separated segments
-  of `[a-z0-9_.-]+`, `+`, or a final `#`.
+  of `[a-z0-9_.-]+`, `+`, or a final `#`. A segment made only of dots (`.`,
+  `..`) is refused here and by the kernel.
 * **`files`** — `read:` or `write:` followed by a path whose segments are
   `[A-Za-z0-9_.-]+` or `*`, with no `..`. The path is absolute (`/...`) or
   starts with `$HOME/`, the home directory of the user running the app.
@@ -460,6 +461,9 @@ the consent screen and the enforcement come from the same data:
   kernel yet, so they are recorded and shown but compile to nothing.
 
 A label carries at most 256 rules; a manifest that needs more is refused.
+The count includes the baseline every installed app gets (`init`'s
+`ReportFailure` and its names), so a manifest the consent screen accepts
+never fails to install because of the rule limit.
 
 ### Audit
 

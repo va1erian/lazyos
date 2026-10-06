@@ -213,6 +213,16 @@ pub fn segment_methods_stable() -> Result<(), String> {
         topics::validate("system events", topics::MODE_PUBLISH) == Err(topics::Error::BadName),
         "a topic with a space was accepted"
     );
+    check!(
+        topics::validate("app/../system", topics::MODE_PUBLISH) == Err(topics::Error::BadName)
+            && topics::validate("app/./x", topics::MODE_SUBSCRIBE) == Err(topics::Error::BadName)
+            && topics::validate("app/.../x", topics::MODE_PUBLISH) == Err(topics::Error::BadName),
+        "a dot-only segment was accepted"
+    );
+    check!(
+        topics::validate("app/org.lazy.demo/x.y", topics::MODE_PUBLISH) == Ok(3),
+        "dots inside a segment were rejected"
+    );
     Ok(())
 }
 

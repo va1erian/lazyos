@@ -1,0 +1,6 @@
+# The attack harness's guest scripts (tools/accounts/README.md).
+accounts/attack.sh | GPL-3.0-or-later | desktop | LazyOS original: one attack per call, prints one ACCT:ATTACK line
+accounts/confd_sys.rhai | GPL-3.0-or-later | desktop | LazyOS original: a confd sys/** write
+accounts/keyd_provision.rhai | GPL-3.0-or-later | desktop | LazyOS original: a keyd Provision call
+accounts/svc_pid.rhai | GPL-3.0-or-later | desktop | LazyOS original: the pid of a service, from init
+accounts/canary| GPL-3.0-or-later | desktop | LazyOS original: a file under /system for rm to attack

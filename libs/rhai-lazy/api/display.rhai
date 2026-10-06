@@ -463,6 +463,17 @@ fn get_output() {
     msg::connect("os.lazy.display.v1").invoke("GetOutput", [])
 }
 
+/// `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()`
+///
+/// Shell-only: let task `task` create one `Popup` surface with `token`
+/// within about two seconds, placed against the screen rectangle
+/// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md
+/// section 7.3). A token works once and only for that task. A compositor
+/// without flyouts answers `EINVAL`.
+fn allow_popup(task, token, x, y, w, h) {
+    msg::connect("os.lazy.display.v1").invoke("AllowPopup", [task, token, x, y, w, h])
+}
+
 // Not callable from a script (the request transfers a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 
@@ -481,13 +492,15 @@ fn new_surface_row() {
 }
 
 // The variants of `Role`, in wire order.
-export const ROLE = ["Window", "Desktop", "Panel"];
+export const ROLE = ["Window", "Desktop", "Panel", "Popup"];
 
 export const ROLE_WINDOW = "Window";
 
 export const ROLE_DESKTOP = "Desktop";
 
 export const ROLE_PANEL = "Panel";
+
+export const ROLE_POPUP = "Popup";
 
 // The variants of `Change`, in wire order.
 export const CHANGE = ["Unspecified", "Created", "Destroyed", "Moved", "Minimized", "Restored", "Title", "Resized", "Maximized", "Unmaximized"];

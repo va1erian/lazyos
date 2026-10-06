@@ -60,11 +60,12 @@ impl Filter {
     }
 }
 
-/// Whether `segment` is a legal literal/wildcard segment (same byte set as the
-/// kernel ACL gate in `kernel/src/ipc/topics.rs`).
+/// Whether `segment` is a legal literal/wildcard segment (same rules as the
+/// kernel ACL gate in `kernel/src/ipc/topics.rs`, dot-only segments included).
 fn valid_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment.len() <= MAX_NAME_BYTES
+        && !segment.bytes().all(|byte| byte == b'.')
         && segment.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'#')
         })

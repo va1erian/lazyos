@@ -129,6 +129,8 @@ impl InstalledApps {
             hidden: hidden.hides(app.id),
             autostart: app.autostart,
             icon: app.icon.clone(),
+            // `entry.resident` arrives with the resident-app stage (T3).
+            resident: false,
         });
         builtin.extend(installed);
         builtin

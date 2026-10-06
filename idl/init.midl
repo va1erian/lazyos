@@ -13,8 +13,11 @@ interface os.lazy.init.v1 {
     /// session; only the session's owner (or root) may launch into it. `args`
     /// is empty or one absolute path (at most 1024 bytes, no control
     /// character or `"`), appended to the app's fixed arguments as a single
-    /// `argv` item; any other value is refused with `EINVAL`.
-    method Launch(app: String = 1, args: String = 2, session: U64 = 3) -> (app: String = 1, pid: U64 = 2, session: U64 = 3);
+    /// `argv` item; any other value is refused with `EINVAL`. A resident app
+    /// (`AppInfo.resident`) already running in that session starts nothing:
+    /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
+    /// and answers `existing` true with that instance's pid.
+    method Launch(app: String = 1, args: String = 2, session: U64 = 3) -> (app: String = 1, pid: U64 = 2, session: U64 = 3, existing: Bool = 4);
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
     /// package manager installed (`AppInfo.installed`; the core packages
@@ -137,7 +140,11 @@ interface os.lazy.init.v1 {
         /// An installed app's 32-pixel icon, `icons/app-32.png` in its
         /// install directory (every package ships one); empty for a
         /// built-in, which the shell draws from its own icon set.
-        icon: String = 11
+        icon: String = 11,
+        /// Whether the package declared `resident` (docs/tray-plan.md
+        /// section 5): it may run with no window, runs once per session and
+        /// always has a tray icon.
+        resident: Bool = 12
     }
 
     /// One service lifecycle event (issue #307): the payload of
@@ -195,4 +202,23 @@ interface os.lazy.init.v1 {
     /// of it; a subscriber judges a retained value by `at` (the shell ignores
     /// one older than a minute). `{app}` is the app id `Launch` took.
     topic "system/events/app/{app}" : AppFailure retained qos=buffered;
+
+    /// One running resident app of a session.
+    struct ResidentApp {
+        /// The app id `Launch` took.
+        app: String = 1,
+        /// The instance's task.
+        pid: U64 = 2
+    }
+
+    /// The payload of `session/<session>/apps/resident`.
+    struct ResidentApps {
+        apps: Array<ResidentApp> = 1
+    }
+
+    /// The session's running resident apps (docs/tray-plan.md section 5),
+    /// published by `init` on the central broker on every start and exit of
+    /// one. Retained, so a (restarted) shell puts a default tray item on the
+    /// bar for each at once.
+    topic "session/{session}/apps/resident" : ResidentApps retained qos=latest;
 }
