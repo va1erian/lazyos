@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls",
-                 "lazyweb", "mail")
+                 "lazyweb", "mail", "traydemo")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -21,7 +21,7 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
 def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
                      devices_var, doom_var, modplayer_var, net_var, on_start,
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
-                     lazyweb_var=None, mail_var=None) -> None:
+                     lazyweb_var=None, mail_var=None, traydemo_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -33,7 +33,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     the 2560x1440 HiDPI screen and ``tls_var`` the HTTPS clients (with
     networking), on either interface; ``lazyweb_var`` the LazyWeb browser
     (Desktop; with networking and HTTPS); ``mail_var`` the Mail app (Desktop,
-    with HTTPS); ``on_start`` runs the plan.
+    with HTTPS); ``traydemo_var`` the tray sample app (Desktop); ``on_start``
+    runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -76,6 +77,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(apps, text="Mail: esMail, an IMAP/SMTP client over TLS (builds it; "
                                    "turns HTTPS and networking on)",
                         variable=mail_var).pack(anchor="w", padx=8, pady=4)
+    if traydemo_var is not None:
+        ttk.Checkbutton(apps, text="Tray demo: a sample app with a taskbar tray icon "
+                                   "(docs/tray-plan.md)",
+                        variable=traydemo_var).pack(anchor="w", padx=8, pady=4)
 
     net = ttk.LabelFrame(parent, text="Network")
     net.pack(fill="x", padx=8, pady=6)

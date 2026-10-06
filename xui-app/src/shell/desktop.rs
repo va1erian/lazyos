@@ -193,6 +193,7 @@ impl DesktopApp {
         }
         notice::pump(&self.ctx, ui);
         self.service.pump(&self.ctx, ui, &mut self.beat);
+        super::tray::pump(&self.ctx, ui);
         if self.beat.clock(&self.ctx) {
             self.ctx.repaint_bar();
         }

@@ -29,6 +29,7 @@ Examples
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
+    python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -86,6 +87,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
     "xui-calc.elf",
     "xui-pdf.elf",
+    "xui-traydemo.elf",
 )]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n for n in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]
@@ -266,6 +268,9 @@ def main(argv: list[str]) -> int:
             if not build_mail():
                 return 1
             env["LAZYOS_MAIL"] = "1"
+        if args.traydemo:
+            # `tools/xui/build.py` always builds it (with DESKTOP_ELFS above).
+            env["LAZYOS_TRAYDEMO"] = "1"
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).

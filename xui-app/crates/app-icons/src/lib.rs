@@ -87,6 +87,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/pdf",
         Art::Lucide(Lucide::FileText, Tone::Rose),
     ),
+    // Tray Demo: Lucide `star` on an amber tile, unlike the `zap` outline it
+    // puts in the tray, so a fallback to the package icon is visible.
+    (
+        "xui-app/packages/traydemo",
+        Art::Lucide(Lucide::Star, Tone::Amber),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

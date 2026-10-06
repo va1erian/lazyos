@@ -101,6 +101,24 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
         .collect())
 }
 
+/// `init.Services`: every supervision row as `(name, pid)`, which maps a
+/// launched app's task to its app id (the tray's caller identity).
+pub fn launched() -> Result<Vec<(String, u64)>, i64> {
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_SERVICES,
+        Vec::new(),
+        LIST_TICKS,
+    )?;
+    let table = init_wire::decode_services_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
+    Ok(table
+        .services
+        .into_iter()
+        .map(|row| (row.name, row.pid))
+        .collect())
+}
+
 /// `init.Launch(app, arg, 0)`: start `app` in the shell's own session, with
 /// `arg` (one absolute path, or `""`); the new task's pid.
 pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {

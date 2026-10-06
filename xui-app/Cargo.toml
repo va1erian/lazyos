@@ -106,6 +106,10 @@ xui-calc = { path = "crates/calc" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
+# Named Lucide outlines (docs/icons.md): the tray draws `lucide` icons by name.
+lazyicons = { path = "crates/named-icons" }
+# One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).
+trayclient = { path = "../libs/trayclient" }
 # The shell themes its surfaces from the same `sys/ui/*` palette as xuid
 # (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
@@ -233,3 +237,7 @@ path = "src/bin/printd.rs"
 [[bin]]
 name = "xui-pdf"
 path = "src/bin/pdf.rs"
+
+[[bin]]
+name = "xui-traydemo"
+path = "src/bin/traydemo.rs"

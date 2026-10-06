@@ -146,6 +146,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         "calc",
         // PDF Viewer: Read PDF documents.
         "pdf",
+        // Tray Demo, the tray sample app (docs/tray-plan.md T1); only
+        // `LAZYOS_TRAYDEMO=1` images ship it (`xui_embed`).
+        "traydemo",
     ];
     CORE.contains(&short_of(stem))
 }
