@@ -228,6 +228,7 @@ mod timed_suite;
 mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
+mod virtio_modern_suite;
 mod virtio_suite;
 mod waitset_call_suite;
 mod waitset_ext_suite;
@@ -276,6 +277,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    virtio_modern_suite::CASES,
     nvme_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,

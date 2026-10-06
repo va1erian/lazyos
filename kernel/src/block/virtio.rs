@@ -1,9 +1,13 @@
-//! Minimal virtio-blk driver over the legacy PCI interface (issue #100).
+//! The in-kernel virtio-blk driver (issues #100, #497).
 //!
-//! QEMU's `-drive if=virtio` creates a transitional `1af4:1001` device whose
-//! BAR0 is the virtio 0.9.5 I/O window: this driver drives that interface. It
-//! negotiates no feature bits and sets up queue 0 as a split virtqueue in a
-//! static, physically contiguous region.
+//! A function is driven through the modern (virtio 1.x) transport whenever it
+//! has the virtio PCI capabilities, a transitional `1af4:1001` or a
+//! modern-only `1af4:1042`, through the same `libs/virtio` transport code as
+//! the userspace drivers ([`modern`]); a legacy-only function (QEMU's
+//! `disable-modern=on`) through its virtio 0.9.5 I/O window ([`io`]). Either
+//! way the driver negotiates no feature but the transport's own and sets up
+//! queue 0 as a split virtqueue in a static, physically contiguous region;
+//! [`regs::Regs`] is the only place the two differ.
 //!
 //! Each attached function owns one [`Slot`]: its queue, one control block
 //! (request header and status byte) per request slot, and the registry-facing
@@ -27,13 +31,11 @@
 //! within [`TIMEOUT_NS`] resets the device (after which it touches no memory),
 //! failing every request then in flight.
 //!
-//! Modern-only devices (`1af4:1042`) are detected but not driven yet: they
-//! expose their control structures through PCI capabilities and a memory BAR,
-//! which needs BAR mapping in the kernel page table.
-
 mod io;
+mod modern;
 pub mod plan;
 mod queue;
+mod regs;
 mod ring;
 
 use alloc::vec::Vec;
@@ -47,9 +49,11 @@ use super::stats::IoStats;
 use super::virtio_diag as diag;
 use super::{BlockDevice, BlockError, Wait, SECTOR_SIZE};
 pub use io::attach_function;
-use io::{out16, QUEUE_NOTIFY};
 use plan::Cursor;
 use queue::{Control, ControlCell, Queue, QUEUE_BYTES};
+use regs::Regs;
+/// How a driven function is reached, for the failure reports.
+pub(super) use regs::Regs as DeviceRegs;
 use ring::{Hints, Ring, MAX_INFLIGHT};
 
 /// A request that has not completed after this long resets the device.
@@ -65,7 +69,7 @@ const NAMES: [&str; MAX_VIRTIO] = ["virtio0", "virtio1", "virtio2", "virtio3"];
 
 /// Everything discovered at attach, and the queue's bookkeeping.
 struct State {
-    io: u16,
+    regs: Regs,
     sectors: u64,
     ring: Ring,
     /// Physical address of each request slot's control block.
@@ -276,7 +280,7 @@ impl VirtioBlk {
         }
         if published {
             core::sync::atomic::fence(Ordering::Release);
-            out16(state.io + QUEUE_NOTIFY, 0);
+            state.regs.notify();
         }
         Some(Snapshot {
             epoch,
@@ -306,7 +310,7 @@ impl VirtioBlk {
             }
             if entry.status != 0 {
                 diag::log(
-                    state.io,
+                    &state.regs,
                     entry.write,
                     entry.lba,
                     entry.bytes,
@@ -324,16 +328,24 @@ impl VirtioBlk {
     /// every buffer, fail all requests then in flight, and set the queue up
     /// again for the next caller.
     fn reset_after_timeout(&self, write: bool, lba: u64, bytes: usize) {
+        if let Some(state) = self.state.lock().as_ref() {
+            diag::log(&state.regs, write, lba, bytes, "timeout; device reset", 0);
+        }
+        self.reset_device();
+    }
+
+    /// Reset the device and set its queue up again; every request in flight
+    /// fails. A device that does not come back is detached.
+    fn reset_device(&self) {
         let mut guard = self.state.lock();
         let Some(state) = guard.as_mut() else {
             return;
         };
-        diag::log(state.io, write, lba, bytes, "timeout; device reset", 0);
         self.hints.epoch.fetch_add(1, Ordering::AcqRel);
-        // SAFETY: `state.io` is this slot's device and the lock is held, so
+        // SAFETY: `state.regs` is this slot's device and the lock is held, so
         // nobody else touches the queue; after the reset write the device
         // touches no guest memory.
-        match unsafe { io::reset(self.slot(), state.io) } {
+        match unsafe { state.regs.reset(self.slot()) } {
             Some(ring) => state.ring = ring,
             None => *guard = None, // the device did not come back: detached
         }
@@ -343,6 +355,37 @@ impl VirtioBlk {
         self.hints.reaped.store(0, Ordering::Release);
         self.hints.released.fetch_add(1, Ordering::AcqRel);
     }
+}
+
+/// The driven function named `name`, for the kernel suite.
+#[cfg(lazyos_tests)]
+fn by_name(name: &str) -> Option<&'static VirtioBlk> {
+    SLOTS
+        .iter()
+        .map(|slot| &slot.device)
+        .find(|device| NAMES[device.index] == name)
+}
+
+/// How the device `name` is driven (`"modern"`, `"legacy io 0x..."`), for the
+/// kernel suite (issue #497).
+#[cfg(lazyos_tests)]
+pub fn transport_of(name: &str) -> Option<alloc::string::String> {
+    by_name(name)?
+        .state
+        .lock()
+        .as_ref()
+        .map(|state| state.regs.describe())
+}
+
+/// Put the device `name` through the reset a timed-out request causes, for
+/// the kernel suite; false when it is not attached afterwards.
+#[cfg(lazyos_tests)]
+pub fn reset_for_test(name: &str) -> bool {
+    let Some(device) = by_name(name) else {
+        return false;
+    };
+    device.reset_device();
+    device.state.lock().is_some()
 }
 
 /// `(address, length)` of each buffer.

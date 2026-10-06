@@ -73,18 +73,6 @@ pub fn heap_stats() -> HeapStats {
     heap::stats()
 }
 
-/// Read the active level-4 page table through the physical-memory mapping.
-///
-/// # Safety
-/// `offset` must be the bootloader-provided physical memory offset.
-unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
-    let (frame, _) = Cr3::read();
-    let phys = frame.start_address();
-    let virt = offset + phys.as_u64();
-    let ptr: *mut PageTable = virt.as_mut_ptr();
-    &mut *ptr
-}
-
 /// Map one page in the active page table. Returns false on failure.
 ///
 /// Part of the public paging surface (issue #55 moved user mappings to

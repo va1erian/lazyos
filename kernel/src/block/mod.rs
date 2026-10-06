@@ -303,7 +303,7 @@ pub(crate) fn install_ata() -> Option<&'static dyn BlockDevice> {
     Some(device)
 }
 
-/// Attach one legacy virtio-blk function and register it. The first virtio
+/// Attach one virtio-blk function and register it. The first virtio
 /// disk takes over the boot slot from ATA (the QEMU preference); later ones
 /// (a data disk) are registered but never displace it. Called by the device
 /// core's driver entry once per matching function.

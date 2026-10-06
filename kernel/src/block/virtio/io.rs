@@ -1,6 +1,9 @@
-//! Legacy virtio PCI port I/O, function attach and device reset.
+//! Function attach (modern first, legacy for a legacy-only function), the
+//! legacy virtio PCI port I/O window, and the queue memory both share.
 
+use super::modern;
 use super::queue::{MAX_QUEUE, QUEUE_BYTES};
+use super::regs::Regs;
 use super::ring::{Ring, AVAIL_NO_INTERRUPT, MAX_INFLIGHT};
 use super::{Slot, State, NAMES, SLOTS};
 use crate::arch::io::{inb, inl, inw, outb, outl, outw};
@@ -24,7 +27,7 @@ const STATUS_DRIVER: u8 = 2;
 const STATUS_DRIVER_OK: u8 = 4;
 
 /// Descriptors the largest request takes: header, data pieces, status.
-const MAX_CHAIN: usize = super::plan::MAX_PIECES + 2;
+pub(super) const MAX_CHAIN: usize = super::plan::MAX_PIECES + 2;
 
 // The virtio legacy I/O window is plain memory-mapped-as-ports register
 // space: every offset is documented (virtio 0.9.5 spec) as either a status
@@ -61,27 +64,26 @@ fn in32(port: u16) -> u32 {
     unsafe { inl(port) }
 }
 
-/// A 64-bit device register is two little-endian 32-bit halves.
-fn in64(port: u16) -> u64 {
-    let low = u64::from(in32(port));
-    let high = u64::from(in32(port + 4));
+/// Legacy device config starts at offset 20: capacity in 512-byte sectors,
+/// two little-endian 32-bit halves.
+pub(super) fn capacity(io: u16) -> u64 {
+    let low = u64::from(in32(io + DEVICE_CONFIG));
+    let high = u64::from(in32(io + DEVICE_CONFIG + 4));
     (high << 32) | low
 }
 
+/// The legacy device status register.
+pub(super) fn status(io: u16) -> u8 {
+    in8(io + DEVICE_STATUS)
+}
+
 /// Bring up one virtio-blk function in a free slot and return its device for
-/// registration. `None` when the function is modern-only, cannot be set up, or
-/// every slot is taken.
+/// registration: through the modern transport whenever the function has the
+/// virtio capabilities (a transitional or modern-only function), through the
+/// legacy I/O window otherwise. `None` when it cannot be set up or every slot
+/// is taken.
 pub fn attach_function(function: pci::Function) -> Option<&'static dyn BlockDevice> {
     let address = function.address;
-    let bar0 = pci::bar_raw(address, 0);
-    if bar0 & 1 == 0 {
-        serial_println!(
-            "virtio-blk: 1af4:{:04x} is modern-only (no legacy I/O BAR); \
-             capability-based setup is not implemented",
-            function.id
-        );
-        return None;
-    }
     let Some(slot) = SLOTS.iter().find(|slot| slot.device.state.lock().is_none()) else {
         serial_println!(
             "virtio-blk: no free slot for bus {}.{}",
@@ -90,16 +92,36 @@ pub fn attach_function(function: pci::Function) -> Option<&'static dyn BlockDevi
         );
         return None;
     };
-    let io = (bar0 & !0x3) as u16;
-    // Safety: `io` is the legacy window of a virtio function we were handed.
-    let state = unsafe { attach(slot, io) }?;
+    let regs = match modern::transport(function) {
+        Ok(transport) => Regs::Modern {
+            transport,
+            kick: None,
+        },
+        Err(why) => {
+            let bar0 = pci::bar_raw(address, 0);
+            if bar0 & 1 == 0 {
+                serial_println!(
+                    "virtio-blk: 1af4:{:04x} has neither a modern transport ({why}) \
+                     nor a legacy I/O window",
+                    function.id
+                );
+                return None;
+            }
+            Regs::Legacy {
+                io: (bar0 & !0x3) as u16,
+            }
+        }
+    };
+    // Safety: `regs` reaches the function we were handed, and the slot is free.
+    let state = unsafe { attach(slot, regs) }?;
     serial_println!(
-        "virtio-blk: {} 1af4:{:04x} bus {}.{} io {:#x}",
+        "virtio-blk: {} 1af4:{:04x} bus {}.{} {}, queue {}",
         NAMES[slot.device.index],
         function.id,
         address.bus,
         address.device,
-        io
+        state.regs.describe(),
+        state.ring.qsize
     );
     *slot.device.state.lock() = Some(state);
     Some(&slot.device)
@@ -108,31 +130,61 @@ pub fn attach_function(function: pci::Function) -> Option<&'static dyn BlockDevi
 /// Translate the control blocks, set the queue up and read the capacity.
 ///
 /// # Safety
-/// `io` must be the legacy I/O window of a virtio device, and `slot` must not
-/// already be driving another one.
-unsafe fn attach(slot: &Slot, io: u16) -> Option<State> {
+/// `regs` must reach a virtio-blk device, and `slot` must not already be
+/// driving another one.
+unsafe fn attach(slot: &Slot, mut regs: Regs) -> Option<State> {
     let mut control_phys = [0u64; MAX_INFLIGHT];
     for (phys, control) in control_phys.iter_mut().zip(&slot.controls) {
         let virt = VirtAddr::from_ptr(control.0.get() as *const u8);
         *phys = crate::block::virt_to_phys(virt)?.as_u64();
     }
     // SAFETY: forwarded from this function's contract.
-    let ring = unsafe { reset(slot, io) }?;
-    // Legacy device config starts at offset 20: capacity in 512-byte sectors.
-    let sectors = in64(io + DEVICE_CONFIG);
+    let ring = unsafe { regs.reset(slot) }?;
+    let sectors = regs.capacity();
     if sectors == 0 {
         return None;
     }
     Some(State {
-        io,
+        regs,
         sectors,
         ring,
         control_phys,
     })
 }
 
-/// Reset the device (it then touches no guest memory), pick queue 0, point
-/// it at the slot's zeroed queue, and go. Returns the fresh ring.
+/// Where the available and used rings of a `qsize`-entry queue sit in the
+/// slot's queue memory: the legacy layout (used ring on its own page), which
+/// the modern transport accepts too. `None` when the size is unusable.
+pub(super) fn layout(qsize: u16) -> Option<(usize, usize)> {
+    if usize::from(qsize) < MAX_CHAIN || usize::from(qsize) > MAX_QUEUE {
+        return None;
+    }
+    let avail_off = usize::from(qsize) * 16;
+    let used_off = (avail_off + 6 + usize::from(qsize) * 2 + 4095) & !4095;
+    (used_off + 6 + usize::from(qsize) * 8 <= QUEUE_BYTES).then_some((avail_off, used_off))
+}
+
+/// Zero `slot`'s queue memory and ask for no interrupts; returns its
+/// physical address.
+///
+/// # Safety
+/// The device must be reset (it touches no guest memory) and nothing else may
+/// use the slot's queue.
+pub(super) unsafe fn clear_queue(slot: &Slot, avail_off: usize) -> Option<u64> {
+    let base = slot.queue.0.get() as *mut u8;
+    // SAFETY: the queue static is `QUEUE_BYTES` long and, per the contract,
+    // nobody else uses it.
+    unsafe {
+        core::ptr::write_bytes(base, 0, QUEUE_BYTES);
+        // The driver polls the used ring: ask for no interrupts, so the
+        // shared INTx line is not raised for every completion.
+        (base.add(avail_off) as *mut u16).write_volatile(AVAIL_NO_INTERRUPT);
+    }
+    crate::block::virt_to_phys(VirtAddr::from_ptr(base)).map(|phys| phys.as_u64())
+}
+
+/// Reset the legacy device, pick queue 0, point it at the slot's zeroed
+/// queue, and go. Returns the fresh ring.
 ///
 /// # Safety
 /// `io` must be the legacy I/O window of the virtio device `slot` drives (or
@@ -146,27 +198,9 @@ pub(super) unsafe fn reset(slot: &Slot, io: u16) -> Option<Ring> {
     out32(io + GUEST_FEATURES, 0);
     out16(io + QUEUE_SELECT, 0);
     let qsize = in16(io + QUEUE_SIZE_REG);
-    if usize::from(qsize) < MAX_CHAIN || usize::from(qsize) > MAX_QUEUE {
-        return None;
-    }
-    let avail_off = usize::from(qsize) * 16;
-    let used_off = (avail_off + 6 + usize::from(qsize) * 2 + 4095) & !4095;
-    if used_off + 6 + usize::from(qsize) * 8 > QUEUE_BYTES {
-        return None;
-    }
-
-    // Zero the rings before the device can write them, then hand over the
-    // page frame number the legacy queue-address register wants.
-    let base = slot.queue.0.get() as *mut u8;
-    // SAFETY: the queue static is `QUEUE_BYTES` long and, per the contract,
-    // nobody else uses it; the device was just reset.
-    unsafe {
-        core::ptr::write_bytes(base, 0, QUEUE_BYTES);
-        // The driver polls the used ring: ask for no interrupts, so the
-        // shared INTx line is not raised for every completion.
-        (base.add(avail_off) as *mut u16).write_volatile(AVAIL_NO_INTERRUPT);
-    }
-    let queue_phys = crate::block::virt_to_phys(VirtAddr::from_ptr(base))?.as_u64();
+    let (avail_off, used_off) = layout(qsize)?;
+    // SAFETY: the device was just reset; the contract gives us the queue.
+    let queue_phys = unsafe { clear_queue(slot, avail_off) }?;
     if queue_phys >= 1 << 32 {
         return None; // the legacy register holds a 32-bit PFN
     }

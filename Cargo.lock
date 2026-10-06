@@ -592,6 +592,7 @@ dependencies = [
  "tiny-skia",
  "uart_16550",
  "usbpolicy",
+ "virtio",
  "x86_64",
  "xmas-elf",
 ]
