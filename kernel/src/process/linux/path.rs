@@ -314,11 +314,25 @@ fn open_dir_fd(path: &str, meta: Meta) -> u64 {
     }
 }
 
-/// Snapshot a file and open it with the requested access mode. Writable
-/// descriptors record the backing path so `write(2)` reaches the ABI VFS.
+/// Open a file with the requested access mode. A file on a mount is read and
+/// written through ([`crate::fs::abi_read_through`], issue #265); otherwise
+/// it is snapshotted, and a writable snapshot records the backing path so
+/// `write(2)` reaches the ABI VFS.
 fn open_file_fd(id: Id, path: &str, meta: Meta, mode: Access, created: bool) -> u64 {
-    if crate::fs::abi_persistent(path) {
-        // The durable volume is read and written in place, never snapshotted.
+    open_file_as(
+        id,
+        path,
+        meta,
+        mode,
+        created,
+        crate::fs::abi_read_through(path),
+    )
+}
+
+/// [`open_file_fd`] with the read-through decision made by the caller.
+fn open_file_as(id: Id, path: &str, meta: Meta, mode: Access, created: bool, through: bool) -> u64 {
+    if through {
+        // The file is read and written in place, never copied whole.
         // Nothing reads the file here, so the read permission a snapshot open
         // gets for free from loading it has to be checked explicitly (write
         // permission already was, by the caller). A file this very open just
@@ -384,7 +398,10 @@ fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
             } else if let Some(data) = super::procfs::contents(path) {
                 open_snapshot(data, file_meta(meta, String::from(path), false, false))
             } else {
-                open_file_fd(id, path, meta, Access::READ_ONLY, false)
+                // A fabricated name (an applet alias) has no node of its own
+                // on the copy-up root or a ramfs: snapshot what it stands for.
+                let through = crate::fs::abi_persistent(path);
+                open_file_as(id, path, meta, Access::READ_ONLY, false, through)
             };
         }
         Err(FsError::NotFound) => None,

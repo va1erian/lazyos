@@ -16,8 +16,11 @@ use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, Sta
 
 mod capacity;
 mod node;
+mod space;
 
 use node::Node;
+use space::Owners;
+pub use space::Usage;
 
 /// The root directory's inode. Inodes are allocated upward from here.
 const ROOT_INO: u64 = 1;
@@ -39,6 +42,8 @@ struct Inner {
     live: usize,
     max_bytes: usize,
     max_nodes: usize,
+    /// Per-owner usage and caps (issue #265, `space.rs`).
+    owners: Owners,
 }
 
 /// An in-memory filesystem; see the module docs.
@@ -54,7 +59,8 @@ impl RamFs {
     }
 
     /// A ramfs with explicit caps; writes and creations past them fail with
-    /// [`FsError::NoSpace`]. Tests use tiny values.
+    /// [`FsError::NoSpace`]. Tests use tiny values. Each non-root owner may
+    /// hold at most half of either ([`user_share`]).
     pub fn with_limits(max_bytes: usize, max_nodes: usize) -> RamFs {
         RamFs::build(max_bytes, max_nodes, 0o755)
     }
@@ -63,6 +69,13 @@ impl RamFs {
     /// sticky world-writable root (`1777`) so users keep to their own files.
     pub fn scratch() -> RamFs {
         RamFs::build(DEFAULT_MAX_BYTES, DEFAULT_MAX_NODES, 0o1777)
+    }
+
+    /// Replace the per-owner caps (bytes and nodes one non-root uid may own).
+    pub fn set_user_limits(&self, max_bytes: usize, max_nodes: usize) {
+        let mut inner = self.inner.lock();
+        inner.owners.max_bytes = max_bytes;
+        inner.owners.max_nodes = max_nodes;
     }
 
     fn build(max_bytes: usize, max_nodes: usize, root_mode: u16) -> RamFs {
@@ -79,6 +92,7 @@ impl RamFs {
                 live: 1,
                 max_bytes,
                 max_nodes,
+                owners: Owners::new(user_share(max_bytes), user_share(max_nodes)),
             }),
         }
     }
@@ -144,14 +158,6 @@ impl RamFs {
             .copied()
     }
 
-    /// Whether one more node fits under the cap.
-    fn check_node_room(inner: &Inner) -> Result<(), FsError> {
-        if inner.live >= inner.max_nodes {
-            return Err(FsError::NoSpace);
-        }
-        Ok(())
-    }
-
     /// The node `ino`, which the caller resolved under the `inner` lock it
     /// still holds.
     // INVARIANT: every caller got `ino` from `resolve`, `resolve_parent` or
@@ -166,28 +172,6 @@ impl RamFs {
     #[allow(clippy::expect_used)] // INVARIANT: see `node_mut`
     fn take_node(inner: &mut Inner, ino: u64) -> Node {
         inner.nodes.remove(&ino).expect("resolved inode exists")
-    }
-
-    /// Resize file `ino` to `new_len` bytes, charging the difference against
-    /// the byte cap first and reserving with `try_reserve_exact`, so running
-    /// out of heap is `ENOSPC` rather than an allocation-failure abort. The
-    /// accounting only moves once the allocation succeeded.
-    fn resize_file(inner: &mut Inner, ino: u64, new_len: usize) -> Result<(), FsError> {
-        let old_len = inner.nodes[&ino].data.len();
-        let total = inner.bytes - old_len;
-        match total.checked_add(new_len) {
-            Some(next) if next <= inner.max_bytes => {}
-            _ => return Err(FsError::NoSpace),
-        }
-        let node = Self::node_mut(inner, ino);
-        if new_len > old_len {
-            node.data
-                .try_reserve_exact(new_len - old_len)
-                .map_err(|_| FsError::NoSpace)?;
-        }
-        node.data.resize(new_len, 0); // zero-fills a sparse gap
-        inner.bytes = total + new_len;
-        Ok(())
     }
 
     /// Whether `target` is `root` or lies anywhere below it. The traversal
@@ -208,23 +192,12 @@ impl RamFs {
         }
         Ok(false)
     }
+}
 
-    /// Create a node and link it into its parent.
-    fn insert(
-        inner: &mut Inner,
-        parent: u64,
-        name: String,
-        kind: FileKind,
-        mode: u16,
-        owner: Id,
-    ) -> Meta {
-        let ino = inner.next_ino;
-        inner.next_ino += 1;
-        inner.nodes.insert(ino, Node::new(name, kind, mode, owner));
-        Self::node_mut(inner, parent).children.push(ino);
-        inner.live += 1;
-        inner.nodes[&ino].meta(ino)
-    }
+/// The share of a filesystem cap one non-root owner may hold: half, so a
+/// single user can never fill a shared `/tmp` for everyone.
+fn user_share(cap: usize) -> usize {
+    cap / 2
 }
 
 impl Default for RamFs {
@@ -298,6 +271,11 @@ impl Filesystem for RamFs {
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
         let mut inner = self.inner.lock();
         let ino = Self::resolve(&inner, path)?;
+        // A new owner takes over the node's charge (checked before anything
+        // changes, so the call stays all-or-nothing).
+        if let Some(uid) = attr.uid {
+            Self::move_charge(&mut inner, ino, uid)?;
+        }
         let node = Self::node_mut(&mut inner, ino);
         node.set_attr(attr);
         Ok(node.meta(ino))
@@ -309,7 +287,7 @@ impl Filesystem for RamFs {
         if Self::child(&inner, parent, &name).is_some() {
             return Err(FsError::Exists);
         }
-        Self::check_node_room(&inner)?;
+        Self::check_node_room(&mut inner, owner.uid)?;
         Ok(Self::insert(
             &mut inner,
             parent,
@@ -326,7 +304,7 @@ impl Filesystem for RamFs {
         if Self::child(&inner, parent, &name).is_some() {
             return Err(FsError::Exists);
         }
-        Self::check_node_room(&inner)?;
+        Self::check_node_room(&mut inner, owner.uid)?;
         Ok(Self::insert(
             &mut inner,
             parent,
@@ -348,8 +326,7 @@ impl Filesystem for RamFs {
             .children
             .retain(|&child| child != ino);
         let removed = Self::take_node(&mut inner, ino);
-        inner.bytes -= removed.data.len();
-        inner.live -= 1;
+        Self::forget_node(&mut inner, &removed);
         Ok(())
     }
 
@@ -366,8 +343,8 @@ impl Filesystem for RamFs {
         Self::node_mut(&mut inner, parent)
             .children
             .retain(|&child| child != ino);
-        inner.nodes.remove(&ino);
-        inner.live -= 1;
+        let removed = Self::take_node(&mut inner, ino);
+        Self::forget_node(&mut inner, &removed);
         Ok(())
     }
 
@@ -409,8 +386,7 @@ impl Filesystem for RamFs {
                 .children
                 .retain(|&child| child != existing);
             let removed = Self::take_node(&mut inner, existing);
-            inner.bytes -= removed.data.len();
-            inner.live -= 1;
+            Self::forget_node(&mut inner, &removed);
         }
 
         Self::node_mut(&mut inner, from_parent)

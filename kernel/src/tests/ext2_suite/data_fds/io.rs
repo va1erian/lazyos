@@ -264,14 +264,15 @@ pub fn positional_bad_inputs() -> Result<(), String> {
     data.check_clean()
 }
 
-/// The copy-up root and `/tmp` keep snapshot descriptors; they get the same
-/// positional calls, and a write through them still reaches the file.
+/// `/tmp` descriptors read through like `/data` ones (issue #265; they were
+/// snapshots before): the same positional calls, and every write reaches the
+/// file.
 pub fn snapshot_positional_io() -> Result<(), String> {
     let data = Data::new(0)?;
     let fd = open("/tmp/snap", O_CREAT | O_RDWR);
     check!(
-        task::fd_kind(fd as usize) == task::FdKind::File,
-        "a /tmp file is no longer a snapshot descriptor"
+        task::fd_kind(fd as usize) == task::FdKind::Vfs,
+        "a /tmp file is not a read-through descriptor (issue #265)"
     );
     check!(write(fd, b"0123456789") == 10, "write failed");
     check!(pwrite(fd, b"AB", 3) == 2, "pwrite failed");

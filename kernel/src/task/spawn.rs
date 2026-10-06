@@ -142,7 +142,9 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     // A load failure returns while the guard is live, releasing the whole
     // partially built address space instead of leaking its frames.
     let guard = mem::UserTableGuard::new(pml4);
-    let start = user_process::load_image(guard.table(), elf).map_err(load_error)?;
+    // The segments are charged to the uid the child will run as (#265).
+    let uid = parent.map_or(0, |slot| credentials::of(slot).uid);
+    let start = user_process::load_image(guard.table(), elf, uid).map_err(load_error)?;
 
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)

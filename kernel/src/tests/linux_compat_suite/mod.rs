@@ -14,6 +14,7 @@ mod files;
 mod futex;
 mod locks;
 mod msg;
+mod readthrough;
 mod resources;
 mod select;
 mod termios;
@@ -201,4 +202,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
         terminal_signal_stays_in_session,
     ),
     ("compat_terminal_signal_soak", terminal_signal_soak),
+    (
+        "compat_ramfs_opens_read_through",
+        readthrough::ramfs_opens_read_through,
+    ),
+    (
+        "compat_ramfs_open_soak_copies_nothing",
+        readthrough::ramfs_open_soak_copies_nothing,
+    ),
 ];

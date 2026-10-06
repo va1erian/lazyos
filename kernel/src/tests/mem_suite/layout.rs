@@ -259,7 +259,7 @@ pub fn linux_stack_is_lazy() -> Result<(), String> {
     let before = mem::frame_stats().free;
     let table = mem::new_user_table().ok_or("new_user_table failed")?;
     let outcome = (|| {
-        let started = process::linux::load_image(table, &elf, &argv, &envp, (0, 0))
+        let started = process::linux::load_image(table, &elf, &argv, &envp, (0, 0), 0)
             .map_err(|error| String::from(error.message()))?;
         let top = process::layout::STACK_TOP;
         let size = process::linux::stack_size();

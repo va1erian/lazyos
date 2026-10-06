@@ -91,8 +91,9 @@ pub fn load_image<I: Image + ?Sized>(
     argv: &[Vec<u8>],
     envp: &[Vec<u8>],
     ids: (u32, u32),
+    charge_uid: u32,
 ) -> Result<Started, LoadError> {
-    let loaded = load_segments(table, image, &IMAGE_RESERVED).map_err(classify)?;
+    let loaded = load_segments(table, image, &IMAGE_RESERVED, charge_uid).map_err(classify)?;
     let frame = start_frame_bytes(argv, envp);
     let size = stack_size().max(frame);
     let bottom = STACK_TOP - size;

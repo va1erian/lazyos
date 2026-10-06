@@ -376,6 +376,15 @@ pub fn abi_persistent(path: &str) -> bool {
         .is_some_and(|name| name.starts_with("ext2") || name == "fuse")
 }
 
+/// Whether a Linux open of the file at `path` reads it through, by path or
+/// node, rather than copying it whole into the heap (issue #265): true on
+/// every mount (the copy-up root and the ramfs included, not just
+/// [`abi_persistent`] volumes). Only fabricated entries, which no mount
+/// backs, are still snapshotted.
+pub fn abi_read_through(path: &str) -> bool {
+    abi_with(|vfs| vfs.mount_fs_name(path)).flatten().is_some()
+}
+
 /// Remove an empty directory through the Linux ABI VFS.
 pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
     abi_with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))

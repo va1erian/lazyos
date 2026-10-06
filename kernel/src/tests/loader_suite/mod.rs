@@ -7,6 +7,7 @@
 use super::*;
 use crate::process::load_segments;
 
+mod quota;
 mod stream;
 
 /// Bytes of program headers/padding before the payload in a test image.
@@ -103,7 +104,7 @@ fn with_table<R>(f: impl FnOnce(PhysAddr) -> Result<R, String>) -> Result<R, Str
 fn expect_rejected(name: &str, elf: &[u8]) -> Result<(), String> {
     with_table(|table| {
         let before = mem::frame_stats().free;
-        let result = load_segments(table, elf, RESERVED);
+        let result = load_segments(table, elf, RESERVED, 0);
         check!(result.is_err(), "{name}: malformed image was accepted");
         // Rejection is up front: nothing beyond the bare table may be used.
         let used = before - mem::frame_stats().free;
@@ -252,7 +253,7 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
     ];
     let elf = build_elf(0x40_0010, &phdrs);
     with_table(|table| {
-        let loaded = load_segments(table, &elf, RESERVED)?;
+        let loaded = load_segments(table, &elf, RESERVED, 0)?;
         check!(loaded.entry == 0x40_0010, "entry {:#x}", loaded.entry);
         check!(loaded.end == 0x40_5000, "image end {:#x}", loaded.end);
         check!(
@@ -323,7 +324,7 @@ pub fn loader_maps_valid_image_exactly() -> Result<(), String> {
 pub fn loader_accepts_image_linked_at_zero() -> Result<(), String> {
     let elf = build_elf(0x1010, &[Ph::new(0, 0x2000, 0x3000, PF_R | PF_X)]);
     with_table(|table| {
-        let loaded = load_segments(table, &elf, RESERVED)?;
+        let loaded = load_segments(table, &elf, RESERVED, 0)?;
         check!(loaded.entry == 0x1010, "entry {:#x}", loaded.entry);
         let head = read_back(table, 0, 16)?;
         check!(head[0] == payload_byte(0), "page 0 not populated");
@@ -346,7 +347,7 @@ pub fn loader_soak_no_leak_and_linear_time() -> Result<(), String> {
     for round in 0..120 {
         for elf in [&big, &many] {
             with_table(|table| {
-                load_segments(table, elf, RESERVED)
+                load_segments(table, elf, RESERVED, 0)
                     .map(|_| ())
                     .map_err(|e| format!("round {round}: {e}"))
             })?;
@@ -384,4 +385,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "loader_phdr_address_ignores_unmapped_headers",
         stream::phdr_address_ignores_unmapped_headers,
     ),
+    (
+        "loader_span_counts_shared_pages_once",
+        quota::loader_span_counts_shared_pages_once,
+    ),
+    (
+        "loader_charges_segments_to_the_uid",
+        quota::loader_charges_segments_to_the_uid,
+    ),
+    (
+        "loader_refuses_an_image_over_quota",
+        quota::loader_refuses_an_image_over_quota,
+    ),
+    ("loader_quota_soak", quota::loader_quota_soak),
 ];
