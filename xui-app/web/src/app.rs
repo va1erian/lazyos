@@ -289,6 +289,7 @@ impl Browser {
                 self.fail(&format!("{shown}: {message}"));
             }
             NetSurfViewEvent::DownloadStarted(info) => {
+                self.not_a_page(&info.url);
                 let status = self.transfers.started(info);
                 self.set_status(&status);
                 self.downloads_changed(ui);
@@ -314,6 +315,21 @@ impl Browser {
         if self.showing(DOWNLOADS) && !self.loading {
             let url = self.build_page(DOWNLOADS);
             self.page.view().navigate(&url);
+        }
+    }
+
+    /// A load of `url` became a download: the page that started it stays,
+    /// and neither the Back list nor the history keeps `url`.
+    fn not_a_page(&mut self, url: &str) {
+        self.history.forget(url);
+        if let Err(e) = self.visits.forget_newest(url) {
+            eprintln!("lazyweb: history not saved: {e}");
+        }
+        if self.url == url {
+            if let Some(page) = self.history.current() {
+                let page = self.internal.url_of(page);
+                self.show_url(&page);
+            }
         }
     }
 

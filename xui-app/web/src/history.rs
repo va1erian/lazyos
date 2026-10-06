@@ -61,6 +61,24 @@ impl History {
         self.added_this_load = false;
     }
 
+    /// Drops every entry for `url`, a load that turned out to be a download:
+    /// the page that started it stays on show. Two entries left side by side
+    /// for the same page become one.
+    pub fn forget(&mut self, url: &str) {
+        let mut kept: Vec<String> = Vec::with_capacity(self.entries.len());
+        let mut index = 0;
+        for (i, entry) in self.entries.drain(..).enumerate() {
+            if entry != url && kept.last() != Some(&entry) {
+                kept.push(entry);
+            }
+            if i == self.index {
+                index = kept.len().saturating_sub(1);
+            }
+        }
+        self.entries = kept;
+        self.index = index;
+    }
+
     /// Steps back; returns the URL to open.
     pub fn back(&mut self) -> Option<String> {
         self.can_go_back().then(|| self.jump(self.index - 1))
@@ -91,6 +109,23 @@ mod tests {
     fn visit(h: &mut History, url: &str) {
         h.on_url(url);
         h.on_load_end();
+    }
+
+    #[test]
+    fn a_download_leaves_no_entry() {
+        let mut h = History::new();
+        visit(&mut h, "a");
+        visit(&mut h, "zip");
+        h.forget("zip");
+        assert_eq!(h.current(), Some("a"));
+        assert!(!h.can_go_forward());
+        // The view's return to the page may come before the download is known.
+        visit(&mut h, "zip");
+        visit(&mut h, "a");
+        h.forget("zip");
+        assert_eq!(h.current(), Some("a"));
+        assert!(!h.can_go_back());
+        assert!(!h.can_go_forward());
     }
 
     #[test]

@@ -36,8 +36,9 @@ use xui_app::launch;
 use app::{Browser, Setup};
 use transfers::Transfers;
 
-/// The window size asked of the compositor.
-const WINDOW: (i32, i32) = (1000, 700);
+/// The window size asked of the compositor: short enough that the status
+/// bar clears the taskbar of a 720p desktop where the window opens.
+const WINDOW: (i32, i32) = (1000, 540);
 
 /// The app's id: its data folder is `$HOME/.apps/<SYSTEM_NAME>`.
 const SYSTEM_NAME: &str = "os.lazy.lazyweb";

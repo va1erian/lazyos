@@ -101,6 +101,16 @@ impl Visits {
         self.save_last()
     }
 
+    /// Forgets the newest visit when it is to `url`, a load that turned out
+    /// to be a download.
+    pub fn forget_newest(&mut self, url: &str) -> io::Result<()> {
+        if self.entries.last().is_none_or(|last| last.url != url) {
+            return Ok(());
+        }
+        self.entries.pop();
+        self.rewrite()
+    }
+
     /// Forgets every visit, on disk too.
     pub fn clear(&mut self) -> io::Result<()> {
         self.entries.clear();
@@ -211,6 +221,20 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_download_is_forgotten_on_disk_too() {
+        let file = temp("download");
+        let mut visits = Visits::open(file.clone());
+        visits.record("http://a.test/", "A", 1).unwrap();
+        visits.record("http://a.test/kit.zip", "A", 2).unwrap();
+        visits.forget_newest("http://b.test/").unwrap();
+        assert_eq!(visits.entries().len(), 2);
+        visits.forget_newest("http://a.test/kit.zip").unwrap();
+        let again = Visits::open(file);
+        assert_eq!(again.entries().len(), 1);
+        assert_eq!(again.entries()[0].url, "http://a.test/");
     }
 
     #[test]
