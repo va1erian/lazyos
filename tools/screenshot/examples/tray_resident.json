@@ -11,7 +11,7 @@
   {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.traydemo pid=(\\d+)", "regex": true, "capture": "demo_pid", "timeout": 60},
   {"wait_for": "INIT:APP:WATCH app=os.lazy.traydemo", "timeout": 120},
   {"wait_for": "INIT:APP:RESIDENT session=0 apps=1", "timeout": 60},
-  {"wait_for": "SHELL:TRAY:DEFAULT app=os.lazy.traydemo", "timeout": 60},
+  {"wait_for": "SHELL:TRAY:RESIDENT apps=1", "timeout": 60},
   {"wait_for": "TRAYDEMO:UP:PASS", "timeout": 240},
   {"wait_for": "SHELL:TRAY:SET app=os.lazy.traydemo", "timeout": 60},
   {"wait": 1.5},
