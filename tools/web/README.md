@@ -21,7 +21,8 @@ Output (`shots/web/`): `serial.log`, `session.json`, `summary.json`,
 `net.pcap` (the guest's traffic), `requests.json` (every request the host
 servers answered), `shot_01_example.png`, `shot_02_theoldnet.png`,
 `shot_03_theoldnet_later.png`, `shot_11_download.png`, `shot_12_mailto.png`,
-`shot_13_history.png`, `shot_14_downloads.png`, and `certs/` (the run's throwaway CA and leaf;
+`shot_13_history.png`, `shot_14_downloads.png`, `shot_15_menu.png` (the History
+menu open), and `certs/` (the run's throwaway CA and leaf;
 `--no-build` reuses them). The verdict lines start with `LAZYWEB:` and the
 last one is `LAZYWEB:HARNESS:PASS|FAIL`; the exit status follows it.
 

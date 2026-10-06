@@ -141,6 +141,12 @@ def _feature_steps(step_timeout: float) -> list[dict]:
         {"at": 3.0, "shot": "13_history"},
         *_shortcut("j", "WEB:LOAD:about:downloads", step_timeout),
         {"at": 3.0, "shot": "14_downloads"},
+        # The History menu, to see its icons: the pointer rests at the
+        # screen's centre, the menu title is at (249, 147) on a 720p desktop.
+        {"at": 1.0, "mouse_move": [-391, -216]},
+        {"at": 1.0, "mouse_click": "left"},
+        {"at": 2.0, "shot": "15_menu"},
+        {"key": "esc"},
     ]
 
 

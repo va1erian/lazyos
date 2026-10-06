@@ -50,5 +50,9 @@
   {"key": "j", "until": "WEB:LOAD:about:downloads", "timeout": 300.0},
   {"key_up": "ctrl"},
   {"at": 3.0, "shot": "14_downloads"},
+  {"at": 1.0, "mouse_move": [-391, -216]},
+  {"at": 1.0, "mouse_click": "left"},
+  {"at": 2.0, "shot": "15_menu"},
+  {"key": "esc"},
   {"at": 1.0, "quit": true}
 ]
