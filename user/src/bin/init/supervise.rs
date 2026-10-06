@@ -51,7 +51,8 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
 /// other service inherits this supervisor's identity minus it, so a compromised
 /// service cannot read the keystroke stream. Publishing onto the bus
 /// (`CAP_INPUT_SOURCE`) is stripped too: no service holds it until the USB
-/// driver gets a manifest row (`docs/usb-hid-plan.md` U5). `None` (plain inherit) when this
+/// driver gets a manifest row (`docs/usb-hid-plan.md` U5). The console claim
+/// (`CAP_INPUT_CONSOLE`) goes to `logind` alone. `None` (plain inherit) when this
 /// task's own credentials cannot be read.
 fn manifest_cred(name: &str) -> Option<sys::Cred> {
     let mut own = sys::Cred::default();
@@ -59,7 +60,14 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
     if name == "inputd" {
         return Some(sys::Cred::new(0, 0, sys::CAP_INPUT_RAW, own.label_id, 0));
     }
-    own.caps &= !(sys::CAP_INPUT_RAW | sys::CAP_INPUT_SOURCE | sys::CAP_BLOCK_PROVIDER);
+    own.caps &= !(sys::CAP_INPUT_RAW
+        | sys::CAP_INPUT_SOURCE
+        | sys::CAP_BLOCK_PROVIDER
+        | sys::CAP_INPUT_CONSOLE);
+    // The login console's keyboard claim (issue #396) is `logind`'s alone.
+    if name == "logind" {
+        own.caps |= sys::CAP_INPUT_CONSOLE;
+    }
     Some(own)
 }
 

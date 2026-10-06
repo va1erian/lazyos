@@ -28,6 +28,8 @@ use user::sys;
 
 #[path = "inputd/config.rs"]
 mod config;
+#[path = "inputd/console.rs"]
+mod console;
 #[path = "inputd/delivery.rs"]
 mod delivery;
 #[path = "inputd/hub.rs"]

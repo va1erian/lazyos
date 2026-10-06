@@ -172,9 +172,14 @@ pub fn push_scancode(scancode: u8) {
         // A bound compositor receives the raw key; otherwise route it to the
         // focused task (switching focus on Tab) as before. Function keys are
         // compositor-only: the terminal mapping would turn them into a NUL.
+        // A claimed login console reads its keys through `inputd` (from the
+        // raw bus), so they stay off the terminal queue the console shell
+        // reads later (issue #396).
         if display::bound() {
             display::push_key(key, true);
-        } else if !matches!(key, Key::F(_) | Key::Delete | Key::Insert) {
+        } else if !super::console::claimed()
+            && !matches!(key, Key::F(_) | Key::Delete | Key::Insert)
+        {
             crate::task::on_key(key);
         }
     }

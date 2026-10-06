@@ -16,6 +16,9 @@
 //!    (the machine-parseable lines a headless session captures) and publishes
 //!    to `system/events/login/{start,denied,end}`, which `logd` records.
 //!
+//! The prompt reads its keys through `inputd`'s sessionless console session
+//! (issue #396, `console.rs`), falling back to the kernel terminal.
+//!
 //! A graphical session (issue #157, `graphical.rs`) replaces step 4: when the
 //! confd key `sys/session/mode` is `graphical`, `init` launches the desktop
 //! shell (LazyShell) into the session instead, and a failure falls back to the
@@ -31,6 +34,8 @@
 
 extern crate alloc;
 
+#[path = "logind/console.rs"]
+mod console;
 #[path = "logind/graphical.rs"]
 mod graphical;
 
@@ -93,6 +98,7 @@ fn run() -> messenger::Result<()> {
     let mut sessions: Vec<logind::SessionRecord> = Vec::new();
     let mut active: Option<ActiveSession> = None;
     let mut next_session = 0u64;
+    let mut keys = console::ConsoleKeys::new();
     // Reused receive buffer: the user bump allocator never reclaims per-call
     // buffers, so long-lived loops must not allocate one per message.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -131,7 +137,14 @@ fn run() -> messenger::Result<()> {
             sleep(ACCOUNTS_RETRY_TICKS);
             continue;
         };
-        if let Some(started) = prompt_login(endpoint, &mut sessions, &mut next_session, &mut bus) {
+        let started = prompt_login(
+            endpoint,
+            &mut sessions,
+            &mut next_session,
+            &mut bus,
+            &mut keys,
+        );
+        if let Some(started) = started {
             active = Some(started);
         }
     }
@@ -143,15 +156,19 @@ fn prompt_login(
     sessions: &mut Vec<logind::SessionRecord>,
     next_session: &mut u64,
     bus: &mut Option<router::Bus>,
+    keys: &mut console::ConsoleKeys,
 ) -> Option<ActiveSession> {
+    keys.begin();
     sys::write_str("\nLazyOS login: ");
-    let name = read_line(true);
+    let name = read_line(keys, true);
     if name.is_empty() {
         return None;
     }
     sys::write_str("Password: ");
-    let secret = read_line(false);
+    let secret = read_line(keys, false);
     sys::write_str("\n");
+    // The keyboard goes back to the terminal before any shell can start.
+    keys.end();
 
     let user = match accounts::lookup_name(endpoint, &name) {
         Ok(Some(user)) => user,
@@ -322,11 +339,11 @@ fn serve_queries(
 
 /// Read one line from the terminal. `echo` prints the characters back (the
 /// username and dialog do; the password does not).
-fn read_line(echo: bool) -> String {
+fn read_line(keys: &mut console::ConsoleKeys, echo: bool) -> String {
     let mut line = [0u8; LINE_MAX];
     let mut len = 0usize;
     loop {
-        let ch = sys::read_char();
+        let ch = keys.read_byte();
         if ch == b'\n' as u64 {
             if echo {
                 sys::write_str("\n");
