@@ -17,6 +17,7 @@ mod attrs;
 mod cwd;
 mod cwd_paths;
 mod inherit;
+mod inherit_read;
 mod inspect;
 mod io;
 mod names;
@@ -203,6 +204,14 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_fd_soak_inherited_redirects",
         inherit::soak_inherited_redirects,
+    ),
+    (
+        "linux_fd_fork_inherit_stdin_ext2",
+        inherit_read::fork_inherits_stdin_and_ext2_redirects,
+    ),
+    (
+        "linux_fd_soak_inherited_stdin",
+        inherit_read::soak_inherited_stdin,
     ),
     // A closed standard stream is the lowest free descriptor (`sh` jobs).
     (

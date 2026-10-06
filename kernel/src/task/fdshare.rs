@@ -80,7 +80,7 @@ pub(super) fn mirror_fd(
             // `put` grows the peer's table like the caller's grew; a refusal
             // (the peer's heap) hands the copy back, which is dropped too.
             Some(entry) => {
-                match task.fds.put(fd, entry.clone()) {
+                match task.fds.put_mirror(fd, entry.clone()) {
                     Ok(old) | Err(old) => junk.push(old),
                 }
                 task.fds.set_flags(fd, flags);

@@ -59,6 +59,14 @@ interface os.lazy.init.v1 {
     /// anything else is ignored.
     method Ready() -> () oneway;
 
+    /// A launched app says why it is about to fail (issue #549), so the
+    /// desktop's "stopped unexpectedly" notice can show more than an exit
+    /// code. Only the running task of a launched row counts; anything else
+    /// is ignored. `reason` is shown, never parsed: control characters become
+    /// spaces and it is cut to 512 bytes. A later report replaces an earlier
+    /// one, and every new run starts with none.
+    method ReportFailure(reason: String = 1) -> () oneway;
+
     /// What the machine does once userspace is quiesced (`Shutdown`'s `mode`).
     enum PowerMode { PowerOff, Reboot }
 
@@ -156,4 +164,35 @@ interface os.lazy.init.v1 {
     /// `healthd` (which derives its rows from it) and `logd` observe the state
     /// without polling.
     topic "system/events/service/{name}" : ServiceEvent retained qos=latest;
+
+    /// A launched app stopped and `init` will not start it again (issue
+    /// #549): it failed while starting, kept crashing, or failed with no
+    /// restart policy. The payload of `system/events/app/<id>`. The desktop
+    /// shell of `session` tells the user, so a broken app is one clear
+    /// message rather than a window that flickers open and shut.
+    struct AppFailure {
+        /// The app's display name (its id when it has none).
+        name: String = 1,
+        /// Exit status of the last run (`128 + signal` for a signal).
+        status: U64 = 2,
+        /// The status as a person reads it (`exit code 2`, `signal 11
+        /// (segmentation fault)`).
+        summary: String = 3,
+        /// The app's own `ReportFailure` text; empty when it sent none.
+        reason: String = 4,
+        /// The login session the app ran in.
+        session: U64 = 5,
+        /// Whether it failed while starting (rather than after running).
+        startup: Bool = 6,
+        /// The kernel tick (100 Hz) the failure happened at.
+        at: U64 = 7
+    }
+
+    /// App failures, published by `init` on the central broker
+    /// (`messengerd`, unlike the service events above, which `init`'s own
+    /// broker carries) so any session program can subscribe. Retained per
+    /// app, so a shell that comes up after an app failed at boot still hears
+    /// of it; a subscriber judges a retained value by `at` (the shell ignores
+    /// one older than a minute). `{app}` is the app id `Launch` took.
+    topic "system/events/app/{app}" : AppFailure retained qos=buffered;
 }

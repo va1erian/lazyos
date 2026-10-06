@@ -337,6 +337,26 @@ pub mod transfers {
         pub fn matches(self, handles: u64, buffers: u64) -> bool {
             handles == u64::from(self.handles) && buffers == u64::from(self.buffers)
         }
+
+        /// Whether a parcel carrying `handles` handles and `buffers` shared
+        /// buffers stays within the declaration: the kernel's send-path
+        /// gate (issue #516). Fewer than declared passes here; servers
+        /// still demand an exact match with [`Transfers::matches`].
+        pub fn allows(self, handles: usize, buffers: usize) -> bool {
+            handles <= usize::from(self.handles) && buffers <= usize::from(self.buffers)
+        }
+    }
+
+    /// One request that declares transfers, for the kernel's table
+    /// ([`crate::DECLARED_TRANSFERS`]).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct TransferDecl {
+        /// The interface id the request's parcel header carries.
+        pub interface: u64,
+        /// The method id the request's parcel header carries.
+        pub method: u32,
+        /// What the request declares.
+        pub transfers: Transfers,
     }
 }
 
@@ -765,6 +785,8 @@ pub mod os_lazy_audio_v1 {
     pub const EVENT_KIND_DRAINED: u32 = 2;
     /// `EventKind::DeviceError` wire value.
     pub const EVENT_KIND_DEVICE_ERROR: u32 = 3;
+    /// `EventKind::Period` wire value.
+    pub const EVENT_KIND_PERIOD: u32 = 4;
 
     /// `Direction::Playback` wire value.
     pub const DIRECTION_PLAYBACK: u32 = 0;
@@ -1444,12 +1466,15 @@ pub mod os_lazy_audio_v1 {
     };
 
     /// An `EventKind` ordinal.
-    /// Xruns and drain completion, for clients that would rather not poll
-    /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
-    /// The declared `system/audio/+/event` topic (`AudioEvent`, `latest`).
+    /// Xruns, drain completion and progress, for clients that would rather
+    /// not poll `Position` (issue #453), on the central broker. `{card}` is
+    /// `mixer` for the streams `audiod` serves applications (the stream ids
+    /// its `OpenStream` granted) and the driver's card name (`virtio-snd0`)
+    /// for the card's own stream, which belongs to the mixer.
+    /// The declared `system/audio/+/event` topic (`AudioEvent`, `buffered`).
     pub const TOPIC_SYSTEM_AUDIO_EVENT: &str = "system/audio/+/event";
     /// The `system/audio/+/event` delivery policy.
-    pub const TOPIC_SYSTEM_AUDIO_EVENT_QOS: u32 = topics::QOS_LATEST;
+    pub const TOPIC_SYSTEM_AUDIO_EVENT_QOS: u32 = topics::QOS_BUFFERED;
     /// Whether `system/audio/+/event` publishes are retained.
     pub const TOPIC_SYSTEM_AUDIO_EVENT_RETAINED: bool = false;
 
@@ -5709,6 +5734,66 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// A launched app stopped and `init` will not start it again (issue
+    /// #549): it failed while starting, kept crashing, or failed with no
+    /// restart policy. The payload of `system/events/app/<id>`. The desktop
+    /// shell of `session` tells the user, so a broken app is one clear
+    /// message rather than a window that flickers open and shut.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AppFailure {
+        pub name: alloc::string::String,
+        pub status: u64,
+        pub summary: alloc::string::String,
+        pub reason: alloc::string::String,
+        pub session: u64,
+        pub startup: bool,
+        pub at: u64,
+    }
+
+    pub fn encode_app_failure(value: &AppFailure) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u64(2, value.status)?;
+        target.string(3, &value.summary)?;
+        target.string(4, &value.reason)?;
+        target.u64(5, value.session)?;
+        target.bool(6, value.startup)?;
+        target.u64(7, value.at)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_app_failure(body: &[u8]) -> Result<AppFailure, Error> {
+        let mut out = AppFailure::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.status = field.as_u64()?;
+                }
+                3 => {
+                    out.summary = field.as_str()?.into();
+                }
+                4 => {
+                    out.reason = field.as_str()?.into();
+                }
+                5 => {
+                    out.session = field.as_u64()?;
+                }
+                6 => {
+                    out.startup = field.as_bool()?;
+                }
+                7 => {
+                    out.at = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Services` method id.
     pub const METHOD_SERVICES: u32 = 1672675413;
     /// `Launch` method id.
@@ -5723,6 +5808,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_STARTDRIVER: u32 = 1713728693;
     /// `Ready` method id.
     pub const METHOD_READY: u32 = 197800596;
+    /// `ReportFailure` method id.
+    pub const METHOD_REPORTFAILURE: u32 = 425853579;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -6055,6 +6142,34 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// A launched app says why it is about to fail (issue #549), so the
+    /// desktop's "stopped unexpectedly" notice can show more than an exit
+    /// code. Only the running task of a launched row counts; anything else
+    /// is ignored. `reason` is shown, never parsed: control characters become
+    /// spaces and it is cut to 512 bytes. A later report replaces an earlier
+    /// one, and every new run starts with none.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReportFailureArgs {
+        pub reason: alloc::string::String,
+    }
+
+    pub fn encode_report_failure_args(value: &ReportFailureArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_report_failure_args(body: &[u8]) -> Result<ReportFailureArgs, Error> {
+        let mut out = ReportFailureArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.reason = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
@@ -6169,6 +6284,65 @@ pub mod os_lazy_init_v1 {
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)
     }
+
+    /// The app's display name (its id when it has none).
+    /// Exit status of the last run (`128 + signal` for a signal).
+    /// The status as a person reads it (`exit code 2`, `signal 11
+    /// (segmentation fault)`).
+    /// The app's own `ReportFailure` text; empty when it sent none.
+    /// The login session the app ran in.
+    /// Whether it failed while starting (rather than after running).
+    /// The kernel tick (100 Hz) the failure happened at.
+    /// App failures, published by `init` on the central broker
+    /// (`messengerd`, unlike the service events above, which `init`'s own
+    /// broker carries) so any session program can subscribe. Retained per
+    /// app, so a shell that comes up after an app failed at boot still hears
+    /// of it; a subscriber judges a retained value by `at` (the shell ignores
+    /// one older than a minute). `{app}` is the app id `Launch` took.
+    /// The declared `system/events/app/+` topic (`AppFailure`, `buffered`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_APP: &str = "system/events/app/+";
+    /// The `system/events/app/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_APP_QOS: u32 = topics::QOS_BUFFERED;
+    /// Whether `system/events/app/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_APP_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/app/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_app(app: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Publish)
+    }
+
+    /// Encode a `AppFailure` payload for `system/events/app/+`.
+    pub fn encode_system_events_app(value: &AppFailure) -> Result<Vec<u8>, Error> {
+        encode_app_failure(value)
+    }
+
+    /// Decode a `system/events/app/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_app(body: &[u8]) -> Result<AppFailure, Error> {
+        decode_app_failure(body)
+    }
+
+    /// Publish a typed `AppFailure` on `system/events/app/+`.
+    pub fn publish_system_events_app<P>(publisher: &mut P, app: &str, value: &AppFailure) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_app(app).map_err(P::Error::from)?;
+        let payload = encode_system_events_app(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_APP_RETAINED)
+    }
+
+    /// Subscribe to `system/events/app/+` with its declared QoS.
+    pub fn subscribe_system_events_app<S>(subscriber: &mut S, app: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)
+    }
 }
 
 /// `os.lazy.input.v1` (interface id `0x5026bd54a60f1ff6`).
@@ -6222,8 +6396,11 @@ pub mod os_lazy_input_v1 {
     /// sender). `surface` names the window it wants keys for: it must be a
     /// surface the compositor registered as owned by this same task, so a
     /// client can never claim someone else's window (`EACCES`; `ENOENT` when
-    /// the compositor has not registered it); an absent `surface` is reserved for
-    /// the login console and refused with `EINVAL` for now. The parcel transfers the event
+    /// the compositor has not registered it). An absent `surface` opens the
+    /// login console's session (issue #396): only the task holding the
+    /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
+    /// second holder `EBUSY`), and it receives keys only while no compositor
+    /// is attached. The parcel transfers the event
     /// endpoint (`handles[0]`) that receives every event below. A task may hold
     /// several sessions, one per surface.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12658,6 +12835,10 @@ pub mod os_lazy_messenger_registry_v1 {
     pub const METHOD_REGISTER: u32 = 658098656;
     /// `Resolve` method id.
     pub const METHOD_RESOLVE: u32 = 1645633795;
+    /// `Connect` method id.
+    pub const METHOD_CONNECT: u32 = 1535748249;
+    /// `Connected` method id.
+    pub const METHOD_CONNECTED: u32 = 2079757168;
     /// `Unregister` method id.
     pub const METHOD_UNREGISTER: u32 = 1480320227;
     /// `List` method id.
@@ -12793,6 +12974,99 @@ pub mod os_lazy_messenger_registry_v1 {
         Ok(out)
     }
 
+    /// Open a private connection to `name` (issue #483): the kernel mints a
+    /// fresh channel, returns one end to the caller (the call's return value
+    /// over the gate) and posts the other to the service as `Connected`.
+    /// Unlike `Resolve`, whose handles all alias the one registered endpoint,
+    /// closing a connection ends only that connection. Kernel gate only;
+    /// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_connect_args(value: &ConnectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_args(body: &[u8]) -> Result<ConnectArgs, Error> {
+        let mut out = ConnectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectReply {
+        pub handle: u64,
+    }
+
+    pub fn encode_connect_reply(value: &ConnectReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.handle)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_reply(body: &[u8]) -> Result<ConnectReply, Error> {
+        let mut out = ConnectReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.handle = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Posted by the kernel on a registered endpoint for each `Connect`: the
+    /// service serves the caller's requests on `connection`, which speaks the
+    /// registered name's interfaces (the `Channel` type below is nominal: MIDL
+    /// has no untyped channel, and a service answers on its own interfaces,
+    /// not on this one). The message is stamped with the connecting task's
+    /// identity.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectedArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_connected_args(value: &ConnectedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connected_args(body: &[u8]) -> Result<ConnectedArgs, Error> {
+        let mut out = ConnectedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `Connected` request carries outside its body.
+    pub const CONNECTED_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Connected` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectedTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.messenger.registry.v1` on.
+        pub connection: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Connected` request.
+    pub fn encode_connected_transfers(value: &ConnectedTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.connection], Vec::new())
+    }
+
     /// Withdraw `name`. Only its owner (or an administrator) may.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct UnregisterArgs {
@@ -12849,8 +13123,10 @@ pub mod os_lazy_messenger_registry_v1 {
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
+        match method {
+            METHOD_CONNECTED => CONNECTED_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
     }
 }
 
@@ -14478,7 +14754,7 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         interface: "os.lazy.audio.v1",
         name: "system/audio/+/event",
         payload: "AudioEvent",
-        qos: topics::QOS_LATEST,
+        qos: topics::QOS_BUFFERED,
         retained: false,
         publish_permission: "publish:system/audio/+/event",
         subscribe_permission: "subscribe:system/audio/+/event",
@@ -14563,6 +14839,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/events/service/+",
         subscribe_permission: "subscribe:system/events/service/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.init.v1",
+        name: "system/events/app/+",
+        payload: "AppFailure",
+        qos: topics::QOS_BUFFERED,
+        retained: true,
+        publish_permission: "publish:system/events/app/+",
+        subscribe_permission: "subscribe:system/events/app/+",
     },
     topics::TopicDecl {
         interface: "os.lazy.logind.v1",
@@ -14678,4 +14963,80 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
 #[rustfmt::skip]
 pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {
     DECLARED_TOPICS.iter().find(|decl| topics::matches(decl.name, topic))
+}
+
+/// Every request that declares transfers across the compiled `.midl`
+/// files, sorted by interface id then method id (issue #516).
+#[rustfmt::skip]
+pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
+    // os.lazy.input.v1.Open
+    transfers::TransferDecl {
+        interface: 0x5026bd54a60f1ff6,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.messenger.registry.v1.Connected
+    transfers::TransferDecl {
+        interface: 0x51d501afec09806c,
+        method: 2079757168,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.audio.v1.AttachRing
+    transfers::TransferDecl {
+        interface: 0x536f1f4639cf07f0,
+        method: 62355614,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.display.v1.CreateSurface
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.display.v1.AttachBuffer
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 2,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.display.v1.Subscribe
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 20,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.display.v1.AttachBufferSlot
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 25,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.net.nic.v1.AttachRing
+    transfers::TransferDecl {
+        interface: 0x6748c83c2024715b,
+        method: 62355614,
+        transfers: transfers::Transfers { handles: 1, buffers: 1 },
+    },
+    // os.lazy.input.shell.v1.Attach
+    transfers::TransferDecl {
+        interface: 0xc258ed5b9b5debfe,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.messenger.topics.v1.Bell
+    transfers::TransferDecl {
+        interface: 0xc5734f978fef7231,
+        method: 1766698328,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+];
+
+/// What the request `(interface, method)` declares; `NONE` when it
+/// declares nothing, including every method of an unknown interface.
+#[rustfmt::skip]
+pub fn declared_transfers(interface: u64, method: u32) -> transfers::Transfers {
+    DECLARED_TRANSFERS
+        .iter()
+        .find(|decl| decl.interface == interface && decl.method == method)
+        .map_or(transfers::Transfers::NONE, |decl| decl.transfers)
 }

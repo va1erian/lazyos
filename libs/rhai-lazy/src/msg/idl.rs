@@ -179,7 +179,7 @@ pub static INTERFACES: &[Interface] = &[
             },
         ],
         enums: &[
-            Enum { name: "EventKind", variants: &["Underrun", "Overrun", "Drained", "DeviceError"] },
+            Enum { name: "EventKind", variants: &["Underrun", "Overrun", "Drained", "DeviceError", "Period"] },
             Enum { name: "Direction", variants: &["Playback", "Capture"] },
             Enum { name: "Format", variants: &["S16Le", "S24Le", "S32Le", "Float32"] },
         ],
@@ -187,9 +187,9 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/audio/+/event",
                 payload: "AudioEvent",
-                qos: 0,
+                qos: 1,
                 retained: false,
-                doc: "An `EventKind` ordinal.\nXruns and drain completion, for clients that would rather not poll\n`Position`. `{card}` is the driver's card name (`virtio-snd0`).",
+                doc: "An `EventKind` ordinal.\nXruns, drain completion and progress, for clients that would rather\nnot poll `Position` (issue #453), on the central broker. `{card}` is\n`mixer` for the streams `audiod` serves applications (the stream ids\nits `OpenStream` granted) and the driver's card name (`virtio-snd0`)\nfor the card's own stream, which belongs to the mixer.",
             },
         ],
     },
@@ -1031,6 +1031,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "ReportFailure",
+                id: 425853579,
+                oneway: true,
+                doc: "A launched app says why it is about to fail (issue #549), so the\ndesktop's \"stopped unexpectedly\" notice can show more than an exit\ncode. Only the running task of a launched row counts; anything else\nis ignored. `reason` is shown, never parsed: control characters become\nspaces and it is cut to 512 bytes. A later report replaces an earlier\none, and every new run starts with none.",
+                params: &[Field { name: "reason", id: 1, ty: Ty::String }],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -1053,6 +1062,11 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "App id: the lowercase program stem (`top` -> `/system/bin/top`).\nDisplay name for menus.\nOn-disk ELF path.\nDefault restart policy (`always`/`on-failure`/`once`).\nMIME verbs the app handles, in registration order.\nWhether the package manager installed the app (`id` is then its\n`system_name`) rather than the image shipping it.\n`core` (a package the image ships, not removable), `user` (a\npackage someone installed) or `system` (a built-in program such as\nthe desktop shell or the installer).\nThe menu group (`lazypkg::Category`): the package's, `system` (or\n`development` for LazyRAD) for a built-in desktop program, empty for\na console one, which the start menu leaves out.\nWhether the start menu leaves the app out for the caller: their\n`user/<uid>/menu/hidden/<id>`, else the machine's\n`sys/menu/hidden/<id>`. A hidden app still launches and opens files.\nWhether the app opens when a session starts.\nAn installed app's 32-pixel icon, `icons/app-32.png` in its\ninstall directory (every package ships one); empty for a\nbuilt-in, which the shell draws from its own icon set.\nOne service lifecycle event (issue #307): the payload of\n`system/events/service/<name>`. The topic carries the service name, so\nit is not repeated here; `health` is the service's retained health\ntopic, for display by a consumer that only logs the event.",
                 fields: &[Field { name: "state", id: 1, ty: Ty::String }, Field { name: "pid", id: 2, ty: Ty::U64 }, Field { name: "restarts", id: 3, ty: Ty::U64 }, Field { name: "status", id: 4, ty: Ty::U64 }, Field { name: "health", id: 5, ty: Ty::String }, Field { name: "detail", id: 6, ty: Ty::String }],
             },
+            Struct {
+                name: "AppFailure",
+                doc: "A launched app stopped and `init` will not start it again (issue\n#549): it failed while starting, kept crashing, or failed with no\nrestart policy. The payload of `system/events/app/<id>`. The desktop\nshell of `session` tells the user, so a broken app is one clear\nmessage rather than a window that flickers open and shut.",
+                fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "status", id: 2, ty: Ty::U64 }, Field { name: "summary", id: 3, ty: Ty::String }, Field { name: "reason", id: 4, ty: Ty::String }, Field { name: "session", id: 5, ty: Ty::U64 }, Field { name: "startup", id: 6, ty: Ty::Bool }, Field { name: "at", id: 7, ty: Ty::U64 }],
+            },
         ],
         enums: &[
             Enum { name: "PowerMode", variants: &["PowerOff", "Reboot"] },
@@ -1072,6 +1086,13 @@ pub static INTERFACES: &[Interface] = &[
                 retained: true,
                 doc: "Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).\nTask slot of the running child, or 0.\nRestart count.\nExit status of the last run (0 while running).\nThe service's retained health topic (`system/health/<name>`).\nHuman-readable detail, empty when there is none.\nThe retained service lifecycle topic (issue #307): `init` publishes one\non `system/events/service/<name>` for every supervision transition, so\n`healthd` (which derives its rows from it) and `logd` observe the state\nwithout polling.",
             },
+            Topic {
+                pattern: "system/events/app/+",
+                payload: "AppFailure",
+                qos: 1,
+                retained: true,
+                doc: "The app's display name (its id when it has none).\nExit status of the last run (`128 + signal` for a signal).\nThe status as a person reads it (`exit code 2`, `signal 11\n(segmentation fault)`).\nThe app's own `ReportFailure` text; empty when it sent none.\nThe login session the app ran in.\nWhether it failed while starting (rather than after running).\nThe kernel tick (100 Hz) the failure happened at.\nApp failures, published by `init` on the central broker\n(`messengerd`, unlike the service events above, which `init`'s own\nbroker carries) so any session program can subscribe. Retained per\napp, so a shell that comes up after an app failed at boot still hears\nof it; a subscriber judges a retained value by `at` (the shell ignores\none older than a minute). `{app}` is the app id `Launch` took.",
+            },
         ],
     },
     Interface {
@@ -1083,7 +1104,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Open",
                 id: 1,
                 oneway: false,
-                doc: "Open an input session bound to the calling task (the kernel-stamped\nsender). `surface` names the window it wants keys for: it must be a\nsurface the compositor registered as owned by this same task, so a\nclient can never claim someone else's window (`EACCES`; `ENOENT` when\nthe compositor has not registered it); an absent `surface` is reserved for\nthe login console and refused with `EINVAL` for now. The parcel transfers the event\nendpoint (`handles[0]`) that receives every event below. A task may hold\nseveral sessions, one per surface.",
+                doc: "Open an input session bound to the calling task (the kernel-stamped\nsender). `surface` names the window it wants keys for: it must be a\nsurface the compositor registered as owned by this same task, so a\nclient can never claim someone else's window (`EACCES`; `ENOENT` when\nthe compositor has not registered it). An absent `surface` opens the\nlogin console's session (issue #396): only the task holding the\nkernel's console claim may (`logind`; anyone else gets `EACCES`, a\nsecond holder `EBUSY`), and it receives keys only while no compositor\nis attached. The parcel transfers the event\nendpoint (`handles[0]`) that receives every event below. A task may hold\nseveral sessions, one per surface.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::Option(&Ty::U64) }],
                 returns: &[Field { name: "session", id: 1, ty: Ty::U64 }],
                 transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.v1") }],
@@ -2336,6 +2357,24 @@ pub static INTERFACES: &[Interface] = &[
                 params: &[Field { name: "name", id: 1, ty: Ty::String }],
                 returns: &[Field { name: "handle", id: 1, ty: Ty::U64 }],
                 transfers: &[],
+            },
+            Method {
+                name: "Connect",
+                id: 1535748249,
+                oneway: false,
+                doc: "Open a private connection to `name` (issue #483): the kernel mints a\nfresh channel, returns one end to the caller (the call's return value\nover the gate) and posts the other to the service as `Connected`.\nUnlike `Resolve`, whose handles all alias the one registered endpoint,\nclosing a connection ends only that connection. Kernel gate only;\n`messengerd` does not proxy it. Allowed wherever `Resolve` is.",
+                params: &[Field { name: "name", id: 1, ty: Ty::String }],
+                returns: &[Field { name: "handle", id: 1, ty: Ty::U64 }],
+                transfers: &[],
+            },
+            Method {
+                name: "Connected",
+                id: 2079757168,
+                oneway: true,
+                doc: "Posted by the kernel on a registered endpoint for each `Connect`: the\nservice serves the caller's requests on `connection`, which speaks the\nregistered name's interfaces (the `Channel` type below is nominal: MIDL\nhas no untyped channel, and a service answers on its own interfaces,\nnot on this one). The message is stamped with the connecting task's\nidentity.",
+                params: &[Field { name: "name", id: 1, ty: Ty::String }],
+                returns: &[],
+                transfers: &[Transfer { name: "connection", channel: Some("os.lazy.messenger.registry.v1") }],
             },
             Method {
                 name: "Unregister",

@@ -1052,6 +1052,10 @@ name = "surfbuf"
 version = "0.1.0"
 
 [[package]]
+name = "svcpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1286,6 +1290,7 @@ dependencies = [
  "sndpolicy",
  "spin",
  "surfbuf",
+ "svcpolicy",
  "timezone",
  "uitheme",
  "usbhid",

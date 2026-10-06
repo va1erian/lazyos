@@ -6,15 +6,10 @@
 
 use user::sys::Cred as SysCred;
 
-/// First restart delay (PIT ticks, 100 Hz), doubled per rapid crash.
-pub(super) const BACKOFF_BASE: u64 = 10;
-/// Restart delay cap, so a crash loop stays gentle.
-pub(super) const BACKOFF_MAX: u64 = 300;
-/// A service that stayed up this long is considered recovered: its restart
-/// counter resets, so occasional crashes never exhaust the budget.
-pub(super) const STABLE_TICKS: u64 = 100;
-/// Give up restarting a service after this many *rapid* crashes.
-pub(super) const MAX_RESTARTS: u64 = 5;
+// The restart/backoff tuning and the restart policy live in the host-tested
+// `svcpolicy` crate (issue #549); re-exported so the supervisor keeps one
+// import path.
+pub(super) use svcpolicy::{Restart, MAX_RESTARTS};
 /// Capabilities a launched session child receives. Empty today, matching
 /// `logind`'s session set: least privilege is the default and the S5.2
 /// session grants arrive through the credential gate.
@@ -181,28 +176,6 @@ pub(super) const BOOT_SELFTESTS: bool = cfg!(debug_assertions);
 /// the registry and policy self-tests but must not start demo programs.
 pub(super) const BOOT_EVIDENCE: bool = BOOT_SELFTESTS && !DESKTOP;
 
-/// What to do when a service exits.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Restart {
-    /// Restart on any exit.
-    Always,
-    /// Restart only when the exit status is non-zero.
-    OnFailure,
-    /// Never restart.
-    Once,
-}
-
-impl Restart {
-    /// The wire word `ListApps` reports.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Restart::Always => "always",
-            Restart::OnFailure => "on-failure",
-            Restart::Once => "once",
-        }
-    }
-}
-
 /// One manifest row: the fields the supervisor needs to start and watch a
 /// service. The service's retained health topic is derived from its name via
 /// the generated `system/health/{name}` helper, so it is not stored here.
@@ -285,12 +258,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &[],
     },
+    // The login prompt reads its keys through `inputd`'s console session
+    // (issue #396), so it starts once `inputd` serves.
     ServiceSpec {
         name: "logind",
         path: fhs::bin::LOGIND,
         args: "",
         restart: Restart::Always,
-        deps: &["accountsd"],
+        deps: &["accountsd", "inputd"],
     },
     ServiceSpec {
         name: "logd",

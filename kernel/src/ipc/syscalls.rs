@@ -134,6 +134,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_RESOLVE => op_registry(args, crate::ipc::registry::method::RESOLVE),
         OP_UNREGISTER => op_registry(args, crate::ipc::registry::method::UNREGISTER),
         OP_LIST => op_registry(args, crate::ipc::registry::method::LIST),
+        OP_CONNECT => op_registry(args, crate::ipc::registry::method::CONNECT),
         OP_AUTHORIZE_TOPIC => op_authorize_topic(args),
         OP_ACL_LOAD => aclop::op_acl_load(args),
         OP_WAIT => op_wait(args),
@@ -402,7 +403,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
-        BadTransfer | UnsupportedTransfer => errno::EINVAL,
+        BadTransfer | UnsupportedTransfer | UndeclaredTransfer => errno::EINVAL,
     }
 }
 

@@ -184,16 +184,14 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   boot volume. Either way `O_CREAT`, `O_TRUNC`, `O_APPEND`, `O_EXCL`, and
   `O_DIRECTORY` open, `mkdir`/`rename`/`unlink`/`rmdir`, and descriptor writes
   succeed. Relative `*at` calls join a real directory descriptor's recorded
-  path (which is how `std`'s `remove_dir_all` walk works); descriptors on a
-  ramfs (`/tmp`, `/transient`), the FAT `/boot` or a copy-up root snapshot
-  file bytes into the kernel heap at open (fallibly: a file larger than the
-  heap may grow fails the open) and `write` patches the snapshot after
-  updating the backing file. Files on ext2 volumes are
-  different, see below.
-- **Descriptors on ext2 volumes** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
-  filesys}.rs`, issue #334). A regular file opened on any ext2 mount (`/` and
-  `/home` in the configured layout, `/data` in the legacy one;
-  `fs::abi_persistent`) becomes `Fd::Vfs`: an
+  path (which is how `std`'s `remove_dir_all` walk works). Only fabricated
+  files (`/proc`, the `/etc` maps) and directory streams are still snapshots
+  copied into the kernel heap at open; a regular file on any mount reads
+  through, see below.
+- **Read-through descriptors** (`fs/openfile.rs`, `process/linux/{vfsfd,filerw,
+  filesys}.rs`, issues #334, #265). A regular file opened on any mount (ext2
+  `/` and `/home`, a ramfs `/tmp` or `/transient`, the FAT `/boot`, a copy-up
+  root; `fs::abi_read_through`) becomes `Fd::Vfs`: an
   `Arc<OpenFile>` holding a path, the offset and the access mode, with **no
   snapshot**. `read`/`write`/`pread64`/`pwrite64`/`lseek`/`fstat` go to the VFS
   at the offset, so a file is not bounded by the kernel heap and every opener

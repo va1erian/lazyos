@@ -18,6 +18,10 @@ pub const CAP_INPUT_RAW: u32 = 1 << 9;
 /// Capability bit that authorises publishing as a source.
 pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
 
+/// Capability bit that authorises claiming the login console's keyboard
+/// (issue #396): `init` stamps it onto `logind` alone.
+pub const CAP_INPUT_CONSOLE: u32 = 1 << 13;
+
 /// Source classes (`kernel/src/input/sources.rs`): what a source may publish.
 pub mod source_class {
     /// `KEY` records.
@@ -48,6 +52,9 @@ pub mod input_op {
     pub const REGISTER_SOURCE: u64 = 4;
     pub const PUBLISH: u64 = 5;
     pub const CLOSE_SOURCE: u64 = 6;
+    pub const CONSOLE_CLAIM: u64 = 7;
+    pub const CONSOLE_RELEASE: u64 = 8;
+    pub const CONSOLE_OWNER: u64 = 9;
 }
 
 /// Raw event kinds (`kernel/src/input/bus.rs`).
@@ -185,5 +192,35 @@ pub fn input_source_close(id: u64) -> Result<(), i64> {
     match input_syscall(input_op::CLOSE_SOURCE, id, 0) {
         0 => Ok(()),
         code => Err(code),
+    }
+}
+
+/// Claim the login console's keyboard (issue #396): while the claim stands,
+/// typed keys stay off the kernel terminal queue and `inputd` delivers them
+/// to this task's sessionless input session. `Err(-EPERM)` without
+/// `CAP_INPUT_CONSOLE`, `Err(-EBUSY)` while another task holds it.
+pub fn input_console_claim() -> Result<(), i64> {
+    match input_syscall(input_op::CONSOLE_CLAIM, 0, 0) {
+        0 => Ok(()),
+        code => Err(code),
+    }
+}
+
+/// Give the console's keyboard back to the kernel terminal.
+pub fn input_console_release() -> Result<(), i64> {
+    match input_syscall(input_op::CONSOLE_RELEASE, 0, 0) {
+        0 => Ok(()),
+        code => Err(code),
+    }
+}
+
+/// The task slot holding the console claim, `Err(-ENOENT)` when none does.
+/// Needs `CAP_INPUT_RAW` (`inputd` authenticates its console client with it).
+pub fn input_console_owner() -> Result<u64, i64> {
+    let code = input_syscall(input_op::CONSOLE_OWNER, 0, 0);
+    if code >= 0 {
+        Ok(code as u64)
+    } else {
+        Err(code)
     }
 }

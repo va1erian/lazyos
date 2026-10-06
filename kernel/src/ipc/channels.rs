@@ -48,6 +48,11 @@
 //!
 //! Replies carry no transfers yet: a reply parcel with handles or buffers is
 //! refused with [`Error::UnsupportedTransfer`].
+//!
+//! A request carries at most what its `.midl` method declares (`transfers
+//! (...)`, issue #516): [`declared`] checks the parcel header's interface and
+//! method against the generated table before anything moves, and refuses the
+//! rest with [`Error::UndeclaredTransfer`]. An unknown interface declares none.
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -75,6 +80,8 @@ pub use kernel_post::{post_from_kernel, private_endpoint_of_task, seal_endpoint}
 
 mod call;
 mod close;
+mod connect;
+pub mod declared;
 mod recv;
 mod registry;
 mod stats;
@@ -84,6 +91,7 @@ mod types;
 
 pub use call::*;
 pub use close::*;
+pub use connect::*;
 pub use recv::*;
 use registry::*;
 pub use stats::*;
@@ -147,17 +155,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = CHANNELS.lock().insert(|id| Channel {
-        id,
-        endpoints: [Endpoint::default(), Endpoint::default()],
-        txns: Vec::new(),
-        senders: Vec::new(),
-        calls: 0,
-        replies: 0,
-        timeouts: 0,
-        cancels: 0,
-        drops: 0,
-    })?;
+    let channel_id = CHANNELS.lock().insert(fresh_channel)?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {

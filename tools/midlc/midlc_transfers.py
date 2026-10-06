@@ -153,9 +153,71 @@ pub mod transfers {
         pub fn matches(self, handles: u64, buffers: u64) -> bool {
             handles == u64::from(self.handles) && buffers == u64::from(self.buffers)
         }
+
+        /// Whether a parcel carrying `handles` handles and `buffers` shared
+        /// buffers stays within the declaration: the kernel's send-path
+        /// gate (issue #516). Fewer than declared passes here; servers
+        /// still demand an exact match with [`Transfers::matches`].
+        pub fn allows(self, handles: usize, buffers: usize) -> bool {
+            handles <= usize::from(self.handles) && buffers <= usize::from(self.buffers)
+        }
+    }
+
+    /// One request that declares transfers, for the kernel's table
+    /// ([`crate::DECLARED_TRANSFERS`]).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct TransferDecl {
+        /// The interface id the request's parcel header carries.
+        pub interface: u64,
+        /// The method id the request's parcel header carries.
+        pub method: u32,
+        /// What the request declares.
+        pub transfers: Transfers,
     }
 }
 '''
+
+
+def emit_transfer_table(interfaces: list[Interface]) -> str:
+    """The crate-level table of every request that declares transfers, keyed
+    by `(interface id, method id)`, and its lookup. The kernel refuses a
+    request that carries more than its entry (issue #516); a request with no
+    entry, including any request of an unknown interface, declares none."""
+    lines = [
+        "/// Every request that declares transfers across the compiled `.midl`",
+        "/// files, sorted by interface id then method id (issue #516).",
+        "#[rustfmt::skip]",
+        "pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[",
+    ]
+    rows = []
+    for interface in interfaces:
+        for method in interface.methods:
+            if not method.transfers:
+                continue
+            handles = sum(1 for t in method.transfers if t.kind == "channel")
+            buffers = len(method.transfers) - handles
+            rows.append((interface.id, method.method_id, interface.name, method.name, handles, buffers))
+    for interface_id, method_id, name, method, handles, buffers in sorted(rows):
+        lines.append(f"    // {name}.{method}")
+        lines.append("    transfers::TransferDecl {")
+        lines.append(f"        interface: {interface_id:#x},")
+        lines.append(f"        method: {method_id},")
+        lines.append(f"        transfers: transfers::Transfers {{ handles: {handles}, buffers: {buffers} }},")
+        lines.append("    },")
+    lines += [
+        "];",
+        "",
+        "/// What the request `(interface, method)` declares; `NONE` when it",
+        "/// declares nothing, including every method of an unknown interface.",
+        "#[rustfmt::skip]",
+        "pub fn declared_transfers(interface: u64, method: u32) -> transfers::Transfers {",
+        "    DECLARED_TRANSFERS",
+        "        .iter()",
+        "        .find(|decl| decl.interface == interface && decl.method == method)",
+        "        .map_or(transfers::Transfers::NONE, |decl| decl.transfers)",
+        "}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def emit_method_transfers(method: Method) -> list[str]:

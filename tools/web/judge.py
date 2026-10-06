@@ -13,7 +13,11 @@ Three kinds of evidence, each judged on its own:
   every picture and style sheet it references (PNG, JPEG, GIF). Requests the
   harness's `curl` made carry `?precheck` and never count for the browser;
 * **screenshots** - something was drawn (`pngstats`): each shot has content,
-  the retro page is colourful, and the two pages do not look the same.
+  the retro page is colourful, and the two pages do not look the same;
+* **browser features** - LazyWeb was started by opening its URL through the
+  OS (`sys::mimed::open` from `rhai`, `mimed` and `init`), downloaded the attachment
+  whole, showed its history and downloads pages, and handed a `mailto:` link
+  to the OS.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "screenshot"))
 import pngstats  # noqa: E402
+from sites import DOWNLOAD_NAME, DOWNLOAD_PATH, download_payload  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 EXAMPLE_URL = "http://example.com/"
@@ -203,4 +208,37 @@ def judge_precheck_servers(record) -> list[str]:
     for r in tagged:
         if r.scheme == "https" and r.sni != r.host:
             problems.append(f"{r.path}: SNI {r.sni!r} on a connection for Host {r.host!r}")
+    return problems
+
+
+#: The `mailto:` link the session types into the address bar.
+MAILTO_URL = "mailto:webmaster@theoldnet.com"
+
+
+def judge_features(text: str, record=None) -> list[str]:
+    """The browser features beyond showing pages (see the module docstring).
+    A `mailto:` link may find no app (an image without Mail); it must still
+    have been handed to the OS."""
+    problems = []
+    if "OPEN:x-scheme-handler/http:os.lazy.lazyweb" not in text:
+        problems.append("opening http://example.com/ through mimed did not pick LazyWeb")
+    size = len(download_payload())
+    # A reused image (`--no-build`) already holds the file: the browser then
+    # saves it as "oldnet-kit (1).zip", and so on.
+    stem, ext = DOWNLOAD_NAME.rsplit(".", 1)
+    name = rf"{re.escape(stem)}(?: \(\d+\))?\.{re.escape(ext)}"
+    if not re.search(rf"WEB:DOWNLOAD:START:{name}$", text, re.M):
+        problems.append(f"the download of {DOWNLOAD_NAME} never started")
+    if not re.search(rf"WEB:DOWNLOAD:DONE:{name}:{size}$", text, re.M):
+        done = _lines(text, "WEB:DOWNLOAD:")
+        problems.append(f"no WEB:DOWNLOAD:DONE:{DOWNLOAD_NAME}:{size} (saw {done})")
+    for page in ("about:history", "about:downloads"):
+        if not _loaded(text, page):
+            problems.append(f"no WEB:LOAD:{page}")
+    if not re.search(rf"WEB:LAUNCH:{re.escape(MAILTO_URL)}:(OK|FAIL)", text):
+        problems.append(f"{MAILTO_URL} was never handed to the OS")
+    if record is not None and not [r for r in record.requests if r.method == "GET"
+                                   and r.path.split("?")[0] == DOWNLOAD_PATH
+                                   and r.status == 200 and PRECHECK_TAG not in r.path]:
+        problems.append(f"theoldnet.com never served {DOWNLOAD_PATH} to the browser")
     return problems

@@ -64,7 +64,7 @@ pub static MODULES: &[ApiModule] = &[
         alias: "init",
         interface: "os.lazy.init.v1",
         source: include_str!("init.rhai"),
-        topics: &[ApiTopic { helper: "power_state", pattern: "system/power/state" }, ApiTopic { helper: "service", pattern: "system/events/service/+" }],
+        topics: &[ApiTopic { helper: "power_state", pattern: "system/power/state" }, ApiTopic { helper: "service", pattern: "system/events/service/+" }, ApiTopic { helper: "app", pattern: "system/events/app/+" }],
     },
     ApiModule {
         alias: "input",

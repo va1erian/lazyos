@@ -3,10 +3,16 @@
 //! - [`fetch`]: HTTP and HTTPS for NetSurf (ureq, rustls, `nettls-crypto`).
 //! - [`address`]: what the address bar turns typed text into.
 //! - [`history`]: the Back/Forward list.
+//! - [`visits`]: the browsing history kept per user.
+//! - [`downloads`]: saving downloads to the Downloads folder.
+//! - [`pages`]: the built-in `about:` pages.
 
 pub mod address;
+pub mod downloads;
 pub mod fetch;
 pub mod history;
+pub mod pages;
+pub mod visits;
 
 /// `text` fit for one serial marker line: control characters (a title can
 /// hold newlines) become spaces.

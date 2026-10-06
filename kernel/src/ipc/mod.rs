@@ -16,6 +16,7 @@
 pub mod acl;
 pub mod audit;
 pub mod channels;
+pub mod connect;
 pub mod credentials;
 pub mod devspawn;
 pub mod epoll;

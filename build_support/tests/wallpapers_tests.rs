@@ -1,7 +1,19 @@
-//! The desktop pictures a desktop image ships in `/system/share/wallpapers`.
+//! The desktop pictures a desktop image ships in `/system/share/wallpapers`
+//! (assets installed with the shell, `assets/manifest.txt`).
 
-use crate::os_image::OsFiles;
-use crate::wallpapers_embed::{embed, PICTURES};
+use crate::assets_tests::checked_in;
+
+/// `(file name, bytes)` of every picture a desktop image installs, sorted.
+fn pictures() -> Vec<(String, Vec<u8>)> {
+    let prefix = format!("{}/", fhs::share::WALLPAPERS);
+    checked_in(true)
+        .into_iter()
+        .filter_map(|(dest, asset)| {
+            let name = dest.strip_prefix(&prefix)?.to_string();
+            Some((name, std::fs::read(&asset.file).unwrap()))
+        })
+        .collect()
+}
 
 /// The `(width, height)` in a JPEG's first frame header.
 fn jpeg_size(bytes: &[u8]) -> (u32, u32) {
@@ -21,34 +33,29 @@ fn jpeg_size(bytes: &[u8]) -> (u32, u32) {
 }
 
 #[test]
-fn every_picture_lands_in_the_wallpapers_directory() {
-    let mut files = OsFiles::default();
-    embed(&mut files);
-    assert_eq!(files.len(), PICTURES.len());
-    for file in files.files() {
-        assert!(
-            file.path.starts_with(fhs::share::WALLPAPERS),
-            "{}",
-            file.path
-        );
-    }
+fn four_pictures_ship_with_the_shell_only() {
+    let names: Vec<String> = pictures().into_iter().map(|(name, _)| name).collect();
+    assert_eq!(
+        names,
+        [
+            "Aurora.jpg",
+            "Dunes.jpg",
+            "LazyOS-Green.jpg",
+            "LazyOS-Night.jpg"
+        ]
+    );
+    let console = checked_in(false);
+    assert!(console
+        .iter()
+        .all(|(dest, _)| !dest.starts_with(fhs::share::WALLPAPERS)));
 }
 
 #[test]
 fn pictures_fill_the_hidpi_screen_and_stay_small() {
     // LazyShell refuses a picture over 16 Mpx; these are the 2x desktop's
     // 2560x1440, scaled down on a 1280x720 screen.
-    for (name, bytes) in PICTURES {
-        assert_eq!(jpeg_size(bytes), (2560, 1440), "{name}");
+    for (name, bytes) in pictures() {
+        assert_eq!(jpeg_size(&bytes), (2560, 1440), "{name}");
         assert!(bytes.len() < 512 * 1024, "{name}: {} bytes", bytes.len());
     }
-}
-
-#[test]
-fn names_are_sorted_like_the_settings_list() {
-    // Settings sorts the directory; keep the table in the same order.
-    let names: Vec<&str> = PICTURES.iter().map(|(name, _)| *name).collect();
-    let mut sorted = names.clone();
-    sorted.sort_unstable();
-    assert_eq!(names, sorted);
 }

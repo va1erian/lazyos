@@ -49,12 +49,16 @@ impl Broker {
                 // is loaded, so without this check any task could forge audit
                 // records here. The platform publishers (sysmond, clipboardd,
                 // mimed, init) run as uid 0; a dedicated system uid gets its
-                // own subtree only (`may_publish_system`).
+                // own subtree only (`may_publish_system`), and the audio
+                // driver and mixer (`_snd`, `_audio`) their stream events,
+                // `system/audio/...` alone (issue #453).
                 if is_system_topic(&topic) {
                     let mut cred = sys::Cred::default();
                     sys::cred_get(Some(sender), &mut cred)
                         .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                    if !may_publish_system(&topic, cred.uid) {
+                    if !may_publish_system(&topic, cred.uid)
+                        && !sndpolicy::may_publish_audio_event(cred.uid, &topic)
+                    {
                         return Err(messenger::Error::Topics(errno::EACCES));
                     }
                 }

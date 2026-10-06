@@ -142,7 +142,9 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     // A load failure returns while the guard is live, releasing the whole
     // partially built address space instead of leaking its frames.
     let guard = mem::UserTableGuard::new(pml4);
-    let start = user_process::load_image(guard.table(), elf).map_err(load_error)?;
+    // The segments are charged to the uid the child will run as (#265).
+    let uid = parent.map_or(0, |slot| credentials::of(slot).uid);
+    let start = user_process::load_image(guard.table(), elf, uid).map_err(load_error)?;
 
     let mut tasks = TASKS.lock();
     let index = (1..MAX_TASKS)
@@ -259,8 +261,14 @@ pub fn spawn_thread_sharing(
     let creator = current();
     let parent = tasks[creator].as_mut().ok_or("no parent task")?;
     // The thread's table starts as a copy of its creator's (and stays equal to
-    // it under `CLONE_FILES`, see `fdshare`).
-    let fds = parent.fds.fork_copy().ok_or("out of memory (thread)")?;
+    // it under `CLONE_FILES`, see `fdshare`). A shared table is paid for once
+    // (`fdcharge`), so only a private copy is charged to the uid.
+    let fds = if share.files {
+        parent.fds.mirror_copy()
+    } else {
+        parent.fds.fork_copy()
+    };
+    let fds = fds.ok_or("out of memory or descriptor quota (thread)")?;
     let linux = linuxstate::for_thread(parent, creator, share);
     let pml4 = parent.pml4;
     // A thread stays in its process's group and session (#59: threads do not

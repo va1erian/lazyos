@@ -76,6 +76,9 @@ def build(env_extra: dict[str, str], console: bool) -> str | None:
     else:
         if not _tool(str(ROOT / "tools" / "xui" / "build.py")):
             return "tools/xui/build.py failed"
+        # The session opens the first page through `mimed` from a `rhai` script.
+        if not _tool(str(ROOT / "tools" / "rhai" / "build.py")):
+            return "tools/rhai/build.py failed"
         if not LAZYWEB_ELF.is_file():
             return (f"{LAZYWEB_ELF} was not built (NetSurf needs zig: pip install ziglang==0.16.0); "
                     "--precheck-only tests the harness without it")
@@ -200,6 +203,8 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
             assets = judge.page_assets()
             ok = report("SERVERS", f"the page and {len(assets)} resources over HTTPS, SNI "
                         "theoldnet.com", judge.judge_servers(record, assets)) and ok
+            ok = report("FEATURES", "launch by URL, download, history, downloads, mailto",
+                        judge.judge_features(text, record)) and ok
         pictures = shots(out)
         ok = report("SHOTS", ", ".join(p.name for p in pictures), judge.judge_shots(pictures)) and ok
     print("LAZYWEB:HARNESS:" + ("PASS" if ok else "FAIL"))

@@ -370,12 +370,13 @@ pub struct NativeStart {
 }
 
 /// Load a static ELF64 image (streamed from `image`) and map the native user
-/// stack.
+/// stack. The segments are charged to `uid`, who will run it.
 pub fn load_image<I: image::Image + ?Sized>(
     table: PhysAddr,
     image: &I,
+    uid: u32,
 ) -> Result<NativeStart, &'static str> {
-    let loaded = load_segments(table, image, &layout::IMAGE_RESERVED)?;
+    let loaded = load_segments(table, image, &layout::IMAGE_RESERVED, uid)?;
     map_range_kind(
         table,
         USER_STACK_TOP - USER_STACK_SIZE,

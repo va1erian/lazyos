@@ -99,6 +99,11 @@ pub const CAP_BLOCK_PROVIDER: u32 = 1 << 11;
 /// `/mnt` (syscall 35, `fs::fuse`, docs/smb-plan.md F1): what a
 /// user-space filesystem daemon (`memfuse`, later `smbfuse`) needs.
 pub const CAP_FS_PROVIDER: u32 = 1 << 12;
+/// Claim the login console's keyboard (syscall 25 ops 7-8,
+/// `input::console`, issue #396): while the holder's claim stands, typed
+/// keys reach it through `inputd`'s sessionless input session and are kept
+/// off the kernel terminal queue. `init` stamps it onto `logind` alone.
+pub const CAP_INPUT_CONSOLE: u32 = 1 << 13;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -112,7 +117,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_INPUT_RAW
     | CAP_INPUT_SOURCE
     | CAP_BLOCK_PROVIDER
-    | CAP_FS_PROVIDER;
+    | CAP_FS_PROVIDER
+    | CAP_INPUT_CONSOLE;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy
@@ -256,6 +262,13 @@ pub fn of(slot: usize) -> Cred {
     CREDS.lock().get(slot).copied().unwrap_or(Cred::ROOT)
 }
 
+/// [`of`] without waiting: `None` while another context holds the table.
+/// The scheduler's tick reads identities through this, since it may
+/// interrupt a kernel thread that is in the middle of [`set`].
+pub fn try_of(slot: usize) -> Option<Cred> {
+    Some(CREDS.try_lock()?.get(slot).copied().unwrap_or(Cred::ROOT))
+}
+
 /// Replace `slot`'s credentials. `Kernel-only`: profiles (init/messengerd) and
 /// the elevation service call this; nothing reachable from a syscall or parcel
 /// does. Out-of-range slots are ignored.
@@ -263,6 +276,9 @@ pub fn set(slot: usize, cred: Cred) {
     if let Some(entry) = CREDS.lock().get_mut(slot) {
         *entry = cred;
     }
+    // A new identity starts in good standing with the CPU quota until its
+    // first booked tick (issue #483).
+    crate::quota::cpu::forget_slot(slot);
 }
 
 /// Replace the current task's credentials. `Kernel-only`; see [`set`].

@@ -113,6 +113,15 @@ userspace never names another task's handles.
   queued; delivery opens a receiver-local one); buffers **share** (the message
   takes one reference). Replies refuse transfers (`UnsupportedTransfer`);
   non-buffer objects have no refcount yet.
+- **Declared transfers** (issue #516, `channels/declared.rs`): a request may
+  carry only what its `.midl` method declares. `send`/`begin_call` look the
+  parcel header's `(interface_id, method)` up in `midlc`'s generated
+  `DECLARED_TRANSFERS` before resolving anything and refuse more handles or
+  buffers with `UndeclaredTransfer` (`EINVAL`), so the sender's table is
+  untouched and nothing reaches the receiver. An interface no `.midl` declares
+  may carry none. Test builds exempt the suite's fixture interface
+  (`0x0bad_cafe`). Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`,
+  with a 20,000-request soak).
 
 **Shared buffers & fences** (`shared.rs`)
 
@@ -147,6 +156,21 @@ switch) is 0.3 to 0.5 µs; the rest of a round trip is two syscalls and two
 context switches. Tests: `ipc_channel_suite::indexed` (slot reuse, a million
 calls with exact quota and heap accounting, callers ended mid-call).
 
+**Per-connection channels** (issue #483, `channels/connect.rs`,
+`ipc/connect.rs`, native op `OP_CONNECT` = 20). `Connect(name)`
+(`idl/registry.midl`) mints a fresh channel per client instead of aliasing the
+registered endpoint: the client gets side 0, and side 1 moves to the service
+in a kernel-queued `Connected` message on its registered endpoint, stamped with
+the client's identity (`SenderId`) and charged to the client's queue quota.
+Closing either end ends that connection only; other clients of the name are
+untouched. A moved channel end that nobody receives (its message dropped when
+the receiver closed, or its delivery failed) is closed by the orphan pass
+(`close::close_orphans`), so its peer sees `PeerDied` instead of waiting. The
+name policy is `Resolve`'s. User side: `messenger::registry::connect`. Tests:
+`connect_*` (`tests/connect_suite.rs`, two clients in two tasks, orphans, a
+5,000-round connect/call/close soak) and `ipc_registry_syscall_connect`.
+
 **Status.** Working: handle rights, transactions with deadlines/cancel, handle
-move and buffer share, fences. Open: reply-borne transfers, per-connection
-channels on one endpoint, non-buffer object refcounts.
+move and buffer share, fences, per-connection channels. Open: reply-borne
+transfers, services serving their connections (they still serve the shared
+endpoint), non-buffer object refcounts.

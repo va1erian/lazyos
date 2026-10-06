@@ -26,6 +26,21 @@ interface os.lazy.messenger.registry.v1 {
     /// Look `name` up. Over the gate the new handle is the call's return value;
     /// over the daemon it is `handle`, already open in the caller's table.
     method Resolve(name: String = 1) -> (handle: U64 = 1);
+    /// Open a private connection to `name` (issue #483): the kernel mints a
+    /// fresh channel, returns one end to the caller (the call's return value
+    /// over the gate) and posts the other to the service as `Connected`.
+    /// Unlike `Resolve`, whose handles all alias the one registered endpoint,
+    /// closing a connection ends only that connection. Kernel gate only;
+    /// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
+    method Connect(name: String = 1) -> (handle: U64 = 1);
+    /// Posted by the kernel on a registered endpoint for each `Connect`: the
+    /// service serves the caller's requests on `connection`, which speaks the
+    /// registered name's interfaces (the `Channel` type below is nominal: MIDL
+    /// has no untyped channel, and a service answers on its own interfaces,
+    /// not on this one). The message is stamped with the connecting task's
+    /// identity.
+    method Connected(name: String = 1) -> () oneway
+        transfers (connection: Channel<os.lazy.messenger.registry.v1>);
     /// Withdraw `name`. Only its owner (or an administrator) may.
     method Unregister(name: String = 1) -> ();
     /// Snapshot the name table.

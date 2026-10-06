@@ -96,7 +96,7 @@
         "name": "system/audio/+/event",
         "source": "system/audio/{card}/event",
         "payload": "AudioEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": false,
         "publish_permission": "publish:system/audio/+/event",
         "subscribe_permission": "subscribe:system/audio/+/event"
@@ -610,6 +610,11 @@
         "name": "Ready",
         "id": 197800596,
         "oneway": true
+      },
+      {
+        "name": "ReportFailure",
+        "id": 425853579,
+        "oneway": true
       }
     ],
     "topics": [
@@ -630,6 +635,15 @@
         "retained": true,
         "publish_permission": "publish:system/events/service/+",
         "subscribe_permission": "subscribe:system/events/service/+"
+      },
+      {
+        "name": "system/events/app/+",
+        "source": "system/events/app/{app}",
+        "payload": "AppFailure",
+        "qos": "buffered",
+        "retained": true,
+        "publish_permission": "publish:system/events/app/+",
+        "subscribe_permission": "subscribe:system/events/app/+"
       }
     ]
   },
@@ -1359,6 +1373,24 @@
         "name": "Resolve",
         "id": 1645633795,
         "oneway": false
+      },
+      {
+        "name": "Connect",
+        "id": 1535748249,
+        "oneway": false
+      },
+      {
+        "name": "Connected",
+        "id": 2079757168,
+        "oneway": true,
+        "transfers": [
+          {
+            "name": "connection",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.messenger.registry.v1"
+          }
+        ]
       },
       {
         "name": "Unregister",

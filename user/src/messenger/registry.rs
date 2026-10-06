@@ -193,6 +193,17 @@ pub fn resolve(name: &str) -> Result<Endpoint> {
     resolve_for(REGISTRY_TARGET_SELF, name)
 }
 
+/// Open a private connection to `name` (issue #483): unlike [`resolve`],
+/// the endpoint is this task's alone, so closing it ends only this
+/// connection. The service receives the other end as a `Connected` message.
+pub fn connect(name: &str) -> Result<Endpoint> {
+    let body = wire::encode_connect_args(&wire::ConnectArgs { name: name.into() })
+        .map_err(Error::Parcel)?;
+    let parcel = request_parcel(wire::METHOD_CONNECT, body);
+    let result = registry_call(op::CONNECT, REGISTRY_TARGET_SELF, &parcel)?;
+    Ok(Endpoint::from_raw(result.value))
+}
+
 /// Withdraw `name` on behalf of the task in slot `target`.
 fn unregister_for(target: u64, name: &str) -> Result<()> {
     let parcel = request_parcel(wire::METHOD_UNREGISTER, name_body(name)?);

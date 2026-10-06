@@ -140,11 +140,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 | Resource | Default limit | Enforced at |
 |---|---|---|
 | `KernelMemory` | 32 MiB | shared buffers (frames) |
-| `UserMemory` | 256 MiB | `sbrk`/`mmap` VMA growth |
+| `UserMemory` | 256 MiB | `sbrk`/`mmap` VMA growth, and a program's ELF segments at load (charged to the uid that runs it, refunded when the space is freed; #265) |
 | `Handles` | 1024 | handle open/duplicate |
-| `Fds` | 256 | API only until the fd table is charged |
+| `Fds` | `4 * fd_max` | every open descriptor slot (open, dup, dup2, fork, spawn copies); `EMFILE` at the cap (#483) |
 | `QueueBytes` / `QueueDepth` | 4 MiB / 1024 messages | channel enqueue, charged to sender uid |
-| `CpuTicks` | 2^32 | API only until the scheduler meters uids |
+| `CpuTicks` | 2^32 | every timer tick, booked to the running task's uid; past the limit its tasks pay 8x the stride (#483) |
 | `DeviceClaims` | 8 | `dev::claim` |
 | `DmaMemory` | 8 MiB | `dev::dma_alloc` contiguous pool bytes |
 

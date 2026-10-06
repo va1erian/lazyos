@@ -104,6 +104,20 @@ fn ready() {
     msg::connect("os.lazy.init.v1").invoke("Ready", [])
 }
 
+/// `ReportFailure(reason: String) -> () oneway`
+///
+/// A launched app says why it is about to fail (issue #549), so the
+/// desktop's "stopped unexpectedly" notice can show more than an exit
+/// code. Only the running task of a launched row counts; anything else
+/// is ignored. `reason` is shown, never parsed: control characters become
+/// spaces and it is cut to 512 bytes. A later report replaces an earlier
+/// one, and every new run starts with none.
+///
+/// One-way: returns `()` once the message is queued.
+fn report_failure(reason) {
+    msg::connect("os.lazy.init.v1").invoke("ReportFailure", [reason])
+}
+
 /// A `PowerState` with every field at its zero value.
 ///
 /// The shutdown's progress: the payload of `system/power/state`.
@@ -160,6 +174,17 @@ fn new_app_info() {
 /// topic, for display by a consumer that only logs the event.
 fn new_service_event() {
     #{ state: "", pid: 0, restarts: 0, status: 0, health: "", detail: "" }
+}
+
+/// A `AppFailure` with every field at its zero value.
+///
+/// A launched app stopped and `init` will not start it again (issue
+/// #549): it failed while starting, kept crashing, or failed with no
+/// restart policy. The payload of `system/events/app/<id>`. The desktop
+/// shell of `session` tells the user, so a broken app is one clear
+/// message rather than a window that flickers open and shut.
+fn new_app_failure() {
+    #{ name: "", status: 0, summary: "", reason: "", session: 0, startup: false, at: 0 }
 }
 
 // The variants of `PowerMode`, in wire order.
@@ -241,4 +266,55 @@ fn subscribe_service(name) {
 /// Publish `payload` (a `ServiceEvent`) on `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained).
 fn publish_service(name, payload) {
     msg::publish(`system/events/service/${name}`, payload)
+}
+
+// Filter for every event of the topic `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained).
+// The app's display name (its id when it has none).
+// Exit status of the last run (`128 + signal` for a signal).
+// The status as a person reads it (`exit code 2`, `signal 11
+// (segmentation fault)`).
+// The app's own `ReportFailure` text; empty when it sent none.
+// The login session the app ran in.
+// Whether it failed while starting (rather than after running).
+// The kernel tick (100 Hz) the failure happened at.
+// App failures, published by `init` on the central broker
+// (`messengerd`, unlike the service events above, which `init`'s own
+// broker carries) so any session program can subscribe. Retained per
+// app, so a shell that comes up after an app failed at boot still hears
+// of it; a subscriber judges a retained value by `at` (the shell ignores
+// one older than a minute). `{app}` is the app id `Launch` took.
+export const APP_PATTERN = "system/events/app/+";
+
+/// The topic name of `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained) for these placeholder values.
+fn app_topic(app) {
+    `system/events/app/${app}`
+}
+
+/// Run `handler(event)` for each event of `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained); `event.payload` is
+/// the decoded `AppFailure`. Returns the `Subscription`.
+fn on_app(handler) {
+    msg::on("system/events/app/+", handler)
+}
+
+/// Subscribe to `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained) to pull events with `sub.next()`.
+fn subscribe_app() {
+    msg::subscribe("system/events/app/+")
+}
+
+/// Run `handler(event)` for each event of `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained); `event.payload` is
+/// the decoded `AppFailure`. Returns the `Subscription`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn on_app(app, handler) {
+    msg::on(`system/events/app/${app}`, handler)
+}
+
+/// Subscribe to `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained) to pull events with `sub.next()`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn subscribe_app(app) {
+    msg::subscribe(`system/events/app/${app}`)
+}
+
+/// Publish `payload` (a `AppFailure`) on `system/events/app/{app}` (payload `AppFailure`, qos buffered, retained).
+fn publish_app(app, payload) {
+    msg::publish(`system/events/app/${app}`, payload)
 }

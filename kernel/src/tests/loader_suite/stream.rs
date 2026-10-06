@@ -84,7 +84,7 @@ pub fn many_segments_load() -> Result<(), String> {
         .collect();
     let elf = build_elf_with(0x1000_0000, &phdrs, (COUNT * 0x10) as usize);
     with_table(|table| {
-        let loaded = load_segments(table, &elf, RESERVED)?;
+        let loaded = load_segments(table, &elf, RESERVED, 0)?;
         check!(loaded.phnum == COUNT as u16, "phnum {}", loaded.phnum);
         for i in [0, 1, COUNT / 2, COUNT - 1] {
             let got = read_back(table, 0x1000_0000 + i * 0x2000, 0x10)?;
@@ -105,7 +105,7 @@ pub fn huge_bss_is_lazy() -> Result<(), String> {
     let elf = build_elf(base, &[Ph::new(base, 0x1000, bss, PF_R | PF_W)]);
     with_table(|table| {
         let before = frames_used();
-        let loaded = load_segments(table, &elf, RESERVED)?;
+        let loaded = load_segments(table, &elf, RESERVED, 0)?;
         let used = frames_used() - before;
         check!(used <= 8, "a 64 GiB bss took {used} frames eagerly");
         check!(loaded.end == base + bss, "end {:#x}", loaded.end);
@@ -135,7 +135,7 @@ pub fn streams_from_a_file() -> Result<(), String> {
     crate::fs::abi_write(Id::current(), path, 0, &elf).map_err(|e| String::from(e.message()))?;
     let file = VfsFile::abi(Id::current(), path).map_err(|e| String::from(e.message()))?;
     with_table(|table| {
-        load_segments(table, &file, RESERVED)?;
+        load_segments(table, &file, RESERVED, 0)?;
         let got = read_back(table, 0x40_0000, payload)?;
         check!(
             got.iter().enumerate().all(|(i, &b)| b == payload_byte(i)),
@@ -149,7 +149,7 @@ pub fn streams_from_a_file() -> Result<(), String> {
         .map_err(|e| String::from(e.message()))?;
     with_table(|table| {
         check!(
-            load_segments(table, &file, RESERVED).is_err(),
+            load_segments(table, &file, RESERVED, 0).is_err(),
             "a shrunken file still loaded"
         );
         Ok(())
@@ -193,7 +193,7 @@ pub fn read_failure_is_eio_not_enomem() -> Result<(), String> {
             bytes: bytes.clone(),
             good,
         };
-        let reason = match with_table(|table| Ok(load_segments(table, &image, RESERVED))) {
+        let reason = match with_table(|table| Ok(load_segments(table, &image, RESERVED, 0))) {
             Ok(Err(reason)) => reason,
             _ => return Err(format!("a read failure at {good:#x} still loaded")),
         };
@@ -238,7 +238,7 @@ pub fn stream_soak() -> Result<(), String> {
     let heap_before = mem::heap_stats().used;
     for round in 0..200 {
         with_table(|table| {
-            load_segments(table, &file, RESERVED)
+            load_segments(table, &file, RESERVED, 0)
                 .map(|_| ())
                 .map_err(|e| format!("round {round}: {e}"))
         })?;

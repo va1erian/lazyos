@@ -79,7 +79,9 @@ fn spawn_linux_in<I: Image + ?Sized>(
     let envp = user_process::linux::nul_terminated(envp);
     // A kernel-started program is root; a supervised child's auxiliary
     // vector reports root too (its credentials are stamped after loading).
-    let started = user_process::linux::load_image(guard.table(), elf, &argv, &envp, (0, 0))
+    // The segments are charged to the uid the child inherits (#265).
+    let uid = parent.map_or(0, |slot| credentials::of(slot).uid);
+    let started = user_process::linux::load_image(guard.table(), elf, &argv, &envp, (0, 0), uid)
         .map_err(|error| error.message())?;
 
     let mut tasks = TASKS.lock();

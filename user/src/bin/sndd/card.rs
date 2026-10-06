@@ -61,6 +61,14 @@ impl Card {
         }
     }
 
+    /// The `{card}` of its `system/audio/{card}/event` topic (issue #453).
+    pub(super) fn event_name(&self) -> &'static str {
+        match self {
+            Card::Virtio(_) => user::audio_events::VIRTIO_CARD,
+            Card::Hda(_) => user::audio_events::HDA_CARD,
+        }
+    }
+
     /// Streams the device reports.
     pub(super) fn streams(&self) -> u32 {
         match self {

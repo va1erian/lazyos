@@ -76,7 +76,7 @@ Objects a request carries outside its body, in the parcel's
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
-| `system/audio/+/event` | `AudioEvent` | latest | no | `publish:system/audio/+/event`, `subscribe:system/audio/+/event` |
+| `system/audio/+/event` | `AudioEvent` | buffered | no | `publish:system/audio/+/event`, `subscribe:system/audio/+/event` |
 
 ## Rings
 
@@ -109,7 +109,7 @@ Objects a request carries outside its body, in the parcel's
 
 ## enum `EventKind`
 
-- Underrun, Overrun, Drained, DeviceError
+- Underrun, Overrun, Drained, DeviceError, Period
 
 ## enum `Direction`
 

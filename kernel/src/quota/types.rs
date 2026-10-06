@@ -13,13 +13,13 @@ pub enum Resource {
     UserMemory,
     /// Messenger handles held across the uid's tasks.
     Handles,
-    /// File descriptors (API only until the fd table is charged; see module docs).
+    /// Open file descriptors across the uid's descriptor tables.
     Fds,
     /// Parcel bytes queued in Messenger inboxes.
     QueueBytes,
     /// Messages queued in Messenger inboxes.
     QueueDepth,
-    /// CPU ticks.
+    /// CPU ticks consumed (cumulative; over the limit deprioritises).
     CpuTicks,
     /// Device claims held by the uid (issue #240).
     DeviceClaims,
@@ -89,7 +89,8 @@ impl Resource {
 /// * fds: four full descriptor tables (`limit.fd_max` each);
 /// * 4 MiB / 1024 messages of Messenger queueing;
 /// * 2^32 CPU ticks (about 497 days at 100 Hz, i.e. effectively "metered, not
-///   capped" until CPU shares get a real policy);
+///   capped" until CPU shares get a real policy; past it the uid's tasks are
+///   deprioritised, see `quota::cpu`);
 /// * 8 device claims;
 /// * DMA memory: half the DMA pool, at least 8 MiB.
 pub fn default_limits_regular() -> [u64; Resource::COUNT] {

@@ -19,6 +19,7 @@
 
 extern crate alloc;
 
+pub mod envelope;
 mod parcel;
 #[cfg(test)]
 mod tests;

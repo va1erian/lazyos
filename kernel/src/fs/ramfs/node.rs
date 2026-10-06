@@ -34,6 +34,11 @@ impl Node {
         }
     }
 
+    /// The owning uid, which pays for the node and its bytes (`space.rs`).
+    pub(super) fn owner(&self) -> u32 {
+        self.uid
+    }
+
     pub(super) fn meta(&self, ino: u64) -> Meta {
         let kind_bits = match self.kind {
             FileKind::File => S_IFREG,

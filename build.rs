@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/assets_embed.rs"]
+mod assets_embed;
 #[path = "build_support/busybox_embed.rs"]
 mod busybox_embed;
 #[path = "build_support/ca_bundle.rs"]
@@ -21,6 +23,8 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/evidence_embed.rs"]
+mod evidence_embed;
 #[path = "build_support/hosts_embed.rs"]
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
@@ -57,8 +61,6 @@ mod usb_image;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
-#[path = "build_support/wallpapers_embed.rs"]
-mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -159,7 +161,8 @@ fn main() {
     if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
         builder.set_ramdisk(PathBuf::from(ramdisk));
     }
-    // The sample files (text, the Docs test document, LazyWriter's picture).
+    // The generated sample files (text, the Docs test document); the binary
+    // samples are assets (below).
     samples_embed::embed(&mut files);
     // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
     // embedded separately below.
@@ -224,22 +227,8 @@ fn main() {
         .expect("user clipboardd artifact not found");
     files.add_file(fhs::bin::CLIPBOARDD, PathBuf::from(clipboardd));
 
-    // The evidence-only programs. `init` never starts them in the desktop
-    // profile, so the image leaves their ELFs out entirely: the deliberate
-    // crash service (issue #93), whose restart-with-backoff demo is the
-    // `flaky` row, and the clipboard demo pair (issue #115), which
-    // `clipboardd` spawns under `demo=1`, and `async_echo` (#91, #309).
-    if !desktop {
-        for (artifact, path) in [
-            ("CARGO_BIN_FILE_USER_flaky", fhs::bin::FLAKY),
-            ("CARGO_BIN_FILE_USER_clipcopy", fhs::bin::CLIPCP),
-            ("CARGO_BIN_FILE_USER_clippaste", fhs::bin::CLIPPASTE),
-            ("CARGO_BIN_FILE_USER_async_echo", fhs::bin::ASYNC_ECHO),
-        ] {
-            let elf = std::env::var_os(artifact).unwrap_or_else(|| panic!("{artifact} not found"));
-            files.add_file(path, PathBuf::from(elf));
-        }
-    }
+    // The evidence-only programs, left out of the desktop profile.
+    evidence_embed::embed(&mut files, desktop);
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
     // `logind` from its manifest; `accountsd` reads `passwd` when present. All
@@ -405,10 +394,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
-    // The desktop pictures LazyShell can draw behind the launchers.
-    if shell {
-        wallpapers_embed::embed(&mut files);
-    }
+    // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in
+    // `/system/share`: samples, and with the shell the desktop pictures.
+    assets_embed::embed(&mut files, &manifest_dir, shell);
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.

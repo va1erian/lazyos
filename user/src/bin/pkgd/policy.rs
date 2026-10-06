@@ -38,10 +38,11 @@ impl LoadError {
     }
 }
 
-/// Compile `manifest`'s permissions and load them as the policy of
+/// Compile `manifest`'s permissions (plus the baseline, `rules::installed`)
+/// and load them as the policy of
 /// `app:<system_name>`. Returns the number of rules the kernel now holds.
 pub(crate) fn load(manifest: &Manifest) -> core::result::Result<u64, LoadError> {
-    let rules = rules::compile(manifest).map_err(LoadError::Compile)?;
+    let rules = rules::installed(manifest).map_err(LoadError::Compile)?;
     policy::load_label(&rules::label(&manifest.app.system_name), &rules).map_err(LoadError::Kernel)
 }
 

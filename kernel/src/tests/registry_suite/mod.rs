@@ -1,6 +1,7 @@
 //! Name registry (issue #89).
 
 use super::*;
+use crate::ipc::handles::HandleKind;
 use crate::ipc::registry::{self, Error as RegistryError};
 use crate::ipc::syscalls::{
     errno, MsgArgs, MsgResult, OP_LIST, OP_REGISTER, OP_RESOLVE, OP_UNREGISTER,
@@ -173,9 +174,11 @@ fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 mod acl_and_proxy;
+mod connect_op;
 mod register_and_resolve;
 
 pub(super) use acl_and_proxy::*;
+pub(super) use connect_op::*;
 pub(super) use register_and_resolve::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -197,4 +200,5 @@ pub(super) const CASES: &[(&str, Test)] = &[
         proxy_registers_for_client,
     ),
     ("ipc_registry_syscall_roundtrip", syscall_roundtrip),
+    ("ipc_registry_syscall_connect", syscall_connect),
 ];

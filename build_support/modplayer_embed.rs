@@ -25,6 +25,7 @@ const PACKAGE: &str = "target/pkg/modplayer.lzp";
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-changed=build_support/modplayer_embed.rs");
     println!("cargo:rerun-if-env-changed=LAZYOS_MODPLAYER");
+    embed_test_packages(sink);
     let path = manifest_dir.join(PACKAGE);
     // Watched even when missing: a package built later triggers an image rebuild.
     println!("cargo:rerun-if-changed={}", path.display());
@@ -43,4 +44,36 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         fhs::share::MODPLAYER_LZP
     );
     sink.add_file(fhs::share::MODPLAYER_LZP, path);
+}
+
+/// Test packages a session installs (`LAZYOS_TEST_PACKAGES`, a platform path
+/// list of `.lzp` files): each is placed in [`fhs::share::SAMPLES`] under its
+/// own file name, a user package nothing pre-installs. Only test images set
+/// it (`tools/screenshot/examples/app_crash_notice.json` installs
+/// `crashload.lzp`, issue #549); a missing file fails the build.
+fn embed_test_packages(sink: &mut dyn Sink) {
+    println!("cargo:rerun-if-env-changed=LAZYOS_TEST_PACKAGES");
+    let Some(list) = std::env::var_os("LAZYOS_TEST_PACKAGES") else {
+        return;
+    };
+    for path in std::env::split_paths(&list).filter(|p| !p.as_os_str().is_empty()) {
+        println!("cargo:rerun-if-changed={}", path.display());
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .filter(|name| name.ends_with(".lzp"))
+            .unwrap_or_else(|| panic!("LAZYOS_TEST_PACKAGES: {} is not a .lzp", path.display()))
+            .to_owned();
+        assert!(
+            path.is_file(),
+            "LAZYOS_TEST_PACKAGES: {} is missing",
+            path.display()
+        );
+        let destination = format!("{}/{name}", fhs::share::SAMPLES);
+        println!(
+            "cargo:warning=LAZYOS_TEST_PACKAGES embedded: {} as {destination}",
+            path.display()
+        );
+        sink.add_file(&destination, path);
+    }
 }

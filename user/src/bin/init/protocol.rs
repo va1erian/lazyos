@@ -135,6 +135,11 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 }
                 Ok(Parcel::default())
             }
+            // A launched app says why it is failing (issue #549).
+            services::init::wire::METHOD_REPORTFAILURE => {
+                super::notice::report(services, message);
+                Ok(Parcel::default())
+            }
             services::init::METHOD_SHUTDOWN => {
                 let request = services::init::wire::decode_shutdown_args(&message.parcel.body)
                     .map_err(messenger::Error::Parcel)?;

@@ -124,10 +124,20 @@ def placeholder_names(topic: Topic) -> list[str]:
     return [param_name(p.rust_name) for p in topic.params]
 
 
+# Methods only the kernel gate serves: `messengerd` does not proxy them, so a
+# script's call would fail (the registry's `Connect`, issue #483).
+GATE_ONLY = {("os.lazy.messenger.registry.v1", "Connect")}
+
+
 def callable_methods(interface: Interface) -> list[Method]:
     """Methods a script can call: a request that transfers a kernel object
-    (channel, buffer, ring) needs something a script cannot create."""
-    return [m for m in interface.methods if not m.transfers]
+    (channel, buffer, ring) needs something a script cannot create, and a
+    gate-only method is not reachable over the daemon a script talks to."""
+    return [
+        m
+        for m in interface.methods
+        if not m.transfers and (interface.name, m.name) not in GATE_ONLY
+    ]
 
 
 def struct_zero(ty: Type, interface: Interface) -> str:

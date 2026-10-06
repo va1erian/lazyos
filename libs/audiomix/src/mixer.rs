@@ -298,8 +298,9 @@ impl<R: Ring> Mixer<R> {
     /// The card has played `card_played` frames since it started: advance
     /// every stream's position and report each drain that completed.
     pub fn played(&mut self, card_played: u64, mut drained: impl FnMut(u32)) {
+        let outputs = self.config.period_frames;
         for stream in &mut self.streams {
-            if stream.resolve(card_played) {
+            if stream.resolve(card_played, outputs) {
                 drained(stream.id);
             }
         }

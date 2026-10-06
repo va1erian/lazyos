@@ -62,6 +62,7 @@ class Launcher:
             "memory": self.v["memory"].get().strip(),
             "limits": self.v["limits"].get().strip(),
             "display_mode": self.v["display_mode"].get().strip(),
+            "assets": self.v["assets"].get().strip(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
             "abi_time": self.v["abi_time"].get().strip(),
@@ -225,6 +226,7 @@ class Launcher:
         self._field(g, "QEMU args:", "extra", 44)
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
+        self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)

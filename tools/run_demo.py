@@ -29,6 +29,7 @@ Examples
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
+    python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
@@ -37,8 +38,7 @@ recreates it from scratch. A persistent ext2 home volume (default
 virtio-blk device and mounted at ``/home``. It is created on first use and never
 regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
 for the demo accounts (owned by them) and nothing else, so log in as ``user``
-(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home. ``--data-disk PATH`` still attaches a legacy ext2
-data volume (not mounted anywhere new); it is off by default.
+(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
 interpreter). Press Tab to move focus (green border); typed input goes to the
@@ -58,6 +58,7 @@ from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
+from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
@@ -216,6 +217,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     add_limit_option(parser)
     add_display_options(parser)
+    add_assets_option(parser)
     parser.add_argument("--accel", default="auto",
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
@@ -231,14 +233,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--reset-home", action="store_true",
                         help="regenerate the home volume (asks first unless --yes)")
     parser.add_argument("--reset-os", action="store_true",
-                        help="recreate the OS volume inside the image instead of updating it "
-                             "in place: builds with LAZYOS_RESET_OS=1, which erases installed "
-                             "apps, settings, logs and /data (home.img is not touched)")
-    parser.add_argument("--data-disk", metavar="PATH", nargs="?",
-                        const=str(mkdisk.DEFAULT_PATH),
-                        help="also attach a legacy ext2 data volume as a virtio-blk device, "
-                             "created if missing (off by default; no path means "
-                             f"{mkdisk.DEFAULT_PATH}). Mounted nowhere new")
+                        help="recreate the OS volume instead of updating it in place "
+                             "(LAZYOS_RESET_OS=1): erases apps, settings, logs, not home.img")
+    parser.add_argument("--data-disk", metavar="PATH", nargs="?", const=str(mkdisk.DEFAULT_PATH),
+                        help="also attach a legacy ext2 data volume, created if missing "
+                             f"(default path {mkdisk.DEFAULT_PATH}; mounted nowhere new)")
     parser.add_argument("--no-data-disk", action="store_true",
                         help="do not attach a data volume (the default; kept for older callers)")
     parser.add_argument("--reset-data", action="store_true",
@@ -355,6 +354,7 @@ def main(argv: list[str]) -> int:
         net_qemu, forwards = qemu_net.args_from_options(args)
         limits = build_limits(args.limit, args.no_build)
         limits.update(build_display(args))
+        limits.update(build_assets(args))
     except ValueError as error:
         parser.error(str(error))
 

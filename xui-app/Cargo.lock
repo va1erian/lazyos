@@ -1957,7 +1957,7 @@ dependencies = [
 [[package]]
 name = "netsurf-sys"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "cc",
  "libz-sys",
@@ -4069,7 +4069,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -4100,7 +4100,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -4131,7 +4131,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "xui-core",
 ]
@@ -4139,7 +4139,7 @@ dependencies = [
 [[package]]
 name = "xui-litehtml"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "image",
  "litehtml",
@@ -4168,7 +4168,7 @@ dependencies = [
 [[package]]
 name = "xui-netsurf"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "log",
  "netsurf-sys",
@@ -4190,7 +4190,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=c0007e478c090651767efe9253ab4691b14d4bb1#c0007e478c090651767efe9253ab4691b14d4bb1"
+source = "git+https://github.com/va1erian/xui?rev=baffd078bac9d0b8ba367780f5489ec66553a592#baffd078bac9d0b8ba367780f5489ec66553a592"
 dependencies = [
  "serde",
  "serde_json",

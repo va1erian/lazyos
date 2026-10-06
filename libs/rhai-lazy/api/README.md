@@ -98,7 +98,7 @@ An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 
 Not callable from a script (the request transfers a kernel object): `AttachRing`.
 
-- `EVENT_KIND` = the `EventKind` variants; `EVENT_KIND_UNDERRUN`, `EVENT_KIND_OVERRUN`, `EVENT_KIND_DRAINED`, `EVENT_KIND_DEVICE_ERROR`
+- `EVENT_KIND` = the `EventKind` variants; `EVENT_KIND_UNDERRUN`, `EVENT_KIND_OVERRUN`, `EVENT_KIND_DRAINED`, `EVENT_KIND_DEVICE_ERROR`, `EVENT_KIND_PERIOD`
 - `DIRECTION` = the `Direction` variants; `DIRECTION_PLAYBACK`, `DIRECTION_CAPTURE`
 - `FORMAT` = the `Format` variants; `FORMAT_S16_LE`, `FORMAT_S24_LE`, `FORMAT_S32_LE`, `FORMAT_FLOAT32`
 
@@ -285,10 +285,12 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
 | `start_driver(driver, device)` | `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
 | `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
+| `report_failure(reason)` | `ReportFailure(reason: String) -> () oneway` | A launched app says why it is about to fail (issue #549), so the |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |
 | `new_service_event()` | struct `ServiceEvent` | a `ServiceEvent` at its zero value |
+| `new_app_failure()` | struct `AppFailure` | a `AppFailure` at its zero value |
 
 - `POWER_MODE` = the `PowerMode` variants; `POWER_MODE_POWER_OFF`, `POWER_MODE_REBOOT`
 
@@ -296,6 +298,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 |---|---|---|
 | `system/power/state` | `PowerState` | `on_power_state(handler)`, `subscribe_power_state()`, `publish_power_state(payload)` |
 | `system/events/service/{name}` | `ServiceEvent` | `service_topic(name)`, `on_service(name, handler)`, `subscribe_service(name)`, `publish_service(name, payload)` |
+| `system/events/app/{app}` | `AppFailure` | `app_topic(app)`, `on_app(app, handler)`, `subscribe_app(app)`, `publish_app(app, payload)` |
 
 ## `sys::input`
 
@@ -581,6 +584,8 @@ The Messenger service name registry (issues #89, #300).
 | `unregister(name)` | `Unregister(name: String) -> ()` | Withdraw `name`. Only its owner (or an administrator) may. |
 | `list()` | `List() -> (entries: Array<Entry>)` | Snapshot the name table. |
 | `new_entry()` | struct `Entry` | a `Entry` at its zero value |
+
+Not callable from a script (the request transfers a kernel object): `Connected`.
 
 ## `sys::shell`
 

@@ -31,6 +31,7 @@ pub mod args;
 pub mod desktop_mode;
 #[cfg(unix)]
 pub mod devplay;
+pub mod failure;
 pub mod handoff;
 pub mod launcher;
 pub mod marker;

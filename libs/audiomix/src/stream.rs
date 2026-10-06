@@ -292,14 +292,27 @@ impl<R: Ring> Stream<R> {
     }
 
     /// The card has played up to `card_played`: advance `played`. Returns
-    /// whether that completed a drain.
-    pub(crate) fn resolve(&mut self, card_played: u64) -> bool {
+    /// whether that completed a drain. A running stream that has now played
+    /// everything it was mixed and has less than an output period of
+    /// `outputs` frames waiting ran dry: one underrun per dry spell, even when
+    /// no other stream keeps the mixer mixing (issue #453).
+    pub(crate) fn resolve(&mut self, card_played: u64, outputs: usize) -> bool {
         while let Some(mark) = self.marks.front() {
             if mark.card_end > card_played {
                 break;
             }
             self.played = mark.consumed;
             self.marks.pop_front();
+        }
+        let dry = self.committed - self.consumed < self.threshold(outputs);
+        if self.state == State::Running
+            && self.consumed > 0
+            && self.marks.is_empty()
+            && dry
+            && !self.starved
+        {
+            self.underruns = self.underruns.saturating_add(1);
+            self.starved = true;
         }
         self.finish_drain()
     }

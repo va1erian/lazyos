@@ -168,11 +168,29 @@ mastering after a free.
 The serial markers (`SND:PLAY:PASS`, `BEEP:PLAY:PASS`, ...) only tell the
 harness when the guest is done; the verdict is the recording.
 
+## Stream events (#453)
+
+`system/audio/{card}/event` (`idl/audio.midl`, on the central broker) carries
+`AudioEvent {stream, kind, frames}`. `audiod` publishes the application
+streams' under `{card}` = `mixer`: one `Underrun` per dry spell (a running
+stream that played everything it had, counted even when no other stream keeps
+the mixer mixing), one `Drained` per completed drain, and while someone
+subscribes a `Period` at most every 50 ms per running stream as its position
+advances. `sndd` publishes the card's own stream under `virtio-snd0`:
+`Underrun` when the device runs out of queued periods (which happens when the
+mixer stops feeding it), `Drained`, and `DeviceError` when a device failure
+reclaims the stream. The exactly-once logic is `audiomix::events` (host
+tests, including a soak); the messengerd `system/` gate lets `_snd` and
+`_audio` publish under `system/audio/` alone (`sndpolicy`). Harness:
+`python tools/sound/run.py --starve --services` (`beep starve=1` runs its
+stream dry and checks its own events).
+
 ## Not done
 
-See [`audio-plan.md`](../audio-plan.md) stages A6-A8: the
-`system/audio/<card>/event` topic (declared in the IDL, not yet published) and
-tickless loops (both services still tick at 100 Hz while sound plays),
+See [`audio-plan.md`](../audio-plan.md) stages A6-A8: a `PlaybackStream`
+that sleeps on `system/audio/<card>/event` (published since #453, see above)
+instead of polling, and tickless loops (both services still tick at 100 Hz
+while sound plays),
 persisted volumes and a Settings page, a std/musl transport for xui apps,
 capture (`OpenStream` for capture is `ENOTSUP`), formats other than `S16Le`
 through the mixer, MSI/MSI-X (INTx only), and HDA capture and HDMI codecs.

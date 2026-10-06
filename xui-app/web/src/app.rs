@@ -1,51 +1,49 @@
-//! The LazyWeb window: the toolbar, the NetSurf page and the status line,
-//! and what the page's events do to them.
+//! The LazyWeb window: what the page's events, the menus, the toolbar and
+//! the keyboard do to the chrome (`chrome.rs`).
 //!
 //! Serial evidence (the screenshot sessions wait on it): `WEB:LOAD:<url>`
 //! then `WEB:TITLE:<title>` when a load finishes, `WEB:FAIL:<reason>` when a
 //! page cannot be opened or fetched, `WEB:NAV:<url>` when the app starts a
-//! navigation.
+//! navigation, `WEB:LAUNCH:...` (`handoff.rs`) when a link goes to another app,
+//! and the download markers of `transfers.rs`.
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use lazyweb::address::{self, START};
 use lazyweb::fetch::trace;
 use lazyweb::history::History;
 use lazyweb::marker_text;
+use lazyweb::pages::{self, Command as PageCommand, ABOUT, DOWNLOADS, HISTORY};
+use lazyweb::visits::Visits;
 use xui_app::backend::LazyOSBackend;
+use xui_app::platform::launcher;
 use xui_core::app::{App, Ui};
-use xui_core::arrange::{build, button, column, edit, label, row, Handle, Layout, LayoutExt};
 use xui_core::backend::Result;
-use xui_core::layout::Insets;
-use xui_core::widget::{Button, Edit, HasText, Label};
-use xui_core::{Dip, Key};
+use xui_core::icon::Lucide;
+use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
 use xui_netsurf::NetSurfViewEvent;
 
+use crate::chrome::{self, Command, Widgets};
+use crate::handoff;
+use crate::indicators::{Badge, Security, Throbber};
+use crate::internal::Internal;
+use crate::keys::shortcut;
 use crate::page::Page;
-
-/// The built-in start page.
-const START_HTML: &str = include_str!("start.html");
+use crate::transfers::Transfers;
 
 /// The name the window has while a page has no title.
 const APP_NAME: &str = "LazyWeb";
 
-/// The toolbar's height and its buttons' widths.
-const TOOLBAR_HEIGHT: Dip = Dip(36.0);
-const BACK_WIDTH: Dip = Dip(52.0);
-const FORWARD_WIDTH: Dip = Dip(64.0);
-const RELOAD_WIDTH: Dip = Dip(60.0);
-const GO_WIDTH: Dip = Dip(40.0);
-/// The status line's height.
-const STATUS_HEIGHT: Dip = Dip(24.0);
-
 /// Everything the window reacts to.
+#[derive(Clone)]
 pub enum Msg {
     /// The engine has news for the view.
     Frame,
-    Back,
-    Forward,
-    Reload,
+    Menu(Command),
+    /// The toolbar's Reload button, which is Stop while a page loads.
+    ReloadOrStop,
     /// Enter in the address field, or the Go button.
     Go,
     /// Ctrl+L: an empty, focused address field to type into. (`Edit` has no
@@ -58,101 +56,105 @@ pub enum Msg {
     AddressEdited,
 }
 
+/// What the browser keeps beside its widgets.
+pub struct Setup {
+    pub url: Option<String>,
+    pub visits: Visits,
+    pub transfers: Transfers,
+}
+
 /// The window's widgets and state.
 pub struct Browser {
     page: Rc<Page>,
+    menu: Rc<Menu<Msg>>,
     address: Rc<Edit<Msg>>,
-    status: Rc<Label<Msg>>,
     back: Rc<Button<Msg>>,
     forward: Rc<Button<Msg>>,
     reload: Rc<Button<Msg>>,
+    throbber: Rc<Throbber>,
+    status: Rc<Label<Msg>>,
+    badge: Rc<Badge>,
+    download_label: Rc<Label<Msg>>,
+    download_bar: Rc<ProgressBar<Msg>>,
     history: History,
-    /// The start page's `data:` URL, shown as [`START`].
-    start_url: String,
+    visits: Visits,
+    transfers: Transfers,
+    internal: Internal,
     /// The URL on show (as the view reported it) and its title.
     url: String,
     title: String,
+    loading: bool,
     /// The current load failed: its end is not a `WEB:LOAD`.
     failed: bool,
     /// The user is typing an address: the page's own news (its URL as it
     /// loads, redirects) must not replace what they typed.
     editing: bool,
-    /// Back, Forward and Reload as last enabled (`None` before the first
+    /// Back, Forward and loading as last shown (`None` before the first
     /// update): setting a button repaints it, and the page's frames arrive
     /// many times a second.
     buttons: Cell<Option<[bool; 3]>>,
 }
 
 impl Browser {
-    /// Builds the window, opening `url` (or the start page).
-    pub fn build(
-        ui: &mut Ui<Msg>,
-        backend: Rc<LazyOSBackend>,
-        url: Option<String>,
-    ) -> Result<Browser> {
-        let start_url = address::html_data_url(START_HTML);
-        let first = url.unwrap_or_else(|| start_url.clone());
+    /// Builds the window, opening `setup.url` (or the start page).
+    pub fn build(ui: &mut Ui<Msg>, backend: Rc<LazyOSBackend>, setup: Setup) -> Result<Browser> {
+        let mut internal = Internal::default();
+        let first = setup.url.unwrap_or_else(|| internal.start());
         // The first page loads without passing through `open`.
-        let initial = if first == start_url { START } else { &first };
-        println!("WEB:NAV:{}", marker_text(initial));
+        println!("WEB:NAV:{}", marker_text(internal.shown(&first)));
         println!("WEB:TIME:{}ms:nav", trace::now_ms());
 
         let widgets = Widgets::default();
-        let url = first.clone();
-        ui.root(
-            column().children((
-                toolbar(&widgets).fixed(TOOLBAR_HEIGHT),
-                build(move |ui| Page::new(ui, &url))
-                    .bind(&widgets.page)
-                    .fill(1),
-                row()
-                    .padding(Insets::new(Dip(8.0), Dip(3.0), Dip(8.0), Dip(0.0)))
-                    .child(label("").bind(&widgets.status).fill(1))
-                    .fixed(STATUS_HEIGHT),
-            )),
-        )?;
+        ui.root(chrome::window(&widgets, first.clone()))?;
 
         let address = widgets.address.get();
         let field = address.id();
         ui.on_key(move |key, mods| shortcut(key, mods, backend.focused() == Some(field)));
 
-        let mut browser = Browser {
-            page: widgets.page.get(),
-            address,
-            status: widgets.status.get(),
-            back: widgets.back.get(),
-            forward: widgets.forward.get(),
-            reload: widgets.reload.get(),
-            history: History::new(),
-            start_url,
-            url: String::new(),
-            title: String::new(),
-            failed: false,
-            editing: false,
-            buttons: Cell::new(None),
-        };
+        let mut browser = Browser::mounted(&widgets, setup.visits, setup.transfers, internal);
         browser.show_url(&first);
-        browser.set_status(&format!("Opening {}", browser.shown(&first)));
+        browser.set_loading(true);
+        let shown = browser.internal.shown(&first).to_string();
+        browser.set_status(&format!("Opening {shown}"));
         browser.update_buttons();
+        browser.update_downloads(ui);
         ui.set_window_title(APP_NAME);
         Ok(browser)
     }
 
-    /// `url` as the address bar shows it: the start page by its short name.
-    fn shown<'a>(&'a self, url: &'a str) -> &'a str {
-        if url == self.start_url {
-            START
-        } else {
-            url
+    fn mounted(w: &Widgets, visits: Visits, transfers: Transfers, internal: Internal) -> Browser {
+        Browser {
+            page: w.page.get(),
+            menu: w.menu.get(),
+            address: w.address.get(),
+            back: w.back.get(),
+            forward: w.forward.get(),
+            reload: w.reload.get(),
+            throbber: w.throbber.get(),
+            status: w.status.get(),
+            badge: w.badge.get(),
+            download_label: w.download_label.get(),
+            download_bar: w.download_bar.get(),
+            history: History::new(),
+            visits,
+            transfers,
+            internal,
+            url: String::new(),
+            title: String::new(),
+            loading: false,
+            failed: false,
+            editing: false,
+            buttons: Cell::new(None),
         }
     }
 
     fn show_url(&mut self, url: &str) {
         self.url = url.to_string();
+        self.badge.set(Security::of(url));
         if self.editing {
             return;
         }
-        let text = self.shown(url).to_string();
+        let text = self.internal.shown(url).to_string();
         self.address.set_text(&text);
     }
 
@@ -160,47 +162,98 @@ impl Browser {
         self.status.set_text(text);
     }
 
-    /// Enables Back, Forward and Reload as the history allows, touching them
-    /// only when that changed: each `set_enabled` damages its button, which
-    /// would otherwise add the toolbar to every page frame's repaint.
+    fn set_loading(&mut self, on: bool) {
+        self.loading = on;
+        self.throbber.set_spinning(on);
+    }
+
+    /// Enables Back, Forward and Stop, and turns Reload into Stop while a
+    /// page loads, touching them only when that changed: each change damages
+    /// its button, which would otherwise add the toolbar to every frame.
     fn update_buttons(&self) {
         let state = [
             self.history.can_go_back(),
             self.history.can_go_forward(),
-            self.history.current().is_some(),
+            self.loading,
         ];
         if self.buttons.replace(Some(state)) == Some(state) {
             return;
         }
         self.back.set_enabled(state[0]);
         self.forward.set_enabled(state[1]);
-        self.reload.set_enabled(state[2]);
+        let (icon, tip) = if self.loading {
+            (Lucide::X, "Stop (Esc)")
+        } else {
+            (Lucide::RefreshCw, "Reload (F5)")
+        };
+        self.reload.set_icon(Some(icon));
+        let _ = self.reload.set_tooltip(tip);
+        self.menu.set_enabled(Command::Back.id(), state[0]);
+        self.menu.set_enabled(Command::Forward.id(), state[1]);
+        self.menu.set_enabled(Command::Stop.id(), state[2]);
     }
 
-    /// Opens `url` in the view.
-    fn open(&mut self, url: &str) {
-        let target = if url.eq_ignore_ascii_case(START) {
-            self.start_url.clone()
-        } else {
-            url.to_string()
+    /// Shows the running downloads in the status bar, or hides that part.
+    fn update_downloads(&self, ui: &Ui<Msg>) {
+        let summary = self.transfers.summary();
+        ui.set_visible(self.download_label.id(), summary.is_some());
+        let percent = summary.as_ref().and_then(|s| s.percent);
+        ui.set_visible(self.download_bar.id(), percent.is_some());
+        if let Some(summary) = summary {
+            self.download_label.set_text(&summary.text);
+            self.download_bar.set_value(percent.unwrap_or(0));
+        }
+    }
+
+    /// Opens `target`: a URL, or the name of one of LazyWeb's own pages.
+    fn open(&mut self, target: &str) {
+        let url = match Internal::name_of(target) {
+            Some(name) => self.build_page(name),
+            None => target.to_string(),
         };
+        let shown = self.internal.shown(&url).to_string();
         self.editing = false;
-        println!("WEB:NAV:{}", marker_text(self.shown(&target)));
+        println!("WEB:NAV:{}", marker_text(&shown));
         println!("WEB:TIME:{}ms:nav", trace::now_ms());
         self.failed = false;
-        self.set_status(&format!("Opening {}", self.shown(&target)));
-        self.page.view().navigate(&target);
+        self.set_loading(true);
+        self.set_status(&format!("Opening {shown}"));
+        self.page.view().navigate(&url);
+    }
+
+    /// Builds one of LazyWeb's own pages as it stands now.
+    fn build_page(&mut self, name: &'static str) -> String {
+        let html = match name {
+            HISTORY => pages::history(self.visits.entries()),
+            DOWNLOADS => pages::downloads(
+                &self.transfers.rows(),
+                &self.transfers.folder().display().to_string(),
+            ),
+            ABOUT => pages::about(env!("CARGO_PKG_VERSION")),
+            _ => return self.internal.start(),
+        };
+        self.internal.build(name, &html)
     }
 
     /// Opens what the address field holds.
     fn go(&mut self) {
-        match address::normalize(&self.address.text()) {
+        let text = self.address.text();
+        if let Some(name) = Internal::name_of(&text) {
+            self.open(name);
+            return;
+        }
+        match address::normalize(&text) {
             Some(url) => {
                 self.address.set_text(&url);
                 self.open(&url);
             }
             None => self.set_status("Type an address first"),
         }
+    }
+
+    /// The page on show is one of LazyWeb's own, named `name`.
+    fn showing(&self, name: &str) -> bool {
+        self.internal.name_for(&self.url) == Some(name)
     }
 
     /// Applies what the view reported.
@@ -216,100 +269,193 @@ impl Browser {
                 ui.set_window_title(window);
             }
             NetSurfViewEvent::UrlChanged(url) => {
-                self.history.on_url(&url);
+                let shown = self.internal.shown(&url).to_string();
+                self.history.on_url(&shown);
                 self.show_url(&url);
             }
             NetSurfViewEvent::LoadingChanged(true) => {
                 self.failed = false;
-                self.set_status(&format!("Loading {}...", self.shown(&self.url)));
+                self.set_loading(true);
             }
             NetSurfViewEvent::LoadingChanged(false) => self.load_ended(),
+            NetSurfViewEvent::StatusChanged(text) => {
+                if !text.is_empty() && !self.failed {
+                    self.set_status(&text);
+                }
+            }
+            NetSurfViewEvent::LaunchUrl { url, by_user } => self.launch(&url, by_user),
             NetSurfViewEvent::Failed(why) => self.fail(&why),
             NetSurfViewEvent::FetchFailed { url, message } => {
-                self.fail(&format!("{}: {message}", self.shown(&url)));
+                let shown = self.internal.shown(&url).to_string();
+                self.fail(&format!("{shown}: {message}"));
+            }
+            NetSurfViewEvent::DownloadStarted(info) => {
+                self.not_a_page(&info.url);
+                let status = self.transfers.started(info);
+                self.set_status(&status);
+                self.downloads_changed(ui);
+            }
+            NetSurfViewEvent::DownloadProgress { id, received } => {
+                self.transfers.progress(id, received);
+                self.update_downloads(ui);
+            }
+            NetSurfViewEvent::DownloadFinished { id, error } => {
+                if let Some(status) = self.transfers.finished(id, error) {
+                    self.set_status(&status);
+                }
+                self.downloads_changed(ui);
             }
         }
         self.update_buttons();
     }
 
+    /// The download list changed: the status bar follows, and so does the
+    /// downloads page when it is on show.
+    fn downloads_changed(&mut self, ui: &Ui<Msg>) {
+        self.update_downloads(ui);
+        if self.showing(DOWNLOADS) && !self.loading {
+            let url = self.build_page(DOWNLOADS);
+            self.page.view().navigate(&url);
+        }
+    }
+
+    /// A load of `url` became a download: the page that started it stays,
+    /// and neither the Back list nor the history keeps `url`.
+    fn not_a_page(&mut self, url: &str) {
+        self.history.forget(url);
+        if let Err(e) = self.visits.forget_newest(url) {
+            eprintln!("lazyweb: history not saved: {e}");
+        }
+        if self.url == url {
+            if let Some(page) = self.history.current() {
+                let page = self.internal.url_of(page);
+                self.show_url(&page);
+            }
+        }
+    }
+
     fn load_ended(&mut self) {
         self.history.on_load_end();
+        self.set_loading(false);
         if self.failed {
             return;
         }
-        let shown = self.shown(&self.url).to_string();
+        let shown = self.internal.shown(&self.url).to_string();
         println!("WEB:TIME:{}ms:done", trace::now_ms());
         println!("WEB:LOAD:{}", marker_text(&shown));
         println!("WEB:TITLE:{}", marker_text(&self.title));
-        let done = if self.title.trim().is_empty() {
-            shown
-        } else {
-            self.title.clone()
-        };
-        self.set_status(&done);
+        if let Err(e) = self.visits.record(&self.url, &self.title, now()) {
+            eprintln!("lazyweb: history not saved: {e}");
+        }
     }
 
     fn fail(&mut self, why: &str) {
         self.failed = true;
         self.history.on_load_end();
+        self.set_loading(false);
         println!("WEB:TIME:{}ms:fail", trace::now_ms());
         println!("WEB:FAIL:{}", marker_text(why));
         self.set_status(&format!("Failed: {why}"));
     }
-}
 
-/// The widgets the window changes after building.
-#[derive(Default)]
-struct Widgets {
-    page: Handle<Page>,
-    address: Handle<Edit<Msg>>,
-    status: Handle<Label<Msg>>,
-    back: Handle<Button<Msg>>,
-    forward: Handle<Button<Msg>>,
-    reload: Handle<Button<Msg>>,
-}
-
-/// Back, Forward and Reload, the address field taking the rest, and Go.
-fn toolbar(widgets: &Widgets) -> Layout<Msg> {
-    row()
-        .gap(6)
-        .padding(Insets::symmetric(Dip(6.0), Dip(5.0)))
-        .children((
-            row().gap(4).children((
-                button("Back")
-                    .bind(&widgets.back)
-                    .on_click_with(|| Some(Msg::Back))
-                    .width(BACK_WIDTH),
-                button("Forward")
-                    .bind(&widgets.forward)
-                    .on_click_with(|| Some(Msg::Forward))
-                    .width(FORWARD_WIDTH),
-                button("Reload")
-                    .bind(&widgets.reload)
-                    .on_click_with(|| Some(Msg::Reload))
-                    .width(RELOAD_WIDTH),
-            )),
-            edit()
-                .bind(&widgets.address)
-                .placeholder("Type an address and press Enter")
-                .on_change(|_| Msg::AddressEdited)
-                .fill(1),
-            button("Go").on_click_with(|| Some(Msg::Go)).width(GO_WIDTH),
-        ))
-}
-
-/// The window's keyboard shortcuts; Enter only while the address field has
-/// the focus, so a page's own forms still get it.
-fn shortcut(key: Key, mods: xui_core::Modifiers, in_address: bool) -> Option<Msg> {
-    match key {
-        Key::RETURN if in_address => Some(Msg::Go),
-        Key::LEFT if mods.alt => Some(Msg::Back),
-        Key::RIGHT if mods.alt => Some(Msg::Forward),
-        Key::F5 => Some(Msg::Reload),
-        Key::L if mods.ctrl => Some(Msg::FocusAddress),
-        Key::ESCAPE if in_address => Some(Msg::RestoreAddress),
-        _ => None,
+    /// A link NetSurf cannot follow: one of our pages' commands, or a URL
+    /// for the app registered for its scheme (`mailto:` opens Mail).
+    fn launch(&mut self, url: &str, by_user: bool) {
+        if let Some(command) = PageCommand::parse(url) {
+            // Only our own pages may ask: a web page linking to a command
+            // gets nothing.
+            if self.internal.name_for(&self.url).is_some() {
+                self.page_command(command);
+            }
+            return;
+        }
+        let status = handoff::open(url, by_user);
+        self.set_status(&status);
     }
+
+    fn page_command(&mut self, command: PageCommand) {
+        match command {
+            PageCommand::ClearHistory => self.clear_history(),
+            PageCommand::OpenDownload(n) => {
+                let opened = self
+                    .transfers
+                    .saved(n)
+                    .map(|path| path.display().to_string())
+                    .map(|path| (launcher::open_path(&path), path));
+                match opened {
+                    Some((Ok(()), path)) => self.set_status(&format!("Opened {path}")),
+                    Some((Err(e), path)) => self.set_status(&format!("Cannot open {path}: {e}")),
+                    None => {}
+                }
+            }
+            PageCommand::CancelDownload(n) => {
+                if let Some(id) = self.transfers.running(n) {
+                    self.page.view().cancel_download(id);
+                }
+            }
+        }
+    }
+
+    fn clear_history(&mut self) {
+        match self.visits.clear() {
+            Ok(()) => self.set_status("History cleared"),
+            Err(e) => self.set_status(&format!("History not cleared: {e}")),
+        }
+        if self.showing(HISTORY) {
+            self.open(HISTORY);
+        }
+    }
+
+    fn command(&mut self, command: Command, ui: &Ui<Msg>) {
+        match command {
+            Command::OpenLocation => self.focus_address(),
+            Command::SavePage => {
+                if address::is_network(&self.url) {
+                    self.page.view().download(&self.url);
+                } else {
+                    self.set_status("Only pages from the web can be saved");
+                }
+            }
+            Command::Close => ui.close(),
+            Command::Back => {
+                if let Some(url) = self.history.back() {
+                    self.open(&url);
+                }
+            }
+            Command::Forward => {
+                if let Some(url) = self.history.forward() {
+                    self.open(&url);
+                }
+            }
+            Command::Reload => {
+                if let Some(url) = self.history.reload() {
+                    self.open(&url);
+                }
+            }
+            Command::Stop => {
+                self.page.view().stop();
+                self.set_status("Stopped");
+            }
+            Command::Home => self.open(START),
+            Command::ShowHistory => self.open(HISTORY),
+            Command::ClearHistory => self.clear_history(),
+            Command::ShowDownloads => self.open(DOWNLOADS),
+            Command::About => self.open(ABOUT),
+        }
+    }
+
+    fn focus_address(&mut self) {
+        self.address.set_text("");
+        self.address.focus();
+        self.editing = true;
+    }
+}
+
+/// Seconds since the epoch.
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 impl App for Browser {
@@ -322,27 +468,17 @@ impl App for Browser {
                     self.on_view_event(ui, event);
                 }
             }
-            Msg::Back => {
-                if let Some(url) = self.history.back() {
-                    self.open(&url);
-                }
-            }
-            Msg::Forward => {
-                if let Some(url) = self.history.forward() {
-                    self.open(&url);
-                }
-            }
-            Msg::Reload => {
-                if let Some(url) = self.history.reload() {
-                    self.open(&url);
-                }
+            Msg::Menu(command) => self.command(command, ui),
+            Msg::ReloadOrStop => {
+                let command = if self.loading {
+                    Command::Stop
+                } else {
+                    Command::Reload
+                };
+                self.command(command, ui);
             }
             Msg::Go => self.go(),
-            Msg::FocusAddress => {
-                self.address.set_text("");
-                self.address.focus();
-                self.editing = true;
-            }
+            Msg::FocusAddress => self.focus_address(),
             Msg::RestoreAddress => {
                 self.editing = false;
                 let url = self.url.clone();

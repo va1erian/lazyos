@@ -8,6 +8,8 @@
 
 use alloc::vec::Vec;
 
+use audiomix::events::{Event, Kind};
+
 use user::messenger::audio::{self as api, wire};
 use user::messenger::{errno, Error as MsgError, Message, Parcel};
 use user::sys;
@@ -51,12 +53,21 @@ impl Service {
 
     /// Keep the device fed and reclaim an abandoned stream. Called on every
     /// wakeup, requested or not.
-    pub(super) fn housekeeping(&mut self) {
+    pub(super) fn housekeeping(&mut self, events: &mut Vec<Event>) {
         self.card.service_irq();
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        if session.pump(&mut self.card, false).is_err() || session.abandoned() {
+        let failed = session.pump(&mut self.card, false).is_err();
+        session.events(events);
+        if failed {
+            events.push(Event {
+                stream: session.index(),
+                kind: Kind::DeviceError,
+                frames: session.position(),
+            });
+        }
+        if failed || session.abandoned() {
             if let Some(session) = self.session.take() {
                 sys::write_str("SNDD:RECLAIM stream reclaimed from its owner\n");
                 session.close(&mut self.card);

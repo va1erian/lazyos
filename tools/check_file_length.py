@@ -19,8 +19,7 @@ SUFFIXES = (".rs", ".py")
 HEADER_LINES = 5
 
 # path -> maximum line count while it waits to be split.
-ALLOWLIST: dict[str, int] = {
-    "build.rs": 503,
+ALLOWLIST: dict[str, int] = {
     "build_support/os_image.rs": 504,
     "fuzz/gen_corpus.py": 777,
     "kernel/src/display.rs": 518,

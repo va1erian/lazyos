@@ -24,6 +24,7 @@ extern crate alloc;
 
 pub mod bin;
 pub mod boot;
+pub mod dev;
 pub mod docs;
 pub mod etc;
 #[cfg(feature = "alloc")]

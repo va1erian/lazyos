@@ -1,10 +1,16 @@
-//! The sample files every image ships in `/system/share/samples`.
+//! The sample files every image ships in `/system/share/samples`: the
+//! generated ones (`samples_embed`) and the binary ones (assets).
 
-use crate::os_image::{OsFiles, Source};
+use crate::os_image::{OsFiles, Sink, Source};
 
 fn samples() -> OsFiles {
     let mut files = OsFiles::default();
     crate::samples_embed::embed(&mut files);
+    for (dest, asset) in crate::assets_tests::checked_in(false) {
+        if dest.starts_with(fhs::share::SAMPLES) {
+            files.add_file(&dest, asset.file);
+        }
+    }
     files
 }
 

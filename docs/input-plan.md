@@ -1,6 +1,8 @@
 # Plan: a system-wide input subsystem
 
-> **Status: I0-I2 implemented (first cut); I3-I5 proposed.** See
+> **Status: I0-I2 implemented (first cut); the I5 console login landed
+> (issue #396, [sessionless Open](#the-login-console-sessionless-open)); I3,
+> I4 and the rest of I5 proposed.** See
 > [Implementation status](#implementation-status-first-cut) for what landed and
 > where it deviates from the sketch below. Original note: draft proposal (2026-09-30). Motivated by the Doom port
 > ([doom-port-plan.md](doom-port-plan.md) D3), but designed for every consumer:
@@ -265,7 +267,7 @@ I0, I1 and I2 are in. Where the code differs from the sketch above:
 | Capability | `init` starts `inputd` with `CAP_INPUT_RAW` only and strips the bit from every other manifest service; the kernel strips it from every boot-spawned program except `init` (`credentials::drop_caps`). |
 | `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`. Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
 | Keysyms | Unicode scalars for character keys, X11 `0xFFxx` values otherwise. With Ctrl held a letter's `sym` is its unshifted form. `mods` is the state *after* the event. |
-| Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` requires a surface. This is temporary: focus is defined per surface, so a sessionless session could never receive keys; the login console/service case needs its own routing rule (tracked in follow-up issues); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. `RequestGrant`/`ReleaseGrant`/`Ping` and real grants are I3. `ApproveGrant` answers `ENOSYS`. |
+| Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` without a surface is the login console's session (issue #396, below); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. `RequestGrant`/`ReleaseGrant`/`Ping` and real grants are I3. `ApproveGrant` answers `ENOSYS`. |
 | Shell authority | `inputd` accepts shell calls only from the task that holds the display grant, which it asks the kernel for (`rawsys` op 3, `display::owner()`; the grant itself needs `CAP_SYS_ADMIN`), so no capability bit beyond `input.raw` was needed yet. (The registry's name list is privileged, and a name is not an identity anyway.) |
 | Legacy bridge | `xuid` keeps its own hotkeys and the kernel key stream for surfaces without a session, and suppresses `KeyDown`/`KeyUp` for surfaces `inputd` reports a session for. It does not subscribe to `inputd` for legacy surfaces; that comes with the removal of the kernel stream (I5). |
 | xui apps | The static-musl backend opens one session per window (`xui-app/src/input.rs`, `backend/session_input.rs`), maps `KeyEvent` to `KeyDown`/`KeyUp` and `TextInput` to `Char`, and releases held keys on `KeyboardLeave`. |
@@ -283,3 +285,37 @@ capability gate, stress), `cargo test -p inputmap -p messenger-generated`,
 `tools/screenshot/examples/input_keys.json` + `tools/input/verify_trace.py`
 (both layouts, serial), and the desktop sessions (typing in the Terminal and the
 Editor on both layouts).
+
+## The login console: sessionless Open
+
+Issue #396 (part of I5). Focus is per surface, so a session without one needs
+its own routing rule:
+
+* **Routing.** The console session is the fallback target: it receives key
+  content while **no compositor is attached** to `inputd` (`Attach`), which is
+  exactly when the console is what the screen shows and nothing can have
+  focus. Under a compositor every key goes to the focused window or nowhere,
+  never to a prompt the user cannot see; the compositor going away gives the
+  console the keyboard back (`KeyboardEnter`), and its return takes it
+  (`KeyboardLeave`). The decisions are `inputmap::Router` (`open_console`,
+  `set_compositor`), host-tested with a soak.
+* **Gate.** A new capability, `CAP_INPUT_CONSOLE` (bit 13), which `init`
+  stamps onto `logind` alone, authorises the kernel's console *claim*
+  (syscall 25 ops 7-8, `kernel/src/input/console.rs`). `inputd` admits
+  `Open(None)` only from the claim's holder, which it learns from the kernel
+  (op 9, `CAP_INPUT_RAW` only), so no client can open a console session. One
+  holder at a time; a dead or demoted holder holds nothing.
+* **No double delivery.** While the claim stands, the PS/2 path keeps typed
+  keys off the kernel terminal queue (`inputd` still reads them from the raw
+  bus), so the console shell `logind` starts afterwards never replays the
+  user name or the password. `logind` claims and opens the session for each
+  prompt and closes it and releases the claim before it starts a shell; it
+  falls back to the kernel terminal (`sys::read_char`) when `inputd` is
+  unavailable (`LOGIN:CONSOLE:KERNEL`). It starts after `inputd`.
+
+Tests: `cargo test -p inputmap console`, `LAZYOS_TEST_FILTER=input_console
+python tools/test/run.py --accel none` (gate, lifecycle, stale holders, keys
+off the terminal queue, a claim soak), and the session
+`tools/screenshot/examples/console_login_inputd.json` on a `LAZYOS_SERVICES=1`
+image (log in through `inputd`, the shell's first `$?` is 0, a refused login),
+run with `--fail-on "(user|lazy): not found"`.

@@ -3,6 +3,7 @@
 //!
 //! Split out of `mimed.rs`, which is past the file-size budget.
 
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::messenger::mime;
@@ -128,6 +129,16 @@ impl MimeDb {
 
     /// The MIME type for a path.
     pub(crate) fn guess(&self, path: &str) -> String {
+        // A URL is typed by its scheme, the way desktop Linux names URL
+        // handlers: `https://...` is `x-scheme-handler/https`. A `file:` URL
+        // is its path.
+        let path = match url_scheme(path) {
+            Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
+                path[scheme.len() + 1..].trim_start_matches("//")
+            }
+            Some(scheme) => return format!("x-scheme-handler/{}", scheme.to_ascii_lowercase()),
+            None => path,
+        };
         let name = file_name(path);
         if let Some(mime_type) = lookup(&self.names, name) {
             return mime_type.to_string();
@@ -147,6 +158,17 @@ impl MimeDb {
     pub(crate) fn override_count(&self) -> usize {
         self.overrides.len()
     }
+}
+
+/// The scheme of `text` when it is a URL: a letter, then letters, digits,
+/// `+`, `-` or `.`, then `:`. A path (`/x`, `C:\x` aside) has none.
+fn url_scheme(text: &str) -> Option<&str> {
+    let (scheme, _) = text.split_once(':')?;
+    let mut bytes = scheme.bytes();
+    let valid = bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        && scheme.len() > 1;
+    valid.then_some(scheme)
 }
 
 /// The last path component (`/` and `\` both separate, so a Linux-style path

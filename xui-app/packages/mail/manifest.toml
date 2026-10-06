@@ -22,8 +22,14 @@ args = ["--client"]
 abi = "linux"
 autostart = false
 
+# `mailto:` links other apps open start Mail with the link: a new message.
+[[mime]]
+type = "x-scheme-handler/mailto"
+verbs = ["open"]
+
 [permissions]
-# The window, and outbound sockets to the IMAP and SMTP servers (plain
-# `std::net` under tokio, so the `outbound` network permission).
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+# The window, outbound sockets to the IMAP and SMTP servers (plain
+# `std::net` under tokio, so the `outbound` network permission), and
+# `mimed.Open` for links in messages (web links open in the browser).
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.mimed.v1"]
 network = ["outbound"]

@@ -88,6 +88,8 @@ pub mod op {
     /// Park until one of several endpoints (or a doorbell) is ready; see
     /// [`super::wait`].
     pub const WAIT: u64 = 19;
+    /// Open a private connection to a registered name (issue #483).
+    pub const CONNECT: u64 = 20;
 }
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A

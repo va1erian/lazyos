@@ -65,6 +65,9 @@ fn list() {
     msg::connect("os.lazy.messenger.registry.v1").invoke("List", [])
 }
 
+// Not callable from a script (the request transfers a channel, buffer
+// or ring): Connected.
+
 /// A `Entry` with every field at its zero value.
 ///
 /// One registered name.

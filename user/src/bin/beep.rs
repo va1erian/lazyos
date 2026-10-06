@@ -15,8 +15,10 @@
 //! Three more modes exercise the mixer the way the boot demo's evidence needs:
 //! `probe=1` sends malformed and hostile requests (`BEEP:PROBE:PASS`),
 //! `role=intruder stream=<id>` is its second task, refused on the owner's
-//! stream (`BEEP:INTRUDER:PASS`), and `soak=<n>` runs `n` open/play/close
-//! cycles of silence (`BEEP:SOAK:PASS`).
+//! stream (`BEEP:INTRUDER:PASS`), `soak=<n>` runs `n` open/play/close
+//! cycles of silence (`BEEP:SOAK:PASS`), and `starve=1` runs a stream dry on
+//! purpose and checks the mixer's stream events (`BEEP:STARVE:PASS`, issue
+//! #453).
 
 #![no_std]
 #![no_main]
@@ -38,6 +40,8 @@ mod common;
 mod probe;
 #[path = "beep/soak.rs"]
 mod soak;
+#[path = "beep/starve.rs"]
+mod starve;
 
 use common::{connect, fail};
 
@@ -60,6 +64,7 @@ enum Mode {
         stream: u32,
     },
     Soak(u32),
+    Starve,
 }
 
 struct Args {
@@ -108,6 +113,7 @@ fn parse_args() -> Args {
             Some(("ms", value)) => args.ms = value.parse().unwrap_or(DEFAULT_MS).clamp(50, 10_000),
             Some(("volume", value)) => args.volume = value.parse().unwrap_or(100).min(400),
             Some(("probe", "1")) => args.mode = Mode::Probe,
+            Some(("starve", "1")) => args.mode = Mode::Starve,
             Some(("role", "intruder")) => intruder = true,
             Some(("stream", value)) => owner_stream = value.parse().unwrap_or(0),
             // Bounded so a hostile argument cannot pin the card for minutes.
@@ -138,6 +144,10 @@ pub extern "C" fn _start() -> ! {
         Mode::Intruder { stream } => (
             "BEEP:INTRUDER",
             probe::run_intruder(stream).map(|()| sys::write_str("BEEP:INTRUDER:PASS\n")),
+        ),
+        Mode::Starve => (
+            "BEEP:STARVE",
+            starve::run().map(|detail| sys::write_str(&format!("BEEP:STARVE:PASS {detail}\n"))),
         ),
         Mode::Soak(rounds) => (
             "BEEP:SOAK",

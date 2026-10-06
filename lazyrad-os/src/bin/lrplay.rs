@@ -22,11 +22,16 @@
 //! song (`LRPLAY:MODPLAY:FAIL:<why>` when its sound stops with an error),
 //! `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out, and
 //! `LRPLAY:<STAGE>:FAIL:<why>` (`ARGS`, `BIND`, `RUN`) otherwise.
+//!
+//! A failed run also tells `init` why (`init.ReportFailure`, issue #549):
+//! the last problem the player reported on stderr, so the desktop's "app
+//! stopped" notice shows it (`LRPLAY:REASON:PASS:<text>` on serial).
 
 use std::process::ExitCode;
 use std::rc::Rc;
 
 use lazyrad_os::args;
+use lazyrad_os::failure::{report_to_init, StderrTap};
 use lazyrad_os::marker::Markers;
 use lazyrad_os::platform::{data_root, player_policy, Home, LazyOsPlatform};
 use lazyrad_player::{run_with_backend, EXIT_OK};
@@ -37,6 +42,8 @@ const MARK: Markers = Markers::PLAYER;
 
 fn main() -> ExitCode {
     MARK.install_panic_hook();
+    // Remember the last problem the player reports, for `init` (#549).
+    let tap = StderrTap::install();
     let parsed = match args::parse_player(std::env::args_os().skip(1)) {
         Ok(parsed) => parsed,
         Err(error) => return fail("ARGS", &error.to_string()),
@@ -98,23 +105,36 @@ fn main() -> ExitCode {
         let backend = Rc::new(backend);
         Ok(backend as Rc<dyn Backend>)
     });
-    report(code)
+    report(code, tap)
 }
 
 /// Prints the exit marker and converts the player's code to a process status.
-fn report(code: i32) -> ExitCode {
+fn report(code: i32, tap: Option<StderrTap>) -> ExitCode {
+    let reason = tap.and_then(StderrTap::finish);
     if code == EXIT_OK {
         MARK.pass("EXIT");
         ExitCode::SUCCESS
     } else {
         MARK.fail("RUN", &format!("exit code {code}"));
+        tell_init(
+            reason
+                .as_deref()
+                .unwrap_or("the program stopped with an error"),
+        );
         ExitCode::from(u8::try_from(code).unwrap_or(1))
     }
+}
+
+/// Hand `init` the reason this run fails, and log it.
+fn tell_init(reason: &str) {
+    MARK.pass_with("REASON", reason);
+    report_to_init(reason);
 }
 
 /// Reports a start-up failure on serial and stderr and exits non-zero.
 fn fail(stage: &str, why: &str) -> ExitCode {
     MARK.fail(stage, why);
     eprintln!("lrplay: {why}");
+    tell_init(why);
     ExitCode::FAILURE
 }

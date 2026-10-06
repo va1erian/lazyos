@@ -12,6 +12,8 @@ pub mod sys;
 
 pub mod audio;
 
+pub mod audio_events;
+
 pub mod dev;
 
 pub mod files;

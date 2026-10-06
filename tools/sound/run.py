@@ -14,6 +14,7 @@ tells the harness when the guest finished; the verdict comes from the audio.
     python tools/sound/run.py --smoke            # `-audiodev none`: skip the audio check
     python tools/sound/run.py --modplay          # the tracker player's melody instead of beep
     python tools/sound/run.py --mix              # two tones at once and a half-volume tone
+    python tools/sound/run.py --starve           # a stream run dry: exactly one underrun event
     python tools/sound/run.py --card hda         # an Intel HDA controller and codec (issue #497)
 
 The image must be built with `LAZYOS_SOUND=1` (this script does it unless
@@ -118,10 +119,28 @@ def card_devices(card: str, audiodev: str, machine: str | None) -> list[str]:
         args += ["-device", device.format(audiodev=audiodev, hda=hda)]
     return args
 
+#: `--starve` (`LAZYOS_SOUND_STARVE=1`, issue #453): after the driver's tone,
+#: `beep starve=1` plays 880 Hz, lets its stream run dry, plays 660 Hz and
+#: drains, and checks its own events on `system/audio/mixer/event` (exactly
+#: one underrun, one drained, some periods). The driver reports the card's
+#: own starvation on `system/audio/virtio-snd0/event`.
+STARVE_FREQS_HZ = "440,880,660"
+STARVE_MIN_MS = 200
+STARVE_PASS_MARKERS = (
+    "SND:PLAY:PASS",
+    "BEEP:STARVE:PASS",
+    "AUDIO:EVENT card=mixer stream=1 kind=underrun",
+    "AUDIO:EVENT card=mixer stream=1 kind=drained",
+    "AUDIO:EVENT card=virtio-snd0 stream=0 kind=underrun",
+)
+STARVE_FAIL_MARKERS = FAIL_MARKERS + ("BEEP:STARVE:FAIL",)
 
-def build_image(services: bool, modplay: bool = False, mix: bool = False) -> Path:
+
+def build_image(services: bool, modplay: bool = False, mix: bool = False,
+                starve: bool = False) -> Path:
     env = dict(os.environ, LAZYOS_SOUND="1")
-    switches = {"LAZYOS_SERVICES": services, "LAZYOS_SOUND_MODPLAY": modplay, "LAZYOS_SOUND_MIX": mix}
+    switches = {"LAZYOS_SERVICES": services, "LAZYOS_SOUND_MODPLAY": modplay,
+                "LAZYOS_SOUND_MIX": mix, "LAZYOS_SOUND_STARVE": starve}
     for name, on in switches.items():
         if on:
             env[name] = "1"
@@ -220,24 +239,34 @@ def main() -> int:
         action="store_true",
         help="record two tones played at once and a half-volume tone through the mixer",
     )
+    parser.add_argument("--starve", action="store_true",
+                        help="a stream run dry: one underrun event (LAZYOS_SOUND_STARVE=1)")
     parser.add_argument("--smoke", action="store_true", help="-audiodev none: check the driver, not the audio")
     parser.add_argument("--card", choices=sorted(CARDS), default="virtio",
                         help="the sound card: virtio-sound, or QEMU's Intel HDA with a line-out codec")
     parser.add_argument("--freqs", help="expected tone frequencies in order (Hz, comma separated)")
     parser.add_argument("--min-ms", type=float, help="minimum duration of each tone")
     args = parser.parse_args()
-    if args.modplay and args.mix:
-        sys.exit("--modplay and --mix are separate runs")
-    pass_markers = MODPLAY_PASS_MARKERS if args.modplay else MIX_PASS_MARKERS if args.mix else PASS_MARKERS
-    fail_markers = MODPLAY_FAIL_MARKERS if args.modplay else MIX_FAIL_MARKERS if args.mix else FAIL_MARKERS
+    if sum((args.modplay, args.mix, args.starve)) > 1:
+        sys.exit("--modplay, --mix and --starve are separate runs")
+    if args.starve:
+        pass_markers, fail_markers = STARVE_PASS_MARKERS, STARVE_FAIL_MARKERS
+    elif args.modplay:
+        pass_markers, fail_markers = MODPLAY_PASS_MARKERS, MODPLAY_FAIL_MARKERS
+    elif args.mix:
+        pass_markers, fail_markers = MIX_PASS_MARKERS, MIX_FAIL_MARKERS
+    else:
+        pass_markers, fail_markers = PASS_MARKERS, FAIL_MARKERS
     if args.services and not args.no_device:
         # `init` starts `devd`, which starts the driver (issue #497).
         pass_markers += devd_markers("sndd")
         fail_markers += DEVD_FAIL_MARKERS
     if args.freqs is None:
-        args.freqs = MODPLAY_FREQS_HZ if args.modplay else DEMO_FREQS_HZ
+        args.freqs = (STARVE_FREQS_HZ if args.starve else MODPLAY_FREQS_HZ if args.modplay
+                      else DEMO_FREQS_HZ)
     if args.min_ms is None:
-        args.min_ms = MODPLAY_MIN_MS if args.modplay else DEMO_MS * 0.8
+        args.min_ms = (STARVE_MIN_MS if args.starve else MODPLAY_MIN_MS if args.modplay
+                       else DEMO_MS * 0.8)
 
     out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -246,7 +275,8 @@ def main() -> int:
     for stale in (serial_log, wav_path):
         stale.unlink(missing_ok=True)
 
-    image = Path(args.image) if args.no_build else build_image(args.services, args.modplay, args.mix)
+    image = (Path(args.image) if args.no_build
+             else build_image(args.services, args.modplay, args.mix, args.starve))
     if not image.is_file():
         sys.exit(f"image not found: {image}")
 
@@ -311,7 +341,7 @@ def main() -> int:
         print("SOUND:HARNESS:FAIL audiod did not run as _audio (uid 905) without capabilities")
         return 1
     # The boot class rules (issue #481): as `_snd`, every other class is refused.
-    if args.services and not (args.modplay or args.mix):
+    if args.services and not (args.modplay or args.mix or args.starve):
         if "DEV:CROSSCLAIM:snd:PASS" not in text:
             print("SOUND:HARNESS:FAIL _snd was not shown to be confined to the audio class")
             return 1

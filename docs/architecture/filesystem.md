@@ -24,7 +24,7 @@ synthetic paths (`/dev`, `/proc`, `/etc`, `/bin`) stay in `process/linux`.
 | `kernel/src/fs/mod.rs` (+ `abi_attr.rs`) | Init/mount, kernel-side `read`/`abi_*` entry points (`abi_setattr*` in `abi_attr.rs`) |
 | `kernel/src/fs/vfs.rs` (+ `vfs/{filesystem,meta,path,cache}.rs`) | `Vfs`, resolution; `Filesystem` trait, `Path`, `Id`, permissions and the dentry/inode caches in the submodules |
 | `kernel/src/fs/vfs/{attr,setattr}.rs` | Timestamps, the filesystem clock, `SetAttr`; the `chmod`/`chown`/`utimensat` rules (issue #345) |
-| `kernel/src/fs/ramfs.rs` (+ `ramfs/{node,capacity}.rs`) | In-memory tree; root inode 1 (issue #98); a node and its attributes in `node.rs` |
+| `kernel/src/fs/ramfs.rs` (+ `ramfs/{node,capacity,space}.rs`) | In-memory tree; root inode 1 (issue #98); a node and its attributes in `node.rs`; the byte and node caps, filesystem-wide and per owner, in `space.rs` (issue #265: a node and its bytes are charged to its owner, one non-root uid may hold half of either cap, `chown` moves the charge, root is bound only by the filesystem caps) |
 | `kernel/src/fs/fat/` | Read-only FAT12/16 on the boot volume (`dir.rs` directory walker, `lfn.rs` long names, `resolve.rs` paths + cache) |
 | `libs/ext2fs/` (`no_std` + `alloc`; `lib.rs`, `open`, `io`, `layout`, `blocks`, `indirect`, `truncate`, `state`, `dir`, `attr`, `orphans`, `rmdir`, `file_io`, `links`, `rename`, `readdir`, `format`, `populate`) | Read/write ext2 rev 0/1 (issues #99, #333, #345), the formatter and the image populator, behind a `BlockIo` seam; host tests, a soak and a fuzz entry point (F2) |
 | `kernel/src/fs/ext2.rs`, `ext2/fsimpl.rs` | The kernel adapter: `BlockIo` for a `BlockDevice`, the VFS clock and serial lines, the `Filesystem` impl, error and metadata conversion, and the `hidden::PREFIX` orphan rule |
@@ -299,7 +299,11 @@ either answers `NoSpace`/ENOSPC. The Linux `openat`/`mkdirat`/`unlinkat`/
 `renameat` flags (`O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, `O_DIRECTORY`,
 `AT_REMOVEDIR`) are honoured in `process/linux/path.rs` and `process/linux/pathops.rs`; `mkdir`(83), `rename`(82),
 `unlink`(87), `rmdir`(84) and the `*at` variants are wired to the `abi_*`
-surface. A snapshot descriptor is one open file description (`task/snapshot.rs`:
+surface. Since issue #265 a regular file on *any* mount (the overlay root,
+`/tmp`, FAT and ext2 alike) opens as a read-through `OpenFile` descriptor
+(below, `fs::abi_read_through`); only fabricated entries (`/proc`, `/etc`
+maps, applet aliases off a persistent volume) and directory streams are still
+snapshots. A snapshot descriptor is one open file description (`task/snapshot.rs`:
 the snapshot, the offset and the path, access mode and `O_APPEND` the open
 recorded) that `dup`, `dup2`, `fcntl(F_DUPFD)`, `fork` and `execve` share, so
 `prog >/tmp/out 2>&1` writes stdout and stderr at one offset and a child writes
@@ -310,9 +314,10 @@ write through the orphan answers ENOENT).
 
 **Linux descriptors on `/data`** (`openfile.rs`, issue #334)
 
-The overlay root and `/tmp` hand a Linux program a snapshot of the file; `/data`
-does not, because the copy would be bounded by the kernel heap and a second
-opener could not see the first one's writes. An `OpenFile` is a path, a node,
+No mount hands a Linux program a snapshot of a regular file any more (the
+overlay root and `/tmp` did until issue #265): the copy would be bounded by the
+kernel heap, cost the whole file per open, and a second opener could not see
+the first one's writes. An `OpenFile` is a path, a node,
 an offset and an access mode. The node (`vfs/node.rs`, docs/performance-plan.md
 P5) is the file as its filesystem names it, resolved once at `open`: on ext2 an
 inode number and its generation (`ext2fs::FileHandle`; the generation advances

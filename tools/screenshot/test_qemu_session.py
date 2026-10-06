@@ -110,7 +110,7 @@ class ProbeTargetTests(unittest.TestCase):
         for tablet, expected in [
             (True, [("mouse_abs", 134 * 32767 // 1279, 488 * 32767 // 719),
                     ("mouse_click", "left")]),
-            (False, [("mouse_move", -300, -300)] * 4 + [("mouse_move", 134, 488),
+            (False, [("mouse_move", -300, -300)] * 6 + [("mouse_move", 134, 488),
                                                         ("mouse_click", "left")]),
         ]:
             qmp = FakeQmp()

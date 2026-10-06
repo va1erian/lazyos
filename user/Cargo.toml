@@ -70,6 +70,8 @@ usbmsc = { path = "../libs/usbmsc" }
 netpolicy = { path = "../libs/netpolicy" }
 usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
+# init's restart/backoff/notice decisions (issue #549), host-tested there.
+svcpolicy = { path = "../libs/svcpolicy" }
 # Row layouts and names of the device inspection ops (`devctl`, issue #481).
 devinspect = { path = "../libs/devinspect" }
 framering = { path = "../libs/framering" }
