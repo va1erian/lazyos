@@ -28,6 +28,9 @@ members = [
     # The Archiver (docs/archiver-plan.md): its format library and app core.
     "crates/archive",
     "crates/archiver",
+    # The PDF Viewer (docs/pdf-reader-plan.md): its rendering library.
+    "crates/pdf",
+    "crates/pdfview",
     # The Calculator's engine and window (host-tested); `src/bin/calc.rs` runs it.
     "crates/calc",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
@@ -88,6 +91,8 @@ printd = { path = "crates/printd" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Archiver (docs/archiver-plan.md): its app core and format library.
 xui-archiver = { path = "crates/archiver" }
+# The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
+xui-pdfview = { path = "crates/pdfview" }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
 # The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
@@ -222,3 +227,7 @@ path = "src/bin/calc.rs"
 [[bin]]
 name = "xui-printd"
 path = "src/bin/printd.rs"
+
+[[bin]]
+name = "xui-pdf"
+path = "src/bin/pdf.rs"

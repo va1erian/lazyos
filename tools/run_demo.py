@@ -85,6 +85,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
     "xui-calc.elf",
+    "xui-pdf.elf",
 )]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n for n in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]

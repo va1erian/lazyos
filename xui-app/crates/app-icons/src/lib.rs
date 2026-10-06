@@ -82,6 +82,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/calc",
         Art::Lucide(Lucide::LayoutGrid, Tone::Amber),
     ),
+    // The PDF Viewer (docs/pdf-reader-plan.md): a page of text.
+    (
+        "xui-app/packages/pdf",
+        Art::Lucide(Lucide::FileText, Tone::Rose),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

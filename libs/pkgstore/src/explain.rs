@@ -177,16 +177,6 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         LOW,
         "See which hardware devices the system has found",
     ),
-    (
-        "os.lazy.print.v1",
-        MEDIUM,
-        "Send documents to your printers and see the print queue",
-    ),
-    (
-        "os.lazy.messenger.topics.bell.v1",
-        HIGH,
-        "Be woken when your own topic subscriptions have new messages",
-    ),
     ("os.lazy.process.label.spawn.v1", HIGH, DEVELOP),
 ];
 

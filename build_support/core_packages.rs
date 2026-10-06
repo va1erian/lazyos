@@ -144,6 +144,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "lazyweb",
         // Calculator: A basic calculator.
         "calc",
+        // PDF Viewer: Read PDF documents.
+        "pdf",
     ];
     CORE.contains(&short_of(stem))
 }

@@ -38,6 +38,8 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("application/x-xz", "os.lazy.archiver", &["open"]),
     ("application/zstd", "os.lazy.archiver", &["open"]),
     ("application/x-7z-compressed", "os.lazy.archiver", &["open"]),
+    // PDF documents (docs/pdf-reader-plan.md).
+    ("application/pdf", "os.lazy.pdf", &["open", "view"]),
     ("application/x-elf", "runner", &["open"]),
     (
         "application/x-lazyos-package",

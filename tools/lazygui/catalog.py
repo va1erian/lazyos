@@ -90,6 +90,7 @@ SCRIPTS = [
     ("xui_settings_hidden.json", "XUI app: Settings (hide an app from the start menu)",
      ("desktop",), "term"),
     ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
+    ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -104,7 +105,7 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.

@@ -219,6 +219,23 @@ cargo test --manifest-path xui-app/Cargo.toml -p lazyarc -p xui-archiver -p xui-
 FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazyarc --release seeded
 ```
 
+## PDF Viewer (`os.lazy.pdf`)
+
+`xui-pdf` is a core desktop app in every desktop image: pages rendered in
+tiles on worker threads by `lazypdf` (`xui-app/crates/pdf`, over the
+pure-Rust `hayro`), the window in `xui-app/crates/pdfview`; plan and P0
+findings in [`docs/pdf-reader-plan.md`](docs/pdf-reader-plan.md). The
+sample (`/system/share/samples/lazyos-sample.pdf`) and the test files are
+written by `tools/pdf/make_sample.py` (PyMuPDF; `--check`). Session:
+`tools/screenshot/examples/xui_pdf.json` (`LAZYOS_XUI_AUTOSTART=pdf`;
+markers `PDF:UP:PASS`, `PDF:OPEN:PASS:<path>:<pages>`,
+`PDF:PAGE:DRAWN:<page>:<ms>:<render ms>`, `PDF:ZOOM:<percent>`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazypdf -p xui-pdfview
+FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazypdf --release seeded
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
