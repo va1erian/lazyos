@@ -55,6 +55,12 @@ pub const LRDEV_TEST_LZP: &str = "/system/share/samples/lrdev-test.lzp";
 /// Written by the image build.
 pub const MODPLAYER_LZP: &str = "/system/share/samples/modplayer.lzp";
 
+/// The full licence notice of the Lucide icons every xui app draws (ISC, and
+/// MIT for the icons Lucide took from Feather), which their terms require to
+/// travel with every copy; Settings -> About points to it. Written by the
+/// image build (`assets/licenses`).
+pub const LUCIDE_LICENSE: &str = "/system/share/licenses/LICENSE-Lucide.txt";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";
@@ -65,7 +71,13 @@ mod tests {
 
     #[test]
     fn data_lives_in_system_share() {
-        for path in [MIME_TYPES, WALLPAPERS, SAMPLES, LAZYRAD_SAMPLES] {
+        for path in [
+            MIME_TYPES,
+            WALLPAPERS,
+            SAMPLES,
+            LAZYRAD_SAMPLES,
+            LUCIDE_LICENSE,
+        ] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
         for path in [
