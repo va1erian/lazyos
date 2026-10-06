@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot LazyOS with a virtio-sound card, record what it plays, verify the tone.
+"""Boot LazyOS with a sound card, record what it plays, verify the tone.
 
 The proof that the sound driver works is not a log line but the recording: QEMU
 runs with `-audiodev wav` so everything the guest sends to the virtual sound
@@ -14,6 +14,7 @@ tells the harness when the guest finished; the verdict comes from the audio.
     python tools/sound/run.py --smoke            # `-audiodev none`: skip the audio check
     python tools/sound/run.py --modplay          # the tracker player's melody instead of beep
     python tools/sound/run.py --mix              # two tones at once and a half-volume tone
+    python tools/sound/run.py --card hda         # an Intel HDA controller and codec (issue #497)
 
 The image must be built with `LAZYOS_SOUND=1` (this script does it unless
 `--no-build`). Exit status is non-zero on any failure.
@@ -97,6 +98,23 @@ FAIL_MARKERS = (
     "DEV:CROSSCLAIM:snd:FAIL",
 )
 MIX_FAIL_MARKERS = FAIL_MARKERS
+
+#: `--card`: the QEMU devices (`{audiodev}` is filled in) and the model `sndd`
+#: must report (`SNDD:CARD model=`). QEMU's ICH6 HDA controller sits on the
+#: default machine, its ICH9 one on q35; `hda-output` is a line-out-only codec.
+CARDS = {
+    "virtio": (["virtio-sound-pci,audiodev={audiodev}"], "virtio-sound"),
+    "hda": (["{hda},id=hda0", "hda-output,bus=hda0.0,audiodev={audiodev}"], "intel-hda"),
+}
+
+
+def card_devices(card: str, audiodev: str, machine: str | None) -> list[str]:
+    """`-device` arguments for `card` on `audiodev`."""
+    hda = "ich9-intel-hda" if machine and machine.startswith("q35") else "intel-hda"
+    args = []
+    for device in CARDS[card][0]:
+        args += ["-device", device.format(audiodev=audiodev, hda=hda)]
+    return args
 
 
 def build_image(services: bool, modplay: bool = False, mix: bool = False) -> Path:
@@ -201,6 +219,8 @@ def main() -> int:
         help="record two tones played at once and a half-volume tone through the mixer",
     )
     parser.add_argument("--smoke", action="store_true", help="-audiodev none: check the driver, not the audio")
+    parser.add_argument("--card", choices=sorted(CARDS), default="virtio",
+                        help="the sound card: virtio-sound, or QEMU's Intel HDA with a line-out codec")
     parser.add_argument("--freqs", help="expected tone frequencies in order (Hz, comma separated)")
     parser.add_argument("--min-ms", type=float, help="minimum duration of each tone")
     args = parser.parse_args()
@@ -240,7 +260,7 @@ def main() -> int:
         path = wav_path.resolve().as_posix().replace(",", ",,")
         extra += ["-audiodev", f"wav,id=a0,path={path}"]
     if not args.no_device:
-        extra += ["-device", "virtio-sound-pci,audiodev=a0"]
+        extra += card_devices(args.card, "a0", args.machine)
 
     port = free_port()
     command = build_qemu_command(
@@ -290,6 +310,10 @@ def main() -> int:
             print("SOUND:HARNESS:FAIL _snd was not shown to be confined to the audio class")
             return 1
         print("SOUND:CROSSCLAIM:PASS")
+    model = CARDS[args.card][1]
+    if f"SNDD:CARD model={model} " not in text:
+        print(f"SOUND:HARNESS:FAIL sndd did not drive the {args.card} card (expected model={model})")
+        return 1
     print("SOUND:GUEST:PASS")
     if args.smoke:
         print("SOUND:HARNESS:PASS (smoke, audio not recorded)")

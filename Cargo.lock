@@ -499,6 +499,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hda"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "heapless"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1251,6 +1258,7 @@ dependencies = [
  "framering",
  "ftpwire",
  "fused",
+ "hda",
  "inputmap",
  "lazyos-crypto",
  "lazypkg",
