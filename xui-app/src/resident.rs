@@ -123,9 +123,11 @@ fn decode(parcel: &Parcel) -> Option<Wake> {
     }
 }
 
-/// A resident app's runtime: its backend, tray item and lifecycle line.
+/// A resident app's runtime: its backend (none for an app that never opens
+/// a window, so it needs no display permission), tray item and lifecycle
+/// line.
 pub struct Resident {
-    pub backend: Rc<LazyOSBackend>,
+    pub backend: Option<Rc<LazyOSBackend>>,
     pub tray: RefCell<TrayIcon>,
     life: RefCell<Option<Lifecycle>>,
 }
@@ -136,6 +138,16 @@ impl Resident {
     /// `Reopen`/`Quit`, killed at the end of a `Stop`'s grace).
     pub fn connect(marker: &str) -> Result<Rc<Resident>, i64> {
         let backend = Rc::new(LazyOSBackend::connect()?);
+        Ok(Resident::start(marker, Some(backend)))
+    }
+
+    /// [`Resident::connect`] for an applet that lives in the tray only and
+    /// never opens a window.
+    pub fn windowless(marker: &str) -> Rc<Resident> {
+        Resident::start(marker, None)
+    }
+
+    fn start(marker: &str, backend: Option<Rc<LazyOSBackend>>) -> Rc<Resident> {
         let life = match Lifecycle::watch() {
             Ok(life) => {
                 println!("{marker}:WATCH:PASS");
@@ -146,11 +158,11 @@ impl Resident {
                 None
             }
         };
-        Ok(Rc::new(Resident {
+        Rc::new(Resident {
             backend,
             tray: RefCell::new(TrayIcon::new()),
             life: RefCell::new(life),
-        }))
+        })
     }
 
     /// Ask for the lifecycle line again (after it was refused at start-up,
@@ -200,11 +212,15 @@ impl Resident {
         A: App,
         F: FnOnce(&mut Ui<A::Msg>) -> xui_core::backend::Result<A>,
     {
-        self.backend.rearm();
-        let (width, height) = self.backend.window_size(size);
+        let backend = self
+            .backend
+            .as_ref()
+            .ok_or_else(|| String::from("a windowless resident app has no display"))?;
+        backend.rearm();
+        let (width, height) = backend.window_size(size);
         xui_core::app(title)
             .size(width, height)
-            .backend(Rc::clone(&self.backend) as Rc<dyn Backend>)
+            .backend(Rc::clone(backend) as Rc<dyn Backend>)
             .run(make)
             .map_err(|error| error.to_string())
     }

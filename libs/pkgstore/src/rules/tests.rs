@@ -268,6 +268,15 @@ fn service_names_strip_the_version() {
             "os.lazy.net.stack"
         ]
     );
+    // The mixer's control interface is reached on the mixer's name.
+    assert_eq!(
+        service_names("os.lazy.audio.mixer.v1"),
+        [
+            "os.lazy.audio.mixer.v1",
+            "os.lazy.audio.mixer",
+            "os.lazy.audio"
+        ]
+    );
 }
 
 #[test]

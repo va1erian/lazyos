@@ -69,6 +69,9 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
     ("os.lazy.accounts.v1", "os.lazy.accountsd"),
     // `netd` serves the socket interface on the stack's name.
     ("os.lazy.net.socket.v1", "os.lazy.net.stack"),
+    // `audiod` serves its control interface on the mixer's own name (the
+    // Volume tray applet, docs/tray-plan.md T3).
+    ("os.lazy.audio.mixer.v1", "os.lazy.audio"),
 ];
 
 /// Why a manifest cannot be compiled.

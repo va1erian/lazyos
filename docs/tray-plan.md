@@ -1,6 +1,8 @@
 # Tray icons and resident apps (plan)
 
-Status: **draft**. Covers the "tray" that `shell-plan.md` (S5.3) and
+Status: **T0-T3 implemented** (interfaces, icons, menus, resident apps and
+the Volume and Network Status applets); T4 (flyouts) and T5 (overflow
+panel, settings, Rhai) remain. Covers the "tray" that `shell-plan.md` (S5.3) and
 `platform-plan.md` promise for LazyShell's taskbar, and the app lifecycle
 it needs: a *resident* app that keeps running with no window and shows itself
 through a taskbar icon, a tooltip, a menu and, on a click, a small flyout.

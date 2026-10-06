@@ -1,0 +1,32 @@
+# Network Status: a core LazyOS app, packaged by `tools/xui/build.py`
+# (scaffolded by `tools/xui/new_app.py`).
+#
+# `bin/netstatus.elf` is not checked in: the build copies the built xui app
+# into a scratch copy of this tree. `version` is replaced by the workspace
+# version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "Network Status"
+system_name = "os.lazy.netstatus"
+author = "LazyOS"
+version = "0.1.0"
+description = "Network status in the taskbar tray"
+category = "system"
+
+[entry]
+binary = "bin/netstatus.elf"
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+# A tray applet (docs/tray-plan.md T3): the image opens it with every session
+# (`build_support/core_packages.rs` APPLETS), whatever this says.
+autostart = false
+# No window, always in the tray; implies the tray, the lifecycle line and
+# the tray generation topic.
+resident = true
+
+[permissions]
+# Derived from a run under `LAZYOS_LABEL_TRACE=1` (no `LABEL:DENY`).
+# No interface beyond the implied ones: the state comes from the retained
+# address and link topics.
+interfaces = []
+topics = ["subscribe:system/net/+/addr", "subscribe:system/net/+/link"]

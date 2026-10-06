@@ -167,10 +167,9 @@ fn show_window(demo: &Shared, first: bool) -> bool {
 
 /// `TRAYDEMO:UP:PASS` once the first window has a frame.
 fn res_first_frame(demo: &Shared) {
-    demo.borrow()
-        .res
-        .backend
-        .on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
+    if let Some(backend) = demo.borrow().res.backend.as_ref() {
+        backend.on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
+    }
 }
 
 fn main() {
@@ -214,6 +213,8 @@ fn main() {
     }
     let _ = demo.borrow().res.tray.borrow_mut().clear();
     println!("TRAYDEMO:QUIT:PASS");
-    demo.borrow().res.backend.unbind();
+    if let Some(backend) = demo.borrow().res.backend.as_ref() {
+        backend.unbind();
+    }
     std::process::exit(0);
 }
