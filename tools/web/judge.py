@@ -27,11 +27,13 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "screenshot"))
 import pngstats  # noqa: E402
 from sites import DOWNLOAD_NAME, DOWNLOAD_PATH, download_payload  # noqa: E402
+import wiki  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 EXAMPLE_URL = "http://example.com/"
@@ -193,6 +195,8 @@ PRECHECK_REQUESTS = [
     ("https", "theoldnet.com", "/images/logo.png", 200),
     ("https", "theoldnet.com", "/images/photo.jpg", 200),
     ("https", "theoldnet.com", "/images/construction.gif", 200),
+    ("https", "en.wikipedia.org", urlsplit(wiki.ARTICLE_URL).path, 200),
+    ("https", "thumb.wikimedia.org", urlsplit(wiki.WIKI_PICTURE).path, 200),
 ]
 
 
