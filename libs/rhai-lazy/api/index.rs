@@ -70,7 +70,19 @@ pub static MODULES: &[ApiModule] = &[
         alias: "init",
         interface: "os.lazy.init.v1",
         source: include_str!("init.rhai"),
-        topics: &[ApiTopic { helper: "power_state", pattern: "system/power/state" }, ApiTopic { helper: "service", pattern: "system/events/service/+" }, ApiTopic { helper: "app", pattern: "system/events/app/+" }],
+        topics: &[ApiTopic { helper: "power_state", pattern: "system/power/state" }, ApiTopic { helper: "service", pattern: "system/events/service/+" }, ApiTopic { helper: "app", pattern: "system/events/app/+" }, ApiTopic { helper: "session_apps_resident", pattern: "session/+/apps/resident" }],
+    },
+    ApiModule {
+        alias: "init_app",
+        interface: "os.lazy.init.app.v1",
+        source: include_str!("init_app.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "init_app_events",
+        interface: "os.lazy.init.app.events.v1",
+        source: include_str!("init_app_events.rhai"),
+        topics: &[],
     },
     ApiModule {
         alias: "input",
@@ -178,6 +190,18 @@ pub static MODULES: &[ApiModule] = &[
         alias: "messenger_topics_bell",
         interface: "os.lazy.messenger.topics.bell.v1",
         source: include_str!("messenger_topics_bell.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "shell_tray",
+        interface: "os.lazy.shell.tray.v1",
+        source: include_str!("shell_tray.rhai"),
+        topics: &[ApiTopic { helper: "session", pattern: "session/+/shell/tray" }],
+    },
+    ApiModule {
+        alias: "shell_tray_events",
+        interface: "os.lazy.shell.tray.events.v1",
+        source: include_str!("shell_tray_events.rhai"),
         topics: &[],
     },
 ];

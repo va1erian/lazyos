@@ -42,6 +42,8 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
 | [`sys::init`](#sysinit) | `os.lazy.init.v1` |
+| [`sys::init_app`](#sysinit_app) | `os.lazy.init.app.v1` |
+| [`sys::init_app_events`](#sysinit_app_events) | `os.lazy.init.app.events.v1` |
 | [`sys::input`](#sysinput) | `os.lazy.input.v1` |
 | [`sys::input_shell`](#sysinput_shell) | `os.lazy.input.shell.v1` |
 | [`sys::keyd`](#syskeyd) | `os.lazy.keyd.v1` |
@@ -60,6 +62,8 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::timed`](#systimed) | `os.lazy.timed.v1` |
 | [`sys::messenger_topics`](#sysmessenger_topics) | `os.lazy.messenger.topics.v1` |
 | [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
+| [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
+| [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
 
 ## `sys::accounts`
 
@@ -231,12 +235,13 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `hint_launch_origin(x, y, w, h)` | `HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: the next window *any* task creates within about two seconds |
 | `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
 | `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32)` | The screen in physical pixels and the desktop's integer UI scale |
+| `allow_popup(task, token, x, y, w, h)` | `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: let task `task` create one `Popup` surface with `token` |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 
 Not callable from a script (the request transfers a kernel object): `CreateSurface`, `AttachBuffer`, `Subscribe`, `AttachBufferSlot`.
 
-- `ROLE` = the `Role` variants; `ROLE_WINDOW`, `ROLE_DESKTOP`, `ROLE_PANEL`
+- `ROLE` = the `Role` variants; `ROLE_WINDOW`, `ROLE_DESKTOP`, `ROLE_PANEL`, `ROLE_POPUP`
 - `CHANGE` = the `Change` variants; `CHANGE_UNSPECIFIED`, `CHANGE_CREATED`, `CHANGE_DESTROYED`, `CHANGE_MOVED`, `CHANGE_MINIMIZED`, `CHANGE_RESTORED`, `CHANGE_TITLE`, `CHANGE_RESIZED`, `CHANGE_MAXIMIZED`, `CHANGE_UNMAXIMIZED`
 - `WINDOW_STATE` = the `WindowState` variants; `WINDOW_STATE_NORMAL`, `WINDOW_STATE_MAXIMIZED`
 
@@ -295,7 +300,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | Function | IDL | About |
 |---|---|---|
 | `services()` | `Services() -> (services: Array<ServiceStatus>)` | Snapshot the supervision table. |
-| `launch(app, args, session)` | `Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` | Launch an app as a session child. `session` 0 means the caller's own |
+| `launch(app, args, session)` | `Launch(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64, existing: Bool)` | Launch an app as a session child. `session` 0 means the caller's own |
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
@@ -307,6 +312,8 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |
 | `new_service_event()` | struct `ServiceEvent` | a `ServiceEvent` at its zero value |
 | `new_app_failure()` | struct `AppFailure` | a `AppFailure` at its zero value |
+| `new_resident_app()` | struct `ResidentApp` | a `ResidentApp` at its zero value |
+| `new_resident_apps()` | struct `ResidentApps` | a `ResidentApps` at its zero value |
 
 - `POWER_MODE` = the `PowerMode` variants; `POWER_MODE_POWER_OFF`, `POWER_MODE_REBOOT`
 
@@ -315,6 +322,29 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `system/power/state` | `PowerState` | `on_power_state(handler)`, `subscribe_power_state()`, `publish_power_state(payload)` |
 | `system/events/service/{name}` | `ServiceEvent` | `service_topic(name)`, `on_service(name, handler)`, `subscribe_service(name)`, `publish_service(name, payload)` |
 | `system/events/app/{app}` | `AppFailure` | `app_topic(app)`, `on_app(app, handler)`, `subscribe_app(app)`, `publish_app(app, payload)` |
+| `session/{session}/apps/resident` | `ResidentApps` | `session_apps_resident_topic(session)`, `on_session_apps_resident(session, handler)`, `subscribe_session_apps_resident(session)`, `publish_session_apps_resident(session, payload)` |
+
+## `sys::init_app`
+
+Interface `os.lazy.init.app.v1`, source [`init_app.rhai`](init_app.rhai).
+
+A launched app's own line to `init` (docs/tray-plan.md section 5), served
+
+| Function | IDL | About |
+|---|---|---|
+
+Not callable from a script (the request transfers a kernel object): `Watch`.
+
+## `sys::init_app_events`
+
+Interface `os.lazy.init.app.events.v1`, source [`init_app_events.rhai`](init_app_events.rhai).
+
+What `init` sends an app on the channel it transferred with `Watch`.
+
+| Function | IDL | About |
+|---|---|---|
+| `reopen(args)` | `Reopen(args: String) -> () oneway` | The app was launched again in this session (the start menu, a |
+| `quit(grace_ms)` | `Quit(grace_ms: U32) -> () oneway` | The user, a logout or the package manager asked the app to quit: |
 
 ## `sys::input`
 
@@ -618,13 +648,14 @@ LazyShell, the desktop shell (issue #157), published on Messenger under the
 
 | Function | IDL | About |
 |---|---|---|
-| `status()` | `Status() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>)` | What the shell shows right now: the taskbar's window entries (in |
+| `status()` | `Status() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>, tray: Array<TrayEntry>)` | What the shell shows right now: the taskbar's window entries (in |
 | `show_start_menu(open)` | `ShowStartMenu(open: Bool) -> ()` | Open (`open` true) or close the start menu. |
 | `launch(app)` | `Launch(app: String) -> (pid: U64)` | Launch the registry app `app` through `init.Launch` in the shell's |
 | `refresh()` | `Refresh() -> (menu: U32, desktop: U32)` | Re-read the start menu (`sys/ui/menu` plus installed apps) and the |
 | `activate(surface)` | `Activate(surface: U64) -> ()` | Activate (restore, raise, focus) the window `surface` as a click on its |
 | `new_taskbar_entry()` | struct `TaskbarEntry` | a `TaskbarEntry` at its zero value |
 | `new_launcher()` | struct `Launcher` | a `Launcher` at its zero value |
+| `new_tray_entry()` | struct `TrayEntry` | a `TrayEntry` at its zero value |
 
 ## `sys::sysmond`
 
@@ -695,3 +726,45 @@ The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what
 | Function | IDL | About |
 |---|---|---|
 | `ready(subscription)` | `Ready(subscription: U64) -> () oneway` | `subscription` has events waiting. |
+
+## `sys::shell_tray`
+
+Interface `os.lazy.shell.tray.v1`, source [`shell_tray.rhai`](shell_tray.rhai).
+
+The taskbar tray (docs/tray-plan.md), served by LazyShell on Messenger
+
+| Function | IDL | About |
+|---|---|---|
+| `update(icon, tooltip, status, badge, menu)` | `Update(icon: Option<Icon>, tooltip: Option<String>, status: Option<U32>, badge: Option<String>, menu: Option<Menu>) -> ()` | Replace the given parts of the app's item; absent fields are kept |
+| `clear()` | `Clear() -> ()` | Drop the app's custom item: a running resident app goes back to its |
+| `new_item()` | struct `Item` | a `Item` at its zero value |
+| `new_icon()` | struct `Icon` | a `Icon` at its zero value |
+| `new_image()` | struct `Image` | a `Image` at its zero value |
+| `new_menu()` | struct `Menu` | a `Menu` at its zero value |
+| `new_menu_item()` | struct `MenuItem` | a `MenuItem` at its zero value |
+| `new_generation()` | struct `Generation` | a `Generation` at its zero value |
+
+Not callable from a script (the request transfers a kernel object): `Set`.
+
+- `STATUS` = the `Status` variants; `STATUS_ACTIVE`, `STATUS_PASSIVE`, `STATUS_ATTENTION`
+- `MENU_KIND` = the `MenuKind` variants; `MENU_KIND_NORMAL`, `MENU_KIND_CHECK`, `MENU_KIND_RADIO`, `MENU_KIND_SEPARATOR`, `MENU_KIND_SUBMENU`
+- `ACTIVATION` = the `Activation` variants; `ACTIVATION_EVENT`, `ACTIVATION_MENU`, `ACTIVATION_DEFAULT_ITEM`
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `session/{session}/shell/tray` | `Generation` | `session_topic(session)`, `on_session(session, handler)`, `subscribe_session(session)`, `publish_session(session, payload)` |
+
+## `sys::shell_tray_events`
+
+Interface `os.lazy.shell.tray.events.v1`, source [`shell_tray_events.rhai`](shell_tray_events.rhai).
+
+What the shell sends an app about its item: oneway methods on the channel
+
+| Function | IDL | About |
+|---|---|---|
+| `activate(anchor, popup)` | `Activate(anchor: Rect, popup: U64) -> () oneway` | Primary click. `anchor` is the icon in screen pixels; `popup` a |
+| `secondary_activate(anchor)` | `SecondaryActivate(anchor: Rect) -> () oneway` | Secondary click on an item without a menu. |
+| `menu_item(id, checked)` | `MenuItem(id: U32, checked: Bool) -> () oneway` | The user picked menu row `id`; `checked` is a check or radio row's |
+| `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
+| `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
+| `new_rect()` | struct `Rect` | a `Rect` at its zero value |

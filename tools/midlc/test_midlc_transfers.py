@@ -213,6 +213,12 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.messenger.registry.v1", "Connected"): [
                     ("channel", "os.lazy.messenger.registry.v1")
                 ],
+                ("os.lazy.shell.tray.v1", "Set"): [
+                    ("channel", "os.lazy.shell.tray.events.v1")
+                ],
+                ("os.lazy.init.app.v1", "Watch"): [
+                    ("channel", "os.lazy.init.app.events.v1")
+                ],
             },
         )
 

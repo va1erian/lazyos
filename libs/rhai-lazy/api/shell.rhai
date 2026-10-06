@@ -28,11 +28,12 @@ fn connect() {
     msg::connect("os.lazy.shell.v1")
 }
 
-/// `Status() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>)`
+/// `Status() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>, tray: Array<TrayEntry>)`
 ///
 /// What the shell shows right now: the taskbar's window entries (in
 /// taskbar order), the focused window, whether the start menu is open, the
-/// start-menu rows and the desktop icons.
+/// start-menu rows, the desktop icons and the tray items (in bar order,
+/// docs/tray-plan.md).
 fn status() {
     msg::connect("os.lazy.shell.v1").invoke("Status", [])
 }
@@ -87,4 +88,11 @@ fn new_taskbar_entry() {
 /// path in the desktop folder) and the label it shows.
 fn new_launcher() {
     #{ app: "", label: "" }
+}
+
+/// A `TrayEntry` with every field at its zero value.
+///
+/// One tray item.
+fn new_tray_entry() {
+    #{ app: "", tooltip: "", status: 0, custom: false, visible: false }
 }

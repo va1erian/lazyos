@@ -190,6 +190,7 @@ impl Client {
             height: u32::try_from(height).unwrap_or(u32::MAX),
             title: title.into(),
             role,
+            popup: None,
         })
         .map_err(|_| -errno::EINVAL)?;
         let (handles, buffers) =

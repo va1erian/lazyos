@@ -48,6 +48,7 @@ fn app(i: u64) -> AppInfo {
         } else {
             String::new()
         },
+        resident: i.is_multiple_of(7),
     }
 }
 
@@ -77,6 +78,7 @@ fn launch_args_and_reply_roundtrip() {
         app: "editor".into(),
         pid: 42,
         session: 7,
+        existing: true,
     };
     assert_eq!(
         decode_launch_reply(&encode_launch_reply(&reply).unwrap()).unwrap(),

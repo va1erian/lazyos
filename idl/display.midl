@@ -34,9 +34,12 @@ interface os.lazy.display.v1 {
     /// a `Role` value: a decorated window (also the meaning of an absent
     /// field) or the full-screen desktop, which paints above the background
     /// and below every window, has no chrome, never takes focus and replaces
-    /// the previous desktop. The desktop role is compositor-privileged. The
-    /// parcel transfers the event endpoint the compositor sends input on.
-    method CreateSurface(width: U32 = 1, height: U32 = 2, title: String = 3, role: U32 = 4) -> (surface: U64 = 1) = 1
+    /// the previous desktop. The desktop role is compositor-privileged. A
+    /// `Popup` (a tray flyout, docs/tray-plan.md section 7.3) needs `popup`,
+    /// the one-shot token the shell granted this task with `AllowPopup`
+    /// (`EACCES` without a valid one). The parcel transfers the event
+    /// endpoint the compositor sends input on.
+    method CreateSurface(width: U32 = 1, height: U32 = 2, title: String = 3, role: U32 = 4, popup: Option<U64> = 5) -> (surface: U64 = 1) = 1
         transfers (events: Channel<os.lazy.display.v1>);
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
@@ -254,14 +257,22 @@ interface os.lazy.display.v1 {
     /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
     /// The scale is fixed for the compositor's lifetime.
     method GetOutput() -> (width: U32 = 1, height: U32 = 2, scale: U32 = 3) = 43;
+    /// Shell-only: let task `task` create one `Popup` surface with `token`
+    /// within about two seconds, placed against the screen rectangle
+    /// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md
+    /// section 7.3). A token works once and only for that task. A compositor
+    /// without flyouts answers `EINVAL`.
+    method AllowPopup(task: U64 = 1, token: U64 = 2, x: I32 = 3, y: I32 = 4, w: U32 = 5, h: U32 = 6) -> () = 44;
 
     /// What a surface is. Numeric values are the wire values. A `Panel`
     /// (issue #157) is a shell-owned, chromeless surface painted above every
     /// window (the taskbar, the start menu); it never takes keyboard focus,
     /// has no taskbar or Alt+Tab entry, receives the pointer events over it,
     /// and is positioned with `PlaceSurface`. Like the desktop it is
-    /// shell-only.
-    enum Role { Window, Desktop, Panel }
+    /// shell-only. A `Popup` is an app's flyout next to its tray icon:
+    /// chromeless, above windows, with keyboard focus but no taskbar or
+    /// Alt+Tab entry, and only with a token (`AllowPopup`).
+    enum Role { Window, Desktop, Panel, Popup }
 
     /// The `SurfaceChanged` event kinds. `Unspecified` (0) is what a missing
     /// field decodes to, so a malformed event never reads as `Created`.

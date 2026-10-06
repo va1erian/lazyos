@@ -38,6 +38,8 @@ Declared and published since this snapshot:
 | `system/audio/mixer/event` | audiod (`_audio`) | apps on `os.lazy.audio` (`beep starve=1`) | no | `AudioEvent {stream, kind, frames}`: `Underrun` once per dry spell, `Drained`, `Period` (rate-limited, only while subscribed) | `idl/audio.midl` (#453) |
 | `system/audio/virtio-snd0/event` | sndd (`_snd`) | the mixer, diagnostics | no | `AudioEvent`: the card stream's `Underrun`, `Drained`, `DeviceError` | `idl/audio.midl` (#453) |
 | `system/events/app/<id>` | init (central broker) | LazyShell (`system/events/app/+`) | yes | `AppFailure {name, status, summary, reason, session, startup, at}` | `idl/init.midl` (#549) |
+| `session/<id>/apps/resident` | init (central broker) | LazyShell (default tray items) | yes | `ResidentApps {apps: [ResidentApp {app, pid}]}`: the session's running resident apps | `idl/init.midl` (docs/tray-plan.md, #633) |
+| `session/<id>/shell/tray` | LazyShell | `xui_app::tray`, `libs/trayclient` (call `Set` again on a new generation) | yes | `Generation {generation}` | `idl/tray.midl` (docs/tray-plan.md, #633) |
 
 `messengerd` admits `system/` publishes from uid 0, plus `_snd`/`_audio`
 under `system/audio/` only (`sndpolicy::may_publish_audio_event`).

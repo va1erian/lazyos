@@ -86,7 +86,14 @@ Related: [`shell-plan.md`](shell-plan.md) (LazyShell, one owner per concern),
 
 New file `idl/tray.midl`, served by LazyShell under `os.lazy.shell.tray`
 (generated stubs through `midlc`, `idl/manifest.json` updated, Rhai API
-regenerated). Sketch; field ids and errors final at T0:
+regenerated). Sketch; the final definitions are `idl/tray.midl` and
+`idl/init_app.midl` (T0), which differ from it in four places: `midlc`
+does not nest `Option<Array<...>>`, so `Icon.pixels` is a plain array
+(empty for none) and `Update` takes `menu: Option<Menu>`, a struct holding
+the rows; and Rhai reserves `package` and `default`, so those fields are
+`Icon.file` and `MenuItem.is_default`. The resident-apps topic is declared
+in `idl/init.midl` (its publisher's interface), the tray generation topic in
+`idl/tray.midl`.
 
 ```idl
 /// The taskbar tray (docs/tray-plan.md), served by LazyShell. One item per

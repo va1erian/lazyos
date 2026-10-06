@@ -1,0 +1,149 @@
+/// The taskbar tray (docs/tray-plan.md), served by LazyShell on Messenger
+/// under the name `os.lazy.shell.tray`.
+///
+/// The shell owns the tray: rendering, order, overflow, menus and policy.
+/// There is **one item per app**, keyed by the caller's kernel-stamped label
+/// (the `init` app id for an unlabelled built-in), so there is nothing to
+/// name or count: `Set` creates or replaces the app's item and `Clear`
+/// returns it to the default (a running resident app keeps a default item,
+/// any other app leaves the tray). The tooltip header, the menu header and
+/// the shell-added Quit row show the registry name `init.ListApps` gives that
+/// label, never app text.
+///
+/// Callers must be in the shell's login session (kernel-stamped
+/// `cred.session`) and be uid 0 or the shell's uid; a labelled app also needs
+/// this interface in its manifest (implied by `resident`). Anyone else gets
+/// `EACCES`. Every field is validated: a tooltip of at most 256 characters,
+/// a badge of at most 3, known `Status`/`Activation`/`MenuKind` values, at
+/// most 64 menu rows of at most 128 characters with unique non-zero ids,
+/// `parent` naming an earlier top-level `Submenu` row (depth at most 2), at
+/// most one `is_default` row (required by `DefaultItem`); anything else is
+/// `EINVAL`. An unusable icon is not an error: it falls back (see `Icon`).
+/// A session holds at most 64 items (`ENOSPC`). Failures reply with the
+/// standard error field (id 15, `docs/midl.md`).
+interface os.lazy.shell.tray.v1 {
+    /// Show the app's item, replacing its current one (custom or default).
+    /// The parcel transfers the channel the shell sends the item's events
+    /// on; the shell `Ping`s it on its heartbeat and drops the custom item
+    /// when the channel is gone (`EPIPE`).
+    method Set(item: Item = 1) -> () = 1
+        transfers (events: Channel<os.lazy.shell.tray.events.v1>);
+    /// Replace the given parts of the app's item; absent fields are kept
+    /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
+    method Update(icon: Option<Icon> = 1, tooltip: Option<String> = 2, status: Option<U32> = 3, badge: Option<String> = 4, menu: Option<Menu> = 5) -> () = 2;
+    /// Drop the app's custom item: a running resident app goes back to its
+    /// default item, any other app leaves the tray. Not an error without one.
+    method Clear() -> () = 3;
+
+    /// An app's item.
+    struct Item {
+        /// The picture; an unusable one falls back (see `Icon`).
+        icon: Icon = 1,
+        /// Text under the verified app name in the tooltip; may be empty.
+        tooltip: String = 2,
+        /// A `Status` value: `Passive` items go to the overflow first,
+        /// `Attention` pulses.
+        status: U32 = 3,
+        /// A short count or mark drawn over the icon (at most 3 characters).
+        badge: Option<String> = 4,
+        /// The menu rows, in order; the shell adds the Quit row after them.
+        menu: Array<MenuItem> = 5,
+        /// An `Activation` value: what a primary click does.
+        activate: U32 = 6
+    }
+
+    /// The item's picture: exactly one source. An empty `Icon`, one with
+    /// several sources, a Lucide name the named-icon library (`lazyicons`,
+    /// `docs/icons.md`) does not know, an image larger than 64 x 64 or whose
+    /// `data` is not `width * height * 4` bytes, or a `file` name with a
+    /// directory part falls back to the app's
+    /// package icon (`icons/app-16.png`, `app-32.png` at 2x), else to the
+    /// Lucide `app-window` outline, so an item never lacks a picture.
+    struct Icon {
+        /// A Lucide outline by its kebab-case name (`volume-2`), tinted with
+        /// the bar's ink: the easy choice for an app without art.
+        lucide: Option<String> = 1,
+        /// An alpha-only image (`data` holds RGBA; only alpha is used),
+        /// tinted like a Lucide outline.
+        mask: Option<Image> = 2,
+        /// Full-colour RGBA at 1x and optionally 2x (at most two images),
+        /// drawn as given; the shell picks the one closest to the cell size.
+        /// Empty: no pixels.
+        pixels: Array<Image> = 3,
+        /// A PNG under the app's own install directory's `icons/` (a bare
+        /// file name, no `/`).
+        file: Option<String> = 4
+    }
+
+    /// Straight RGBA8 pixels, rows tightly packed.
+    struct Image {
+        width: U32 = 1,
+        height: U32 = 2,
+        data: Bytes = 3
+    }
+
+    /// A whole menu, as `Update` replaces it (a wrapper so an empty menu is
+    /// told apart from an absent one).
+    struct Menu {
+        rows: Array<MenuItem> = 1
+    }
+
+    /// One menu row. `id` is what `MenuItem` reports back; `parent` is 0 for
+    /// a top-level row or the id of an earlier `Submenu` row.
+    struct MenuItem {
+        id: U32 = 1,
+        parent: U32 = 2,
+        label: String = 3,
+        /// A `MenuKind` value.
+        kind: U32 = 4,
+        enabled: Bool = 5,
+        checked: Bool = 6,
+        /// The row a `DefaultItem` activation runs (at most one). Named so
+        /// because `default` is reserved in Rhai.
+        is_default: Bool = 7
+    }
+
+    /// The generation of the shell's tray: the payload of
+    /// `session/<session>/shell/tray`. A restarted shell starts empty and
+    /// publishes a new generation once it serves this interface; a client
+    /// that sees the generation change calls `Set` again.
+    struct Generation {
+        generation: U64 = 1
+    }
+
+    /// Published (retained) by the shell of `session` when it starts serving.
+    topic "session/{session}/shell/tray" : Generation retained qos=latest;
+
+    /// An item's state. Numeric values are the wire values.
+    enum Status { Active, Passive, Attention }
+    /// A menu row's kind.
+    enum MenuKind { Normal, Check, Radio, Separator, Submenu }
+    /// What a primary click on the icon does: send `Activate`, open the
+    /// menu, or run the row marked `is_default`.
+    enum Activation { Event, Menu, DefaultItem }
+}
+
+/// What the shell sends an app about its item: oneway methods on the channel
+/// the app transferred with `Set`.
+interface os.lazy.shell.tray.events.v1 {
+    /// Primary click. `anchor` is the icon in screen pixels; `popup` a
+    /// one-shot token for a flyout (0 when flyouts are unavailable).
+    method Activate(anchor: Rect = 1, popup: U64 = 2) -> () = 1 oneway;
+    /// Secondary click on an item without a menu.
+    method SecondaryActivate(anchor: Rect = 1) -> () = 2 oneway;
+    /// The user picked menu row `id`; `checked` is a check or radio row's
+    /// new state (the app sends `Update` to show it).
+    method MenuItem(id: U32 = 1, checked: Bool = 2) -> () = 3 oneway;
+    /// The wheel rolled `delta` notches over the icon (positive: up).
+    method Scroll(delta: I32 = 1) -> () = 4 oneway;
+    /// Liveness probe; nothing to answer.
+    method Ping() -> () = 5 oneway;
+
+    /// A rectangle in screen pixels.
+    struct Rect {
+        x: I32 = 1,
+        y: I32 = 2,
+        w: U32 = 3,
+        h: U32 = 4
+    }
+}

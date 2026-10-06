@@ -21,7 +21,7 @@ of the declared reply fields.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Status | 1 | sync | `() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>)` |
+| Status | 1 | sync | `() -> (windows: Array<TaskbarEntry>, focused: Option<U64>, menu_open: Bool, menu: Array<Launcher>, desktop: Array<Launcher>, tray: Array<TrayEntry>)` |
 | ShowStartMenu | 2 | sync | `(open: Bool) -> ()` |
 | Launch | 3 | sync | `(app: String) -> (pid: U64)` |
 | Refresh | 4 | sync | `() -> (menu: U32, desktop: U32)` |
@@ -37,3 +37,11 @@ of the declared reply fields.
 
 - `app: String`
 - `label: String`
+
+## struct `TrayEntry`
+
+- `app: String`
+- `tooltip: String`
+- `status: U32`
+- `custom: Bool`
+- `visible: Bool`

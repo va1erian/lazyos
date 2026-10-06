@@ -15,8 +15,9 @@
 interface os.lazy.shell.v1 {
     /// What the shell shows right now: the taskbar's window entries (in
     /// taskbar order), the focused window, whether the start menu is open, the
-    /// start-menu rows and the desktop icons.
-    method Status() -> (windows: Array<TaskbarEntry> = 1, focused: Option<U64> = 2, menu_open: Bool = 3, menu: Array<Launcher> = 4, desktop: Array<Launcher> = 5) = 1;
+    /// start-menu rows, the desktop icons and the tray items (in bar order,
+    /// docs/tray-plan.md).
+    method Status() -> (windows: Array<TaskbarEntry> = 1, focused: Option<U64> = 2, menu_open: Bool = 3, menu: Array<Launcher> = 4, desktop: Array<Launcher> = 5, tray: Array<TrayEntry> = 6) = 1;
     /// Open (`open` true) or close the start menu.
     method ShowStartMenu(open: Bool = 1) -> () = 2;
     /// Launch the registry app `app` through `init.Launch` in the shell's
@@ -47,5 +48,21 @@ interface os.lazy.shell.v1 {
     struct Launcher {
         app: String = 1,
         label: String = 2
+    }
+
+    /// One tray item.
+    struct TrayEntry {
+        /// The app it belongs to (its label, or the built-in's app id).
+        app: String = 1,
+        /// The app's tooltip text (not the verified name above it).
+        tooltip: String = 2,
+        /// An `os.lazy.shell.tray.v1` `Status` value.
+        status: U32 = 3,
+        /// Whether the app set the item (`Set`) rather than it being a
+        /// resident app's default item.
+        custom: Bool = 4,
+        /// Whether it has a cell on the bar (rather than the overflow or
+        /// hidden by the user).
+        visible: Bool = 5
     }
 }
