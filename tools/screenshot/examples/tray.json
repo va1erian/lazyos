@@ -20,7 +20,7 @@
   {"wait_for": "SHELL:TRAY:TOOLTIP app=os.lazy.traydemo", "timeout": 30},
   {"wait": 1.0},
   {"shot": "02_activated_badge_tooltip"},
-  {"click_at": {"target": "tray:os.lazy.traydemo"}, "button": "right", "until": "TRAYDEMO:SECONDARY:PASS", "timeout": 30, "retries": 2},
+  {"click_at": {"target": "tray:os.lazy.traydemo"}, "button": "right", "until": "SHELL:TRAY:MENU:OPEN app=os.lazy.traydemo", "timeout": 30, "retries": 2, "note": "an item with a menu opens it (stage T2); one without gets SecondaryActivate"},
   {"mouse_scroll": 1, "until": "TRAYDEMO:SCROLL:", "timeout": 30, "retries": 2},
   {"click_at": {"window": "Tray Demo"}, "note": "focus the demo window"},
   {"wait": 0.5},
