@@ -1,4 +1,5 @@
-//! The About page: OS version, uptime, and where the settings are stored.
+//! The About page: OS version, uptime, where the settings are stored, and
+//! credits for the third-party icons the desktop draws.
 
 use std::rc::Rc;
 
@@ -37,6 +38,14 @@ pub fn persistence_text(status: Option<&StoreStatus>) -> String {
     }
 }
 
+/// Credits shown under the values, one line each. The Lucide outlines are
+/// drawn by every app and the shell, and their licences ask for the notice
+/// to travel with them.
+pub const CREDITS: [&str; 2] = [
+    "Icons: Lucide (lucide.dev), \u{a9} Lucide Contributors, ISC License.",
+    "Lucide includes icons from Feather, \u{a9} Cole Bemis, MIT License.",
+];
+
 /// The page's widgets: captions beside their values.
 pub struct AboutPage {
     version: Rc<Label<Msg>>,
@@ -65,6 +74,12 @@ impl AboutPage {
                 button("Refresh")
                     .on_click(Msg::AboutRefresh)
                     .align(Align::Start),
+                column().gap(4).children(
+                    CREDITS
+                        .into_iter()
+                        .map(|line| label(line).into_entry())
+                        .collect::<Vec<_>>(),
+                ),
             )),
         )?;
         let [version, uptime, store, persistence] = values;
@@ -117,5 +132,13 @@ mod tests {
         status.persistent = false;
         assert!(persistence_text(Some(&status)).contains("lost"));
         assert!(persistence_text(None).contains("not running"));
+    }
+
+    #[test]
+    fn credits_name_lucide_and_its_licences() {
+        let text = CREDITS.join(" ");
+        assert!(text.contains("Lucide Contributors"));
+        assert!(text.contains("ISC License"));
+        assert!(text.contains("Feather"));
     }
 }
