@@ -28,6 +28,7 @@ pub(super) mod fat_image;
 mod fat_lfn;
 mod ramfs_and_permissions;
 mod ramfs_limits;
+mod ramfs_quota;
 mod traversal_and_cache;
 
 pub(super) use attrs::*;
@@ -35,6 +36,7 @@ pub(super) use fat_corruption::*;
 pub(super) use fat_lfn::*;
 pub(super) use ramfs_and_permissions::*;
 pub(super) use ramfs_limits::*;
+pub(super) use ramfs_quota::*;
 pub(super) use traversal_and_cache::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -78,6 +80,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ramfs_byte_cap_enospc", ramfs_byte_cap_enospc),
     ("fs_ramfs_node_cap_enospc", ramfs_node_cap_enospc),
     ("fs_ramfs_soak_fill_and_drain", ramfs_soak_fill_and_drain),
+    ("fs_ramfs_per_uid_caps", ramfs_per_uid_caps),
+    (
+        "fs_ramfs_chown_moves_the_charge",
+        ramfs_chown_moves_the_charge,
+    ),
+    ("fs_ramfs_per_uid_soak", ramfs_per_uid_soak),
     ("fs_setattr_rule_table", setattr_rule_table),
     (
         "fs_setattr_through_vfs_and_cache",

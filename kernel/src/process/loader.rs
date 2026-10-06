@@ -40,14 +40,18 @@ pub const OUT_OF_MEMORY: &str = "out of memory";
 pub const WIDEN_FAILED: &str = "failed to widen shared page";
 pub const MAP_SEGMENT_FAILED: &str = "failed to map segment";
 pub const MAP_PAGE_FAILED: &str = "failed to map user page";
+/// The image's segments do not fit the running uid's `UserMemory` quota.
+pub const QUOTA_EXCEEDED: &str = "user memory quota exceeded";
 
-/// Whether a loader reason is frame exhaustion rather than a bad image.
+/// Whether a loader reason is frame exhaustion (or the uid's memory quota)
+/// rather than a bad image.
 pub fn is_out_of_memory(reason: &str) -> bool {
     [
         OUT_OF_MEMORY,
         WIDEN_FAILED,
         MAP_SEGMENT_FAILED,
         MAP_PAGE_FAILED,
+        QUOTA_EXCEEDED,
     ]
     .contains(&reason)
 }
@@ -173,15 +177,23 @@ fn plan(
 /// segments gets the union of their protections (PTE and VMA alike), so
 /// neither segment faults on its own accesses.
 ///
+/// The segments' address-space bytes are charged to `uid`'s `UserMemory`
+/// quota against `table` before anything is mapped (issue #265), so an image
+/// its user cannot afford is refused with [`QUOTA_EXCEEDED`] and costs no
+/// frame; freeing the table refunds the charge.
+///
 /// On error `table` may hold a partial image; the caller owns it and frees it
 /// with [`mem::free_user_table`].
 pub fn load_segments<I: Image + ?Sized>(
     table: PhysAddr,
     image: &I,
     reserved: &[(u64, u64)],
+    uid: u32,
 ) -> Result<Loaded, &'static str> {
     let headers = elfhdr::read(image)?;
     let segments = plan(&headers, image.len(), reserved)?;
+    crate::quota::charge_space(uid, table.as_u64(), span_bytes(&segments))
+        .map_err(|_| QUOTA_EXCEEDED)?;
     map_plan(table, image, &segments)?;
     Ok(Loaded {
         entry: headers.entry,
@@ -190,6 +202,24 @@ pub fn load_segments<I: Image + ?Sized>(
         phent: elfhdr::PHDR_SIZE,
         phnum: headers.phdrs.len() as u16,
     })
+}
+
+/// The address-space bytes `segments` cover: each segment's page span, with
+/// a boundary page two neighbours share counted once (`plan` sorted them and
+/// guaranteed they share at most that page).
+pub fn span_bytes_of(spans: &[(u64, u64)]) -> u64 {
+    let mut total = 0u64;
+    let mut covered = 0u64;
+    for &(start, end) in spans {
+        total += end - start.max(covered).min(end);
+        covered = covered.max(end);
+    }
+    total
+}
+
+fn span_bytes(segments: &[Segment]) -> u64 {
+    let spans: Vec<(u64, u64)> = segments.iter().map(|seg| (seg.start, seg.end)).collect();
+    span_bytes_of(&spans)
 }
 
 /// Map and fill every planned segment.

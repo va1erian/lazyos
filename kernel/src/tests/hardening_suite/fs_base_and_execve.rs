@@ -114,7 +114,7 @@ pub fn out_of_range_segment_is_refused_without_leaking() -> Result<(), String> {
         let before = mem::frame_stats().live();
         let table = mem::new_user_table().ok_or("out of memory")?;
         let guard = mem::UserTableGuard::new(table);
-        let result = process::load_segments(guard.table(), &elf, &[]);
+        let result = process::load_segments(guard.table(), &elf, &[], 0);
         // Match the reason too, so an unrelated rejection can't pass for it.
         check!(
             matches!(result, Err(message) if message.contains(reason)),

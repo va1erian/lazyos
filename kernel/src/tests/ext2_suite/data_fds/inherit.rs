@@ -79,8 +79,8 @@ pub fn dups_share_one_description() -> Result<(), String> {
     let data = Data::new(0)?;
     let fd = open("/tmp/r", O_CREAT | O_TRUNC | O_WRONLY);
     check!(
-        task::fd_kind(fd as usize) == task::FdKind::File,
-        "a /tmp file is no longer a snapshot descriptor"
+        task::fd_kind(fd as usize) == task::FdKind::Vfs,
+        "a /tmp file is not a read-through descriptor (issue #265)"
     );
     check!(dup2(fd, 9) == 9, "dup2");
     let dup = syscall(SYS_DUP, fd, 0, 0, 0);

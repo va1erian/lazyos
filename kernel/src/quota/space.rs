@@ -39,8 +39,16 @@ fn space_of(slot: usize) -> u64 {
 /// `slot`'s own address space.
 fn charge_user_memory(slot: usize, delta: u64) -> Result<(), QuotaError> {
     let uid = crate::ipc::credentials::of(slot).uid;
+    charge_space(uid, space_of(slot), delta)
+}
+
+/// Charge `delta` bytes of user memory to `uid` and record it against the
+/// address space whose PML4 is `table`, which need not belong to a task yet:
+/// the loader charges a program's segments to the uid that will run it while
+/// the new space is still being built (issue #265). Freeing the table
+/// ([`forget_address_space`], called by `mem::free_user_table`) refunds it.
+pub fn charge_space(uid: u32, table: u64, delta: u64) -> Result<(), QuotaError> {
     charge(uid, Resource::UserMemory, delta)?;
-    let table = space_of(slot);
     let mut spaces = SPACES.lock();
     match spaces
         .iter_mut()
@@ -58,8 +66,9 @@ fn charge_user_memory(slot: usize, delta: u64) -> Result<(), QuotaError> {
 
 /// Release up to `delta` bytes of `slot`'s address space's user-memory
 /// charge, preferring the caller's current uid. Bytes the space never charged
-/// (ELF segments and stacks are mapped before a uid exists) release nothing:
-/// they must not eat into another task's live usage.
+/// (its stacks, which the loader maps uncharged) release nothing: they must
+/// not eat into another task's live usage. ELF segments are charged at load
+/// (issue #265), so unmapping one gives its bytes back.
 fn release_user_memory(slot: usize, delta: u64) {
     let current = crate::ipc::credentials::of(slot).uid;
     let table = space_of(slot);

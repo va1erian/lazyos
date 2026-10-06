@@ -221,8 +221,9 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     // loaded image cannot leak its address space and frames (issue #229).
     let guard = crate::mem::UserTableGuard::new(table);
     // The file is streamed into the new address space, never held whole.
+    // The new image's segments are charged to the caller's uid (#265).
     let ids = super::creds::ids();
-    let started = match load_image(guard.table(), &image.file, &image.argv, &envp, ids) {
+    let started = match load_image(guard.table(), &image.file, &image.argv, &envp, ids, ids.0) {
         Ok(started) => started,
         Err(error) => return err(error.errno()),
     };

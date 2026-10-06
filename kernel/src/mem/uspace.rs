@@ -132,6 +132,11 @@ pub(super) unsafe fn count_leaves(phys: u64, level: u8) -> usize {
 /// so the caller must ensure no other task still uses `table` (e.g. threads
 /// created with `clone(CLONE_VM)`).
 pub fn free_user_table(table: PhysAddr) -> usize {
+    // Whatever user memory was charged against this space goes back to its
+    // uid first (issue #265): every way a space dies (exit, a failed load, the
+    // image `execve` replaced) comes through here, and a recycled PML4 frame
+    // must not inherit a stale charge record.
+    crate::quota::forget_address_space(table.as_u64());
     let mut released = 0;
     // Safety: `table` is a PML4 we own and are tearing down.
     unsafe {

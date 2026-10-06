@@ -11,9 +11,11 @@
 //!
 //! * [`Resource::KernelMemory`] -- kernel frames/objects held for the uid
 //!   (shared-buffer frames today; slab objects as their call sites land).
-//! * [`Resource::UserMemory`] -- user address-space bytes (VMA growth through
-//!   `mmap`/`brk`; segments and stacks are mapped before a uid exists, so the
-//!   accounting is deliberately coarse).
+//! * [`Resource::UserMemory`] -- user address-space bytes: VMA growth through
+//!   `mmap`/`brk`, and a program's ELF segments, charged by the loader to the
+//!   uid that will run it ([`charge_space`], issue #265). Stacks stay
+//!   uncharged. Every charge is recorded per address space and refunded when
+//!   the space is freed.
 //! * [`Resource::Handles`] -- Messenger handles held across every task of the
 //!   uid. The per-process [`crate::ipc::handles::MAX_HANDLES`] check stays the
 //!   first line; this is the aggregate.
@@ -65,7 +67,7 @@ pub mod cpu;
 mod space;
 mod types;
 
-pub use space::{charge_for_slot, forget_address_space, release_for_slot};
+pub use space::{charge_for_slot, charge_space, forget_address_space, release_for_slot};
 use types::{default_limits, Entry};
 #[allow(unused_imports)] // the full limit tables stay part of the module API
 pub use types::{default_limits_regular, QuotaError, Resource, Stats, ROOT_LIMITS};
