@@ -66,6 +66,13 @@ fn autologin(xui_autostart: &str) -> String {
                 .map(str::trim)
                 .any(|item| !item.is_empty() && item != "none");
             if opens_apps {
+                // Implicit, so say so: an image that skips its login screen
+                // should never be a surprise.
+                println!(
+                    "cargo:warning=LAZYOS_AUTOLOGIN is unset and LAZYOS_XUI_AUTOSTART \
+                     opens apps: this image logs in `user` without a password \
+                     (LAZYOS_AUTOLOGIN=none shows the login screen)"
+                );
                 String::from("user")
             } else {
                 String::new()
@@ -135,10 +142,7 @@ fn main() {
         "cargo:rustc-env=LAZYOS_BUILTIN_AUTOSTART={}",
         builtins.join(",")
     );
-    println!(
-        "cargo:rustc-env=LAZYOS_AUTOLOGIN_NAME={}",
-        autologin(&list)
-    );
+    println!("cargo:rustc-env=LAZYOS_AUTOLOGIN_NAME={}", autologin(&list));
 
     // virtio-sound driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1` adds the
     // `sndd` row to `init`'s manifest (the ELF itself is embedded by the root

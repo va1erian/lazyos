@@ -32,7 +32,10 @@ fn every_account_gets_a_verifier_of_its_password() {
         assert_eq!(again, row.verifier, "{name}");
         // Neither file carries the password.
         assert!(!text.contains(&format!(":{password}")), "{name}");
-        assert!(!String::from_utf8_lossy(PASSWD).contains(password), "{name}");
+        assert!(
+            !String::from_utf8_lossy(PASSWD).contains(password),
+            "{name}"
+        );
     }
 }
 

@@ -99,7 +99,15 @@ fn retire_rows(services: &mut [Service], broker: &mut router::TopicBroker, sessi
         if pid != 0 {
             let _ = sys::kill(pid, sys::SIG_KILL);
         }
-        publish_state(broker, &services[index], "stopped", 0, 0, 0, "session ended");
+        publish_state(
+            broker,
+            &services[index],
+            "stopped",
+            0,
+            0,
+            0,
+            "session ended",
+        );
         retired += 1;
     }
     retired

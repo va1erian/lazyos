@@ -135,7 +135,8 @@ pub(super) fn request(
 /// uid, and neither may a sessionless task without the capability (a driver,
 /// the login screen).
 fn authorize(caller: &SysCred) -> messenger::Result<()> {
-    if caller.label_id == 0 && (caller.caps & super::state::CAP_SETUID != 0 || caller.session != 0) {
+    if caller.label_id == 0 && (caller.caps & super::state::CAP_SETUID != 0 || caller.session != 0)
+    {
         Ok(())
     } else {
         Err(messenger::Error::Errno(-messenger::errno::EPERM))

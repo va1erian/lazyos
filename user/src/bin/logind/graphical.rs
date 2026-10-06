@@ -229,10 +229,9 @@ impl Desktop {
             }
             logind::wire::METHOD_LOGIN => match self.login(message) {
                 Ok(session) => {
-                    let body = logind::wire::encode_login_reply(&logind::wire::LoginReply {
-                        session,
-                    })
-                    .unwrap_or_default();
+                    let body =
+                        logind::wire::encode_login_reply(&logind::wire::LoginReply { session })
+                            .unwrap_or_default();
                     (logind::reply(method, body), After::StopGreeter)
                 }
                 Err((code, why)) => (logind::error_reply(method, code, why), After::Nothing),
@@ -241,9 +240,9 @@ impl Desktop {
                 let caller = message.caller();
                 match self.active.as_ref() {
                     Some(active) if caller.session == active.id && active.id != 0 => {
-                        let body = logind::wire::encode_logout_reply(
-                            &logind::wire::LogoutReply { session: active.id },
-                        )
+                        let body = logind::wire::encode_logout_reply(&logind::wire::LogoutReply {
+                            session: active.id,
+                        })
                         .unwrap_or_default();
                         (logind::reply(method, body), After::EndSession)
                     }

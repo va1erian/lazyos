@@ -211,16 +211,12 @@ impl Autostart {
             let session = caller.session;
             match launch(services, broker, installed, &request, &caller, true) {
                 Ok(_) => {
-                    sys::write_str(&format!(
-                        "INIT:AUTOSTART:PASS app={id} session={session}\n"
-                    ));
+                    sys::write_str(&format!("INIT:AUTOSTART:PASS app={id} session={session}\n"));
                     self.pending.remove(0);
                     self.attempts = 0;
                 }
                 Err(_) if self.attempts + 1 >= AUTOSTART_ATTEMPTS => {
-                    sys::write_str(&format!(
-                        "INIT:AUTOSTART:FAIL app={id} session={session}\n"
-                    ));
+                    sys::write_str(&format!("INIT:AUTOSTART:FAIL app={id} session={session}\n"));
                     self.pending.remove(0);
                     self.attempts = 0;
                 }

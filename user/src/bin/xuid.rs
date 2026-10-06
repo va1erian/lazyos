@@ -118,6 +118,8 @@ mod keys;
 mod layers;
 #[path = "xuid/layout.rs"]
 mod layout;
+#[path = "xuid/loginfeed.rs"]
+mod loginfeed;
 #[path = "xuid/maximize.rs"]
 mod maximize;
 #[path = "xuid/opening.rs"]
@@ -126,8 +128,6 @@ mod opening;
 mod origin;
 #[path = "xuid/pointer_feed.rs"]
 mod pointer_feed;
-#[path = "xuid/loginfeed.rs"]
-mod loginfeed;
 #[path = "xuid/powerfeed.rs"]
 mod powerfeed;
 #[path = "xuid/present.rs"]

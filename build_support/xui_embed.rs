@@ -62,7 +62,10 @@ fn embed_shell(sink: &mut dyn Sink) {
                 path.display()
             );
         }
-        println!("cargo:warning={what} embedded: {} as {destination}", path.display());
+        println!(
+            "cargo:warning={what} embedded: {} as {destination}",
+            path.display()
+        );
         sink.add_file(destination, path);
     }
 }

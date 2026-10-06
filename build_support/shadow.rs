@@ -41,7 +41,10 @@ pub fn build(passwd: &[u8]) -> Vec<u8> {
             accounts.iter().any(|account| account.name == name),
             "build_support/passwords: {name} has no account in build_support/passwd"
         );
-        assert!(!seen.contains(&name), "build_support/passwords: {name} twice");
+        assert!(
+            !seen.contains(&name),
+            "build_support/passwords: {name} twice"
+        );
         seen.push(name);
         out.push_str(&row(name, password));
         out.push('\n');
@@ -60,7 +63,12 @@ pub fn build(passwd: &[u8]) -> Vec<u8> {
 
 /// One verifier row.
 fn row(name: &str, password: &str) -> String {
-    let digest = sha256::sha256_parts(&[b"lazyos-shadow-salt\0", name.as_bytes(), b"\0", password.as_bytes()]);
+    let digest = sha256::sha256_parts(&[
+        b"lazyos-shadow-salt\0",
+        name.as_bytes(),
+        b"\0",
+        password.as_bytes(),
+    ]);
     let salt = &digest[..SALT_LEN];
     let params = kdf::Params::INTERACTIVE;
     let mut verifier = [0u8; shadow::VERIFIER_LEN];

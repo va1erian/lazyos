@@ -266,7 +266,11 @@ mod tests {
         assert!(!allowed(&OTHER, OTHER_HOME, "/home/user/x.lzp"));
         assert!(!allowed(&USER, USER_HOME, "/home/user/../admin/x.lzp"));
         // The image's samples are public data, for every user (issue #623).
-        assert!(allowed(&USER, USER_HOME, "/system/share/samples/pkgdemo.lzp"));
+        assert!(allowed(
+            &USER,
+            USER_HOME,
+            "/system/share/samples/pkgdemo.lzp"
+        ));
         assert!(allowed(&ROOT, None, "/system/share/samples/pkgdemo.lzp"));
         assert!(!allowed(&USER, USER_HOME, "/system/etc/x.lzp"));
         assert!(!allowed(&ROOT_SESSION, None, "/home/other/x.lzp"));
