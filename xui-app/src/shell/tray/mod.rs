@@ -68,15 +68,19 @@ pub struct TrayState {
     pub model: RefCell<Tray>,
     /// Where the cells are, panel-local design pixels.
     pub layout: RefCell<Layout>,
-    /// Each app's event channel (this task's end).
-    channels: RefCell<Vec<(String, u64)>>,
+    /// Each app's event channel (this task's end) and the kernel-stamped
+    /// label its `Set` came with: later requests for the item must carry the
+    /// same label (see the service).
+    channels: RefCell<Vec<(String, u64, u32)>>,
     /// The registry rows of the apps with an item.
     known: RefCell<Vec<Known>>,
     service: RefCell<service::TrayService>,
     generation: RefCell<generation::Generation>,
     beat: Cell<u64>,
     /// The cell under the pointer and since when (PIT ticks).
-    pub hover: Cell<Option<(usize, u64)>>,
+    /// The app whose cell the pointer rests on, and since when (PIT ticks):
+    /// keyed by app, so a relayout cannot move it to another app's cell.
+    pub hover: RefCell<Option<(String, u64)>>,
     pub tooltip: RefCell<Option<tooltip::Open>>,
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
@@ -93,7 +97,7 @@ impl TrayState {
             service: RefCell::new(service::TrayService::default()),
             generation: RefCell::new(generation::Generation::new(session)),
             beat: Cell::new(0),
-            hover: Cell::new(None),
+            hover: RefCell::new(None),
             tooltip: RefCell::new(None),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
@@ -137,17 +141,28 @@ impl TrayState {
         self.channels
             .borrow()
             .iter()
-            .find(|(owner, _)| owner == app)
-            .map(|(_, handle)| *handle)
+            .find(|(owner, _, _)| owner == app)
+            .map(|(_, handle, _)| *handle)
+    }
+
+    /// The label `app`'s item was set with.
+    pub fn pinned_label(&self, app: &str) -> Option<u32> {
+        self.channels
+            .borrow()
+            .iter()
+            .find(|(owner, _, _)| owner == app)
+            .map(|(_, _, label)| *label)
     }
 
     /// Keep `handle` as `app`'s channel, closing the one it replaces.
-    fn keep_channel(&self, app: &str, handle: u64) {
+    fn keep_channel(&self, app: &str, handle: u64, label: u32) {
         let old = self.take_channel(app);
         if let Some(old) = old {
             let _ = crate::sys::msg_close(old);
         }
-        self.channels.borrow_mut().push((app.to_owned(), handle));
+        self.channels
+            .borrow_mut()
+            .push((app.to_owned(), handle, label));
     }
 
     /// Forget (and close) `app`'s channel.
@@ -159,7 +174,7 @@ impl TrayState {
 
     fn take_channel(&self, app: &str) -> Option<u64> {
         let mut channels = self.channels.borrow_mut();
-        let index = channels.iter().position(|(owner, _)| owner == app)?;
+        let index = channels.iter().position(|(owner, _, _)| owner == app)?;
         Some(channels.remove(index).1)
     }
 
