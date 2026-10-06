@@ -15,6 +15,13 @@ do lives in `EXPECTATIONS`:
 Whatever the expectation, a scenario that printed nothing, printed `ERROR`, or
 was `BLOCKED` only because its target did not exist (`ENOENT`: the attack never
 ran) is a failure, and so is a marker for a scenario the table does not know.
+A scenario with `evidence` is believed `BLOCKED` only when the serial log also
+has that line (the refusal the guest-side probe cannot see itself).
+
+`autostart_root` has no guest command: `run.py` installs a package that opens
+at login during the attack session and writes its marker from the next boot's
+log ([`autostart_marker`]): the package must have opened in a login session as
+that session's user, never as root.
 
     python tools/accounts/attack_judge.py shots/accounts/attack/serial.log
 """
@@ -39,24 +46,62 @@ class Expect:
     state: str  # "blocked" or "xfail"
     issue: str = ""  # the issue or phase tracking an xfail
     touches: tuple[str, ...] = ()
+    #: A serial line a BLOCKED outcome must come with.
+    evidence: str = ""
+    #: Image paths the scenario changes by allowed means whatever its state
+    #: (a user installing a package); the audit excuses them always.
+    side_effects: tuple[str, ...] = ()
 
 
 U0 = "#623"
 U3 = "U3 (brick-proofing, no issue yet)"
+#: What an installed package writes: its tree, its docs, confd's record.
+INSTALL_PATHS = ("/apps", "/docs/apps", "/conf")
 
-#: In the order they run (run.py). Flip an entry to "blocked" when its phase lands.
+#: Flip an entry to "blocked" when its phase lands. U0 (#623) landed: the
+#: desktop session runs as `user` with no capability.
 EXPECTATIONS: dict[str, Expect] = {
-    "uid": Expect("xfail", U0),
-    "rm_system": Expect("xfail", U0, ("/system/share/accounts",)),
-    "overwrite_init": Expect("xfail", U0, ("/system/bin/init",)),
-    "write_conf": Expect("xfail", U0, ("/conf",)),
-    "confd_sys": Expect("xfail", U0, ("/conf",)),
-    "keyd_provision": Expect("xfail", U0, ("/conf",)),
-    "read_home_admin": Expect("xfail", U0),
-    "signal_service": Expect("xfail", U0),
+    "uid": Expect("blocked", U0),
+    "rm_system": Expect("blocked", U0, ("/system/share/accounts",)),
+    "overwrite_init": Expect("blocked", U0, ("/system/bin/init",)),
+    "write_conf": Expect("blocked", U0, ("/conf",)),
+    "confd_sys": Expect("blocked", U0, ("/conf",)),
+    "keyd_provision": Expect("blocked", U0, ("/conf",)),
+    "read_home_admin": Expect("blocked", U0),
+    "signal_service": Expect("blocked", U0),
+    "autostart_root": Expect("blocked", U0, side_effects=INSTALL_PATHS),
+    "core_replace": Expect("xfail", U3, INSTALL_PATHS),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
+    "shell_role": Expect("blocked", U0, evidence="shellprobe: fatal: subscribe: -13"),
 }
+
+#: The package `autostart_root` installs (tools/accounts/probe_packages.py).
+AUTOPROBE = "org.acct.autoprobe"
+
+
+def autostart_marker(install_log: str, login_log: str) -> str:
+    """`autostart_root`'s marker from the attack boot (the install) and the
+    next boot (the login that opens it): BLOCKED when it opened in a login
+    session as that session's non-root user, SUCCEEDED when it ran as root or
+    outside any session, ERROR when it was not installed or never opened."""
+    if "ACCT:INSTALL:autostart_pkg:OK" not in install_log:
+        return "ACCT:ATTACK:autostart_root:ERROR:notinstalled"
+    opened = re.search(rf"INIT:AUTOSTART:PASS app={re.escape(AUTOPROBE)}(?: session=(\d+))?",
+                       login_log)
+    if not opened:
+        return "ACCT:ATTACK:autostart_root:ERROR:notopened"
+    session = opened.group(1) or "0"
+    owner = re.search(rf"INIT:AUTOSTART:SESSION session={session} uid=(\d+)", login_log)
+    uid = owner.group(1) if owner else "0"
+    if session == "0" or uid == "0":
+        return f"ACCT:ATTACK:autostart_root:SUCCEEDED:session={session}_uid={uid}"
+    return f"ACCT:ATTACK:autostart_root:BLOCKED:uid={uid}"
+
+
+def side_effects(expectations: dict[str, Expect] = EXPECTATIONS) -> list[str]:
+    """The paths the audit excuses whatever happened (allowed side effects)."""
+    return [path for expect in expectations.values() for path in expect.side_effects]
 
 
 @dataclass
@@ -90,6 +135,9 @@ def judge(log: str, expectations: dict[str, Expect] = EXPECTATIONS) -> Verdict:
             verdict.failures.append(f"{name}: the scenario could not run ({detail})")
         elif outcome == "BLOCKED" and detail == "ENOENT":
             verdict.failures.append(f"{name}: BLOCKED only by ENOENT, the attack never ran")
+        elif outcome == "BLOCKED" and expect.evidence and expect.evidence not in log:
+            verdict.failures.append(f"{name}: BLOCKED ({detail}) without {expect.evidence!r} "
+                                    "in the log (refused for another reason?)")
         elif outcome == "SUCCEEDED" and expect.state == "blocked":
             verdict.failures.append(f"{name}: SUCCEEDED ({detail}) but must be BLOCKED")
         elif outcome == "SUCCEEDED":
