@@ -14,6 +14,7 @@ import mkdisk  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
+from lazygui.login import add_login_option, build_login  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
 import qemu_net  # noqa: E402
@@ -76,6 +77,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="with --desktop, leave LazyShell (taskbar, start menu, desktop "
                              "icons) out of the image (LAZYOS_SHELL=0): the compositor then "
                              "shows background and windows only")
+    add_login_option(parser)  # --autologin NAME (LAZYOS_AUTOLOGIN, issue #623)
     add_device_options(parser)  # --sound, --sound-card, --nic, --no-devd
     qemu_net.add_net_options(
         parser,
@@ -186,6 +188,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         limits = build_limits(args.limit, args.no_build)
         limits.update(build_display(args))
         limits.update(build_assets(args))
+        limits.update(build_login(args))
     except ValueError as error:
         parser.error(str(error))
     return args, net_qemu, forwards, limits

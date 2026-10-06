@@ -97,7 +97,9 @@ KNOCK_PERIOD_S = 0.05
 
 
 def build_image(usb: bool) -> Path:
-    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NET="1", LAZYOS_PERF="1")
+    # The desktop session logged straight in, as before there was a login (#623).
+    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NET="1", LAZYOS_PERF="1",
+               LAZYOS_AUTOLOGIN="user")
     if usb:
         env["LAZYOS_USB"] = "1"
     # Always: the image embeds target/xui/*.elf as they are, so building them
