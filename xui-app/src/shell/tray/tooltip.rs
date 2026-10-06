@@ -48,17 +48,18 @@ pub fn pump<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
         close(ctx);
         return;
     }
-    let target = ctx.tray.hover.get().and_then(|(cell, since)| {
+    let hover = ctx.tray.hover.borrow().clone();
+    let target = hover.and_then(|(app, since)| {
         let rested = sys::clock_ticks().saturating_sub(since);
         if rested >= SHOWN_TICKS {
             // The bar does not always hear the pointer leave for another
             // surface, so a tooltip never outstays a few seconds.
-            ctx.tray.hover.set(None);
+            *ctx.tray.hover.borrow_mut() = None;
             return None;
         }
-        let rested = rested >= HOVER_TICKS;
-        let layout = ctx.tray.layout.borrow();
-        rested.then(|| layout.cells.get(cell).map(|c| (c.app.clone(), c.rect)))?
+        // An app that left the bar (or moved off it) shows no tooltip.
+        let cell = ctx.tray.layout.borrow().cell(&app)?;
+        (rested >= HOVER_TICKS).then_some((app, cell))
     });
     let open_app = ctx
         .tray

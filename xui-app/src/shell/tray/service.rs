@@ -18,6 +18,7 @@ use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
 use super::super::ctx::Ctx;
 use super::super::services;
+use super::liveness;
 use crate::server::{error_parcel, reply_parcel, Request, Server};
 use crate::sys::{self, errno};
 
@@ -113,7 +114,11 @@ fn answer(ctx: &Rc<Ctx>, request: &Request, channel: Option<u64>) -> (Parcel, bo
         Err((ENOTSUP, "not os.lazy.shell.tray.v1"))
     } else {
         identify(ctx, request)
-            .and_then(|app| dispatch(ctx, &app, method, &request.parcel.body, &mut channel))
+            .and_then(|app| same_app(ctx, &app, request).map(|()| app))
+            .and_then(|app| {
+                let label = request.origin.label_id;
+                dispatch(ctx, &app, label, method, &request.parcel.body, &mut channel)
+            })
     };
     // A channel no successful `Set` took is not kept.
     if let Some(handle) = channel {
@@ -164,9 +169,36 @@ fn identify(ctx: &Ctx, request: &Request) -> Result<String, Failure> {
         .map_err(deny)
 }
 
+/// The request must come from the app that set the item: the label the
+/// kernel stamped on it when it was queued must be the one the item was set
+/// with. The app is found from the sender's task slot, which a task that
+/// exits leaves for reuse, so a request still queued when its sender died
+/// could otherwise reach the item of an app launched into the same slot. An
+/// item whose channel is dead is the old app's leftover: it goes, and the
+/// request proceeds. (Unlabelled built-ins all carry label 0: they are the
+/// image's own programs, not packages.)
+fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<(), Failure> {
+    let label = request.origin.label_id;
+    match ctx.tray.pinned_label(app) {
+        Some(pinned) if pinned != label => {
+            if liveness::alive(ctx, app) {
+                println!(
+                    "SHELL:TRAY:DENY uid={} label={label} why=label",
+                    request.origin.uid
+                );
+                return Err((errno::EACCES, "not the app that set the item"));
+            }
+            liveness::gone(ctx, app);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn dispatch(
     ctx: &Ctx,
     app: &str,
+    label: u32,
     method: u32,
     body: &[u8],
     channel: &mut Option<u64>,
@@ -185,7 +217,7 @@ fn dispatch(
                 .set(app, item)
                 .map_err(|why| refused(app, why))?;
             if let Some(handle) = channel.take() {
-                tray.keep_channel(app, handle);
+                tray.keep_channel(app, handle, label);
             }
             let count = tray.model.borrow().len();
             println!("SHELL:TRAY:SET app={app} n={count}");

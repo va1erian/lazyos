@@ -112,9 +112,10 @@ CORE_APPS: dict[str, CoreApp] = {
     "calc": xui_app("xui-calc.elf", "calc"),
     # PDF Viewer: Read PDF documents.
     "pdf": xui_app("xui-pdf.elf", "pdf"),
-    # Tray Demo, the tray sample app (docs/tray-plan.md T1): always built and
-    # packaged, but only `LAZYOS_TRAYDEMO=1` images ship it.
-    "traydemo": xui_app("xui-traydemo.elf", "traydemo"),
+    # Tray Demo, the tray sample app (docs/tray-plan.md T1): only
+    # `LAZYOS_TRAYDEMO=1` images ship it, so a desktop build without its ELF
+    # skips it here; such an image fails on it in `build_support/xui_embed.rs`.
+    "traydemo": xui_app("xui-traydemo.elf", "traydemo", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
