@@ -1038,7 +1038,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Stop",
                 id: 1266644741,
                 oneway: false,
-                doc: "Stop every running instance of the app `app` (the app id, as `Launch`\ntakes it): each is killed and its supervision row retired without a\nrestart. `stopped` is how many were running. Only root, a holder of\n`CAP_SETUID` (the package manager) or the session owner may stop; an\nowner reaches only instances in their own session. Unknown or idle apps\nare not an error, `stopped` is just 0.",
+                doc: "Stop every running instance of the app `app` (the app id, as `Launch`\ntakes it), retiring its supervision row without a restart: an\ninstance that watches its lifecycle (`os.lazy.init.app.v1`), or a\nresident app that may still come to watch, is sent `Quit` and killed\nif it still runs 3 s after this call (docs/tray-plan.md section 5);\nany other is killed at once. The reply comes once every instance has\nexited. `stopped` is how many were running. Only root, a holder of\n`CAP_SETUID` (the package manager) or the session owner may stop; an\nowner reaches only instances in their own session. Unknown or idle apps\nare not an error, `stopped` is just 0.",
                 params: &[Field { name: "app", id: 1, ty: Ty::String }],
                 returns: &[Field { name: "stopped", id: 1, ty: Ty::U64 }],
                 transfers: &[],

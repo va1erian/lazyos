@@ -15,10 +15,10 @@ use user::sys;
 use super::apps::app_infos;
 use super::installed::InstalledApps;
 use super::launch::{actor, launch};
+use super::lifecycle::{self, Stops};
 use super::sessions;
 use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
-use super::lifecycle::{self, Stops};
 use super::stop::stop_app;
 
 /// Cached `Services` reply.
@@ -139,7 +139,9 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Opti
         let Some(txn) = message.txn else {
             return Ok(None);
         };
-        state.stops.hold(txn, &request.app, stopped.pids, stopped.count);
+        state
+            .stops
+            .hold(txn, &request.app, stopped.pids, stopped.count);
         return Ok(None);
     }
     dispatch_now(state, message).map(Some)

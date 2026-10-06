@@ -287,7 +287,11 @@ fn quit_completed(
     broker: &mut router::TopicBroker,
 ) {
     let row = &mut services[index];
-    let how = if row.killed { "killed after the grace" } else { "quit" };
+    let how = if row.killed {
+        "killed after the grace"
+    } else {
+        "quit"
+    };
     sys::write_str(&format!(
         "INIT:LAUNCH:EXIT app={} status={status} quit={}\n",
         row.name,

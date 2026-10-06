@@ -37,8 +37,8 @@ const WINDOW: (i32, i32) = (460, 220);
 /// How often the window polls the tray and lifecycle channels (ms).
 const POLL_MILLIS: u32 = 50;
 /// The harness's hooks.
-const DELAY_FILE: &str = "/tmp/traydemo-delay";
-const IGNORE_QUIT_FILE: &str = "/tmp/traydemo-ignore-quit";
+const DELAY_FILE: &str = fhs::state::TRAYDEMO_DELAY;
+const IGNORE_QUIT_FILE: &str = fhs::state::TRAYDEMO_IGNORE_QUIT;
 /// The longest start-up delay the hook may ask for (ms).
 const MAX_DELAY_MS: u64 = 10_000;
 
@@ -111,19 +111,17 @@ fn build(demo: Shared, ui: &mut Ui<Msg>) -> xui_core::backend::Result<Window> {
         shown,
         demo,
     };
-    ui.root(
-        column().padding(16).gap(8).children((
-            label("Tray Demo").title(),
-            label(&app.shown).bind(&app.status).fill(1),
-            row().gap(8).children((
-                button("Lucide (L)").on_click(Msg::Icon(Kind::Lucide)),
-                button("Pixels (P)").on_click(Msg::Icon(Kind::Pixels)),
-                button("Bad icon (B)").on_click(Msg::Icon(Kind::Bad)),
-                button("Attention (A)").on_click(Msg::Attention),
-                button("Clear (C)").on_click(Msg::Clear),
-            )),
+    ui.root(column().padding(16).gap(8).children((
+        label("Tray Demo").title(),
+        label(&app.shown).bind(&app.status).fill(1),
+        row().gap(8).children((
+            button("Lucide (L)").on_click(Msg::Icon(Kind::Lucide)),
+            button("Pixels (P)").on_click(Msg::Icon(Kind::Pixels)),
+            button("Bad icon (B)").on_click(Msg::Icon(Kind::Bad)),
+            button("Attention (A)").on_click(Msg::Attention),
+            button("Clear (C)").on_click(Msg::Clear),
         )),
-    )?;
+    )))?;
     ui.on_key(|key, _| match key {
         Key::L => Some(Msg::Icon(Kind::Lucide)),
         Key::P => Some(Msg::Icon(Kind::Pixels)),

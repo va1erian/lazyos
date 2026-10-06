@@ -106,6 +106,12 @@ pub const DOOM_TMP: &str = "/tmp/doom";
 /// (`doom/src/headless.rs`).
 pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 
+/// The tray demo's lifecycle test hooks (`xui-app/src/bin/traydemo.rs`,
+/// tools/screenshot/examples/tray_resident.json): milliseconds to delay its
+/// `Watch` by, and a marker that makes it ignore `Quit`.
+pub const TRAYDEMO_DELAY: &str = "/tmp/traydemo-delay";
+pub const TRAYDEMO_IGNORE_QUIT: &str = "/tmp/traydemo-ignore-quit";
+
 #[cfg(test)]
 mod tests {
     use super::*;

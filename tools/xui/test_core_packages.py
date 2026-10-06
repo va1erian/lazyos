@@ -26,6 +26,10 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None
 
+#: The windowless tray applets (docs/tray-plan.md T3,
+#: `build_support/core_packages.rs` APPLETS).
+WINDOWLESS = ("volume", "netstatus")
+
 
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -67,7 +71,12 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn(manifest["entry"]["binary"], core_packages.CORE_APPS[short].programs.values())
             self.assertEqual(manifest["entry"]["args"], ["--client"])
             self.assertEqual(manifest["entry"]["abi"], "linux")
-            self.assertIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
+            if short in WINDOWLESS:
+                # A tray applet never opens a window: no display, but resident.
+                self.assertNotIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
+                self.assertTrue(manifest["entry"]["resident"], short)
+            else:
+                self.assertIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
             self.assertTrue((core_packages.SOURCES / short / "docs" / "README.md").is_file())
 
     @unittest.skipIf(tomllib is None, "needs Python 3.11+")

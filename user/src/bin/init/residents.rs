@@ -56,11 +56,20 @@ impl Residents {
         if fingerprint == self.fingerprint {
             return;
         }
-        let mut now: Vec<u64> = services.iter().filter(|row| running(row)).map(session_of).collect();
+        let mut now: Vec<u64> = services
+            .iter()
+            .filter(|row| running(row))
+            .map(session_of)
+            .collect();
         now.sort_unstable();
         now.dedup();
         let mut all = now.clone();
-        all.extend(self.sessions.iter().copied().filter(|session| !now.contains(session)));
+        all.extend(
+            self.sessions
+                .iter()
+                .copied()
+                .filter(|session| !now.contains(session)),
+        );
         let mut ok = true;
         for session in all {
             let apps: Vec<services::init::wire::ResidentApp> = services
@@ -90,7 +99,9 @@ impl Residents {
         }
         match outcome {
             Ok(_) => {
-                sys::write_str(&format!("INIT:APP:RESIDENT session={session} apps={count}\n"));
+                sys::write_str(&format!(
+                    "INIT:APP:RESIDENT session={session} apps={count}\n"
+                ));
                 true
             }
             Err(code) => {
@@ -103,7 +114,11 @@ impl Residents {
         }
     }
 
-    fn try_publish(&mut self, session: u64, value: &services::init::wire::ResidentApps) -> Result<u64, i64> {
+    fn try_publish(
+        &mut self,
+        session: u64,
+        value: &services::init::wire::ResidentApps,
+    ) -> Result<u64, i64> {
         use services::init::wire;
         let session: String = session.to_string();
         let topic = wire::name_session_apps_resident(&session).map_err(|_| -22i64)?;

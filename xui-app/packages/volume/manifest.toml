@@ -15,6 +15,8 @@ category = "system"
 
 [entry]
 binary = "bin/volume.elf"
+# The argument every desktop app gets (unused by a windowless applet).
+args = ["--client"]
 # A static musl program: `init` starts it under the Linux ABI personality.
 abi = "linux"
 # A tray applet (docs/tray-plan.md T3): the image opens it with every session

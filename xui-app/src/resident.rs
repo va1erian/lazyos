@@ -99,7 +99,10 @@ impl Lifecycle {
             let Some(bytes) = self.buf.get(..result.bytes as usize) else {
                 continue;
             };
-            if let Some(wake) = Parcel::decode(bytes).ok().and_then(|parcel| decode(&parcel)) {
+            if let Some(wake) = Parcel::decode(bytes)
+                .ok()
+                .and_then(|parcel| decode(&parcel))
+            {
                 found.push(wake);
             }
         }

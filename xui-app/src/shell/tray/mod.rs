@@ -24,10 +24,10 @@ mod generation;
 pub mod icon;
 pub mod input;
 mod liveness;
-mod resident;
 pub mod menu;
 mod menu_paint;
 pub mod paint;
+mod resident;
 mod service;
 pub mod tooltip;
 

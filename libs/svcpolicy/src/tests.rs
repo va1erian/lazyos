@@ -201,19 +201,34 @@ fn a_resident_app_restarts_after_a_crash_past_start_up_only() {
         }
     ));
     // A clean exit (it chose to) and a kill by the user: stopped.
-    assert!(matches!(decide(resident(0, STARTUP_TICKS + 1)), Outcome::Stopped { .. }));
-    assert!(matches!(decide(resident(137, STARTUP_TICKS + 1)), Outcome::Stopped { .. }));
+    assert!(matches!(
+        decide(resident(0, STARTUP_TICKS + 1)),
+        Outcome::Stopped { .. }
+    ));
+    assert!(matches!(
+        decide(resident(137, STARTUP_TICKS + 1)),
+        Outcome::Stopped { .. }
+    ));
     // Every such run lasted past start-up, so it counts as recovered: the
     // restart count resets and the backoff stays at its first step.
     let again = Exit {
         restarts: 3,
         ..resident(139, STARTUP_TICKS + 1)
     };
-    assert!(matches!(decide(again), Outcome::Restart { restarts: 1, .. }));
+    assert!(matches!(
+        decide(again),
+        Outcome::Restart { restarts: 1, .. }
+    ));
     // `resident` only means something for an app.
     let service = Exit {
         resident: true,
         ..exit(Restart::Once, false, 1, STARTUP_TICKS + 1, 0)
     };
-    assert!(matches!(decide(service), Outcome::Failed { cause: Cause::NoPolicy, .. }));
+    assert!(matches!(
+        decide(service),
+        Outcome::Failed {
+            cause: Cause::NoPolicy,
+            ..
+        }
+    ));
 }

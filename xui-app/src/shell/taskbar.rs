@@ -16,8 +16,8 @@ use xui_core::{Canvas, Control, Dip, MouseButton, Rect, Rgba};
 
 use super::ctx::{BarHover, Ctx};
 use super::menu;
-use super::tray::{self, input::Input};
 use super::theme::{chrome_look, color, fill_bar};
+use super::tray::{self, input::Input};
 use xui_core::theme::look;
 
 /// Text size on the bar.

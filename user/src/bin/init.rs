@@ -321,10 +321,17 @@ fn next_wake(
     let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
     let late = ready::next_deadline(services);
     let quit = lifecycle::next_deadline(services);
-    [wake_deadline(services), home, autostart, selftest, late, quit]
-        .into_iter()
-        .flatten()
-        .min()
+    [
+        wake_deadline(services),
+        home,
+        autostart,
+        selftest,
+        late,
+        quit,
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 #[panic_handler]
