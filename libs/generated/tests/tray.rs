@@ -150,10 +150,13 @@ fn events_roundtrip() {
     assert_ne!(events::INTERFACE_ID, INTERFACE_ID);
 }
 
+// Both state topics are retained, so a late subscriber reads the value.
+const _: () = assert!(TOPIC_SESSION_SHELL_TRAY_RETAINED);
+const _: () = assert!(init::TOPIC_SESSION_APPS_RESIDENT_RETAINED);
+
 #[test]
 fn generation_topic_names_one_session() {
     assert_eq!(TOPIC_SESSION_SHELL_TRAY, "session/+/shell/tray");
-    assert!(TOPIC_SESSION_SHELL_TRAY_RETAINED);
     assert_eq!(
         name_session_shell_tray("3").unwrap(),
         "session/3/shell/tray"
@@ -181,7 +184,6 @@ fn lifecycle_events_roundtrip() {
 #[test]
 fn resident_topic_lists_apps() {
     assert_eq!(init::TOPIC_SESSION_APPS_RESIDENT, "session/+/apps/resident");
-    assert!(init::TOPIC_SESSION_APPS_RESIDENT_RETAINED);
     for count in [0u64, 1, 64] {
         let value = init::ResidentApps {
             apps: (0..count)
