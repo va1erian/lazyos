@@ -1,4 +1,5 @@
-//! The About page: OS version, uptime, and where the settings are stored.
+//! The About page: OS version, uptime, where the settings are stored, and
+//! credits for the third-party icons the desktop draws.
 
 use std::rc::Rc;
 
@@ -37,6 +38,17 @@ pub fn persistence_text(status: Option<&StoreStatus>) -> String {
     }
 }
 
+/// Credits shown under the values, one line each. The Lucide outlines are
+/// drawn by every app and the shell; their licences require the full notice
+/// with every copy, which the image ships at [`fhs::share::LUCIDE_LICENSE`].
+pub fn credits() -> [String; 3] {
+    [
+        String::from("Icons: Lucide (lucide.dev), \u{a9} Lucide Contributors, ISC License."),
+        String::from("Lucide includes icons from Feather, \u{a9} Cole Bemis, MIT License."),
+        format!("Full licence text: {}", fhs::share::LUCIDE_LICENSE),
+    ]
+}
+
 /// The page's widgets: captions beside their values.
 pub struct AboutPage {
     version: Rc<Label<Msg>>,
@@ -65,6 +77,12 @@ impl AboutPage {
                 button("Refresh")
                     .on_click(Msg::AboutRefresh)
                     .align(Align::Start),
+                column().gap(4).children(
+                    credits()
+                        .into_iter()
+                        .map(|line| label(&line).into_entry())
+                        .collect::<Vec<_>>(),
+                ),
             )),
         )?;
         let [version, uptime, store, persistence] = values;
@@ -117,5 +135,28 @@ mod tests {
         status.persistent = false;
         assert!(persistence_text(Some(&status)).contains("lost"));
         assert!(persistence_text(None).contains("not running"));
+    }
+
+    #[test]
+    fn credits_name_lucide_and_its_licences() {
+        let text = credits().join(" ");
+        assert!(text.contains("Lucide Contributors"));
+        assert!(text.contains("ISC License"));
+        assert!(text.contains("Feather"));
+        assert!(text.contains(fhs::share::LUCIDE_LICENSE));
+    }
+
+    /// The notice the credits point to is shipped by the image: the asset
+    /// exists, carries both licences, and the manifest installs it at the
+    /// path the page shows.
+    #[test]
+    fn the_licence_notice_ships_where_the_credits_point() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../assets/");
+        let notice = std::fs::read_to_string(format!("{root}licenses/LICENSE-Lucide.txt")).unwrap();
+        assert!(notice.contains("ISC License") && notice.contains("Cole Bemis"));
+        let manifest = std::fs::read_to_string(format!("{root}manifest.txt")).unwrap();
+        assert!(manifest.contains("licenses/LICENSE-Lucide.txt | ISC | all |"));
+        let installed = fhs::share::LUCIDE_LICENSE.strip_prefix(fhs::SYSTEM_SHARE);
+        assert_eq!(installed, Some("/licenses/LICENSE-Lucide.txt"));
     }
 }
