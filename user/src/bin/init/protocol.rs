@@ -106,8 +106,11 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
     match message.interface_id() {
         router::INTERFACE => {
             // `logind`'s login events also tell the launch path who owns
-            // each session (see `sessions.rs`).
-            sessions::observe(services, message);
+            // each session (see `sessions.rs`); a logout ends every task of
+            // the session (`logout.rs`, issue #623).
+            if let Some(ended) = sessions::observe(services, message) {
+                super::logout::end_session(services, broker, ended);
+            }
             // `pkgd`'s provisioning progress, for the autostart.
             super::provisioning::observe(services, message);
             broker.handle(message)

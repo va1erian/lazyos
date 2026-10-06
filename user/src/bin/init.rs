@@ -89,6 +89,8 @@ mod home;
 mod installed;
 #[path = "init/launch.rs"]
 mod launch;
+#[path = "init/logout.rs"]
+mod logout;
 #[path = "init/notice.rs"]
 mod notice;
 #[path = "init/protocol.rs"]

@@ -219,6 +219,12 @@ path = "src/bin/nettools.rs"
 name = "xui-shell"
 path = "src/bin/lazyshell.rs"
 
+# The graphical login screen (issue #623): `logind`'s `Login` client, run as
+# the `_greeter` system uid.
+[[bin]]
+name = "xui-greeter"
+path = "src/bin/greeter.rs"
+
 [[bin]]
 name = "xui-calc"
 path = "src/bin/calc.rs"

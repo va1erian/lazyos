@@ -1628,6 +1628,24 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "active", id: 1, ty: Ty::U64 }, Field { name: "sessions", id: 2, ty: Ty::Array(&Ty::Struct("Session")) }],
                 transfers: &[],
             },
+            Method {
+                name: "Login",
+                id: 1441655762,
+                oneway: false,
+                doc: "Log in from the graphical login screen (issue #623): authenticate\n`user` with `secret` and open their desktop session, the same path a\nbuilt-in autologin takes. Only the login screen's own identity (the\n`_greeter` system uid, unlabelled) may call it; a refused password is\n`EACCES` after the failed-login delay, a session already open `EBUSY`.",
+                params: &[Field { name: "user", id: 1, ty: Ty::String }, Field { name: "secret", id: 2, ty: Ty::String }],
+                returns: &[Field { name: "session", id: 1, ty: Ty::U64 }],
+                transfers: &[],
+            },
+            Method {
+                name: "Logout",
+                id: 125463051,
+                oneway: false,
+                doc: "End the caller's graphical session (issue #623): `init` stops every\ntask stamped with that session, and the login screen comes back. Only\na task of the active graphical session may call it (`EPERM`\notherwise).",
+                params: &[],
+                returns: &[Field { name: "session", id: 1, ty: Ty::U64 }],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

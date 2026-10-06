@@ -41,6 +41,30 @@ fn header(method: u32) -> Header {
     }
 }
 
+/// The graphical login screen's system identity (`_greeter`, issue #623):
+/// `init` stamps the `greeter` row with it (no capability, no session), and
+/// `logind` accepts `Login` from it alone. It owns no file and appears in no
+/// account file, like the other service uids (901 `_snd` .. 906 `_devd`).
+pub const GREETER_UID: u32 = 907;
+
+/// A reply of `method` carrying `body`.
+pub fn reply(method: u32, body: Vec<u8>) -> Parcel {
+    Parcel {
+        header: header(method),
+        body,
+        ..Parcel::default()
+    }
+}
+
+/// A structured refusal of `method`: the positive errno `code` and a short,
+/// non-secret reason.
+pub fn error_reply(method: u32, code: i64, text: &str) -> Parcel {
+    let mut body = libmessenger::Encoder::new();
+    // A structured error field cannot overflow a fresh encoder.
+    let _ = body.error(messenger_generated::errors::ERROR_FIELD, code as u32, text);
+    reply(method, body.finish())
+}
+
 /// A `Sessions` request parcel (the method takes no arguments).
 pub fn sessions_request() -> Parcel {
     Parcel {

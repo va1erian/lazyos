@@ -33,6 +33,8 @@ use crate::display::Client;
 pub enum BarHover {
     Start,
     Entry(usize),
+    /// The "Log out" button (issue #623).
+    Logout,
 }
 
 /// The shared shell state.
@@ -55,6 +57,8 @@ pub struct Ctx {
     pub clock_w: Cell<i32>,
     pub clock: RefCell<String>,
     pub bar_hover: Cell<Option<BarHover>>,
+    /// The "Log out" button was pressed once and asks for a second press.
+    pub logout_armed: Cell<bool>,
     pub menu: RefCell<Menu>,
     pub menu_hover: Cell<Option<usize>>,
     /// The desktop icons on screen: the desktop folder's entries (or, with
@@ -105,6 +109,7 @@ impl Ctx {
             clock_w: Cell::new(0),
             clock: RefCell::new(String::new()),
             bar_hover: Cell::new(None),
+            logout_armed: Cell::new(false),
             menu: RefCell::new(Menu::default()),
             menu_hover: Cell::new(None),
             icons: RefCell::new(Vec::new()),
@@ -162,6 +167,11 @@ impl Ctx {
         taskbar::clock_rect(self.screen.0, self.clock_w.get())
     }
 
+    /// The "Log out" button's panel-local rectangle, left of the clock.
+    pub fn logout_rect(&self) -> Rect {
+        taskbar::logout_rect(self.clock_rect())
+    }
+
     /// Ask the taskbar to repaint.
     pub fn repaint_bar(&self) {
         if let Some(bar) = &*self.bar.borrow() {
@@ -180,7 +190,8 @@ impl Ctx {
     /// compositor where each entry now is (only what moved), and repaint.
     pub fn bar_changed(&self) {
         let count = self.taskbar.borrow().windows().len();
-        let rects = taskbar::entry_rects(count, self.screen.0, self.clock_rect().w);
+        let reserved = taskbar::reserved_right(self.clock_rect());
+        let rects = taskbar::entry_rects(count, self.screen.0, reserved);
         let surfaces: Vec<u64> = self
             .taskbar
             .borrow()

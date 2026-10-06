@@ -23,6 +23,27 @@ fn sessions() {
     msg::connect("os.lazy.logind.v1").invoke("Sessions", [])
 }
 
+/// `Login(user: String, secret: String) -> (session: U64)`
+///
+/// Log in from the graphical login screen (issue #623): authenticate
+/// `user` with `secret` and open their desktop session, the same path a
+/// built-in autologin takes. Only the login screen's own identity (the
+/// `_greeter` system uid, unlabelled) may call it; a refused password is
+/// `EACCES` after the failed-login delay, a session already open `EBUSY`.
+fn login(user, secret) {
+    msg::connect("os.lazy.logind.v1").invoke("Login", [user, secret])
+}
+
+/// `Logout() -> (session: U64)`
+///
+/// End the caller's graphical session (issue #623): `init` stops every
+/// task stamped with that session, and the login screen comes back. Only
+/// a task of the active graphical session may call it (`EPERM`
+/// otherwise).
+fn logout() {
+    msg::connect("os.lazy.logind.v1").invoke("Logout", [])
+}
+
 /// A `Session` with every field at its zero value.
 ///
 /// One login session.

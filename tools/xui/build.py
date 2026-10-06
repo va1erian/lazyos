@@ -107,6 +107,9 @@ BINS = {
     # LazyShell, the desktop shell (issue #157): `build.rs` embeds it as
     # /system/bin/lazyshell on the desktop profile unless LAZYOS_SHELL=0.
     "xui-shell": "xui-shell.elf",
+    # The graphical login screen (issue #623), embedded with LazyShell as
+    # /system/bin/greeter.
+    "xui-greeter": "xui-greeter.elf",
     # The Devices app (issue #481): owners, rights and the driver class rules.
     # `build_support/xui_embed.rs` places it at /system/bin/devices.
     "xui-devices": "xui-devices.elf",

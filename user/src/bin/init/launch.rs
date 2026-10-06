@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use user::messenger::{self, logind, router, services, Message};
 use user::sys::{self, Cred as SysCred};
 
-use super::apps::{find_app, is_available};
+use super::apps::{find_app, is_available, SHELL_APP_ID};
 use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
@@ -23,11 +23,12 @@ pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
     Ok(message.caller())
 }
 
-/// The session-owner policy: a caller may launch into its own session; root or
-/// a holder of `CAP_SETUID` (the supervisor) may launch anywhere; everyone
-/// else is refused.
+/// The session-owner policy: a caller may launch into its own session; a
+/// holder of `CAP_SETUID` (`logind`, the supervisor) may launch anywhere;
+/// everyone else is refused. A uid is never enough (issue #623): a root login
+/// session holds no capability and stays in its own session.
 pub(super) fn authorize(caller: &SysCred, target_session: u64) -> messenger::Result<()> {
-    if caller.session == target_session || caller.uid == 0 || caller.caps & CAP_SETUID != 0 {
+    if caller.session == target_session || caller.caps & CAP_SETUID != 0 {
         Ok(())
     } else {
         Err(messenger::Error::Errno(-messenger::errno::EPERM))
@@ -201,11 +202,37 @@ pub(super) fn launch_row(
     if !is_available(app) {
         return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
     }
-    let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
+    let (path_arg, cred, session) = match app.system_uid {
+        Some(uid) => admit_system(request, caller, uid)?,
+        None => admit(services, request, caller, autostart)?,
+    };
     retire_stopped(services, app.id);
     let mut row = Service::from_app(app, path_arg, cred);
     row.env = sessions::env(session, cred.uid);
-    start_row(services, broker, row, &cred, session, autostart)
+    let result = start_row(services, broker, row, &cred, session, autostart)?;
+    // The desktop shell opening in a login session opens the session: its
+    // autostart apps follow, as the session's user (issue #623).
+    if app.id == SHELL_APP_ID && session != 0 {
+        super::autostart::open_session(cred);
+    }
+    Ok(result)
+}
+
+/// The checks for a system program (`AppSpec::system_uid`): only a
+/// `CAP_SETUID` holder (`logind`) may start it, with no argument, and it
+/// runs as its own uid with no capability and no session, whoever asked.
+fn admit_system(
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+    uid: u32,
+) -> messenger::Result<(Option<String>, SysCred, u64)> {
+    if caller.caps & CAP_SETUID == 0 {
+        return Err(messenger::Error::Errno(-messenger::errno::EPERM));
+    }
+    if !request.args.is_empty() || request.session != 0 {
+        return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
+    }
+    Ok((None, SysCred::new(uid, uid, 0, 0, 0), 0))
 }
 
 /// Launch one installed app: [`launch_row`]'s path with the installed row, its

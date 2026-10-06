@@ -4,6 +4,19 @@ interface os.lazy.logind.v1 {
     /// Snapshot the session table, oldest session first.
     method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2);
 
+    /// Log in from the graphical login screen (issue #623): authenticate
+    /// `user` with `secret` and open their desktop session, the same path a
+    /// built-in autologin takes. Only the login screen's own identity (the
+    /// `_greeter` system uid, unlabelled) may call it; a refused password is
+    /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
+    method Login(user: String = 1, secret: String = 2) -> (session: U64 = 1);
+
+    /// End the caller's graphical session (issue #623): `init` stops every
+    /// task stamped with that session, and the login screen comes back. Only
+    /// a task of the active graphical session may call it (`EPERM`
+    /// otherwise).
+    method Logout() -> (session: U64 = 1);
+
     /// One login session.
     struct Session {
         /// Session id minted by `logind`.

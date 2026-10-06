@@ -424,6 +424,8 @@ The console login service (issue #101): owns the session table and
 | Function | IDL | About |
 |---|---|---|
 | `sessions()` | `Sessions() -> (active: U64, sessions: Array<Session>)` | Snapshot the session table, oldest session first. |
+| `login(user, secret)` | `Login(user: String, secret: String) -> (session: U64)` | Log in from the graphical login screen (issue #623): authenticate |
+| `logout()` | `Logout() -> (session: U64)` | End the caller's graphical session (issue #623): `init` stops every |
 | `new_session()` | struct `Session` | a `Session` at its zero value |
 | `new_login_start()` | struct `LoginStart` | a `LoginStart` at its zero value |
 | `new_login_session()` | struct `LoginSession` | a `LoginSession` at its zero value |
