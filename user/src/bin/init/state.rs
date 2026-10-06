@@ -248,12 +248,14 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &[],
     },
+    // The login prompt reads its keys through `inputd`'s console session
+    // (issue #396), so it starts once `inputd` serves.
     ServiceSpec {
         name: "logind",
         path: fhs::bin::LOGIND,
         args: "",
         restart: Restart::Always,
-        deps: &["accountsd"],
+        deps: &["accountsd", "inputd"],
     },
     ServiceSpec {
         name: "logd",

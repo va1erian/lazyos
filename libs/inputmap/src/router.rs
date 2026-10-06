@@ -7,6 +7,14 @@
 //! task can never claim someone else's window. At most one session is
 //! "focused" at any moment, and it is the only one that ever receives key
 //! content.
+//!
+//! **The console session** (issue #396). One session may have no surface:
+//! the login console's ([`Router::open_console`]; `inputd` admits only the
+//! task holding the kernel's console claim). It is the fallback target: it
+//! receives key content while no compositor is attached ([`Router::
+//! set_compositor`]) and so nothing can have focus, which is exactly when the
+//! console is what the screen shows. Under a compositor every key goes to a
+//! window or nowhere, never to a prompt the user cannot see.
 
 use alloc::collections::BTreeMap;
 
@@ -30,13 +38,16 @@ pub enum Error {
     Full,
     /// No such session (`ENOENT`).
     NoSession,
+    /// Another task holds the console session (`EBUSY`).
+    Busy,
 }
 
 /// One open input session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Session {
     pub owner: u64,
-    pub surface: u64,
+    /// The window it takes keys for; `None` for the console session.
+    pub surface: Option<u64>,
 }
 
 /// What [`Router::open`] decided.
@@ -72,6 +83,10 @@ pub struct Router {
     by_surface: BTreeMap<u64, u64>,
     focus: Option<u64>,
     next_session: u64,
+    /// The console session, if one is open.
+    console: Option<u64>,
+    /// Whether a compositor is attached (the console then gets nothing).
+    compositor: bool,
 }
 
 impl Router {
@@ -104,6 +119,53 @@ impl Router {
         Some(session)
     }
 
+    /// Open the console session for `owner` (the caller checked the claim).
+    /// Opening it again from the same task replaces it; from another task
+    /// while it is open, [`Error::Busy`].
+    pub fn open_console(&mut self, owner: u64) -> Result<Opened, Error> {
+        let replaced = match self
+            .console
+            .and_then(|id| self.sessions.get(&id).map(|s| (id, s.owner)))
+        {
+            Some((_, holder)) if holder != owner => return Err(Error::Busy),
+            Some((id, _)) => Some(id),
+            None => None,
+        };
+        if replaced.is_none() && self.sessions.len() >= MAX_SESSIONS {
+            return Err(Error::Full);
+        }
+        if let Some(old) = replaced {
+            self.sessions.remove(&old);
+        }
+        let session = self.next_session;
+        self.next_session += 1;
+        self.sessions.insert(
+            session,
+            Session {
+                owner,
+                surface: None,
+            },
+        );
+        self.console = Some(session);
+        Ok(Opened {
+            session,
+            replaced,
+            focused: self.focused_session() == Some(session),
+            first_for_surface: false,
+        })
+    }
+
+    /// The compositor attached (`true`) or went away. The console session
+    /// loses or regains the keyboard accordingly.
+    pub fn set_compositor(&mut self, attached: bool) -> FocusChange {
+        let before = self.focused_session();
+        self.compositor = attached;
+        if !attached {
+            self.focus = None;
+        }
+        change(before, self.focused_session())
+    }
+
     /// Open a session for `owner` on `surface`.
     pub fn open(&mut self, owner: u64, surface: u64) -> Result<Opened, Error> {
         match self.surfaces.get(&surface) {
@@ -112,7 +174,11 @@ impl Router {
             Some(_) => {}
         }
         let replaced = self.by_surface.get(&surface).copied();
-        let held = self.sessions.values().filter(|s| s.owner == owner).count();
+        let held = self
+            .sessions
+            .values()
+            .filter(|s| s.owner == owner && s.surface.is_some())
+            .count();
         let replacing_own = replaced.is_some();
         if !replacing_own && (held >= MAX_SESSIONS_PER_OWNER || self.sessions.len() >= MAX_SESSIONS)
         {
@@ -123,7 +189,13 @@ impl Router {
         }
         let session = self.next_session;
         self.next_session += 1;
-        self.sessions.insert(session, Session { owner, surface });
+        self.sessions.insert(
+            session,
+            Session {
+                owner,
+                surface: Some(surface),
+            },
+        );
         self.by_surface.insert(surface, session);
         Ok(Opened {
             session,
@@ -133,8 +205,9 @@ impl Router {
         })
     }
 
-    /// Close `session`, which must belong to `owner`. Returns its surface.
-    pub fn close(&mut self, session: u64, owner: u64) -> Result<u64, Error> {
+    /// Close `session`, which must belong to `owner`. Returns its surface
+    /// (`None` for the console session).
+    pub fn close(&mut self, session: u64, owner: u64) -> Result<Option<u64>, Error> {
         match self.sessions.get(&session) {
             None => return Err(Error::NoSession),
             Some(found) if found.owner != owner => return Err(Error::NoSession),
@@ -147,8 +220,13 @@ impl Router {
     /// Drop `session` regardless of owner (its endpoint died). Returns it.
     pub fn remove(&mut self, session: u64) -> Option<Session> {
         let removed = self.sessions.remove(&session)?;
-        if self.by_surface.get(&removed.surface) == Some(&session) {
-            self.by_surface.remove(&removed.surface);
+        if self.console == Some(session) {
+            self.console = None;
+        }
+        if let Some(surface) = removed.surface {
+            if self.by_surface.get(&surface) == Some(&session) {
+                self.by_surface.remove(&surface);
+            }
         }
         Some(removed)
     }
@@ -158,20 +236,24 @@ impl Router {
         if self.focus == surface {
             return FocusChange::default();
         }
-        let change = FocusChange {
-            left: self
-                .focus
-                .and_then(|old| self.by_surface.get(&old).copied()),
-            entered: surface.and_then(|new| self.by_surface.get(&new).copied()),
-        };
+        let before = self.focused_session();
         self.focus = surface;
-        change
+        change(before, self.focused_session())
     }
 
-    /// The session that receives key content right now.
+    /// The session that receives key content right now: the focused
+    /// window's, or with no compositor attached, the console session.
     pub fn focused_session(&self) -> Option<u64> {
-        self.focus
-            .and_then(|surface| self.by_surface.get(&surface).copied())
+        match self.focus {
+            Some(surface) => self.by_surface.get(&surface).copied(),
+            None if !self.compositor => self.console,
+            None => None,
+        }
+    }
+
+    /// The console session, if one is open.
+    pub fn console(&self) -> Option<u64> {
+        self.console
     }
 
     pub fn session(&self, session: u64) -> Option<Session> {
@@ -187,5 +269,16 @@ impl Router {
     /// suppression).
     pub fn has_session(&self, surface: u64) -> bool {
         self.by_surface.contains_key(&surface)
+    }
+}
+
+/// The leave/enter pair for a move of the keyboard from `before` to `after`.
+fn change(before: Option<u64>, after: Option<u64>) -> FocusChange {
+    if before == after {
+        return FocusChange::default();
+    }
+    FocusChange {
+        left: before,
+        entered: after,
     }
 }

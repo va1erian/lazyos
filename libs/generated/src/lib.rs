@@ -6129,8 +6129,11 @@ pub mod os_lazy_input_v1 {
     /// sender). `surface` names the window it wants keys for: it must be a
     /// surface the compositor registered as owned by this same task, so a
     /// client can never claim someone else's window (`EACCES`; `ENOENT` when
-    /// the compositor has not registered it); an absent `surface` is reserved for
-    /// the login console and refused with `EINVAL` for now. The parcel transfers the event
+    /// the compositor has not registered it). An absent `surface` opens the
+    /// login console's session (issue #396): only the task holding the
+    /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
+    /// second holder `EBUSY`), and it receives keys only while no compositor
+    /// is attached. The parcel transfers the event
     /// endpoint (`handles[0]`) that receives every event below. A task may hold
     /// several sessions, one per surface.
     #[derive(Clone, Debug, Default, PartialEq)]

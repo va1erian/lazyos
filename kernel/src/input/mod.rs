@@ -1,6 +1,7 @@
 //! Input devices.
 
 pub mod bus;
+pub mod console;
 pub mod hid;
 pub mod i8042;
 pub mod keyboard;

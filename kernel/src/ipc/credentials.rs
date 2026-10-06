@@ -99,6 +99,11 @@ pub const CAP_BLOCK_PROVIDER: u32 = 1 << 11;
 /// `/mnt` (syscall 35, `fs::fuse`, docs/smb-plan.md F1): what a
 /// user-space filesystem daemon (`memfuse`, later `smbfuse`) needs.
 pub const CAP_FS_PROVIDER: u32 = 1 << 12;
+/// Claim the login console's keyboard (syscall 25 ops 7-8,
+/// `input::console`, issue #396): while the holder's claim stands, typed
+/// keys reach it through `inputd`'s sessionless input session and are kept
+/// off the kernel terminal queue. `init` stamps it onto `logind` alone.
+pub const CAP_INPUT_CONSOLE: u32 = 1 << 13;
 /// Every capability bit defined today.
 pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_NET_RAW
@@ -112,7 +117,8 @@ pub const CAP_ALL: u32 = CAP_NET_BIND
     | CAP_INPUT_RAW
     | CAP_INPUT_SOURCE
     | CAP_BLOCK_PROVIDER
-    | CAP_FS_PROVIDER;
+    | CAP_FS_PROVIDER
+    | CAP_INPUT_CONSOLE;
 
 /// Audit interface id for credential transitions (issue #101). The ring keys on
 /// this so `auditd` can separate login/elevation records from Messenger policy

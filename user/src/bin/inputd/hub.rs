@@ -43,9 +43,9 @@ struct Shell {
 
 pub(super) struct Hub {
     pub(super) engine: Engine,
-    router: Router,
+    pub(super) router: Router,
     /// The sessions' endpoints and their backlogs.
-    delivery: Delivery,
+    pub(super) delivery: Delivery,
     shell: Option<Shell>,
     /// The cursor every pointing device moves (`pointer.rs`).
     pub(super) pointer: Cursor,
@@ -109,7 +109,9 @@ impl Hub {
                     .close(args.session, message.sender)
                     .map_err(route_error)?;
                 self.forget_endpoint(args.session);
-                self.announce_closed(surface);
+                if let Some(surface) = surface {
+                    self.announce_closed(surface);
+                }
                 Ok(Vec::new())
             }
             wire::METHOD_GETSTATE => {
@@ -141,11 +143,13 @@ impl Hub {
 
     fn open_inner(&mut self, message: &Message) -> Result<Vec<u8>> {
         let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
-        // A session without a surface is reserved for the login console.
-        let surface = args.surface.ok_or(Error::Errno(-errno::EINVAL))?;
         if !message.carries(wire::OPEN_TRANSFERS) {
             return Err(Error::Errno(-errno::EINVAL));
         }
+        // A session without a surface is the login console's (issue #396).
+        let Some(surface) = args.surface else {
+            return self.open_console(message);
+        };
         let opened = self
             .router
             .open(message.sender, surface)
@@ -266,7 +270,7 @@ impl Hub {
             .router
             .sessions()
             .filter_map(|session| self.router.session(session))
-            .map(|session| session.surface)
+            .filter_map(|session| session.surface)
             .collect();
         for surface in surfaces {
             self.shell_event(
@@ -274,6 +278,9 @@ impl Hub {
                 shell_wire::encode_session_opened_args(&shell_wire::SessionOpenedArgs { surface }),
             );
         }
+        // Under a compositor the console session gets nothing.
+        let change = self.router.set_compositor(true);
+        self.apply(change);
         Ok(Vec::new())
     }
 
@@ -283,6 +290,12 @@ impl Hub {
     /// one window into the next.
     fn set_focus(&mut self, surface: Option<u64>) {
         let change = self.router.set_focus(surface);
+        self.apply(change);
+    }
+
+    /// Hand the keyboard over as `change` says: cancel repeat, tell the old
+    /// holder it left and the new one it entered.
+    pub(super) fn apply(&mut self, change: inputmap::router::FocusChange) {
         self.engine.cancel_repeat();
         if let Some(session) = change.left {
             self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
@@ -293,7 +306,7 @@ impl Hub {
     }
 
     /// Tell `session` it has the keyboard, seeding it with the held keys.
-    fn enter(&mut self, session: u64) {
+    pub(super) fn enter(&mut self, session: u64) {
         let down = self.engine.held().into_iter().map(u32::from).collect();
         let body = wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down });
         self.send(session, wire::METHOD_KEYBOARDENTER, body);
@@ -373,9 +386,11 @@ impl Hub {
         let parcel = api::event(api::SHELL_INTERFACE, method, body);
         if let Err(Error::Errno(code)) = shell.events.send(&parcel) {
             if code == -errno::EPIPE {
-                // The compositor is gone: nobody is focused until it returns.
+                // The compositor is gone: no window is focused until it
+                // returns, and the console session takes the keys again.
                 self.drop_shell();
-                self.set_focus(None);
+                let change = self.router.set_compositor(false);
+                self.apply(change);
             }
         }
     }
@@ -394,7 +409,7 @@ impl Hub {
 
     // ---- teardown ---------------------------------------------------------
 
-    fn forget_endpoint(&mut self, session: u64) {
+    pub(super) fn forget_endpoint(&mut self, session: u64) {
         self.delivery.forget(session);
     }
 
@@ -402,7 +417,9 @@ impl Hub {
     fn drop_session(&mut self, session: u64) {
         if let Some(removed) = self.router.remove(session) {
             self.forget_endpoint(session);
-            self.announce_closed(removed.surface);
+            if let Some(surface) = removed.surface {
+                self.announce_closed(surface);
+            }
         }
     }
 
@@ -443,11 +460,12 @@ fn encode_key(key: &KeyOut) -> Encoded {
 }
 
 /// Map a router refusal onto its errno.
-fn route_error(error: RouteError) -> Error {
+pub(super) fn route_error(error: RouteError) -> Error {
     Error::Errno(-match error {
         RouteError::NoSurface | RouteError::NoSession => errno::ENOENT,
         RouteError::NotOwner => errno::EACCES,
         RouteError::Full => errno::ENOMEM,
+        RouteError::Busy => errno::EBUSY,
     })
 }
 

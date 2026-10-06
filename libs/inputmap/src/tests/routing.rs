@@ -16,7 +16,7 @@ fn a_task_can_only_open_its_own_surface() {
     assert_eq!(router.open(100, 9), Err(Error::NoSurface));
     let opened = router.open(100, 1).unwrap();
     assert!(opened.first_for_surface && !opened.focused);
-    assert_eq!(router.session(opened.session).unwrap().surface, 1);
+    assert_eq!(router.session(opened.session).unwrap().surface, Some(1));
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn closing_needs_the_owner_and_frees_the_surface() {
     let mut router = router();
     let opened = router.open(100, 1).unwrap();
     assert_eq!(router.close(opened.session, 200), Err(Error::NoSession));
-    assert_eq!(router.close(opened.session, 100), Ok(1));
+    assert_eq!(router.close(opened.session, 100), Ok(Some(1)));
     assert!(!router.has_session(1));
     assert_eq!(router.close(opened.session, 100), Err(Error::NoSession));
     // The surface stays registered: it can be opened again.
@@ -143,7 +143,7 @@ fn dead_endpoint_removal_is_owner_agnostic() {
     let mut router = router();
     let opened = router.open(100, 1).unwrap();
     let removed = router.remove(opened.session).unwrap();
-    assert_eq!((removed.owner, removed.surface), (100, 1));
+    assert_eq!((removed.owner, removed.surface), (100, Some(1)));
     assert!(router.remove(opened.session).is_none());
     assert!(!router.has_session(1));
 }
@@ -189,7 +189,9 @@ fn churn_keeps_the_indexes_consistent() {
         }
         for session in router.sessions().collect::<alloc::vec::Vec<_>>() {
             let found = router.session(session).unwrap();
-            assert!(router.has_session(found.surface));
+            assert!(found
+                .surface
+                .is_some_and(|surface| router.has_session(surface)));
         }
         if let Some(focused) = router.focused_session() {
             assert!(router.session(focused).is_some());

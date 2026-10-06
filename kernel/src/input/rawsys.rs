@@ -11,6 +11,10 @@
 //!   op 5 (publish): rsi -> records, rdx = source id << 16 | count -> records
 //!        accepted; -EBADF not the caller's source, -EINVAL count, -EFAULT
 //!   op 6 (close_source): rsi = source id; releases what it held
+//!   op 7 (console_claim): claim the login console's keyboard (issue #396,
+//!        [`super::console`]); -EBUSY while another live task holds it
+//!   op 8 (console_release): give it back; -EPERM when not the holder
+//!   op 9 (console_owner): the claiming task's slot, or -ENOENT
 //! ```
 //!
 //! Every return is a count/zero or `-errno`. Consumer records are
@@ -20,13 +24,16 @@
 //! `CAP_INPUT_RAW` so ambient authority no longer grants a keylogger: only the
 //! task `init` stamps the bit onto (`inputd`) can read the stream. Ops 4-6 are
 //! gated on `CAP_INPUT_SOURCE` (`docs/usb-hid-plan.md` U1), held by input
-//! drivers; neither bit implies the other.
+//! drivers; neither bit implies the other. Ops 7-8 are gated on
+//! `CAP_INPUT_CONSOLE` (`logind`); op 9, like op 3, on `CAP_INPUT_RAW`
+//! (`inputd` authenticates its sessionless client with it).
 
 use alloc::vec::Vec;
 
 use super::bus::{self, RAW_EVENT_BYTES};
+use super::console;
 use super::sources::{self, Record, MAX_BATCH, RECORD_BYTES};
-use crate::ipc::credentials::{self, CAP_INPUT_RAW, CAP_INPUT_SOURCE};
+use crate::ipc::credentials::{self, CAP_INPUT_CONSOLE, CAP_INPUT_RAW, CAP_INPUT_SOURCE};
 use crate::{task, user_ptr};
 
 pub mod op {
@@ -38,6 +45,12 @@ pub mod op {
     pub const REGISTER_SOURCE: u64 = 4;
     pub const PUBLISH: u64 = 5;
     pub const CLOSE_SOURCE: u64 = 6;
+    /// Claim the login console's keyboard (`CAP_INPUT_CONSOLE`).
+    pub const CONSOLE_CLAIM: u64 = 7;
+    /// Release the claim.
+    pub const CONSOLE_RELEASE: u64 = 8;
+    /// The claiming task's slot (`CAP_INPUT_RAW`).
+    pub const CONSOLE_OWNER: u64 = 9;
 }
 
 const EPERM: i64 = 1;
@@ -56,6 +69,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
     let me = task::current();
     let needed = match operation {
         op::REGISTER_SOURCE | op::PUBLISH | op::CLOSE_SOURCE => CAP_INPUT_SOURCE,
+        op::CONSOLE_CLAIM | op::CONSOLE_RELEASE => CAP_INPUT_CONSOLE,
         _ => CAP_INPUT_RAW,
     };
     if me == task::KERNEL_TASK || !credentials::of(me).has_cap(needed) {
@@ -99,6 +113,18 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             _ => negative(EINVAL),
         },
         op::PUBLISH => publish(me, buf, capacity),
+        op::CONSOLE_CLAIM => match console::claim(me) {
+            Ok(()) => 0,
+            Err(_) => negative(EBUSY),
+        },
+        op::CONSOLE_RELEASE => match console::release(me) {
+            Ok(()) => 0,
+            Err(_) => negative(EPERM),
+        },
+        op::CONSOLE_OWNER => match console::holder() {
+            Some(slot) => slot as u64,
+            None => negative(ENOENT),
+        },
         op::CLOSE_SOURCE => match sources::close(buf, me) {
             Ok(()) => 0,
             Err(_) => negative(EBADF),

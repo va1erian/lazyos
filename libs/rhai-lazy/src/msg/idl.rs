@@ -1062,7 +1062,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Open",
                 id: 1,
                 oneway: false,
-                doc: "Open an input session bound to the calling task (the kernel-stamped\nsender). `surface` names the window it wants keys for: it must be a\nsurface the compositor registered as owned by this same task, so a\nclient can never claim someone else's window (`EACCES`; `ENOENT` when\nthe compositor has not registered it); an absent `surface` is reserved for\nthe login console and refused with `EINVAL` for now. The parcel transfers the event\nendpoint (`handles[0]`) that receives every event below. A task may hold\nseveral sessions, one per surface.",
+                doc: "Open an input session bound to the calling task (the kernel-stamped\nsender). `surface` names the window it wants keys for: it must be a\nsurface the compositor registered as owned by this same task, so a\nclient can never claim someone else's window (`EACCES`; `ENOENT` when\nthe compositor has not registered it). An absent `surface` opens the\nlogin console's session (issue #396): only the task holding the\nkernel's console claim may (`logind`; anyone else gets `EACCES`, a\nsecond holder `EBUSY`), and it receives keys only while no compositor\nis attached. The parcel transfers the event\nendpoint (`handles[0]`) that receives every event below. A task may hold\nseveral sessions, one per surface.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::Option(&Ty::U64) }],
                 returns: &[Field { name: "session", id: 1, ty: Ty::U64 }],
                 transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.v1") }],

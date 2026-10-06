@@ -7,6 +7,7 @@ use super::*;
 use crate::input::bus::{self, kind, RawEvent, RING_CAP};
 use crate::input::hid::{Set1Decoder, Step};
 
+mod console;
 mod hid_table;
 mod pointer;
 mod pointer_stress;
@@ -110,6 +111,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "input_raw_legacy_display_path_unchanged",
         syscall::legacy_path_unchanged,
     ),
+    ("input_console_capability_gate", console::capability_gate),
+    ("input_console_claim_lifecycle", console::lifecycle),
+    (
+        "input_console_stale_holders_hold_nothing",
+        console::stale_holders_hold_nothing,
+    ),
+    (
+        "input_console_claimed_keys_stay_off_the_terminal",
+        console::claimed_keys_stay_off_the_terminal,
+    ),
+    ("input_console_stress_claims", console::soak_claims),
     (
         "input_ps2_fifo_order_and_capacity",
         ps2_intake::fifo_order_and_capacity,
