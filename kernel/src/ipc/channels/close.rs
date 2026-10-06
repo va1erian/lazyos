@@ -78,8 +78,21 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
     if last_holder_only && handles::object_refs(HandleKind::Channel, entry.object_id) > 0 {
         return Ok(());
     }
+    let orphans = close_side(channel_id, side);
+    close_orphans(orphans);
+    Ok(())
+}
+
+/// Mark `side` of `channel_id` closed: wake everyone parked on the channel,
+/// drop what is queued for the dead side, fail the transactions that needed
+/// it, and remove the channel once both sides are closed.
+///
+/// Returns the channel endpoints that rode in the dropped messages (moved
+/// handles nobody received), for [`close_orphans`].
+fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
     let mut remove = false;
     let mut woken: Vec<usize> = Vec::new();
+    let mut orphans: Vec<u64> = Vec::new();
     {
         let mut channels = CHANNELS.lock();
         if let Some(channel) = channels.get_mut(channel_id) {
@@ -95,8 +108,7 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
             let dropped: Vec<Queued> = channel.endpoints[side].inbox.drain(..).collect();
             channel.endpoints[side].queued_bytes = 0;
             for message in &dropped {
-                release_queued(message);
-                release_queued_quota(message.origin.uid, message.bytes.len());
+                discard_queued(message, &mut orphans);
             }
             let mut released = Vec::new();
             for txn in channel.txns.iter_mut() {
@@ -124,8 +136,7 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
                 }
                 channel.drops += extra_drops;
                 for message in &pending {
-                    release_queued(message);
-                    release_queued_quota(message.origin.uid, message.bytes.len());
+                    discard_queued(message, &mut orphans);
                 }
             }
         }
@@ -134,5 +145,38 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
         }
     }
     wake(woken);
-    Ok(())
+    orphans
+}
+
+/// Release everything a message that will never be delivered holds, and note
+/// the channel endpoints it was moving.
+fn discard_queued(message: &Queued, orphans: &mut Vec<u64>) {
+    release_queued(message);
+    release_queued_quota(message.origin.uid, message.bytes.len());
+    orphans.extend(channel_transfers(message.handles.iter()));
+}
+
+/// The channel endpoints among `transfers`.
+pub(super) fn channel_transfers<'a>(
+    transfers: impl Iterator<Item = &'a Transfer> + 'a,
+) -> impl Iterator<Item = u64> + 'a {
+    transfers
+        .filter(|transfer| transfer.kind == HandleKind::Channel)
+        .map(|transfer| transfer.object_id)
+}
+
+/// Close every endpoint in `orphans` that no handle names any more: a moved
+/// channel end whose message was dropped (its receiver closed) or whose
+/// delivery failed has no holder, so its peer would otherwise wait on it
+/// forever. A per-connection channel's service end, posted to a service that
+/// went away, is the common case (issue #483). Closing one can drop further
+/// messages, so this walks a work list rather than recursing.
+pub(super) fn close_orphans(mut orphans: Vec<u64>) {
+    while let Some(object) = orphans.pop() {
+        if handles::object_refs(HandleKind::Channel, object) > 0 {
+            continue;
+        }
+        let (channel_id, side) = split_object_id(object);
+        orphans.extend(close_side(channel_id, side));
+    }
 }

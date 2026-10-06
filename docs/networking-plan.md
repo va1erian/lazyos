@@ -47,7 +47,7 @@ Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
 | Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |
 | BusyBox | `defconfig` static build already runs on the shim; its network applets are compiled in and simply fail at `socket()` | `tools/abi/busybox.py` |
 | Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers + fences, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §6, §7, §10 |
-| Known Messenger gaps that matter here | replies cannot carry handles or buffers; no per-connection channels | [architecture/ipc-core.md](architecture/ipc-core.md) |
+| Known Messenger gaps that matter here | replies cannot carry handles or buffers; per-connection channels exist (`Connect`, #483) but `netd` does not use them yet | [architecture/ipc-core.md](architecture/ipc-core.md) |
 | Time | 100 Hz PIT, 10 ms resolution everywhere | `kernel/src/process/linux/time.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom`; no native wrapper found in `user/src/sys.rs` | `kernel/src/entropy.rs` |
 
@@ -322,9 +322,10 @@ Design notes:
   pid is the slot, so a task landing in a dead owner's slot before the sweep is
   not told apart yet), and a sweep every 20 ticks closes what a dead owner left. The
   per-socket-channel design (the kernel closing a channel when its client dies)
-  stays the better answer and is still tracked by the "per-connection channels"
-  item in [architecture/ipc-core.md](architecture/ipc-core.md); nothing in the
-  interface depends on which one is behind it.
+  stays the better answer; the kernel now has per-connection channels
+  (`Connect`, [architecture/ipc-core.md](architecture/ipc-core.md)), and moving
+  `netd` onto them is what remains. Nothing in the interface depends on which
+  one is behind it.
 - **Client library.** `user/src/messenger/net.rs`: the generated client plus
   thin `TcpStream`, `TcpListener`, `UdpSocket` wrappers named after `std::net`,
   so tools read conventionally and a future native `std` port (rust-std.md

@@ -209,6 +209,9 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.messenger.topics.v1", "Bell"): [
                     ("channel", "os.lazy.messenger.topics.bell.v1")
                 ],
+                ("os.lazy.messenger.registry.v1", "Connected"): [
+                    ("channel", "os.lazy.messenger.registry.v1")
+                ],
             },
         )
 

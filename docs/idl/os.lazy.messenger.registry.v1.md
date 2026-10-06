@@ -22,8 +22,19 @@ kernel gate reports failures as negative errno values.
 |---|---|---|---|
 | Register | 658098656 | sync | `(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64, interface_names: Array<String>) -> ()` |
 | Resolve | 1645633795 | sync | `(name: String) -> (handle: U64)` |
+| Connect | 1535748249 | sync | `(name: String) -> (handle: U64)` |
+| Connected | 2079757168 | oneway | `(name: String) -> () transfers (connection: Channel<os.lazy.messenger.registry.v1>)` |
 | Unregister | 1480320227 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (entries: Array<Entry>)` |
+
+## Transfers
+
+Objects a request carries outside its body, in the parcel's
+`handles` and `buffers` vectors.
+
+| Method | Name | Slot |
+|---|---|---|
+| Connected | `connection` | `handles[0]`, a channel the receiver sends `os.lazy.messenger.registry.v1` on |
 
 ## struct `Entry`
 

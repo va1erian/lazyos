@@ -17,16 +17,18 @@
 //! * [`Resource::Handles`] -- Messenger handles held across every task of the
 //!   uid. The per-process [`crate::ipc::handles::MAX_HANDLES`] check stays the
 //!   first line; this is the aggregate.
-//! * [`Resource::Fds`] -- file descriptors. The resource and the API exist now,
-//!   but the fd table lives in `task/**` and its open/close/dup/fork paths
-//!   cannot be charged without editing that module, so enforcement lands with
-//!   the fd-table refactor (documented follow-up).
+//! * [`Resource::Fds`] -- file descriptors (issue #483). Every open slot of a
+//!   descriptor table holds one charge, taken from the acting task's uid by
+//!   `open`, `dup`, `dup2`, `fork` and spawn copies and released on close and
+//!   when the table goes (`task/fdcharge.rs`). A uid at its limit gets
+//!   `EMFILE`, like a full table.
 //! * [`Resource::QueueBytes`] / [`Resource::QueueDepth`] -- parcels parked in
 //!   Messenger inboxes, charged to the *sender's* uid when queued and released
 //!   when delivered or dropped.
-//! * [`Resource::CpuTicks`] -- CPU ticks. The API exists and the suite exercises
-//!   it; wiring it to the scheduler's accounting is the same `task/**` follow-up
-//!   (the scheduler currently charges ticks to slots, not uids).
+//! * [`Resource::CpuTicks`] -- CPU ticks consumed (issue #483): the scheduler
+//!   books each timer period to the running task's uid ([`cpu`]). The usage
+//!   only grows; a uid past its limit is deprioritised (its tasks pay
+//!   [`cpu::OVER_CAP_STRIDE`] times the stride), not stopped.
 //! * [`Resource::DmaMemory`] -- bytes of contiguous DMA pool memory a driver
 //!   holds through `dma_alloc` (issue #241). Charged before the run is taken
 //!   and released when the backing buffer is destroyed.
@@ -59,6 +61,7 @@
 use alloc::vec::Vec;
 use spin::Mutex;
 
+pub mod cpu;
 mod space;
 mod types;
 
@@ -252,6 +255,7 @@ pub fn all_stats() -> Vec<Stats> {
 pub fn reset() {
     QUOTAS.lock().clear();
     space::reset();
+    cpu::reset();
 }
 
 /// `u64` words in the syscall-11 stats block: a `(usage, limit)` pair per

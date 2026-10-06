@@ -80,6 +80,7 @@ pub use kernel_post::{post_from_kernel, private_endpoint_of_task, seal_endpoint}
 
 mod call;
 mod close;
+mod connect;
 pub mod declared;
 mod recv;
 mod registry;
@@ -90,6 +91,7 @@ mod types;
 
 pub use call::*;
 pub use close::*;
+pub use connect::*;
 pub use recv::*;
 use registry::*;
 pub use stats::*;
@@ -153,17 +155,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = CHANNELS.lock().insert(|id| Channel {
-        id,
-        endpoints: [Endpoint::default(), Endpoint::default()],
-        txns: Vec::new(),
-        senders: Vec::new(),
-        calls: 0,
-        replies: 0,
-        timeouts: 0,
-        cancels: 0,
-        drops: 0,
-    })?;
+    let channel_id = CHANNELS.lock().insert(fresh_channel)?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {

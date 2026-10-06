@@ -388,9 +388,18 @@ pub(super) fn charge(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) {
     }
     super::preempt::note_selected(slot);
     let mut pass = 0;
+    // A uid past its CPU budget pays several quanta of virtual time for each
+    // one it gets, so equal peers out-run it without starving it (#483).
+    let penalty = if crate::quota::cpu::over_cap(slot) {
+        crate::quota::cpu::OVER_CAP_STRIDE
+    } else {
+        1
+    };
     if let Some(task) = tasks[slot].as_mut() {
         VIRTUAL_CLOCK.fetch_max(task.pass, Ordering::Relaxed);
-        task.pass = task.pass.saturating_add(stride(task.weight));
+        task.pass = task
+            .pass
+            .saturating_add(stride(task.weight).saturating_mul(penalty));
         pass = task.pass;
     }
     if pass >= PASS_CEILING {

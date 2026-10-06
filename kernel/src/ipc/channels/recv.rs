@@ -184,6 +184,8 @@ pub(super) fn rollback_delivery(
     for buffer in &queued.buffers[buffers_out.len()..] {
         shared::release(buffer.object_id);
     }
+    // A moved channel end nobody received is closed, so its peer learns.
+    close_orphans(channel_transfers(queued.handles.iter()).collect());
 }
 
 /// Receive the next message, parking until one arrives, the deadline passes, or

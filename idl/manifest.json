@@ -1334,6 +1334,24 @@
         "oneway": false
       },
       {
+        "name": "Connect",
+        "id": 1535748249,
+        "oneway": false
+      },
+      {
+        "name": "Connected",
+        "id": 2079757168,
+        "oneway": true,
+        "transfers": [
+          {
+            "name": "connection",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.messenger.registry.v1"
+          }
+        ]
+      },
+      {
         "name": "Unregister",
         "id": 1480320227,
         "oneway": false

@@ -256,6 +256,13 @@ pub fn of(slot: usize) -> Cred {
     CREDS.lock().get(slot).copied().unwrap_or(Cred::ROOT)
 }
 
+/// [`of`] without waiting: `None` while another context holds the table.
+/// The scheduler's tick reads identities through this, since it may
+/// interrupt a kernel thread that is in the middle of [`set`].
+pub fn try_of(slot: usize) -> Option<Cred> {
+    Some(CREDS.try_lock()?.get(slot).copied().unwrap_or(Cred::ROOT))
+}
+
 /// Replace `slot`'s credentials. `Kernel-only`: profiles (init/messengerd) and
 /// the elevation service call this; nothing reachable from a syscall or parcel
 /// does. Out-of-range slots are ignored.
@@ -263,6 +270,9 @@ pub fn set(slot: usize, cred: Cred) {
     if let Some(entry) = CREDS.lock().get_mut(slot) {
         *entry = cred;
     }
+    // A new identity starts in good standing with the CPU quota until its
+    // first booked tick (issue #483).
+    crate::quota::cpu::forget_slot(slot);
 }
 
 /// Replace the current task's credentials. `Kernel-only`; see [`set`].

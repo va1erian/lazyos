@@ -57,6 +57,7 @@ pub(super) fn op_registry(args: &MsgArgs, method: u32) -> Result<MsgResult, i64>
         registry::method::RESOLVE => registry_resolve(args, target),
         registry::method::UNREGISTER => registry_unregister(args, target),
         registry::method::LIST => registry_list(args),
+        registry::method::CONNECT => registry_connect(args, target),
         _ => Err(errno::EINVAL),
     }
 }
@@ -101,6 +102,20 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
     .map_err(registry_errno)?;
     Ok(MsgResult {
         value: entry.object_id,
+        ..MsgResult::default()
+    })
+}
+
+/// `OP_CONNECT`: open a private connection to `name` for `target` (issue
+/// #483). The name policy is `Resolve`'s: a connection reaches exactly what a
+/// resolve would.
+pub(super) fn registry_connect(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
+    let bytes = read_parcel(args)?;
+    let args = registry_args(&bytes, registry::wire::decode_connect_args)?;
+    policy::check_name(target, NameOp::Resolve, &args.name).map_err(|_| errno::EACCES)?;
+    let handle = crate::ipc::connect::connect(target, &args.name).map_err(registry_errno)?;
+    Ok(MsgResult {
+        value: handle,
         ..MsgResult::default()
     })
 }

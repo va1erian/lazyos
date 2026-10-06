@@ -70,6 +70,8 @@ pub fn senders(handle: u64) -> Result<Vec<SenderMeter>, Error> {
 /// Waiters are woken so a task parked in `await_reply` observes
 /// [`Error::NoTransaction`] instead of hanging.
 pub fn reset() {
+    // Every channel goes, so the endpoints moving in queued messages need no
+    // orphan pass (`close::close_orphans`).
     let mut channels = CHANNELS.lock();
     for channel in channels.iter() {
         for endpoint in &channel.endpoints {

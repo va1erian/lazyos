@@ -82,6 +82,7 @@ pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child_env};
 mod console;
 pub mod consoletty;
 mod cwd;
+mod fdcharge;
 mod fdio;
 mod fdops;
 mod fdshare;
