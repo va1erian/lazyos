@@ -1,7 +1,7 @@
 //! The account file, `/system/etc/passwd` (issue #508, docs/filesystem-plan.md
 //! F4 section 3).
 //!
-//! One account per line, `name:uid:gid:secret:home:shell`. The file is the
+//! One account per line, `name:uid:gid:x:home:shell`. The file is the
 //! **only** account source: `accountsd` has no built-in table, so this parser
 //! decides whether the machine has accounts at all. It is strict on purpose and
 //! fails closed: a file that is empty, too large, not text, has a malformed row
@@ -10,8 +10,10 @@
 //! corrupted disk turns into an unexpected login.
 //!
 //! Blank lines and `#` comments are allowed; a trailing `\r` is ignored. The
-//! secret is the bring-up plaintext verifier (`docs/security-model.md`); hashes
-//! and `/system/etc/shadow` are #447's.
+//! fourth field must be exactly `x`: the passwords are Argon2id verifiers in
+//! the root-only `/system/etc/shadow` ([`shadow`], issue #447), and a row that
+//! carries anything else (a plaintext secret, say) is refused like any other
+//! malformed row, so no secret can come back into the world-readable file.
 //!
 //! The image build parses its own copy with the same function, so a passwd
 //! that `accountsd` would refuse never reaches an image.
@@ -23,6 +25,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 
+pub mod shadow;
 #[cfg(test)]
 mod tests;
 
@@ -33,14 +36,15 @@ pub const NAME_MAX: usize = 32;
 /// Fields per row.
 const FIELDS: usize = 6;
 
-/// One account row. `secret` is the bring-up verifier and never leaves
-/// `accountsd`.
+/// The password field of every row: the secret is in the shadow file.
+pub const IN_SHADOW: &str = "x";
+
+/// One account row (its password is in the shadow file, never here).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub uid: u32,
     pub gid: u32,
-    pub secret: String,
     pub home: String,
     pub shell: String,
 }
@@ -116,7 +120,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Entry>, LoadError> {
     Ok(entries)
 }
 
-/// One `name:uid:gid:secret:home:shell` row, or the name of the first field
+/// One `name:uid:gid:x:home:shell` row, or the name of the first field
 /// that is wrong.
 fn parse_row(row: &str) -> Result<Entry, &'static str> {
     let fields: Vec<&str> = row.split(':').collect();
@@ -131,7 +135,7 @@ fn parse_row(row: &str) -> Result<Entry, &'static str> {
     }
     let uid = parse_id(uid).ok_or("uid")?;
     let gid = parse_id(gid).ok_or("gid")?;
-    if secret.is_empty() {
+    if secret != IN_SHADOW {
         return Err("secret");
     }
     if !valid_home(home) {
@@ -144,7 +148,6 @@ fn parse_row(row: &str) -> Result<Entry, &'static str> {
         name: name.to_string(),
         uid,
         gid,
-        secret: secret.to_string(),
         home: home.to_string(),
         shell: shell.to_string(),
     })

@@ -152,6 +152,9 @@ fhs = { path = "libs/fhs", features = ["alloc"] }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }
+# `/system/etc/shadow`'s Argon2id verifiers are derived at build time with the
+# code and cost `keyd` verifies them with (issue #447).
+lazyos-crypto = { path = "libs/crypto" }
 # The TLS trust anchors written to `/system/etc/ssl/certs/ca-certificates.crt`
 # (docs/tls-plan.md §5.2): Mozilla's root program (CCADB), pinned exactly so
 # the root set changes only with a deliberate bump.

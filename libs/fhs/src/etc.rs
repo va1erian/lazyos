@@ -1,9 +1,13 @@
 //! System configuration files in [`SYSTEM_ETC`](crate::SYSTEM_ETC).
 
-/// The account database (`name:uid:gid:secret:home:shell`), read by
-/// `accountsd`. Written by the image build. Target (F4): the accounts become
-/// `admin` and `user`, and `accountsd` fails closed without it.
+/// The account database (`name:uid:gid:x:home:shell`), read by
+/// `accountsd`. Written by the image build; `accountsd` fails closed without
+/// it. The fourth field is always `x`: the password lives in [`SHADOW`].
 pub const PASSWD: &str = "/system/etc/passwd";
+
+/// The password verifiers (issue #447): one Argon2id hash per account, mode
+/// 0600 and owned by root, read only by `keyd`. Written by the image build.
+pub const SHADOW: &str = "/system/etc/shadow";
 
 /// The trust anchors for TLS clients: one PEM bundle generated at build time
 /// from a pinned Mozilla root list (docs/tls-plan.md §5.2). Linux programs see
@@ -54,6 +58,7 @@ mod tests {
     #[test]
     fn lives_in_system_etc() {
         assert!(PASSWD.starts_with(crate::SYSTEM_ETC));
+        assert!(SHADOW.starts_with(crate::SYSTEM_ETC));
         assert!(CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
         assert!(HOSTS.starts_with(crate::SYSTEM_ETC));
         assert!(UI_PROBE.starts_with(crate::SYSTEM_ETC));

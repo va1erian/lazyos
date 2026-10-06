@@ -58,11 +58,11 @@ const FAIL_DELAY_TICKS: u64 = 30;
 const SESSION_CAPS: u32 = 0;
 /// Longest name/secret line the prompt accepts.
 const LINE_MAX: usize = 64;
-/// The login screen's help: the default accounts of `/system/etc/passwd`
-/// (`build_support/passwd`), documented in `docs/security-model.md` section 3.
-/// Bring-up plaintext secrets until #447 hashes them.
-const LOGIN_HELP: &str = "Default accounts: admin (password nimda, uid 0) and \
-                          user (password lazy, uid 1000).\n";
+/// The login prompt's help: the default accounts of `/system/etc/passwd`
+/// (`build_support/passwd`). Their passwords are never printed (issue #447):
+/// `docs/security-model.md` section 3 documents them.
+const LOGIN_HELP: &str = "Default accounts: admin and user \
+                          (passwords: docs/security-model.md section 3).\n";
 
 /// The session whose shell is currently running. A graphical session's shell
 /// is `init`'s child, not ours, so its exit is never reaped here: the session

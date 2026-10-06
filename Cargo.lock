@@ -172,6 +172,8 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "lazyos-crypto",
+ "passwd",
  "webpki-root-certs",
 ]
 
@@ -615,6 +617,7 @@ dependencies = [
  "fatfs",
  "fhs",
  "kernel",
+ "lazyos-crypto",
  "passwd",
  "user",
  "webpki-root-certs",
