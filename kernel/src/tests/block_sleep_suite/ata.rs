@@ -45,8 +45,9 @@ fn round_trip(
     wait: Wait,
 ) -> Result<(), String> {
     let span = SPAN.min(disk.sector_count());
-    let sectors = 1 + rng.below(300);
-    let lba = rng.below(span - sectors);
+    check!(span > 0, "the IDE disk has no sectors");
+    let sectors = 1 + rng.below(300.min(span));
+    let lba = rng.below(span - sectors + 1);
     let len = sectors as usize * SECTOR_SIZE;
     let mut first = vec![0u8; len];
     {
