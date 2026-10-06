@@ -38,10 +38,16 @@ pub fn hit(ctx: &Ctx, x: i32, y: i32) -> Option<BarHover> {
 /// (the tooltip opens after a pause).
 pub fn hovered(ctx: &Ctx, hover: Option<BarHover>) {
     let next = match hover {
-        Some(BarHover::Tray(cell)) => Some((cell, crate::sys::clock_ticks())),
+        Some(BarHover::Tray(cell)) => ctx
+            .tray
+            .layout
+            .borrow()
+            .cells
+            .get(cell)
+            .map(|c| (c.app.clone(), crate::sys::clock_ticks())),
         _ => None,
     };
-    ctx.tray.hover.set(next);
+    *ctx.tray.hover.borrow_mut() = next;
 }
 
 /// `input` on the cell at layout index `cell`: a primary click does what the

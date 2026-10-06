@@ -36,6 +36,17 @@ pub fn send(channel: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
     sys::msg_send(channel, &parcel)
 }
 
+/// Whether `app`'s item channel still has a live peer: one `Ping` now.
+pub fn alive(ctx: &Ctx, app: &str) -> bool {
+    let Some(channel) = ctx.tray.channel(app) else {
+        return false;
+    };
+    match send(channel, events::METHOD_PING, Vec::new()) {
+        Ok(()) => true,
+        Err(code) => code == -errno::EAGAIN,
+    }
+}
+
 /// Drop the custom item of `app` whose channel broke.
 pub fn gone(ctx: &Ctx, app: &str) {
     ctx.tray.model.borrow_mut().clear(app);
@@ -50,9 +61,9 @@ pub fn pump(ctx: &Ctx) -> bool {
         return false;
     }
     NEXT_PING.with(|next| next.set(now.saturating_add(PING_TICKS)));
-    let channels: Vec<(String, u64)> = ctx.tray.channels.borrow().clone();
+    let channels: Vec<(String, u64, u32)> = ctx.tray.channels.borrow().clone();
     let mut dropped = false;
-    for (app, channel) in channels {
+    for (app, channel, _) in channels {
         match send(channel, events::METHOD_PING, Vec::new()) {
             // A full queue is a slow app, not a dead one.
             Ok(()) => {}

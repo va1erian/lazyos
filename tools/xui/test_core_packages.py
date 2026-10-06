@@ -79,6 +79,9 @@ class CorePackageTests(unittest.TestCase):
                                         "lrplay.elf": "bin/lrplay.elf"})
         self.assertEqual(app.build_dir, "lazyrad")
         self.assertTrue(app.optional, "built and listed only for LAZYOS_LAZYRAD=1 images")
+        # The tray demo is opt-in too (LAZYOS_TRAYDEMO=1): a default desktop
+        # build must not fail for want of its ELF.
+        self.assertTrue(core_packages.CORE_APPS["traydemo"].optional)
         text = (core_packages.SOURCES / "lazyrad" / "manifest.toml").read_text(encoding="utf-8")
         manifest = tomllib.loads(text)
         self.assertEqual(manifest["app"]["category"], "development")
