@@ -17,6 +17,12 @@
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:REDIR:42", "timeout": 60, "retries": 2},
   {"at": 1.0, "type": "echo $(cat </tmp/d | head -n 1)"},
   {"at": 1.5, "key": "enter", "until": "TERM:OUT:REDIR:42", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "ls / >/tmp/l; echo LS:$(grep -c system /tmp/l)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:LS:1", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "cd; ls / >l; ls / >>l; echo LSH:$(grep -c system l)"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:LSH:2", "timeout": 60, "retries": 2},
+  {"at": 1.0, "type": "head -n 2 l"},
+  {"at": 1.5, "key": "enter", "until": "TERM:OUT:apps", "timeout": 60, "retries": 2},
   {"at": 3.0, "shot": "01_redirected_output"},
   {"at": 4.0, "quit": true}
 ]
