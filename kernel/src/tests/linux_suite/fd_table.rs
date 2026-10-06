@@ -72,7 +72,21 @@ pub fn fd_table_grows_to_the_limit() -> Result<(), String> {
 
 /// The table type itself: lowest-free install, sparse `put`, flags, the fork
 /// copy (everything) and the exec copy (no `FD_CLOEXEC`, flags cleared).
+///
+/// The three tables hold about 5,000 descriptors at once, past a regular
+/// uid's `Fds` quota (issue #483), so this runs as root whatever identity an
+/// earlier test left on the kernel task.
 pub fn fd_table_copies_at_scale() -> Result<(), String> {
+    use crate::ipc::credentials::{self, Cred};
+    let me = task::current();
+    let saved = credentials::of(me);
+    credentials::set(me, Cred::ROOT);
+    let outcome = fd_table_copies_at_scale_as_root();
+    credentials::set(me, saved);
+    outcome
+}
+
+fn fd_table_copies_at_scale_as_root() -> Result<(), String> {
     with_fd_max(4096, || {
         let mut table = FdTable::standard();
         for expected in 3..2000 {

@@ -170,6 +170,7 @@ mod boot_media_suite;
 mod boot_trace_suite;
 mod chmod_suite;
 mod confd_suite;
+mod connect_suite;
 mod credentials_suite;
 mod crypto_suite;
 mod deadline_suite;
@@ -210,6 +211,7 @@ mod power_suite;
 mod preempt_lock_suite;
 mod preempt_wake_suite;
 mod provider_suite;
+mod quota_enforce_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
@@ -248,6 +250,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,
+    quota_enforce_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
     linux_compat_suite::CASES,
@@ -275,6 +278,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     keyboard_suite::CASES,
     input_bus_suite::CASES,
     registry_suite::CASES,
+    connect_suite::CASES,
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,

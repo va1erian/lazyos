@@ -51,6 +51,18 @@ fn resolve(name) {
     msg::connect("os.lazy.messenger.registry.v1").invoke("Resolve", [name])
 }
 
+/// `Connect(name: String) -> (handle: U64)`
+///
+/// Open a private connection to `name` (issue #483): the kernel mints a
+/// fresh channel, returns one end to the caller (the call's return value
+/// over the gate) and posts the other to the service as `Connected`.
+/// Unlike `Resolve`, whose handles all alias the one registered endpoint,
+/// closing a connection ends only that connection. Kernel gate only;
+/// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
+fn connect(name) {
+    msg::connect("os.lazy.messenger.registry.v1").invoke("Connect", [name])
+}
+
 /// `Unregister(name: String) -> ()`
 ///
 /// Withdraw `name`. Only its owner (or an administrator) may.
@@ -64,6 +76,9 @@ fn unregister(name) {
 fn list() {
     msg::connect("os.lazy.messenger.registry.v1").invoke("List", [])
 }
+
+// Not callable from a script (the request transfers a channel, buffer
+// or ring): Connected.
 
 /// A `Entry` with every field at its zero value.
 ///

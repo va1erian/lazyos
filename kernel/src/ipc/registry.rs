@@ -70,6 +70,10 @@ pub mod method {
     pub const UNREGISTER: u32 = wire::METHOD_UNREGISTER;
     /// Snapshot the table.
     pub const LIST: u32 = wire::METHOD_LIST;
+    /// Open a private connection to a name (`super::super::connect`).
+    pub const CONNECT: u32 = wire::METHOD_CONNECT;
+    /// The kernel's notice to a service that a client connected.
+    pub const CONNECTED: u32 = wire::METHOD_CONNECTED;
 }
 
 /// Largest name the registry accepts, in bytes.
@@ -341,8 +345,9 @@ pub fn register(
 /// Note the channel model: all resolvers alias the *same* endpoint, and
 /// closing an endpoint closes that side for everyone (`channels::close_endpoint`
 /// is channel-scoped). A resolved handle must therefore stay open for the life
-/// of the task; closing one is peer death for the service. Per-connection
-/// channels are the documented follow-up.
+/// of the task (or be released, `channels::release_endpoint`); closing one is
+/// peer death for the service. A client that wants its own channel uses
+/// [`crate::ipc::connect`] instead (issue #483).
 ///
 /// A name whose endpoint closed without being unregistered still resolves; the
 /// handle is valid but names a dead channel, so the caller's first operation
@@ -375,6 +380,19 @@ pub fn resolve(target_slot: usize, name: &str) -> Result<u64, Error> {
     // two locks; the handle still names a valid object, so count the resolve.
     REGISTRY.lock().stats.resolves += 1;
     Ok(handle)
+}
+
+/// The registered endpoint behind `name`, as `(kind, rights, object_id)`,
+/// pruning first so a dead owner's name is not found.
+pub fn lookup(name: &str) -> Result<(HandleKind, u32, u64), Error> {
+    validate_name(name)?;
+    let now = task::ticks();
+    let live = live_slots();
+    let mut registry = REGISTRY.lock();
+    prune_locked(&mut registry, &live, now);
+    let entry = registry.entries.iter().find(|entry| entry.name == name);
+    let entry = entry.ok_or(Error::UnknownName)?;
+    Ok((entry.kind, entry.rights, entry.object_id))
 }
 
 /// Unregister `name` on behalf of `owner_slot`.

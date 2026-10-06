@@ -12416,6 +12416,10 @@ pub mod os_lazy_messenger_registry_v1 {
     pub const METHOD_REGISTER: u32 = 658098656;
     /// `Resolve` method id.
     pub const METHOD_RESOLVE: u32 = 1645633795;
+    /// `Connect` method id.
+    pub const METHOD_CONNECT: u32 = 1535748249;
+    /// `Connected` method id.
+    pub const METHOD_CONNECTED: u32 = 2079757168;
     /// `Unregister` method id.
     pub const METHOD_UNREGISTER: u32 = 1480320227;
     /// `List` method id.
@@ -12551,6 +12555,97 @@ pub mod os_lazy_messenger_registry_v1 {
         Ok(out)
     }
 
+    /// Open a private connection to `name` (issue #483): the kernel mints a
+    /// fresh channel, returns one end to the caller (the call's return value
+    /// over the gate) and posts the other to the service as `Connected`.
+    /// Unlike `Resolve`, whose handles all alias the one registered endpoint,
+    /// closing a connection ends only that connection. Kernel gate only;
+    /// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_connect_args(value: &ConnectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_args(body: &[u8]) -> Result<ConnectArgs, Error> {
+        let mut out = ConnectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectReply {
+        pub handle: u64,
+    }
+
+    pub fn encode_connect_reply(value: &ConnectReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.handle)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_reply(body: &[u8]) -> Result<ConnectReply, Error> {
+        let mut out = ConnectReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.handle = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Posted by the kernel on a registered endpoint for each `Connect`: the
+    /// service serves the caller's requests on `connection`, which speaks the
+    /// registered name's interfaces. The message is stamped with the
+    /// connecting task's identity.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectedArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_connected_args(value: &ConnectedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connected_args(body: &[u8]) -> Result<ConnectedArgs, Error> {
+        let mut out = ConnectedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `Connected` request carries outside its body.
+    pub const CONNECTED_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Connected` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectedTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.messenger.registry.v1` on.
+        pub connection: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Connected` request.
+    pub fn encode_connected_transfers(value: &ConnectedTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.connection], Vec::new())
+    }
+
     /// Withdraw `name`. Only its owner (or an administrator) may.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct UnregisterArgs {
@@ -12607,8 +12702,10 @@ pub mod os_lazy_messenger_registry_v1 {
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
+        match method {
+            METHOD_CONNECTED => CONNECTED_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
     }
 }
 
@@ -14437,6 +14534,12 @@ pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
     transfers::TransferDecl {
         interface: 0x5026bd54a60f1ff6,
         method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.messenger.registry.v1.Connected
+    transfers::TransferDecl {
+        interface: 0x51d501afec09806c,
+        method: 2079757168,
         transfers: transfers::Transfers { handles: 1, buffers: 0 },
     },
     // os.lazy.audio.v1.AttachRing

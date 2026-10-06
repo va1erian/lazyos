@@ -195,6 +195,13 @@ pub fn fd_table_len() -> usize {
         .map_or(0, |task| task.fds.len())
 }
 
+/// Open descriptors in `slot`'s table.
+pub fn fd_open_count(slot: usize) -> usize {
+    TASKS.lock()[slot]
+        .as_ref()
+        .map_or(0, |task| task.fds.iter().count())
+}
+
 /// Whether `fd` in another task's table has `FD_CLOEXEC`.
 pub fn fd_cloexec_at(slot: usize, fd: usize) -> bool {
     let tasks = TASKS.lock();

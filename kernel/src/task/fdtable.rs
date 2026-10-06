@@ -14,15 +14,21 @@
 //! Dropping an [`Fd`] may wake a wait queue (a pipe's last writer), which must
 //! not happen under the task-table lock: every method that removes entries
 //! hands them back to the caller to drop after unlocking.
+//!
+//! Every open slot holds a per-uid `Fds` quota charge ([`super::fdcharge`]),
+//! released when the slot closes or the table is dropped.
 
 use alloc::vec::Vec;
 
+use super::fdcharge;
 use super::{Fd, FD_CLOEXEC};
 
-/// One descriptor slot: the entry and its per-descriptor flags.
+/// One descriptor slot: the entry, its per-descriptor flags, and the uid its
+/// `Fds` charge was taken from (`None`: uncharged, a mirror copy).
 struct Slot {
     fd: Fd,
     flags: u16,
+    charged: Option<u32>,
 }
 
 impl Slot {
@@ -30,6 +36,27 @@ impl Slot {
         Slot {
             fd: Fd::Closed,
             flags: 0,
+            charged: None,
+        }
+    }
+
+    /// A freshly opened slot holding `fd`, charged to `charged`.
+    const fn open(fd: Fd, charged: Option<u32>) -> Slot {
+        Slot {
+            fd,
+            flags: 0,
+            charged,
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        !matches!(self.fd, Fd::Closed)
+    }
+
+    /// Give this slot's charge back (it is closing or being dropped).
+    fn release_charge(&mut self) {
+        if let Some(uid) = self.charged.take() {
+            fdcharge::release(uid);
         }
     }
 }
@@ -37,6 +64,14 @@ impl Slot {
 /// The descriptor table of one task.
 pub struct FdTable {
     slots: Vec<Slot>,
+}
+
+impl Drop for FdTable {
+    fn drop(&mut self) {
+        for slot in &mut self.slots {
+            slot.release_charge();
+        }
+    }
 }
 
 /// Slots allocated the first time a table grows past the standard streams.
@@ -53,15 +88,15 @@ impl FdTable {
         FdTable { slots: Vec::new() }
     }
 
-    /// A table whose 0/1/2 are the task's terminal.
+    /// A table whose 0/1/2 are the task's terminal, charged to the acting uid
+    /// when its quota has room (a task always gets its standard streams).
     pub fn standard() -> FdTable {
         let mut table = FdTable::empty();
         if table.slots.try_reserve_exact(3).is_ok() {
+            let uid = fdcharge::acting_uid();
+            let charged = fdcharge::charge(uid, 3).then_some(uid);
             for _ in 0..3 {
-                table.slots.push(Slot {
-                    fd: Fd::Terminal,
-                    flags: 0,
-                });
+                table.slots.push(Slot::open(Fd::Terminal, charged));
             }
         }
         table
@@ -145,33 +180,52 @@ impl FdTable {
 
     /// Install `entry` in the lowest closed slot at or above `min`, with no
     /// flags. Hands `entry` back when the table is full.
+    /// Hands `entry` back when the acting uid is at its `Fds` quota, too.
     pub fn install_lowest(&mut self, min: usize, entry: Fd) -> Result<usize, Fd> {
-        let found = (min..self.slots.len()).find(|&fd| matches!(self.slots[fd].fd, Fd::Closed));
+        let found = (min..self.slots.len()).find(|&fd| !self.slots[fd].is_open());
         let fd = found.unwrap_or(self.slots.len().max(min));
         if !self.reserve_slot(fd) {
             return Err(entry);
         }
-        self.slots[fd] = Slot {
-            fd: entry,
-            flags: 0,
-        };
+        let uid = fdcharge::acting_uid();
+        if !fdcharge::charge(uid, 1) {
+            return Err(entry);
+        }
+        self.slots[fd] = Slot::open(entry, Some(uid));
         Ok(fd)
     }
 
     /// Put `entry` at `fd` (growing the table), clearing its flags; returns
     /// the previous entry (`Fd::Closed` when the slot was free). Hands
-    /// `entry` back when `fd` is past the limit or memory ran out.
+    /// `entry` back when `fd` is past the limit, memory ran out, or a free
+    /// slot would put the acting uid over its `Fds` quota. Replacing an open
+    /// descriptor keeps its charge: the count does not change.
     pub fn put(&mut self, fd: usize, entry: Fd) -> Result<Fd, Fd> {
+        self.put_charging(fd, entry, true)
+    }
+
+    /// [`put`](FdTable::put) for a `CLONE_FILES` mirror: a slot that was free
+    /// stays uncharged, since the share group paid in the acting table.
+    pub fn put_mirror(&mut self, fd: usize, entry: Fd) -> Result<Fd, Fd> {
+        self.put_charging(fd, entry, false)
+    }
+
+    fn put_charging(&mut self, fd: usize, entry: Fd, charge: bool) -> Result<Fd, Fd> {
         if !self.reserve_slot(fd) {
             return Err(entry);
         }
-        let old = core::mem::replace(
-            &mut self.slots[fd],
-            Slot {
-                fd: entry,
-                flags: 0,
-            },
-        );
+        let charged = if self.slots[fd].is_open() {
+            self.slots[fd].charged.take()
+        } else if charge {
+            let uid = fdcharge::acting_uid();
+            if !fdcharge::charge(uid, 1) {
+                return Err(entry);
+            }
+            Some(uid)
+        } else {
+            None
+        };
+        let old = core::mem::replace(&mut self.slots[fd], Slot::open(entry, charged));
         Ok(old.fd)
     }
 
@@ -189,7 +243,9 @@ impl FdTable {
         if !self.is_open(fd) {
             return None;
         }
-        Some(core::mem::replace(&mut self.slots[fd], Slot::closed()).fd)
+        let mut old = core::mem::replace(&mut self.slots[fd], Slot::closed());
+        old.release_charge();
+        Some(old.fd)
     }
 
     /// Close everything, returning the old table for unlocked dropping.
@@ -208,9 +264,17 @@ impl FdTable {
     }
 
     /// A copy for `fork`: every entry shares its open file description, pipe
-    /// references are retained, flags are kept. `None` when memory ran out.
+    /// references are retained, flags are kept. Every copied descriptor is
+    /// charged to the acting uid. `None` when memory ran out or the uid's
+    /// `Fds` quota cannot take the copy.
     pub fn fork_copy(&self) -> Option<FdTable> {
-        self.copy_where(|_| true)
+        self.copy_where(|_| true, true)
+    }
+
+    /// A copy for a `CLONE_FILES` thread: the same entries, uncharged, since
+    /// the share group already paid for them ([`super::fdcharge`]).
+    pub fn mirror_copy(&self) -> Option<FdTable> {
+        self.copy_where(|_| true, false)
     }
 
     /// A copy for `execve` of a native program: like [`fork_copy`] but
@@ -218,21 +282,33 @@ impl FdTable {
     ///
     /// [`fork_copy`]: FdTable::fork_copy
     pub fn exec_copy(&self) -> Option<FdTable> {
-        let mut copy = self.copy_where(|slot| slot.flags & FD_CLOEXEC == 0)?;
+        let mut copy = self.copy_where(|slot| slot.flags & FD_CLOEXEC == 0, true)?;
         for slot in &mut copy.slots {
             slot.flags = 0;
         }
         Some(copy)
     }
 
-    fn copy_where(&self, keep: impl Fn(&Slot) -> bool) -> Option<FdTable> {
+    /// Copy the open slots `keep` selects, charging them all at once (before
+    /// any entry is cloned, so a refusal leaves no reference to drop).
+    fn copy_where(&self, keep: impl Fn(&Slot) -> bool, charge: bool) -> Option<FdTable> {
         let mut slots = Vec::new();
         slots.try_reserve_exact(self.slots.len()).ok()?;
+        let kept = |slot: &Slot| slot.is_open() && keep(slot);
+        let charged = if charge {
+            let uid = fdcharge::acting_uid();
+            let count = self.slots.iter().filter(|slot| kept(slot)).count() as u64;
+            fdcharge::charge(uid, count).then_some(uid)?;
+            Some(uid)
+        } else {
+            None
+        };
         for slot in &self.slots {
-            slots.push(if keep(slot) {
+            slots.push(if kept(slot) {
                 Slot {
                     fd: slot.fd.clone(),
                     flags: slot.flags,
+                    charged,
                 }
             } else {
                 Slot::closed()

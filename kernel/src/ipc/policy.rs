@@ -322,15 +322,14 @@ pub fn owns_topic(cred: &Cred, name: &str) -> bool {
 }
 
 /// The registry calls every labelled task makes implicitly: registering,
-/// unregistering and resolving are always *attempted*, and [`check_name`]
-/// decides the outcome per name. Everything else on the registry interface
-/// (listing every service) needs an explicit rule.
+/// unregistering, resolving and connecting (a resolve with a private channel)
+/// are always *attempted*, and [`check_name`] decides the outcome per name.
+/// Everything else on the registry interface (listing every service) needs an
+/// explicit rule.
 fn implicit_registry_call(interface_id: u64, method: u32) -> bool {
+    use registry::method::{CONNECT, REGISTER, RESOLVE, UNREGISTER};
     interface_id == registry::INTERFACE
-        && matches!(
-            method,
-            registry::method::REGISTER | registry::method::UNREGISTER | registry::method::RESOLVE
-        )
+        && matches!(method, REGISTER | UNREGISTER | RESOLVE | CONNECT)
 }
 
 /// Evaluate an interface/method call for a labelled task. The one hook

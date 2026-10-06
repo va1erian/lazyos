@@ -93,7 +93,7 @@ with a heap that already exists), so they follow RAM alone:
 | Initial heap | `r / 32`, 16..64 MiB | Mapped by `mem::init`; growth covers the rest |
 | DMA pool | `r / 32`, at least 16 MiB, at most `r / 8` and 64 MiB | Reserved from the memory map below 4 GiB (`mem::dma`); the bitmap holds 64 MiB |
 | Per-uid DMA quota | half the pool, at least 8 MiB | Follows the pool |
-| Per-uid descriptor quota | `4 * fd_max` | Reported in the quota stats; not enforced |
+| Per-uid descriptor quota | `4 * fd_max` | Charged per open descriptor; `EMFILE` past it (issue #483) |
 
 ## Fixed limits (compile time)
 

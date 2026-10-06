@@ -27,8 +27,9 @@ syscall surface (including the bootstrap channel).
   *target task's* table (`REGISTRY_TARGET_SELF` = caller, or the `messengerd`
   proxy path gated by `CAP_IPC_CONTROL`). Re-registering a name by the same owner
   replaces it; another owner gets `NameTaken`. All resolvers alias one endpoint,
-  so closing it is peer death for everyone; per-connection channels are the
-  documented follow-up. The wire (interface id, method ids, TLV fields of
+  so closing it is peer death for everyone; `connect` (`OP_CONNECT`, issue
+  #483) gives a client its own channel instead ([ipc-core.md](ipc-core.md),
+  per-connection channels). The wire (interface id, method ids, TLV fields of
   requests and the `list` reply) is defined in `idl/registry.midl` and consumed
   through the generated `os_lazy_messenger_registry_v1` stubs by the kernel, the
   native client in `user/src/messenger/` and `xui-app`'s fabric panel; nothing

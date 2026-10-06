@@ -114,6 +114,12 @@ pub const OP_ACL_LOAD: u64 = 18;
 /// it, so there is nothing for MIDL to describe.
 pub const OP_WAIT: u64 = 19;
 
+/// Open a private connection to a registered name (issue #483): the request
+/// parcel is a `Connect` (`idl/registry.midl`), `value` is the caller's new
+/// handle to its own channel, and the service receives the other end as a
+/// `Connected` message on the registered endpoint. Gated like [`OP_RESOLVE`].
+pub const OP_CONNECT: u64 = 20;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
