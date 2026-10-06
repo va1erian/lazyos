@@ -35,6 +35,8 @@ members = [
     "crates/calc",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
+    # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
+    "crates/named-icons",
 ]
 
 [dependencies]
