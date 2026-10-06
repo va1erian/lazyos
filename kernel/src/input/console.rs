@@ -48,7 +48,7 @@ fn valid(slot: usize) -> bool {
 fn valid_in_irq(slot: usize) -> bool {
     slot != NONE
         && task::live(slot)
-        && credentials::try_of(slot).map_or(true, |cred| cred.has_cap(CAP_INPUT_CONSOLE))
+        && credentials::try_of(slot).is_none_or(|cred| cred.has_cap(CAP_INPUT_CONSOLE))
 }
 
 /// Claim the console for `me` (the syscall checked `CAP_INPUT_CONSOLE`).
