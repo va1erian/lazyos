@@ -1,0 +1,17 @@
+# The PDF Viewer's app core (docs/pdf-reader-plan.md): the page layout, the
+# tile cache, the render threads, the page view and the window. The
+# `xui-pdf` binary in `xui-app/src/bin/pdf.rs` supplies the LazyOS platform
+# through `Host`, so this crate builds and is tested on the host.
+[package]
+name = "xui-pdfview"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "PDF Viewer, a PDF reader for xui"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592" }
+lazypdf = { path = "../pdf" }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592", default-features = false }

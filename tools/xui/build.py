@@ -112,6 +112,8 @@ BINS = {
     "xui-devices": "xui-devices.elf",
     # Calculator: A basic calculator.
     "xui-calc": "xui-calc.elf",
+    # PDF Viewer: Read PDF documents.
+    "xui-pdf": "xui-pdf.elf",
 }
 
 

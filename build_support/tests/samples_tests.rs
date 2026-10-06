@@ -29,7 +29,7 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
 #[test]
 fn every_sample_lands_in_the_samples_directory() {
     let files = samples();
-    assert_eq!(files.len(), 6);
+    assert_eq!(files.len(), 7);
     for file in files.files() {
         assert!(file.path.starts_with(fhs::share::SAMPLES), "{}", file.path);
     }
@@ -51,6 +51,15 @@ fn the_writer_sample_is_a_small_png() {
         "keep the sample tiny: {} bytes",
         png.len()
     );
+}
+
+#[test]
+fn the_pdf_sample_is_a_pdf() {
+    // The PDF Viewer's screenshot session opens it (docs/pdf-reader-plan.md).
+    let files = samples();
+    let pdf = bytes(&files, fhs::share::PDF_SAMPLE);
+    assert!(pdf.starts_with(b"%PDF-"), "{:?}", &pdf[..pdf.len().min(8)]);
+    assert!(pdf.len() < 256 * 1024, "keep the sample small: {} bytes", pdf.len());
 }
 
 #[test]

@@ -25,6 +25,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("BUNDLE.ZIP", "application/zip"),
         ("SRC.TAR.GZ", "application/gzip"),
         ("PHOTOS.7Z", "application/x-7z-compressed"),
+        ("MANUAL.PDF", "application/pdf"),
         ("DATA.BIN", mime::FALLBACK_MIME),
         ("https://example.com/a.zip", "x-scheme-handler/https"),
         ("HTTP://example.com/", "x-scheme-handler/http"),
@@ -136,6 +137,17 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
             "MIME:DEFAULT:FAIL application/zip open={}
 ",
             archive_open.unwrap_or("<none>"),
+        ));
+    }
+
+    // PDF documents open in the PDF Viewer (docs/pdf-reader-plan.md).
+    let pdf_open = apps.lookup("application/pdf", "open");
+    if pdf_open == Some("os.lazy.pdf") {
+        sys::write_str("MIME:DEFAULT:PASS application/pdf=os.lazy.pdf\n");
+    } else {
+        sys::write_str(&format!(
+            "MIME:DEFAULT:FAIL application/pdf open={}\n",
+            pdf_open.unwrap_or("<none>"),
         ));
     }
 

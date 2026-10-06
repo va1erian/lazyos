@@ -133,6 +133,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-devices.elf",
     // Calculator: A basic calculator.
     "xui-calc.elf",
+    // PDF Viewer: Read PDF documents.
+    "xui-pdf.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build

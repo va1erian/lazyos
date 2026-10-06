@@ -41,6 +41,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("zst", "application/zstd"),
     ("tzst", "application/zstd"),
     ("7z", "application/x-7z-compressed"),
+    // PDF documents, opened by the PDF Viewer (docs/pdf-reader-plan.md).
+    ("pdf", "application/pdf"),
     ("c", "text/x-c"),
     ("h", "text/x-c"),
 ];

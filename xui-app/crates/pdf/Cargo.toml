@@ -1,0 +1,15 @@
+[package]
+name = "lazypdf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+hayro = "0.8"
+
+[dev-dependencies]
+png = "0.17"
+
+[features]
+# Exposes `lazypdf::fuzz::run` to a cargo-fuzz target.
+fuzz = []

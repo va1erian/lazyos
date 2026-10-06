@@ -110,6 +110,8 @@ CORE_APPS: dict[str, CoreApp] = {
     ),
     # Calculator: A basic calculator.
     "calc": xui_app("xui-calc.elf", "calc"),
+    # PDF Viewer: Read PDF documents.
+    "pdf": xui_app("xui-pdf.elf", "pdf"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

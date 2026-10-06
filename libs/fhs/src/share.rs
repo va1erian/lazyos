@@ -12,7 +12,7 @@ pub const WALLPAPERS: &str = "/system/share/wallpapers";
 
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
 /// `writer-sample.png`, `archiver-sample.zip`, `archiver-sample.7z`,
-/// `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
+/// `lazyos-sample.pdf`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
 /// replaced by real core packages.
 pub const SAMPLES: &str = "/system/share/samples";
 
@@ -29,6 +29,10 @@ pub const ARCHIVER_SAMPLE_ZIP: &str = "/system/share/samples/archiver-sample.zip
 
 /// The same `sample/` folder as a 7z (LZMA2), for the Archiver's session.
 pub const ARCHIVER_SAMPLE_7Z: &str = "/system/share/samples/archiver-sample.7z";
+
+/// A six-page PDF (`tools/pdf/make_sample.py`) the PDF Viewer's screenshot
+/// session opens (docs/pdf-reader-plan.md). Written by the image build.
+pub const PDF_SAMPLE: &str = "/system/share/samples/lazyos-sample.pdf";
 
 /// The sample package (the Counter demo), installed with
 /// `pkgctl install /system/share/samples/pkgdemo.lzp`.
@@ -69,6 +73,7 @@ mod tests {
             WRITER_SAMPLE_IMAGE,
             ARCHIVER_SAMPLE_ZIP,
             ARCHIVER_SAMPLE_7Z,
+            PDF_SAMPLE,
             PKGDEMO,
             DOOM_LZP,
             LRDEV_TEST_LZP,
