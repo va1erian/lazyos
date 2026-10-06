@@ -13,7 +13,7 @@
 //! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>` and
 //! `TRAYDEMO:QUIT:PASS`.
 
-use trayclient::{item, lucide, pixels, wire, Event};
+use trayclient::{item, lucide, menu_row, pixels, wire, Event};
 use xui_app::launch;
 use xui_app::tray::TrayIcon;
 use xui_core::prelude::*;
@@ -36,7 +36,7 @@ enum Msg {
 }
 
 /// Which picture the item shows.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Lucide,
     Pixels,
@@ -48,7 +48,18 @@ struct Traydemo {
     status: Handle<Label<Msg>>,
     clicks: u32,
     attention: bool,
+    /// The menu's check row.
+    notify: bool,
+    icon: Kind,
 }
+
+/// The menu rows' ids.
+const ROW_SHOW: u32 = 1;
+const ROW_NOTIFY: u32 = 2;
+const ROW_ICON: u32 = 4;
+const ROW_LUCIDE: u32 = 5;
+const ROW_PIXELS: u32 = 6;
+const ROW_BAD: u32 = 7;
 
 impl Traydemo {
     fn tooltip(&self) -> String {
@@ -59,7 +70,55 @@ impl Traydemo {
         self.status.get().set_text(text);
     }
 
+    /// The item's menu: a default row, a check, a separator and a submenu
+    /// of radios that picks the icon (the shell adds Quit).
+    fn menu(&self) -> Vec<wire::MenuItem> {
+        let mut show = menu_row(ROW_SHOW, "Show window", wire::MENU_KIND_NORMAL);
+        show.is_default = true;
+        let mut notify = menu_row(ROW_NOTIFY, "Notifications", wire::MENU_KIND_CHECK);
+        notify.checked = self.notify;
+        let radio = |id, label, kind| {
+            let mut row = menu_row(id, label, wire::MENU_KIND_RADIO);
+            row.parent = ROW_ICON;
+            row.checked = self.icon == kind;
+            row
+        };
+        vec![
+            show,
+            notify,
+            menu_row(3, "", wire::MENU_KIND_SEPARATOR),
+            menu_row(ROW_ICON, "Icon", wire::MENU_KIND_SUBMENU),
+            radio(ROW_LUCIDE, "Lucide", Kind::Lucide),
+            radio(ROW_PIXELS, "Pixels", Kind::Pixels),
+            radio(ROW_BAD, "Bad icon", Kind::Bad),
+        ]
+    }
+
+    fn update_menu(&mut self) {
+        let patch = wire::UpdateArgs {
+            menu: Some(wire::Menu { rows: self.menu() }),
+            ..wire::UpdateArgs::default()
+        };
+        let _ = self.tray.update(patch);
+    }
+
+    fn menu_item(&mut self, id: u32, checked: bool) {
+        println!("TRAYDEMO:MENU:{id}:{checked}");
+        match id {
+            ROW_SHOW => self.show("Shown from the tray menu"),
+            ROW_NOTIFY => {
+                self.notify = checked;
+                self.update_menu();
+            }
+            ROW_LUCIDE => self.set_icon(Kind::Lucide),
+            ROW_PIXELS => self.set_icon(Kind::Pixels),
+            ROW_BAD => self.set_icon(Kind::Bad),
+            _ => {}
+        }
+    }
+
     fn set_icon(&mut self, kind: Kind) {
+        self.icon = kind;
         let (icon, name) = match kind {
             Kind::Lucide => (lucide(OUTLINE), "lucide"),
             Kind::Pixels => (pixels(vec![disc(16), disc(32)]), "pixels"),
@@ -67,6 +126,7 @@ impl Traydemo {
         };
         let patch = wire::UpdateArgs {
             icon: Some(icon),
+            menu: Some(wire::Menu { rows: self.menu() }),
             ..wire::UpdateArgs::default()
         };
         match self.tray.update(patch) {
@@ -91,7 +151,7 @@ impl Traydemo {
             }
             Event::SecondaryActivate { .. } => println!("TRAYDEMO:SECONDARY:PASS"),
             Event::Scroll { delta } => println!("TRAYDEMO:SCROLL:{delta}"),
-            Event::MenuItem { id, checked } => println!("TRAYDEMO:MENU:{id}:{checked}"),
+            Event::MenuItem { id, checked } => self.menu_item(id, checked),
             Event::Ping => {}
         }
     }
@@ -157,18 +217,20 @@ fn disc(side: u32) -> (u32, u32, Vec<u8>) {
 fn main() {
     launch::run("TRAYDEMO", "Tray Demo", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
-        let mut tray = TrayIcon::new();
-        let item = item(lucide(OUTLINE), "Clicked 0 time(s)");
-        match tray.set(item) {
-            Ok(()) => println!("TRAYDEMO:TRAY:SET:PASS"),
-            Err(code) => println!("TRAYDEMO:TRAY:SET:FAIL err={}", -code),
-        }
-        let app = Traydemo {
-            tray,
+        let mut app = Traydemo {
+            tray: TrayIcon::new(),
             status: Handle::default(),
             clicks: 0,
             attention: false,
+            notify: false,
+            icon: Kind::Lucide,
         };
+        let mut item = item(lucide(OUTLINE), "Clicked 0 time(s)");
+        item.menu = app.menu();
+        match app.tray.set(item) {
+            Ok(()) => println!("TRAYDEMO:TRAY:SET:PASS"),
+            Err(code) => println!("TRAYDEMO:TRAY:SET:FAIL err={}", -code),
+        }
         ui.root(
             column().padding(16).gap(8).children((
                 label("Tray Demo").title(),

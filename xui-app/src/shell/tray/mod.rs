@@ -24,6 +24,8 @@ mod generation;
 pub mod icon;
 pub mod input;
 mod liveness;
+pub mod menu;
+mod menu_paint;
 pub mod paint;
 mod service;
 pub mod tooltip;
@@ -78,6 +80,8 @@ pub struct TrayState {
     /// The cell under the pointer and since when (PIT ticks).
     pub hover: Cell<Option<(usize, u64)>>,
     pub tooltip: RefCell<Option<tooltip::Open>>,
+    /// The open menu panels: the top level, then at most one submenu.
+    pub menus: RefCell<Vec<menu::Panel>>,
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
     probed: RefCell<Vec<(String, Rect)>>,
@@ -95,6 +99,7 @@ impl TrayState {
             beat: Cell::new(0),
             hover: Cell::new(None),
             tooltip: RefCell::new(None),
+            menus: RefCell::new(Vec::new()),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
         }

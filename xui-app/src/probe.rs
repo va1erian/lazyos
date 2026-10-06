@@ -38,10 +38,14 @@ pub fn widget_line(window: &str, name: &str, x: i32, y: i32, w: i32, h: i32) -> 
 
 /// Write `line` to the console device (serial), else to stdout.
 fn emit(line: &str) {
+    // One write with its newline: `writeln!` may split the line and its
+    // newline into two writes, and another task's output landing between
+    // them glues two lines together on serial, which a session then cannot
+    // match.
     let written = std::fs::OpenOptions::new()
         .write(true)
         .open(fhs::dev::CONSOLE)
-        .and_then(|mut device| writeln!(device, "{line}"));
+        .and_then(|mut device| device.write_all(format!("{line}\n").as_bytes()));
     if written.is_err() {
         println!("{line}");
     }

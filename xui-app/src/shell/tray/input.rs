@@ -1,10 +1,14 @@
-//! Clicks and the wheel on a tray cell, sent to the app on its item's
-//! channel (docs/tray-plan.md section 7.2). Menus (stage T2) and flyout
-//! tokens (T4) come later: for now a primary click sends `Activate` with no
-//! token and a secondary click sends `SecondaryActivate`.
+//! Clicks and the wheel on a tray cell (docs/tray-plan.md section 7.2): sent
+//! to the app on its item's channel, or turned into the shell-rendered menu
+//! ([`super::menu`]). Flyout tokens come with stage T4: `Activate` carries
+//! none yet.
 
+use std::rc::Rc;
+
+use lazyshell::tray::item::Activation;
 use lazyshell::tray::layout::Hit;
 use messenger_generated::os_lazy_shell_tray_events_v1 as events;
+use xui_core::app::Ui;
 
 use super::super::ctx::{BarHover, Ctx};
 use super::liveness;
@@ -40,8 +44,11 @@ pub fn hovered(ctx: &Ctx, hover: Option<BarHover>) {
     ctx.tray.hover.set(next);
 }
 
-/// `input` on the cell at layout index `cell`.
-pub fn on_cell(ctx: &Ctx, cell: usize, input: Input) {
+/// `input` on the cell at layout index `cell`: a primary click does what the
+/// item's `activate` says (send `Activate`, open the menu, run the default
+/// row); a secondary click opens the menu of an item that has one and sends
+/// `SecondaryActivate` otherwise; the wheel sends `Scroll`.
+pub fn on_cell<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, cell: usize, input: Input) {
     let app = ctx
         .tray
         .layout
@@ -49,9 +56,23 @@ pub fn on_cell(ctx: &Ctx, cell: usize, input: Input) {
         .cells
         .get(cell)
         .map(|c| c.app.clone());
-    if let Some(app) = app {
-        super::tooltip::close(ctx);
-        deliver(ctx, &app, input);
+    let Some(app) = app else {
+        return;
+    };
+    super::tooltip::close(ctx);
+    let (activation, has_menu) = {
+        let model = ctx.tray.model.borrow();
+        let custom = model.get(&app).and_then(|entry| entry.custom.as_ref());
+        (
+            custom.map_or(Activation::Event, |item| item.activate),
+            custom.is_some_and(|item| !item.menu.is_empty()),
+        )
+    };
+    match (input, activation) {
+        (Input::Primary, Activation::Menu) => super::menu::open(ctx, ui, &app),
+        (Input::Primary, Activation::DefaultItem) => super::menu::run_default(ctx, &app),
+        (Input::Secondary, _) if has_menu => super::menu::open(ctx, ui, &app),
+        _ => deliver(ctx, &app, input),
     }
 }
 

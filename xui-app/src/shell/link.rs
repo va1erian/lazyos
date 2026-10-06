@@ -163,7 +163,10 @@ fn handle<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, event: ShellEvent) {
             }
         }
         ShellEvent::StartMenu => menu::toggle(ctx, ui),
-        ShellEvent::Dismiss => menu::close(ctx),
+        ShellEvent::Dismiss => {
+            menu::close(ctx);
+            super::tray::menu::close(ctx);
+        }
     }
 }
 

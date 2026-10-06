@@ -198,16 +198,16 @@ impl BarApp {
         match self.hover_at(x, y) {
             Some(BarHover::Start) => menu::toggle(&self.ctx, ui),
             Some(BarHover::Entry(index)) => self.click_entry(index),
-            Some(BarHover::Tray(cell)) => tray::input::on_cell(&self.ctx, cell, Input::Primary),
+            Some(BarHover::Tray(cell)) => tray::input::on_cell(&self.ctx, ui, cell, Input::Primary),
             // The overflow panel arrives with docs/tray-plan.md stage T5.
             Some(BarHover::Chevron) | None => {}
         }
     }
 
     /// A right press or a wheel roll: only tray cells take them.
-    fn tray_input(&self, x: i32, y: i32, input: Input) {
+    fn tray_input(&self, ui: &Ui<BarMsg>, x: i32, y: i32, input: Input) {
         if let Some(BarHover::Tray(cell)) = self.hover_at(x, y) {
-            tray::input::on_cell(&self.ctx, cell, input);
+            tray::input::on_cell(&self.ctx, ui, cell, input);
         }
     }
 
@@ -250,11 +250,11 @@ impl App for BarApp {
             }
             BarMsg::Secondary(x, y) => {
                 let (x, y) = self.ctx.to_design(x, y);
-                self.tray_input(x, y, Input::Secondary)
+                self.tray_input(ui, x, y, Input::Secondary)
             }
             BarMsg::Wheel(x, y, delta) => {
                 let (x, y) = self.ctx.to_design(x, y);
-                self.tray_input(x, y, Input::Wheel(delta))
+                self.tray_input(ui, x, y, Input::Wheel(delta))
             }
         }
     }
