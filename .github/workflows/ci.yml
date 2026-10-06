@@ -38,8 +38,8 @@ jobs:
       - run: cargo fmt --all -- --check
 
   file-length:
-    # Source files stay under 500 lines (issue #484); oversized ones are
-    # allowlisted in tools/check_file_length.py and may not grow.
+    # Source files stay under 500 lines (issue #484); the allowlist in
+    # tools/check_file_length.py is empty and generated midlc output is exempt.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
