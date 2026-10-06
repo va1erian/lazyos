@@ -4,6 +4,7 @@
 //! for both virtqueues and every packet slot (`docs/networking-plan.md`
 //! section 5).
 
+use alloc::boxed::Box;
 use core::ptr;
 
 use nicdrv::{Doorbell, Queues};
@@ -171,7 +172,7 @@ pub(super) fn open(claimed: &Claimed, settings: &Settings) -> Result<(Virtio, Br
     Ok((
         virtio,
         Brought {
-            rings: AnyRings::Virtio(queues),
+            rings: AnyRings::Virtio(Box::new(queues)),
             region,
             mac,
             mtu,

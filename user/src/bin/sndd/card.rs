@@ -7,6 +7,7 @@
 //! controller plays a cyclic buffer and presents the same model
 //! (`hda_card.rs`).
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use virtio_snd::wire::PcmInfo;
@@ -28,9 +29,10 @@ pub(super) enum StreamOp {
     Release,
 }
 
+/// Boxed: the two cards differ in size by kilobytes, and there is one per driver.
 pub(super) enum Card {
-    Virtio(VirtioCard),
-    Hda(HdaCard),
+    Virtio(Box<VirtioCard>),
+    Hda(Box<HdaCard>),
 }
 
 /// Forward a call to whichever card this is.
@@ -48,8 +50,8 @@ impl Card {
     pub(super) fn open(wanted: Option<u64>) -> Result<Card, Error> {
         let (row, kind) = device::find(wanted)?;
         Ok(match kind {
-            Kind::Virtio => Card::Virtio(VirtioCard::open(row)?),
-            Kind::Hda => Card::Hda(HdaCard::open(row)?),
+            Kind::Virtio => Card::Virtio(Box::new(VirtioCard::open(row)?)),
+            Kind::Hda => Card::Hda(Box::new(HdaCard::open(row)?)),
         })
     }
 

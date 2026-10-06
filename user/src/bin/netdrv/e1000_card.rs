@@ -3,6 +3,8 @@
 //! are the doorbell (`libs/e1000`). Nothing here needs a `dev_*` op the
 //! virtio back end does not use.
 
+use alloc::boxed::Box;
+
 use e1000::regs::MIN_BAR_BYTES;
 use e1000::{setup, Mmio, Rings};
 use user::sys;
@@ -47,7 +49,7 @@ pub(super) fn open(claimed: &Claimed, settings: &Settings) -> Result<Brought, Er
     let link = setup::link_up(rings.regs());
     setup::enable_interrupts(rings.regs_mut());
     Ok(Brought {
-        rings: AnyRings::E1000(rings),
+        rings: AnyRings::E1000(Box::new(rings)),
         region,
         mac,
         mtu,

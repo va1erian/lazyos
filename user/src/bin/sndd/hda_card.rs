@@ -233,7 +233,10 @@ impl HdaCard {
             .map(|&(hz, _)| hz)
             .ok_or(Error::Params)?;
         let word = fmt::encode(hz, bits, u32::from(channels)).ok_or(Error::Unsupported)?;
-        if period_bytes == 0 || period_bytes % ALIGN != 0 || buffer_bytes % period_bytes != 0 {
+        if period_bytes == 0
+            || !period_bytes.is_multiple_of(ALIGN)
+            || !buffer_bytes.is_multiple_of(period_bytes)
+        {
             return Err(Error::Unsupported);
         }
         let periods = buffer_bytes / period_bytes;
