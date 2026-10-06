@@ -172,6 +172,10 @@ fn run() -> Result<(), String> {
     stat_and_statx(&file, &path, 14)?;
     directory()?;
     mounts()?;
+    // Close first: a file unlinked while open is parked as a hidden `.unlinked-N`
+    // entry until its last close (`fs/openfile.rs`), and /tmp opens read through
+    // since #265, so `rmdir` of the directory would still see it.
+    drop(file);
     io(fs::remove_dir_all(DIR), "cleanup")
 }
 
