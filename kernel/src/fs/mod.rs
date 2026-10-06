@@ -385,9 +385,10 @@ pub fn abi_read_through(path: &str) -> bool {
     abi_with(|vfs| vfs.mount_fs_name(path)).flatten().is_some()
 }
 
-/// Remove an empty directory through the Linux ABI VFS.
+/// Remove an empty directory through the Linux ABI VFS. Files unlinked while
+/// open and still parked in it do not count ([`openfile::rmdir`], #612).
 pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    abi_with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))
+    openfile::rmdir(id, path)
 }
 
 /// Rename within one mount through the Linux ABI VFS. Open files follow their
