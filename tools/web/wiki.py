@@ -27,7 +27,7 @@ from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "screenshot"))
 import pngstats  # noqa: E402
-from wikicapture import OUT as FIXTURE, PAGES, Refs  # noqa: E402
+from wikicapture import OUT as FIXTURE, PAGES, Refs, wanted  # noqa: E402
 
 HOSTS = ("en.wikipedia.org", "upload.wikimedia.org", "thumb.wikimedia.org")
 MAIN_URL = "https://en.wikipedia.org/wiki/Main_Page"
@@ -103,21 +103,25 @@ def title(url: str) -> str:
 
 def resources(url: str) -> tuple[list[str], list[str]]:
     """(style sheets, pictures) the copy of `url` names in its HTML, as
-    absolute URLs; only those the copy holds."""
+    absolute URLs, on the hosts the capture copies (`wikicapture.wanted`).
+    The rule is the capture's, not what it saved, so a resource the capture
+    failed to save is still expected and fails the judge."""
     refs = Refs()
     refs.feed(_page(url))
-    held = manifest()
 
     def kept(found: list[str]) -> list[str]:
-        absolute = [urljoin(url, ref) for ref in found]
-        return sorted({u for u in absolute if _normalise(u) in held})
+        return sorted({u for u in (urljoin(url, ref) for ref in found) if wanted(u)})
 
     return kept(refs.styles), kept(refs.pictures)
 
 
-#: A picture of the article, for the harness's own check of the picture host.
-WIKI_PICTURE = next(url for url in resources(ARTICLE_URL)[1]
-                    if urlsplit(url).hostname == "thumb.wikimedia.org")
+@functools.lru_cache(maxsize=1)
+def wiki_picture() -> str:
+    """A picture of the article, for the harness's own check of the picture
+    host. Looked up when a check needs it, so `--live` runs (and imports)
+    never read the copies."""
+    return next(url for url in resources(ARTICLE_URL)[1]
+                if urlsplit(url).hostname == "thumb.wikimedia.org")
 
 
 #: Every Liberation face LazyWeb draws pages with (`xui-app/web/src/fonts.rs`).

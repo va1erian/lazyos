@@ -70,8 +70,14 @@ class Refs(HTMLParser):
 
 
 def fetch(url: str) -> tuple[bytes, str]:
+    """The body and type of `url`. urllib follows redirects, so a response
+    whose final URL left the copied hosts (or HTTPS) is refused rather than
+    saved under the URL that was asked for."""
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=60) as response:
+        final = response.geturl()
+        if not wanted(final):
+            raise OSError(f"redirected to {final}, outside the copied hosts")
         kind = response.headers.get("Content-Type", "application/octet-stream")
         return response.read(), kind
 

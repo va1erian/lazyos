@@ -195,7 +195,7 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
     names = [name for name, _ in items]
     ok = report("CHECKS", f"{len(names)} curl checks", judge.judge_prechecks(text, names)) and ok
     if not args.live:
-        ok = report("CHECKS-SEEN", f"{len(judge.PRECHECK_REQUESTS)} requests as sent",
+        ok = report("CHECKS-SEEN", f"{len(judge.precheck_requests())} requests as sent",
                     judge.judge_precheck_servers(record)) and ok
     if not args.precheck_only:
         title = None if args.live else judge.OLDNET_TITLE
