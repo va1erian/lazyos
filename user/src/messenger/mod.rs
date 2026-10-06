@@ -419,6 +419,10 @@ pub mod confd;
 /// `os.lazy.timed.v1` stubs and a blocking [`timed::Client`].
 pub mod timed;
 
+/// The device manager `devd` (issue #497): the generated `os.lazy.devd.v1`
+/// stubs and a blocking [`devd::Client`].
+pub mod devd;
+
 // ---------------------------------------------------------------------------
 // Audio (docs/driver-plan.md D6)
 // ---------------------------------------------------------------------------

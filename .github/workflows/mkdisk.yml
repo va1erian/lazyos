@@ -38,6 +38,7 @@ jobs:
           python tools/mkdisk/test_mkdisk.py -v
           python tools/mkdisk/test_seed.py -v
           python tools/lazygui/test_catalog.py
+          python tools/lazygui/test_drivers.py
           python tools/lazygui/test_limits.py
           python tools/test_run_demo.py
           python tools/screenshot/test_qmp_disks.py

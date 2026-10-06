@@ -41,6 +41,17 @@ interface os.lazy.init.v1 {
     /// remaining child is killed at once and the machine stops.
     method Shutdown(mode: U32 = 1, reason: String = 2, force: Bool = 3) -> (accepted: Bool = 1, phase: String = 2);
 
+    /// Start the driver row `driver` for device `device` (issue #497,
+    /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
+    /// row may ask: `init` keeps each driver's program, credentials and
+    /// arguments, and `devd` names only the row and the device it matched,
+    /// which the driver receives as `dev=<device>`. A row already running for
+    /// that device is not an error (`started` is false); one running for
+    /// another device is `EBUSY` (one card per driver); an unknown row is
+    /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
+    /// `EBUSY`.
+    method StartDriver(driver: String = 1, device: U64 = 2) -> (started: Bool = 1, pid: U64 = 2);
+
     /// A supervised service tells `init` it is serving (docs/performance-plan.md
     /// P7.3): its name is registered and requests are answered. Rows that
     /// depend on it start only then, and the desktop's apps only once every

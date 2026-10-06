@@ -52,9 +52,8 @@ impl Driver for AtaDriver {
     }
 }
 
-/// Legacy (0.9.5 / transitional) virtio-blk, one block device per function.
-/// Modern-only functions match too, but their attach is the documented `None`
-/// until the modern transport lands.
+/// virtio-blk, one block device per function: modern transport when the
+/// function has one, the legacy I/O window otherwise (`block::virtio`).
 struct VirtioBlkDriver;
 
 impl Driver for VirtioBlkDriver {

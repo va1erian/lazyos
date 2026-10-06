@@ -48,18 +48,20 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster --features ipp/std
+        run: cargo test -p framering -p virtio-net -p nicdrv -p e1000 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster --features ipp/std
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p e1000 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check
 
       - name: Pcap analyzer (it must fail when it should)
-        run: python tools/net/test_analyze_pcap.py
+        run: |
+          python tools/net/test_analyze_pcap.py
+          python tools/net/test_analyze_pcap_padded.py
 
       - name: Socket evidence checker (TCP, UDP and DNS; it must fail when it should)
         run: python tools/net/test_sockets_pcap.py
@@ -125,9 +127,15 @@ jobs:
           # self-test and the `nicctl` clients (info, arp, probe, soak).
           - name: default
             args: ""
-          # `init` supervises the driver as the unprivileged _net user (uid 902).
+          # `devd` starts the driver as the unprivileged _net user (uid 902).
           - name: services
             args: "--services"
+          # An Intel 8254x (QEMU's e1000) instead of virtio-net, issue #497: the
+          # same engine and harness, a different card and descriptor rings.
+          - name: e1000
+            args: "--nic e1000"
+          - name: e1000-services
+            args: "--nic e1000 --services"
           # q35 has no IDE controller the kernel drives: virtio-blk boot disk.
           - name: q35
             args: "--machine q35 --virtio-disk"

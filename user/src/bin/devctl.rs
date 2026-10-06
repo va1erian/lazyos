@@ -6,6 +6,7 @@
 //! devctl [devices]   every device: class, PCI ids, owner uid and its rights
 //! devctl rules       the driver class rules the kernel enforces
 //! devctl denials     refused claims still in the audit ring (CAP_AUDIT_READ)
+//! devctl drivers     what devd matched each device to and its state (issue #497)
 //! ```
 
 #![no_std]
@@ -21,7 +22,7 @@ use devinspect::{class_name, method_name, reason_name, Uid};
 use user::dev::{errno, inspect};
 use user::sys;
 
-const USAGE: &str = "usage: devctl [devices|rules|denials]";
+const USAGE: &str = "usage: devctl [devices|rules|denials|drivers]";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -58,6 +59,7 @@ fn run(command: &str) -> Result<(), String> {
         "devices" => devices(),
         "rules" => rules(),
         "denials" => denials(),
+        "drivers" => drivers(),
         "help" | "-h" | "--help" => {
             sys::write_str(USAGE);
             sys::write_str("\n");
@@ -131,6 +133,36 @@ fn denials() -> Result<(), String> {
             class_name(denial.class_id),
             denial.device,
             reason_name(denial.reason)
+        ));
+    }
+    Ok(())
+}
+
+/// `devd`'s view: each device's match, driver, state and claim holder.
+fn drivers() -> Result<(), String> {
+    let client = user::messenger::devd::Client::connect()
+        .map_err(|_| String::from("devctl: devd is not running (an image without drivers?)"))?;
+    let devices = client
+        .devices()
+        .map_err(|error| format!("devctl: devd failed: {}", error.message()))?;
+    sys::write_str("ID  VENDOR:DEV CLASS    DRIVER  MODEL         STATE     OWNER\n");
+    for device in &devices {
+        let owner = if device.owner == u32::MAX {
+            String::from("-")
+        } else {
+            format!("{}", Uid(device.owner))
+        };
+        let dash = |text: &str| String::from(if text.is_empty() { "-" } else { text });
+        sys::write_str(&format!(
+            "{:<3} {:04x}:{:04x}  {:<8} {:<7} {:<13} {:<9} {}\n",
+            device.id,
+            device.vendor,
+            device.device,
+            device.class,
+            dash(&device.driver),
+            dash(&device.model),
+            device.state,
+            owner
         ));
     }
     Ok(())

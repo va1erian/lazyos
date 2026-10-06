@@ -40,7 +40,8 @@ PC), [usb-stick.md](usb-stick.md), [networking-plan.md](networking-plan.md),
    `os.kernel.dev` at all (packages.md, core packages). So the package is a
    set of userspace drivers in the image plus match rules, started only when
    their device is present, and delivered to an installed box by the update
-   mechanism. That needs `devd`, which driver-plan D5 still lists as open.
+   mechanism. That needs `devd`, which landed with issue #497
+   ([architecture/drivers.md](architecture/drivers.md)).
 4. **First action is a survey, not code.** Mini PCs with the same CPU ship
    different NICs, M.2 wiring and Wi-Fi modules. Boot the stick on the box,
    run `devctl` and `dmesg`, and the vendor:device list decides which NIC

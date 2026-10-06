@@ -21,6 +21,9 @@ fn main() {
     if env::var_os("LAZYOS_TESTS").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_tests");
     }
+    // `LAZYOS_DEV_FUZZ_SEED=<n>` replays one seed of the `dev_*` syscall fuzz
+    // (`tests/dev_suite/fuzz.rs`, issue #497) instead of the built-in set.
+    println!("cargo:rerun-if-env-changed=LAZYOS_DEV_FUZZ_SEED");
 
     // Desktop profile (issue #217): one `LAZYOS_DESKTOP=1` switch that expands
     // to the desktop recipe — a services session (`LAZYOS_SERVICES`), the

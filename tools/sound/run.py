@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot LazyOS with a virtio-sound card, record what it plays, verify the tone.
+"""Boot LazyOS with a sound card, record what it plays, verify the tone.
 
 The proof that the sound driver works is not a log line but the recording: QEMU
 runs with `-audiodev wav` so everything the guest sends to the virtual sound
@@ -15,6 +15,7 @@ tells the harness when the guest finished; the verdict comes from the audio.
     python tools/sound/run.py --modplay          # the tracker player's melody instead of beep
     python tools/sound/run.py --mix              # two tones at once and a half-volume tone
     python tools/sound/run.py --starve           # a stream run dry: exactly one underrun event
+    python tools/sound/run.py --card hda         # an Intel HDA controller and codec (issue #497)
 
 The image must be built with `LAZYOS_SOUND=1` (this script does it unless
 `--no-build`). Exit status is non-zero on any failure.
@@ -37,6 +38,8 @@ from qemu_qmp import (  # noqa: E402
 )
 
 import analyze_wav  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools" / "net"))
+from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
 import mixcheck  # noqa: E402
 
 #: What a sound boot plays: `sndd demo=1`'s own self-test tone straight
@@ -98,6 +101,23 @@ FAIL_MARKERS = (
     "DEV:CROSSCLAIM:snd:FAIL",
 )
 MIX_FAIL_MARKERS = FAIL_MARKERS
+
+#: `--card`: the QEMU devices (`{audiodev}` is filled in) and the model `sndd`
+#: must report (`SNDD:CARD model=`). QEMU's ICH6 HDA controller sits on the
+#: default machine, its ICH9 one on q35; `hda-output` is a line-out-only codec.
+CARDS = {
+    "virtio": (["virtio-sound-pci,audiodev={audiodev}"], "virtio-sound"),
+    "hda": (["{hda},id=hda0", "hda-output,bus=hda0.0,audiodev={audiodev}"], "intel-hda"),
+}
+
+
+def card_devices(card: str, audiodev: str, machine: str | None) -> list[str]:
+    """`-device` arguments for `card` on `audiodev`."""
+    hda = "ich9-intel-hda" if machine and machine.startswith("q35") else "intel-hda"
+    args = []
+    for device in CARDS[card][0]:
+        args += ["-device", device.format(audiodev=audiodev, hda=hda)]
+    return args
 
 #: `--starve` (`LAZYOS_SOUND_STARVE=1`, issue #453): after the driver's tone,
 #: `beep starve=1` plays 880 Hz, lets its stream run dry, plays 660 Hz and
@@ -222,6 +242,8 @@ def main() -> int:
     parser.add_argument("--starve", action="store_true",
                         help="a stream run dry: one underrun event (LAZYOS_SOUND_STARVE=1)")
     parser.add_argument("--smoke", action="store_true", help="-audiodev none: check the driver, not the audio")
+    parser.add_argument("--card", choices=sorted(CARDS), default="virtio",
+                        help="the sound card: virtio-sound, or QEMU's Intel HDA with a line-out codec")
     parser.add_argument("--freqs", help="expected tone frequencies in order (Hz, comma separated)")
     parser.add_argument("--min-ms", type=float, help="minimum duration of each tone")
     args = parser.parse_args()
@@ -235,6 +257,12 @@ def main() -> int:
         pass_markers, fail_markers = MIX_PASS_MARKERS, MIX_FAIL_MARKERS
     else:
         pass_markers, fail_markers = PASS_MARKERS, FAIL_MARKERS
+    # Under `devd` a missing card means `sndd` is never started (no `NODEV`).
+    via_devd = args.services and devd_enabled()
+    if args.services and not args.no_device:
+        # `init` starts `devd`, which starts the driver (issue #497).
+        pass_markers += devd_markers("sndd")
+        fail_markers += DEVD_FAIL_MARKERS
     if args.freqs is None:
         args.freqs = (STARVE_FREQS_HZ if args.starve else MODPLAY_FREQS_HZ if args.modplay
                       else DEMO_FREQS_HZ)
@@ -270,7 +298,7 @@ def main() -> int:
         path = wav_path.resolve().as_posix().replace(",", ",,")
         extra += ["-audiodev", f"wav,id=a0,path={path}"]
     if not args.no_device:
-        extra += ["-device", "virtio-sound-pci,audiodev=a0"]
+        extra += card_devices(args.card, "a0", args.machine)
 
     port = free_port()
     command = build_qemu_command(
@@ -283,21 +311,32 @@ def main() -> int:
     qmp: Qmp | None = None
     try:
         qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
-        text = wait_for_marker(serial_log, proc, args.timeout, pass_markers, fail_markers)
+        if args.no_device and via_devd:
+            text = wait_for_marker(serial_log, proc, args.timeout, ("DEVD:READY ",), DEVD_FAIL_MARKERS)
+        else:
+            text = wait_for_marker(serial_log, proc, args.timeout, pass_markers, fail_markers)
         time.sleep(1.0)  # let the backend flush the last periods
     finally:
         stop_qemu(proc, qmp)
 
     if args.no_device:
-        ok = "SNDD:NODEV" in text and "SND:PLAY:FAIL" not in text
-        print("SOUND:HARNESS:" + ("PASS (no device: the driver exited cleanly)" if ok else "FAIL"))
+        idle = devd_left_idle(text, "sndd") if via_devd else "SNDD:NODEV" in text
+        ok = idle and "SND:PLAY:FAIL" not in text
+        what = "devd started no driver" if via_devd else "the driver exited cleanly"
+        print("SOUND:HARNESS:" + (f"PASS (no device: {what})" if ok else "FAIL"))
         return 0 if ok else 1
     missing = [marker for marker in pass_markers if marker not in text]
-    if missing:
+    # A failure marker fails the run even when every pass marker also appeared
+    # (`wait_for_marker` only stops early on one; it does not judge).
+    failed = [marker for marker in fail_markers if marker in text]
+    if missing or failed:
         for line in text.splitlines():
             if any(marker in line for marker in fail_markers):
                 print(line)
-        print(f"SOUND:HARNESS:FAIL the guest never reported {', '.join(missing)}")
+        if failed:
+            print(f"SOUND:HARNESS:FAIL the guest reported {', '.join(failed)}")
+        else:
+            print(f"SOUND:HARNESS:FAIL the guest never reported {', '.join(missing)}")
         return 1
     # Interrupts: armed lines must have delivered some; an unroutable line is
     # a legitimate polling-only run and is reported, not failed.
@@ -320,6 +359,10 @@ def main() -> int:
             print("SOUND:HARNESS:FAIL _snd was not shown to be confined to the audio class")
             return 1
         print("SOUND:CROSSCLAIM:PASS")
+    model = CARDS[args.card][1]
+    if f"SNDD:CARD model={model} " not in text:
+        print(f"SOUND:HARNESS:FAIL sndd did not drive the {args.card} card (expected model={model})")
+        return 1
     print("SOUND:GUEST:PASS")
     if args.smoke:
         print("SOUND:HARNESS:PASS (smoke, audio not recorded)")

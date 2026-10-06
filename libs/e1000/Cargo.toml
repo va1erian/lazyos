@@ -1,0 +1,18 @@
+[package]
+name = "e1000"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Intel 8254x (e1000) NIC driver logic, host testable: registers, bring-up and legacy descriptor rings for the nicdrv engine"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "e1000"
+path = "src/lib.rs"
+
+[dependencies]
+nicdrv = { path = "../nicdrv" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
+framering = { path = "../framering", features = ["fuzz"] }

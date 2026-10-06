@@ -193,5 +193,6 @@ instead of polling, and tickless loops (both services still tick at 100 Hz
 while sound plays),
 persisted volumes and a Settings page, a std/musl transport for xui apps,
 capture (`OpenStream` for capture is `ENOTSUP`), formats other than `S16Le`
-through the mixer, MSI/MSI-X (INTx only), and `devd` matching with a driver
-manifest (the driver is started by `init`'s manifest or the kernel directly).
+through the mixer, MSI/MSI-X (INTx only), and HDA capture and HDMI codecs.
+(`sndd` also drives an Intel HDA controller since issue #497, and `devd` starts
+it for the card it found: [drivers.md](drivers.md).)

@@ -26,6 +26,8 @@ use crate::sys;
 pub const MIXER_CARD: &str = "mixer";
 /// The virtio-sound driver's `{card}`: the card's one stream (the mixer's).
 pub const VIRTIO_CARD: &str = "virtio-snd0";
+/// The Intel HDA card's `{card}` (issue #497): the same driver, another card.
+pub const HDA_CARD: &str = "intel-hda0";
 
 /// Ticks one publish may take (100 Hz).
 const PUBLISH_TICKS: u64 = 5;

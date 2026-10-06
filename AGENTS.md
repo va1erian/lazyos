@@ -553,6 +553,18 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --extra-arg=-no-shutdown
 ```
 
+## Device manager (`devd`) and driver choices
+
+With a sound or network driver in the image, `init` starts `devd` (uid 906, no
+capabilities): it matches the enumerated devices against `libs/devmatch` and
+asks `init` (`StartDriver`) to start `netdrv`/`sndd` for the card it found,
+publishing `system/devices/<id>`; `LAZYOS_DEVD=0` (`run_demo.py --no-devd`)
+keeps the static rows. `netdrv` drives virtio-net or an Intel 8254x
+(`run_demo.py --net --nic e1000`), `sndd` virtio-sound or Intel HDA
+(`run_demo.py --sound --sound-card hda`); the launcher's Advanced tab has a
+Drivers group for all three, and `devctl drivers` shows `devd`'s view. See
+[`docs/architecture/drivers.md`](docs/architecture/drivers.md).
+
 ## Sound harness
 
 The virtio-sound driver (`sndd`) and the system mixer (`audiod`,
@@ -565,7 +577,8 @@ checks it:
 python tools/sound/run.py                          # driver tone + beep through the mixer
 python tools/sound/run.py --mix                    # two clients as one chord, a half-volume tone
 python tools/sound/run.py --starve --services     # a stream run dry: exactly one underrun event (#453)
-python tools/sound/run.py --services               # init supervises sndd (_snd) and audiod (_audio)
+python tools/sound/run.py --services               # devd starts sndd (_snd); init supervises audiod (_audio)
+python tools/sound/run.py --card hda               # an Intel HDA controller and codec (issue #497)
 python tools/sound/run.py --machine q35 --virtio-disk
 python tools/sound/test_analyze_wav.py             # the detectors' own tests
 python tools/sound/test_mixcheck.py
@@ -648,6 +661,7 @@ python tools/net/test_analyze_pcap.py                                   # the ca
 python tools/net/test_sockets_pcap.py                                   # the TCP/UDP/DNS judge fails when it should
 python tools/net/run.py                                                 # build (LAZYOS_NET=1), boot QEMU, judge the pcap
 python tools/net/run.py --services | --poll | --no-device | --machine q35 --virtio-disk   # variants
+python tools/net/run.py --nic e1000                                     # an Intel 8254x instead of virtio-net (issue #497)
 python tools/net/run.py --netd                                          # stages N2+N3: netd, DHCP, ping, nslookup, nc and the socket probe/soak; judged from the pcap and the host echo servers (combines with the variants)
 mkdir -p fuzz/corpus/netstack; cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
 mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)

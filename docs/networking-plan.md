@@ -41,7 +41,7 @@ Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
 | Device core, `dev_*` syscall 23, INTx to userspace, DMA pool | done (D1–D4) | [architecture/devices.md](architecture/devices.md) |
 | Modern virtio-PCI transport, split virtqueues | done, host tested, used by `sndd` | `libs/virtio` |
 | A real virtio-net interrupt reaching a userspace claimant | proven on `pc` and `q35` (test only, legacy device, raw `pio`) | `dev_irq_real_device_end_to_end`, `tools/test/run.py --nic` |
-| NIC driver, `devd`, `_net` uid, driver manifest | not started (D5 remainder) | issue #241 |
+| NIC driver, `devd`, `_net` uid, driver manifest | done (`devd` and the e1000 with issue #497) | issues #241, #497 |
 | `os.lazy.net.nic.v1` | **prose only**: `docs/idl/os.lazy.net.nic.v1.md` exists from D0, but there is no `idl/*.midl` for it and no entry in `idl/manifest.json` | `idl/` |
 | Driver config keys | specified (`net/<drv>/mtu`, `rx_ring_entries`, `mac_override`, ...) | [driver-config-plan.md](driver-config-plan.md) §2 |
 | Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |

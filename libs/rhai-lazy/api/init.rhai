@@ -76,6 +76,21 @@ fn shutdown(mode, reason, force) {
     msg::connect("os.lazy.init.v1").invoke("Shutdown", [mode, reason, force])
 }
 
+/// `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)`
+///
+/// Start the driver row `driver` for device `device` (issue #497,
+/// docs/driver-plan.md section 3.6). Only the running task of the `devd`
+/// row may ask: `init` keeps each driver's program, credentials and
+/// arguments, and `devd` names only the row and the device it matched,
+/// which the driver receives as `dev=<device>`. A row already running for
+/// that device is not an error (`started` is false); one running for
+/// another device is `EBUSY` (one card per driver); an unknown row is
+/// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
+/// `EBUSY`.
+fn start_driver(driver, device) {
+    msg::connect("os.lazy.init.v1").invoke("StartDriver", [driver, device])
+}
+
 /// `Ready() -> () oneway`
 ///
 /// A supervised service tells `init` it is serving (docs/performance-plan.md

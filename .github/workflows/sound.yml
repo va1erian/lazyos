@@ -43,7 +43,7 @@ jobs:
 
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       - name: Driver libraries (host)
-        run: cargo test -p virtio -p virtio-snd -p pcm
+        run: cargo test -p virtio -p virtio-snd -p pcm -p hda -p devmatch
 
       # The engine's tests include a seeded script fuzz; CI runs a longer soak.
       - name: Mixer engine and client library (host)
@@ -83,10 +83,18 @@ jobs:
           # stream at half volume at half the amplitude.
           - name: mix
             args: "--mix"
-          # `init` supervises the driver as _snd (uid 901) and the mixer as
-          # _audio (uid 905, no capabilities).
+          # `devd` starts the driver as _snd (uid 901); `init` supervises the
+          # mixer as _audio (uid 905, no capabilities).
           - name: services
             args: "--services"
+          # An Intel HDA controller and QEMU's line-out codec instead of
+          # virtio-sound (issue #497), alone, through `devd`, and mixing.
+          - name: hda
+            args: "--card hda"
+          - name: hda-services
+            args: "--card hda --services"
+          - name: hda-mix
+            args: "--card hda --mix"
           # q35 has no IDE controller the kernel drives: virtio-blk boot disk.
           - name: q35
             args: "--machine q35 --virtio-disk"

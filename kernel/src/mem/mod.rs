@@ -10,6 +10,7 @@ pub mod mmio;
 pub mod pte;
 mod reclaim;
 mod regions;
+use reclaim::free_window_tables;
 pub use reclaim::reclaim_empty_tables;
 pub mod fbwindow;
 pub mod slab;
@@ -46,6 +47,12 @@ pub use regions::{Regions, MAX_REGIONS};
 /// Physical address of the kernel's (boot) PML4, recorded by [`init`]: the
 /// table heap growth maps into, whatever address space is active.
 static KERNEL_PML4: AtomicU64 = AtomicU64::new(0);
+/// The boot PML4 recorded by [`init`]: the kernel half every address space
+/// copies.
+pub(crate) fn boot_table() -> PhysAddr {
+    PhysAddr::new(KERNEL_PML4.load(Ordering::Relaxed))
+}
+
 /// Usable RAM in bytes, as the memory map reported it.
 static USABLE_RAM: AtomicU64 = AtomicU64::new(0);
 
@@ -64,18 +71,6 @@ pub use heap::{locked as heap_locked, HeapStats};
 /// syscall (issue #144) uses this for its `slab/heap usage` fields.
 pub fn heap_stats() -> HeapStats {
     heap::stats()
-}
-
-/// Read the active level-4 page table through the physical-memory mapping.
-///
-/// # Safety
-/// `offset` must be the bootloader-provided physical memory offset.
-unsafe fn active_level_4_table(offset: VirtAddr) -> &'static mut PageTable {
-    let (frame, _) = Cr3::read();
-    let phys = frame.start_address();
-    let virt = offset + phys.as_u64();
-    let ptr: *mut PageTable = virt.as_mut_ptr();
-    &mut *ptr
 }
 
 /// Map one page in the active page table. Returns false on failure.

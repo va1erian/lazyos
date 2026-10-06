@@ -37,6 +37,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[ApiTopic { helper: "changed", pattern: "system/confd/changed/#" }],
     },
     ApiModule {
+        alias: "devd",
+        interface: "os.lazy.devd.v1",
+        source: include_str!("devd.rhai"),
+        topics: &[ApiTopic { helper: "devices", pattern: "system/devices/+" }],
+    },
+    ApiModule {
         alias: "display",
         interface: "os.lazy.display.v1",
         source: include_str!("display.rhai"),

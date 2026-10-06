@@ -81,9 +81,15 @@ surface used by every address space.
 
 **Teardown invariants**
 
-- Only the private window (PML4 entries `0..USER_PML4_ENTRIES`, 255) is
-  walked; the shared-buffer window (entry 255) and the kernel half are the
-  kernel's and never freed. The PML4 frame itself is released by
+- The private window (PML4 entries `0..USER_PML4_ENTRIES`, 255) is walked
+  and its frames released. The shared-buffer window (entry 255) is each
+  address space's own too: `new_user_table` leaves it empty, the first buffer
+  mapping builds it, and `free_user_table` frees its page tables (never its
+  leaves, whose references the buffer registry has already dropped). A child
+  therefore never inherits its parent's buffer mappings (issue #497: copying
+  the entry from the active table leaked one PDPT per dead task and showed a
+  spawned child every buffer its parent had mapped). The kernel half is the
+  boot table's and never freed. The PML4 frame itself is released by
   `free_user_table`.
 - `CLONE_VM` threads share one PML4; teardown must run only when the reaped task
   is the last user (`task::reap_child` checks).
@@ -97,7 +103,7 @@ surface used by every address space.
 | PML4 entries | Range | What |
 |---|---|---|
 | 0..=254 | `0 .. 0x7f80_0000_0000` | Private user window (~127.5 TiB), per address space; the process layout inside it is in [processes.md](processes.md) |
-| 255 | `0x7f80_0000_0000 ..` | Shared-buffer window (`ipc::shared_va`), copied from the kernel's table |
+| 255 | `0x7f80_0000_0000 ..` | Shared-buffer window (`ipc::shared_va`), each address space's own subtree, built on demand |
 | 256..=383 | `0xffff_8000_0000_0000 ..` | Bootloader mappings: kernel image, boot stack, boot info, framebuffer, physical map (`BootloaderConfig.mappings.dynamic_range_*`) |
 | 384 | `0xffff_c000_0000_0000 ..` | Kernel heap (512 GiB span) |
 

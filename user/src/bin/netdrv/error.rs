@@ -7,7 +7,7 @@ use alloc::string::String;
 
 #[derive(Debug)]
 pub(super) enum Error {
-    /// No virtio-net function is present.
+    /// No NIC this driver knows is present.
     NoDevice,
     /// The device syscall failed with this errno.
     Dev(i64),
@@ -19,6 +19,8 @@ pub(super) enum Error {
     Range,
     /// The device offers no usable MAC address (absent, multicast or zero).
     NoMac,
+    /// An 8254x did not come out of reset or has no station address.
+    Setup(e1000::SetupError),
     /// The Messenger fabric failed (registering the service, receiving).
     Messenger(&'static str),
     /// The self-test did not see its ARP reply.
@@ -40,12 +42,13 @@ impl From<nicdrv::Fatal> for Error {
 impl Error {
     pub(super) fn describe(&self) -> String {
         match self {
-            Error::NoDevice => "no virtio-net device".into(),
+            Error::NoDevice => "no supported NIC".into(),
             Error::Dev(errno) => format!("device syscall failed (errno {errno})"),
             Error::Virtio(error) => format!("virtio: {error:?}"),
-            Error::Fatal(error) => format!("the device broke the virtio contract: {error:?}"),
+            Error::Fatal(error) => format!("the device broke its contract: {error:?}"),
             Error::Range => "structure outside its BAR".into(),
             Error::NoMac => "the device has no usable MAC address".into(),
+            Error::Setup(error) => format!("e1000 bring-up: {error:?}"),
             Error::Messenger(text) => format!("messenger: {text}"),
             Error::SelfTest(text) => format!("self-test: {text}"),
         }

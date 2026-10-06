@@ -1,13 +1,15 @@
 //! virtio-blk request path: chained multi-page requests (docs/filesystem-plan.md
 //! F1). Runs against a 16 MiB scratch virtio disk that `tools/test/run.py`
-//! attaches next to the boot disk; without one the tests report a skip.
+//! attaches next to the boot disk (legacy interface); without one the tests
+//! report a skip. `virtio_modern_suite` runs the same round trip on a second,
+//! modern-only scratch disk.
 
 use super::*;
 use crate::block::{self, BlockDevice, SECTOR_SIZE};
 use alloc::vec;
 
 /// Capacity of the scratch disk the runner attaches (16 MiB).
-const SCRATCH_SECTORS: u64 = 32 * 1024;
+pub(super) const SCRATCH_SECTORS: u64 = 32 * 1024;
 /// The window the tests fill and verify: 8 MiB, starting at an odd sector.
 const WINDOW_SECTORS: u64 = 16 * 1024;
 const WINDOW_START: u64 = 3;
@@ -15,14 +17,20 @@ const WINDOW_START: u64 = 3;
 const SIZES: [usize; 14] = [1, 2, 7, 8, 9, 15, 16, 17, 63, 64, 65, 127, 128, 129];
 
 fn scratch(test: &str) -> Option<&'static dyn BlockDevice> {
+    scratch_of(test, SCRATCH_SECTORS)
+}
+
+/// The scratch virtio disk of `sectors` sectors (never the boot disk), or a
+/// logged skip.
+pub(super) fn scratch_of(test: &str, sectors: u64) -> Option<&'static dyn BlockDevice> {
     let boot = block::boot_device().map(|device| device.name());
     let found = block::devices().into_iter().find(|device| {
         device.name().starts_with("virtio")
             && Some(device.name()) != boot
-            && device.sector_count() == SCRATCH_SECTORS
+            && device.sector_count() == sectors
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch virtio disk; skipped");
+        serial_println!("TEST:{test}:INFO:no scratch virtio disk of {sectors} sectors; skipped");
     }
     found
 }
@@ -45,6 +53,11 @@ pub fn virtio_roundtrip_unaligned() -> Result<(), String> {
     let Some(disk) = scratch("virtio_roundtrip_unaligned") else {
         return Ok(());
     };
+    roundtrip(disk, SCRATCH_SECTORS)
+}
+
+/// The round trip on `disk`, a blank scratch disk of `capacity` sectors.
+pub(super) fn roundtrip(disk: &dyn BlockDevice, capacity: u64) -> Result<(), String> {
     let end = WINDOW_START + WINDOW_SECTORS;
     let mut buf = vec![0u8; 129 * SECTOR_SIZE];
 
@@ -89,7 +102,7 @@ pub fn virtio_roundtrip_unaligned() -> Result<(), String> {
         );
     }
     check!(
-        disk.read_sectors(SCRATCH_SECTORS, &mut edge).is_err(),
+        disk.read_sectors(capacity, &mut edge).is_err(),
         "read past the end"
     );
     Ok(())

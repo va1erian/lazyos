@@ -9,7 +9,7 @@ use user::sys;
 use super::broker::{
     peek, Broker, Delivery, Outcome, Pending, Subscription, MAX_PENDING, MAX_SUBSCRIPTIONS,
 };
-use super::filter::{is_system_topic, valid_topic, Filter};
+use super::filter::{is_system_topic, may_publish_system, valid_topic, Filter};
 
 impl Broker {
     /// Serve one topics request from `sender` (kernel-stamped).
@@ -47,15 +47,18 @@ impl Broker {
                 // `logd` treats every event under it as authentic. The kernel
                 // ACL above stays in its bootstrap-allow state until a policy
                 // is loaded, so without this check any task could forge audit
-                // records here. Every legitimate publisher (sysmond, clipboardd,
-                // mimed, init) runs as uid 0, so gate the namespace on that;
-                // the audio driver and mixer (`_snd`, `_audio`) may publish
-                // their stream events, `system/audio/...` alone (issue #453).
+                // records here. The platform publishers (sysmond, clipboardd,
+                // mimed, init) run as uid 0; a dedicated system uid gets its
+                // own subtree only (`may_publish_system`), and the audio
+                // driver and mixer (`_snd`, `_audio`) their stream events,
+                // `system/audio/...` alone (issue #453).
                 if is_system_topic(&topic) {
                     let mut cred = sys::Cred::default();
                     sys::cred_get(Some(sender), &mut cred)
                         .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                    if cred.uid != 0 && !sndpolicy::may_publish_audio_event(cred.uid, &topic) {
+                    if !may_publish_system(&topic, cred.uid)
+                        && !sndpolicy::may_publish_audio_event(cred.uid, &topic)
+                    {
                         return Err(messenger::Error::Topics(errno::EACCES));
                     }
                 }

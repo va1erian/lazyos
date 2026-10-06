@@ -425,6 +425,39 @@ pub static INTERFACES: &[Interface] = &[
         ],
     },
     Interface {
+        name: "os.lazy.devd.v1",
+        id: 0xdfcb893f6178130f,
+        doc: "The device manager (issue #497, docs/driver-plan.md section 3.6): matches\nthe PCI functions the kernel enumerated against a static driver manifest\n(`libs/devmatch`), asks `init` to start each matched driver\n(`os.lazy.init.v1.StartDriver`), and reports every device's state.\n\n`devd` has no device authority of its own: it reads the kernel's read-only\ninventory, never claims, maps or touches a device, and names to `init` only\na driver row and the device it matched; `init` decides the program, its\ncredentials and its arguments. Failures are a structured error field\n(errno-style code, friendly text), not a typed reply.",
+        methods: &[
+            Method {
+                name: "Devices",
+                id: 665645856,
+                oneway: false,
+                doc: "Every device the kernel enumerated, with its match and state.",
+                params: &[],
+                returns: &[Field { name: "devices", id: 1, ty: Ty::Array(&Ty::Struct("DeviceState")) }],
+                transfers: &[],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "DeviceState",
+                doc: "One device as `devd` sees it.",
+                fields: &[Field { name: "id", id: 1, ty: Ty::U64 }, Field { name: "vendor", id: 2, ty: Ty::U32 }, Field { name: "device", id: 3, ty: Ty::U32 }, Field { name: "class", id: 4, ty: Ty::String }, Field { name: "driver", id: 5, ty: Ty::String }, Field { name: "model", id: 6, ty: Ty::String }, Field { name: "state", id: 7, ty: Ty::String }, Field { name: "owner", id: 8, ty: Ty::U32 }, Field { name: "pid", id: 9, ty: Ty::U64 }],
+            },
+        ],
+        enums: &[],
+        topics: &[
+            Topic {
+                pattern: "system/devices/+",
+                payload: "DeviceState",
+                qos: 0,
+                retained: true,
+                doc: "The kernel's device id (the `dev=<id>` a driver is started with).\nPCI vendor and device ids.\nThe device class name (`net`, `audio`, `storage`, ...).\nThe manifest's driver row for it, empty when none matched.\nWhat the match was (`virtio-net`, `Intel 8254x`, ...), empty when\nnone matched.\n`unmatched` (no manifest entry: a device the kernel drives, or one\nnobody does), `starting` (asked of `init`, not claimed yet),\n`claimed`, `released` (its driver let it go), `busy` (its driver\nrow already drives another device), `nodriver` (this image does\nnot ship the driver the manifest names) or `failed` (`init`\nrefused).\nThe uid holding the claim, or 4294967295 when nobody does.\nThe driver's task, 0 before `init` started it.\nOne retained topic per device, published whenever its state changes, so\na subscriber that starts late learns every device at once.",
+            },
+        ],
+    },
+    Interface {
         name: "os.lazy.display.v1",
         id: 0x5ef41f254d43c2b4,
         doc: "The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,\n#287).\n\nOne interface carries both directions. **Calls** (app or shell to\ncompositor) are ordinary request/reply methods: `CreateSurface`,\n`AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,\n`ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,\n`HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to\nthe shell subscriber) are `oneway` methods sent on the event endpoint the\nclient transferred: `PointerMove`, `PointerDown`, `PointerUp`,\n`PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the\ndrag-and-drop set\n`DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set\n`SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the\nvalues the hand-written protocol used (1-24), so the numbering stays\nappend-only from here on.\n\nEndpoint and buffer transfers ride in the parcel's `handles` and `buffers`\nvectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`\nfields because a raw handle number in the body would be meaningless to the\nreceiver. `CreateSurface` and `Subscribe` transfer one event endpoint\n(`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at\nleast `width * height * 4` bytes of RGBA8 for the surface's current\ncontent size, rows tightly packed at that width).\n\nPointer coordinates in every event are relative to the surface content\norigin; a move outside the surface (a press-and-drag) reports negative or\noversized values. Pointer events carry a button id (`1` left, `2` right,\n`3` middle). Failures of calls are returned as a structured error field\n(id 15, errno-style code plus friendly text) instead of the declared reply\nfields, which never use that id.",
@@ -978,6 +1011,15 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`\nvalue. The reply is immediate; `init` then stops the session apps, the\nservices in reverse dependency order, syncs and calls the kernel's\n`power`. `reason` is logged (at most 128 bytes, no control character).\nRoot or any caller in a login session may ask; a labelled (installed)\napp is refused with `EPERM`, and an unknown mode is `EINVAL`. A request\nwhile a shutdown is already running is not an error: `accepted` is true\nand `phase` is the current phase. `force` skips the graceful stop: every\nremaining child is killed at once and the machine stops.",
                 params: &[Field { name: "mode", id: 1, ty: Ty::U32 }, Field { name: "reason", id: 2, ty: Ty::String }, Field { name: "force", id: 3, ty: Ty::Bool }],
                 returns: &[Field { name: "accepted", id: 1, ty: Ty::Bool }, Field { name: "phase", id: 2, ty: Ty::String }],
+                transfers: &[],
+            },
+            Method {
+                name: "StartDriver",
+                id: 1713728693,
+                oneway: false,
+                doc: "Start the driver row `driver` for device `device` (issue #497,\ndocs/driver-plan.md section 3.6). Only the running task of the `devd`\nrow may ask: `init` keeps each driver's program, credentials and\narguments, and `devd` names only the row and the device it matched,\nwhich the driver receives as `dev=<device>`. A row already running for\nthat device is not an error (`started` is false); one running for\nanother device is `EBUSY` (one card per driver); an unknown row is\n`ENOENT`, any other caller `EPERM`, and a request during a shutdown\n`EBUSY`.",
+                params: &[Field { name: "driver", id: 1, ty: Ty::String }, Field { name: "device", id: 2, ty: Ty::U64 }],
+                returns: &[Field { name: "started", id: 1, ty: Ty::Bool }, Field { name: "pid", id: 2, ty: Ty::U64 }],
                 transfers: &[],
             },
             Method {
