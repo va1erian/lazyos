@@ -1,20 +1,25 @@
-//! `netdrv` (`/system/bin/netdrv`): the virtio-net userspace driver
-//! (`docs/networking-plan.md`, stage N1; the NIC half of driver stage D5).
+//! `netdrv` (`/system/bin/netdrv`): the NIC userspace driver
+//! (`docs/networking-plan.md`, stage N1; driver stages D5 and D7).
 //!
-//! The driver is an ordinary ring-3 program. It claims the virtio-net PCI
-//! function through the device syscall (23), maps its BARs, allocates one DMA
-//! block for both virtqueues and every packet slot, and drives the device with
-//! the transport in `libs/virtio`, the wire definitions in `libs/virtio-net`
-//! and the host-tested core in `libs/nicdrv`. It serves `os.lazy.net.nic.v1`
-//! (`idl/net.midl`) under [`api::NAME`]: one client attaches two frame rings
-//! and a notify endpoint, and the driver copies frames between those rings and
-//! its own DMA slots, dropping and counting anything outside the frame-length
-//! policy. The driver never parses a payload.
+//! The driver is an ordinary ring-3 program. It claims a NIC through the
+//! device syscall (23), maps its BARs, allocates one DMA block for its rings
+//! and every packet slot, and serves `os.lazy.net.nic.v1` (`idl/net.midl`)
+//! under [`api::NAME`]. Two cards, one engine: a virtio-net function through
+//! the transport in `libs/virtio` and the wire definitions in `libs/virtio-net`,
+//! or an Intel 8254x (QEMU's `e1000`) through `libs/e1000`, both under the
+//! host-tested core in `libs/nicdrv` (issue #497: the second card needed no new
+//! `dev_*` op). One client attaches two frame rings and a notify endpoint, and
+//! the driver copies frames between those rings and its own DMA slots,
+//! dropping and counting anything outside the frame-length policy. The driver
+//! never parses a payload.
+//!
+//! `devd` starts it with `dev=<id>`, the device it matched; without one (the
+//! kernel booting it directly) it takes the first card it knows.
 //!
 //! Interrupts: the claim names the service endpoint, so the kernel's interrupt
-//! messages and client calls arrive in the one receive loop. The line is shared
-//! with the polled virtio-blk, so the claim opts in to sharing; a line that is
-//! not routable (or `irq_mode=poll`) falls back to polling.
+//! messages and client calls arrive in the one receive loop. The line may be
+//! shared with the polled virtio-blk, so the claim opts in to sharing; a line
+//! that is not routable (or `irq_mode=poll`) falls back to polling.
 //!
 //! Boot evidence (`demo=1`):
 //!
@@ -25,8 +30,8 @@
 //! 3. it registers the service (`NETDRV:READY`) and spawns `nicctl`, real
 //!    clients: info, an ARP exchange, a hostile-input probe and a soak.
 //!
-//! The host side (`tools/net/run.py`) captures the wire with QEMU's
-//! `filter-dump`, so the markers alone are never the proof.
+//! The host side (`tools/net/run.py`, `--nic e1000` for the 8254x) captures
+//! the wire with QEMU's `filter-dump`, so the markers alone are never the proof.
 
 #![no_std]
 #![no_main]
@@ -52,12 +57,18 @@ mod config;
 mod device;
 #[path = "netdrv/dma.rs"]
 mod dma;
+#[path = "netdrv/e1000_card.rs"]
+mod e1000_card;
 #[path = "netdrv/error.rs"]
 mod error;
+#[path = "netdrv/rings.rs"]
+mod rings;
 #[path = "netdrv/selftest.rs"]
 mod selftest;
 #[path = "netdrv/service.rs"]
 mod service;
+#[path = "netdrv/virtio_card.rs"]
+mod virtio_card;
 
 use card::Card;
 use error::Error;
@@ -74,9 +85,6 @@ const DEMO_CLIENTS: [(&str, &[&str]); 4] = [
 
 /// Ticks the self-test waits for an interrupt message after its exchange.
 const SETTLE_TICKS: u32 = 30;
-
-/// The card name in the link topic (`system/net/{nic}/link`).
-const CARD_NAME: &str = "virtio-net0";
 
 /// Longest park in the serve loop with interrupts armed. Nothing needs a
 /// timer then (docs/performance-plan.md P4.5): a received frame or a
@@ -98,6 +106,8 @@ struct Args {
     selftest: bool,
     /// `irq=poll`: never arm the interrupt line, whatever `confd` says.
     poll: bool,
+    /// `dev=<id>`: the device `devd` matched this driver to.
+    dev: Option<u64>,
 }
 
 impl Args {
@@ -110,6 +120,10 @@ impl Args {
             demo: has("demo=1"),
             selftest: has("demo=1") || has("selftest=1"),
             poll: has("irq=poll"),
+            dev: text
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix("dev="))
+                .and_then(|id| id.parse().ok()),
         }
     }
 }
@@ -124,7 +138,7 @@ fn mac_text(mac: &[u8; 6]) -> String {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    sys::write_str("netdrv: virtio-net driver\n");
+    sys::write_str("netdrv: NIC driver (virtio-net, Intel 8254x)\n");
     // The identity the kernel stamped on this task: `_net` with only
     // `CAP_DEV_CLAIM` under `init`, root when the kernel boots it directly.
     let mut cred = sys::Cred::default();
@@ -139,7 +153,7 @@ pub extern "C" fn _start() -> ! {
     match run(&args) {
         Ok(()) => sys::exit(0),
         Err(Error::NoDevice) => {
-            sys::write_str("NETDRV:NODEV no virtio-net device on this machine\n");
+            sys::write_str("NETDRV:NODEV no supported NIC on this machine\n");
             idle()
         }
         Err(error) => {
@@ -159,15 +173,18 @@ fn idle() -> ! {
 }
 
 fn run(args: &Args) -> Result<(), Error> {
-    let (mut config, mut settings) = config::Config::load();
+    let (row, kind) = device::find(args.dev)?;
+    let (mut config, mut settings) = config::Config::load(config::prefix(kind));
     if args.poll {
         settings.irq_mode = virtio_net::settings::IrqMode::Poll;
     }
     let fail = |error: MsgError| Error::Messenger(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
-    let mut card = Card::open(&server, &settings)?;
+    let mut card = Card::open(&server, &settings, row, kind)?;
     sys::write_str(&format!(
-        "NETDRV:CARD mac={} link={} mtu={} rx_entries={} tx_entries={} irq={}\n",
+        "NETDRV:CARD model={} device={} mac={} link={} mtu={} rx_entries={} tx_entries={} irq={}\n",
+        card.model,
+        row.id,
         mac_text(&card.engine.mac()),
         card.engine.link(),
         card.mtu,
@@ -236,7 +253,7 @@ fn publish_link(bus: &mut Option<central::Bus>, service: &Service) {
         up: service.card.engine.link(),
         changes: service.card.engine.stats().link_changes,
     };
-    let _ = wire::publish_system_net_link(bus, CARD_NAME, &event);
+    let _ = wire::publish_system_net_link(bus, service.card.name, &event);
 }
 
 /// Serve `os.lazy.net.nic.v1` for the life of the driver.

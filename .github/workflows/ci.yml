@@ -242,5 +242,6 @@ jobs:
             shots/services/**
             shots/native/**
             shots/input_us/**
+            shots/input_burst/**
             shots/input_fr/**
           if-no-files-found: warn

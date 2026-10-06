@@ -231,6 +231,7 @@ mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
 mod transfer_gate_suite;
+mod virtio_modern_suite;
 mod virtio_suite;
 mod waitset_call_suite;
 mod waitset_ext_suite;
@@ -282,6 +283,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     confd_suite::CASES,
     block_suite::CASES,
     virtio_suite::CASES,
+    virtio_modern_suite::CASES,
     nvme_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
@@ -313,6 +315,8 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::DMA_LIFE,
     dev_suite::DMA_STRESS,
     dev_suite::STRESS,
+    dev_suite::FUZZ,
+    dev_suite::FUZZ_SOAK,
     dev_suite::CAPACITY,
     fs_suite::CASES,
     fsops_suite::CASES,

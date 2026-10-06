@@ -53,11 +53,13 @@ programs! {
     PKGD = "pkgd";
     /// The crash-test service (evidence images only).
     FLAKY = "flaky";
-    /// `sndd`, the virtio-sound driver.
+    /// `sndd`, the sound card driver (virtio-sound, Intel HDA).
     SNDD = "sndd";
+    /// `devd`, the device manager (issue #497).
+    DEVD = "devd";
     /// `audiod`, the system mixer (docs/audio-plan.md).
     AUDIOD = "audiod";
-    /// `netdrv`, the NIC driver.
+    /// `netdrv`, the NIC driver (virtio-net, Intel 8254x).
     NETDRV = "netdrv";
     /// `netd`, the network stack service.
     NETD = "netd";

@@ -23,11 +23,9 @@ unsafe fn is_empty(phys: PhysAddr) -> bool {
 
 /// Free the (level-1) page table and (level-2) page directory frames under
 /// `[start, end)` that no longer hold any entry, clearing the entries that
-/// named them. The PDPT (and PML4 entry) always stay: PML4 entries above index
-/// 0 are copied into every forked address space, so a PDPT may be shared and
-/// must not be freed from one table alone. Freeing a PD or PT is safe because
-/// it is reached only through that shared PDPT, so every sharer sees the
-/// cleared entry at once. Callers must have unmapped every leaf in the range.
+/// named them. The PDPT (and PML4 entry) stay for the address space's next
+/// mapping; [`free_window_tables`] reaps the shared-buffer window's PDPT when
+/// the address space dies. Callers must have unmapped every leaf in the range.
 pub fn reclaim_empty_tables(table: PhysAddr, start: u64, end: u64) {
     let mut block = start & !(PD_SPAN - 1);
     while block < end {
@@ -74,4 +72,40 @@ unsafe fn reclaim_directory(table: PhysAddr, block: u64, start: u64, end: u64) {
         x86_64::instructions::tlb::flush(VirtAddr::new(block));
         free_frame(pd);
     }
+}
+
+/// Free the page tables of an address space's shared-buffer window (PML4
+/// entry 255): the PDPT at `pdpt` and every directory and table below it.
+/// Each address space builds its own window on demand (`new_user_table` never
+/// copies the entry), so the subtree is private to the dying table. Leaves are
+/// *not* released: the shared-buffer registry owns their frame references and
+/// has already dropped every mapping of this table (`ipc::shared::teardown_task`
+/// runs first). A leaf still present here is a registry bug, reported and left
+/// alone rather than released twice. Returns that count.
+///
+/// # Safety
+/// `pdpt` must be the window PDPT of a table no task uses any more.
+pub(super) unsafe fn free_window_tables(pdpt: PhysAddr) -> usize {
+    let mut stale = 0;
+    for slot in 0..512 {
+        let e3 = pte::read(pdpt, slot);
+        if e3 & PRESENT == 0 || e3 & HUGE != 0 {
+            continue;
+        }
+        let pd = PhysAddr::new(e3 & ADDR);
+        for dir in 0..512 {
+            let e2 = pte::read(pd, dir);
+            if e2 & PRESENT == 0 || e2 & HUGE != 0 {
+                continue;
+            }
+            let pt = PhysAddr::new(e2 & ADDR);
+            stale += (0..512)
+                .filter(|&i| pte::read(pt, i) & PRESENT != 0)
+                .count();
+            free_frame(pt);
+        }
+        free_frame(pd);
+    }
+    free_frame(pdpt);
+    stale
 }

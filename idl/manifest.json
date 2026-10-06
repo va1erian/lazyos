@@ -250,6 +250,28 @@
     ]
   },
   {
+    "interface": "os.lazy.devd.v1",
+    "interface_id": "0xdfcb893f6178130f",
+    "methods": [
+      {
+        "name": "Devices",
+        "id": 665645856,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/devices/+",
+        "source": "system/devices/{id}",
+        "payload": "DeviceState",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/devices/+",
+        "subscribe_permission": "subscribe:system/devices/+"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.display.v1",
     "interface_id": "0x5ef41f254d43c2b4",
     "methods": [
@@ -602,6 +624,11 @@
       {
         "name": "Shutdown",
         "id": 1911669355,
+        "oneway": false
+      },
+      {
+        "name": "StartDriver",
+        "id": 1713728693,
         "oneway": false
       },
       {

@@ -310,8 +310,10 @@ client side in `xui-app/src/input/grab.rs`.
   buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
   counter (`keystate::Writer`, never reading the page back), and the page
   carries nothing the session's `KeyEvent`s did not already tell it, so a
-  client scribbling on it confuses only itself. `Ping` returns the newest
-  processed `seq`, so a poller can tell its page is current.
+  client scribbling on it confuses only itself. `Ping(session, token)` returns the newest
+  processed `seq` (0 unless that session is focused, and `EACCES` for another
+  task's session), so a poller can tell its page is current without learning
+  when keys are typed elsewhere.
 * **Grabs.** `RequestGrant(session, Keyboard)` from the caller's own focused
   session (`EACCES` otherwise) goes to the compositor as `GrantRequested
   (session, kind, surface)`; with no compositor attached it is denied, never

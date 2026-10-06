@@ -17,6 +17,7 @@ from lazygui.limits import add_limit_option, build_limits  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
 import qemu_net  # noqa: E402
+from demo_qemu import add_device_options  # noqa: E402
 
 # The desktop apps `--devices` opens at boot when no list is set: just
 # Devices, since the desktop opens nothing at boot by default.
@@ -75,11 +76,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="with --desktop, leave LazyShell (taskbar, start menu, desktop "
                              "icons) out of the image (LAZYOS_SHELL=0): the compositor then "
                              "shows background and windows only")
-    parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
-                        help="attach a virtio-sound card and build with LAZYOS_SOUND=1, "
-                             "which boots the `sndd` driver and plays its test tones. "
-                             "BACKEND is a QEMU -audiodev driver (dsound, pa, alsa, sdl, "
-                             "none, ...) or wav:PATH; default: this OS's usual one")
+    add_device_options(parser)  # --sound, --sound-card, --nic, --no-devd
     qemu_net.add_net_options(
         parser,
         "attach a virtio-net card on QEMU's user-mode network and build the network "

@@ -483,9 +483,13 @@ jobs:
               "TERM:OUT:box/notes (2).txt box/notes.txt" TERM:OUT:SEL:/home/admin/box; do
             grep -q "$marker" shots/files_s51/serial.log
           done
-          ! grep "LABEL:DENY label=app:os.lazy.files" shots/files_s51/serial.log
+          if grep -q "LABEL:DENY label=app:os.lazy.files" shots/files_s51/serial.log; then
+            echo "::error::Files was label-denied"; exit 1
+          fi
           python tools/screenshot/pngstats.py shots/files_s51/shot_*.png --min-nonblack 0.01
-          ! grep -q "^init: launch .* failed" shots/files_s51/serial.log
+          if grep -q "^init: launch .* failed" shots/files_s51/serial.log; then
+            echo "::error::an app failed to launch"; exit 1
+          fi
 
       # Docs: Markdown rendered by litehtml (built with zig). The pointer only
       # hovers over the window (no click), so this also proves the mouse wheel

@@ -17,6 +17,7 @@ use virtio::queue::{Buf, Layout as QueueLayout, Virtqueue, MAX_QUEUE};
 use virtio_net::hdr::{NetHdr, HDR_LEN};
 use virtio_net::SLOT_BYTES;
 
+use crate::rings::{NicRings, RxError};
 use crate::Fatal;
 
 const NONE: u16 = u16::MAX;
@@ -311,5 +312,31 @@ impl Queues {
             reaped += 1;
         }
         Ok(reaped)
+    }
+}
+
+impl NicRings for Queues {
+    fn poll_frames(
+        &mut self,
+        max_frame: usize,
+        mut deliver: impl FnMut(Result<&[u8], RxError>),
+    ) -> Result<u32, Fatal> {
+        self.poll_rx(|buf, written| deliver(virtio_net::frame::rx_frame(buf, written, max_frame)))
+    }
+
+    fn tx_free(&self) -> u16 {
+        Queues::tx_free(self)
+    }
+
+    fn tx_send(&mut self, frame: &[u8]) -> Result<(), TxError> {
+        Queues::tx_send(self, frame)
+    }
+
+    fn reap_tx(&mut self) -> Result<u16, Fatal> {
+        Queues::reap_tx(self)
+    }
+
+    fn rx_in_flight(&self) -> u16 {
+        Queues::rx_in_flight(self)
     }
 }

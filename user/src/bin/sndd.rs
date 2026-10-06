@@ -1,11 +1,14 @@
-//! `sndd` (`/system/bin/sndd`): the virtio-sound userspace driver
-//! (`docs/driver-plan.md`, stage D6).
+//! `sndd` (`/system/bin/sndd`): the sound card userspace driver
+//! (`docs/driver-plan.md`, stages D6 and D7).
 //!
-//! The driver is an ordinary ring-3 program. It claims the virtio-sound PCI
-//! function through the device syscall (23), maps its BARs, allocates DMA
-//! memory for the virtqueues and the sample slots, and drives the device with
-//! the transport in `libs/virtio` and the protocol in `libs/virtio-snd`. It
-//! arms the device interrupt when it can and polls otherwise. It serves
+//! The driver is an ordinary ring-3 program. It claims a sound card through
+//! the device syscall (23), maps its BARs, allocates DMA memory for its rings
+//! and the sample slots, and drives either a virtio-sound function (the
+//! transport in `libs/virtio`, the protocol in `libs/virtio-snd`) or an Intel
+//! High Definition Audio controller and its codec (`libs/hda`, issue #497: no
+//! new `dev_*` op). `devd` starts it with `dev=<id>`; without one it takes the
+//! first card it knows. It arms the device interrupt when it can and polls
+//! otherwise. It serves
 //! `os.lazy.audio.v1` (`idl/audio.midl`) under [`api::CARD_NAME`]: a client
 //! opens the stream, shares a ring, and the driver copies committed periods
 //! into its own DMA slots. That client is the system mixer, `audiod`
@@ -47,12 +50,18 @@ mod device;
 mod dma;
 #[path = "sndd/error.rs"]
 mod error;
+#[path = "sndd/hda_card.rs"]
+mod hda_card;
 #[path = "sndd/service.rs"]
 mod service;
 #[path = "sndd/session.rs"]
 mod session;
 #[path = "sndd/stream.rs"]
 mod stream;
+#[path = "sndd/virtio_card.rs"]
+mod virtio_card;
+#[path = "sndd/virtio_device.rs"]
+mod virtio_device;
 
 use card::Card;
 use error::Error;
@@ -75,6 +84,8 @@ const IDLE_TICKS: u64 = 100;
 /// Parsed service arguments.
 struct Args {
     demo: bool,
+    /// `dev=<id>`: the device `devd` matched this driver to.
+    dev: Option<u64>,
     freq_hz: u32,
     ms: u32,
 }
@@ -86,12 +97,14 @@ impl Args {
         let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
         let mut args = Args {
             demo: false,
+            dev: None,
             freq_hz: DEFAULT_FREQ_HZ,
             ms: DEFAULT_MS,
         };
         for part in text.split_whitespace() {
             match part.split_once('=') {
                 Some(("demo", "1")) => args.demo = true,
+                Some(("dev", id)) => args.dev = id.parse().ok(),
                 // Bounded so a hostile argument cannot ask for hours of audio
                 // or a frequency the generator would have to clamp.
                 Some(("freq", value)) => {
@@ -109,7 +122,7 @@ impl Args {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    sys::write_str("sndd: virtio-sound driver\n");
+    sys::write_str("sndd: sound driver (virtio-sound, Intel HDA)\n");
     // The identity the kernel stamped on this task: `_snd` with only
     // `CAP_DEV_CLAIM` under `init`, root when the kernel boots it directly.
     let mut cred = sys::Cred::default();
@@ -124,7 +137,7 @@ pub extern "C" fn _start() -> ! {
     match run(&args) {
         Ok(()) => sys::exit(0),
         Err(Error::NoDevice) => {
-            sys::write_str("SNDD:NODEV no virtio-sound device on this machine\n");
+            sys::write_str("SNDD:NODEV no supported sound card on this machine\n");
             sys::exit(0)
         }
         Err(error) => {
@@ -135,8 +148,12 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn run(args: &Args) -> Result<(), Error> {
-    let mut card = Card::open()?;
-    sys::write_str(&format!("SNDD:CARD streams={}\n", card.streams));
+    let mut card = Card::open(args.dev)?;
+    sys::write_str(&format!(
+        "SNDD:CARD model={} streams={}\n",
+        card.model(),
+        card.streams()
+    ));
     let infos = card.pcm_infos()?;
     for (index, info) in infos.iter().enumerate() {
         sys::write_str(&format!(
@@ -214,9 +231,9 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
         api::INTERFACE
     ));
 
+    // `system/audio/{card}/event` (issue #453): `virtio-snd0` or `intel-hda0`.
+    let mut publisher = user::audio_events::EventPublisher::new(card.event_name());
     let mut service = Service::new(card, infos);
-    // `system/audio/virtio-snd0/event` (issue #453).
-    let mut publisher = user::audio_events::EventPublisher::new(user::audio_events::VIRTIO_CARD);
     let mut events = alloc::vec::Vec::new();
     // One receive buffer for the life of the service (the heap never reclaims
     // per-call buffers).

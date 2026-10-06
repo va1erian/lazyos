@@ -18,6 +18,7 @@ from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-expor
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .appsteps import app_steps, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, tls_step  # noqa: F401,E501
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
+from .drivers import device_flags, driver_env  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -237,6 +238,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # with zig); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
     env.update(mail_env(cfg))
+    env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)
     return env
 
 
@@ -418,11 +420,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # first (datavol.confirm_reset_os) and passes --yes on its behalf.
         if cfg.get("reset_os") and not cfg["skip_build"]:
             argv += ["--reset-os", "--yes"]
-        # A virtio-sound card on the host's audio backend. run_demo also builds
-        # with LAZYOS_SOUND=1; the desktop profile ships the sound stack anyway,
-        # and on other images the driver plays its boot tones.
-        if cfg.get("sound"):
-            argv.append("--sound")
+        argv += device_flags(cfg)  # sound card, NIC model, devd (`drivers`)
         # A virtio-net card on QEMU's user network with the forwards; run_demo
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)

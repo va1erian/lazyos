@@ -6,7 +6,7 @@ use alloc::string::String;
 
 #[derive(Debug)]
 pub(super) enum Error {
-    /// No virtio-sound function is present.
+    /// No sound card this driver knows is present.
     NoDevice,
     /// The device syscall failed with this errno.
     Dev(i64),
@@ -28,6 +28,9 @@ pub(super) enum Error {
     Busy,
     /// The Messenger fabric failed (registering the service, receiving).
     Messenger(&'static str),
+    /// The HDA controller or its codec could not be brought up (the serial
+    /// log has the detail).
+    Hda(&'static str),
 }
 
 impl From<virtio::Error> for Error {
@@ -39,7 +42,7 @@ impl From<virtio::Error> for Error {
 impl Error {
     pub(super) fn describe(&self) -> String {
         match self {
-            Error::NoDevice => "no virtio-sound device".into(),
+            Error::NoDevice => "no supported sound card".into(),
             Error::Dev(errno) => format!("device syscall failed (errno {errno})"),
             Error::Virtio(error) => format!("virtio: {error:?}"),
             Error::Status(status) => format!("device replied status {status:#x}"),
@@ -50,6 +53,7 @@ impl Error {
             Error::Unsupported => "unsupported stream".into(),
             Error::Busy => "stream busy".into(),
             Error::Messenger(text) => format!("messenger: {text}"),
+            Error::Hda(what) => format!("hda: {what}"),
         }
     }
 }

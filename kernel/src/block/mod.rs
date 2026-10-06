@@ -40,8 +40,10 @@ use x86_64::{PhysAddr, VirtAddr};
 pub const SECTOR_SIZE: usize = 512;
 
 /// How many devices the registry can hold: whole disks, their partitions
-/// ([`partition::MAX_PARTITIONS`]), and a few test doubles.
-const MAX_DEVICES: usize = 24;
+/// ([`partition::MAX_PARTITIONS`]), eight provider disks and a few test
+/// doubles (the NVMe test image alone attaches four disks and their
+/// partitions).
+const MAX_DEVICES: usize = 32;
 
 /// Block-layer failures. Filesystems map these to their own errors.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -303,7 +305,7 @@ pub(crate) fn install_ata() -> Option<&'static dyn BlockDevice> {
     Some(device)
 }
 
-/// Attach one legacy virtio-blk function and register it. The first virtio
+/// Attach one virtio-blk function and register it. The first virtio
 /// disk takes over the boot slot from ATA (the QEMU preference); later ones
 /// (a data disk) are registered but never displace it. Called by the device
 /// core's driver entry once per matching function.

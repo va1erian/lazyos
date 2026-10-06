@@ -1,0 +1,14 @@
+[package]
+name = "hda"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Intel High Definition Audio driver logic, host testable: controller registers, the CORB/RIRB verb transport, the codec widget graph, stream formats and the cyclic play position"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "hda"
+path = "src/lib.rs"
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

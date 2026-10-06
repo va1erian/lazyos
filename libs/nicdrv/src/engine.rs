@@ -20,10 +20,11 @@
 
 use framering::{valid_slots, FrameBuf, PopError, Producer, PushError, Ring, MAX_FRAME};
 use messenger_generated::os_lazy_net_nic_v1 as nic;
-use virtio_net::frame::{classify, rx_frame, FrameClass, RxError};
+use virtio_net::frame::{classify, FrameClass, RxError};
 use virtio_net::queue as qi;
 
 use crate::queues::{Queues, TxError};
+use crate::rings::NicRings;
 use crate::stats::Stats;
 use crate::{Doorbell, Fatal};
 
@@ -94,8 +95,10 @@ struct Session {
     tx: framering::Consumer,
 }
 
-pub struct Engine {
-    queues: Queues,
+/// The engine over the card's rings `R` (virtio-net's [`Queues`] unless
+/// another card says otherwise).
+pub struct Engine<R: NicRings = Queues> {
+    queues: R,
     mac: [u8; 6],
     max_frame: usize,
     link: bool,
@@ -108,9 +111,9 @@ pub struct Engine {
     tx_buf: FrameBuf,
 }
 
-impl Engine {
+impl<R: NicRings> Engine<R> {
     /// `max_frame` is the MTU plus the Ethernet header.
-    pub fn new(queues: Queues, mac: [u8; 6], max_frame: usize, link: bool) -> Engine {
+    pub fn new(queues: R, mac: [u8; 6], max_frame: usize, link: bool) -> Engine<R> {
         Engine {
             queues,
             mac,
@@ -125,11 +128,11 @@ impl Engine {
         }
     }
 
-    pub fn queues(&self) -> &Queues {
+    pub fn queues(&self) -> &R {
         &self.queues
     }
 
-    pub fn queues_mut(&mut self) -> &mut Queues {
+    pub fn queues_mut(&mut self) -> &mut R {
         &mut self.queues
     }
 
@@ -319,8 +322,8 @@ impl Engine {
         } = self;
         let mut delivered = 0u32;
         let mut detached = false;
-        let handled = queues.poll_rx(|buf, written| {
-            let frame = match rx_frame(buf, written, *max_frame) {
+        let handled = queues.poll_frames(*max_frame, |received| {
+            let frame = match received {
                 Ok(frame) => frame,
                 Err(error) => {
                     stats.rx_dropped += 1;

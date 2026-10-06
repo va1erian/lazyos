@@ -51,11 +51,13 @@ interface os.lazy.input.v1 {
     /// Give up the grab (or a pending request) `session` holds. Only its
     /// owner may; releasing nothing is not an error.
     method ReleaseGrant(session: U64 = 1) -> () = 5;
-    /// Liveness and freshness: echoes `token` and returns `seq`, the raw
-    /// sequence number of the newest key edge `inputd` has processed, so a
-    /// client polling its key-state page can tell the page is current
-    /// (`KeyStateSeq >= seq`).
-    method Ping(token: U64 = 1) -> (token: U64 = 1, seq: U64 = 2) = 6;
+    /// Liveness and freshness for the caller's own `session`: echoes `token`
+    /// and returns `seq`, the raw sequence number of the newest key edge
+    /// `inputd` has processed *while that session has keyboard focus* (`0`
+    /// otherwise, so a session cannot watch typing aimed at another window),
+    /// so a client polling its key-state page can tell the page is current
+    /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
+    method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6;
     /// Attach a key-state page to `session` (the caller's): the parcel's
     /// `buffers[0]`, a shared buffer the client created (one page is
     /// plenty). While the session has keyboard focus `inputd` writes the

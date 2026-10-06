@@ -185,20 +185,41 @@ impl Transport {
     /// Program queue `index` with `queue`'s rings and enable it. Returns the
     /// [`Kick`] that notifies it.
     pub fn setup_queue(&self, index: u16, queue: &Virtqueue) -> Result<Kick, Error> {
+        self.setup_queue_at(
+            index,
+            queue.size(),
+            queue.desc_bus(),
+            queue.avail_bus(),
+            queue.used_bus(),
+        )
+    }
+
+    /// Program queue `index` with `size` entries whose descriptor table,
+    /// available ring and used ring are at the given bus addresses, and enable
+    /// it: for a driver that keeps its own split-queue memory (the kernel's
+    /// virtio-blk, issue #497). Returns the [`Kick`] that notifies it.
+    pub fn setup_queue_at(
+        &self,
+        index: u16,
+        size: u16,
+        desc: u64,
+        avail: u64,
+        used: u64,
+    ) -> Result<Kick, Error> {
         if index >= self.num_queues() {
             return Err(Error::BadQueue);
         }
         self.w16(common::QUEUE_SELECT, index);
         let device_max = self.r16(common::QUEUE_SIZE);
-        if device_max == 0 || queue.size() > device_max {
+        if device_max == 0 || size == 0 || size > device_max {
             return Err(Error::BadQueue);
         }
-        self.w16(common::QUEUE_SIZE, queue.size());
+        self.w16(common::QUEUE_SIZE, size);
         // No MSI-X: the driver polls or takes INTx.
         self.w16(common::QUEUE_MSIX_VECTOR, common::NO_VECTOR);
-        self.w64(common::QUEUE_DESC, queue.desc_bus());
-        self.w64(common::QUEUE_DRIVER, queue.avail_bus());
-        self.w64(common::QUEUE_DEVICE, queue.used_bus());
+        self.w64(common::QUEUE_DESC, desc);
+        self.w64(common::QUEUE_DRIVER, avail);
+        self.w64(common::QUEUE_DEVICE, used);
         let notify_off = u32::from(self.r16(common::QUEUE_NOTIFY_OFF));
         let offset = notify_off
             .checked_mul(self.notify_multiplier)
@@ -403,6 +424,25 @@ mod tests {
         assert_eq!(transport.setup_queue(0, &queue), Err(Error::BadQueue));
         rig.set16(common::QUEUE_SIZE, 0); // queue not available
         assert_eq!(transport.setup_queue(0, &queue), Err(Error::BadQueue));
+    }
+
+    #[test]
+    fn setup_queue_at_takes_separate_ring_addresses() {
+        let mut rig = Rig::new();
+        rig.set16(common::NUM_QUEUES, 1);
+        rig.set16(common::QUEUE_SIZE, 256);
+        let transport = rig.transport(4, 64);
+        transport
+            .setup_queue_at(0, 128, 0x1000, 0x1800, 0x3_0000_2000)
+            .expect("setup");
+        assert_eq!(rig.get(common::QUEUE_SIZE) as u16, 128);
+        assert_eq!(rig.get(common::QUEUE_DRIVER), 0x1800);
+        assert_eq!(rig.get(common::QUEUE_DEVICE), 0x2000);
+        assert_eq!(rig.get(common::QUEUE_DEVICE + 4), 3);
+        assert_eq!(
+            transport.setup_queue_at(0, 0, 0, 0, 0),
+            Err(Error::BadQueue)
+        );
     }
 
     #[test]

@@ -108,10 +108,15 @@ impl Session {
         .map(|_| ())
     }
 
-    /// `Ping`: `inputd`'s newest processed raw sequence number (a page whose
-    /// `seq` is at least this is current).
+    /// `Ping`: `inputd`'s newest processed raw sequence number while this
+    /// session has focus, else 0 (a page whose `seq` is at least this is
+    /// current).
     pub fn ping(&self, token: u64) -> Result<u64, i64> {
-        let body = wire::encode_ping_args(&wire::PingArgs { token }).map_err(|_| -errno::EINVAL)?;
+        let body = wire::encode_ping_args(&wire::PingArgs {
+            session: self.session,
+            token,
+        })
+        .map_err(|_| -errno::EINVAL)?;
         let reply =
             on_service(|service| call(service, wire::METHOD_PING, body, Vec::new(), Vec::new()))?;
         let reply = wire::decode_ping_reply(&reply.body).map_err(|_| -errno::EINVAL)?;

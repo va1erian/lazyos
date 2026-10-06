@@ -36,6 +36,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::audio_mixer`](#sysaudio_mixer) | `os.lazy.audio.mixer.v1` |
 | [`sys::clipboard`](#sysclipboard) | `os.lazy.clipboard.v1` |
 | [`sys::confd`](#sysconfd) | `os.lazy.confd.v1` |
+| [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
 | [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
@@ -168,6 +169,21 @@ The hierarchical configuration registry (issue #260).
 | `system/confd/changed/{path...}` | `Change` | `changed_topic(path)`, `on_changed(path, handler)`, `subscribe_changed(path)`, `publish_changed(path, payload)` |
 | `user/{uid}/confd/changed/{path...}` | `Change` | `user_changed_topic(uid, path)`, `on_user_changed(uid, path, handler)`, `subscribe_user_changed(uid, path)`, `publish_user_changed(uid, path, payload)` |
 
+## `sys::devd`
+
+Interface `os.lazy.devd.v1`, source [`devd.rhai`](devd.rhai).
+
+The device manager (issue #497, docs/driver-plan.md section 3.6): matches
+
+| Function | IDL | About |
+|---|---|---|
+| `devices()` | `Devices() -> (devices: Array<DeviceState>)` | Every device the kernel enumerated, with its match and state. |
+| `new_device_state()` | struct `DeviceState` | a `DeviceState` at its zero value |
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `system/devices/{id}` | `DeviceState` | `devices_topic(id)`, `on_devices(id, handler)`, `subscribe_devices(id)`, `publish_devices(id, payload)` |
+
 ## `sys::display`
 
 Interface `os.lazy.display.v1`, source [`display.rhai`](display.rhai).
@@ -283,6 +299,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
+| `start_driver(driver, device)` | `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
 | `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `report_failure(reason)` | `ReportFailure(reason: String) -> () oneway` | A launched app says why it is about to fail (issue #549), so the |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
@@ -311,7 +328,7 @@ The system input service (`inputd`; `docs/input-plan.md`).
 | `get_state()` | `GetState() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` | The current layout name, modifier and lock bits (`mods` as in |
 | `request_grant(session, kind)` | `RequestGrant(session: U64, kind: U32) -> ()` | Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which |
 | `release_grant(session)` | `ReleaseGrant(session: U64) -> ()` | Give up the grab (or a pending request) `session` holds. Only its |
-| `ping(token)` | `Ping(token: U64) -> (token: U64, seq: U64)` | Liveness and freshness: echoes `token` and returns `seq`, the raw |
+| `ping(session, token)` | `Ping(session: U64, token: U64) -> (token: U64, seq: U64)` | Liveness and freshness for the caller's own `session`: echoes `token` |
 | `key_event(code, sym, mods, state, ts_ns, seq)` | `KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () oneway` | Event: a key changed state. `code` is the physical key, `sym` its |
 | `text_input(utf8)` | `TextInput(utf8: String) -> () oneway` | Event: composed text (UTF-8) for a character-producing press or repeat. |
 | `keyboard_enter(down)` | `KeyboardEnter(down: Array<U32>) -> () oneway` | Event: keyboard focus arrived. `down` lists the physical keys held right |

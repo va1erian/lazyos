@@ -1,6 +1,7 @@
-//! The userspace drivers embedded in the disk image: the virtio-sound stack
-//! (`LAZYOS_SOUND=1`, docs/driver-plan.md D6) and the virtio-net stack
-//! (`LAZYOS_NET=1`, docs/networking-plan.md N1).
+//! The userspace drivers embedded in the disk image: the sound stack
+//! (`LAZYOS_SOUND=1`, docs/driver-plan.md D6) and the network stack
+//! (`LAZYOS_NET=1`, docs/networking-plan.md N1), and `devd`, which starts them
+//! for the devices it finds (issue #497).
 //!
 //! Without a supervisor the kernel boots a driver directly; with
 //! `LAZYOS_SERVICES=1` `init` starts it from its manifest instead. Each goes to
@@ -53,6 +54,12 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     // rules that confine each driver: wherever there is a driver to look at.
     if sound || usb || net {
         add(sink, fhs::bin::DEVCTL, "devctl");
+    }
+    // `devd`, the device manager `init` starts instead of the static driver
+    // rows (issue #497); `LAZYOS_DEVD=0` builds without it (`user/build.rs`).
+    if (sound || net) && std::env::var_os("LAZYOS_DEVD").as_deref() != Some(OsStr::new("0")) {
+        println!("cargo:rerun-if-env-changed=LAZYOS_DEVD");
+        add(sink, fhs::bin::DEVD, "devd");
     }
     if sound {
         add(sink, fhs::bin::SNDD, "sndd");

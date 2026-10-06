@@ -89,6 +89,12 @@ const NET_CRED: SysCred = SysCred::new(NET_UID, NET_UID, user::dev::CAP_DEV_CLAI
 #[cfg(lazyos_net)]
 const NET_UID: u32 = netpolicy::NET_UID;
 
+/// The device manager's identity (issue #497): its own system uid and **no
+/// capabilities**. It reads the kernel's read-only inventory and asks this
+/// supervisor to start drivers; it never claims a device.
+#[cfg(lazyos_devd)]
+const DEVD_CRED: SysCred = SysCred::new(devmatch::DEVD_UID, devmatch::DEVD_UID, 0, 0, 0);
+
 /// The argument string of the `netdrv` row: `demo=1` runs the self-test and the
 /// evidence clients; `LAZYOS_NET_ARGS` overrides it at build time (the network
 /// harness's `--poll` passes `demo=1 irq=poll`).
@@ -142,6 +148,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_netd)]
     if name == "netd" {
         return Some(NETD_CRED);
+    }
+    #[cfg(lazyos_devd)]
+    if name == "devd" {
+        return Some(DEVD_CRED);
     }
     let _ = name;
     None
@@ -316,19 +326,10 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::OnFailure,
         deps: &["healthd"],
     },
-    // The virtio-sound userspace driver (docs/driver-plan.md D6), present only
-    // on `LAZYOS_SOUND=1` images. It needs nothing but the device syscall.
-    // `demo=1` plays a test tone that the sound harness records and checks;
-    // a machine without the device makes it exit cleanly, so `OnFailure`
-    // restarts it only after a real crash.
-    #[cfg(lazyos_sound)]
-    ServiceSpec {
-        name: "sndd",
-        path: fhs::bin::SNDD,
-        args: "demo=1",
-        restart: Restart::OnFailure,
-        deps: &[],
-    },
+    // The sound card driver, at boot only without `devd` (otherwise `devd`
+    // asks for it once it found the card, `drivers.rs`).
+    #[cfg(all(lazyos_sound, not(lazyos_devd)))]
+    SNDD_ROW,
     // The system mixer (docs/audio-plan.md): every application's sound goes
     // through it to the card. It waits for the card on its own (and outlives
     // a driver restart), so it has no start dependency on `sndd`. `demo=1`
@@ -352,19 +353,20 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::OnFailure,
         deps: &["inputd"],
     },
-    // The virtio-net userspace driver (docs/networking-plan.md N1), present only
-    // on `LAZYOS_NET=1` images. It needs nothing but the device syscall (and
-    // `confd`, softly). `demo=1` runs the ARP self-test and the `nicctl`
-    // evidence clients that the network harness checks against the packet
-    // capture. A machine without the device makes it idle, so `Always` only
-    // restarts it after a crash or a restart-class setting change.
-    #[cfg(lazyos_net)]
+    // The NIC driver, at boot only without `devd` (as `sndd` above).
+    #[cfg(all(lazyos_net, not(lazyos_devd)))]
+    NETDRV_ROW,
+    // The device manager (issue #497): matches the enumerated devices
+    // against its driver manifest and asks this supervisor to start each
+    // driver for the device it found (`StartDriver`, `drivers.rs`). It needs
+    // the broker for its retained `system/devices/<id>` topics.
+    #[cfg(lazyos_devd)]
     ServiceSpec {
-        name: "netdrv",
-        path: fhs::bin::NETDRV,
-        args: NET_ARGS,
+        name: "devd",
+        path: fhs::bin::DEVD,
+        args: "",
         restart: Restart::Always,
-        deps: &[],
+        deps: &["messengerd"],
     },
     // The network stack service (docs/networking-plan.md N2), present only on
     // `LAZYOS_NETD=1` images: smoltcp over the NIC driver's rings, as `_netd`
@@ -412,6 +414,35 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         deps: &[],
     },
 ];
+
+/// The sound card driver (docs/driver-plan.md D6, D7), present only on
+/// `LAZYOS_SOUND=1` images: virtio-sound or Intel HDA. It needs nothing but the
+/// device syscall. `demo=1` plays a test tone that the sound harness records
+/// and checks; a machine without the device makes it exit cleanly, so
+/// `OnFailure` restarts it only after a real crash.
+#[cfg(lazyos_sound)]
+pub(super) const SNDD_ROW: ServiceSpec = ServiceSpec {
+    name: "sndd",
+    path: fhs::bin::SNDD,
+    args: "demo=1",
+    restart: Restart::OnFailure,
+    deps: &[],
+};
+
+/// The NIC driver (docs/networking-plan.md N1, issue #497), present only on
+/// `LAZYOS_NET=1` images: virtio-net or an Intel 8254x. It needs nothing but
+/// the device syscall (and `confd`, softly). `demo=1` runs the ARP self-test
+/// and the `nicctl` evidence clients that the network harness checks against
+/// the packet capture. A machine without the device makes it idle, so
+/// `Always` only restarts it after a crash or a restart-class setting change.
+#[cfg(lazyos_net)]
+pub(super) const NETDRV_ROW: ServiceSpec = ServiceSpec {
+    name: "netdrv",
+    path: fhs::bin::NETDRV,
+    args: NET_ARGS,
+    restart: Restart::Always,
+    deps: &[],
+};
 
 /// Manifest rows that are static musl programs, spawned under the Linux
 /// personality like the desktop's apps.

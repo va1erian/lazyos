@@ -297,9 +297,18 @@ dependencies = [
 name = "devinspect"
 version = "0.1.0"
 dependencies = [
+ "devmatch",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
+]
+
+[[package]]
+name = "devmatch"
+version = "0.1.0"
+dependencies = [
+ "e1000",
+ "hda",
 ]
 
 [[package]]
@@ -311,6 +320,15 @@ dependencies = [
  "block-buffer",
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "e1000"
+version = "0.1.0"
+dependencies = [
+ "framering",
+ "fuzzkit",
+ "nicdrv",
 ]
 
 [[package]]
@@ -490,6 +508,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hda"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "heapless"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,6 +601,7 @@ dependencies = [
  "tiny-skia",
  "uart_16550",
  "usbpolicy",
+ "virtio",
  "x86_64",
  "xmas-elf",
 ]
@@ -1240,11 +1266,14 @@ dependencies = [
  "confd",
  "deskmenu",
  "devinspect",
+ "devmatch",
+ "e1000",
  "fhs",
  "font-atlas",
  "framering",
  "ftpwire",
  "fused",
+ "hda",
  "inputmap",
  "lazyos-crypto",
  "lazypkg",

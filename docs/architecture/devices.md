@@ -6,7 +6,9 @@ ownership and a generation counter, a static in-kernel `Driver` table, and
 (issue #240) the interrupt path and the `dev_*` syscall that let an unprivileged
 userspace driver claim a device. It knows buses, resources and IRQs — never what
 a "NIC" or "sound card" is. Class semantics live in each driver's Messenger
-interface (see [`docs/driver-plan.md`](../driver-plan.md)).
+interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
+`devd`, the second NIC and sound drivers and the `dev_*` fuzz are
+[drivers.md](drivers.md).
 
 **Key files**
 

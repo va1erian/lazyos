@@ -34,7 +34,7 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | GetState | 3 | sync | `() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` |
 | RequestGrant | 4 | sync | `(session: U64, kind: U32) -> ()` |
 | ReleaseGrant | 5 | sync | `(session: U64) -> ()` |
-| Ping | 6 | sync | `(token: U64) -> (token: U64, seq: U64)` |
+| Ping | 6 | sync | `(session: U64, token: U64) -> (token: U64, seq: U64)` |
 | AttachKeyState | 7 | sync | `(session: U64) -> () transfers (state: Buffer)` |
 | KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
 | TextInput | 11 | oneway | `(utf8: String) -> ()` |

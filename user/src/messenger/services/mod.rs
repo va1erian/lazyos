@@ -11,6 +11,7 @@ use libmessenger::{Encoder, Header, Parcel, VERSION};
 
 use super::{errno, registry, Endpoint, Error, Result};
 
+pub mod drivers;
 pub mod health;
 pub mod init;
 pub mod lifecycle;

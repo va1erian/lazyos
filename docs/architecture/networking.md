@@ -111,6 +111,10 @@ or loop. The producer refuses empty and over-long frames itself (`Empty`,
 
 ## The driver (`netdrv`)
 
+*Since issue #497 `netdrv` also drives an Intel 8254x (QEMU's `e1000`) under
+the same engine, and `devd` starts it for the card it found: see
+[drivers.md](drivers.md). This section describes the virtio-net back end.*
+
 `netdrv` is an ordinary ring-3 program. It claims the virtio-net function (QEMU's
 default `virtio-net-pci` is the transitional `1af4:1000`; `disable-legacy=on`
 makes it `1af4:1041`; either way only the modern interface is used), and serves
@@ -631,9 +635,8 @@ the refused-connection evidence (QEMU's user networking answers a connection to 
 closed host port with a reset on Linux and with silence on Windows, so the
 harness requires only that no such connection was established); a shared module
 for the PCI bring-up that `sndd` and `netdrv` both carry, and `sndd`'s
-`discard_transfers` leaving extra transferred handles open; `devd` (the driver is
-started by `init`'s manifest or the kernel directly); MSI/MSI-X (INTx only);
-checksum/segmentation offload and jumbo frames; a second NIC driver (e1000); a
+`discard_transfers` leaving extra transferred handles open; MSI/MSI-X (INTx only);
+checksum/segmentation offload and jumbo frames; a
 fully tickless serve loop (with the line armed the loop wakes every 20 ticks only
 for the link poll, the client's keep-alive and the configuration refresh; the
 2-tick wake while a client was attached went in P4.5); `EVENT_IDX` and merged

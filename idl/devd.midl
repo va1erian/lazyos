@@ -1,0 +1,45 @@
+/// The device manager (issue #497, docs/driver-plan.md section 3.6): matches
+/// the PCI functions the kernel enumerated against a static driver manifest
+/// (`libs/devmatch`), asks `init` to start each matched driver
+/// (`os.lazy.init.v1.StartDriver`), and reports every device's state.
+///
+/// `devd` has no device authority of its own: it reads the kernel's read-only
+/// inventory, never claims, maps or touches a device, and names to `init` only
+/// a driver row and the device it matched; `init` decides the program, its
+/// credentials and its arguments. Failures are a structured error field
+/// (errno-style code, friendly text), not a typed reply.
+interface os.lazy.devd.v1 {
+    /// Every device the kernel enumerated, with its match and state.
+    method Devices() -> (devices: Array<DeviceState> = 1);
+
+    /// One device as `devd` sees it.
+    struct DeviceState {
+        /// The kernel's device id (the `dev=<id>` a driver is started with).
+        id: U64 = 1,
+        /// PCI vendor and device ids.
+        vendor: U32 = 2,
+        device: U32 = 3,
+        /// The device class name (`net`, `audio`, `storage`, ...).
+        class: String = 4,
+        /// The manifest's driver row for it, empty when none matched.
+        driver: String = 5,
+        /// What the match was (`virtio-net`, `Intel 8254x`, ...), empty when
+        /// none matched.
+        model: String = 6,
+        /// `unmatched` (no manifest entry: a device the kernel drives, or one
+        /// nobody does), `starting` (asked of `init`, not claimed yet),
+        /// `claimed`, `released` (its driver let it go), `busy` (its driver
+        /// row already drives another device), `nodriver` (this image does
+        /// not ship the driver the manifest names) or `failed` (`init`
+        /// refused).
+        state: String = 7,
+        /// The uid holding the claim, or 4294967295 when nobody does.
+        owner: U32 = 8,
+        /// The driver's task, 0 before `init` started it.
+        pid: U64 = 9
+    }
+
+    /// One retained topic per device, published whenever its state changes, so
+    /// a subscriber that starts late learns every device at once.
+    topic "system/devices/{id}" : DeviceState retained qos=latest;
+}

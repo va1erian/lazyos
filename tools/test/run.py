@@ -52,6 +52,8 @@ RE_INFO = re.compile(r"^TEST:([^:]+):(INFO|PROGRESS):(.*)$")
 TEST_BANNER = "kernel test mode"
 # Must match `SCRATCH_SECTORS` in kernel/src/tests/virtio_suite.rs.
 SCRATCH_BYTES = 16 * 1024 * 1024
+#: The modern-only scratch disk (`virtio_modern_suite`'s `MODERN_SECTORS`).
+MODERN_SCRATCH_BYTES = 24 * 1024 * 1024
 
 
 def build_test_image(image: Path) -> None:
@@ -281,6 +283,7 @@ def main() -> int:
             "-device", "virtio-net-pci,netdev=n0,disable-modern=on",
         ]
     scratch: Path | None = None
+    modern_scratch: Path | None = None
     if not args.ide_disk:
         # A blank 16 MiB virtio disk for the virtio request-path tests, which
         # write to it; the boot image is never touched. Not attached with
@@ -296,6 +299,18 @@ def main() -> int:
         extra += [
             "-drive", f"if=none,id=scratch,format=raw,file={scratch.as_posix()}",
             "-device", "virtio-blk-pci,drive=scratch,disable-modern=on",
+        ]
+        # A second, modern-only one (issue #497): the kernel drives it through
+        # the virtio 1.x transport (`virtio_modern_suite`). A different size
+        # tells the two apart.
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="scratch-modern-", suffix=".img", delete=False
+        ) as handle:
+            modern_scratch = Path(handle.name).resolve()
+            handle.truncate(MODERN_SCRATCH_BYTES)
+        extra += [
+            "-drive", f"if=none,id=mscratch,format=raw,file={modern_scratch.as_posix()}",
+            "-device", "virtio-blk-pci,drive=mscratch,disable-legacy=on",
         ]
     nvme_scratch: Path | None = None
     if args.nvme:
@@ -329,6 +344,8 @@ def main() -> int:
         stop_qemu(proc, qmp)
         if scratch is not None:
             scratch.unlink(missing_ok=True)
+        if modern_scratch is not None:
+            modern_scratch.unlink(missing_ok=True)
         if nvme_scratch is not None:
             nvme_scratch.unlink(missing_ok=True)
 

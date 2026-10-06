@@ -1,6 +1,7 @@
 # LazyOS driver architecture — plan
 
-Status: **draft for review**. Scope: a small, generic driver model that fits
+Status: **D0-D7 built** (issue #497 closed D5's `devd` and D7; as built:
+[architecture/drivers.md](architecture/drivers.md)). Scope: a small, generic driver model that fits
 Messenger and the capability/ACL security core. First consumers: QEMU's
 emulated **network card** and **sound card**. Out of scope: hot-loadable
 driver modules, and any network stack (sockets, IP, TCP, DHCP, DNS — see
@@ -262,13 +263,18 @@ driver never trusts client lengths.
 
 ### 3.6 `devd` (userspace)
 
-Small service with `CAP_DEV_CLAIM` and list right only: reads the device list,
-matches against a static **driver manifest** (PCI vendor/device/class →
-driver program, uid, restart policy — same shape as `init`'s `MANIFEST`),
-asks `init` to launch the driver, and publishes retained topics
-`system/devices/<id>` (added/claimed/removed, class, state) and
-`system/health/<driver>`. It never touches device memory itself. Hot-plug is
-explicitly not built, but the topic shape supports it.
+*As built (#497):* `devd` holds no capability at all (it reads the read-only
+`inventory` op, not `list`), and `init` keeps each driver's program, uid and
+arguments: `devd` asks `os.lazy.init.v1.StartDriver(row, device)`. Its topic
+is `system/devices/<id>`; `system/health/<driver>` stays `healthd`'s.
+
+It reads the device inventory, matches it against a static **driver
+manifest** (`libs/devmatch`: PCI vendor/device/class → driver row), asks
+`init` to start the driver, and publishes the retained topic
+`system/devices/<id>` (class, state, driver, owner). It never touches device
+memory itself. Hot-plug is explicitly not built, but the topic shape supports
+it. (The original plan gave `devd` `CAP_DEV_CLAIM` and the `list` right and had
+it publish `system/health/<driver>` too; neither was built.)
 
 ### 3.7 Configuration
 
@@ -376,7 +382,8 @@ bus-master off before frame reuse at teardown, `DEV:DMA:PASS` boot line. Tests
 (`libs/virtio`); the NIC interface, frame ring and wire definitions landed as
 networking stage N0 ([`architecture/networking.md`](architecture/networking.md));
 the NIC driver (`netdrv`, stage N1, `user/src/bin/netdrv.rs`) and the `_net`
-uid and `init` manifest row landed with N1; `devd` is still open.* Modern virtio-PCI library,
+uid and `init` manifest row landed with N1; `devd` landed with D7 (issue #497,
+[architecture/drivers.md](architecture/drivers.md)).* Modern virtio-PCI library,
 `virtio-net` userspace driver, `devd`, driver manifest, `_net` uid, init
 manifest row, `os.lazy.net.nic.v1` served. Demo: `nicctl` tool prints MAC and
 link; frame TX/RX loopback test against `filter-dump`. Boot evidence
@@ -394,10 +401,18 @@ interrupts, with polling as the fallback). Details, the DMA-lifetime lesson and
 what is not done:
 [`architecture/audio.md`](architecture/audio.md).
 
-**Stage D7 — Genericity proof and hardening.** e1000 and intel-hda (or AC97)
-drivers built with *no* new syscall ops; if one is needed, the core is fixed
-and the plan revised. Then: modern-virtio block on the transport, fuzz the
-`dev_*` syscall, decide on IOMMU (VT-d) and MSI/IOAPIC follow-ups.
+**Stage D7 — Genericity proof and hardening (done, #497).** e1000 and
+intel-hda drivers built with *no* new syscall ops: `netdrv` drives an Intel
+8254x through `libs/e1000` under the shared `nicdrv` engine (now generic over
+`NicRings`), `sndd` an HDA controller and codec through `libs/hda`; both pass
+their harnesses (`tools/net/run.py --nic e1000`, `tools/sound/run.py --card
+hda`). The in-kernel virtio-blk drives any function with the virtio
+capabilities through the modern transport (`virtio_modern_suite`). The `dev_*`
+syscall has a seeded argument fuzz and a lifecycle soak
+(`dev_suite::FUZZ`, `FUZZ_SOAK`), which found and fixed a shared-window
+page-table leak. `devd` matches devices to driver rows and asks `init` to start
+them. IOMMU (VT-d) and MSI/IOAPIC are issues #615 and #616. Details:
+[architecture/drivers.md](architecture/drivers.md).
 
 ## 6. Testing summary
 

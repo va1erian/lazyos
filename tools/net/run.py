@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot LazyOS with a virtio-net card, capture the wire, and judge the capture.
+"""Boot LazyOS with a NIC, capture the wire, and judge the capture.
 
 The proof that the network driver works is not a log line but the packets: QEMU
 runs with `-netdev user` and a `filter-dump` on the netdev, so every frame the
@@ -16,6 +16,7 @@ is done; the verdict comes from the capture.
     python tools/net/run.py --machine q35 --virtio-disk
     python tools/net/run.py --no-device          # no NIC: the driver must say so and idle
     python tools/net/run.py --poll               # interrupts off: the driver polls
+    python tools/net/run.py --nic e1000          # an Intel 8254x instead of virtio-net (issue #497)
     python tools/net/run.py --netd               # stage N2: netd, DHCP and ping (plus any variant above)
     python tools/net/run.py --tls                # stage T3: curl/wget/fetch over HTTPS (tls_run.py)
 
@@ -38,6 +39,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402,E501
 
 import analyze_pcap  # noqa: E402
+from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
+from harness_io import stop_qemu, wait_for_marker  # noqa: E402
 from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
 import hostpeers  # noqa: E402
 import pcap  # noqa: E402
@@ -111,6 +114,10 @@ NETD_FAIL_MARKERS = (
     "DEV:CROSSCLAIM:net:FAIL",
 )
 
+#: The QEMU device and the model `netdrv` must report (`NETDRV:CARD model=`) for
+#: each `--nic`.
+NICS = {"virtio": ("virtio-net-pci", "virtio-net"), "e1000": ("e1000", "82540EM")}
+
 #: Serial markers: every PASS must appear; any FAIL (or a missing device) ends
 #: the wait early.
 PASS_MARKERS = (
@@ -129,7 +136,6 @@ FAIL_MARKERS = (
     # `_net` claimed (or was refused for the wrong reason) another class.
     "DEV:CROSSCLAIM:net:FAIL",
 )
-LOG_PREFIXES = ("NET", "DEV:CROSSCLAIM", "netdrv", "netd", "NICCTL", "NETDRV", "NETD", "NETCTL", "PING", "NC:", "NSLOOKUP", "Looking up", "FTP:", "< ", "> ", "NETFIX:", "ABI:netfix")
 
 
 def build_netfix() -> bool:
@@ -167,47 +173,6 @@ def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
     return image
 
 
-def wait_for_marker(serial_log: Path, proc: subprocess.Popen, timeout: float, done, fail_markers=FAIL_MARKERS) -> str:
-    """Poll the serial log until `done(text)` or a failure marker, or time runs out."""
-    deadline = time.time() + timeout
-    text = ""
-    printed = 0
-    while time.time() < deadline:
-        if serial_log.is_file():
-            text = serial_log.read_text(errors="replace")
-            lines = text.splitlines()
-            for line in lines[printed:]:
-                if line.startswith(LOG_PREFIXES) or "PANIC" in line or "EXCEPTION" in line:
-                    print(f"  {line}", flush=True)
-            printed = len(lines)
-            if done(text) or any(marker in text for marker in fail_markers):
-                return text
-        if proc.poll() is not None:
-            break
-        time.sleep(0.25)
-    if serial_log.is_file():
-        text = serial_log.read_text(errors="replace")
-    return text
-
-
-def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
-    """Quit through QMP so the capture file is closed on the way out."""
-    if qmp is not None:
-        try:
-            qmp.execute("quit")
-        except Exception:
-            pass
-        qmp.close()
-    try:
-        proc.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-
-
 def netd_done(text: str, netfix: bool = False) -> bool:
     """Stage N3's end of the demo: every marker, a lookup that got an answer,
     the three clients and the listener, and all twelve demo clients reaped."""
@@ -238,7 +203,7 @@ def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forwards: tuple[tup
             "-netdev", "user,id=n0" + "".join(
                 f",hostfwd=tcp:127.0.0.1:{host}-:{guest}" for host, guest in forwards
             ),
-            "-device", "virtio-net-pci,netdev=n0",
+            "-device", f"{NICS[args.nic][0]},netdev=n0",
             "-object", f"filter-dump,id=f0,netdev=n0,file={path}",
         ]
     return extra
@@ -325,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--netd", action="store_true",
                         help="stage N2: build with LAZYOS_NETD=1 and judge DHCP and ping from the capture")
     parser.add_argument("--min-arp-pairs", type=int, default=None)
+    parser.add_argument("--nic", choices=sorted(NICS), default="virtio",
+                        help="the card: virtio-net, or QEMU's Intel 8254x (e1000, issue #497)")
     args = parser.parse_args(argv)
 
     out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
@@ -372,9 +339,19 @@ def main(argv: list[str] | None = None) -> int:
     qmp: Qmp | None = None
     pass_markers = NETD_PASS_MARKERS if args.netd else PASS_MARKERS
     fail_markers = NETD_FAIL_MARKERS if args.netd else FAIL_MARKERS
+    if args.services:
+        # `init` starts `devd`, which starts the driver (issue #497).
+        pass_markers += devd_markers("netdrv")
+        fail_markers += DEVD_FAIL_MARKERS
+    # Without a NIC the driver says so; under `devd` it is never started.
+    via_devd = args.services and devd_enabled()
+
+    def no_nic(t: str) -> bool:
+        return devd_left_idle(t, "netdrv") if via_devd else "NETDRV:NODEV" in t
+
     if args.no_device:
         # `netd` must keep running and waiting for a driver that never comes.
-        done = lambda t: "NETDRV:NODEV" in t and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
+        done = lambda t: no_nic(t) and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
         fail_markers = ()
     elif args.netd:
         def done(t: str) -> bool:
@@ -405,10 +382,11 @@ def main(argv: list[str] | None = None) -> int:
             ftp_server.close()
 
     if args.no_device:
-        ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
+        ok = no_nic(text) and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
         if args.netd:
             ok = ok and "NETD:READY" in text and "NETD:NIC:WAIT" in text and "NETD:FAIL" not in text
-        what = "the driver and netd idled cleanly" if args.netd else "the driver idled cleanly"
+        driver = "devd started no driver" if via_devd else "the driver idled cleanly"
+        what = f"{driver}, netd waited" if args.netd else driver
         print("NET:HARNESS:" + (f"PASS (no device: {what})" if ok else "FAIL"))
         return 0 if ok else 1
 
@@ -458,6 +436,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.netd and args.services and "NETD:CRED uid=903 caps=0x0" not in text:
         print("NET:HARNESS:FAIL netd did not run as _netd (uid 903) with no capabilities")
         return 1
+    model = NICS[args.nic][1]
+    if f"model={model} " not in text:
+        print(f"NET:HARNESS:FAIL netdrv did not drive the {args.nic} card (expected model={model})")
+        return 1
     print("NET:GUEST:PASS")
 
     if not pcap_path.is_file():
@@ -484,6 +466,8 @@ def main(argv: list[str] | None = None) -> int:
         guest_mac=pcap.parse_mac(mac or analyze_pcap.DEFAULT_GUEST_MAC),
         gateway_ip=pcap.parse_ip(analyze_pcap.DEFAULT_GATEWAY),
         min_arp_pairs=arp_pairs,
+        # The 8254x pads short frames to 60 bytes on the wire (`TCTL.PSP`).
+        padded=args.nic == "e1000",
         **extra,
     )
     ok = report.ok

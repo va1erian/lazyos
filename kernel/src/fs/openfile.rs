@@ -450,8 +450,13 @@ fn only(dir: &str, parked: &[Arc<Inode>]) -> bool {
 /// Undo [`rmdir`]'s moves: each parked file goes back to its old hidden name.
 fn unpark(moved: Vec<(Arc<Inode>, String)>) {
     for (inode, original) in moved {
-        if super::abi_rename_raw(Id::ROOT, &inode.path(), &original).is_ok() {
-            *inode.path.lock() = original;
+        match super::abi_rename_raw(Id::ROOT, &inode.path(), &original) {
+            Ok(()) => *inode.path.lock() = original,
+            // The file stays valid and reclaimable at its mount-root name; the
+            // refused rmdir just cannot put it back.
+            Err(error) => crate::serial_println!(
+                "openfile: could not restore {original} after a refused rmdir: {error:?}"
+            ),
         }
     }
 }

@@ -73,14 +73,16 @@ fn release_grant(session) {
     msg::connect("os.lazy.input.v1").invoke("ReleaseGrant", [session])
 }
 
-/// `Ping(token: U64) -> (token: U64, seq: U64)`
+/// `Ping(session: U64, token: U64) -> (token: U64, seq: U64)`
 ///
-/// Liveness and freshness: echoes `token` and returns `seq`, the raw
-/// sequence number of the newest key edge `inputd` has processed, so a
-/// client polling its key-state page can tell the page is current
-/// (`KeyStateSeq >= seq`).
-fn ping(token) {
-    msg::connect("os.lazy.input.v1").invoke("Ping", [token])
+/// Liveness and freshness for the caller's own `session`: echoes `token`
+/// and returns `seq`, the raw sequence number of the newest key edge
+/// `inputd` has processed *while that session has keyboard focus* (`0`
+/// otherwise, so a session cannot watch typing aimed at another window),
+/// so a client polling its key-state page can tell the page is current
+/// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
+fn ping(session, token) {
+    msg::connect("os.lazy.input.v1").invoke("Ping", [session, token])
 }
 
 /// `KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () oneway`

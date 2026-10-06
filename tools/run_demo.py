@@ -58,7 +58,7 @@ from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # no
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
-from demo_qemu import sound_args  # noqa: E402
+from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
@@ -246,6 +246,7 @@ def main(argv: list[str]) -> int:
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
+        device_env(args, env)
         if args.net:
             # The whole stack (it implies the driver). `demo=0`: an interactive
             # boot runs `netd` without the harness's evidence clients, which
@@ -323,7 +324,7 @@ def main(argv: list[str]) -> int:
     if home_disk:
         command += home_disk_args(home_disk)
     if args.sound:
-        command += sound_args(args.sound)
+        command += sound_args(args.sound, args.sound_card)
     if args.net:
         busy = qemu_net.busy_ports(forwards)
         if busy:

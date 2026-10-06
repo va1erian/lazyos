@@ -36,9 +36,23 @@ impl Hub {
                     wire::METHOD_RELEASEGRANT => self.release_grant(message),
                     wire::METHOD_PING => {
                         let args = wire::decode_ping_args(body).map_err(Error::Parcel)?;
+                        let session = self
+                            .router
+                            .session(args.session)
+                            .ok_or(Error::Errno(-errno::ENOENT))?;
+                        // The live sequence number reveals when keys are typed:
+                        // only the session they are typed into may read it.
+                        if session.owner != message.sender {
+                            return Err(Error::Errno(-errno::EACCES));
+                        }
+                        let seq = if self.router.focused_session() == Some(args.session) {
+                            self.engine.last_seq()
+                        } else {
+                            0
+                        };
                         wire::encode_ping_reply(&wire::PingReply {
                             token: args.token,
-                            seq: self.engine.last_seq(),
+                            seq,
                         })
                         .map_err(Error::Parcel)
                     }

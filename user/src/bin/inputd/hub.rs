@@ -201,6 +201,30 @@ impl Hub {
         // Under a compositor the console session gets nothing.
         let change = self.router.set_compositor(true);
         self.apply(change);
+        // The compositor forgot a grab it was told about (`drop_input_link`
+        // clears it) and any request it never answered: tell it again.
+        if let Some(holder) = self.grabs.holder() {
+            let surface = self.router.session(holder).and_then(|s| s.surface);
+            self.shell_event(
+                shell_wire::METHOD_GRABCHANGED,
+                shell_wire::encode_grab_changed_args(&shell_wire::GrabChangedArgs { surface }),
+            );
+        }
+        if let Some(session) = self.grabs.pending() {
+            let surface = self
+                .router
+                .session(session)
+                .and_then(|s| s.surface)
+                .unwrap_or(0);
+            self.shell_event(
+                shell_wire::METHOD_GRANTREQUESTED,
+                shell_wire::encode_grant_requested_args(&shell_wire::GrantRequestedArgs {
+                    session,
+                    kind: wire::GRANT_KIND_KEYBOARD,
+                    surface,
+                }),
+            );
+        }
         Ok(Vec::new())
     }
 
