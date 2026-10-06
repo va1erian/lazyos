@@ -805,16 +805,18 @@ jobs:
           grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
 
       # Each shard checks its own captures (the globs of the other shards
-      # match nothing here).
+      # match nothing here). A shard whose apps this build skipped (Docs
+      # without zig) ran no session, so it has nothing to check; a session
+      # that did run and missed a shot already failed its own step.
       - name: Verify screenshots are non-blank
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
           if [ ${#pngs[@]} -eq 0 ]; then
-            echo "::error::shard ${{ matrix.shard }} captured no screenshots"
-            exit 1
+            echo "::warning::shard ${{ matrix.shard }} ran no session (its apps were not built)"
+            exit 0
           fi
           # Client mode has no LazyShell, and xuid itself paints no taskbar
           # (issue #157): once the window is minimized or closed the frame is
@@ -840,7 +842,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -892,6 +894,18 @@ jobs:
             shots/shell/*.png
             shots/shell/serial.log
             shots/shell/summary.json
+            shots/pointer_restart/*.png
+            shots/pointer_restart/serial.log
+            shots/pointer_restart/summary.json
+            shots/symbols_us/*.png
+            shots/symbols_us/serial.log
+            shots/symbols_us/summary.json
+            shots/desktop_fr/*.png
+            shots/desktop_fr/serial.log
+            shots/desktop_fr/summary.json
+            shots/symbols_fr/*.png
+            shots/symbols_fr/serial.log
+            shots/symbols_fr/summary.json
             shots/editor/*.png
             shots/editor/serial.log
             shots/editor/summary.json
