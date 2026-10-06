@@ -170,7 +170,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.messenger.topics.bell.v1",
         HIGH,
-        "Pass the system's internal check for ringing the bell on any topic",
+        "Be woken when your own topic subscriptions have new messages",
     ),
     ("os.lazy.process.label.spawn.v1", HIGH, DEVELOP),
 ];
