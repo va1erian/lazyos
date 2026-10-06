@@ -66,9 +66,7 @@ fn set_zone(state: &mut State, name: &str) -> Result<()> {
 /// capabilities, never on anything in the request body; a missing credential
 /// block is refused rather than guessed.
 fn set_time(state: &mut State, message: &Message, unix_secs: i64) -> Result<()> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
-    if cred.caps & sys::CAP_SYS_TIME == 0 {
+    if message.caller().caps & sys::CAP_SYS_TIME == 0 {
         return Err(Error::Errno(-errno::EPERM));
     }
     if !(0..MAX_SET_SECS).contains(&unix_secs) {

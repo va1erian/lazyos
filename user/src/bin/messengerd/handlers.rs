@@ -12,11 +12,13 @@ use super::broker::{
 use super::filter::{is_system_topic, valid_topic, Filter};
 
 impl Broker {
-    /// Serve one topics request from `sender` (kernel-stamped).
+    /// Serve one topics request from the task in slot `sender`, whose
+    /// credentials at send time are `caller` (both kernel-stamped).
     pub fn serve(
         &mut self,
         request: &libmessenger::Parcel,
         sender: u64,
+        caller: sys::Cred,
         txn: Option<u64>,
     ) -> Result<Outcome, messenger::Error> {
         use topics_client::{method, MODE_PUBLISH};
@@ -52,10 +54,8 @@ impl Broker {
                 // the audio driver and mixer (`_snd`, `_audio`) may publish
                 // their stream events, `system/audio/...` alone (issue #453).
                 if is_system_topic(&topic) {
-                    let mut cred = sys::Cred::default();
-                    sys::cred_get(Some(sender), &mut cred)
-                        .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                    if cred.uid != 0 && !sndpolicy::may_publish_audio_event(cred.uid, &topic) {
+                    let uid = caller.uid;
+                    if uid != 0 && !sndpolicy::may_publish_audio_event(uid, &topic) {
                         return Err(messenger::Error::Topics(errno::EACCES));
                     }
                 }
@@ -245,7 +245,12 @@ fn serve_request(
     broker: &mut Broker,
     message: &messenger::Message,
 ) {
-    match broker.serve(&message.parcel, message.sender, message.txn) {
+    match broker.serve(
+        &message.parcel,
+        message.sender,
+        message.caller(),
+        message.txn,
+    ) {
         Ok(outcome) => {
             // Wakes first: a parked subscriber waiting on the event this
             // request just published wakes even if the request's own reply

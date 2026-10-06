@@ -19,7 +19,7 @@ SUFFIXES = (".rs", ".py")
 HEADER_LINES = 5
 
 # path -> maximum line count while it waits to be split.
-ALLOWLIST: dict[str, int] = {
+ALLOWLIST: dict[str, int] = {
     "build_support/os_image.rs": 504,
     "fuzz/gen_corpus.py": 777,
     "kernel/src/display.rs": 518,
@@ -34,7 +34,6 @@ ALLOWLIST: dict[str, int] = {
     "tools/net/test_sockets_pcap.py": 505,
     "tools/run_demo.py": 511,
     "tools/screenshot/qemu_qmp.py": 551,
-    "user/src/messenger/endpoint.rs": 501,
     "xui-app/crates/archiver/src/commands.rs": 508,
     "xui-app/crates/explorer/tests/headless.rs": 507,
     "xui-app/src/backend.rs": 505,

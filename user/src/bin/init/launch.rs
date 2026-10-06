@@ -17,13 +17,10 @@ use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
 use super::supervise::{publish_state, spawn_row};
 
-/// The kernel-stamped actor for a message: the supervisor runs as root, so it
-/// holds `CAP_SETUID` and may read another task's credential block (the same
-/// pattern `clipboardd` uses).
+/// The kernel-stamped actor for a message: the credentials its sender had
+/// when it was queued (issue #446).
 pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
-    let mut cred = SysCred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(messenger::Error::Errno)?;
-    Ok(cred)
+    Ok(message.caller())
 }
 
 /// The session-owner policy: a caller may launch into its own session; root or

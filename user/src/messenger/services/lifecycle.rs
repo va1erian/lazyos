@@ -53,9 +53,7 @@ pub fn stop_requested(message: &Message) -> Option<String> {
     if message.interface_id() != INTERFACE || message.method() != wire::METHOD_SHUTDOWN {
         return None;
     }
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).ok()?;
-    if cred.caps & sys::CAP_SYS_ADMIN == 0 {
+    if message.caller().caps & sys::CAP_SYS_ADMIN == 0 {
         sys::write_str("lifecycle: shutdown refused (sender lacks CAP_SYS_ADMIN)\n");
         return None;
     }

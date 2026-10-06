@@ -15,6 +15,7 @@ use libmessenger::Parcel;
 
 use crate::sys;
 
+use super::message::{decode_caller, Message, CALLER_BLOCK, RECV_SENDER_ID};
 use super::types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, DEFAULT_BUFFER, EXPIRED_DEADLINE,
 };
@@ -184,11 +185,16 @@ impl Endpoint {
     /// iteration by reusing one scratch buffer here. A message larger than `buf` is refused with
     /// `-E2BIG` after delivery, exactly like [`Endpoint::recv`].
     pub fn recv_into(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
+        let mut block = [0u8; CALLER_BLOCK];
         let args = MsgArgs {
             handle: self.handle,
             buf_ptr: buf.as_mut_ptr() as u64,
             buf_cap: buf.len() as u64,
             deadline: deadline.unwrap_or(0),
+            // The sender's stamped credentials land here (issue #446).
+            parcel_ptr: block.as_mut_ptr() as u64,
+            parcel_len: CALLER_BLOCK as u64,
+            flags: RECV_SENDER_ID,
             ..MsgArgs::default()
         };
         let mut result = MsgResult::default();
@@ -198,8 +204,10 @@ impl Endpoint {
             return Err(Error::Errno(-errno::E2BIG));
         }
         let parcel = Parcel::decode(&buf[..len]).map_err(Error::Parcel)?;
+        let caller = decode_caller(&block).ok_or(Error::Errno(-errno::EINVAL))?;
         Ok(Message {
             sender: result.aux,
+            caller,
             txn: (result.value != 0).then_some(result.value),
             parcel,
             first_handle: result.reserved[0],
@@ -270,51 +278,6 @@ impl Endpoint {
     /// Counters for this endpoint's channel.
     pub fn stats(&self) -> Result<Stats> {
         stats_call(self.handle)
-    }
-}
-
-/// A received message: the decoded parcel plus the kernel-stamped metadata
-/// userspace cannot otherwise see.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Message {
-    /// Task slot that sent the message.
-    pub sender: u64,
-    /// Kernel transaction id for a call; `None` for one-way messages.
-    pub txn: Option<u64>,
-    /// The decoded parcel.
-    pub parcel: Parcel,
-    /// First transferred handle installed by the delivery, as a number in this
-    /// task's table. Handle `0` is a valid number, so read [`Message::handles`]
-    /// to tell "none" from a real handle. The display protocol reads a client's
-    /// event endpoint here.
-    pub first_handle: u64,
-    /// Number of handles the delivery installed (`0` = the message transferred
-    /// none).
-    pub handles: u64,
-    /// First shared-buffer handle installed by the delivery, ready for
-    /// `crate::sys::display_map_buffer`. [`Message::buffers`] says whether it
-    /// is real. The display protocol reads a client's surface buffer here.
-    pub first_buffer: u64,
-    /// Number of shared-buffer handles the delivery installed.
-    pub buffers: u64,
-}
-
-impl Message {
-    /// Method id from the parcel header.
-    pub fn method(&self) -> u32 {
-        self.parcel.header.method
-    }
-
-    /// Interface id from the parcel header.
-    pub fn interface_id(&self) -> u64 {
-        self.parcel.header.interface_id
-    }
-
-    /// Whether the delivery carries exactly the handles and buffers its
-    /// method declares in `.midl` (`transfers (...)`), e.g.
-    /// `message.carries(wire::OPEN_TRANSFERS)`.
-    pub fn carries(&self, declared: messenger_generated::transfers::Transfers) -> bool {
-        declared.matches(self.handles, self.buffers)
     }
 }
 

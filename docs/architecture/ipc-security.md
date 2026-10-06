@@ -40,9 +40,29 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   only downward), the target must be the actor or a live task, and the kernel
   task may only restamp itself. `check` validates a spawn before the task exists;
   `read` lets a task read its own identity, or another's with `CAP_SETUID`.
-  A service that only needs to know *who called* reads the identity stamped on
-  the message instead (`RECV_SENDER_ID`, [ipc-fabric.md](ipc-fabric.md)): no
-  capability, no capability bits disclosed.
+  A service never reads its caller's slot: it reads the credentials stamped on
+  the message (`RECV_SENDER_ID`, [ipc-fabric.md](ipc-fabric.md)).
+- **The stamped caller header** (issue #446). When a message is *queued*
+  (`send`, `call`, `connect`), the kernel snapshots the sender's `uid`, `gid`,
+  `caps`, `label_id` and `session` into the queued message
+  (`channels::SenderId`); `recv` with `RECV_SENDER_ID` hands that snapshot to
+  the receiver, and the userspace `Message::caller()` returns it as a
+  `sys::Cred`. Authorizing from it needs no capability (reading another task's
+  credentials with `cred_get` needs `CAP_SETUID`), and it cannot report a
+  stale identity: a sender that exits, or transitions, after queueing leaves
+  the snapshot unchanged, while its slot (`Message::sender`, an address, not
+  an identity) may already belong to a new task. The kernel's own posts carry
+  `Cred::ROOT`. `keyd`, `confd`, `clipboardd`, `xuid`, `init`, `messengerd`,
+  `logd`, `mimed`, `pkgd`, `timed` and the lifecycle `Shutdown` check all
+  authorize from it (the old `caller_uid`/`actor` helpers read `cred_get` of
+  the sender slot). `messengerd`'s topic ACL query (`AUTHORIZE_TOPIC`) still
+  names the slot, which the kernel judges at the time of the call.
+- **`spawnv` fails closed** (issue #446). The credential stamp of a new child
+  is checked before the task exists and applied before it can run; if the
+  application is ever refused, the child is ended and its slot freed at once
+  (`task::abort_unstarted_child`, no `SIGCHLD`) and the spawn returns the
+  gate's error, so no child ever runs with its creator's identity instead of
+  the one asked for.
   Transition records use `AUDIT_INTERFACE = "os.cred."` / `AUDIT_METHOD_SET` with
   `reason` codes for allowed, not-privileged, widening, bad target and
   label-locked.

@@ -173,4 +173,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         sender_id_carries_labels_and_the_kernel,
     ),
     ("ipc_messenger_sender_id_soak", sender_id_soak),
+    (
+        "ipc_messenger_sender_id_survives_slot_reuse",
+        sender_id_survives_slot_reuse,
+    ),
 ];

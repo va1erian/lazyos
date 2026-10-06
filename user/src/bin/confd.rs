@@ -377,14 +377,10 @@ fn error_reply_for(method: u32, error: Error) -> Parcel {
     api::error_reply(method, code, error.message())
 }
 
-/// The uid of the Messenger sender, from its kernel-stamped credentials.
-///
-/// A missing or unreadable credential block is refused rather than guessed:
-/// the access rules must never run against a uid the caller chose.
+/// The uid of the Messenger sender, from the credentials the kernel stamped
+/// on the message (issue #446): never a uid the caller chose.
 fn caller_uid(message: &Message) -> messenger::Result<u32> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
-    Ok(cred.uid)
+    Ok(message.caller().uid)
 }
 
 #[panic_handler]
