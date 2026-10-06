@@ -38,8 +38,9 @@ POINTER: dict = {"screen": (1280, 720), "targets": {}, "tablet": False}
 _RECT = re.compile(r"UI:RECT x=(-?\d+) y=(-?\d+) w=(\d+) h=(\d+) name=([^\r\n]*)")
 _WIDGET = re.compile(r"UI:WIDGET x=(-?\d+) y=(-?\d+) w=(\d+) h=(\d+) name=(\S+) window=([^\r\n]*)")
 _POLL_SECONDS = 0.25
-# Relative moves that put a PS/2 pointer in the top-left corner from anywhere.
-_CORNER_MOVES = 4
+# One relative move in each axis (the PS/2 report is clamped); enough of them
+# put the pointer in the top-left corner of a screen of any size.
+_CORNER_STEP = 300
 
 
 class StepFailed(Exception):
@@ -178,8 +179,9 @@ def move_pointer(qmp, pixel: tuple[int, int]) -> None:
     if POINTER["tablet"]:
         qmp.mouse_abs(*to_tablet(pixel, POINTER["screen"]))
     else:
-        for _ in range(_CORNER_MOVES):
-            qmp.mouse_move(-300, -300)
+        width, height = POINTER["screen"]
+        for _ in range(-(-max(width, height) // _CORNER_STEP) + 1):
+            qmp.mouse_move(-_CORNER_STEP, -_CORNER_STEP)
             time.sleep(0.2)
         qmp.mouse_move(*pixel)
     time.sleep(0.1)  # let the guest move its cursor before a button
