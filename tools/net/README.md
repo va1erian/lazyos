@@ -48,7 +48,8 @@ with hostile lengths, packet headers and settings to the parsers.
 ```bash
 python tools/net/run.py                            # build, boot, capture, verify (about 15 s on WHPX/KVM)
 python tools/net/run.py --no-build --accel none    # reuse target/lazyos.img, force TCG
-python tools/net/run.py --services                 # init supervises netdrv as the unprivileged _net user (uid 902)
+python tools/net/run.py --services                 # devd starts netdrv as the unprivileged _net user (uid 902)
+python tools/net/run.py --nic e1000                # an Intel 8254x (QEMU's e1000) instead of virtio-net (issue #497)
 python tools/net/run.py --machine q35 --virtio-disk
 python tools/net/run.py --poll                     # interrupts off: the driver must poll and still pass
 python tools/net/run.py --no-device                # -nic none: the driver prints NETDRV:NODEV and idles

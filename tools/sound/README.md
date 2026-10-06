@@ -15,8 +15,13 @@ python tools/sound/run.py
 # Reuse target/lazyos.img, force TCG
 python tools/sound/run.py --no-build --accel none
 
-# init supervises the driver as _snd (uid 901) and the mixer as _audio (uid 905)
+# devd starts the driver as _snd (uid 901); init supervises the mixer as _audio
+# (uid 905). Also requires devd's DEVD:CLAIMED:PASS and DEVD:TOPICS:PASS.
 python tools/sound/run.py --services
+
+# An Intel HDA controller (intel-hda, ich9-intel-hda on q35) with QEMU's
+# line-out codec instead of virtio-sound (issue #497); combines with the rest
+python tools/sound/run.py --card hda
 
 # Two clients at once must be one chord at unity; a volume=50 tone half as loud
 python tools/sound/run.py --mix

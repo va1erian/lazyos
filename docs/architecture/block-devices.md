@@ -11,7 +11,7 @@ trait, a fixed registry with a selected boot device, and four drivers.
 | `kernel/src/block/ata.rs` | ATA PIO primary-master driver (read path) |
 | `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
 | `kernel/src/dev/pci.rs` | PCI config-space access (0xCF8/0xCFC); moved here from `block/pci.rs` by the device core (#239) |
-| `kernel/src/block/virtio.rs` (+ `virtio/plan.rs`, `ring.rs`, `queue.rs`, `io.rs`) | Legacy virtio-blk (0.9.5) driver, read/write; one instance per PCI function |
+| `kernel/src/block/virtio.rs` (+ `virtio/plan.rs`, `ring.rs`, `queue.rs`, `io.rs`, `modern.rs`, `regs.rs`) | virtio-blk driver, read/write; one instance per PCI function, through the modern (1.x) transport when the function has one, the legacy (0.9.5) I/O window otherwise (issue #497, [drivers.md](drivers.md)) |
 | `kernel/src/block/nvme.rs` (+ `libs/nvme`) | NVMe driver (docs/nvme-install-plan.md N1): one polled I/O queue pair per controller, namespace 1, read/write/flush, shutdown notification |
 | `kernel/src/block/iowait.rs` | How a request waits: park on deadlines (`Wait::MaySleep`) or spin (`Wait::Spin`); `breathe` for long CPU stretches |
 
@@ -45,7 +45,7 @@ trait, a fixed registry with a selected boot device, and four drivers.
 | Driver | Transport | Read | Write | Notes |
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
-| `virtio` | legacy PCI, BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, up to 8 requests in flight (up to 256 KiB each, DMA straight to and from the caller's buffers), polled, `is_writable` = attached |
+| `virtio` | modern PCI (capabilities, memory BAR, `libs/virtio`) or legacy BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, up to 8 requests in flight (up to 256 KiB each, DMA straight to and from the caller's buffers), polled, `is_writable` = attached |
 | `nvme` | PCIe, class 01:08:02, BAR0 mapped uncached (`mem::mmio::map_kernel`) | yes | yes | up to 2 controllers (`nvme0`, `nvme1`): admin and one I/O queue pair in static memory, polled (no interrupts), up to 8 commands of 64 KiB in flight (fewer when `MDTS` says so), PRP entries straight to the caller's buffers (a bounce page for buffers that are not dword aligned), Flush when the controller has a volatile write cache, `CC.SHN` after the power path's sync; only 512-byte LBA formats are served |
 | `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
