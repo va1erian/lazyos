@@ -61,9 +61,13 @@ fn check_manifest(text: &str) -> bool {
     }
     for entry in &wanted.topics {
         assert!(!entry.contains("**"), "{entry}");
-        let pattern = entry.split_once(':').map_or(entry.as_str(), |(_, rest)| rest);
+        let pattern = entry
+            .split_once(':')
+            .map_or(entry.as_str(), |(_, rest)| rest);
         assert!(
-            pattern.split('/').all(|segment| !segment.bytes().all(|b| b == b'.')),
+            pattern
+                .split('/')
+                .all(|segment| !segment.bytes().all(|b| b == b'.')),
             "{entry}"
         );
     }
