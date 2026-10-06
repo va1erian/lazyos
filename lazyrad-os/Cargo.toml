@@ -18,8 +18,8 @@ resolver = "2"
 # workspace (va1erian/lazyrad) pins the same revision: bump them together.
 # `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
