@@ -583,6 +583,11 @@
         "name": "Ready",
         "id": 197800596,
         "oneway": true
+      },
+      {
+        "name": "ReportFailure",
+        "id": 425853579,
+        "oneway": true
       }
     ],
     "topics": [
@@ -603,6 +608,15 @@
         "retained": true,
         "publish_permission": "publish:system/events/service/+",
         "subscribe_permission": "subscribe:system/events/service/+"
+      },
+      {
+        "name": "system/events/app/+",
+        "source": "system/events/app/{app}",
+        "payload": "AppFailure",
+        "qos": "buffered",
+        "retained": true,
+        "publish_permission": "publish:system/events/app/+",
+        "subscribe_permission": "subscribe:system/events/app/+"
       }
     ]
   },

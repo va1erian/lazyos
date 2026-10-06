@@ -24,7 +24,7 @@ use super::icons::IconCache;
 use super::taskbar::{self, BarApp};
 use super::theme::desktop_theme;
 use super::wallpaper::Wallpaper;
-use super::{heartbeat, link, menu, service};
+use super::{heartbeat, link, menu, notice, service};
 use crate::client_window::SurfaceRole;
 
 /// The heartbeat period. The backend's loop parks about a tick per window, so
@@ -186,6 +186,12 @@ impl DesktopApp {
             self.ctx.bar_changed();
         }
         link::pump(&self.ctx, ui);
+        // `init` gave up on an app of this session: tell the user (#549).
+        let failures = self.ctx.failures.borrow_mut().poll();
+        for failure in failures {
+            notice::post(&self.ctx, ui, failure);
+        }
+        notice::pump(&self.ctx, ui);
         self.service.pump(&self.ctx, ui, &mut self.beat);
         if self.beat.clock(&self.ctx) {
             self.ctx.repaint_bar();

@@ -5538,6 +5538,66 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// A launched app stopped and `init` will not start it again (issue
+    /// #549): it failed while starting, kept crashing, or failed with no
+    /// restart policy. The payload of `system/events/app/<id>`. The desktop
+    /// shell of `session` tells the user, so a broken app is one clear
+    /// message rather than a window that flickers open and shut.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AppFailure {
+        pub name: alloc::string::String,
+        pub status: u64,
+        pub summary: alloc::string::String,
+        pub reason: alloc::string::String,
+        pub session: u64,
+        pub startup: bool,
+        pub at: u64,
+    }
+
+    pub fn encode_app_failure(value: &AppFailure) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.u64(2, value.status)?;
+        target.string(3, &value.summary)?;
+        target.string(4, &value.reason)?;
+        target.u64(5, value.session)?;
+        target.bool(6, value.startup)?;
+        target.u64(7, value.at)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_app_failure(body: &[u8]) -> Result<AppFailure, Error> {
+        let mut out = AppFailure::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.status = field.as_u64()?;
+                }
+                3 => {
+                    out.summary = field.as_str()?.into();
+                }
+                4 => {
+                    out.reason = field.as_str()?.into();
+                }
+                5 => {
+                    out.session = field.as_u64()?;
+                }
+                6 => {
+                    out.startup = field.as_bool()?;
+                }
+                7 => {
+                    out.at = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Services` method id.
     pub const METHOD_SERVICES: u32 = 1672675413;
     /// `Launch` method id.
@@ -5550,6 +5610,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_SHUTDOWN: u32 = 1911669355;
     /// `Ready` method id.
     pub const METHOD_READY: u32 = 197800596;
+    /// `ReportFailure` method id.
+    pub const METHOD_REPORTFAILURE: u32 = 425853579;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -5813,6 +5875,34 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// A launched app says why it is about to fail (issue #549), so the
+    /// desktop's "stopped unexpectedly" notice can show more than an exit
+    /// code. Only the running task of a launched row counts; anything else
+    /// is ignored. `reason` is shown, never parsed: control characters become
+    /// spaces and it is cut to 512 bytes. A later report replaces an earlier
+    /// one, and every new run starts with none.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReportFailureArgs {
+        pub reason: alloc::string::String,
+    }
+
+    pub fn encode_report_failure_args(value: &ReportFailureArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_report_failure_args(body: &[u8]) -> Result<ReportFailureArgs, Error> {
+        let mut out = ReportFailureArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.reason = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
@@ -5926,6 +6016,65 @@ pub mod os_lazy_init_v1 {
         let filter = topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)
+    }
+
+    /// The app's display name (its id when it has none).
+    /// Exit status of the last run (`128 + signal` for a signal).
+    /// The status as a person reads it (`exit code 2`, `signal 11
+    /// (segmentation fault)`).
+    /// The app's own `ReportFailure` text; empty when it sent none.
+    /// The login session the app ran in.
+    /// Whether it failed while starting (rather than after running).
+    /// The kernel tick (100 Hz) the failure happened at.
+    /// App failures, published by `init` on the central broker
+    /// (`messengerd`, unlike the service events above, which `init`'s own
+    /// broker carries) so any session program can subscribe. Retained per
+    /// app, so a shell that comes up after an app failed at boot still hears
+    /// of it; a subscriber judges a retained value by `at` (the shell ignores
+    /// one older than a minute). `{app}` is the app id `Launch` took.
+    /// The declared `system/events/app/+` topic (`AppFailure`, `buffered`, retained).
+    pub const TOPIC_SYSTEM_EVENTS_APP: &str = "system/events/app/+";
+    /// The `system/events/app/+` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_APP_QOS: u32 = topics::QOS_BUFFERED;
+    /// Whether `system/events/app/+` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_APP_RETAINED: bool = true;
+
+    /// Build the concrete `system/events/app/+` name; each wildcard takes one literal segment.
+    pub fn name_system_events_app(app: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Publish)
+    }
+
+    /// Encode a `AppFailure` payload for `system/events/app/+`.
+    pub fn encode_system_events_app(value: &AppFailure) -> Result<Vec<u8>, Error> {
+        encode_app_failure(value)
+    }
+
+    /// Decode a `system/events/app/+` payload; malformed bytes are an error.
+    pub fn decode_system_events_app(body: &[u8]) -> Result<AppFailure, Error> {
+        decode_app_failure(body)
+    }
+
+    /// Publish a typed `AppFailure` on `system/events/app/+`.
+    pub fn publish_system_events_app<P>(publisher: &mut P, app: &str, value: &AppFailure) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_app(app).map_err(P::Error::from)?;
+        let payload = encode_system_events_app(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_APP_RETAINED)
+    }
+
+    /// Subscribe to `system/events/app/+` with its declared QoS.
+    pub fn subscribe_system_events_app<S>(subscriber: &mut S, app: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)
     }
 }
 
@@ -14409,6 +14558,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/events/service/+",
         subscribe_permission: "subscribe:system/events/service/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.init.v1",
+        name: "system/events/app/+",
+        payload: "AppFailure",
+        qos: topics::QOS_BUFFERED,
+        retained: true,
+        publish_permission: "publish:system/events/app/+",
+        subscribe_permission: "subscribe:system/events/app/+",
     },
     topics::TopicDecl {
         interface: "os.lazy.logind.v1",

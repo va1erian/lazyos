@@ -1,0 +1,11 @@
+[package]
+name = "svcpolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "init's supervision decisions: restart, backoff, giving up, and when the desktop is told an app failed"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "svcpolicy"
+path = "src/lib.rs"

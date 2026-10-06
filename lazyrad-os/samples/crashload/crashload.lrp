@@ -1,0 +1,9 @@
+name = "crashload"
+version = "0.1.0"
+startup = "main_form"
+
+[[items]]
+kind = "form"
+name = "main_form"
+layout = "main_form.lfm"
+code = "main_form.rhai"

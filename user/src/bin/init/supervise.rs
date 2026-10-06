@@ -11,9 +11,10 @@ use alloc::vec::Vec;
 use user::messenger::{router, services};
 use user::sys;
 
-use super::state::{
-    Phase, Restart, Service, BACKOFF_BASE, BACKOFF_MAX, MAX_RESTARTS, STABLE_TICKS,
-};
+use svcpolicy::{backoff, decide, tells_desktop, Exit, Outcome};
+
+use super::notice::Failure;
+use super::state::{Phase, Service, MAX_RESTARTS};
 
 /// Start every `Pending` service whose dependencies are ready (`ready.rs`:
 /// running, and serving if they announce it), repeating
@@ -81,6 +82,7 @@ pub(super) fn spawn_service(
             services[index].ready = false;
             services[index].started_tick = sys::clock();
             services[index].last_status = None;
+            services[index].reason = None;
             sys::write_str(&format!(
                 "init: started {} (pid {}, attempt {})\n",
                 services[index].name,
@@ -174,133 +176,90 @@ pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred
     }
 }
 
-/// A service exited: apply its restart policy and publish the event.
+/// A row exited: apply its restart policy (`svcpolicy::decide`) and publish
+/// the service event. Returns the failure the desktop must hear of, when a
+/// launched app ended failed (`svcpolicy::tells_desktop`); the caller
+/// publishes it ([`super::notice`]).
 pub(super) fn child_exited(
     services: &mut [Service],
     pid: u64,
     status: u64,
     broker: &mut router::TopicBroker,
-) {
-    let Some(index) = services.iter().position(|service| {
+) -> Option<Failure> {
+    let index = services.iter().position(|service| {
         service.pid == pid && matches!(service.phase, Phase::Running | Phase::Stopping)
-    }) else {
-        // A child that was not a supervised row (or an already-handled exit):
-        // nothing to supervise.
-        return;
-    };
+    })?;
     // During a shutdown nothing restarts: the exit is the stop completing
     // (or a crash on the way down, which is reported but not respawned).
     if services[index].phase == Phase::Stopping || super::shutdown::stopping() {
         stopped_for_shutdown(services, index, status, broker);
-        return;
+        return None;
     }
-    let name = services[index].name;
-    let desired = services[index].restart;
-    let launched = services[index].launched;
-    let uptime = sys::clock().saturating_sub(services[index].started_tick);
-    services[index].pid = 0;
-    services[index].last_status = Some(status);
-    if uptime >= STABLE_TICKS {
-        // A long run wipes the rapid-crash budget.
-        services[index].restarts = 0;
+    let row = &mut services[index];
+    let name = row.name;
+    let exit = Exit {
+        policy: row.restart,
+        app: row.launched,
+        status,
+        uptime: sys::clock().saturating_sub(row.started_tick),
+        restarts: row.restarts,
+    };
+    row.pid = 0;
+    row.last_status = Some(status);
+    if row.launched {
+        sys::write_str(&format!(
+            "INIT:LAUNCH:EXIT app={name} status={status}
+"
+        ));
     }
-    if launched {
-        sys::write_str(&format!("INIT:LAUNCH:EXIT app={name} status={status}\n"));
+    let outcome = decide(exit);
+    match outcome {
+        Outcome::Restart { restarts, delay } => {
+            row.restarts = restarts;
+            row.phase = Phase::Restarting;
+            row.next_start = sys::clock() + delay;
+            sys::write_str(&format!(
+                "init: service {name} exited (status {status}); restart in {delay} ticks (attempt {})
+",
+                restarts + 1
+            ));
+            // The machine-parseable restart/backoff marker: a crashing
+            // supervised app (`/system/bin/flaky`) proves the path in a
+            // headless boot.
+            sys::write_str(&format!(
+                "INIT:RESTART:PASS name={name} status={status} attempt={} delay={delay}
+",
+                restarts + 1
+            ));
+            publish_state(broker, row, "restarting", 0, restarts, status, "");
+        }
+        Outcome::Failed { restarts, cause } => {
+            row.restarts = restarts;
+            row.phase = Phase::Failed;
+            sys::write_str(&format!(
+                "init: service {name} failed (status {status}): {}
+",
+                cause.detail()
+            ));
+            if cause == svcpolicy::Cause::Exhausted {
+                sys::write_str(&format!(
+                    "INIT:RESTART:EXHAUSTED name={name} restarts={restarts}
+"
+                ));
+            }
+            publish_state(broker, row, "failed", 0, restarts, status, cause.detail());
+        }
+        Outcome::Stopped { restarts } => {
+            row.restarts = restarts;
+            row.phase = Phase::Stopped;
+            sys::write_str(&format!(
+                "init: service {name} exited (status {status}); not restarting
+"
+            ));
+            publish_state(broker, row, "stopped", 0, restarts, status, "");
+        }
     }
-    let restart = restarts_after(desired, status);
-    if restart {
-        services[index].restarts += 1;
-    }
-    if restart && services[index].restarts >= MAX_RESTARTS {
-        services[index].phase = Phase::Failed;
-        sys::write_str(&format!(
-            "init: service {} failed after {} rapid restarts\n",
-            name, services[index].restarts
-        ));
-        sys::write_str(&format!(
-            "INIT:RESTART:EXHAUSTED name={name} restarts={}\n",
-            services[index].restarts
-        ));
-        publish_state(
-            broker,
-            &services[index],
-            "failed",
-            0,
-            services[index].restarts,
-            status,
-            "restart budget exhausted",
-        );
-    } else if restart {
-        let delay = backoff(services[index].restarts);
-        let attempt = services[index].restarts;
-        services[index].phase = Phase::Restarting;
-        services[index].next_start = sys::clock() + delay;
-        sys::write_str(&format!(
-            "init: service {} exited (status {}); restart in {} ticks (attempt {})\n",
-            name,
-            status,
-            delay,
-            attempt + 1
-        ));
-        // The machine-parseable restart/backoff marker: a crashing supervised
-        // app (`/system/bin/flaky`) proves the path in a headless boot.
-        sys::write_str(&format!(
-            "INIT:RESTART:PASS name={name} status={status} attempt={} delay={delay}\n",
-            attempt + 1
-        ));
-        publish_state(
-            broker,
-            &services[index],
-            "restarting",
-            0,
-            attempt,
-            status,
-            "",
-        );
-    } else if status != 0 {
-        // No restart policy, but it did not exit cleanly: that is a failure,
-        // not a service that finished its work.
-        services[index].phase = Phase::Failed;
-        sys::write_str(&format!(
-            "init: service {} exited (status {}); not restarting\n",
-            name, status
-        ));
-        publish_state(
-            broker,
-            &services[index],
-            "failed",
-            0,
-            services[index].restarts,
-            status,
-            "exited with an error and has no restart policy",
-        );
-    } else {
-        services[index].phase = Phase::Stopped;
-        sys::write_str(&format!(
-            "init: service {} exited (status {}); not restarting\n",
-            name, status
-        ));
-        publish_state(
-            broker,
-            &services[index],
-            "stopped",
-            0,
-            services[index].restarts,
-            status,
-            "",
-        );
-    }
-}
-
-/// Whether a row with restart policy `policy` comes back after exiting with
-/// `status`. `Always` covers every exit, including a kill (the desktop shell
-/// relies on it: killing LazyShell brings it back).
-pub(super) fn restarts_after(policy: Restart, status: u64) -> bool {
-    match policy {
-        Restart::Always => true,
-        Restart::OnFailure => status != 0,
-        Restart::Once => false,
-    }
+    tells_desktop(&exit, &outcome).then(|| Failure::of(&services[index], &outcome))
 }
 
 /// A row's task exited while the machine is shutting down: retire it.
@@ -321,12 +280,6 @@ fn stopped_for_shutdown(
     row.pid = 0;
     row.last_status = Some(status);
     publish_state(broker, row, "stopped", 0, row.restarts, status, "shutdown");
-}
-
-/// Capped exponential backoff in PIT ticks.
-fn backoff(restarts: u64) -> u64 {
-    let shift = restarts.saturating_sub(1).min(6);
-    (BACKOFF_BASE << shift).min(BACKOFF_MAX)
 }
 
 /// The next tick the supervisor must wake at with nothing else to wake it: a

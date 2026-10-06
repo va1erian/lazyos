@@ -19,16 +19,19 @@
 //! `SHELL:TASKBAR:ADD id=<surface> title=<title>` / `REMOVE id=<surface>`,
 //! `SHELL:RESTART:PASS windows=<n>`, `SHELL:WALLPAPER:PASS path=<path>
 //! size=<w>x<h>` / `FAIL path=<path> <why>` / `NONE`, and the power rows'
-//! `SHELL:POWER:*` ([`power`]).
+//! `SHELL:POWER:*` ([`power`]), and the app-failure notice's
+//! `SHELL:FAILURE`/`SHELL:NOTICE:*` ([`failures`], [`notice`]).
 
 mod ctx;
 mod deskdir;
 mod deskicons;
 mod desktop;
+mod failures;
 mod heartbeat;
 mod icons;
 mod link;
 mod menu;
+mod notice;
 mod power;
 mod probe;
 mod service;
@@ -80,12 +83,16 @@ pub fn run() -> i32 {
     }
     // The shell's own uid: the service lets root and this user in. Unknown
     // (`None`) refuses every call rather than guessing an identity.
-    let uid = sys::cred_get(None).ok().map(|cred| cred.uid);
+    let cred = sys::cred_get(None).ok();
+    let uid = cred.map(|cred| cred.uid);
+    // Its session: only this session's app failures become notices.
+    let session = cred.map(|cred| cred.session);
     let ctx = Rc::new(ctx::Ctx::new(
         Rc::clone(&backend),
         client,
         screen,
         uid,
+        session,
         events,
     ));
     let windows = ctx

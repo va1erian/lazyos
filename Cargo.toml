@@ -91,6 +91,9 @@ members = [
     "libs/netpolicy",
     "libs/usbpolicy",
     "libs/sndpolicy",
+    # init's supervision decisions (restart, backoff, giving up, the desktop's
+    # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.
+    "libs/svcpolicy",
     "libs/devinspect",
     "libs/netstack",
     "libs/fuzzkit",

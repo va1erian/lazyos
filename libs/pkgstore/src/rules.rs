@@ -28,12 +28,18 @@
 //!   any `dev:` label: the kernel scope `os.lazy.process.label.spawn.v1` with
 //!   the wildcard method. The kernel still refuses a label `pkgd` has not
 //!   loaded an approved rule set for ([`crate::develop`]).
+//!
+//! [`installed`] is what `pkgd` loads for an installed app: the manifest's
+//! rules plus the [`baseline`] every app gets without asking, telling `init`
+//! why it is failing (`os.lazy.init.v1` `ReportFailure` alone, issue #549).
+//! That only labels the app's own failure notice, so it needs no consent.
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use lazypkg::Manifest;
+use messenger_generated::os_lazy_init_v1 as init;
 use messenger_generated::os_lazy_messenger_names_resolve_v1 as resolve_scope;
 use messenger_generated::os_lazy_messenger_policy_v1::LabelRule;
 use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
@@ -51,6 +57,8 @@ pub const ANY_METHOD: u32 = u32::MAX;
 /// The topics broker's interface and the name it is registered under.
 const TOPICS_INTERFACE: &str = "os.lazy.messenger.topics.v1";
 const NETWORK_INTERFACE: &str = "os.lazy.net.socket.v1";
+/// `init`'s interface: every installed app may call its `ReportFailure`.
+const INIT_INTERFACE: &str = "os.lazy.init.v1";
 
 /// Service names that are not the interface name minus its `.vN`:
 /// `(interface, extra service name)`.
@@ -236,6 +244,29 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     Ok(list.rules)
 }
 
+/// The rules every installed app gets without asking: `init.ReportFailure`
+/// and resolving `init`'s names.
+pub fn baseline() -> Vec<LabelRule> {
+    let mut list = RuleList::default();
+    list.allow_interface(INIT_INTERFACE, Some(&[init::METHOD_REPORTFAILURE]));
+    list.rules
+}
+
+/// What `pkgd` loads for an installed app: [`compile`], then the
+/// [`baseline`] rules it does not already hold. At most [`MAX_RULES`].
+pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
+    let mut rules = compile(manifest)?;
+    for rule in baseline() {
+        if !rules.contains(&rule) {
+            rules.push(rule);
+        }
+    }
+    if rules.len() > MAX_RULES {
+        return Err(CompileError::TooManyRules { rules: rules.len() });
+    }
+    Ok(rules)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +285,36 @@ mod tests {
             method,
             allow: true,
         }
+    }
+
+    #[test]
+    fn every_installed_app_may_report_its_failure_to_init() {
+        let rules = installed(&manifest("")).unwrap();
+        assert_eq!(rules, baseline());
+        assert!(rules.contains(&allow(
+            fnv1a64("os.lazy.init.v1"),
+            init::METHOD_REPORTFAILURE
+        )));
+        assert!(rules.contains(&allow(resolve_scope::INTERFACE_ID, fnv1a32("os.lazy.init"))));
+        // Nothing else of `init`: no launching, stopping or shutting down.
+        let init_rules = rules
+            .iter()
+            .filter(|rule| rule.interface_id == fnv1a64("os.lazy.init.v1"))
+            .count();
+        assert_eq!(init_rules, 1);
+        // On top of what the manifest asks for, never instead of it.
+        let display = installed(&manifest(
+            "interfaces = [\"os.lazy.display.v1\"]
+",
+        ))
+        .unwrap();
+        assert!(display.starts_with(
+            &compile(&manifest(
+                "interfaces = [\"os.lazy.display.v1\"]
+"
+            ))
+            .unwrap()
+        ));
     }
 
     #[test]

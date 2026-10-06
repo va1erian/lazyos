@@ -11,6 +11,7 @@
 //!   layout, and the `sys/ui/desktop` launchers that seed the folder.
 //! * [`shortcut`]: the `.lnk` shortcut files the desktop folder holds.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
+//! * [`notice`]: the "app stopped" notice `init`'s app failures become.
 //! * [`policy`]: who may call the `os.lazy.shell` service.
 //! * [`wallpaper`]: the desktop picture's size check, crop and brightness.
 //!
@@ -22,6 +23,7 @@
 pub mod clock;
 pub mod desktop;
 pub mod menu;
+pub mod notice;
 pub mod policy;
 pub mod shortcut;
 pub mod taskbar;

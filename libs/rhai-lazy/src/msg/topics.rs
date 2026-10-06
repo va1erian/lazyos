@@ -18,7 +18,6 @@ use alloc::string::{String, ToString};
 
 use alloc::vec::Vec;
 
-use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 use rhai::{Blob, Dynamic, ImmutableString, Map, INT};
 
 use super::bus::Wait;
@@ -34,63 +33,16 @@ pub const QOS: [&str; 4] = ["latest", "buffered", "conflate", "reliable"];
 /// Queue depth for `buffered` when the script does not choose one.
 pub const DEFAULT_DEPTH: u32 = 16;
 
-/// The wrapper parcel's interface marker (`central::WRAPPER_INTERFACE`).
-const WRAPPER_INTERFACE: u64 = u64::from_le_bytes(*b"os.cntrl");
-/// Wrapper field holding a UTF-8 payload / any other payload.
-const FIELD_TEXT: u16 = 1;
-const FIELD_BYTES: u16 = 2;
-
-/// Wrap payload bytes the way `central::Bus::publish` does: text in field 1,
-/// anything else in field 2, inside a parcel stamped [`WRAPPER_INTERFACE`].
+/// Wrap payload bytes in the broker's envelope, the way `central::Bus::publish`
+/// does (`libmessenger::envelope`).
 pub fn wrap(payload: &[u8]) -> Fallible<Vec<u8>> {
-    let mut body = Encoder::new();
-    let written = match core::str::from_utf8(payload) {
-        Ok(text) => body.string(FIELD_TEXT, text),
-        Err(_) => body.bytes(FIELD_BYTES, payload),
-    };
-    let parcel = Parcel {
-        header: Header {
-            version: VERSION,
-            flags: 0,
-            interface_id: WRAPPER_INTERFACE,
-            method: 1,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body: written
-            .map(|()| body.finish())
-            .map_err(|e| script_error(e.message()))?,
-        handles: Vec::new(),
-        buffers: Vec::new(),
-    };
-    let mut bytes = Vec::new();
-    parcel
-        .encode(&mut bytes)
-        .map_err(|e| script_error(e.message()))?;
-    Ok(bytes)
+    libmessenger::envelope::wrap(payload).map_err(|e| script_error(e.message()))
 }
 
-/// The payload inside a wrapper parcel; anything else (another publisher's
-/// own parcel, raw bytes) is handed through unchanged, like `central`'s
-/// `unwrap_event`.
+/// The payload inside an envelope; anything else (another publisher's own
+/// parcel, raw bytes) is handed through unchanged (`libmessenger::envelope`).
 pub fn unwrap(event_payload: &[u8]) -> Vec<u8> {
-    let Ok(parcel) = Parcel::decode(event_payload) else {
-        return event_payload.to_vec();
-    };
-    if parcel.header.interface_id != WRAPPER_INTERFACE {
-        return event_payload.to_vec();
-    }
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        match (field.kind, field.id) {
-            (Kind::String, FIELD_TEXT) | (Kind::Bytes, FIELD_BYTES) => {
-                return field.as_bytes().to_vec()
-            }
-            _ => {}
-        }
-    }
-    event_payload.to_vec()
+    libmessenger::envelope::unwrap(event_payload)
 }
 
 fn broker(fabric: &Rc<Fabric>) -> Fallible<Service> {
