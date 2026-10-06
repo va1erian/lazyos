@@ -114,6 +114,7 @@ impl Trace {
                     self.line(format_args!("INPUTD:TEXT u+{scalar:x}"));
                 }
                 Output::Hotkey(id) => self.line(format_args!("INPUTD:HOTKEY {id}")),
+                Output::Escape => self.line(format_args!("INPUTD:ESCAPE")),
             }
         }
     }

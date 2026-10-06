@@ -648,6 +648,33 @@
         "oneway": false
       },
       {
+        "name": "RequestGrant",
+        "id": 4,
+        "oneway": false
+      },
+      {
+        "name": "ReleaseGrant",
+        "id": 5,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 6,
+        "oneway": false
+      },
+      {
+        "name": "AttachKeyState",
+        "id": 7,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "state",
+            "kind": "buffer",
+            "slot": 0
+          }
+        ]
+      },
+      {
         "name": "KeyEvent",
         "id": 10,
         "oneway": true
@@ -670,6 +697,11 @@
       {
         "name": "LayoutChanged",
         "id": 14,
+        "oneway": true
+      },
+      {
+        "name": "GrantChanged",
+        "id": 15,
         "oneway": true
       }
     ],
@@ -775,6 +807,11 @@
       {
         "name": "PointerEvent",
         "id": 25,
+        "oneway": true
+      },
+      {
+        "name": "GrabChanged",
+        "id": 26,
         "oneway": true
       }
     ],

@@ -6113,12 +6113,38 @@ pub mod os_lazy_input_v1 {
     /// `KeyState::Repeat` wire value.
     pub const KEY_STATE_REPEAT: u32 = 2;
 
+    /// `GrantKind::None` wire value.
+    pub const GRANT_KIND_NONE: u32 = 0;
+    /// `GrantKind::Keyboard` wire value.
+    pub const GRANT_KIND_KEYBOARD: u32 = 1;
+
+    /// `GrantReason::Approved` wire value.
+    pub const GRANT_REASON_APPROVED: u32 = 0;
+    /// `GrantReason::Denied` wire value.
+    pub const GRANT_REASON_DENIED: u32 = 1;
+    /// `GrantReason::Released` wire value.
+    pub const GRANT_REASON_RELEASED: u32 = 2;
+    /// `GrantReason::FocusLost` wire value.
+    pub const GRANT_REASON_FOCUS_LOST: u32 = 3;
+    /// `GrantReason::Escaped` wire value.
+    pub const GRANT_REASON_ESCAPED: u32 = 4;
+    /// `GrantReason::Closed` wire value.
+    pub const GRANT_REASON_CLOSED: u32 = 5;
+
     /// `Open` method id.
     pub const METHOD_OPEN: u32 = 1;
     /// `Close` method id.
     pub const METHOD_CLOSE: u32 = 2;
     /// `GetState` method id.
     pub const METHOD_GETSTATE: u32 = 3;
+    /// `RequestGrant` method id.
+    pub const METHOD_REQUESTGRANT: u32 = 4;
+    /// `ReleaseGrant` method id.
+    pub const METHOD_RELEASEGRANT: u32 = 5;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 6;
+    /// `AttachKeyState` method id.
+    pub const METHOD_ATTACHKEYSTATE: u32 = 7;
     /// `KeyEvent` method id.
     pub const METHOD_KEYEVENT: u32 = 10;
     /// `TextInput` method id.
@@ -6129,6 +6155,8 @@ pub mod os_lazy_input_v1 {
     pub const METHOD_KEYBOARDLEAVE: u32 = 13;
     /// `LayoutChanged` method id.
     pub const METHOD_LAYOUTCHANGED: u32 = 14;
+    /// `GrantChanged` method id.
+    pub const METHOD_GRANTCHANGED: u32 = 15;
 
     /// Open an input session bound to the calling task (the kernel-stamped
     /// sender). `surface` names the window it wants keys for: it must be a
@@ -6280,6 +6308,169 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
+    /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
+    /// must be the caller's and have keyboard focus (`EACCES` otherwise;
+    /// `EINVAL` for an unknown kind). The compositor decides: the answer
+    /// arrives later as `GrantChanged`. A keyboard grab sends the session
+    /// every key, the compositor's own chords (Alt+Tab, Ctrl+Esc) included,
+    /// until the session releases it, loses focus or closes, or the user
+    /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
+    /// grab or register and which always reverts the grab.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestGrantArgs {
+        pub session: u64,
+        pub kind: u32,
+    }
+
+    pub fn encode_request_grant_args(value: &RequestGrantArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        target.u32(2, value.kind)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_grant_args(body: &[u8]) -> Result<RequestGrantArgs, Error> {
+        let mut out = RequestGrantArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.session = field.as_u64()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Give up the grab (or a pending request) `session` holds. Only its
+    /// owner may; releasing nothing is not an error.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReleaseGrantArgs {
+        pub session: u64,
+    }
+
+    pub fn encode_release_grant_args(value: &ReleaseGrantArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_release_grant_args(body: &[u8]) -> Result<ReleaseGrantArgs, Error> {
+        let mut out = ReleaseGrantArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Liveness and freshness: echoes `token` and returns `seq`, the raw
+    /// sequence number of the newest key edge `inputd` has processed, so a
+    /// client polling its key-state page can tell the page is current
+    /// (`KeyStateSeq >= seq`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PingArgs {
+        pub token: u64,
+    }
+
+    pub fn encode_ping_args(value: &PingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ping_args(body: &[u8]) -> Result<PingArgs, Error> {
+        let mut out = PingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.token = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PingReply {
+        pub token: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_ping_reply(value: &PingReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        target.u64(2, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ping_reply(body: &[u8]) -> Result<PingReply, Error> {
+        let mut out = PingReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach a key-state page to `session` (the caller's): the parcel's
+    /// `buffers[0]`, a shared buffer the client created (one page is
+    /// plenty). While the session has keyboard focus `inputd` writes the
+    /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
+    /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
+    /// HID usages); the moment focus leaves it clears the page, before
+    /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
+    /// again replaces the previous page.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachKeyStateArgs {
+        pub session: u64,
+    }
+
+    pub fn encode_attach_key_state_args(value: &AttachKeyStateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_key_state_args(body: &[u8]) -> Result<AttachKeyStateArgs, Error> {
+        let mut out = AttachKeyStateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `AttachKeyState` request carries outside its body.
+    pub const ATTACH_KEY_STATE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
+
+    /// The objects a `AttachKeyState` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachKeyStateTransfers {
+        /// `buffers[0]`, a shared buffer.
+        pub state: libmessenger::BufferDesc,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `AttachKeyState` request.
+    pub fn encode_attach_key_state_transfers(value: &AttachKeyStateTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (Vec::new(), alloc::vec![value.state])
+    }
+
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -6415,11 +6606,49 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
+    /// Event: the session's grab of kind `kind` started (`active`) or ended;
+    /// `reason` is a `GrantReason`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GrantChangedArgs {
+        pub kind: u32,
+        pub active: bool,
+        pub reason: u32,
+    }
+
+    pub fn encode_grant_changed_args(value: &GrantChangedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.bool(2, value.active)?;
+        target.u32(3, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_grant_changed_args(body: &[u8]) -> Result<GrantChangedArgs, Error> {
+        let mut out = GrantChangedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.active = field.as_bool()?;
+                }
+                3 => {
+                    out.reason = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
         match method {
             METHOD_OPEN => OPEN_TRANSFERS,
+            METHOD_ATTACHKEYSTATE => ATTACH_KEY_STATE_TRANSFERS,
             _ => transfers::Transfers::NONE,
         }
     }
@@ -6484,6 +6713,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_SESSIONCLOSED: u32 = 24;
     /// `PointerEvent` method id.
     pub const METHOD_POINTEREVENT: u32 = 25;
+    /// `GrabChanged` method id.
+    pub const METHOD_GRABCHANGED: u32 = 26;
 
     /// What a `Attach` request carries outside its body.
     pub const ATTACH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
@@ -6598,7 +6829,9 @@ pub mod os_lazy_input_shell_v1 {
 
     /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
     /// Super bits of `mods`. A match is consumed (its press and release are
-    /// never delivered to a client) and reported as `HotkeyFired`.
+    /// never delivered to a client) and reported as `HotkeyFired`, except
+    /// while a session holds a keyboard grab. The reserved escape chord
+    /// (Escape with Ctrl+Alt) is refused with `EACCES`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterHotkeyArgs {
         pub code: u32,
@@ -6674,9 +6907,10 @@ pub mod os_lazy_input_shell_v1 {
         Ok(out)
     }
 
-    /// Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so
-    /// this is refused with `ENOSYS`; the method is reserved so the interface
-    /// does not change when they land.
+    /// Answer a `GrantRequested`. `allow` starts the grab, provided the
+    /// session still has keyboard focus (otherwise it is denied); either way
+    /// the client gets `GrantChanged`. `ENOENT` when no request of that
+    /// session is pending.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ApproveGrantArgs {
         pub session: u64,
@@ -6896,17 +7130,21 @@ pub mod os_lazy_input_shell_v1 {
         Ok(out)
     }
 
-    /// Shell event: a client asked for a grab (reserved; never sent yet).
+    /// Shell event: the client owning `surface` asked for a grab of `kind`
+    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
+    /// request is withdrawn if focus moves first.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GrantRequestedArgs {
         pub session: u64,
         pub kind: u32,
+        pub surface: u64,
     }
 
     pub fn encode_grant_requested_args(value: &GrantRequestedArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.u64(1, value.session)?;
         target.u32(2, value.kind)?;
+        target.u64(3, value.surface)?;
         Ok(target.finish())
     }
 
@@ -6920,6 +7158,9 @@ pub mod os_lazy_input_shell_v1 {
                 }
                 2 => {
                     out.kind = field.as_u32()?;
+                }
+                3 => {
+                    out.surface = field.as_u64()?;
                 }
                 _ => {}
             }
@@ -7033,6 +7274,46 @@ pub mod os_lazy_input_shell_v1 {
                     out.seq = field.as_u64()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
+    /// does). While a grab is held the compositor must not act on its own
+    /// chords from the kernel key stream either: they belong to the grabber.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GrabChangedArgs {
+        pub surface: core::option::Option<u64>,
+    }
+
+    pub fn encode_grab_changed_args(value: &GrabChangedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.surface {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_grab_changed_args(body: &[u8]) -> Result<GrabChangedArgs, Error> {
+        let mut out = GrabChangedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.surface = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.surface = Some(item.as_u64()?);
+                }
             }
         }
         Ok(out)
@@ -14703,6 +14984,12 @@ pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
         interface: 0x5026bd54a60f1ff6,
         method: 1,
         transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.input.v1.AttachKeyState
+    transfers::TransferDecl {
+        interface: 0x5026bd54a60f1ff6,
+        method: 7,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
     },
     // os.lazy.messenger.registry.v1.Connected
     transfers::TransferDecl {

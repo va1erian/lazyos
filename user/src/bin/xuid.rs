@@ -104,6 +104,8 @@ mod drag;
 mod event;
 #[path = "xuid/geometry.rs"]
 mod geometry;
+#[path = "xuid/grabs.rs"]
+mod grabs;
 #[path = "xuid/held.rs"]
 mod held;
 #[path = "xuid/icons.rs"]

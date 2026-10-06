@@ -22,6 +22,10 @@ on:
       - "xui-app/src/client_window/**"
       - "xui-app/src/display/**"
       - "tools/screenshot/examples/doom.json"
+      - "tools/screenshot/examples/doom_grab.json"
+      - "tools/input/verify_grab.py"
+      - "user/src/bin/inputd/**"
+      - "libs/inputmap/**"
       - "build_support/doom_embed.rs"
       - "kernel/src/process/linux/**"
       - ".github/workflows/doom.yml"
@@ -36,6 +40,10 @@ on:
       - "xui-app/src/client_window/**"
       - "xui-app/src/display/**"
       - "tools/screenshot/examples/doom.json"
+      - "tools/screenshot/examples/doom_grab.json"
+      - "tools/input/verify_grab.py"
+      - "user/src/bin/inputd/**"
+      - "libs/inputmap/**"
       - "build_support/doom_embed.rs"
       - "kernel/src/process/linux/**"
       - ".github/workflows/doom.yml"
@@ -139,6 +147,30 @@ jobs:
           python tools/screenshot/pngstats.py shots/doom/shot_05_title.png shots/doom/shot_07_e1m1.png \
             --min-nonblack 0.3 --min-colors 32
 
+      # docs/input-plan.md I3 (issue #397): maximized, the game holds the
+      # keyboard grab (Ctrl+Esc reaches it, the start menu stays shut), and
+      # Ctrl+Alt+Esc always takes the keyboard back. A fresh OS volume
+      # (LAZYOS_RESET_OS above), since the session installs the package.
+      - name: Keyboard grab and escape chord
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_DOOM: "1"
+          LAZYOS_XUI_AUTOSTART: term
+          LAZYOS_UI_PROBE: "1"
+          LAZYOS_LABEL_TRACE: "1"
+        run: |
+          set -euo pipefail
+          python tools/input/test_verify_grab.py
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom_grab \
+            --timeout 1800 --script tools/screenshot/examples/doom_grab.json \
+            --fail-on "PKGD:INSTALL:FAIL" --fail-on "user: task [0-9]+ killed by"
+          python tools/input/verify_grab.py shots/doom_grab/serial.log
+          python tools/screenshot/pngstats.py shots/doom_grab/shot_03_maximized_grabbed.png \
+            shots/doom_grab/shot_04_doom_menu_under_grab.png shots/doom_grab/shot_06_menu_after_escape.png \
+            --min-nonblack 0.3 --min-colors 32 --expect-width 1280
+
       - name: Upload screenshots and serial log
         if: always()
         uses: actions/upload-artifact@v4
@@ -148,3 +180,5 @@ jobs:
             shots/doom/*.png
             shots/doom/serial.log
             shots/doom/summary.json
+            shots/doom_grab/*.png
+            shots/doom_grab/serial.log

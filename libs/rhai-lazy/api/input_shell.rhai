@@ -47,7 +47,9 @@ fn unregister_surface(surface) {
 ///
 /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
 /// Super bits of `mods`. A match is consumed (its press and release are
-/// never delivered to a client) and reported as `HotkeyFired`.
+/// never delivered to a client) and reported as `HotkeyFired`, except
+/// while a session holds a keyboard grab. The reserved escape chord
+/// (Escape with Ctrl+Alt) is refused with `EACCES`.
 fn register_hotkey(code, mods) {
     msg::connect("os.lazy.input.shell.v1").invoke("RegisterHotkey", [code, mods])
 }
@@ -61,9 +63,10 @@ fn unregister_hotkey(id) {
 
 /// `ApproveGrant(session: U64, allow: Bool) -> ()`
 ///
-/// Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so
-/// this is refused with `ENOSYS`; the method is reserved so the interface
-/// does not change when they land.
+/// Answer a `GrantRequested`. `allow` starts the grab, provided the
+/// session still has keyboard focus (otherwise it is denied); either way
+/// the client gets `GrantChanged`. `ENOENT` when no request of that
+/// session is pending.
 fn approve_grant(session, allow) {
     msg::connect("os.lazy.input.shell.v1").invoke("ApproveGrant", [session, allow])
 }
@@ -125,18 +128,22 @@ fn hotkey_fired(id) {
     msg::connect("os.lazy.input.shell.v1").invoke("HotkeyFired", [id])
 }
 
-/// `GrantRequested(session: U64, kind: U32) -> () oneway`
+/// `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway`
 ///
-/// Shell event: a client asked for a grab (reserved; never sent yet).
+/// Shell event: the client owning `surface` asked for a grab of `kind`
+/// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
+/// request is withdrawn if focus moves first.
 ///
 /// One-way: returns `()` once the message is queued.
-fn grant_requested(session, kind) {
-    msg::connect("os.lazy.input.shell.v1").invoke("GrantRequested", [session, kind])
+fn grant_requested(session, kind, surface) {
+    msg::connect("os.lazy.input.shell.v1").invoke("GrantRequested", [session, kind, surface])
 }
 
 /// `EscapeChord() -> () oneway`
 ///
-/// Shell event: the reserved escape chord was pressed (reserved).
+/// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
+/// reverted any grab (`GrabChanged` follows when one was held) and is
+/// never delivered to a client.
 ///
 /// One-way: returns `()` once the message is queued.
 fn escape_chord() {
@@ -177,6 +184,17 @@ fn session_closed(surface) {
 /// One-way: returns `()` once the message is queued.
 fn pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq) {
     msg::connect("os.lazy.input.shell.v1").invoke("PointerEvent", [x, y, buttons, wheel, wheel_h, ts_ns, seq])
+}
+
+/// `GrabChanged(surface: Option<U64>) -> () oneway`
+///
+/// Shell event: `surface` now holds the keyboard grab (absent: nobody
+/// does). While a grab is held the compositor must not act on its own
+/// chords from the kernel key stream either: they belong to the grabber.
+///
+/// One-way: returns `()` once the message is queued.
+fn grab_changed(surface) {
+    msg::connect("os.lazy.input.shell.v1").invoke("GrabChanged", [surface])
 }
 
 // Not callable from a script (the request transfers a channel, buffer

@@ -39,6 +39,33 @@ interface os.lazy.input.v1 {
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
     method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3;
+    /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
+    /// must be the caller's and have keyboard focus (`EACCES` otherwise;
+    /// `EINVAL` for an unknown kind). The compositor decides: the answer
+    /// arrives later as `GrantChanged`. A keyboard grab sends the session
+    /// every key, the compositor's own chords (Alt+Tab, Ctrl+Esc) included,
+    /// until the session releases it, loses focus or closes, or the user
+    /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
+    /// grab or register and which always reverts the grab.
+    method RequestGrant(session: U64 = 1, kind: U32 = 2) -> () = 4;
+    /// Give up the grab (or a pending request) `session` holds. Only its
+    /// owner may; releasing nothing is not an error.
+    method ReleaseGrant(session: U64 = 1) -> () = 5;
+    /// Liveness and freshness: echoes `token` and returns `seq`, the raw
+    /// sequence number of the newest key edge `inputd` has processed, so a
+    /// client polling its key-state page can tell the page is current
+    /// (`KeyStateSeq >= seq`).
+    method Ping(token: U64 = 1) -> (token: U64 = 1, seq: U64 = 2) = 6;
+    /// Attach a key-state page to `session` (the caller's): the parcel's
+    /// `buffers[0]`, a shared buffer the client created (one page is
+    /// plenty). While the session has keyboard focus `inputd` writes the
+    /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
+    /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
+    /// HID usages); the moment focus leaves it clears the page, before
+    /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
+    /// again replaces the previous page.
+    method AttachKeyState(session: U64 = 1) -> () = 7
+        transfers (state: Buffer);
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -58,9 +85,16 @@ interface os.lazy.input.v1 {
     method KeyboardLeave() -> () = 13 oneway;
     /// Event: the layout changed (a `confd` write, live).
     method LayoutChanged(layout: String = 1) -> () = 14 oneway;
+    /// Event: the session's grab of kind `kind` started (`active`) or ended;
+    /// `reason` is a `GrantReason`.
+    method GrantChanged(kind: U32 = 1, active: Bool = 2, reason: U32 = 3) -> () = 15 oneway;
 
     /// What happened to a key. Numeric values are the wire values.
     enum KeyState { Down, Up, Repeat }
+    /// Grab kinds (`RequestGrant.kind`); `None` is never valid.
+    enum GrantKind { None, Keyboard }
+    /// Why a grab started or ended (`GrantChanged.reason`).
+    enum GrantReason { Approved, Denied, Released, FocusLost, Escaped, Closed }
 }
 
 /// The compositor side of `inputd`. Only the compositor may call it: `inputd`
@@ -84,13 +118,16 @@ interface os.lazy.input.shell.v1 {
     method UnregisterSurface(surface: U64 = 1) -> () = 4;
     /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
     /// Super bits of `mods`. A match is consumed (its press and release are
-    /// never delivered to a client) and reported as `HotkeyFired`.
+    /// never delivered to a client) and reported as `HotkeyFired`, except
+    /// while a session holds a keyboard grab. The reserved escape chord
+    /// (Escape with Ctrl+Alt) is refused with `EACCES`.
     method RegisterHotkey(code: U32 = 1, mods: U32 = 2) -> (id: U64 = 1) = 5;
     /// Drop a chord.
     method UnregisterHotkey(id: U64 = 1) -> () = 6;
-    /// Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so
-    /// this is refused with `ENOSYS`; the method is reserved so the interface
-    /// does not change when they land.
+    /// Answer a `GrantRequested`. `allow` starts the grab, provided the
+    /// session still has keyboard focus (otherwise it is denied); either way
+    /// the client gets `GrantChanged`. `ENOENT` when no request of that
+    /// session is pending.
     method ApproveGrant(session: U64 = 1, allow: Bool = 2) -> () = 7;
     /// The screen size the cursor is clamped to (each side `1..=16384`, else
     /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
@@ -111,9 +148,13 @@ interface os.lazy.input.shell.v1 {
     method ForgetSurface(surface: U64 = 1) -> () = 12 oneway;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
-    /// Shell event: a client asked for a grab (reserved; never sent yet).
-    method GrantRequested(session: U64 = 1, kind: U32 = 2) -> () = 21 oneway;
-    /// Shell event: the reserved escape chord was pressed (reserved).
+    /// Shell event: the client owning `surface` asked for a grab of `kind`
+    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
+    /// request is withdrawn if focus moves first.
+    method GrantRequested(session: U64 = 1, kind: U32 = 2, surface: U64 = 3) -> () = 21 oneway;
+    /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
+    /// reverted any grab (`GrabChanged` follows when one was held) and is
+    /// never delivered to a client.
     method EscapeChord() -> () = 22 oneway;
     /// Shell event: `surface` now receives keys through an input session, so
     /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
@@ -130,4 +171,8 @@ interface os.lazy.input.shell.v1 {
     /// change. Only the compositor receives it: the window under the cursor is
     /// its decision. `ts_ns`/`seq` are the newest raw record's.
     method PointerEvent(x: I32 = 1, y: I32 = 2, buttons: U32 = 3, wheel: I32 = 4, wheel_h: I32 = 5, ts_ns: U64 = 6, seq: U64 = 7) -> () = 25 oneway;
+    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
+    /// does). While a grab is held the compositor must not act on its own
+    /// chords from the kernel key stream either: they belong to the grabber.
+    method GrabChanged(surface: Option<U64> = 1) -> () = 26 oneway;
 }

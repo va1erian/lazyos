@@ -54,7 +54,16 @@ pub enum Output {
     Text(String),
     /// A registered hotkey matched; the key event is consumed, not delivered.
     Hotkey(u64),
+    /// The reserved escape chord ([`ESCAPE_CODE`] with exactly
+    /// [`ESCAPE_MODS`]) was pressed: any keyboard grab must end. Consumed
+    /// like a hotkey, grab or not, and never registrable.
+    Escape,
 }
+
+/// The escape chord's key: Escape (HID usage 0x29).
+pub const ESCAPE_CODE: u16 = 0x29;
+/// The escape chord's modifiers: Ctrl+Alt.
+pub const ESCAPE_MODS: u32 = mods::CTRL | mods::ALT;
 
 struct Hotkey {
     id: u64,
@@ -78,6 +87,9 @@ pub struct Engine {
     hotkeys: Vec<Hotkey>,
     next_hotkey: u64,
     last_seq: u64,
+    /// A session holds a keyboard grab: no hotkey matches (the escape chord
+    /// still does).
+    grabbed: bool,
 }
 
 fn bit(usage: u16) -> (usize, u64) {
@@ -110,7 +122,30 @@ impl Engine {
             hotkeys: Vec::new(),
             next_hotkey: 1,
             last_seq: 0,
+            grabbed: false,
         }
+    }
+
+    /// A keyboard grab began (`true`) or ended: while one is held, presses
+    /// skip the hotkey table and go to the grabbing session.
+    pub fn set_grabbed(&mut self, grabbed: bool) {
+        self.grabbed = grabbed;
+    }
+
+    /// Every key held, one bit per HID usage (bit `u & 63` of word `u >> 6`),
+    /// as the key-state page carries it.
+    pub fn down_bits(&self) -> [u64; 4] {
+        self.down
+    }
+
+    /// The raw sequence number of the newest event processed.
+    pub fn last_seq(&self) -> u64 {
+        self.last_seq
+    }
+
+    /// Whether `code` with chord `mods` is the reserved escape chord.
+    pub fn is_reserved(code: u16, chord: u32) -> bool {
+        code == ESCAPE_CODE && chord & mods::CHORD_MASK == ESCAPE_MODS
     }
 
     pub fn layout(&self) -> Layout {
@@ -125,8 +160,11 @@ impl Engine {
     }
 
     /// Register a chord: `code` with exactly the `mods` ([`mods::CHORD_MASK`]
-    /// bits) held. Returns its id.
-    pub fn add_hotkey(&mut self, code: u16, chord: u32) -> u64 {
+    /// bits) held. Returns its id, or `None` for the reserved escape chord.
+    pub fn add_hotkey(&mut self, code: u16, chord: u32) -> Option<u64> {
+        if Engine::is_reserved(code, chord) {
+            return None;
+        }
         let id = self.next_hotkey;
         self.next_hotkey += 1;
         self.hotkeys.push(Hotkey {
@@ -134,7 +172,7 @@ impl Engine {
             code,
             mods: chord & mods::CHORD_MASK,
         });
-        id
+        Some(id)
     }
 
     /// How many chords are registered.
@@ -217,9 +255,16 @@ impl Engine {
             0x47 => self.locks ^= mods::SCROLL_LOCK,
             _ => {}
         }
+        // The escape chord first: no grab and no registration can shadow it.
+        if Engine::is_reserved(usage, before) {
+            set(&mut self.consumed, usage, true);
+            out.push(Output::Escape);
+            return;
+        }
         if let Some(hotkey) = self
             .hotkeys
             .iter()
+            .filter(|_| !self.grabbed)
             .find(|hotkey| hotkey.code == usage && hotkey.mods == before)
         {
             let id = hotkey.id;

@@ -51,6 +51,38 @@ fn get_state() {
     msg::connect("os.lazy.input.v1").invoke("GetState", [])
 }
 
+/// `RequestGrant(session: U64, kind: U32) -> ()`
+///
+/// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
+/// must be the caller's and have keyboard focus (`EACCES` otherwise;
+/// `EINVAL` for an unknown kind). The compositor decides: the answer
+/// arrives later as `GrantChanged`. A keyboard grab sends the session
+/// every key, the compositor's own chords (Alt+Tab, Ctrl+Esc) included,
+/// until the session releases it, loses focus or closes, or the user
+/// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
+/// grab or register and which always reverts the grab.
+fn request_grant(session, kind) {
+    msg::connect("os.lazy.input.v1").invoke("RequestGrant", [session, kind])
+}
+
+/// `ReleaseGrant(session: U64) -> ()`
+///
+/// Give up the grab (or a pending request) `session` holds. Only its
+/// owner may; releasing nothing is not an error.
+fn release_grant(session) {
+    msg::connect("os.lazy.input.v1").invoke("ReleaseGrant", [session])
+}
+
+/// `Ping(token: U64) -> (token: U64, seq: U64)`
+///
+/// Liveness and freshness: echoes `token` and returns `seq`, the raw
+/// sequence number of the newest key edge `inputd` has processed, so a
+/// client polling its key-state page can tell the page is current
+/// (`KeyStateSeq >= seq`).
+fn ping(token) {
+    msg::connect("os.lazy.input.v1").invoke("Ping", [token])
+}
+
 /// `KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () oneway`
 ///
 /// Event: a key changed state. `code` is the physical key, `sym` its
@@ -105,8 +137,18 @@ fn layout_changed(layout) {
     msg::connect("os.lazy.input.v1").invoke("LayoutChanged", [layout])
 }
 
+/// `GrantChanged(kind: U32, active: Bool, reason: U32) -> () oneway`
+///
+/// Event: the session's grab of kind `kind` started (`active`) or ended;
+/// `reason` is a `GrantReason`.
+///
+/// One-way: returns `()` once the message is queued.
+fn grant_changed(kind, active, reason) {
+    msg::connect("os.lazy.input.v1").invoke("GrantChanged", [kind, active, reason])
+}
+
 // Not callable from a script (the request transfers a channel, buffer
-// or ring): Open.
+// or ring): Open, AttachKeyState.
 
 // The variants of `KeyState`, in wire order.
 export const KEY_STATE = ["Down", "Up", "Repeat"];
@@ -116,3 +158,25 @@ export const KEY_STATE_DOWN = "Down";
 export const KEY_STATE_UP = "Up";
 
 export const KEY_STATE_REPEAT = "Repeat";
+
+// The variants of `GrantKind`, in wire order.
+export const GRANT_KIND = ["None", "Keyboard"];
+
+export const GRANT_KIND_NONE = "None";
+
+export const GRANT_KIND_KEYBOARD = "Keyboard";
+
+// The variants of `GrantReason`, in wire order.
+export const GRANT_REASON = ["Approved", "Denied", "Released", "FocusLost", "Escaped", "Closed"];
+
+export const GRANT_REASON_APPROVED = "Approved";
+
+export const GRANT_REASON_DENIED = "Denied";
+
+export const GRANT_REASON_RELEASED = "Released";
+
+export const GRANT_REASON_FOCUS_LOST = "FocusLost";
+
+export const GRANT_REASON_ESCAPED = "Escaped";
+
+export const GRANT_REASON_CLOSED = "Closed";

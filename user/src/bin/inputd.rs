@@ -26,14 +26,20 @@ use user::messenger::input as api;
 use user::messenger::{self, errno, registry, wait, Error};
 use user::sys;
 
+#[path = "inputd/clientcalls.rs"]
+mod clientcalls;
 #[path = "inputd/config.rs"]
 mod config;
 #[path = "inputd/console.rs"]
 mod console;
 #[path = "inputd/delivery.rs"]
 mod delivery;
+#[path = "inputd/grants.rs"]
+mod grants;
 #[path = "inputd/hub.rs"]
 mod hub;
+#[path = "inputd/keypages.rs"]
+mod keypages;
 #[path = "inputd/pointer.rs"]
 mod pointer;
 #[path = "inputd/source.rs"]
@@ -120,6 +126,8 @@ fn run() -> Result<(), &'static str> {
         hub.flush();
         hub.deliver(&outputs);
         outputs.clear();
+        // The polled view follows the events just sent (I3).
+        hub.publish_key_pages();
         // Evidence lines last, a bounded chunk at a time: the bus is never
         // left waiting on the serial port (issue #400).
         trace.flush();

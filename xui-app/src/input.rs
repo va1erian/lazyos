@@ -9,10 +9,13 @@
 //! the compositor. Without `inputd` (an image built without the service) the
 //! open fails and the window simply stays on the compositor's legacy keys.
 
-use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
 use messenger_generated::os_lazy_input_v1 as wire;
 
 use crate::sys::{self, errno, msg_call, msg_create_pair, msg_resolve};
+
+mod grab;
+pub use grab::{KeyStatePage, Snapshot};
 
 /// Well-known service name.
 pub const NAME: &str = "os.lazy.input.v1";
@@ -92,6 +95,9 @@ pub enum Event {
     Leave,
     /// The layout changed.
     Layout(String),
+    /// The session's keyboard grab started (`active`) or ended; `reason`
+    /// is the wire's `GrantReason` (`wire::GRANT_REASON_*`).
+    Grant { active: bool, reason: u32 },
 }
 
 /// Decode one session event; `None` for anything unknown or malformed. A key
@@ -124,6 +130,13 @@ pub fn decode_event(parcel: &Parcel) -> Option<Event> {
         wire::METHOD_KEYBOARDLEAVE => Event::Leave,
         wire::METHOD_LAYOUTCHANGED => {
             Event::Layout(wire::decode_layout_changed_args(body).ok()?.layout)
+        }
+        wire::METHOD_GRANTCHANGED => {
+            let args = wire::decode_grant_changed_args(body).ok()?;
+            Event::Grant {
+                active: args.active,
+                reason: args.reason,
+            }
         }
         _ => return None,
     })
@@ -162,7 +175,7 @@ impl Session {
             }
         };
         let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers { events: peer });
-        let reply = call(service, wire::METHOD_OPEN, body, handles);
+        let reply = call(service, wire::METHOD_OPEN, body, handles, Vec::new());
         match reply
             .and_then(|parcel| wire::decode_open_reply(&parcel.body).map_err(|_| -errno::EINVAL))
         {
@@ -188,7 +201,7 @@ impl Session {
             if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
                 session: self.session,
             }) {
-                let _ = call(service, wire::METHOD_CLOSE, body, Vec::new());
+                let _ = call(service, wire::METHOD_CLOSE, body, Vec::new(), Vec::new());
             }
             let _ = crate::display::release(service);
         }
@@ -197,7 +210,13 @@ impl Session {
 }
 
 /// One synchronous call; a structured error reply becomes its negative errno.
-fn call(service: u64, method: u32, body: Vec<u8>, handles: Vec<u64>) -> Result<Parcel, i64> {
+fn call(
+    service: u64,
+    method: u32,
+    body: Vec<u8>,
+    handles: Vec<u64>,
+    buffers: Vec<BufferDesc>,
+) -> Result<Parcel, i64> {
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -210,7 +229,7 @@ fn call(service: u64, method: u32, body: Vec<u8>, handles: Vec<u64>) -> Result<P
         },
         body,
         handles,
-        buffers: Vec::new(),
+        buffers,
     };
     let mut buf = [0u8; 256];
     let deadline = sys::clock_ticks().saturating_add(CALL_TICKS);

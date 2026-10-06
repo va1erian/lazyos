@@ -1,7 +1,8 @@
 # Plan: a system-wide input subsystem
 
-> **Status: I0-I2 implemented (first cut); the I5 console login landed
-> (issue #396, [sessionless Open](#the-login-console-sessionless-open)); I3,
+> **Status: I0-I2 implemented (first cut); I3 implemented (issue #397,
+> [key-state page, grabs and the escape chord](#i3-key-state-page-keyboard-grabs-and-the-escape-chord));
+> the I5 console login landed (issue #396, [sessionless Open](#the-login-console-sessionless-open));
 > I4 and the rest of I5 proposed.** See
 > [Implementation status](#implementation-status-first-cut) for what landed and
 > where it deviates from the sketch below. Original note: draft proposal (2026-09-30). Motivated by the Doom port
@@ -267,7 +268,7 @@ I0, I1 and I2 are in. Where the code differs from the sketch above:
 | Capability | `init` starts `inputd` with `CAP_INPUT_RAW` only and strips the bit from every other manifest service; the kernel strips it from every boot-spawned program except `init` (`credentials::drop_caps`). |
 | `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`. Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
 | Keysyms | Unicode scalars for character keys, X11 `0xFFxx` values otherwise. With Ctrl held a letter's `sym` is its unshifted form. `mods` is the state *after* the event. |
-| Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` without a surface is the login console's session (issue #396, below); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. `RequestGrant`/`ReleaseGrant`/`Ping` and real grants are I3. `ApproveGrant` answers `ENOSYS`. |
+| Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` without a surface is the login console's session (issue #396, below); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. I3 added `RequestGrant`/`ReleaseGrant`/`Ping`/`AttachKeyState` and the `GrantChanged` event to the client interface, a real `ApproveGrant`, a `surface` field on `GrantRequested` and the `GrabChanged` shell event (below). |
 | Shell authority | `inputd` accepts shell calls only from the task that holds the display grant, which it asks the kernel for (`rawsys` op 3, `display::owner()`; the grant itself needs `CAP_SYS_ADMIN`), so no capability bit beyond `input.raw` was needed yet. (The registry's name list is privileged, and a name is not an identity anyway.) |
 | Legacy bridge | `xuid` keeps its own hotkeys and the kernel key stream for surfaces without a session, and suppresses `KeyDown`/`KeyUp` for surfaces `inputd` reports a session for. It does not subscribe to `inputd` for legacy surfaces; that comes with the removal of the kernel stream (I5). |
 | xui apps | The static-musl backend opens one session per window (`xui-app/src/input.rs`, `backend/session_input.rs`), maps `KeyEvent` to `KeyDown`/`KeyUp` and `TextInput` to `Char`, and releases held keys on `KeyboardLeave`. |
@@ -289,6 +290,57 @@ capability gate, stress), `cargo test -p inputmap -p messenger-generated`,
 unpaced burst, issue #400), `python tools/screenshot/test_qmp_keys.py` (the
 injector's batching), and the desktop sessions (typing in the Terminal and the
 Editor on both layouts).
+
+## I3: key-state page, keyboard grabs and the escape chord
+
+Issue #397. Decisions in `libs/inputmap` (`keystate.rs`, `grab.rs`, the
+chord in `engine.rs`; host-tested in `src/tests/grab.rs`), services in
+`inputd/{keypages,grants}.rs`, the compositor side in `xuid/grabs.rs`, the
+client side in `xui-app/src/input/grab.rs`.
+
+* **Key-state page.** A session hands `inputd` a shared buffer it created
+  (`AttachKeyState`, the parcel's `buffers[0]`). While the session has
+  keyboard focus `inputd` writes the keys held right now into it: a seqlock
+  word, the raw `seq` of the newest edge, a focused flag and a 256-bit bitmap
+  of HID usages (`inputmap::keystate::SharedKeys`, 56 bytes). Focus leaving
+  clears it *before* `KeyboardLeave` is sent. The plan said `SHARE_ONLY`, but
+  the kernel's `SHARE_ONLY` means nobody but the creator may map a buffer
+  (`kernel/src/ipc/shared.rs`), which is the opposite of what is needed, and
+  buffer flags are per buffer, not per mapping. So the page is an ordinary
+  buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
+  counter (`keystate::Writer`, never reading the page back), and the page
+  carries nothing the session's `KeyEvent`s did not already tell it, so a
+  client scribbling on it confuses only itself. `Ping` returns the newest
+  processed `seq`, so a poller can tell its page is current.
+* **Grabs.** `RequestGrant(session, Keyboard)` from the caller's own focused
+  session (`EACCES` otherwise) goes to the compositor as `GrantRequested
+  (session, kind, surface)`; with no compositor attached it is denied, never
+  self-granted. `xuid` approves only for the window that has focus and is on
+  screen (`XUID:GRAB:ASK`). While a grab is held `inputd` matches no hotkey
+  (`Engine::set_grabbed`) and `xuid` acts on none of its chords from the
+  kernel key stream (`GrabChanged`): Alt+Tab, Ctrl+Esc and Super go to the
+  grabbing window. A grab ends on `ReleaseGrant`, on focus moving (a click on
+  another window), on the session closing, and on the escape chord. The
+  client hears `GrantChanged(kind, active, reason)`.
+* **Escape chord.** Ctrl+Alt+Esc (left Alt; exact modifiers) is matched in
+  the engine before the hotkey table and before any grab, consumed (press and
+  release), and `RegisterHotkey` refuses it with `EACCES`, so no client and
+  no compositor can take it. It reverts any grab and request and sends the
+  compositor `EscapeChord`. Serial: `INPUTD:GRAB:REQUEST|ON|OFF|ESCAPE`.
+* **Doom** (`doom/src/{session,window_input}.rs`) attaches a page and treats
+  it as the authority on held keys: a key the page says is up is released
+  even if its `Up` event never arrived (`DOOM:KEYSTATE:RELEASED`). Its window
+  is now resizable, and while it is maximized and focused it holds the
+  keyboard grab (so Ctrl fires and Esc opens the menu even with Ctrl held, and
+  Alt strafes without Alt+Tab switching windows); it does not grab again by
+  itself after the user escaped until it is re-maximized or refocused.
+
+Tests: `cargo test -p inputmap` (grab/escape scenario, focus and approval
+races, a stuck key across a focus change with both pages, the page's
+seqlock, a grab soak), `cargo test -p messenger-generated --test
+input_grants`, `cargo test --manifest-path doom/Cargo.toml --lib`, and the
+session `tools/screenshot/examples/doom_grab.json` judged by
+`tools/input/verify_grab.py` (`test_verify_grab.py` checks the judge).
 
 ## The login console: sessionless Open
 
