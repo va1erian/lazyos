@@ -105,6 +105,11 @@ fn a_set_without_a_shell_is_retried_on_the_next_generation() {
     tray.transport_mut().down = false;
     assert!(matches!(tray.retry(), Some(Ok(()))));
     assert!(tray.retry().is_none());
+    // Not found in the shell's copy of init's table yet (ESRCH): retried.
+    tray.transport_mut().refuse = Some(-3);
+    assert!(matches!(tray.generation(5), Some(Err(-3))));
+    tray.transport_mut().refuse = None;
+    assert!(matches!(tray.retry(), Some(Ok(()))));
     // A refusal (here EACCES) waits for the next generation.
     tray.transport_mut().refuse = Some(-13);
     assert!(matches!(tray.generation(3), Some(Err(-13))));
