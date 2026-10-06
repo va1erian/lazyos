@@ -64,3 +64,9 @@ def assets_argv(cfg: dict) -> list[str]:
     if cfg.get("skip_build"):
         return []
     return [arg for path in check_dirs(cfg.get("assets", "")) for arg in ("--assets", path)]
+
+
+def needs_build(dirs, skipped) -> None:
+    """Refuse asset trees on a run that skips the build: they go into the image."""
+    if skipped and assets_env(dirs):
+        raise ValueError("asset directories need a build: they are written into the image")
