@@ -28,6 +28,7 @@ def make_vars() -> dict:
         "memory": s(value=DEFAULT_MEMORY),
         "limits": s(value=""),
         "display_mode": s(value=""),
+        "assets": s(value=""),
         "times": s(value="10,14,18"),
         "timeout": s(value="180"),
         "abi_time": s(value="8"),

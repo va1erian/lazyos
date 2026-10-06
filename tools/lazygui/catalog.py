@@ -13,6 +13,7 @@ import shlex
 import shutil
 import sys
 
+from .assets import assets_argv, assets_env  # noqa: F401 (re-exported)
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .appsteps import app_steps, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, tls_step  # noqa: F401,E501
@@ -134,6 +135,8 @@ def check_limits(cfg: dict) -> None:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
     if check_mode(cfg.get("display_mode", "")) and skipped:
         raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
+    if assets_env(cfg.get("assets", "")) and skipped:
+        raise ValueError("asset directories need a build: they are written into the image")
 
 
 def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
@@ -219,6 +222,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     env.update(limit_env(cfg.get("limits", "")))
     # The screen mode the kernel sets (Simple: HiDPI; Advanced: any mode).
     env.update(display_env(cfg.get("display_mode", "")))
+    env.update(assets_env(cfg.get("assets", "")))  # Advanced: extra asset trees
     if cfg.get("linuxapps"):
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
@@ -387,6 +391,7 @@ def build_plan(cfg: dict) -> list[dict]:
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
+        argv += assets_argv(cfg)  # run_demo sets LAZYOS_ASSETS (issue #454)
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.
             argv.append("--devices")

@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/assets_embed.rs"]
+mod assets_embed;
 #[path = "build_support/busybox_embed.rs"]
 mod busybox_embed;
 #[path = "build_support/ca_bundle.rs"]
@@ -59,8 +61,6 @@ mod usb_image;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
-#[path = "build_support/wallpapers_embed.rs"]
-mod wallpapers_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -161,7 +161,8 @@ fn main() {
     if let Some(ramdisk) = std::env::var_os("LAZYOS_RAMDISK") {
         builder.set_ramdisk(PathBuf::from(ramdisk));
     }
-    // The sample files (text, the Docs test document, LazyWriter's picture).
+    // The generated sample files (text, the Docs test document); the binary
+    // samples are assets (below).
     samples_embed::embed(&mut files);
     // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
     // embedded separately below.
@@ -393,10 +394,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
-    // The desktop pictures LazyShell can draw behind the launchers.
-    if shell {
-        wallpapers_embed::embed(&mut files);
-    }
+    // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in
+    // `/system/share`: samples, and with the shell the desktop pictures.
+    assets_embed::embed(&mut files, &manifest_dir, shell);
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
