@@ -39,7 +39,16 @@ const ESRCH: i64 = 3;
 pub struct TrayService {
     server: Option<Server>,
     next_register: u64,
+    /// After `init` did not answer, requests wait (queued) until then, so a
+    /// stalled `init` costs the desktop one short call, not one per request.
+    init_backoff_until: u64,
 }
+
+/// `init`'s table as read once for one heartbeat's requests.
+type Rows = Option<Result<Vec<(String, u64)>, i64>>;
+
+/// Ticks the tray waits after `init` failed to answer `Services`.
+const INIT_BACKOFF_TICKS: u64 = 100;
 
 /// A failed call: positive errno and friendly text.
 type Failure = (i64, &'static str);
@@ -54,8 +63,14 @@ impl TrayService {
         let Some(server) = &self.server else {
             return false;
         };
+        if sys::clock_ticks() < self.init_backoff_until {
+            return false;
+        }
         let mut buf = vec![0u8; REQUEST_BYTES];
         let mut changed = false;
+        // One `init.Services` read serves every request of this heartbeat:
+        // a consistent snapshot, and at most one short call on the UI thread.
+        let mut rows: Rows = None;
         for _ in 0..REQUESTS_PER_TICK {
             let (request, channel) = match server.poll_keeping_channel(&mut buf) {
                 Ok(Some(received)) => received,
@@ -67,10 +82,14 @@ impl TrayService {
                     break;
                 }
             };
-            let (reply, did) = answer(ctx, &request, channel);
+            let (reply, did) = answer(ctx, &request, channel, &mut rows);
             changed |= did;
             if let Some(txn) = request.txn {
                 let _ = server.reply(txn, &reply);
+            }
+            if matches!(rows, Some(Err(_))) {
+                self.init_backoff_until = sys::clock_ticks().saturating_add(INIT_BACKOFF_TICKS);
+                break;
             }
         }
         changed
@@ -107,14 +126,24 @@ impl TrayService {
 
 /// The reply to one request, and whether the tray changed. A transferred
 /// channel is kept only by a successful `Set`.
-fn answer(ctx: &Rc<Ctx>, request: &Request, channel: Option<u64>) -> (Parcel, bool) {
+fn answer(
+    ctx: &Rc<Ctx>,
+    request: &Request,
+    channel: Option<u64>,
+    rows: &mut Rows,
+) -> (Parcel, bool) {
     let method = request.parcel.header.method;
     let mut channel = channel;
+    // An item dropped on the way (a dead app's leftover) is a change too.
+    let mut dropped = false;
     let result = if request.parcel.header.interface_id != wire::INTERFACE_ID {
         Err((ENOTSUP, "not os.lazy.shell.tray.v1"))
     } else {
-        identify(ctx, request)
-            .and_then(|app| same_app(ctx, &app, request).map(|()| app))
+        identify(ctx, request, rows)
+            .and_then(|app| {
+                dropped = same_app(ctx, &app, request)?;
+                Ok(app)
+            })
             .and_then(|app| {
                 let label = request.origin.label_id;
                 dispatch(ctx, &app, label, method, &request.parcel.body, &mut channel)
@@ -127,14 +156,17 @@ fn answer(ctx: &Rc<Ctx>, request: &Request, channel: Option<u64>) -> (Parcel, bo
     match result {
         Ok(changed) => (
             reply_parcel(wire::INTERFACE_ID, method, Vec::new()),
-            changed,
+            changed || dropped,
         ),
-        Err((code, text)) => (error_parcel(wire::INTERFACE_ID, method, code, text), false),
+        Err((code, text)) => (
+            error_parcel(wire::INTERFACE_ID, method, code, text),
+            dropped,
+        ),
     }
 }
 
 /// The app the request comes from, after the session and uid checks.
-fn identify(ctx: &Ctx, request: &Request) -> Result<String, Failure> {
+fn identify(ctx: &Ctx, request: &Request, rows: &mut Rows) -> Result<String, Failure> {
     let origin = request.origin;
     let caller = Caller {
         uid: origin.uid,
@@ -157,7 +189,10 @@ fn identify(ctx: &Ctx, request: &Request) -> Result<String, Failure> {
         }
     };
     policy::check(caller, shell).map_err(deny)?;
-    let rows = services::launched().map_err(|code| (code.abs(), "init unreachable"))?;
+    let rows = rows
+        .get_or_insert_with(services::launched)
+        .as_ref()
+        .map_err(|code| (code.abs(), "init unreachable"))?;
     let caller_row = rows.iter().find(|(_, pid)| *pid == request.sender);
     if caller_row.is_some_and(|(app, _)| !ctx.tray.knows(app)) {
         // An app this shell has not seen yet: read the registry once more.
@@ -175,9 +210,9 @@ fn identify(ctx: &Ctx, request: &Request) -> Result<String, Failure> {
 /// exits leaves for reuse, so a request still queued when its sender died
 /// could otherwise reach the item of an app launched into the same slot. An
 /// item whose channel is dead is the old app's leftover: it goes, and the
-/// request proceeds. (Unlabelled built-ins all carry label 0: they are the
-/// image's own programs, not packages.)
-fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<(), Failure> {
+/// request proceeds (`Ok(true)`: the tray changed). (Unlabelled built-ins
+/// all carry label 0: they are the image's own programs, not packages.)
+fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<bool, Failure> {
     let label = request.origin.label_id;
     match ctx.tray.pinned_label(app) {
         Some(pinned) if pinned != label => {
@@ -189,9 +224,9 @@ fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<(), Failure> {
                 return Err((errno::EACCES, "not the app that set the item"));
             }
             liveness::gone(ctx, app);
-            Ok(())
+            Ok(true)
         }
-        _ => Ok(()),
+        _ => Ok(false),
     }
 }
 

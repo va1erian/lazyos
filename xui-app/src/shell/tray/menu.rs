@@ -170,9 +170,16 @@ fn send_pick(ctx: &Ctx, app: &str, id: u32, checked: bool) {
         return;
     };
     println!("SHELL:TRAY:MENU:PICK app={app} id={id} checked={checked}");
-    if liveness::send(channel, events::METHOD_MENUITEM, body).is_err() {
-        liveness::gone(ctx, app);
-        ctx.bar_changed();
+    match liveness::send(channel, events::METHOD_MENUITEM, body) {
+        Ok(()) => {}
+        // A full queue is a busy app, not a dead one (as for clicks).
+        Err(code) if code == -crate::sys::errno::EAGAIN => {
+            println!("SHELL:TRAY:MENU:PICK:FAIL app={app} err={}", -code);
+        }
+        Err(_) => {
+            liveness::gone(ctx, app);
+            ctx.bar_changed();
+        }
     }
 }
 
@@ -190,17 +197,16 @@ pub fn open_app(ctx: &Ctx, app: &str) {
 }
 
 /// The shell's Quit row: stop the app through `init`, on a thread of its
-/// own (a `Stop` replies once the app has exited), and drop its item now.
-fn quit(ctx: &Ctx, app: &str) {
+/// own (a `Stop` may wait for the app to exit). The item stays until the app
+/// is really gone: its channel's peer dies with it (the next `Ping` drops
+/// the item), so an app a refused or failed stop leaves running keeps it.
+fn quit(app: &str) {
     let id = app.to_owned();
+    println!("SHELL:TRAY:QUIT:ASK app={id}");
     std::thread::spawn(move || match services::stop(&id) {
         Ok(stopped) => println!("SHELL:TRAY:QUIT app={id} stopped={stopped}"),
         Err(code) => println!("SHELL:TRAY:QUIT:FAIL app={id} err={}", -code),
     });
-    ctx.tray.model.borrow_mut().clear(app);
-    ctx.tray.drop_channel(app);
-    println!("SHELL:TRAY:CLEAR app={app} why=quit");
-    ctx.bar_changed();
 }
 
 /// A tray menu panel's app.
@@ -269,7 +275,7 @@ impl PanelApp {
             }
             Pick::Quit => {
                 close(&self.ctx);
-                quit(&self.ctx, &app);
+                quit(&app);
             }
             Pick::Open => {
                 close(&self.ctx);
