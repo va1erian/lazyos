@@ -126,6 +126,30 @@ class EmitTests(unittest.TestCase):
         self.assertIn("pub mod transfers {", midlc.TRANSFER_SUPPORT)
         self.assertIn("pub fn matches(self, handles: u64, buffers: u64) -> bool", midlc.TRANSFER_SUPPORT)
 
+    def test_kernel_table_lists_only_transferring_requests(self) -> None:
+        table = midlc.emit_transfer_table([self.interface])
+        self.assertIn("pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[", table)
+        self.assertIn(f"interface: {self.interface.id:#x},", table)
+        self.assertIn("    // os.lazy.demo.v1.Attach", table)
+        self.assertIn("transfers: transfers::Transfers { handles: 1, buffers: 1 },", table)
+        self.assertIn("transfers: transfers::Transfers { handles: 1, buffers: 0 },", table)
+        self.assertNotIn("demo.v1.Plain", table)
+        self.assertNotIn("demo.v1.Tick", table)
+        self.assertIn("pub fn declared_transfers(interface: u64, method: u32)", table)
+        self.assertIn(".map_or(transfers::Transfers::NONE, |decl| decl.transfers)", table)
+
+    def test_kernel_table_is_sorted(self) -> None:
+        text = SAMPLE + "interface os.lazy.alpha.v1 { method Go() -> () = 3 transfers (b: Buffer); }"
+        table = midlc.emit_transfer_table(parse(text))
+        rows = [line.strip() for line in table.splitlines() if line.strip().startswith("interface: ")]
+        ids = [int(row.split()[1].rstrip(","), 16) for row in rows]
+        self.assertEqual(ids, sorted(ids))
+        self.assertEqual(len(ids), 3)
+
+    def test_runtime_has_the_kernel_gate(self) -> None:
+        self.assertIn("pub fn allows(self, handles: usize, buffers: usize) -> bool", midlc.TRANSFER_SUPPORT)
+        self.assertIn("pub struct TransferDecl {", midlc.TRANSFER_SUPPORT)
+
     def test_markdown_lists_slots(self) -> None:
         text = midlc.emit_markdown(self.interface)
         self.assertIn("transfers (events: Channel<os.lazy.demo.v1>)` |", text)

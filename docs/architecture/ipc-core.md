@@ -113,6 +113,15 @@ userspace never names another task's handles.
   queued; delivery opens a receiver-local one); buffers **share** (the message
   takes one reference). Replies refuse transfers (`UnsupportedTransfer`);
   non-buffer objects have no refcount yet.
+- **Declared transfers** (issue #516, `channels/declared.rs`): a request may
+  carry only what its `.midl` method declares. `send`/`begin_call` look the
+  parcel header's `(interface_id, method)` up in `midlc`'s generated
+  `DECLARED_TRANSFERS` before resolving anything and refuse more handles or
+  buffers with `UndeclaredTransfer` (`EINVAL`), so the sender's table is
+  untouched and nothing reaches the receiver. An interface no `.midl` declares
+  may carry none. Test builds exempt the suite's fixture interface
+  (`0x0bad_cafe`). Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`,
+  with a 20,000-request soak).
 
 **Shared buffers & fences** (`shared.rs`)
 

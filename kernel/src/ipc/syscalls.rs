@@ -402,7 +402,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
-        BadTransfer | UnsupportedTransfer => errno::EINVAL,
+        BadTransfer | UnsupportedTransfer | UndeclaredTransfer => errno::EINVAL,
     }
 }
 

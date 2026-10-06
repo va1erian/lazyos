@@ -337,6 +337,26 @@ pub mod transfers {
         pub fn matches(self, handles: u64, buffers: u64) -> bool {
             handles == u64::from(self.handles) && buffers == u64::from(self.buffers)
         }
+
+        /// Whether a parcel carrying `handles` handles and `buffers` shared
+        /// buffers stays within the declaration: the kernel's send-path
+        /// gate (issue #516). Fewer than declared passes here; servers
+        /// still demand an exact match with [`Transfers::matches`].
+        pub fn allows(self, handles: usize, buffers: usize) -> bool {
+            handles <= usize::from(self.handles) && buffers <= usize::from(self.buffers)
+        }
+    }
+
+    /// One request that declares transfers, for the kernel's table
+    /// ([`crate::DECLARED_TRANSFERS`]).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct TransferDecl {
+        /// The interface id the request's parcel header carries.
+        pub interface: u64,
+        /// The method id the request's parcel header carries.
+        pub method: u32,
+        /// What the request declares.
+        pub transfers: Transfers,
     }
 }
 
@@ -14407,4 +14427,74 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
 #[rustfmt::skip]
 pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {
     DECLARED_TOPICS.iter().find(|decl| topics::matches(decl.name, topic))
+}
+
+/// Every request that declares transfers across the compiled `.midl`
+/// files, sorted by interface id then method id (issue #516).
+#[rustfmt::skip]
+pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
+    // os.lazy.input.v1.Open
+    transfers::TransferDecl {
+        interface: 0x5026bd54a60f1ff6,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.audio.v1.AttachRing
+    transfers::TransferDecl {
+        interface: 0x536f1f4639cf07f0,
+        method: 62355614,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.display.v1.CreateSurface
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.display.v1.AttachBuffer
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 2,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.display.v1.Subscribe
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 20,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.display.v1.AttachBufferSlot
+    transfers::TransferDecl {
+        interface: 0x5ef41f254d43c2b4,
+        method: 25,
+        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+    },
+    // os.lazy.net.nic.v1.AttachRing
+    transfers::TransferDecl {
+        interface: 0x6748c83c2024715b,
+        method: 62355614,
+        transfers: transfers::Transfers { handles: 1, buffers: 1 },
+    },
+    // os.lazy.input.shell.v1.Attach
+    transfers::TransferDecl {
+        interface: 0xc258ed5b9b5debfe,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.messenger.topics.v1.Bell
+    transfers::TransferDecl {
+        interface: 0xc5734f978fef7231,
+        method: 1766698328,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+];
+
+/// What the request `(interface, method)` declares; `NONE` when it
+/// declares nothing, including every method of an unknown interface.
+#[rustfmt::skip]
+pub fn declared_transfers(interface: u64, method: u32) -> transfers::Transfers {
+    DECLARED_TRANSFERS
+        .iter()
+        .find(|decl| decl.interface == interface && decl.method == method)
+        .map_or(transfers::Transfers::NONE, |decl| decl.transfers)
 }

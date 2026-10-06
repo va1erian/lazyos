@@ -60,12 +60,14 @@ pub(super) fn validate_parcel(bytes: &[u8]) -> Result<ParcelView<'_>, Error> {
 }
 
 /// Resolve a parcel's `handles` and `buffers` against the sending task's
-/// table, validating kinds, rights and the per-message limits. No reference is
-/// taken here: [`retain_transfers`] runs once the message is accepted for
-/// queueing, so a refused send changes nothing.
+/// table, validating the declaration (issue #516), kinds, rights and the
+/// per-message limits. No reference is taken here: [`retain_transfers`] runs
+/// once the message is accepted for queueing, so a refused send changes
+/// nothing.
 pub(super) fn resolve_transfers(
     parcel: &ParcelView<'_>,
 ) -> Result<(Vec<Transfer>, Vec<BufferTransfer>), Error> {
+    declared::check_declared(parcel)?;
     if parcel.handle_count() > libmessenger::MAX_HANDLES
         || parcel.buffer_count() > libmessenger::MAX_BUFFERS
     {

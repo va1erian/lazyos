@@ -228,6 +228,7 @@ mod timed_suite;
 mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
+mod transfer_gate_suite;
 mod virtio_suite;
 mod waitset_call_suite;
 mod waitset_ext_suite;
@@ -267,6 +268,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     credentials_suite::CASES,
     label_suite::CASES,
     ipc_shared_suite::CASES,
+    transfer_gate_suite::CASES,
     crypto_suite::CASES,
     messenger_suite::CASES,
     stats_suite::CASES,
