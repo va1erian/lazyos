@@ -15,7 +15,7 @@ Three kinds of evidence, each judged on its own:
 * **screenshots** - something was drawn (`pngstats`): each shot has content,
   the retro page is colourful, and the two pages do not look the same;
 * **browser features** - LazyWeb was started by opening its URL through the
-  OS (`messengerctl open`, `mimed` and `init`), downloaded the attachment
+  OS (`sys::mimed::open` from `rhai`, `mimed` and `init`), downloaded the attachment
   whole, showed its history and downloads pages, and handed a `mailto:` link
   to the OS.
 """
@@ -220,7 +220,7 @@ def judge_features(text: str, record=None) -> list[str]:
     A `mailto:` link may find no app (an image without Mail); it must still
     have been handed to the OS."""
     problems = []
-    if not re.search(rf"open {re.escape(EXAMPLE_URL)} -> os\.lazy\.lazyweb \(x-scheme-handler/http", text):
+    if "OPEN:x-scheme-handler/http:os.lazy.lazyweb" not in text:
         problems.append("opening http://example.com/ through mimed did not pick LazyWeb")
     size = len(download_payload())
     if f"WEB:DOWNLOAD:START:{DOWNLOAD_NAME}" not in text:

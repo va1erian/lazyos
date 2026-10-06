@@ -49,7 +49,7 @@ def good_record() -> Record:
 
 
 FEATURE_SERIAL = f"""\
-open http://example.com/ -> os.lazy.lazyweb (x-scheme-handler/http, topic sys.events.open.os.lazy.lazyweb)
+OPEN:x-scheme-handler/http:os.lazy.lazyweb
 WEB:DOWNLOAD:START:{sites.DOWNLOAD_NAME}
 WEB:DOWNLOAD:DONE:{sites.DOWNLOAD_NAME}:{len(sites.download_payload())}
 WEB:LAUNCH:{judge.MAILTO_URL}:FAIL
@@ -79,7 +79,7 @@ class FeatureTests(unittest.TestCase):
         self.assertTrue(judge.judge_features(text, feature_record()))
 
     def test_another_app_for_http_fails(self) -> None:
-        text = FEATURE_SERIAL.replace("-> os.lazy.lazyweb", "-> os.lazy.editor")
+        text = FEATURE_SERIAL.replace(":os.lazy.lazyweb", ":os.lazy.editor")
         self.assertTrue(judge.judge_features(text, feature_record()))
 
     def test_a_download_the_server_never_sent_fails(self) -> None:
@@ -88,7 +88,7 @@ class FeatureTests(unittest.TestCase):
     def test_the_session_drives_every_feature(self) -> None:
         steps = json.dumps(session.script())
         for marker in ("WEB:DOWNLOAD:DONE:", "WEB:LAUNCH:", "about:history", "about:downloads",
-                       "messengerctl open"):
+                       "open.rhai"):
             self.assertIn(marker, steps)
         self.assertNotIn("WEB:DOWNLOAD", json.dumps(session.script(live=True)))
 

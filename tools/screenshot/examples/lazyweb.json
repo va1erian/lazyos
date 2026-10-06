@@ -13,7 +13,7 @@
   {"wait_for": "WEBH:jpeg:", "timeout": 300.0},
   {"wait_for": "WEBH:gif:", "timeout": 300.0},
   {"wait_for": "WEBH:done", "timeout": 300.0},
-  {"at": 1.0, "type": "messengerctl open http://example.com/ >/dev/console", "delay": 0.05, "phase": "app"},
+  {"at": 1.0, "type": "rhai /tmp/open.rhai http://example.com/ >/dev/console 2>&1", "delay": 0.05, "phase": "app"},
   {"key": "enter", "until": "WEB:UP:PASS", "timeout": 300.0},
   {"wait_for": "WEB:LOAD:http://example.com/", "timeout": 300.0},
   {"wait_for": "WEB:TITLE:Example Domain", "timeout": 300.0},

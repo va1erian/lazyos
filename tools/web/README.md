@@ -69,10 +69,13 @@ the same desktop session):
    PNG, JPEG and GIF come back whole. They prove the path before the browser
    is blamed; their requests carry `?precheck`, so the judge never counts them
    for the browser.
-2. LazyWeb is started from the Terminal with `messengerctl open
-   http://example.com/`: `mimed` guesses `x-scheme-handler/http`, picks
-   LazyWeb (its package registers the type) and asks `init` to launch it
-   with the URL. Apps `init` launches print to the serial log.
+2. LazyWeb is started from the Terminal through `mimed`: the check script
+   writes `/tmp/open.rhai` (`sys::mimed::open(<arg>, "open")`, printing
+   `OPEN:<mime>:<app>`), and `rhai /tmp/open.rhai http://example.com/` has
+   `mimed` guess `x-scheme-handler/http`, pick LazyWeb (its package registers
+   the type) and ask `init` to launch it with the URL. Apps `init` launches
+   print to the serial log. (`messengerctl` reads the console, not its
+   arguments, so it cannot do this from the Terminal.)
 3. After `WEB:UP:PASS`, `WEB:LOAD:http://example.com/` and
    `WEB:TITLE:Example Domain`, a screenshot; then **Ctrl+L**, `https://theoldnet.com/`
    and Enter, which must produce `WEB:LOAD:https://theoldnet.com/` and the page's
@@ -101,7 +104,7 @@ selects the address field and Enter navigates to it.
 | `CHECKS-SEEN` | the host answered each check's request, under its own Host header, SNI naming that host |
 | `BROWSER` | `WEB:UP:PASS`, both `WEB:LOAD`s, `WEB:TITLE:Example Domain` and the stand-in's title (`--live`: any other title), no `WEB:FAIL` |
 | `SERVERS` | the browser's own requests: `GET /` from example.com over HTTP, TLS to theoldnet.com with SNI matching every Host header, `/` and every picture and style sheet the page references (`judge.page_assets`) |
-| `FEATURES` | `mimed` opened `http://example.com/` with LazyWeb, the download completed with the stand-in's exact size and the host served it, the `mailto:` link was handed on, both `about:` pages loaded |
+| `FEATURES` | `mimed` opened `http://example.com/` with LazyWeb (`OPEN:x-scheme-handler/http:os.lazy.lazyweb`), the download completed with the stand-in's exact size and the host served it, the `mailto:` link was handed on, both `about:` pages loaded |
 | `SHOTS` | each screenshot has content, the retro page is colourful (24+ colours) and differs from example.com's |
 
 `--precheck-only` judges `SESSION`, `CHECKS` and `CHECKS-SEEN` on a console

@@ -52,7 +52,7 @@ desktop's menu (Settings -> Menu offers it, like every core package), or from
 the Terminal by opening a URL:
 
 ```sh
-messengerctl open http://example.com/
+rhai -e 'sys::mimed::open("http://example.com/", "open")'
 ```
 
 By hand: `LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_TLS=1
@@ -104,7 +104,7 @@ LazyWeb's package registers it with `mimed` for `x-scheme-handler/http`,
 `x-scheme-handler/https` and `text/html`: `mimed` guesses
 `x-scheme-handler/<scheme>` for any URL, and `init` passes a URL to the app
 it launches (a launch argument is an absolute path or a URL). So
-`messengerctl open https://...`, a link in Mail, or a `.html` file in Files
+`sys::mimed::open("https://...", "open")` from a `rhai` script, a link in Mail, or a `.html` file in Files
 opens LazyWeb. The other way round, a link LazyWeb cannot follow itself
 (`mailto:` and any scheme NetSurf does not fetch) is handed to `mimed`
 (`WEB:LAUNCH:<url>:OK|FAIL`); Mail registers `x-scheme-handler/mailto` and

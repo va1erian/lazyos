@@ -76,6 +76,9 @@ def build(env_extra: dict[str, str], console: bool) -> str | None:
     else:
         if not _tool(str(ROOT / "tools" / "xui" / "build.py")):
             return "tools/xui/build.py failed"
+        # The session opens the first page through `mimed` from a `rhai` script.
+        if not _tool(str(ROOT / "tools" / "rhai" / "build.py")):
+            return "tools/rhai/build.py failed"
         if not LAZYWEB_ELF.is_file():
             return (f"{LAZYWEB_ELF} was not built (NetSurf needs zig: pip install ziglang==0.16.0); "
                     "--precheck-only tests the harness without it")

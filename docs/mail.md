@@ -39,9 +39,10 @@ journal: WAL needs shared file mappings, which LazyOS does not have yet.
 - Remote images are not loaded. A clicked link is handed to `mimed`
   (`MAIL:LINK:OPEN`), so `http:` and `https:` links open in LazyWeb; a
   `mailto:` link opens a new message here.
-- Mail registers `x-scheme-handler/mailto`, so `messengerctl open
-  mailto:someone@example.com?subject=Hi` (or a `mailto:` link in LazyWeb)
-  opens the compose window with the address, subject and body filled in.
+- Mail registers `x-scheme-handler/mailto`, so a `mailto:` link in LazyWeb,
+  or `sys::mimed::open("mailto:someone@example.com?subject=Hi", "open")` from
+  a `rhai` script, opens the compose window with the address, subject and
+  body filled in.
 - The password field is masked (xui's `Edit::password`) and its text cannot
   be copied or cut.
 - The reading pane is litehtml for now; NetSurf (`xui-netsurf`) is the planned

@@ -12,8 +12,9 @@ of every check avoids keystrokes lost on a busy TCG guest.
 
 * **desktop** (the full run): the checks in the Terminal (their output sent
   to `/dev/console`, since the Terminal reports only a command's first line on
-  serial), then `messengerctl open http://example.com/`, which has `mimed`
-  pick LazyWeb for `x-scheme-handler/http` and `init` launch it with the URL.
+  serial), then `rhai /tmp/open.rhai http://example.com/` (a script the
+  check script writes: `sys::mimed::open`), which has `mimed` pick LazyWeb
+  for `x-scheme-handler/http` and `init` launch it with the URL.
   Once that page reports its title, **Ctrl+L** reaches the address field for
   `https://theoldnet.com/`; then the same for the site's download (saved to
   ~/Downloads) and a `mailto:` link handed back to the OS, **Ctrl+H** for
@@ -43,6 +44,11 @@ SCRIPT_PATH = "/lazyweb-check.sh"
 #: The host as the guest sees it on QEMU's user network.
 GATEWAY = "10.0.2.2"
 TYPE_DELAY = 0.05
+#: Opens its argument through `mimed`, as any app or script would, and prints
+#: `OPEN:<mime>:<app>`. (`messengerctl` is interactive and reads the console,
+#: so it cannot be given a command from the Terminal.)
+OPEN_SCRIPT = "/tmp/open.rhai"
+OPENER = 'let r = sys::mimed::open(os::args()[0], "open"); print("OPEN:" + r.mime + ":" + r.app)'
 HELPER = 'ok() { if grep -q "$1"; then echo $m:$2:PASS; else echo $m:$2:FAIL; fi; }'
 
 
@@ -68,7 +74,8 @@ def checks(live: bool = False) -> list[tuple[str, str]]:
 
 def body(items: list[tuple[str, str]]) -> bytes:
     """The check script the guest downloads and runs."""
-    lines = ["echo WEBH:started", "m=WEBH", HELPER, *(command for _, command in items), "echo $m:done"]
+    lines = ["echo WEBH:started", "m=WEBH", HELPER, f"echo '{OPENER}' > {OPEN_SCRIPT}",
+             *(command for _, command in items), "echo $m:done"]
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -106,7 +113,7 @@ def _shortcut(key: str, until: str, step_timeout: float) -> list[dict]:
 
 
 def _browser_steps(step_timeout: float, title: str | None) -> list[dict]:
-    opener = f"messengerctl open {judge.EXAMPLE_URL} >/dev/console"
+    opener = f"rhai {OPEN_SCRIPT} {judge.EXAMPLE_URL} >/dev/console 2>&1"
     return [
         {"at": 1.0, "type": opener, "delay": TYPE_DELAY, "phase": "app"},
         {"key": "enter", "until": "WEB:UP:PASS", "timeout": step_timeout},
