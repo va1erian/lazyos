@@ -278,7 +278,8 @@ session-check path touched.
 **Goal:** the desktop feels finished.
 **Deliverables:** desktop icons and an icon registry (16/32 px classic look);
 tray and notifications via `os.lazy.notify` (the spec shape in
-`messenger.md` section 11); window affordances (maximize/snap,
+`messenger.md` section 11; the tray and resident apps are planned in
+[`tray-plan.md`](tray-plan.md)); window affordances (maximize/snap,
 minimize-to-taskbar consistency, the Alt+Tab overlay, window menu); Editor,
 Terminal, Paint, Task Manager, and Help registered open-with; keyboard
 navigation/accessibility basics (focus order, scaling).

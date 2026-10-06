@@ -25,6 +25,9 @@ On a finding the run keeps ``shot_fault.png``, ``serial.log``, ``report.json``
 prints ``MONKEY: OK`` and exits 0. The image runs with ``-snapshot`` so the
 guest can never damage it.
 
+``--accounts`` aims the profile at account surfaces and checks account invariants;
+``--audit`` diffs the OS volume of a non-snapshot copy (monkey_accounts.py, monkey_audit.py).
+
 A display that stops changing is a freeze, except when the monitor shows the
 CPU in ring 0 at a port instruction (``freeze_probe``): that may be a long
 device poll rather than a hang (issue #449), so the guest gets ``--io-grace``
@@ -48,6 +51,8 @@ import sys
 import time
 from pathlib import Path
 
+import monkey_accounts
+import monkey_audit
 from freeze_probe import port_io_stall
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port
 
@@ -261,7 +266,7 @@ def start_guest(args: argparse.Namespace, qemu: str, out: Path):
     serial = out / "serial.log"
     serial.unlink(missing_ok=True)
     port = free_port()
-    extra = ["-snapshot", *args.extra_arg, *accel_args(args.accel, qemu)]
+    extra = [*([] if args.audit else ["-snapshot"]), *args.extra_arg, *accel_args(args.accel, qemu)]
     command = build_qemu_command(qemu, str(Path(args.image).resolve()), port, serial,
                                  args.memory, extra, ide=args.ide_disk)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -323,12 +328,16 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
         return False
     tail, fatal = Tail(serial), [re.compile(p) for p in (args.fail_on or DEFAULT_FATAL)]
     ignore = [re.compile(p) for p in args.ignore]
+    acct = None  # the account monkey (--accounts), set once the desktop is up
+    if args.accounts:
+        fatal.append(re.compile(monkey_accounts.FINDING_PREFIX))
     report: dict = {"seed": seed, "image": args.image, "found": False}
     recent: collections.deque = collections.deque(maxlen=25)
     actions = (out / "actions.jsonl").open("w", buffering=1, encoding="utf-8")
 
     def scan(lines: list[str], settle: bool = True) -> None:
         """Record fatal serial lines; the first one becomes the headline."""
+        lines = acct.observe(lines) if acct else lines
         for line in lines:
             if any(p.search(line) for p in ignore) or not any(p.search(line) for p in fatal):
                 continue
@@ -344,8 +353,10 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
             print(f"MONKEY: FAULT seed={seed} boot never reached {args.marker}")
             return False
         time.sleep(1.0)
-        rng, monkey = random.Random(seed), None
+        rng = random.Random(seed)
         monkey = Monkey(qmp, rng)
+        acct = monkey_accounts.attach(args, monkey, lambda: scan(tail.new_lines()), serial)
+        monkey = acct or monkey
         began, index, next_shot, counts = time.time(), 0, time.time() + args.shot_every, collections.Counter()
         next_probe = time.time() + args.probe_every
         queue = collections.deque(replay or [])
@@ -399,6 +410,8 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
         scan(tail.flush(), settle=False)  # a fault at the very end, or mid-line
         report.update(actions=index, elapsed=round(time.time() - began, 1),
                       last_actions=list(recent), counts=dict(counts))
+        if acct:
+            report["accounts"] = acct.summary()
         if report["found"]:
             (out / "serial_tail.txt").write_text(
                 "\n".join(serial.read_text(errors="replace").splitlines()[-80:]), encoding="utf-8")
@@ -412,6 +425,8 @@ def run_one(args: argparse.Namespace, qemu: str, seed: int, out: Path,
     finally:
         actions.close()
         try:
+            if args.audit and proc.poll() is None:
+                time.sleep(monkey_audit.FLUSH_WAIT)  # let the block cache commit before the kill
             qmp.execute("quit")
         except Exception:
             pass
@@ -460,16 +475,21 @@ def main() -> int:
     p.add_argument("--qemu", help="path to qemu-system-x86_64")
     p.add_argument("--extra-arg", action="append", default=[], metavar="ARG")
     p.add_argument("--out", default="shots/monkey")
+    monkey_accounts.add_arguments(p)
     args = p.parse_args()
 
     if args.build:
         build_desktop_image()
     qemu = find_qemu(args.qemu)
     replay = load_replay(Path(args.replay), args.replay_tail) if args.replay else None
+    args.accounts = args.accounts or monkey_accounts.uses_accounts(replay)  # a recorded account run
     failed = []
     for n in range(args.runs):
         seed = args.seed + n
-        if not run_one(args, qemu, seed, Path(args.out) / f"run_{seed:03d}", replay):
+        run_dir = Path(args.out) / f"run_{seed:03d}"
+        passed = (monkey_audit.run_audited(args, qemu, seed, run_dir, replay, run_one, (start_guest, wait_ready, Tail))
+                  if args.audit else run_one(args, qemu, seed, run_dir, replay))
+        if not passed:
             failed.append(seed)
     print(f"MONKEY: runs={args.runs} faulted={len(failed)} seeds={failed}")
     return 1 if failed else 0

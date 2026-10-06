@@ -63,7 +63,7 @@ delete a canary file, and remove whatever they created.
 | `core_replace` | install `os.lazy.counter` 99.0.0 over the core app |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
-| `shell_role` | run `shellprobe`, which subscribes to `xuid` as the shell while LazyShell holds the role (BLOCKED needs `shellprobe: fatal: subscribe: -13` on serial) |
+| `shell_role` | run `shellprobe`, which subscribes to `xuid` as the shell while LazyShell holds the role (BLOCKED only on its `subscribe: -13`) |
 
 Not yet scripted: the U1/U2 sets (account management, elevation).
 
@@ -81,8 +81,7 @@ U0 (#623) landed: the U0 rows are `blocked`. `core_replace`, `fork_bomb` and
 `touches` lists the image paths the attack changes when it succeeds; the audit
 excuses only those, and only while the row is `xfail`. `side_effects` are
 paths a scenario changes by allowed means whatever its state (installing a
-package writes `/apps`, `/docs/apps` and `/conf`), and `evidence` is a serial
-line a `BLOCKED` outcome must come with.
+package writes `/apps`, `/docs/apps` and `/conf`).
 
 Always a failure, whatever the state: no marker, `ERROR`, `BLOCKED:ENOENT` (the
 target was missing, so nothing was attacked), a scenario missing from the table.

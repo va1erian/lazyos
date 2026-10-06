@@ -1,0 +1,13 @@
+[app]
+name = "Demo"
+system_name = "org.lazy.demo"
+author = "A"
+version = "1.0.0"
+[entry]
+binary = "bin/app.elf"
+[permissions]
+interfaces = ["os.lazy.confd.v1", "os.lazy.clipboard.v1"]
+topics = ["publish:app/org.lazy.demo/x", "subscribe:sys/#"]
+files = ["read:$HOME/*", "write:/tmp/demo"]
+network = ["outbound"]
+develop = true

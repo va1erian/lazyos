@@ -20,11 +20,15 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(any(test, feature = "fuzz"))]
+extern crate std;
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 
+#[cfg(any(test, feature = "fuzz"))]
+pub mod fuzz;
 pub mod shadow;
 #[cfg(test)]
 mod tests;

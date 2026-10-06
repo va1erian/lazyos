@@ -65,12 +65,6 @@ class AttackJudgeTest(unittest.TestCase):
                 self.assertTrue(expect.issue, f"{name}: an xfail needs its issue")
                 self.assertNotEqual(expect.issue, attack_judge.U0, f"{name}: U0 landed")
 
-    def test_evidence_backs_a_blocked_outcome(self):
-        table = {"shell_role": Expect("blocked", "", evidence="fatal: subscribe: -13")}
-        bare = log(shell_role="BLOCKED:EACCES")
-        self.assertEqual(len(judge(bare, table).failures), 1)
-        self.assertEqual(judge(bare + "probe: fatal: subscribe: -13\n", table).failures, [])
-
     def test_autostart_must_open_as_the_session_user(self):
         installed = "TERM:OUT:ACCT:INSTALL:autostart_pkg:OK\n"
         as_user = ("INIT:AUTOSTART:SESSION session=2 uid=1000 apps=2\n"

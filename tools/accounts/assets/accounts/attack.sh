@@ -17,9 +17,31 @@ res() {
     *permitted*) e=EPERM ;;
     *"No such"*) e=ENOENT ;;
     *"Read-only"*) e=EROFS ;;
-    *) e=err ;;
+    *[Qq]uota*) e=EDQUOT ;;
+    *"No space"*) e=ENOSPC ;;
+    *)
+        # Not a recognised refusal: never let it pass as proof of isolation.
+        echo "ACCT:ATTACK:$name:ERROR:unrecognised"
+        return
+        ;;
     esac
     echo "ACCT:ATTACK:$name:BLOCKED:$e"
+}
+
+# probe <file> <snippet>: run the shell snippet (the file is its "$1") to
+# create <file>, which must not exist yet: the snippet runs under noclobber
+# (`sh -C`), so a success proves creation and nothing pre-existing is ever
+# overwritten. Then remove the file only if this call created it (also when
+# the snippet failed after creating it). 2>&1 outside the inner shell
+# captures its redirection errors too.
+probe() {
+    f=$1
+    existed=0
+    [ -e "$f" ] && existed=1
+    out=$(sh -C -c "$2" sh "$f" 2>&1)
+    rc=$?
+    [ "$existed" = 0 ] && rm -f "$f"
+    res $rc "$out"
 }
 
 case "$name" in
@@ -34,17 +56,13 @@ rm_system)
     res $? "$out"
     ;;
 overwrite_init)
-    # Opens for writing, appends nothing. The redirection runs in a subshell
-    # whose stderr is captured: a refused open is reported by the shell doing
-    # the redirection, which would otherwise print it to the Terminal.
-    out=$( (: >> /system/bin/init) 2>&1)
+    # Opens for writing, appends nothing.
+    out=$( (: >> /system/bin/init) 2>&1 )
     res $? "$out"
     ;;
 write_conf)
-    out=$( (echo x > /conf/acct-probe) 2>&1)
-    rc=$?
-    rm -f /conf/acct-probe 2>/dev/null
-    res $rc "$out"
+    f=/conf/acct-probe.$$
+    probe "$f" 'echo x > "$1"'
     ;;
 read_home_admin)
     out=$(ls /home/admin 2>&1)
@@ -63,7 +81,7 @@ signal_service)
 fork_bomb)
     # Bounded: up to 300 sleepers, then all killed. More than 150 forks as one
     # user means no per-user task limit. The counters live in the home: the
-    # session user may not write /tmp's root.
+    # session user may not write /tmp's root (U4 makes it 1777).
     d=${HOME:-/tmp}
     rm -f "$d/acct.n" "$d/acct.pids"
     D="$d" sh -c 'n=0; while [ $n -lt 300 ]; do sleep 100 & echo $! >> "$D/acct.pids"; n=$((n+1)); echo $n > "$D/acct.n"; done' 2>/dev/null
@@ -78,18 +96,17 @@ fork_bomb)
     ;;
 disk_fill)
     # Bounded: 32 MiB into the home. A quota (U3) would refuse it.
-    f=${HOME:-/tmp}/acct-fill
-    out=$(dd if=/dev/zero of="$f" bs=1M count=32 2>&1)
-    rc=$?
-    rm -f "$f"
-    res $rc "$out"
+    # The file is created first (noclobber) so dd never writes over one that
+    # already existed.
+    f=${HOME:-/tmp}/acct-fill.$$
+    probe "$f" ': > "$1" && dd if=/dev/zero of="$1" bs=1M count=32'
     ;;
 autostart_pkg)
-    # Install a user package that opens at login (org.acct.autoprobe, built
-    # by run.py). Installing is allowed; the attack is what init does with it
-    # at the next login, which run.py judges from the verify boot: it must run
-    # as the session's user, never as root (accounts plan section 2). Here
-    # only the install is reported, as ACCT:INSTALL.
+    # Install a user package that opens at login (org.acct.autoprobe, built by
+    # probe_packages.py). Installing is allowed; the attack is what init does
+    # with it at the next login, which run.py judges from the verify boot
+    # (`autostart_root`): it must run as the session's user, never as root.
+    # Only the install is reported here, as ACCT:INSTALL.
     if pkgctl install $SHARE/autoprobe.lzp > /dev/null 2>&1; then
         echo "ACCT:INSTALL:autostart_pkg:OK"
     else
@@ -99,24 +116,29 @@ autostart_pkg)
 core_replace)
     # Replace a core app with a higher-versioned package of the same name
     # (os.lazy.counter 99.0.0, the Counter's own program): only an admin
-    # should (U3). Left installed, so the later boots run with it.
+    # should be able to (U3). Left installed, so the later boots run with it.
     out=$(pkgctl install $SHARE/corereplace.lzp 2>&1)
     res $? "$out"
     ;;
 shell_role)
-    # Claim xuid's shell role from the session while LazyShell holds it
-    # (shellprobe subscribes as the shell; refused, it exits at once). A probe
-    # still running after a few seconds holds the role: kill it.
+    # Claim xuid's shell role from the session while LazyShell holds it:
+    # shellprobe subscribes as the shell and, refused, exits at once with
+    # "subscribe: -13" (EACCES). Still running after a few seconds, it holds
+    # the role: SUCCEEDED (it is killed).
     [ -x /system/bin/shellprobe ] || { echo "ACCT:ATTACK:shell_role:ERROR:noprobe"; exit 0; }
-    shellprobe > /dev/null 2>&1 &
+    log=${HOME:-/tmp}/acct-probe.$$
+    shellprobe > "$log" 2>&1 &
     p=$!
     sleep 4
     if kill -0 "$p" 2>/dev/null; then
         kill "$p" 2>/dev/null
         echo "ACCT:ATTACK:shell_role:SUCCEEDED:subscribed"
-    else
+    elif grep -q "subscribe: -13" "$log"; then
         echo "ACCT:ATTACK:shell_role:BLOCKED:EACCES"
+    else
+        echo "ACCT:ATTACK:shell_role:ERROR:unrecognised"
     fi
+    rm -f "$log"
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"

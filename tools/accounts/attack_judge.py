@@ -15,8 +15,6 @@ do lives in `EXPECTATIONS`:
 Whatever the expectation, a scenario that printed nothing, printed `ERROR`, or
 was `BLOCKED` only because its target did not exist (`ENOENT`: the attack never
 ran) is a failure, and so is a marker for a scenario the table does not know.
-A scenario with `evidence` is believed `BLOCKED` only when the serial log also
-has that line (the refusal the guest-side probe cannot see itself).
 
 `autostart_root` has no guest command: `run.py` installs a package that opens
 at login during the attack session and writes its marker from the next boot's
@@ -46,8 +44,6 @@ class Expect:
     state: str  # "blocked" or "xfail"
     issue: str = ""  # the issue or phase tracking an xfail
     touches: tuple[str, ...] = ()
-    #: A serial line a BLOCKED outcome must come with.
-    evidence: str = ""
     #: Image paths the scenario changes by allowed means whatever its state
     #: (a user installing a package); the audit excuses them always.
     side_effects: tuple[str, ...] = ()
@@ -73,7 +69,7 @@ EXPECTATIONS: dict[str, Expect] = {
     "core_replace": Expect("xfail", U3, INSTALL_PATHS),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
-    "shell_role": Expect("blocked", U0, evidence="shellprobe: fatal: subscribe: -13"),
+    "shell_role": Expect("blocked", U0),
 }
 
 #: The package `autostart_root` installs (tools/accounts/probe_packages.py).
@@ -135,9 +131,6 @@ def judge(log: str, expectations: dict[str, Expect] = EXPECTATIONS) -> Verdict:
             verdict.failures.append(f"{name}: the scenario could not run ({detail})")
         elif outcome == "BLOCKED" and detail == "ENOENT":
             verdict.failures.append(f"{name}: BLOCKED only by ENOENT, the attack never ran")
-        elif outcome == "BLOCKED" and expect.evidence and expect.evidence not in log:
-            verdict.failures.append(f"{name}: BLOCKED ({detail}) without {expect.evidence!r} "
-                                    "in the log (refused for another reason?)")
         elif outcome == "SUCCEEDED" and expect.state == "blocked":
             verdict.failures.append(f"{name}: SUCCEEDED ({detail}) but must be BLOCKED")
         elif outcome == "SUCCEEDED":

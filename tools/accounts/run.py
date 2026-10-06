@@ -147,8 +147,15 @@ def attack_session(names: list[str]) -> list[dict]:
 
 
 def verify_session() -> list[dict]:
-    """Up and answering, then the session ends with the machine running."""
-    return [*focus_terminal(), {"at": 2.0, "shot": "up"}]
+    """Up and answering, then the session ends with the machine running. The
+    package `autostart_root` installed opens at this login (as `user`) over
+    the Terminal: close it first (Alt+F4 on the focused window)."""
+    close_probe = [{"wait_for": f"INIT:AUTOSTART:PASS app={attack_judge.AUTOPROBE}",
+                    "timeout": 420},
+                   {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 60},
+                   {"at": 1.0, "key_down": "alt"}, {"at": 0.2, "key": "f4"},
+                   {"at": 0.2, "key_up": "alt"}]
+    return [*close_probe, *focus_terminal(), {"at": 2.0, "shot": "up"}]
 
 
 def boot(name: str, steps: list[dict], out: Path, image: Path, accel: str,
