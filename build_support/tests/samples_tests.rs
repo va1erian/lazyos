@@ -59,7 +59,11 @@ fn the_pdf_sample_is_a_pdf() {
     let files = samples();
     let pdf = bytes(&files, fhs::share::PDF_SAMPLE);
     assert!(pdf.starts_with(b"%PDF-"), "{:?}", &pdf[..pdf.len().min(8)]);
-    assert!(pdf.len() < 256 * 1024, "keep the sample small: {} bytes", pdf.len());
+    assert!(
+        pdf.len() < 256 * 1024,
+        "keep the sample small: {} bytes",
+        pdf.len()
+    );
 }
 
 #[test]
