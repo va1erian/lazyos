@@ -11,8 +11,9 @@
 //! * a `Set`/`Delete` is persisted before the reply, on a clone of the
 //!   committed store, so a write failure leaves the live store untouched;
 //! * a committed `sys/` change is announced best-effort on
-//!   `system/confd/changed/<path>`, payload `(path, deleted)` and never the
-//!   value.
+//!   `system/confd/changed/<path>`, and a `user/<uid>/<rest>` change on
+//!   `user/<uid>/confd/changed/<rest>` (the kernel's per-uid topic namespace,
+//!   issue #407); payload `(path, deleted)` and never the value.
 //!
 //! # Storage
 //!
@@ -138,7 +139,16 @@ impl ChangeSink for TopicSink {
             deleted,
         };
         // Best-effort: a change topic is an event, not state.
-        let _ = wire::publish_system_confd_changed(self, path, &value);
+        match ::confd::announcement(path) {
+            Some(::confd::Announcement::System) => {
+                let _ = wire::publish_system_confd_changed(self, path, &value);
+            }
+            Some(::confd::Announcement::User { uid, rest }) => {
+                let uid = format!("{uid}");
+                let _ = wire::publish_user_confd_changed(self, &uid, rest, &value);
+            }
+            None => {}
+        }
     }
 }
 
@@ -377,14 +387,10 @@ fn error_reply_for(method: u32, error: Error) -> Parcel {
     api::error_reply(method, code, error.message())
 }
 
-/// The uid of the Messenger sender, from its kernel-stamped credentials.
-///
-/// A missing or unreadable credential block is refused rather than guessed:
-/// the access rules must never run against a uid the caller chose.
+/// The uid of the Messenger sender, from the credentials the kernel stamped
+/// on the message (issue #446): never a uid the caller chose.
 fn caller_uid(message: &Message) -> messenger::Result<u32> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
-    Ok(cred.uid)
+    Ok(message.caller().uid)
 }
 
 #[panic_handler]

@@ -10,26 +10,20 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use inputmap::router::Error as RouteError;
-use inputmap::{
-    Engine, KeyOut, KeyState, Layout, Output, Router, REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS,
-};
+use inputmap::{Engine, Grabs, KeyOut, KeyState, Layout, Output, Router};
 use user::messenger::input::{self as api, shell_wire, wire};
 use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
 use user::sys;
 
 use super::delivery::{Delivery, Reach};
+use super::keypages::KeyPages;
 use super::pointer::Cursor;
 
 /// Most hotkey chords the compositor may register.
 const MAX_HOTKEYS: usize = 64;
 
-/// PIT ticks are 10 ms.
-const TICK_MS: u32 = 10;
-
-const ENOSYS: i64 = 38;
-
 /// What the generated encoders return.
-type Encoded = core::result::Result<Vec<u8>, libmessenger::Error>;
+pub(super) type Encoded = core::result::Result<Vec<u8>, libmessenger::Error>;
 
 /// The attached compositor.
 struct Shell {
@@ -49,6 +43,10 @@ pub(super) struct Hub {
     shell: Option<Shell>,
     /// The cursor every pointing device moves (`pointer.rs`).
     pub(super) pointer: Cursor,
+    /// Who holds the keyboard grab, who asked (`grants.rs`).
+    pub(super) grabs: Grabs,
+    /// The key-state pages sessions attached (`keypages.rs`).
+    pub(super) key_pages: KeyPages,
 }
 
 impl Hub {
@@ -59,6 +57,8 @@ impl Hub {
             delivery: Delivery::default(),
             shell: None,
             pointer: Cursor::new(),
+            grabs: Grabs::new(),
+            key_pages: KeyPages::default(),
         }
     }
 
@@ -95,89 +95,6 @@ impl Hub {
     /// The error reply for a refused request.
     pub(super) fn error_reply(message: &Message, error: Error) -> Parcel {
         services::error_reply(message.interface_id(), message.method(), error)
-    }
-
-    fn client_call(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let body = &message.parcel.body;
-        match message.method() {
-            wire::METHOD_OPEN => self.open(message),
-            wire::METHOD_CLOSE => {
-                release_transfers(message);
-                let args = wire::decode_close_args(body).map_err(Error::Parcel)?;
-                let surface = self
-                    .router
-                    .close(args.session, message.sender)
-                    .map_err(route_error)?;
-                self.forget_endpoint(args.session);
-                if let Some(surface) = surface {
-                    self.announce_closed(surface);
-                }
-                Ok(Vec::new())
-            }
-            wire::METHOD_GETSTATE => {
-                release_transfers(message);
-                wire::encode_get_state_reply(&wire::GetStateReply {
-                    layout: self.engine.layout().name().into(),
-                    mods: self.engine.mods(),
-                    repeat_delay_ms: REPEAT_DELAY_TICKS as u32 * TICK_MS,
-                    repeat_interval_ms: REPEAT_INTERVAL_TICKS as u32 * TICK_MS,
-                })
-                .map_err(Error::Parcel)
-            }
-            _ => {
-                release_transfers(message);
-                Err(Error::Errno(-errno::EINVAL))
-            }
-        }
-    }
-
-    /// `Open`: bind a session to a surface the sender owns and adopt the event
-    /// endpoint it transferred.
-    fn open(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let result = self.open_inner(message);
-        if result.is_err() {
-            release_transfers(message);
-        }
-        result
-    }
-
-    fn open_inner(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
-        if !message.carries(wire::OPEN_TRANSFERS) {
-            return Err(Error::Errno(-errno::EINVAL));
-        }
-        // A session without a surface is the login console's (issue #396).
-        let Some(surface) = args.surface else {
-            return self.open_console(message);
-        };
-        let opened = self
-            .router
-            .open(message.sender, surface)
-            .map_err(route_error)?;
-        if let Some(old) = opened.replaced {
-            self.forget_endpoint(old);
-        }
-        self.delivery
-            .insert(opened.session, Endpoint::from_raw(message.first_handle));
-        // Sessions are rare (one per window), so each is worth a boot-log line.
-        sys::write_str(&format!(
-            "INPUTD:SESSION:OPEN session={} surface={surface} owner={}
-",
-            opened.session, message.sender
-        ));
-        if opened.first_for_surface {
-            self.shell_event(
-                shell_wire::METHOD_SESSIONOPENED,
-                shell_wire::encode_session_opened_args(&shell_wire::SessionOpenedArgs { surface }),
-            );
-        }
-        if opened.focused {
-            self.enter(opened.session);
-        }
-        wire::encode_open_reply(&wire::OpenReply {
-            session: opened.session,
-        })
-        .map_err(Error::Parcel)
     }
 
     fn shell_call(&mut self, message: &Message) -> Result<Vec<u8>> {
@@ -220,7 +137,11 @@ impl Hub {
                 if self.engine.hotkey_count() >= MAX_HOTKEYS {
                     return Err(Error::Errno(-errno::ENOMEM));
                 }
-                let id = self.engine.add_hotkey(code, args.mods);
+                // The escape chord is nobody's to register.
+                let id = self
+                    .engine
+                    .add_hotkey(code, args.mods)
+                    .ok_or(Error::Errno(-errno::EACCES))?;
                 if let Some(shell) = self.shell.as_mut() {
                     shell.hotkeys.push(id);
                 }
@@ -239,8 +160,7 @@ impl Hub {
                     Err(Error::Errno(-errno::ENOENT))
                 }
             }
-            // Keyboard grabs are a later phase; the method is reserved.
-            shell_wire::METHOD_APPROVEGRANT => Err(Error::Errno(-ENOSYS)),
+            shell_wire::METHOD_APPROVEGRANT => self.approve_grant(body),
             shell_wire::METHOD_SETBOUNDS | shell_wire::METHOD_GETPOINTER => {
                 self.pointer_call(method, body)
             }
@@ -281,6 +201,30 @@ impl Hub {
         // Under a compositor the console session gets nothing.
         let change = self.router.set_compositor(true);
         self.apply(change);
+        // The compositor forgot a grab it was told about (`drop_input_link`
+        // clears it) and any request it never answered: tell it again.
+        if let Some(holder) = self.grabs.holder() {
+            let surface = self.router.session(holder).and_then(|s| s.surface);
+            self.shell_event(
+                shell_wire::METHOD_GRABCHANGED,
+                shell_wire::encode_grab_changed_args(&shell_wire::GrabChangedArgs { surface }),
+            );
+        }
+        if let Some(session) = self.grabs.pending() {
+            let surface = self
+                .router
+                .session(session)
+                .and_then(|s| s.surface)
+                .unwrap_or(0);
+            self.shell_event(
+                shell_wire::METHOD_GRANTREQUESTED,
+                shell_wire::encode_grant_requested_args(&shell_wire::GrantRequestedArgs {
+                    session,
+                    kind: wire::GRANT_KIND_KEYBOARD,
+                    surface,
+                }),
+            );
+        }
         Ok(Vec::new())
     }
 
@@ -293,16 +237,27 @@ impl Hub {
         self.apply(change);
     }
 
-    /// Hand the keyboard over as `change` says: cancel repeat, tell the old
-    /// holder it left and the new one it entered.
+    /// Hand the keyboard over as `change` says: cancel repeat, clear the old
+    /// holder's key-state page and tell it it left, tell the new one it
+    /// entered, and end a grab whose holder lost focus.
     pub(super) fn apply(&mut self, change: inputmap::router::FocusChange) {
         self.engine.cancel_repeat();
         if let Some(session) = change.left {
+            self.key_pages.clear(&self.engine, session);
             self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
         }
         if let Some(session) = change.entered {
             self.enter(session);
         }
+        self.grants_follow_focus();
+        self.publish_key_pages();
+    }
+
+    /// Bring the key-state pages up to date (after each pass and each focus
+    /// change).
+    pub(super) fn publish_key_pages(&mut self) {
+        let focused = self.router.focused_session();
+        self.key_pages.publish(&self.engine, focused);
     }
 
     /// Tell `session` it has the keyboard, seeding it with the held keys.
@@ -323,6 +278,7 @@ impl Hub {
                     shell_wire::METHOD_HOTKEYFIRED,
                     shell_wire::encode_hotkey_fired_args(&shell_wire::HotkeyFiredArgs { id: *id }),
                 ),
+                Output::Escape => self.escape_chord(),
                 Output::Key(key) => {
                     if let Some(session) = self.router.focused_session() {
                         self.send(session, wire::METHOD_KEYEVENT, encode_key(key));
@@ -355,7 +311,7 @@ impl Hub {
 
     /// Send an event to `session` (behind any backlog it has), dropping the
     /// session when its endpoint is gone.
-    fn send(&mut self, session: u64, method: u32, body: Encoded) {
+    pub(super) fn send(&mut self, session: u64, method: u32, body: Encoded) {
         let Ok(body) = body else { return };
         let engine = &self.engine;
         let enter = || keyboard_enter(engine);
@@ -377,6 +333,11 @@ impl Hub {
         for session in self.delivery.flush_all(&enter) {
             self.drop_session(session);
         }
+    }
+
+    /// Whether a compositor is attached (it answers grant requests).
+    pub(super) fn shell_attached(&self) -> bool {
+        self.shell.is_some()
     }
 
     pub(super) fn shell_event(&mut self, method: u32, body: Encoded) {
@@ -409,8 +370,12 @@ impl Hub {
 
     // ---- teardown ---------------------------------------------------------
 
+    /// `session` is gone (closed, replaced, its surface or endpoint died):
+    /// drop its endpoint, its key-state page and any grab it held.
     pub(super) fn forget_endpoint(&mut self, session: u64) {
         self.delivery.forget(session);
+        self.key_pages.forget(session);
+        self.grants_forget(session);
     }
 
     /// A session's endpoint died: drop it and tell the compositor.
@@ -424,7 +389,7 @@ impl Hub {
     }
 
     /// Tell the compositor `surface` has no session (legacy delivery resumes).
-    fn announce_closed(&mut self, surface: u64) {
+    pub(super) fn announce_closed(&mut self, surface: u64) {
         if !self.router.has_session(surface) {
             sys::write_str(&format!(
                 "INPUTD:SESSION:CLOSE surface={surface}
@@ -471,7 +436,7 @@ pub(super) fn route_error(error: RouteError) -> Error {
 
 /// Close whatever a refused (or non-adopting) request transferred, endpoint
 /// and buffer alike, so neither leaks into this task's handle table.
-fn release_transfers(message: &Message) {
+pub(super) fn release_transfers(message: &Message) {
     if message.handles != 0 {
         let _ = Endpoint::from_raw(message.first_handle).close();
     }

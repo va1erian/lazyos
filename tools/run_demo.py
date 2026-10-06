@@ -47,27 +47,24 @@ focused program.
 
 from __future__ import annotations
 
-import argparse
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import DEFAULT_MEMORY, accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
+from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
-from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
-from lazygui.display import add_display_options, build_display  # noqa: E402
-from lazygui.limits import add_limit_option, build_limits  # noqa: E402
-from demo_qemu import add_device_options, device_env, sound_args  # noqa: E402
+from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
     build_rhai, build_tls, build_xui_apps,
 )
+from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "abi"))
 import busybox  # noqa: E402
@@ -79,9 +76,6 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 # LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
-# The desktop apps `--devices` opens at boot when no list is set: just
-# Devices, since the desktop opens nothing at boot by default.
-DEVICES_AUTOSTART = "devices"
 # The apps every desktop image ships (`build_support/xui_embed.rs`
 # `DESKTOP_XUI_APPS` and `DOCUMENT_XUI_APPS`): the image build fails when one
 # is missing, so a `target/xui` built before an app was added (LazyWriter,
@@ -203,160 +197,8 @@ def with_devices(autostart: str | None) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
-    parser.add_argument("--build-only", action="store_true",
-                        help="build the image(s) and exit without booting QEMU")
-    parser.add_argument("--release", action="store_true",
-                        help="build the optimized release profile (slower in QEMU)")
-    parser.add_argument("--headless", action="store_true", help="no display window")
-    parser.add_argument("--image", default=str(DEFAULT_IMAGE), help="disk image to boot")
-    parser.add_argument("--qemu", help="path to qemu-system-x86_64")
-    parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
-    add_limit_option(parser)
-    add_display_options(parser)
-    add_assets_option(parser)
-    parser.add_argument("--accel", default="auto",
-                        choices=["auto", "none", "tcg", "whpx", "kvm"],
-                        help="QEMU accelerator; auto uses whpx/kvm when available "
-                             "(many times faster than TCG)")
-    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
-                        help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
-    parser.add_argument("--home-disk", default=str(mkdisk.DEFAULT_HOME_PATH), metavar="PATH",
-                        help="persistent ext2 home volume (label lazyhome, mounted at /home), "
-                             "attached as a second virtio-blk device and created if missing "
-                             "(default: %(default)s)")
-    parser.add_argument("--no-home-disk", action="store_true",
-                        help="do not attach a home volume (/home is then a directory on /)")
-    parser.add_argument("--reset-home", action="store_true",
-                        help="regenerate the home volume (asks first unless --yes)")
-    parser.add_argument("--reset-os", action="store_true",
-                        help="recreate the OS volume instead of updating it in place "
-                             "(LAZYOS_RESET_OS=1): erases apps, settings, logs, not home.img")
-    parser.add_argument("--data-disk", metavar="PATH", nargs="?", const=str(mkdisk.DEFAULT_PATH),
-                        help="also attach a legacy ext2 data volume, created if missing "
-                             f"(default path {mkdisk.DEFAULT_PATH}; mounted nowhere new)")
-    parser.add_argument("--no-data-disk", action="store_true",
-                        help="do not attach a data volume (the default; kept for older callers)")
-    parser.add_argument("--reset-data", action="store_true",
-                        help="regenerate the data volume with the seeded layout "
-                             "(asks first unless --yes; attaches it if --data-disk is unset)")
-    parser.add_argument("--yes", "-y", action="store_true",
-                        help="answer yes to the --reset-home / --reset-data / --reset-os "
-                             "confirmation")
-    parser.add_argument("--desktop", action="store_true",
-                        help="build the desktop profile (LAZYOS_DESKTOP=1; needs the xui apps "
-                             "from `python tools/xui/build.py`)")
-    parser.add_argument("--no-shell", action="store_true",
-                        help="with --desktop, leave LazyShell (taskbar, start menu, desktop "
-                             "icons) out of the image (LAZYOS_SHELL=0): the compositor then "
-                             "shows background and windows only")
-    add_device_options(parser)  # --sound, --sound-card, --nic, --no-devd
-    qemu_net.add_net_options(
-        parser,
-        "attach a virtio-net card on QEMU's user-mode network and build the network "
-        "stack (LAZYOS_NETD=1: the `netdrv` driver, `netd` with DHCP, `ping`, `nslookup`, "
-        "`nc` and `ftp` in the shell, and on the desktop the Network and Net Tools apps). "
-        f"Host port {qemu_net.NETTOOLS_PORT} is forwarded to the guest's (Net Tools' web "
-        "server); see docs/networking-host-access.md. The packet-capture-judged run is "
-        "`python tools/net/run.py`")
-    parser.add_argument("--lazyrad", action="store_true",
-                        help="build the LazyRAD IDE and player and ship them as the core "
-                             "package os.lazy.lazyrad (LAZYOS_LAZYRAD=1); with --desktop "
-                             "pkgd installs it at boot and Settings -> Menu offers it")
-    parser.add_argument("--lazyrad-samples", metavar="DIRS",
-                        help="sample project directories to copy under "
-                             "/system/share/lazyrad/ (LAZYRAD_SAMPLES; `;` on Windows, "
-                             "`:` elsewhere), e.g. <lazyrad>/examples/hello; the "
-                             "lazyrad_*.json sessions need them. Implies --lazyrad")
-    parser.add_argument("--doom", action="store_true",
-                        help="the desktop profile with the Doom package at "
-                             "/system/share/samples/doom.lzp (LAZYOS_DOOM=1; builds it "
-                             "with tools/doom/build.py, which fetches doomgeneric and "
-                             "Freedoom): install it with `pkgctl install "
-                             "/system/share/samples/doom.lzp` or by opening it in Files, "
-                             "then start Doom from the menu")
-    parser.add_argument("--modplayer", action="store_true",
-                        help="the desktop profile with LazyRAD, its MOD player sample at "
-                             "/system/share/lazyrad/modplayer and the same app packaged at "
-                             "/system/share/samples/modplayer.lzp (LAZYOS_LAZYRAD=1 "
-                             "LAZYOS_MODPLAYER=1; builds it with tools/lazyrad/package.py) "
-                             "and a sound card: copy it to your home and install it with "
-                             "`pkgctl install`, or open it in Files, then start ModPlayer "
-                             "from the menu")
-    parser.add_argument("--usb-image", action="store_true",
-                        help="also write target/lazyos-usb.img, the image for a real PC's "
-                             "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
-                             "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
-    parser.add_argument("--linuxapps", action="store_true",
-                        help="embed real Linux programs in /system/bin "
-                             "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
-                             "built from pinned sources by tools/linuxapps/build.py")
-    parser.add_argument("--tls", action="store_true",
-                        help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
-                             "`wget` and `fetch` in /system/bin, one rustls program that "
-                             "verifies certificates against /etc/ssl/certs, built by "
-                             "tools/nettls/build.py (docs/tls-plan.md)")
-    parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
-                        help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
-                             "commits are logged and replayed after a crash, so an unclean "
-                             "stop needs no repair (docs/architecture/journal.md). BLOCKS "
-                             "sets the log size; default 4096 blocks (16 MiB). An existing "
-                             "image gets one on the next in-place update")
-    parser.add_argument("--lazyweb", action="store_true",
-                        help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
-                             "a core package; NetSurf compiled with zig by tools/xui/build.py), "
-                             "networking and the HTTPS tools (docs/lazyweb.md)")
-    parser.add_argument("--mail", action="store_true",
-                        help="the desktop with HTTPS and Mail, esMail's IMAP/SMTP client "
-                             "(LAZYOS_MAIL=1, docs/mail.md)")
-    parser.add_argument("--devices", action="store_true",
-                        help="the desktop profile with the Devices app open at boot "
-                             "(devices, owners, rights and the driver class rules): "
-                             "builds the xui apps, then LAZYOS_DESKTOP=1 and adds "
-                             "`devices` to LAZYOS_XUI_AUTOSTART (unset: "
-                             f"{DEVICES_AUTOSTART}; set LAZYOS_XUI_AUTOSTART=term,devices "
-                             "to open the Terminal too)")
-    parser.add_argument("--timer", choices=["pit", "lapic"],
-                        help="tick source test switch (LAZYOS_TIMER): `lapic` uses the "
-                             "local APIC timer even where the PIT ticks, the path a PC "
-                             "with a clock-gated PIT takes (docs/real-pc-boot-plan.md H2)")
-    parser.add_argument("--no-rhai", action="store_true",
-                        help="do not (re)build the `rhai` command before the image "
-                             "(tools/rhai/build.py; incremental, so cheap when unchanged)")
-    parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
-                        help="extra QEMU args (after `--`)")
-    args = parser.parse_args(argv)
-    # Samples are only embedded with the runtime that plays them, and the MOD
-    # player is a LazyRAD app that wants speakers.
-    args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
-    if args.modplayer and not args.sound:
-        args.sound = "auto"
-    # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
-    # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
-    # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`.
-    args.desktop = (args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
-                    or args.mail)
-    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
-    args.tls = args.tls or args.lazyweb or args.mail
-    args.net = args.net or args.tls
-    if args.no_data_disk and (args.reset_data or args.data_disk):
-        parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
-    if args.no_home_disk and args.reset_home:
-        parser.error("--reset-home conflicts with --no-home-disk")
-    if args.build_only and args.no_build:
-        parser.error("--build-only conflicts with --no-build")
-    if args.reset_os and args.no_build:
-        parser.error("--reset-os needs a build: it sets LAZYOS_RESET_OS=1 for `cargo build`")
-    try:
-        net_qemu, forwards = qemu_net.args_from_options(args)
-        limits = build_limits(args.limit, args.no_build)
-        limits.update(build_display(args))
-        limits.update(build_assets(args))
-    except ValueError as error:
-        parser.error(str(error))
+    parser = make_parser(__doc__, DEFAULT_IMAGE)
+    args, net_qemu, forwards, limits = parse_args(parser, argv)
 
     if not args.no_build:
         cargo = ["cargo", "build"]

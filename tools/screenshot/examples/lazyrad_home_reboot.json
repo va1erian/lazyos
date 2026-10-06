@@ -8,7 +8,7 @@
  {"at": 1.0, "type": "find /home/admin/projects -name '*.lrp'"},
  {"at": 0.5, "key": "enter", "until": "TERM:CMD:find /home/admin/projects", "timeout": 30, "retries": 2},
  {"wait_for": "TERM:OUT:/home/admin/projects/.*MyApp\\.lrp", "regex": true, "timeout": 60},
- {"at": 1.0, "type": "cat /home/admin/.apps/user.*/proof.txt"},
+ {"at": 1.0, "type": "cat /home/admin/.apps/user.*/proof.txt; echo"},
  {"at": 0.5, "key": "enter", "until": "TERM:CMD:cat /home/admin/.apps/user.", "timeout": 30, "retries": 2},
  {"wait_for": "TERM:OUT:F4-installed-app", "timeout": 60},
  {"at": 1.0, "type": "ls -d /apps/user.*/*/data /home/admin/.apps/*"},

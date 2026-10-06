@@ -1,0 +1,225 @@
+"""Seeds for the networking fuzz targets (`gen_corpus.py`): framering and its
+header, virtio-net, nicdrv and netstack scripts.
+"""
+import struct
+
+# ---- framering script grammar -------------------------------------------------
+
+PUSH, POP, ARM, NOTIFY, QUERY, SCRIBBLE, RECREATE = 0, 110, 190, 200, 215, 235, 245
+
+
+def push(length):
+    return bytes([PUSH]) + struct.pack(">H", length)
+
+
+def scribble(kind, value=0, slot=0):
+    return bytes([SCRIBBLE, kind]) + struct.pack(">IH", value, slot)
+
+
+def first(slots_pick, start_pick):
+    """First script byte: slot count 16 << slots_pick (0-4), start index choice."""
+    return bytes([start_pick * 5 + slots_pick])
+
+
+def framering_seeds():
+    pop = bytes([POP])
+    seeds = {
+        # 20 frames into a 16-slot ring, then drain: exercises Full and order.
+        "fill_and_drain": first(0, 0) + b"".join(push(60) for _ in range(20)) + pop * 20,
+        # The same across the u32 wrap (start index u32::MAX).
+        "wrap_u32": first(0, 2) + b"".join(push(14 + i) + pop for i in range(40)),
+        # Boundary lengths: 1, 14, 1514, 2046 (max), 2047 (too long), 0 (empty).
+        "boundaries": first(1, 0) + b"".join(push(n) for n in (1, 14, 1514, 2046, 2047, 0, 2105)) + pop * 8,
+        # Arm / notify coalescing.
+        "arm_notify": first(0, 0)
+        + bytes([NOTIFY, ARM])
+        + push(60) * 3
+        + bytes([NOTIFY, NOTIFY, ARM])
+        + push(60)
+        + bytes([NOTIFY, QUERY])
+        + pop * 5,
+        # One of every scribble kind, each followed by traffic.
+        "scribbles": first(2, 0)
+        + b"".join(
+            push(100) + scribble(k, 0xDEADBEEF, 3) + pop * 2 + push(60) + pop
+            for k in range(7)
+        ),
+        # A hostile head, then a hostile tail: poisoning must be sticky.
+        "poison": first(0, 0) + push(60) + scribble(1, 0x7FFFFFFF) + pop * 3 + push(60) + scribble(2, 99) + push(60),
+        # Restarts with different geometries.
+        "recreate": b"".join(
+            first(i % 5, i % 6) + push(60) + pop + bytes([RECREATE]) + first(i % 5, (i + 1) % 6) for i in range(7)
+        ),
+        "empty": b"",
+    }
+    return seeds
+
+
+def header_seeds():
+    return {
+        "good_16": bytes([2, 1, 3]),  # 16 slots, exact length, no overwrites
+        "bad_len": bytes([2, 2, 0, 0x00, 0x00, 0x41]),
+        "bad_slots": bytes([0, 1, 3]),
+        "magic_smashed": bytes([2, 1, 3, 0, 0, 0x41, 0, 1, 0x41]),
+        "head_nonzero": bytes([2, 1, 3, 0, 0x40, 1]),
+        "armed_two": bytes([2, 1, 3, 0, 0xC0, 2]),
+        "empty": b"",
+    }
+
+
+# ---- virtio-net grammar -------------------------------------------------------
+
+MAC, STATUS, MQ, MTU = 1 << 5, 1 << 16, 1 << 22, 1 << 3
+
+
+def virtio_net_seeds():
+    cfg_image = bytes([0x52, 0x54, 0x00, 0x12, 0x34, 0x56, 1, 0, 4, 0, 0xDC, 5])
+    seeds = {
+        "config_mac_status": bytes([0]) + struct.pack("<Q", MAC | STATUS) + cfg_image,
+        "config_everything": bytes([0]) + struct.pack("<Q", 0xFFFFFFFFFFFFFFFF) + cfg_image,
+        "config_mq_mtu_short": bytes([0]) + struct.pack("<Q", MQ | MTU | MAC) + cfg_image[:7],
+        "config_no_features": bytes([0]) + struct.pack("<Q", 0),
+    }
+
+    def rx(written, frame_len, flags=0, gso=0):
+        hdr = bytes([flags, gso, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0])
+        buf = hdr + bytes(range(256)) * 8
+        return bytes([1]) + struct.pack("<Q", written) + bytes([0xEA]) + buf[:2048]
+
+    seeds["rx_good_60"] = rx(12 + 60, 60)
+    seeds["rx_exact_mtu"] = rx(12 + 1514, 1514)
+    seeds["rx_one_over"] = rx(12 + 1515, 1515)
+    seeds["rx_runt"] = rx(12 + 13, 13)
+    seeds["rx_header_only"] = rx(12, 0)
+    seeds["rx_no_header"] = rx(7, 0)
+    seeds["rx_overrun"] = rx(0xFFFFFFFF, 0)
+    seeds["rx_offload_flags"] = rx(12 + 60, 60, flags=2)
+    seeds["rx_gso"] = rx(12 + 60, 60, gso=1)
+    seeds["header_plain"] = bytes([2]) + bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0])
+    seeds["header_short"] = bytes([2, 1, 2, 3])
+    seeds["settings_defaults"] = bytes([3]) + bytes(8)
+    seeds["settings_hostile"] = (
+        bytes([3]) + bytes([1, 1, 1, 1, 1]) + b"pollzz" + b"FE:ab:CD:00:00:01"
+    )
+    seeds["settings_mac"] = bytes([3]) + bytes([0, 0, 0, 0, 0]) + b"02:00:00:00:00:01"
+    return seeds
+
+
+# ---- nicdrv script grammar ----------------------------------------------------
+
+
+def nic_first(rx_pick, tx_pick):
+    """First byte: receive entries and transmit entries, each 2 << pick (2..32)
+    via the sizes table [2, 4, 16, 64, 256] in `libs/nicdrv/src/fuzz.rs`."""
+    return bytes([rx_pick + 5 * tx_pick])
+
+
+def deliver(length, dst=0):
+    return bytes([0]) + struct.pack(">H", length) + bytes([dst])
+
+
+PUMP, POP_CLIENT, DEV_TX = bytes([70]), bytes([140]), bytes([170])
+
+
+def push_tx(selector, extra=0):
+    """selector: 0 empty, 1 13, 2 14, 3 1514, 4 1515, 5 random u16."""
+    return bytes([100, selector]) + (struct.pack(">H", extra) if selector >= 5 else b"")
+
+
+ATTACH = bytes([190, 0, 0])  # owner OWNER, 16 slots
+
+
+def nicdrv_seeds():
+    seeds = {
+        "traffic": nic_first(3, 3) + ATTACH
+        + deliver(60) * 5 + PUMP + POP_CLIENT * 6
+        + push_tx(2) + push_tx(3) + push_tx(5, 100) + PUMP + DEV_TX * 4 + PUMP,
+        "length_boundaries": nic_first(3, 3) + ATTACH
+        + b"".join(deliver(n) for n in (13, 14, 1514, 1515, 0, 1699)) + PUMP + POP_CLIENT * 6
+        + b"".join(push_tx(s) for s in range(5)) + PUMP + DEV_TX * 5,
+        "receive_filter": nic_first(2, 2) + ATTACH
+        + b"".join(deliver(60, dst) for dst in range(4)) + PUMP + POP_CLIENT * 4
+        + bytes([205, 0, 0, 2]) + deliver(60, 3) + PUMP + POP_CLIENT
+        + bytes([205, 0, 0, 0]) + deliver(60, 0) + PUMP + POP_CLIENT,
+        "backpressure": nic_first(1, 0) + ATTACH
+        + b"".join(push_tx(2) for _ in range(10)) + PUMP + PUMP + DEV_TX * 2 + PUMP + DEV_TX * 2 + PUMP,
+        "wake_ups": nic_first(3, 3) + ATTACH
+        + bytes([180]) + deliver(60) * 3 + PUMP + bytes([185]) + push_tx(2) + bytes([185]) + PUMP + bytes([185]),
+        "attach_abuse": nic_first(3, 3)
+        + bytes([190, 0, 3]) + bytes([190, 0, 4]) + bytes([190, 1, 0]) + ATTACH + ATTACH + bytes([190, 1, 0])
+        + bytes([200, 1, 0]) + bytes([200, 0, 1]) + bytes([200, 0, 0]) + bytes([210, 2, 0]) + ATTACH
+        + bytes([205, 1, 0, 1]) + bytes([205, 0, 0, 7]),
+        "link_flap": nic_first(3, 3) + ATTACH + bytes([215, 1]) + PUMP + bytes([215, 0]) + PUMP + bytes([215, 0]) + PUMP,
+        "scribble_each": nic_first(3, 3) + b"".join(
+            ATTACH + deliver(60) + PUMP + bytes([220, 0, kind]) + struct.pack(">IH", 0xDEADBEEF, 2)
+            + push_tx(2) + deliver(60) + PUMP + POP_CLIENT + bytes([245, 0])
+            for kind in range(6)
+        ),
+        "device_lies": nic_first(3, 3) + ATTACH
+        + deliver(60) + PUMP
+        + bytes([60, 4]) + bytes([1, 2, 3, 4]) + bytes([2]) + PUMP
+        + bytes([230, 0, 0]) + struct.pack(">II", 9999, 60) + PUMP,
+        "empty": b"",
+    }
+    return seeds
+
+
+
+# ---- netstack script grammar --------------------------------------------------
+# `libs/netstack/src/fuzz.rs`: mode byte, four u16 of seed, then ops. 60..=139
+# advance the clock (one delay byte) and let the gateway answer, each answer
+# followed by a mutation byte (0..4 intact) and a checksum-fix byte; 140..=159
+# ping; 160..=169 renew; 185..=199 a gateway-made frame; 200..=214 bend what the
+# gateway offers.
+
+
+def ns_header(mode=1, seed=0x1122334455667788):
+    return bytes([mode]) + struct.pack(">Q", seed)
+
+
+def ns_step(delay=9, mutations=b"\0\0\0\0\0\0"):
+    return bytes([100, delay]) + mutations
+
+
+#: Destination bytes each selector reads before the length (`fuzz.rs`): 0 is the
+#: gateway, 1 four free octets, 2 the last octet of 10.0.2.x, 3 the last two of
+#: 192.168.x.y.
+NS_DST_BYTES = {0: 0, 1: 4, 2: 1, 3: 2}
+
+
+def ns_ping(dst_kind=0, length=56, timeout=50, dst=None):
+    if dst is None:
+        dst = {0: b"", 1: bytes([127, 0, 0, 1]), 2: bytes([2]), 3: bytes([1, 1])}[dst_kind]
+    assert len(dst) == NS_DST_BYTES[dst_kind], "destination bytes do not match the selector"
+    return bytes([150, dst_kind]) + dst + struct.pack(">H", length) + bytes([timeout])
+
+
+def netstack_seeds():
+    return {
+        # DHCP to completion, then a few pings to the gateway.
+        "dhcp_then_ping": ns_header() + ns_step() * 12 + ns_ping() + ns_step() * 6 + ns_ping(length=1400) + ns_step() * 6,
+        "static_then_ping": ns_header(mode=0) + ns_step() * 4 + ns_ping() + ns_step() * 6,
+        # A renewal in the middle of traffic.
+        "renew": ns_header() + ns_step() * 12 + bytes([165]) + ns_step() * 12 + ns_ping() + ns_step() * 4,
+        # A gateway that offers a hostile lease: loopback, multicast, /31.
+        "bent_leases": ns_header() + b"".join(
+            bytes([205]) + bytes(ip) + bytes([0, 1, 10, 0, 2, 2, 1, 10, 0, 2, 3, 0, 16, 2])
+            + bytes([165]) + ns_step() * 10
+            for ip in ((127, 0, 0, 1), (224, 0, 0, 9), (0, 0, 0, 0), (10, 0, 2, 255))
+        ),
+        # Damaged answers: truncated, bit flips (with and without checksum repair).
+        "damage": ns_header() + ns_step(mutations=bytes([5, 0, 1, 7, 1, 2, 1, 0])) * 10 + ns_ping() + ns_step(mutations=bytes([6, 0, 0, 3, 1, 1, 6, 1])) * 10,
+        # Raw frames of arbitrary bytes, including an oversize one.
+        "raw_frames": ns_header() + bytes([0, 0, 60, 7]) + bytes(range(60)) + bytes([0, 6, 200, 1]) + bytes(range(200)) * 2 + ns_step() * 4,
+        # Pings to invalid, off-link and unanswered addresses, then the cap.
+        "ping_abuse": ns_header() + ns_step() * 12
+        + ns_ping(dst_kind=1, length=8, timeout=10)  # loopback: refused up front
+        + ns_ping(dst_kind=2, length=0, timeout=50)  # the gateway's neighbour, empty payload
+        + ns_ping(dst_kind=3, length=1400, timeout=255)  # off-link, largest payload
+        + ns_ping(dst_kind=0, length=1500, timeout=1)  # one over the payload limit
+        + b"".join(ns_ping(dst_kind=2, dst=bytes([100 + i]), length=8, timeout=255) for i in range(9))  # past the cap
+        + ns_step() * 8,
+        # Cancel a ping, flip the gateway's echo behaviour.
+        "cancel_and_mute": ns_header() + ns_step() * 12 + ns_ping() + bytes([182, 0, 0]) + bytes([172, 1]) + ns_ping() + ns_step() * 8,
+        "empty": b"",
+    }

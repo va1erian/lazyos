@@ -111,7 +111,7 @@ from pathlib import Path
 
 from qemu_qmp import (DEFAULT_MEMORY, Qmp, accel_args, add_data_disk_option, add_home_disk_option,
                       build_qemu_command, existing_data_disk, existing_home_disk,
-                      find_qemu, free_port)
+                      TCG_KEY_INTERVAL, find_qemu, free_port, resolve_accel)
 from session_hang import capture_hang_state
 from session_pointer import (POINTER, TABLET_MAX, StepFailed, load_targets,  # noqa: F401
                              parse_screen, point, resolve_click_at)
@@ -430,6 +430,8 @@ def main() -> int:
     qmp: Qmp | None = None
     try:
         qmp = Qmp("127.0.0.1", port, args.timeout)
+        if resolve_accel(args.accel, qemu) == "none":
+            qmp.key_interval = TCG_KEY_INTERVAL
         try:
             screenshots = run_steps(qmp, steps, out_dir, time.time(), serial,
                                     args.wait_timeout, timeline)

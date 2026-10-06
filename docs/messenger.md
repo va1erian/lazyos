@@ -330,6 +330,11 @@ health rows, `logd` appends hash-chained records and serves queries, and
   `app/<id>/`. A development run (`dev:<id>`) owns the same names and topics.
   Registering anything else is refused with `EACCES` and audited; resolving
   another name needs an allow rule loaded for the label.
+- **Per-uid topics** (#407, `kernel/src/ipc/topics/private.rs`): topics at or
+  under `user/<uid>/` belong to that uid. Another non-root task cannot
+  publish or subscribe there, even with a wildcard (`user/+/...`, a leading
+  `#`), whatever policy is loaded; root can. `confd` announces a user's own
+  key changes on `user/<uid>/confd/changed/<path>`.
 - **Interface domains** (#495): an app's registration may only advertise
   interfaces of its own domain, `<id>.<name>.v<N>` (`<name>` one or more
   segments). Interface ids are `fnv1a64` hashes, so `Register` carries

@@ -10,8 +10,11 @@ filesystem and shell — in particular **LazyOS**.
 - Folders open their own window (or reuse the one already showing them); files
   go to the OS default handler.
 - `IconView` listing (folders first, then files), a `StatusBar` summary, a
-  context `Menu`, Delete/Properties `TaskDialog`/`Dialog` actions and
-  `Delete` / `Alt+Enter` / `F5` shortcuts.
+  context `Menu`, Copy/Paste/Delete/Properties actions (`TaskDialog`/`Dialog`)
+  and `Ctrl+C` / `Ctrl+V` / `Delete` / `Alt+Enter` / `F5` shortcuts.
+- Copy, paste and the selection go through an optional third seam,
+  `Session` (below); `Explorer::reveal_root` opens a folder with one item
+  selected.
 - Tile icons: the multi-colour Global Village set when the opt-in
   `village-icons` feature is on (the LazyOS Files app enables it), else the
   single-colour Lucide fallback. The `xui-icons` crate stays in the xui
@@ -113,8 +116,29 @@ pointer outside the window sends no hint.
   window while it loads.
 - **No raise/focus API.** Opening a folder that is already open reports
   `"already open"` in the status bar instead of bringing that window forward.
-- Out of scope: rename, copy/move, drag and drop, new folder, recycle bin,
+- Out of scope: rename, cut/move by keyboard, new folder, recycle bin,
   hidden-file toggle, sorting options, search, navigating up.
+
+## The session seam (copy, paste, selection)
+
+```rust
+trait Session {
+    fn copy(&self, paths: &[PathBuf]) -> io::Result<()>;
+    fn paste_into(&self, dir: &Path) -> io::Result<Pasted>;
+    fn selection_changed(&self, dir: &Path, paths: &[PathBuf]);
+}
+```
+
+Every method has a default (copy and paste report `Unsupported`, the
+selection goes nowhere), and `Explorer::new` uses `NoSession`; pass a real one
+with `Explorer::with_session`. Copy (context menu or `Ctrl+C`) hands the
+selection's absolute paths to `copy`; Paste (`Ctrl+V`) asks `paste_into` to
+copy the clipboard's files into the window's folder, then refreshes every
+window showing it and reports the count (or the failures) in the status bar.
+Every selection change, and every window that opens or refreshes, calls
+`selection_changed`. The LazyOS Files app implements it over `clipboardd`
+(`text/uri-list`), `std_platform::copy_into` and the `session/<id>/selection`
+topic (`xui-app/src/bin/files/session.rs`, issue #488).
 
 ## Checks
 

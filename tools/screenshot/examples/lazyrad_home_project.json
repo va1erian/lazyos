@@ -6,7 +6,7 @@
  {"at": 2.4, "mouse_move": [-300, -300]},
  {"at": 3.0, "mouse_move": [200, 300]},
  {"at": 3.4, "mouse_click": "left"},
- {"at": 1.0, "type": "cat /home/admin/.apps/user.*/proof.txt"},
+ {"at": 1.0, "type": "cat /home/admin/.apps/user.*/proof.txt; echo"},
  {"at": 0.5, "key": "enter", "until": "TERM:CMD:cat /home/admin/.apps/user.", "timeout": 30, "retries": 2},
  {"wait_for": "TERM:OUT:F4-installed-app", "timeout": 60},
  {"at": 1.0, "shot": "01_app_data_after_reboot"},

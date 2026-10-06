@@ -101,6 +101,7 @@ fn typed(rig: &mut Rig, usage: u16) -> Option<String> {
 
 mod behavior;
 mod console;
+mod grab;
 mod keymaps;
 mod outbox;
 mod pointer;

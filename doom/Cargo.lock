@@ -323,6 +323,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "inputmap"
+version = "0.1.0"
+
+[[package]]
 name = "ipp"
 version = "0.1.0"
 
@@ -923,6 +927,7 @@ dependencies = [
  "deskmenu",
  "devinspect",
  "fhs",
+ "inputmap",
  "lazyshell",
  "libc",
  "libmessenger",

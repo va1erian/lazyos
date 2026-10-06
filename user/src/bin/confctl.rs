@@ -12,7 +12,9 @@
 //! ```
 //!
 //! `bytes` values are hex on both sides. `watch` blocks, printing one line per
-//! change, and is the manual check for the `(path, deleted)` topic payload.
+//! change, and is the manual check for the `(path, deleted)` topic payload;
+//! `watch user/<uid>/confd/changed/#` follows the caller's own `user/<uid>`
+//! keys (only that uid and root may subscribe there, issue #407).
 
 #![no_std]
 #![no_main]

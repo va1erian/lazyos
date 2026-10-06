@@ -321,6 +321,24 @@ fn load(path: &str, linux: bool) -> Result<VfsFile, u64> {
     elf.ok_or(syscall_error(ENOENT))
 }
 
+/// Stamp the new, not-yet-run child in `slot` with its approved identity.
+///
+/// `approve` ran the same checks before the spawn, so this should not fail.
+/// If it ever does, the child must not run with the identity it inherited from
+/// the caller: it is ended and its slot freed before it runs (fail closed,
+/// issue #446), and the gate's error is the spawn's.
+pub fn stamp_child(slot: usize, cred: Cred, rule: Option<LabelStamp>) -> Result<(), u64> {
+    let label = rule.unwrap_or(LabelStamp::Keep {
+        current: credentials::of(slot).label_id,
+    });
+    credentials::transition_with(task::current(), slot, cred, label)
+        .map(|_| ())
+        .map_err(|error| {
+            task::abort_unstarted_child(slot);
+            transition_error(error)
+        })
+}
+
 /// Create the child, stamp it and record its blocks. Interrupts are off in
 /// the syscall gate, so the child cannot run before the stamp and the blocks
 /// are in place.
@@ -335,13 +353,7 @@ fn start(request: &Request, elf: &VfsFile, stamp: Stamp) -> Result<usize, u64> {
     };
     let slot = started.map_err(|_| syscall_error(ENOMEM))?;
     if let Some((cred, rule)) = stamp {
-        // `approve` ran before the spawn, so this cannot fail; if it ever did,
-        // the child would keep the identity it inherited from the caller (no
-        // more privileged than the caller), as in `spawn_program`.
-        let label = rule.unwrap_or(LabelStamp::Keep {
-            current: credentials::of(slot).label_id,
-        });
-        let _ = credentials::transition_with(task::current(), slot, cred, label);
+        stamp_child(slot, cred, rule)?;
     }
     if let Some(map) = &request.stdio {
         // Validated in `read_stdio` and nothing ran since (interrupts are off

@@ -342,6 +342,11 @@ old entry give the name up, so a new open gets the new file):
   The prefix is **reserved**: `open(O_CREAT)`, `mkdir` and `rename` onto a
   `.unlinked-` name answer `EINVAL` (`fs/hidden.rs`), so only the kernel makes
   one and reclaiming by name can never touch a user's file.
+- `rmdir` (`abi_rmdir`, issue #612) of a directory whose only entries are such
+  parked files succeeds, as on Linux where they have no name: they move to
+  `<mount root>/.unlinked-<n>` first (where the reclaim still finds them) and
+  move back if the removal is refused. Any other entry, or a reserved name no
+  open file owns, still makes the directory `ENOTEMPTY`.
 - **Orphan reclaim** (`libs/ext2fs/src/orphans.rs`, issue #346): `mount_data_volume`
   (and `mount_device`) call `Ext2::reclaim_orphans` before the volume is
   visible, and log `fs: /data: reclaimed N orphaned files`. It runs only when

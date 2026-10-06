@@ -13,6 +13,8 @@ mod headless;
 mod hooks;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod window;
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+mod window_input;
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 fn main() {

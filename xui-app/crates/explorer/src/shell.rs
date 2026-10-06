@@ -17,6 +17,7 @@ mod views;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -25,7 +26,7 @@ use xui_core::backend::{PlatformSpec, WindowId};
 use xui_core::units::Dip;
 
 use crate::model::title;
-use crate::platform::{Launcher, Platform};
+use crate::platform::{Launcher, NoSession, Platform, Session};
 use crate::window::{ExplorerWindow, Msg};
 
 pub use registry::{Closable, Registry};
@@ -43,6 +44,7 @@ const OPEN_TILE_DIP: f32 = 64.0;
 pub struct Explorer {
     platform: Rc<dyn Platform>,
     launcher: Rc<dyn Launcher>,
+    session: Rc<dyn Session>,
     registry: Registry<WindowHandle<Msg>>,
     /// The title last published by each window, keyed by its window id. Used by
     /// tests to read a title the portable backend does not offer back.
@@ -54,9 +56,20 @@ pub struct Explorer {
 impl Explorer {
     /// A shell over `platform` and `launcher`.
     pub fn new(platform: Rc<dyn Platform>, launcher: Rc<dyn Launcher>) -> Rc<Explorer> {
+        Explorer::with_session(platform, launcher, Rc::new(NoSession))
+    }
+
+    /// A shell over `platform` and `launcher` that copies, pastes and
+    /// announces its selection through `session`.
+    pub fn with_session(
+        platform: Rc<dyn Platform>,
+        launcher: Rc<dyn Launcher>,
+        session: Rc<dyn Session>,
+    ) -> Rc<Explorer> {
         Rc::new(Explorer {
             platform,
             launcher,
+            session,
             registry: Registry::new(),
             titles: RefCell::new(HashMap::new()),
             views: Views::default(),
@@ -71,6 +84,11 @@ impl Explorer {
     /// The launcher.
     pub fn launcher(&self) -> &dyn Launcher {
         self.launcher.as_ref()
+    }
+
+    /// The clipboard and the selection feed.
+    pub fn session(&self) -> &dyn Session {
+        self.session.as_ref()
     }
 
     /// The user's home directory, when the platform has one.
@@ -88,6 +106,20 @@ impl Explorer {
     pub fn open_root(self: &Rc<Self>, ui: &mut Ui<Msg>, path: PathBuf) -> ExplorerWindow {
         self.registry.register_primary(path.clone());
         ExplorerWindow::new(ui, Rc::clone(self), path).expect("the explorer's widgets built")
+    }
+
+    /// [`open_root`](Self::open_root) with the entry `name` selected: a
+    /// "reveal" of one item in its folder. Also returns whether the folder
+    /// held it (when not, the selection is left as a plain open leaves it).
+    pub fn reveal_root(
+        self: &Rc<Self>,
+        ui: &mut Ui<Msg>,
+        dir: PathBuf,
+        name: &OsStr,
+    ) -> (ExplorerWindow, bool) {
+        let mut window = self.open_root(ui, dir);
+        let found = window.select_name(name);
+        (window, found)
     }
 
     /// Opens `path` in its own window unless a window already shows it. Returns

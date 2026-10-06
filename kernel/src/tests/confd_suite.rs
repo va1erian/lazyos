@@ -214,22 +214,36 @@ pub fn change_topic_delivery() -> Result<(), String> {
     Ok(())
 }
 
-/// A `user/` change commits but is deliberately not announced (the kernel
-/// topic policy cannot enforce per-uid subscriptions).
-pub fn user_changes_are_silent() -> Result<(), String> {
+/// A `user/<uid>/` change commits and reaches the sink (which announces it in
+/// that uid's private topic namespace, issue #407); `user/<uid>` itself
+/// stays silent.
+pub fn user_changes_reach_the_sink() -> Result<(), String> {
     let mut confd = service()?;
     confd
         .set("user/1000/theme", text("dark"), ALICE)
         .map_err(fail)?;
     confd.delete("user/1000/theme", ALICE).map_err(fail)?;
+    confd.set("user/1000", text("bare"), ALICE).map_err(fail)?;
     check!(
         confd.get("user/1000/theme", ALICE).map_err(fail)? == None,
         "the user change did not commit"
     );
     check!(
-        events(&confd).is_empty(),
-        "a user/ change was announced: {:?}",
         events(&confd)
+            == [
+                (String::from("user/1000/theme"), false),
+                (String::from("user/1000/theme"), true),
+            ],
+        "user changes announced as {:?}",
+        events(&confd)
+    );
+    check!(
+        confd::announcement("user/1000/theme")
+            == Some(confd::Announcement::User {
+                uid: 1000,
+                rest: "theme"
+            }),
+        "the user topic is wrong"
     );
     Ok(())
 }
@@ -342,7 +356,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("confd_cross_user_denied", cross_user_denied),
     ("confd_list_filters_other_users", list_filters_other_users),
     ("confd_change_topic_delivery", change_topic_delivery),
-    ("confd_user_changes_are_silent", user_changes_are_silent),
+    (
+        "confd_user_changes_reach_the_sink",
+        user_changes_reach_the_sink,
+    ),
     ("confd_io_leaves_store_unchanged", io_leaves_store_unchanged),
     ("confd_restart_reloads_store", restart_reloads_store),
     ("confd_soak_sets_and_restarts", soak_sets_and_restarts),

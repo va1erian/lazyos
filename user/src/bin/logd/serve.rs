@@ -6,7 +6,6 @@ use alloc::vec::Vec;
 use logstore::TailError;
 use user::messenger::services::logd::wire;
 use user::messenger::{self, errno, services, Error, Message, Parcel};
-use user::sys;
 
 use crate::log::Log;
 
@@ -86,9 +85,7 @@ fn fs_error(code: i64) -> Error {
 /// Refuse everyone but uid 0, from the kernel-stamped credential (never a
 /// uid the caller chose).
 fn require_root(message: &Message) -> messenger::Result<()> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
-    if cred.uid != 0 {
+    if message.caller().uid != 0 {
         return Err(Error::Errno(-errno::EACCES));
     }
     Ok(())

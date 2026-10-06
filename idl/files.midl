@@ -1,0 +1,26 @@
+/// Files, the desktop file explorer (`os.lazy.files`, issue #488).
+///
+/// Files serves no methods: what it shares with the rest of the session is
+/// the selection of its focused folder window, so another app (the Editor, a
+/// script) can act on "what the user picked" without asking Files. Copy and
+/// paste go through `os.lazy.clipboard.v1` as `text/uri-list`, and the
+/// `reveal` verb reaches Files through `mimed.Open` and `init.Launch` with
+/// the item's path as the argument.
+///
+/// The topic is per session: an installed app may publish or subscribe only
+/// under its own kernel-stamped session, never another's.
+interface os.lazy.files.v1 {
+    /// One folder window's selection.
+    struct Selection {
+        /// The folder the window shows, as an absolute path.
+        folder: String = 1,
+        /// The selected items, as absolute paths in view order; empty when
+        /// nothing is selected.
+        paths: Array<String> = 2
+    }
+
+    /// Published whenever the selection of a Files window changes (and when
+    /// a window opens or gains a new listing), retained so a late subscriber
+    /// learns the current selection at once.
+    topic "session/{session}/selection" : Selection retained qos=latest;
+}

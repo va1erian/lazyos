@@ -4,7 +4,7 @@ use super::*;
 use crate::keymap::Layout;
 use crate::keysym;
 use crate::mods;
-use crate::{KeyState, REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS};
+use crate::{KeyState, ESCAPE_CODE, REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS};
 use alloc::vec::Vec;
 
 #[test]
@@ -182,8 +182,8 @@ fn repeat_cancels_on_focus_change_and_layout_change() {
 #[test]
 fn hotkeys_consume_the_press_and_its_release() {
     let mut rig = Rig::new(Layout::Us);
-    let alt_tab = rig.engine.add_hotkey(TAB, mods::ALT);
-    let super_alone = rig.engine.add_hotkey(LGUI, 0);
+    let alt_tab = rig.engine.add_hotkey(TAB, mods::ALT).unwrap();
+    let super_alone = rig.engine.add_hotkey(LGUI, 0).unwrap();
     // Alt is delivered as a key; Tab is consumed.
     assert_eq!(key(&rig.down(LALT)).code, LALT);
     assert_eq!(rig.down(TAB), [Output::Hotkey(alt_tab)]);
@@ -258,6 +258,7 @@ fn engine_soak_keeps_its_invariants() {
     for layout in [Layout::Us, Layout::Fr] {
         let mut rig = Rig::new(layout);
         let mut down = [false; 256];
+        let mut escape_held = false;
         let keys: Vec<u16> = (0x04..=0x65).chain(0xE0..=0xE7).collect();
         for step in 0..400_000u64 {
             let usage = keys[(next() % keys.len() as u64) as usize];
@@ -291,7 +292,12 @@ fn engine_soak_keeps_its_invariants() {
                         assert!(t.chars().next().unwrap() as u32 <= 0xFF, "outside Latin-1");
                     }
                     Output::Hotkey(_) => unreachable!("none registered"),
+                    // Ctrl+Alt+Esc: consumed, but held for the engine.
+                    Output::Escape => escape_held = true,
                 }
+            }
+            if resynced || (usage == ESCAPE_CODE && !rig.engine.held().contains(&usage)) {
+                escape_held = false;
             }
             if resynced {
                 down = [false; 256];
@@ -299,7 +305,9 @@ fn engine_soak_keeps_its_invariants() {
             // Keys the engine thinks are held are those the harness saw go down
             // (consumed hotkeys aside, and there are none here).
             if step % 5000 == 0 {
-                let held: Vec<u16> = (0..256u16).filter(|&u| down[u as usize]).collect();
+                let held: Vec<u16> = (0..256u16)
+                    .filter(|&u| down[u as usize] || (escape_held && u == ESCAPE_CODE))
+                    .collect();
                 assert_eq!(rig.engine.held(), held);
             }
         }

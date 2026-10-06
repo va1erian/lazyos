@@ -1,0 +1,21 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "TERM:UP:PASS", "timeout": 120},
+  {"at": 2.0, "type": "PS1='# '"},
+  {"at": 2.5, "key": "enter"},
+  {"at": 1.0, "type": "confctl set sys/session/mode str graphical"},
+  {"key": "enter", "until": "TERM:OUT:sys/session/mode set", "timeout": 30},
+  {"at": 1.0, "type": "confctl set user/1000/ui/mode str light"},
+  {"key": "enter", "until": "TERM:OUT:user/1000/ui/mode set", "timeout": 30},
+  {"at": 1.0, "type": "confctl set user/0/menu/hidden/os.lazy.paint bool true"},
+  {"key": "enter", "until": "TERM:OUT:user/0/menu/hidden/os.lazy.paint set", "timeout": 30},
+  {"at": 1.0, "type": "confctl set sys/menu/hidden/os.lazy.calc bool true"},
+  {"key": "enter", "until": "TERM:OUT:sys/menu/hidden/os.lazy.calc set", "timeout": 30},
+  {"at": 1.0, "click_at": {"target": "taskbar:start"}, "until": "SHELL:MENU:OPEN", "timeout": 30, "retries": 2},
+  {"at": 1.0, "move_to": {"menu": "Accessories"}, "until": "SHELL:SUBMENU:OPEN category=accessories", "timeout": 30, "retries": 1},
+  {"at": 2.0, "shot": "01_admin_accessories"},
+  {"at": 1.0, "key": "esc"},
+  {"at": 1.0, "type": "sync"},
+  {"at": 0.5, "key": "enter"},
+  {"at": 8.0, "quit": true}
+]

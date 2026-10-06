@@ -74,11 +74,17 @@ pub fn event(interface_id: u64, method: u32, body: Vec<u8>) -> Parcel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShellEvent {
     HotkeyFired(u64),
+    /// The client owning `surface` asks for a grab for `session`; answer
+    /// with [`ShellLink::approve_grant`].
     GrantRequested {
         session: u64,
         kind: u32,
+        surface: u64,
     },
+    /// The reserved escape chord was pressed (any grab is already reverted).
     EscapeChord,
+    /// `surface` holds the keyboard grab now (`None`: nobody does).
+    GrabChanged(Option<u64>),
     /// `surface` now takes keys through an input session.
     SessionOpened(u64),
     /// `surface`'s last input session ended.
@@ -112,7 +118,11 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
             ShellEvent::GrantRequested {
                 session: args.session,
                 kind: args.kind,
+                surface: args.surface,
             }
+        }
+        shell_wire::METHOD_GRABCHANGED => {
+            ShellEvent::GrabChanged(shell_wire::decode_grab_changed_args(body).ok()?.surface)
         }
         shell_wire::METHOD_ESCAPECHORD => ShellEvent::EscapeChord,
         shell_wire::METHOD_SESSIONOPENED => {
@@ -266,6 +276,16 @@ impl ShellLink {
         Ok(shell_wire::decode_register_hotkey_reply(&reply.body)
             .map_err(Error::Parcel)?
             .id)
+    }
+
+    /// Answer a `GrantRequested`: `allow` grants the grab if the session
+    /// still has focus.
+    pub fn approve_grant(&self, session: u64, allow: bool) -> Result<()> {
+        let body =
+            shell_wire::encode_approve_grant_args(&shell_wire::ApproveGrantArgs { session, allow })
+                .map_err(Error::Parcel)?;
+        self.shell_call(shell_wire::METHOD_APPROVEGRANT, body)
+            .map(|_| ())
     }
 
     /// Clamp the cursor to a `width` x `height` screen; it also subscribes this

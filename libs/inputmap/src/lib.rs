@@ -1,6 +1,7 @@
 //! Input policy for `inputd` (`docs/input-plan.md`, layer 2): keymaps,
 //! modifier and lock state, key repeat and hotkey matching, and the pointer
-//! (`docs/usb-hid-plan.md`): one cursor and button state for every device.
+//! (`docs/usb-hid-plan.md`): one cursor and button state for every device;
+//! keyboard grabs and the key-state page a focused session polls (I3).
 //!
 //! Pure `no_std` logic with host tests. It consumes physical key edges (USB
 //! HID usages, page 0x07) and produces logical [`Output`]s: key events with a
@@ -17,7 +18,9 @@ extern crate std;
 mod engine;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod grab;
 pub mod keymap;
+pub mod keystate;
 pub mod keysym;
 pub mod outbox;
 pub mod pointer;
@@ -26,7 +29,8 @@ pub mod router;
 #[cfg(test)]
 mod tests;
 
-pub use engine::{Engine, KeyOut, KeyState, Output, RawKey};
+pub use engine::{Engine, KeyOut, KeyState, Output, RawKey, ESCAPE_CODE, ESCAPE_MODS};
+pub use grab::Grabs;
 pub use keymap::Layout;
 pub use outbox::Outbox;
 pub use pointer::{Pointer, PointerOut, RawPointer};

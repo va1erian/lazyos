@@ -66,7 +66,7 @@ impl LazyOSBackend {
                 self.modifiers.set(Modifiers::NONE);
                 self.release_held_keys(window);
             }
-            InputEvent::Enter(_) | InputEvent::Layout(_) => {}
+            InputEvent::Enter(_) | InputEvent::Layout(_) | InputEvent::Grant { .. } => {}
         }
     }
 

@@ -176,6 +176,18 @@ def build(crash_test: bool = False) -> None:
 REPEAT_HOLD = 2.0
 
 
+def paced_keys(steps: list[dict], pace: float) -> list[dict]:
+    """`steps` with a `pace` wait after every key step not already followed
+    by a wait."""
+    out: list[dict] = []
+    for index, step in enumerate(steps):
+        out.append(step)
+        following = steps[index + 1] if index + 1 < len(steps) else {}
+        if any(k in step for k in ("key", "key_down", "key_up")) and "wait" not in following:
+            out.append({"wait": pace})
+    return out
+
+
 def stretch_repeat_hold(steps: list[dict]) -> None:
     """Lengthen the wait right after `x` goes down to REPEAT_HOLD seconds."""
     for index, step in enumerate(steps):
@@ -230,6 +242,9 @@ def session_script(mouse: bool, pace: float, settle: float, slow: bool, hotplug:
     for step in steps:
         if "wait" in step:
             step["wait"] = max(step["wait"], pace)
+    # The PS/2 script injects unpaced (issue #400), but `usb-kbd` is polled
+    # and queues 16 keycodes: give `usbd` `pace` after every key step.
+    steps = paced_keys(steps, pace)
     stretch_repeat_hold(steps)
     # Wait for the driver too, not only `inputd`, then let the boot settle.
     steps[:0] = [{"wait_for": "USBD:READY", "timeout": 600}, {"wait": settle}]

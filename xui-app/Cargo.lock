@@ -1556,6 +1556,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "inputmap"
+version = "0.1.0"
+
+[[package]]
 name = "interprocess"
 version = "2.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4019,6 +4023,7 @@ dependencies = [
  "deskmenu",
  "devinspect",
  "fhs",
+ "inputmap",
  "lazyshell",
  "libc",
  "libmessenger",

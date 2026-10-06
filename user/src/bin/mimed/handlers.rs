@@ -85,8 +85,8 @@ pub(crate) fn dispatch(
 
 /// Whether the sender is uid 0 and unlabelled (kernel-stamped).
 fn caller_is_root(message: &Message) -> bool {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).is_ok() && cred.uid == 0 && cred.label_id == 0
+    let cred = message.caller();
+    cred.uid == 0 && cred.label_id == 0
 }
 
 /// Frame an encoded reply body as a parcel of `method`.
@@ -150,13 +150,9 @@ pub(crate) fn open_path(
     })
 }
 
-/// The caller's kernel-stamped session, when the credential block is readable.
-/// `mimed` runs as root, so `cred_get` may read the sender; a failure (no
-/// signal today) degrades to publish-only.
+/// The caller's kernel-stamped session.
 fn caller_session(message: &Message) -> Option<u64> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).ok()?;
-    Some(cred.session)
+    Some(message.caller().session)
 }
 
 /// Ask `init` to launch `app` for `path` in the caller's session.

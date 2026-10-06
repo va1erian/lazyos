@@ -8,6 +8,28 @@ pub fn finish_current(code: u64) {
     process::finish(current(), code);
 }
 
+/// Undo a spawn whose child has not run yet: end the child in `slot` and free
+/// its slot at once (issue #446: a child whose credential stamp failed must
+/// never run with the caller's identity). No `SIGCHLD` is posted: the caller
+/// never learned the pid. False when `slot` is not an unfinished child of the
+/// current task.
+pub fn abort_unstarted_child(slot: usize) -> bool {
+    if !is_child(slot) {
+        return false;
+    }
+    let ended = {
+        let mut tasks = TASKS.lock();
+        process::finish_locked(&mut tasks, slot, ABORTED_SPAWN_STATUS).is_some()
+    };
+    // Its descriptors (none yet, but the table exists) close with the reap.
+    close_exited_fds();
+    ended && reap_child_slot(slot).is_some()
+}
+
+/// The exit status [`abort_unstarted_child`] records (as if `SIGKILL`ed); no
+/// one reads it, the slot is reaped at once.
+const ABORTED_SPAWN_STATUS: u64 = 128 + 9;
+
 /// Finish every task that shares the current address space: Linux's
 /// `exit_group`, which ends the *thread group* rather than one thread. Returns
 /// the `clear_child_tid` addresses of threads that had one so the caller can

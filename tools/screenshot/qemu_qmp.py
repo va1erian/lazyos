@@ -182,6 +182,10 @@ class Qmp:
         self.sock: socket.socket | None = None
         # Buttons held through the monitor's `mouse_button` mask (drag & drop).
         self._held_buttons = 0
+        # Least seconds between two calls that carry keys (`send_events`):
+        # 0 under hardware acceleration, `TCG_KEY_INTERVAL` under TCG.
+        self.key_interval = 0.0
+        self._last_key_call = 0.0
         while time.time() < deadline:
             try:
                 self.sock = socket.create_connection((host, port), timeout=2)
@@ -238,13 +242,26 @@ class Qmp:
 
     # ----- input -------------------------------------------------------
     def send_events(self, events: list[dict], device: str | None = None) -> None:
-        """Inject a list of QMP ``InputEvent`` objects."""
-        if not events:
-            return
-        arguments: dict = {"events": events}
-        if device:
-            arguments["device"] = device
-        self.execute("input-send-event", **arguments)
+        """Inject a list of QMP ``InputEvent`` objects.
+
+        Key events are sent in calls that fit QEMU's 16-byte PS/2 queue
+        (:func:`qemu_keys.ps2_batches`), with a pause between calls for the
+        guest to drain it: one oversized call loses its tail inside QEMU.
+        """
+        for index, batch in enumerate(ps2_batches(events)):
+            if index:
+                time.sleep(PS2_DRAIN_SECONDS)
+            if any(event.get("type") == "key" for event in batch):
+                # Under TCG the guest drains the queue slower than QMP
+                # fills it; `key_interval` spaces key calls out there.
+                wait = self._last_key_call + self.key_interval - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                self._last_key_call = time.monotonic()
+            arguments: dict = {"events": batch}
+            if device:
+                arguments["device"] = device
+            self.execute("input-send-event", **arguments)
 
     def type_text(self, text: str, device: str | None = None, delay: float = 0.01) -> None:
         """Type ``text`` using a US keyboard layout.
@@ -369,122 +386,11 @@ class Qmp:
                 pass
 
 
-# ---------------------------------------------------------------------------
-# Keyboard layout (US) -> QKeyCode
-# ---------------------------------------------------------------------------
-
-_SHIFT = "shift"
-
-# Characters that live on the top row unshifted.
-_UNSHIFTED = {
-    "`": "grave_accent", "-": "minus", "=": "equal", "[": "bracket_left",
-    "]": "bracket_right", "\\": "backslash", ";": "semicolon", "'": "apostrophe",
-    ",": "comma", ".": "dot", "/": "slash",
-}
-# Characters that require Shift.
-_SHIFTED = {
-    "~": "grave_accent", "_": "minus", "+": "equal", "{": "bracket_left",
-    "}": "bracket_right", "|": "backslash", ":": "semicolon", '"': "apostrophe",
-    "<": "comma", ">": "dot", "?": "slash",
-    "!": "1", "@": "2", "#": "3", "$": "4", "%": "5",
-    "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
-}
-_NAMED = {
-    "enter": "ret", "return": "ret", "ret": "ret",
-    "esc": "esc", "escape": "esc",
-    "space": "spc", "spc": "spc", "tab": "tab",
-    "backspace": "backspace", "delete": "delete", "del": "delete",
-    "insert": "insert", "home": "home", "end": "end",
-    "pageup": "pgup", "pagedown": "pgdn",
-    "up": "up", "down": "down", "left": "left", "right": "right",
-    "shift": "shift", "ctrl": "ctrl", "control": "ctrl", "alt": "alt",
-    # The Super/Windows/GUI key is QEMU's left "meta" key.
-    "super": "meta_l", "meta": "meta_l", "win": "meta_l", "gui": "meta_l",
-    "capslock": "caps_lock", "menu": "menu",
-    # Right-hand modifiers (AltGr on AZERTY), lock keys and the keypad, for
-    # the input subsystem's scripted checks (docs/input-plan.md).
-    "altgr": "alt_r", "alt_r": "alt_r", "ctrl_r": "ctrl_r", "shift_r": "shift_r",
-    "super_r": "meta_r", "numlock": "num_lock", "scrolllock": "scroll_lock",
-    "print": "print", "pause": "pause",
-    "kp_add": "kp_add", "kp_subtract": "kp_subtract", "kp_multiply": "kp_multiply",
-    "kp_divide": "kp_divide", "kp_decimal": "kp_decimal", "kp_enter": "kp_enter",
-    **{f"kp_{n}": f"kp_{n}" for n in range(10)},
-}
-
-
-def _key_event(qcode: str, down: bool) -> dict:
-    return {"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": qcode}}}
-
-
-def _key_seq(qcode: str, shift: bool) -> list[dict]:
-    events: list[dict] = []
-    if shift:
-        events.append(_key_event(_SHIFT, True))
-    events.append(_key_event(qcode, True))
-    events.append(_key_event(qcode, False))
-    if shift:
-        events.append(_key_event(_SHIFT, False))
-    return events
-
-
-def char_events(ch: str) -> list[dict]:
-    """Return the key events needed to type a single character."""
-    if ch == "\n":
-        return _key_seq("ret", False)
-    if ch == "\t":
-        return _key_seq("tab", False)
-    if ch == " ":
-        return _key_seq("spc", False)
-    if "a" <= ch <= "z" or "0" <= ch <= "9":
-        return _key_seq(ch, False)
-    if "A" <= ch <= "Z":
-        return _key_seq(ch.lower(), True)
-    if ch in _SHIFTED:
-        return _key_seq(_SHIFTED[ch], True)
-    if ch in _UNSHIFTED:
-        return _key_seq(_UNSHIFTED[ch], False)
-    raise ValueError(f"cannot type character {ch!r}")
-
-
-def named_key_events(name: str) -> list[dict]:
-    """Return key events for a named key (e.g. ``enter``, ``esc``, ``f5``)."""
-    lowered = name.lower()
-    if lowered in _NAMED:
-        return _key_seq(_NAMED[lowered], False)
-    if len(name) == 1:
-        return char_events(name)
-    if lowered.startswith("f") and lowered[1:].isdigit() and 1 <= int(lowered[1:]) <= 12:
-        return _key_seq(lowered, False)
-    raise ValueError(f"unknown key name {name!r}")
-
-
-def named_key_down_events(name: str) -> list[dict]:
-    """One press, so the caller can hold the key across later steps."""
-    return [_key_event(_hold_qcode(name), True)]
-
-
-def named_key_up_events(name: str) -> list[dict]:
-    """Release half of :func:`named_key_down_events`."""
-    return [_key_event(_hold_qcode(name), False)]
-
-
-def _hold_qcode(name: str) -> str:
-    """Map a holdable key name to a QKeyCode.
-
-    Only named keys and unshifted characters are supported: a shifted symbol
-    would need the Shift modifier held too, which ``key_down``/``key_up`` do
-    not express.
-    """
-    lowered = name.lower()
-    if lowered in _NAMED:
-        return _NAMED[lowered]
-    if len(name) == 1 and ("a" <= name <= "z" or "0" <= name <= "9"):
-        return name
-    if name in _UNSHIFTED:
-        return _UNSHIFTED[name]
-    if lowered.startswith("f") and lowered[1:].isdigit() and 1 <= int(lowered[1:]) <= 12:
-        return lowered
-    raise ValueError(f"cannot hold key {name!r}")
+# Keyboard events and PS/2 batching live beside this module (qemu_keys.py).
+from qemu_keys import (  # noqa: E402,F401
+    char_events, named_key_down_events, named_key_events, named_key_up_events,
+    PS2_DRAIN_SECONDS, TCG_KEY_INTERVAL, ps2_batches,
+)
 
 
 # ---------------------------------------------------------------------------

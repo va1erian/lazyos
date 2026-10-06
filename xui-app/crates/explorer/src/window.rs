@@ -8,6 +8,7 @@
 //! lives in this struct, not in shared cells.
 
 mod actions;
+mod clipboard;
 mod flash;
 
 use std::cell::Cell;
@@ -39,6 +40,8 @@ const MENU_OPEN: MenuId = MenuId::new(0);
 const MENU_DELETE: MenuId = MenuId::new(1);
 const MENU_PROPERTIES: MenuId = MenuId::new(2);
 const MENU_REFRESH: MenuId = MenuId::new(3);
+const MENU_COPY: MenuId = MenuId::new(4);
+const MENU_PASTE: MenuId = MenuId::new(5);
 
 /// One explorer window's messages.
 #[derive(Clone, Copy)]
@@ -58,6 +61,10 @@ pub enum Msg {
     Delete,
     /// Show the selection's properties.
     Properties,
+    /// Put the selection on the clipboard (Ctrl+C).
+    Copy,
+    /// Copy the clipboard's files into this folder (Ctrl+V).
+    Paste,
     /// The delete confirmation was answered.
     Confirm(TaskDialogAction),
     /// The properties dialog was dismissed.
@@ -143,9 +150,14 @@ impl ExplorerWindow {
             )),
         )?;
         let (view, status) = (view.get(), status.get());
+        // The tiles take the keyboard from the start, so Return, the arrows
+        // and Home work on a revealed item without a click first.
+        ui.focus(view.id());
         let menu = Menu::context(ui)
             .build(|scope| {
                 scope.item(MENU_OPEN, "Open");
+                scope.item(MENU_COPY, "Copy");
+                scope.item(MENU_PASTE, "Paste");
                 scope.item(MENU_DELETE, "Delete");
                 scope.item(MENU_PROPERTIES, "Properties");
                 scope.separator();
@@ -153,9 +165,12 @@ impl ExplorerWindow {
             })
             .on_select(|id| Some(Msg::Menu(id)));
 
-        // Delete / Alt+Enter / F5 are claimed ahead of the focused widget.
+        // Delete / Alt+Enter / F5 / Ctrl+C / Ctrl+V are claimed ahead of the
+        // focused widget.
         ui.on_key(|key, modifiers| match key {
             Key::DELETE => Some(Msg::Delete),
+            Key::C if modifiers.ctrl => Some(Msg::Copy),
+            Key::V if modifiers.ctrl => Some(Msg::Paste),
             Key::F5 => Some(Msg::Refresh),
             Key::RETURN if modifiers.alt => Some(Msg::Properties),
             _ => None,
@@ -228,7 +243,8 @@ impl ExplorerWindow {
         self.update_status();
     }
 
-    /// Tells the shell what this window shows, for drag and drop.
+    /// Tells the shell what this window shows (for drag and drop) and the
+    /// session what it has selected.
     fn publish_view(&self) {
         let paths = |rows: &[usize]| {
             self.listing
@@ -237,12 +253,16 @@ impl ExplorerWindow {
                 .map(|name| self.dir.join(name))
                 .collect::<Vec<PathBuf>>()
         };
+        let selected = paths(&self.selected);
+        self.explorer
+            .session()
+            .selection_changed(&self.dir, &selected);
         self.explorer.publish_view(
             self.window,
             ViewState {
                 dir: self.dir.clone(),
                 view: self.view.id(),
-                selected: paths(&self.selected),
+                selected,
                 previous: paths(&self.previous),
                 proxy: self.proxy.clone(),
             },
@@ -304,6 +324,8 @@ impl ExplorerWindow {
         self.context_item = item;
         let has_item = item.is_some();
         self.menu.set_enabled(MENU_OPEN, has_item);
+        self.menu.set_enabled(MENU_COPY, has_item);
+        self.menu.set_enabled(MENU_PASTE, true);
         self.menu.set_enabled(MENU_DELETE, has_item);
         self.menu.set_enabled(MENU_PROPERTIES, has_item);
         self.menu.set_enabled(MENU_REFRESH, true);
@@ -328,6 +350,10 @@ impl ExplorerWindow {
             if let Some(index) = self.context_item {
                 self.activate(index, ui);
             }
+        } else if id == MENU_COPY {
+            self.copy_selection();
+        } else if id == MENU_PASTE {
+            self.paste(ui);
         } else if id == MENU_DELETE {
             self.begin_delete(ui);
         } else if id == MENU_PROPERTIES {
@@ -377,6 +403,16 @@ impl App for ExplorerWindow {
             Msg::Properties => {
                 if !self.modal_open() {
                     self.show_properties(ui);
+                }
+            }
+            Msg::Copy => {
+                if !self.modal_open() {
+                    self.copy_selection();
+                }
+            }
+            Msg::Paste => {
+                if !self.modal_open() {
+                    self.paste(ui);
                 }
             }
             Msg::Confirm(action) => self.resolve_delete(action, ui),

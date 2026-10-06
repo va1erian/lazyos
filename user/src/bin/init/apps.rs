@@ -15,7 +15,12 @@
 //!   `runner` placeholder `mimed` names for `application/x-elf`.
 //!
 //! The LazyRAD IDE is not here: it is a core package like the other desktop
-//! apps (`LAZYOS_LAZYRAD=1` ships `os.lazy.lazyrad`).
+//! apps (`LAZYOS_LAZYRAD=1` ships `os.lazy.lazyrad`). Neither is Files: its
+//! `reveal` verb (issue #488; `mimed` seeds `os.lazy.files` for it) is in its
+//! package manifest (`xui-app/packages/files/manifest.toml`), which
+//! [`super::installed`] serves with its verbs; a row here would shadow the
+//! package ([`selftest_builtins`] refuses one). `Launch` hands Files the
+//! item's path, and Files opens the folder holding it with the item selected.
 //!
 //! Split out of `init.rs`, which is far past the file-size budget.
 //!

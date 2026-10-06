@@ -25,6 +25,8 @@
 //!   deletes it (`Ext2::reclaim_orphans`). The name is reserved
 //!   ([`hidden`](super::hidden)), so only this module ever creates one.
 //! * Renaming *over* an open file is an implicit unlink of it ([`displace`]).
+//! * A directory holding nothing but parked files is empty to `rmdir`
+//!   ([`rmdir`]), which first moves them to the root of the mount.
 //!
 //! All open descriptions of one file share one [`Inode`], so a rename or unlink
 //! updates every one of them in one place, and the last one out knows it is the
@@ -41,7 +43,7 @@
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 
 use super::vfs::{FsError, Id, Meta, Node, NodeId, Path, StatFs};
@@ -57,6 +59,11 @@ struct Inode {
     /// The file itself, where its filesystem has nodes: reads and writes go
     /// here and never resolve the path again.
     node: Option<Node>,
+    /// Live open descriptions of this file, counted apart from the `Arc`'s
+    /// references: `rmdir` and `displace` hold the inode briefly too, and a
+    /// close racing with them must still see itself as the last description.
+    /// Changed only under the [`OPEN`] lock.
+    descriptions: AtomicUsize,
 }
 
 impl Inode {
@@ -243,6 +250,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
     let mut open = OPEN.lock();
     if let Some(found) = open.iter().find(|inode| *inode.path.lock() == path) {
         if node_id(found) == id {
+            found.descriptions.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::clone(found));
         }
         found.path.lock().clear();
@@ -252,6 +260,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
         path: Mutex::new(path),
         orphan: AtomicBool::new(false),
         node,
+        descriptions: AtomicUsize::new(1),
     });
     open.push(Arc::clone(&inode));
     Ok(inode)
@@ -265,8 +274,10 @@ fn node_id(inode: &Inode) -> Option<NodeId> {
 /// case the inode leaves the registry.
 fn release(inode: &Arc<Inode>) -> bool {
     let mut open = OPEN.lock();
-    // The registry's own reference plus this description's.
-    if Arc::strong_count(inode) > 2 {
+    // Descriptions are counted, not inferred from the `Arc`: a transient
+    // holder (`rmdir`'s parked list, a `Displaced`) must not hide the last
+    // close from this check.
+    if inode.descriptions.fetch_sub(1, Ordering::Relaxed) > 1 {
         return false;
     }
     open.retain(|entry| !Arc::ptr_eq(entry, inode));
@@ -366,6 +377,104 @@ pub(super) fn retarget(from: &str, to: &str) {
             inode.orphan.store(false, Ordering::Relaxed);
         }
     }
+}
+
+/// `rmdir` of `path` (issue #612). On Linux an unlinked-but-open file has no
+/// name left, so its directory is empty and can go; here the file is parked
+/// as a hidden entry *in* that directory. So when the directory holds nothing
+/// but parked files, they move to the root of the directory's mount first,
+/// where they live until their last close (and where an unclean mount's
+/// reclaim still finds them), and the directory is removed. If the removal
+/// fails all the same (permissions, the sticky bit), they move back, so a
+/// refused `rmdir` changes nothing.
+///
+/// A directory with any other entry, or a stray reserved name no open file
+/// owns, is not empty: the backend answers `ENOTEMPTY` as before.
+pub(super) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
+    let dir = Path::parse(path).to_path_string();
+    let parked = parked_in(&dir);
+    let root = if parked.is_empty() {
+        None
+    } else {
+        super::abi_with(|vfs| vfs.mount_point(&dir)).flatten()
+    };
+    let Some(root) = root.filter(|root| *root != dir && only(&dir, &parked)) else {
+        return rmdir_raw(id, &dir);
+    };
+    let mut moved: Vec<(Arc<Inode>, String)> = Vec::new();
+    for inode in parked {
+        let from = inode.path();
+        let to = hidden_name(&alloc::format!("{}/", root.trim_end_matches('/')));
+        if super::abi_rename_raw(Id::ROOT, &from, &to).is_err() {
+            unpark(moved);
+            return rmdir_raw(id, &dir);
+        }
+        *inode.path.lock() = to;
+        moved.push((inode, from));
+    }
+    let result = rmdir_raw(id, &dir);
+    if result.is_err() {
+        unpark(moved);
+    }
+    result
+}
+
+fn rmdir_raw(id: Id, dir: &str) -> Result<(), FsError> {
+    super::abi_with(|vfs| vfs.rmdir(id, dir)).unwrap_or(Err(FsError::NotFound))
+}
+
+/// The unlinked-but-open files parked directly inside `dir`.
+fn parked_in(dir: &str) -> Vec<Arc<Inode>> {
+    OPEN.lock()
+        .iter()
+        .filter(|inode| {
+            inode.orphan.load(Ordering::Relaxed)
+                && inode
+                    .path
+                    .lock()
+                    .rsplit_once('/')
+                    .is_some_and(|(parent, _)| parent == dir || (parent.is_empty() && dir == "/"))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether every entry of `dir` is one of the `parked` files.
+fn only(dir: &str, parked: &[Arc<Inode>]) -> bool {
+    let Ok(entries) = super::abi_readdir(Id::ROOT, dir) else {
+        return false;
+    };
+    let names: Vec<String> = parked
+        .iter()
+        .filter_map(|inode| {
+            inode
+                .path()
+                .rsplit_once('/')
+                .map(|(_, name)| String::from(name))
+        })
+        .collect();
+    entries.iter().all(|entry| names.contains(&entry.name))
+}
+
+/// Undo [`rmdir`]'s moves: each parked file goes back to its old hidden name.
+fn unpark(moved: Vec<(Arc<Inode>, String)>) {
+    for (inode, original) in moved {
+        match super::abi_rename_raw(Id::ROOT, &inode.path(), &original) {
+            Ok(()) => *inode.path.lock() = original,
+            // The file stays valid and reclaimable at its mount-root name; the
+            // refused rmdir just cannot put it back.
+            Err(error) => crate::serial_println!(
+                "openfile: could not restore {original} after a refused rmdir: {error:?}"
+            ),
+        }
+    }
+}
+
+/// Test hook: a transient reference to the open inode named `path`, the way
+/// `rmdir` holds one while it moves parked files (issue #612).
+#[cfg(lazyos_tests)]
+pub fn hold_for_test(path: &str) -> Option<alloc::boxed::Box<dyn core::any::Any>> {
+    find(path).map(|inode| alloc::boxed::Box::new(inode) as alloc::boxed::Box<dyn core::any::Any>)
 }
 
 /// How many files are registered as open; the leak tests assert it returns to

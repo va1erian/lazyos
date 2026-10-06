@@ -39,6 +39,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
+| [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
 | [`sys::init`](#sysinit) | `os.lazy.init.v1` |
 | [`sys::input`](#sysinput) | `os.lazy.input.v1` |
@@ -166,6 +167,7 @@ The hierarchical configuration registry (issue #260).
 | Topic | Payload | Helpers |
 |---|---|---|
 | `system/confd/changed/{path...}` | `Change` | `changed_topic(path)`, `on_changed(path, handler)`, `subscribe_changed(path)`, `publish_changed(path, payload)` |
+| `user/{uid}/confd/changed/{path...}` | `Change` | `user_changed_topic(uid, path)`, `on_user_changed(uid, path, handler)`, `subscribe_user_changed(uid, path)`, `publish_user_changed(uid, path, payload)` |
 
 ## `sys::devd`
 
@@ -253,6 +255,20 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 
 - `LEVEL` = the `Level` variants; `LEVEL_INFO`, `LEVEL_WARN`, `LEVEL_ERROR`
 
+## `sys::files`
+
+Interface `os.lazy.files.v1`, source [`files.rhai`](files.rhai).
+
+Files, the desktop file explorer (`os.lazy.files`, issue #488).
+
+| Function | IDL | About |
+|---|---|---|
+| `new_selection()` | struct `Selection` | a `Selection` at its zero value |
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `session/{session}/selection` | `Selection` | `session_selection_topic(session)`, `on_session_selection(session, handler)`, `subscribe_session_selection(session)`, `publish_session_selection(session, payload)` |
+
 ## `sys::healthd`
 
 Interface `os.lazy.healthd.v1`, source [`healthd.rhai`](healthd.rhai).
@@ -310,15 +326,21 @@ The system input service (`inputd`; `docs/input-plan.md`).
 |---|---|---|
 | `close(session)` | `Close(session: U64) -> ()` | End a session. Only the task that opened it may. |
 | `get_state()` | `GetState() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` | The current layout name, modifier and lock bits (`mods` as in |
+| `request_grant(session, kind)` | `RequestGrant(session: U64, kind: U32) -> ()` | Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which |
+| `release_grant(session)` | `ReleaseGrant(session: U64) -> ()` | Give up the grab (or a pending request) `session` holds. Only its |
+| `ping(session, token)` | `Ping(session: U64, token: U64) -> (token: U64, seq: U64)` | Liveness and freshness for the caller's own `session`: echoes `token` |
 | `key_event(code, sym, mods, state, ts_ns, seq)` | `KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () oneway` | Event: a key changed state. `code` is the physical key, `sym` its |
 | `text_input(utf8)` | `TextInput(utf8: String) -> () oneway` | Event: composed text (UTF-8) for a character-producing press or repeat. |
 | `keyboard_enter(down)` | `KeyboardEnter(down: Array<U32>) -> () oneway` | Event: keyboard focus arrived. `down` lists the physical keys held right |
 | `keyboard_leave()` | `KeyboardLeave() -> () oneway` | Event: keyboard focus left. The client **must release every key** it |
 | `layout_changed(layout)` | `LayoutChanged(layout: String) -> () oneway` | Event: the layout changed (a `confd` write, live). |
+| `grant_changed(kind, active, reason)` | `GrantChanged(kind: U32, active: Bool, reason: U32) -> () oneway` | Event: the session's grab of kind `kind` started (`active`) or ended; |
 
-Not callable from a script (the request transfers a kernel object): `Open`.
+Not callable from a script (the request transfers a kernel object): `Open`, `AttachKeyState`.
 
 - `KEY_STATE` = the `KeyState` variants; `KEY_STATE_DOWN`, `KEY_STATE_UP`, `KEY_STATE_REPEAT`
+- `GRANT_KIND` = the `GrantKind` variants; `GRANT_KIND_NONE`, `GRANT_KIND_KEYBOARD`
+- `GRANT_REASON` = the `GrantReason` variants; `GRANT_REASON_APPROVED`, `GRANT_REASON_DENIED`, `GRANT_REASON_RELEASED`, `GRANT_REASON_FOCUS_LOST`, `GRANT_REASON_ESCAPED`, `GRANT_REASON_CLOSED`
 
 ## `sys::input_shell`
 
@@ -333,18 +355,19 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `unregister_surface(surface)` | `UnregisterSurface(surface: U64) -> ()` | Forget a destroyed surface; its sessions are closed. |
 | `register_hotkey(code, mods)` | `RegisterHotkey(code: U32, mods: U32) -> (id: U64)` | Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/ |
 | `unregister_hotkey(id)` | `UnregisterHotkey(id: U64) -> ()` | Drop a chord. |
-| `approve_grant(session, allow)` | `ApproveGrant(session: U64, allow: Bool) -> ()` | Answer a `GrantRequested`. Keyboard grabs are not implemented yet, so |
+| `approve_grant(session, allow)` | `ApproveGrant(session: U64, allow: Bool) -> ()` | Answer a `GrantRequested`. `allow` starts the grab, provided the |
 | `set_bounds(width, height)` | `SetBounds(width: U32, height: U32) -> ()` | The screen size the cursor is clamped to (each side `1..=16384`, else |
 | `get_pointer()` | `GetPointer() -> (x: I32, y: I32, buttons: U32)` | The cursor position and held `buttons` (as in `PointerEvent`), to seed |
 | `note_focus(surface)` | `NoteFocus(surface: Option<U64>) -> () oneway` | One-way `SetFocus`: the compositor's main loop never waits on `inputd` |
 | `note_surface(surface, owner)` | `NoteSurface(surface: U64, owner: U64) -> () oneway` | One-way `RegisterSurface` (see `NoteFocus`). |
 | `forget_surface(surface)` | `ForgetSurface(surface: U64) -> () oneway` | One-way `UnregisterSurface` (see `NoteFocus`). |
 | `hotkey_fired(id)` | `HotkeyFired(id: U64) -> () oneway` | Shell event: a registered chord was pressed. |
-| `grant_requested(session, kind)` | `GrantRequested(session: U64, kind: U32) -> () oneway` | Shell event: a client asked for a grab (reserved; never sent yet). |
-| `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord was pressed (reserved). |
+| `grant_requested(session, kind, surface)` | `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway` | Shell event: the client owning `surface` asked for a grab of `kind` |
+| `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It |
 | `session_opened(surface)` | `SessionOpened(surface: U64) -> () oneway` | Shell event: `surface` now receives keys through an input session, so |
 | `session_closed(surface)` | `SessionClosed(surface: U64) -> () oneway` | Shell event: the last input session of `surface` ended; legacy key |
 | `pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq)` | `PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () oneway` | Shell event: the pointer changed. One cursor for every pointing device |
+| `grab_changed(surface)` | `GrabChanged(surface: Option<U64>) -> () oneway` | Shell event: `surface` now holds the keyboard grab (absent: nobody |
 
 Not callable from a script (the request transfers a kernel object): `Attach`.
 

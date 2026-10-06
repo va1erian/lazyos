@@ -274,7 +274,109 @@ pub fn syscall_gate() -> Result<(), String> {
     })
 }
 
+/// Whether `slot` holds a task at all (a freed slot holds none).
+fn occupied(slot: usize) -> bool {
+    task::harness::state(slot).is_some()
+}
+
+/// `spawnv`'s stamp of a new child fails closed (issue #446): a refused stamp
+/// ends the child and frees its slot before it can run with the caller's
+/// identity, and the spawn reports the gate's error; an allowed one applies.
+pub fn spawn_stamp_fails_closed() -> Result<(), String> {
+    fresh();
+    let elf = service_suite::minimal_elf();
+    // Without CAP_SETUID the stamp is refused (`approve` would have refused
+    // it first; this is the "cannot happen" case the spawn must survive).
+    credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
+    let child = task::spawn_child("stamp", &elf).map_err(to_string)?;
+    let before = audit::count();
+    let code = process::spawnv::stamp_child(child, Cred::new(1000, 100, 0, 0, 3), None);
+    check!(code == Err(failed(EPERM)), "refused stamp -> {code:?}");
+    check!(
+        !occupied(child),
+        "the child of a refused stamp still exists"
+    );
+    check!(!task::is_child(child), "the refused child is still a child");
+    check!(
+        audit::count() == before + 1,
+        "the refused stamp was not audited"
+    );
+
+    // A widening request is refused too (`-EACCES`), even with the capability.
+    credentials::set(
+        task::current(),
+        Cred::new(1000, 100, credentials::CAP_SETUID, 0, 0),
+    );
+    let child = task::spawn_child("stamp", &elf).map_err(to_string)?;
+    let code = process::spawnv::stamp_child(child, Cred::new(0, 0, 0, 0, 3), None);
+    check!(code == Err(failed(EACCES)), "widening stamp -> {code:?}");
+    check!(
+        !occupied(child),
+        "the child of a widening stamp still exists"
+    );
+
+    // An allowed stamp reaches the child, which keeps running.
+    let wanted = Cred::new(1000, 100, 0, 0, 4);
+    let child = task::spawn_child("stamp", &elf).map_err(to_string)?;
+    check!(
+        process::spawnv::stamp_child(child, wanted, None) == Ok(()),
+        "an allowed stamp failed"
+    );
+    check!(
+        occupied(child) && credentials::of(child) == wanted,
+        "the allowed stamp did not reach the child: {:?}",
+        credentials::of(child)
+    );
+    task::harness::finish(child, 0);
+    check!(
+        task::reap_child_slot(child).is_some(),
+        "reaping the stamped child"
+    );
+    credentials::reset_for_task(task::current());
+    Ok(())
+}
+
+/// Soak: hundreds of spawns whose stamp is refused leak no task slot, no
+/// address-space frame and no credential state.
+pub fn spawn_stamp_failure_soak() -> Result<(), String> {
+    const ROUNDS: usize = 300;
+    fresh();
+    let elf = service_suite::minimal_elf();
+    // Warm up once so lazily built kernel state is not counted as a leak.
+    let warm = task::spawn_child("soak", &elf).map_err(to_string)?;
+    task::harness::finish(warm, 0);
+    task::reap_child_slot(warm);
+    let tasks_before = task::process::process_list().len();
+    let frames_before = mem::frame_stats().free;
+    credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
+    for round in 0..ROUNDS {
+        let child = task::spawn_child("soak", &elf).map_err(to_string)?;
+        let code = process::spawnv::stamp_child(child, Cred::new(1000, 100, 0, 0, 9), None);
+        check!(code.is_err(), "round {round}: a refused stamp succeeded");
+        check!(!occupied(child), "round {round}: slot {child} leaked");
+    }
+    credentials::reset_for_task(task::current());
+    check!(
+        task::process::process_list().len() == tasks_before,
+        "refused spawns leaked task slots"
+    );
+    let frames_after = mem::frame_stats().free;
+    check!(
+        frames_after == frames_before,
+        "refused spawns leaked frames: {frames_before} free before, {frames_after} after"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "ipc_credentials_spawn_stamp_fails_closed",
+        spawn_stamp_fails_closed,
+    ),
+    (
+        "ipc_credentials_spawn_stamp_failure_soak",
+        spawn_stamp_failure_soak,
+    ),
     (
         "ipc_credentials_transition_requires_cap",
         transition_requires_cap,

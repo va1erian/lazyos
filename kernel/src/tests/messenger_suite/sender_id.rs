@@ -19,7 +19,8 @@ const SENDER_BUF: u64 = SPACE + 0x5000;
 /// A pattern `recv` must overwrite (or, without the flag, leave alone).
 const UNTOUCHED: [u8; SenderId::SIZE] = [0xa5; SenderId::SIZE];
 
-/// The sender block the kernel writes for `cred`: no capability bits.
+/// The sender block the kernel writes for `cred`: identity, then the
+/// capability bits (issue #446).
 fn expected(cred: Cred) -> [u8; SenderId::SIZE] {
     let mut bytes = [0u8; SenderId::SIZE];
     let words = [
@@ -27,6 +28,7 @@ fn expected(cred: Cred) -> [u8; SenderId::SIZE] {
         cred.gid as u64,
         cred.label_id as u64,
         cred.session,
+        cred.caps as u64,
     ];
     for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
         chunk.copy_from_slice(&word.to_le_bytes());
@@ -65,9 +67,10 @@ fn recv_with(server: u64, flags: u64, sender_len: u64) -> (u64, MsgResult) {
     syscall(OP_RECV, &args)
 }
 
-/// The block carries the identity at *queue* time, not the sender's current
-/// one, and never its capabilities; a plain `recv` writes nothing there; a
-/// call (not only a one-way message) carries it too.
+/// The block carries the credentials at *queue* time, not the sender's
+/// current ones; a receiver offering only the identity words gets those and
+/// nothing past them; a plain `recv` writes nothing there; a call (not only a
+/// one-way message) carries it too.
 pub fn recv_reports_queue_time_sender() -> Result<(), String> {
     fresh()?;
     let outcome = in_space(|| -> Result<(), String> {
@@ -90,6 +93,18 @@ pub fn recv_reports_queue_time_sender() -> Result<(), String> {
         check!(
             block == expected(caller),
             "sender block {block:02x?} (expected the queue-time identity)"
+        );
+
+        // A pre-#446 receiver's 32-byte block: the identity, no caps.
+        send_note(client, "short")?;
+        let (code, _) = recv_with(server, RECV_SENDER_ID, SenderId::IDENTITY_SIZE as u64);
+        check!(code == 0, "recv with an identity-sized block -> {code:#x}");
+        let block = read_bytes(SENDER_BUF, SenderId::SIZE);
+        let now = expected(Cred::new(2000, 200, 0, 0, 5));
+        check!(
+            block[..SenderId::IDENTITY_SIZE] == now[..SenderId::IDENTITY_SIZE]
+                && block[SenderId::IDENTITY_SIZE..] == UNTOUCHED[SenderId::IDENTITY_SIZE..],
+            "identity-sized block {block:02x?}"
         );
 
         // Without the flag nothing is written to `parcel_ptr`.
@@ -148,7 +163,7 @@ pub fn recv_sender_id_refuses_bad_requests() -> Result<(), String> {
         let (client, server) = (created.value, created.aux);
         send_note(client, "kept")?;
 
-        for short in [0u64, 1, SenderId::SIZE as u64 - 1] {
+        for short in [0u64, 1, SenderId::IDENTITY_SIZE as u64 - 1] {
             let (code, _) = recv_with(server, RECV_SENDER_ID, short);
             check!(code == EINVAL_CODE, "a {short}-byte block -> {code:#x}");
         }
@@ -225,6 +240,57 @@ pub fn sender_id_carries_labels_and_the_kernel() -> Result<(), String> {
             "kernel origin {:?}",
             message.origin
         );
+        Ok(())
+    })();
+    credentials::reset_for_task(task::KERNEL_TASK);
+    outcome
+}
+
+/// Soak (issue #446): the sender's slot is reused by another task between
+/// queueing and delivery. Every message reports the credentials, capability
+/// bits included, of the task that sent it, while the slot (what a
+/// `cred_get` of the sender would read) already names its successor.
+pub fn sender_id_survives_slot_reuse() -> Result<(), String> {
+    const ROUNDS: u32 = 500;
+    const BURST: u32 = 4;
+    fresh()?;
+    let outcome = (|| -> Result<(), String> {
+        let (client, server) = channels::create().map_err(reason)?;
+        let identity = |n: u32| {
+            let caps = n.wrapping_mul(2_654_435_761) & credentials::CAP_ALL;
+            Cred::new(1000 + n % 7, 100 + n % 5, caps, n % 3, u64::from(n))
+        };
+        for round in 0..ROUNDS {
+            for index in 0..BURST {
+                let n = round * BURST + index;
+                credentials::set(task::KERNEL_TASK, identity(n));
+                channels::send(client, &parcel(25, flags::ONE_WAY, "reuse")?).map_err(reason)?;
+                // The sender exits and its slot goes to a new task, which
+                // starts from fresh credentials and is then stamped.
+                credentials::reset_for_task(task::KERNEL_TASK);
+                credentials::set(task::KERNEL_TASK, identity(n + 1_000_000));
+            }
+            for index in 0..BURST {
+                let n = round * BURST + index;
+                let message = channels::try_recv(server)
+                    .map_err(reason)?
+                    .ok_or("a queued message is missing")?;
+                check!(
+                    message.origin == SenderId::of_cred(identity(n))
+                        && message.origin.to_bytes() == expected(identity(n)),
+                    "round {round} message {index}: stale or wrong origin {:?}",
+                    message.origin
+                );
+                check!(
+                    message.origin != SenderId::of(message.sender),
+                    "round {round}: the slot was not reused in this test"
+                );
+            }
+        }
+        for uid in 1000..1007 {
+            let left = quota::usage(uid, Resource::QueueBytes);
+            check!(left == 0, "uid {uid} still charged {left} queued bytes");
+        }
         Ok(())
     })();
     credentials::reset_for_task(task::KERNEL_TASK);

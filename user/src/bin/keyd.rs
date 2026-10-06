@@ -242,9 +242,7 @@ fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::
 /// credential block. An unreadable block is refused rather than guessed: a key
 /// must never end up owned by (or usable by) the wrong uid.
 fn caller_uid(message: &Message) -> messenger::Result<u32> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(|_| Error::Errno(-errno::EACCES))?;
-    Ok(cred.uid)
+    Ok(message.caller().uid)
 }
 
 /// A text field within the accepted length.

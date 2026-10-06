@@ -58,59 +58,77 @@ pub struct BufferTransfer {
 }
 
 /// Who sent a message, stamped by the kernel when the message is *queued*:
-/// the sender's `uid/gid/label_id/session` at that instant. A receiver reads
-/// it from `recv` (`RECV_SENDER_ID`) instead of looking the sender's slot up
-/// later, which needs `CAP_SETUID` and races a slot that exited or was reused.
-/// Capability bits are left out on purpose: authorizing a caller needs who it
-/// is, not what else it may do.
+/// the sender's `uid/gid/label_id/session` and capability bits at that
+/// instant (issue #446). A receiver reads it from `recv` (`RECV_SENDER_ID`)
+/// instead of looking the sender's slot up later, which needs `CAP_SETUID`
+/// and races a slot that exited or was reused. The capability bits let a
+/// service gate a method on what the caller may do (phase 1 of
+/// `docs/security-hardening-plan.md`); a receiver that offers only
+/// [`SenderId::IDENTITY_SIZE`] bytes gets the identity without them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SenderId {
     pub uid: u32,
     pub gid: u32,
     pub label_id: u32,
     pub session: u64,
+    pub caps: u32,
 }
 
 impl SenderId {
-    /// Bytes `recv` writes for [`SenderId::to_bytes`].
-    pub const SIZE: usize = 32;
-    /// The kernel's own posts ([`super::post_from_kernel`]): root, unlabelled.
-    pub const KERNEL: SenderId = SenderId {
-        uid: 0,
-        gid: 0,
-        label_id: 0,
-        session: 0,
-    };
+    /// Bytes `recv` writes for the whole block ([`SenderId::to_bytes`]).
+    pub const SIZE: usize = 40;
+    /// The first four words alone (no capability bits): the block before
+    /// #446, still written to a receiver that offers fewer than
+    /// [`SenderId::SIZE`] bytes.
+    pub const IDENTITY_SIZE: usize = 32;
+    /// The kernel's own posts ([`super::post_from_kernel`]): root, unlabelled,
+    /// every capability.
+    pub const KERNEL: SenderId = SenderId::of_cred(credentials::Cred::ROOT);
 
     /// `slot`'s identity right now.
     pub fn of(slot: usize) -> SenderId {
         Self::of_cred(credentials::of(slot))
     }
 
-    /// The identity part of `cred` (everything but the capability bits).
+    /// The snapshot of `cred`.
     pub const fn of_cred(cred: credentials::Cred) -> SenderId {
         SenderId {
             uid: cred.uid,
             gid: cred.gid,
             label_id: cred.label_id,
             session: cred.session,
+            caps: cred.caps,
         }
     }
 
-    /// The user ABI block: `uid, gid, label_id, session` as little-endian
-    /// `u64` words (`xui-app/src/sys/messenger.rs` mirrors it).
+    /// The user ABI block: `uid, gid, label_id, session, caps` as
+    /// little-endian `u64` words (`user/src/messenger/message.rs` mirrors
+    /// it; `xui-app/src/sys/messenger.rs` reads the identity words).
     pub fn to_bytes(self) -> [u8; Self::SIZE] {
         let words = [
             self.uid as u64,
             self.gid as u64,
             self.label_id as u64,
             self.session,
+            self.caps as u64,
         ];
         let mut bytes = [0u8; Self::SIZE];
         for (chunk, word) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(words) {
             chunk.copy_from_slice(&word.to_le_bytes());
         }
         bytes
+    }
+
+    /// How many bytes of the block a receiver offering `len` bytes gets: all
+    /// of it, the identity words alone, or `None` (too small: `EINVAL`).
+    pub fn block_len(len: u64) -> Option<usize> {
+        if len >= Self::SIZE as u64 {
+            Some(Self::SIZE)
+        } else if len >= Self::IDENTITY_SIZE as u64 {
+            Some(Self::IDENTITY_SIZE)
+        } else {
+            None
+        }
     }
 }
 

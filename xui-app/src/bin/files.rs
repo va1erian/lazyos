@@ -17,13 +17,31 @@
 //! way nothing goes into itself, a clash gets `name (2)`, links stay links,
 //! and an item dropped into its own folder is left alone.
 //!
-//! Serial evidence: `FILES:UP:PASS` after the first frame, `FILES:OPEN:PASS`
+//! Copy and paste (issue #488): Ctrl+C or the context menu's Copy offers the
+//! selection on `clipboardd` as `text/uri-list`, and Ctrl+V or Paste copies
+//! the newest such offer into the window's folder ([`session`]). The current
+//! selection is published on `session/<id>/selection` (`idl/files.midl`).
+//!
+//! Reveal: an argument naming something that is not a folder (what `mimed`'s
+//! `reveal` verb hands Files through `init.Launch`) opens the folder holding
+//! it with that item selected.
+//!
+//! Serial evidence: `FILES:UP:PASS` after the first frame,
+//! `FILES:REVEAL:PASS:<path>` when a reveal selected its item
+//! (`FILES:REVEAL:MISSING:<path>` when the folder does not hold it), the
+//! copy, paste and selection markers of [`session`], `FILES:OPEN:PASS`
 //! when `mimed` accepts a launch, `FILES:OPEN:REJECTED` when no app handles a
 //! file, `FILES:DRAG:PASS:<n>` when a drag of `n` items starts,
 //! `FILES:DROP:PASS:<done>:<failed>` after a drop (`done` counts copied and
 //! moved items), then `FILES:DROP:MOVED:<moved>:COPIED:<copied>:SKIPPED:<n>`,
 //! and `FILES:DROP:FAIL:<code>` when its paste is refused.
 
+// A binary crate root in `src/bin/files.rs` resolves `mod session;` under
+// `src/bin/`, so the path is spelled out.
+#[path = "files/session.rs"]
+mod session;
+
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -139,21 +157,41 @@ fn dropped(explorer: &Explorer, window: WindowId, event: &DropEvent) {
     }
 }
 
-/// The folder to start in: an argument, else the filesystem root `/` (Files
-/// is the way to browse the whole volume, not just a home directory).
-fn start_dir() -> PathBuf {
-    argv::file_arg(std::env::args_os()).unwrap_or_else(|| PathBuf::from("/"))
+/// What the first window shows.
+enum Start {
+    /// A folder: the argument, else the filesystem root `/` (Files is the
+    /// way to browse the whole volume, not just a home directory).
+    Folder(PathBuf),
+    /// The folder holding an item, with the item selected (a reveal).
+    Reveal(PathBuf, OsString),
+}
+
+/// The start from the command line: a folder opens as itself, anything else
+/// (a file, a link, a name that is gone) is revealed in its folder.
+fn start() -> Start {
+    let Some(path) = argv::file_arg(std::env::args_os()) else {
+        return Start::Folder(PathBuf::from("/"));
+    };
+    let is_dir = std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir());
+    match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) if !is_dir => Start::Reveal(dir.to_path_buf(), name.to_owned()),
+        _ => Start::Folder(path),
+    }
 }
 
 fn main() {
     let platform = Rc::new(StdPlatform::new());
-    let start = start_dir();
+    let start = start();
 
     launch::run("FILES", "Files", WINDOW, move |ui, backend| {
         let launcher = ReportingLauncher {
             backend: Rc::clone(backend),
         };
-        let explorer = Explorer::new(platform as Rc<dyn Platform>, Rc::new(launcher));
+        let explorer = Explorer::with_session(
+            platform as Rc<dyn Platform>,
+            Rc::new(launcher),
+            Rc::new(session::LazySession::new()),
+        );
         {
             let explorer = Rc::clone(&explorer);
             backend.on_drag_gesture(move |window, widget, _| gesture(&explorer, window, widget));
@@ -165,6 +203,18 @@ fn main() {
         // Every folder window is resizable; the explorer's tile view re-flows.
         backend.set_size_hints(360, 240, 0, 0);
         backend.on_first_frame(|| println!("FILES:UP:PASS"));
-        Ok(explorer.open_root(ui, start))
+        Ok(match start {
+            Start::Folder(dir) => explorer.open_root(ui, dir),
+            Start::Reveal(dir, name) => {
+                let path = dir.join(&name);
+                let (window, found) = explorer.reveal_root(ui, dir, &name);
+                if found {
+                    println!("FILES:REVEAL:PASS:{}", path.display());
+                } else {
+                    println!("FILES:REVEAL:MISSING:{}", path.display());
+                }
+                window
+            }
+        })
     })
 }

@@ -9,6 +9,7 @@ use crate::input::hid::{Set1Decoder, Step};
 
 mod console;
 mod hid_table;
+mod lost_release;
 mod pointer;
 mod pointer_stress;
 mod ps2_intake;
@@ -93,6 +94,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("input_bus_dead_owner_reclaimed", ring::dead_owner_reclaimed),
     ("input_raw_typematic_suppressed", ring::typematic_suppressed),
+    (
+        "input_raw_stale_repress_releases_first",
+        lost_release::stale_repress_releases_first,
+    ),
+    (
+        "input_raw_stale_boundary_and_normal_release",
+        lost_release::boundary_and_normal_release,
+    ),
+    (
+        "input_raw_stress_lost_releases_balance",
+        lost_release::soak_lost_releases_balance,
+    ),
     ("input_raw_ps2_reaches_bus", syscall::ps2_reaches_bus),
     ("input_raw_capability_gate", syscall::capability_gate),
     (

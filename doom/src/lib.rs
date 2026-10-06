@@ -9,7 +9,9 @@
 //! - [`pixels`]: the engine's XRGB framebuffer to the compositor's RGBA,
 //!   scaled to the window with the aspect ratio kept;
 //! - [`launch`]: the command line, the install directory and the IWAD path;
-//! - [`crc`]: the frame checksum the headless mode reports.
+//! - [`crc`]: the frame checksum the headless mode reports;
+//! - [`session`]: the `inputd` key-state page as the authority on held keys,
+//!   and the keyboard grab taken while the window is maximized (I3).
 //!
 //! The binary (`main.rs`) adds the `DG_*` hooks, the window and the engine.
 
@@ -18,3 +20,4 @@ pub mod keymap;
 pub mod keys;
 pub mod launch;
 pub mod pixels;
+pub mod session;

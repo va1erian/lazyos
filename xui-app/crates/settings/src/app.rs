@@ -34,6 +34,7 @@ use crate::keyboard_page::KeyboardPage;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
+use crate::user_theme::UserTheme;
 use crate::system::System;
 use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
@@ -190,7 +191,9 @@ impl SettingsApp {
         };
 
         let mut app = SettingsApp {
-            store,
+            // A user's theme edits are its own; the administrator's are the
+            // machine default (issue #407).
+            store: UserTheme::scoped(store),
             system,
             title: title.get(),
             frames,

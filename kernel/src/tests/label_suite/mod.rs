@@ -15,6 +15,7 @@ use libmessenger::{Header, Parcel, VERSION};
 mod calls;
 mod identity;
 mod names;
+mod session_topics;
 mod soak;
 
 /// Scratch user address space for the syscall-level tests.
@@ -244,6 +245,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
         names::load_gate_and_revoke,
     ),
     ("label_topic_namespace_and_rules", calls::topic_namespace),
+    (
+        "label_session_topics_own_session_only",
+        session_topics::own_session_only,
+    ),
+    ("label_session_topics_soak", session_topics::session_soak),
     ("label_calls_default_deny", calls::calls_default_deny),
     ("label_denial_audit_and_message", calls::denial_audit),
     (

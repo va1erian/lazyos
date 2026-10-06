@@ -35,6 +35,9 @@ Missing key means the compiled-in default.
 `/tmp/confd`. Falling back to `/tmp` keeps the service `degraded` and the app
 shows a "settings will not survive reboot" banner.
 
+**Per-user theme.** A user other than the administrator may shadow each
+`sys/ui/<name>` with `user/<uid>/ui/<name>` (phase 7).
+
 **Theme.** xuid replaces its color consts (`user/src/bin/xuid/theme.rs`) with a
 `Theme` struct loaded from `sys/ui/*`, re-read on the confd change topic.
 `GetTheme` in `idl/display.midl` reports `mode` and `accent`; the stock-widget
@@ -71,7 +74,8 @@ was `user/src/bin/xuid/menu.rs`).
 4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.
 5. **Sections** (done): Appearance, Windows (full `ColorPanel`), Keyboard, Menu, Hidden apps, Time & Date, About. Hidden apps (issue #509) writes `user/<uid>/menu/hidden/<id>` per app over the machine default `sys/menu/hidden/<id>` (`libs/deskmenu/src/hidden.rs`); LazyShell leaves those apps out of the start menu, and they still launch and open files.
 6. **Polish** (done): animations toggle (`sys/ui/anim` gates `xuid`'s zoom), 12/24-hour and seconds, title contrast.
-7. **Open**: per-user themes (`user/<uid>/...`) need confd topic policy for `user/` paths first; the system-stat dashboards (sysmon, fabricmon) and the Terminal still paint a fixed light palette.
+7. **Per-user theme** (done, issue #407): for a user other than the administrator, every theme key `sys/ui/<name>` (the desktop picture included) may be shadowed by `user/<uid>/ui/<name>` (`uitheme::user_key`); the user key wins when present. Settings edits the user's copy (`settings::user_theme::UserTheme`; the administrator's edits are the machine default, and Reset deletes the user's keys). `xuid` paints the chrome for the uid that runs the shell (`ThemeFeed::follow_user`, from the shell's `Subscribe`) and follows `user/<uid>/confd/changed/ui/#`; LazyShell overlays the same keys. confd announces `user/<uid>/` changes in the kernel's per-uid topic namespace (`kernel/src/ipc/topics/private.rs`: only that uid and root may subscribe).
+8. **Open**: the system-stat dashboards (sysmon, fabricmon) and the Terminal still paint a fixed light palette.
 
 Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
 
@@ -82,11 +86,11 @@ Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTI
 - Host: `cargo test --manifest-path xui-app/Cargo.toml --workspace --lib`, `cargo test -p confd -p uitheme -p timezone`.
 - Persistence: `fs_ext2_confd_store_*` run `confd` over the real ext2 driver (remount, a power cut at every write of a commit, a 120-generation soak with a block-leak check).
 - Kernel: `python tools/test/run.py --accel none`.
-- Visual: `tools/screenshot/examples/xui_settings.json` and `xui_settings_time.json` (zone, 12-hour clock with seconds, set time, light mode title contrast, animations off; serial `SETTINGS:MSG:Time(*)`) sessions; inspect PNGs, `pngstats.py`. `xui_settings_hidden.json` hides Paint, shows the start menu without it, then resets (serial `SETTINGS:MSG:Hidden(*)`).
+- Visual: `tools/screenshot/examples/xui_settings.json` and `xui_settings_time.json` (zone, 12-hour clock with seconds, set time, light mode title contrast, animations off; serial `SETTINGS:MSG:Time(*)`) sessions; inspect PNGs, `pngstats.py`. `xui_settings_hidden.json` hides Paint, shows the start menu without it, then resets (serial `SETTINGS:MSG:Hidden(*)`). Per-user theme: `user_session_setup.json` then `user_session_login.json` on the same desktop image (`LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_UI_PROBE=1`): the admin sets `user/1000/ui/mode` light and hides apps, then a graphical login as `user` shows the light desktop on the dark machine theme (`THEME:USER uid=1000`), Paint (hidden by the admin for itself) in its menu and Calculator hidden by the machine default. `confd_user_topics.json` (`LAZYOS_SERVICES=1`): `user` is refused another uid's topics and receives its own.
 - CI: clippy `-D warnings`, `cargo fmt`, `midlc --check`.
 
 ## Open risks
 
 - xui toolkit is pinned to an external rev; use `Custom` painters instead of bumping it.
-- `sys/` theme is machine-wide; per-user themes need `user/<uid>/` topic coverage.
+- The UI scale (`sys/ui/scale`) stays machine-wide: the compositor fixes it at start-up.
 - No manifest enforcement yet; the app will later need `CAP_SYS_TIME`, `CAP_SYS_ADMIN`, confd write.

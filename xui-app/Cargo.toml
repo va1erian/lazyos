@@ -56,6 +56,9 @@ messenger-generated = { path = "../libs/generated" }
 # The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
 # platform layer supplies its musl transport (`platform::audio`).
 audioclient = { path = "../libs/audioclient" }
+# The key-state page layout an input session polls (`inputmap::keystate`,
+# docs/input-plan.md I3): the same seqlock reader `inputd` writes for.
+inputmap = { path = "../libs/inputmap" }
 # The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
 # already in the dependency graph; a direct edge lets `term.rs` name `kill`.
 libc = "0.2"

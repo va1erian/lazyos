@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 use user::messenger::display::{self, wire};
-use user::messenger::{self, Endpoint};
+use user::messenger::{self, Endpoint, Message};
 
 use super::compositor::Compositor;
 use super::window::{restore, surface_by_id};
@@ -151,11 +151,11 @@ impl Compositor {
     /// Whether `sender` may use the shell-only calls (`ListSurfaces`, the
     /// window-management methods, desktop and panel surfaces): the task that
     /// holds the shell subscription, or a privileged identity.
-    pub(super) fn is_shell_caller(&self, sender: u64) -> bool {
+    pub(super) fn is_shell_caller(&self, message: &Message) -> bool {
         self.shell
             .as_ref()
-            .is_some_and(|shell| shell.task == sender && !shell.dead)
-            || super::protocol::is_privileged(sender)
+            .is_some_and(|shell| shell.task == message.sender && !shell.dead)
+            || super::protocol::is_privileged(message)
     }
 
     /// Drop the subscribers whose endpoint was found closed. Losing the shell

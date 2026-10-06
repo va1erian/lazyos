@@ -20,10 +20,23 @@ impl Compositor {
                 display::key::ALT => self.mods.alt = true,
                 display::key::SUPER => {
                     self.mods.super_key = true;
-                    self.notify_start_menu();
+                    // Under a keyboard grab Super is the grabber's key.
+                    if self.input.grab.is_none() {
+                        self.notify_start_menu();
+                    }
                 }
                 _ => {}
             }
+            return;
+        }
+        // Ctrl+Alt+Esc is the reserved escape chord: `inputd` reverts any
+        // keyboard grab and tells us (`GrabChanged`); it is never ours.
+        if key == display::key::ESCAPE && self.mods.ctrl && self.mods.alt {
+            return;
+        }
+        // A keyboard grab (I3): every chord below belongs to the grabbing
+        // window, which gets its keys from `inputd`, not from here.
+        if self.input.grab.is_some() {
             return;
         }
         if key == display::key::ESCAPE && self.escape_pressed() {
@@ -129,8 +142,9 @@ impl Compositor {
             }
             return;
         }
-        // The release half of the Ctrl+Esc chord is consumed as well.
-        if key == display::key::ESCAPE && self.mods.ctrl {
+        // The release half of the Ctrl+Esc chord is consumed as well, and
+        // under a grab nothing here is ours.
+        if (key == display::key::ESCAPE && self.mods.ctrl) || self.input.grab.is_some() {
             return;
         }
         let key = self.client_key(key);

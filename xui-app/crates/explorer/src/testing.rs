@@ -53,9 +53,20 @@ impl MemPlatform {
         self.insert(path, Kind::Symlink, None)
     }
 
+    /// Adds a regular file to a tree already in use (a test's stand-in for
+    /// a paste writing into the folder).
+    pub fn add_file(&self, path: &Path, size: u64) {
+        self.link(path.to_path_buf(), Kind::File, Some(size));
+    }
+
     /// Adds an entry and ensures a containing directory record for it.
     fn insert(self, path: &str, kind: Kind, size: Option<u64>) -> MemPlatform {
-        let path = PathBuf::from(path);
+        self.link(PathBuf::from(path), kind, size);
+        self
+    }
+
+    /// Links `path` into its parent, creating the parent's record.
+    fn link(&self, path: PathBuf, kind: Kind, size: Option<u64>) {
         {
             let mut inner = self.inner.borrow_mut();
             if kind == Kind::Dir {
@@ -81,7 +92,6 @@ impl MemPlatform {
                 });
             }
         }
-        self
     }
 
     /// Makes `dir`'s `list` fail, as an unreadable folder would.

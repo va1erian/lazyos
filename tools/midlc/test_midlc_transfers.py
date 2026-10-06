@@ -203,6 +203,7 @@ class RepositoryTests(unittest.TestCase):
                 (display, "AttachBuffer"): [("buffer", None)],
                 (display, "AttachBufferSlot"): [("buffer", None)],
                 ("os.lazy.input.v1", "Open"): [("channel", "os.lazy.input.v1")],
+                ("os.lazy.input.v1", "AttachKeyState"): [("buffer", None)],
                 ("os.lazy.input.shell.v1", "Attach"): [("channel", "os.lazy.input.shell.v1")],
                 ("os.lazy.net.nic.v1", "AttachRing"): [("rings", None), ("channel", "os.lazy.net.nic.v1")],
                 ("os.lazy.audio.v1", "AttachRing"): [("rings", None)],
