@@ -108,6 +108,8 @@ jobs:
           FUZZ_CASES: "2000"
       - name: Clippy (ext2fs, tests and fuzz entry point)
         run: cargo clippy -p ext2fs --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: Package store and consent table (every IDL interface has an explanation)
+        run: cargo test -p pkgstore
       - name: Image build modules (layout, manifest diff, 64 MiB guard, create vs update)
         run: cargo test -p build-support-tests
       - name: Clippy (image build modules)

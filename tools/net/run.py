@@ -423,7 +423,9 @@ def main(argv: list[str] | None = None) -> int:
         print("NET:HARNESS:FAIL the interrupt line was armed but the driver saw no interrupt")
         return 1
     else:
-        print(next(line for line in text.splitlines() if line.startswith("NET:IRQ:PASS")))
+        # The marker can follow other serial output on its line (two writers
+        # interleave), so cut the line at the marker rather than require it first.
+        print(text[text.index("NET:IRQ:PASS"):].splitlines()[0])
     if args.services and "NETDRV:CRED uid=902 caps=0x100" not in text:
         print("NET:HARNESS:FAIL netdrv did not run as _net (uid 902) with only CAP_DEV_CLAIM")
         return 1
