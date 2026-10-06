@@ -11,6 +11,7 @@ pub mod pte;
 mod reclaim;
 mod regions;
 pub use reclaim::reclaim_empty_tables;
+use reclaim::free_window_tables;
 pub mod fbwindow;
 pub mod slab;
 mod table_guard;
@@ -46,6 +47,12 @@ pub use regions::{Regions, MAX_REGIONS};
 /// Physical address of the kernel's (boot) PML4, recorded by [`init`]: the
 /// table heap growth maps into, whatever address space is active.
 static KERNEL_PML4: AtomicU64 = AtomicU64::new(0);
+/// The boot PML4 recorded by [`init`]: the kernel half every address space
+/// copies.
+pub(crate) fn boot_table() -> PhysAddr {
+    PhysAddr::new(KERNEL_PML4.load(Ordering::Relaxed))
+}
+
 /// Usable RAM in bytes, as the memory map reported it.
 static USABLE_RAM: AtomicU64 = AtomicU64::new(0);
 

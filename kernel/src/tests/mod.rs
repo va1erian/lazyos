@@ -307,6 +307,8 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::DMA_LIFE,
     dev_suite::DMA_STRESS,
     dev_suite::STRESS,
+    dev_suite::FUZZ,
+    dev_suite::FUZZ_SOAK,
     dev_suite::CAPACITY,
     fs_suite::CASES,
     fsops_suite::CASES,

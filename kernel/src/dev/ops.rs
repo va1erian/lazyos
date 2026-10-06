@@ -26,10 +26,9 @@ use super::{BarKind, BusId};
 const PAGE: u64 = 4096;
 
 /// Userspace virtual range MMIO mappings come from. It lies in the private
-/// user window (`process::layout`), between the `mmap` area and the stack:
-/// unlike the shared-buffer range (`ipc::shared_va`), whose page-table subtree
-/// is one object shared by every address space, a mapping here exists only in
-/// the claimant's own tables.
+/// user window (`process::layout`), between the `mmap` area and the stack, so
+/// a mapping here exists only in the claimant's own tables and a forked child
+/// never inherits it (`mem::cow` skips MMIO leaves).
 pub const MMIO_VA_BASE: u64 = crate::process::layout::MMIO_BASE;
 /// End of the MMIO range (exclusive): 32 GiB of address space.
 pub const MMIO_VA_END: u64 = crate::process::layout::MMIO_END;

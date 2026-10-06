@@ -2,18 +2,24 @@
 
 use super::*;
 
-/// Create a fresh address space: a new PML4 sharing the kernel's entries
-/// (the shared-buffer window and the kernel half, [`USER_PML4_ENTRIES`]..512)
-/// with an empty private user window (`0..USER_PML4_ENTRIES`, see
-/// [`super::layout`]).
+/// Create a fresh address space: a new PML4 sharing the kernel half (entries
+/// above [`SHARED_WINDOW_INDEX`]) with the boot table, and an empty private
+/// user window and shared-buffer window (see [`super::layout`]).
+///
+/// The shared-buffer window is per address space: a task's buffer mappings
+/// live in its own subtree, built on its first mapping and freed by
+/// [`free_user_table`]. Copying the entry from the active table (as an earlier
+/// layout did) would hand a spawned child its parent's subtree, and with it
+/// every buffer the parent had mapped, including a driver's DMA rings.
 pub fn new_user_table() -> Option<PhysAddr> {
     let phys = alloc_zeroed_frame()?;
-    let offset = physical_offset();
-    // Safety: the active table and the new frame are mapped.
+    let boot = boot_table();
+    // Safety: the boot table and the new frame are reachable through the
+    // physical-memory map.
     unsafe {
-        let kernel = active_level_4_table(offset) as *const PageTable as *const u64;
-        let table = phys_to_virt(phys).as_mut_ptr::<u64>();
-        for i in USER_PML4_ENTRIES..512 {
+        let kernel = entry_table(boot);
+        let table = entry_table(phys);
+        for i in SHARED_WINDOW_INDEX + 1..512 {
             core::ptr::write_volatile(table.add(i), core::ptr::read_volatile(kernel.add(i)));
         }
     }
@@ -126,9 +132,10 @@ pub(super) unsafe fn count_leaves(phys: u64, level: u8) -> usize {
 /// (and return to the pool at zero) and page tables are released. Returns how
 /// many frames reached reference count zero.
 ///
-/// Only the private user window (PML4 entries `0..USER_PML4_ENTRIES`) is
-/// walked; the entries above are shared with the kernel's table and must
-/// never be freed. The PML4 frame itself is released too,
+/// The private user window (PML4 entries `0..USER_PML4_ENTRIES`) is walked
+/// and its frames released; the shared-buffer window's page tables are freed
+/// (its leaves belong to the buffer registry); the kernel half is shared with
+/// the boot table and never freed. The PML4 frame itself is released too,
 /// so the caller must ensure no other task still uses `table` (e.g. threads
 /// created with `clone(CLONE_VM)`).
 pub fn free_user_table(table: PhysAddr) -> usize {
@@ -140,6 +147,20 @@ pub fn free_user_table(table: PhysAddr) -> usize {
             let entry = *p4.add(index);
             if entry & PTE_PRESENT != 0 {
                 released += free_table(entry & PTE_ADDR, 3);
+            }
+        }
+        // The shared-buffer window's tables are this address space's own
+        // (`new_user_table`); the boot table's, which no user table names, is
+        // never freed.
+        let window = *p4.add(SHARED_WINDOW_INDEX);
+        let boot = *entry_table(boot_table()).add(SHARED_WINDOW_INDEX);
+        if window & PTE_PRESENT != 0 && window & PTE_ADDR != boot & PTE_ADDR {
+            let stale = free_window_tables(PhysAddr::new(window & PTE_ADDR));
+            if stale > 0 {
+                crate::serial_println!(
+                    "mem: {stale} shared-buffer leaves outlived their mappings in {:#x}",
+                    table.as_u64()
+                );
             }
         }
     }
