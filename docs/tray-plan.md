@@ -152,7 +152,8 @@ interface so an app gets it without being granted `os.lazy.init.v1`'s
 /// in its table) may call; `ESRCH` otherwise.
 interface os.lazy.init.app.v1 {
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
-    /// `Reopen`s queued before the first `Watch` are sent on it at once.
+    /// `Reopen`s queued before the first `Watch` are sent on it at once; a
+    /// `Stop` pending at that moment sends `Quit` with the grace remaining.
     method Watch() -> () = 1
         transfers (events: Channel<os.lazy.init.app.events.v1>);
 }
@@ -202,11 +203,16 @@ autostart = true      # existing: start at login
 resident = true       # new: may run with no window; single instance; always in the tray
 ```
 
-- **Grants and consent.** `pkgstore::rules::compile` turns `resident = true`
-  into the two interfaces a resident app needs, `os.lazy.shell.tray.v1` and
-  `os.lazy.init.app.v1`, so the manifest's `interfaces` list stays about what
-  the app does. The consent screen says "keeps running in the background and
-  shows an icon in the taskbar". A non-resident app that wants a temporary
+- **Grants and consent.** `resident = true` implies the two interfaces a
+  resident app needs, `os.lazy.shell.tray.v1` and `os.lazy.init.app.v1`, so
+  the manifest's `interfaces` list stays about what the app does. They are
+  still requested permissions like any other: `pkgstore` adds them to the
+  permission list `Inspect` returns (each with its row in the explanation
+  table, plus the "keeps running in the background and shows an icon in the
+  taskbar" line), they count toward the 24-entry limit, and
+  `pkgstore::rules::compile` loads them only through `Install`, after the
+  user approved that list. Nothing is granted that the consent screen did
+  not show. A non-resident app that wants a temporary
   icon (a long download) lists `os.lazy.shell.tray.v1` itself.
 - **Single instance.** `init.Launch` of a running resident app in the same
   session starts nothing: it sends `Reopen(args)` on the instance's lifecycle
@@ -223,6 +229,12 @@ resident = true       # new: may run with no window; single instance; always in 
   app, with no per-package override and no "this app is not responding"
   dialog: an app that has not exited by then is killed quietly
   (`INIT:APP:QUIT:TIMEOUT` on serial, a line in the service log).
+  The grace always runs from the `Stop`, never from delivery, so 3 s is a
+  hard ceiling. A `Stop` that reaches an instance before it called `Watch`
+  (Quit on the default item during start-up) is held apart from the
+  `Reopen` queue: if `Watch` registers within the grace, `init` sends
+  `Quit` at once with the time left; if not, the app is killed when the
+  grace ends, the same bounded outcome as an app that ignores `Quit`.
   **`Stop` replies only once every target has exited**, whether it quit on
   its own or was killed after the grace (today's `Stop` sends `SIGKILL` and
   answers at once, while a target parked in the kernel may still be
@@ -458,7 +470,9 @@ demo closes its last window, stays alive and reopens from the icon
 (`TRAYDEMO:REOPEN:PASS`); launching it from the menu again gives
 `existing=true` and a `Reopen`, and a launch during its start-up is
 delivered once it calls `Watch` (`INIT:APP:REOPEN:QUEUED`, then
-`TRAYDEMO:REOPEN:PASS`); `Stop` answers only after the reap
+`TRAYDEMO:REOPEN:PASS`); Quit during start-up reaches the app if it calls `Watch` within the grace
+and kills it at 3 s otherwise; `Inspect` of a resident package lists both
+implied interfaces; `Stop` answers only after the reap
 (`INIT:STOP:DONE` after the exit line); Quit gives `TRAYDEMO:QUIT:PASS` and a clean
 exit, an app ignoring `Quit` is killed after the grace
 (`INIT:APP:QUIT:TIMEOUT`); a crash after start-up is restarted, one at
