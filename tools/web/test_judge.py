@@ -48,6 +48,51 @@ def good_record() -> Record:
     return record
 
 
+FEATURE_SERIAL = f"""\
+open http://example.com/ -> os.lazy.lazyweb (x-scheme-handler/http, topic sys.events.open.os.lazy.lazyweb)
+WEB:DOWNLOAD:START:{sites.DOWNLOAD_NAME}
+WEB:DOWNLOAD:DONE:{sites.DOWNLOAD_NAME}:{len(sites.download_payload())}
+WEB:LAUNCH:{judge.MAILTO_URL}:FAIL
+WEB:LOAD:about:history
+WEB:LOAD:about:downloads
+"""
+
+
+def feature_record() -> Record:
+    record = good_record()
+    record.requests.append(Request("https", "theoldnet.com", "GET", sites.DOWNLOAD_PATH, 200,
+                                   "LazyWeb", "theoldnet.com"))
+    return record
+
+
+class FeatureTests(unittest.TestCase):
+    def test_a_good_run_passes(self) -> None:
+        self.assertEqual(judge.judge_features(FEATURE_SERIAL, feature_record()), [])
+
+    def test_each_missing_marker_fails(self) -> None:
+        for line in FEATURE_SERIAL.splitlines():
+            text = FEATURE_SERIAL.replace(line + "\n", "")
+            self.assertTrue(judge.judge_features(text, feature_record()), f"passed without {line}")
+
+    def test_a_short_download_fails(self) -> None:
+        text = FEATURE_SERIAL.replace(f":{len(sites.download_payload())}", ":1024")
+        self.assertTrue(judge.judge_features(text, feature_record()))
+
+    def test_another_app_for_http_fails(self) -> None:
+        text = FEATURE_SERIAL.replace("-> os.lazy.lazyweb", "-> os.lazy.editor")
+        self.assertTrue(judge.judge_features(text, feature_record()))
+
+    def test_a_download_the_server_never_sent_fails(self) -> None:
+        self.assertTrue(judge.judge_features(FEATURE_SERIAL, good_record()))
+
+    def test_the_session_drives_every_feature(self) -> None:
+        steps = json.dumps(session.script())
+        for marker in ("WEB:DOWNLOAD:DONE:", "WEB:LAUNCH:", "about:history", "about:downloads",
+                       "messengerctl open"):
+            self.assertIn(marker, steps)
+        self.assertNotIn("WEB:DOWNLOAD", json.dumps(session.script(live=True)))
+
+
 class SerialTests(unittest.TestCase):
     def test_a_good_run_passes(self) -> None:
         self.assertEqual(judge.judge_serial(GOOD_SERIAL), [])
@@ -279,6 +324,12 @@ class SitesTests(unittest.TestCase):
         # No certificate names example.com: a verifying client refuses it.
         with self.assertRaises(ssl.SSLCertVerificationError):
             self.get("example.com", "/", tls=True)
+
+    def test_the_download_is_an_attachment(self) -> None:
+        response = self.get("theoldnet.com", sites.DOWNLOAD_PATH, tls=True)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.body, sites.download_payload())
+        self.assertIn("attachment", response.getheader("Content-Disposition", ""))
 
     def test_the_check_script_is_served_to_any_host(self) -> None:
         response = self.get("10.0.2.2", "/check.sh?precheck")

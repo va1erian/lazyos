@@ -200,6 +200,8 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
             assets = judge.page_assets()
             ok = report("SERVERS", f"the page and {len(assets)} resources over HTTPS, SNI "
                         "theoldnet.com", judge.judge_servers(record, assets)) and ok
+            ok = report("FEATURES", "launch by URL, download, history, downloads, mailto",
+                        judge.judge_features(text, record)) and ok
         pictures = shots(out)
         ok = report("SHOTS", ", ".join(p.name for p in pictures), judge.judge_shots(pictures)) and ok
     print("LAZYWEB:HARNESS:" + ("PASS" if ok else "FAIL"))

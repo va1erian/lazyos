@@ -37,6 +37,14 @@ EXAMPLE_HOSTS = ("example.com", "www.example.com")
 OLDNET_HOSTS = ("theoldnet.com", "www.theoldnet.com")
 TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css", ".png": "image/png",
          ".gif": "image/gif", ".jpg": "image/jpeg"}
+#: A file the browser cannot show, served as an attachment: it downloads it.
+DOWNLOAD_PATH = "/files/oldnet-kit.zip"
+DOWNLOAD_NAME = "oldnet-kit.zip"
+
+
+def download_payload() -> bytes:
+    """The download's bytes: 300 KB the judge can check by length."""
+    return bytes(i % 251 for i in range(300 * 1024))
 
 
 @dataclass
@@ -117,6 +125,10 @@ class Handler(BaseHTTPRequestHandler):
         if scheme == "http" and host in OLDNET_HOSTS:
             # Like the real site: plain HTTP only redirects to HTTPS.
             return 301, [("Location", f"https://{host}{self.path}")], b""
+        if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == DOWNLOAD_PATH:
+            return 200, [("Content-Type", "application/zip"),
+                         ("Content-Disposition", f'attachment; filename="{DOWNLOAD_NAME}"')], \
+                download_payload()
         site = ("example.com" if scheme == "http" and host in EXAMPLE_HOSTS
                 else "theoldnet.com" if scheme == "https" and host in OLDNET_HOSTS else None)
         found = fixture(site, self.path, self.server.example_page) if site else None

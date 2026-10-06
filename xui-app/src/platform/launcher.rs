@@ -47,23 +47,62 @@ impl Launcher for LazyLauncher {
         let path = path.to_str().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "path is not valid UTF-8")
         })?;
-        let service = Service::connect(NAME)
-            .map_err(|code| io::Error::other(format!("mimed unavailable (errno {code})")))?;
-        let body = wire::encode_open_args(&wire::OpenArgs {
-            path: path.to_owned(),
-            verb: "open".to_owned(),
-        })
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path too long for mimed"))?;
-        let reply = service
-            .call(wire::INTERFACE_ID, wire::METHOD_OPEN, ERROR_FIELD, body)
-            .map_err(|code| io::Error::other(format!("mimed: errno {code}")))?;
-        match wire::decode_open_reply(&reply.body) {
-            Ok(reply) if reply.launched && !reply.app.is_empty() => Ok(()),
-            _ => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "no application handles this file",
-            )),
-        }
+        open_with_mimed(path, "no application handles this file")
+    }
+}
+
+/// Opens the file at `path` (absolute) with the app registered for its type.
+pub fn open_path(path: &str) -> io::Result<()> {
+    LazyLauncher.open(Path::new(path))
+}
+
+/// Opens `url` in the app registered for its scheme (`https:` in the web
+/// browser, `mailto:` in Mail): `mimed` types it `x-scheme-handler/<scheme>`
+/// and asks `init` to start that app with the URL as its argument.
+pub fn open_url(url: &str) -> io::Result<()> {
+    if !is_acceptable_url(url) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a URL LazyOS can hand on",
+        ));
+    }
+    open_with_mimed(url, "no application handles this kind of link")
+}
+
+/// Whether `url` is a URL `init` takes as a launch argument: a scheme (a
+/// letter, then letters, digits, `+`, `-`, `.`) and `:`, no control
+/// character, and short enough. Spaces are allowed but should be encoded.
+pub fn is_acceptable_url(url: &str) -> bool {
+    let Some((scheme, _)) = url.split_once(':') else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && scheme.len() > 1
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        && url.len() <= MAX_URL_BYTES
+        && !url.chars().any(char::is_control)
+}
+
+/// The longest URL handed on: `init`'s launch argument limit.
+const MAX_URL_BYTES: usize = 1024;
+
+/// `mimed.Open(target, "open")`: guess, resolve and launch. `unhandled` is
+/// the error text when no app takes it.
+fn open_with_mimed(target: &str, unhandled: &str) -> io::Result<()> {
+    let service = Service::connect(NAME)
+        .map_err(|code| io::Error::other(format!("mimed unavailable (errno {code})")))?;
+    let body = wire::encode_open_args(&wire::OpenArgs {
+        path: target.to_owned(),
+        verb: "open".to_owned(),
+    })
+    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path too long for mimed"))?;
+    let reply = service
+        .call(wire::INTERFACE_ID, wire::METHOD_OPEN, ERROR_FIELD, body)
+        .map_err(|code| io::Error::other(format!("mimed: errno {code}")))?;
+    match wire::decode_open_reply(&reply.body) {
+        Ok(reply) if reply.launched && !reply.app.is_empty() => Ok(()),
+        _ => Err(io::Error::new(io::ErrorKind::Unsupported, unhandled)),
     }
 }
 
@@ -77,6 +116,30 @@ mod tests {
         let error = LazyLauncher
             .open(&PathBuf::from("relative.txt"))
             .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn only_urls_init_accepts_are_handed_on() {
+        for url in [
+            "https://example.com/a b",
+            "mailto:me@example.com",
+            "x-y.z+1:rest",
+        ] {
+            assert!(is_acceptable_url(url), "{url}");
+        }
+        let long = format!("https://{}", "a".repeat(MAX_URL_BYTES));
+        for url in [
+            "/tmp/a",
+            "C:\\x",
+            "1ab:c",
+            "no scheme",
+            "https://a/\n",
+            long.as_str(),
+        ] {
+            assert!(!is_acceptable_url(url), "{url}");
+        }
+        let error = open_url("relative").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 

@@ -49,10 +49,10 @@ network, which reaches the internet through the host) and `--tls` (`curl`,
 `pip install ziglang==0.16.0`, then `python tools/xui/build.py`; `run_demo.py`
 runs that when `target/xui/xui-lazyweb.elf` is missing. Open LazyWeb from the
 desktop's menu (Settings -> Menu offers it, like every core package), or from
-the Terminal:
+the Terminal by opening a URL:
 
 ```sh
-$(echo /apps/os.lazy.lazyweb/*/bin/lazyweb.elf) --client http://example.com/ &
+messengerctl open http://example.com/
 ```
 
 By hand: `LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_TLS=1
@@ -62,6 +62,53 @@ The package's permissions (display, input, `netd`'s stack interface and
 outbound sockets) are modelled on Net Tools and still to be derived from a run
 under its label: build with `LAZYOS_LABEL_TRACE=1`, browse, and read the
 `LABEL:DENY` lines ([packages.md](packages.md)).
+
+## The window
+
+* **Menu bar** (Lucide icons, like Mail): File (Open Location, Save Page As
+  Download, Close Window), View (Reload, Stop), History (Back, Forward, Home,
+  Show All History, Clear History), Downloads (Show Downloads), Help (About).
+* **Toolbar**: icon buttons with tooltips for Back, Forward, Reload (which
+  turns into Stop while a page loads) and Home, the address field, Go, and a
+  throbber that spins while a page loads.
+* **Status bar**: the link under the pointer or what the engine is doing, the
+  running downloads with a progress bar, and a padlock: closed over HTTPS,
+  open over plain HTTP.
+* **Keys**: Ctrl+L address bar, Enter go, Esc stop, F5 reload, Alt+Left and
+  Alt+Right back and forward, Alt+Home home, Ctrl+H history, Ctrl+J
+  downloads, Ctrl+S save the page as a download, Ctrl+W close.
+
+## History and downloads
+
+Every page that finishes loading over `http:`, `https:` or `file:` is added to
+`$HOME/.apps/os.lazy.lazyweb/history.tsv` (one `time<TAB>url<TAB>title` line
+each, the newest 1000 kept). `about:history` lists it, newest first, and can
+clear it. LazyWeb's own pages (`about:history`, `about:downloads`,
+`about:lazyweb` and the start page) are built in the browser; their links
+`x-lazyweb:clear-history`, `x-lazyweb:open/N` and `x-lazyweb:cancel/N` act
+only while one of those pages is on show, so a web page cannot use them.
+
+A response NetSurf cannot show, or one sent as an attachment
+(`Content-Disposition: attachment`), is downloaded: saved without a prompt to
+`$HOME/Downloads` (`/tmp` when there is no home), first as `<name>.part`,
+renamed when complete, with ` (1)`, ` (2)` and so on added to a name already
+taken. The status bar shows the progress and `about:downloads` lists every
+download of the session, with a link to open a finished one and to cancel a
+running one. File > Save Page As Download saves the current page the same
+way. Serial evidence: `WEB:DOWNLOAD:START:<name>`,
+`WEB:DOWNLOAD:DONE:<name>:<bytes>`, `WEB:DOWNLOAD:FAIL:<reason>`.
+
+## Links and the rest of the OS
+
+LazyWeb's package registers it with `mimed` for `x-scheme-handler/http`,
+`x-scheme-handler/https` and `text/html`: `mimed` guesses
+`x-scheme-handler/<scheme>` for any URL, and `init` passes a URL to the app
+it launches (a launch argument is an absolute path or a URL). So
+`messengerctl open https://...`, a link in Mail, or a `.html` file in Files
+opens LazyWeb. The other way round, a link LazyWeb cannot follow itself
+(`mailto:` and any scheme NetSurf does not fetch) is handed to `mimed`
+(`WEB:LAUNCH:<url>:OK|FAIL`); Mail registers `x-scheme-handler/mailto` and
+opens its compose window with the address, subject and body of the link.
 
 ## Testing it
 
@@ -77,7 +124,9 @@ The harness serves stand-ins for both sites from the host on their real ports
 over HTTPS whose certificate comes from a throwaway CA the test image trusts),
 points the names at the host through the image's `/etc/hosts`, starts the
 browser at `http://example.com/`, types `https://theoldnet.com/` into the
-address bar, and judges the browser's serial markers (`WEB:UP:PASS`,
+address bar, downloads a file the site sends as an attachment, follows a
+`mailto:` address, opens `about:history` and `about:downloads`, and judges
+the browser's serial markers (`WEB:UP:PASS`,
 `WEB:LOAD:<url>`, `WEB:TITLE:<title>`, never `WEB:FAIL:<reason>`), the requests
 the host's servers saw (Host headers, SNI, every picture: PNG, JPEG, GIF) and
 the screenshots. Details: [tools/web/README.md](../tools/web/README.md).

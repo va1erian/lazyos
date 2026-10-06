@@ -23,6 +23,21 @@ args = ["--client"]
 abi = "linux"
 autostart = false
 
+# Web links other apps open (Mail, Files, the Terminal) come here: `mimed`
+# types `https://...` as `x-scheme-handler/https`, and `init` starts LazyWeb
+# with the URL as its argument. Local HTML files open here too.
+[[mime]]
+type = "x-scheme-handler/http"
+verbs = ["open"]
+
+[[mime]]
+type = "x-scheme-handler/https"
+verbs = ["open"]
+
+[[mime]]
+type = "text/html"
+verbs = ["open"]
+
 [permissions]
 # Provisional, modelled on Net Tools: the window, `netd`'s stack interface
 # (status, `Resolve`) and sockets (plain `std::net`/musl, the `outbound`
@@ -33,5 +48,10 @@ interfaces = [
     "os.lazy.display.v1",
     "os.lazy.input.v1",
     "os.lazy.net.stack.v1",
+    # Links LazyWeb cannot open itself (`mailto:`) and finished downloads go
+    # to their app through `mimed.Open`.
+    "os.lazy.mimed.v1",
 ]
 network = ["outbound"]
+# The history in the app's own folder; downloads in the user's Downloads.
+files = ["write:$HOME/.apps/os.lazy.lazyweb", "write:$HOME/Downloads"]
