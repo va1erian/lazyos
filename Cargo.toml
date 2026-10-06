@@ -187,3 +187,9 @@ codegen-units = 1
 debug = false
 strip = "debuginfo"
 
+# The same artifact-dependency rule as `[profile.dev.build-override]`: without
+# it a release image's kernel and user programs are built at opt-level 0, and
+# the boot console's full-screen repaints take ~150 ms a frame at 2560x1440.
+[profile.release.build-override]
+opt-level = 3
+
