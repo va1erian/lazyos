@@ -28,6 +28,7 @@ show that every one fails when it should):
     intact - and the ones one byte outside them (13 and 1515) are not.
 
     python tools/net/analyze_pcap.py shots/net/net.pcap --min-arp-pairs 42 --expect-probe
+    python tools/net/analyze_pcap.py shots/net/net.pcap --expect-probe --padded   # --nic e1000
 
 Exit status is non-zero on any failure, including a missing, empty or
 truncated capture.
@@ -434,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-frames", type=int, default=1)
     parser.add_argument("--min-dhcp", type=int, default=0, help="complete DHCP exchanges required (stage N2)")
     parser.add_argument("--min-pings", type=int, default=0, help="ICMP echo pairs with the gateway required (stage N2)")
+    parser.add_argument("--padded", action="store_true",
+                        help="the NIC pads short frames to 60 bytes (an e1000 capture, `run.py --nic e1000`)")
     args = parser.parse_args(argv)
     try:
         frames = pcap.read_pcap(args.pcap)
@@ -449,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
         min_frames=args.min_frames,
         min_dhcp=args.min_dhcp,
         min_pings=args.min_pings,
+        padded=args.padded,
     )
     print("\n".join(report.lines))
     return 0 if report.ok else 1

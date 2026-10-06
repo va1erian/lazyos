@@ -94,18 +94,21 @@ pub(super) fn is_system_topic(topic: &str) -> bool {
     topic == "system" || topic.starts_with("system/")
 }
 
-/// The `system/` subtrees a dedicated system uid publishes, and nothing else
-/// (issue #497): the device manager its devices, the NIC driver its link.
-/// Everything else under `system/` stays root's.
-const SYSTEM_SUBTREES: &[(&str, u32)] = &[
-    ("system/devices/", devmatch::DEVD_UID),
-    ("system/net/", netpolicy::NET_UID),
-];
+/// Whether `topic` is one NIC's link topic, `system/net/<nic>/link`: all
+/// the NIC driver publishes. The rest of `system/net/` (the stack's retained
+/// `addr`) is not the driver's to overwrite.
+fn is_nic_link(topic: &str) -> bool {
+    topic
+        .strip_prefix("system/net/")
+        .and_then(|rest| rest.strip_suffix("/link"))
+        .is_some_and(|nic| !nic.is_empty() && !nic.contains('/'))
+}
 
-/// Whether a task of `uid` may publish `topic` under `system/`.
+/// Whether a task of `uid` may publish `topic` under `system/`. Everything
+/// there is root's but what a dedicated system uid owns (issue #497): the
+/// device manager its devices, the NIC driver its link.
 pub(super) fn may_publish_system(topic: &str, uid: u32) -> bool {
     uid == 0
-        || SYSTEM_SUBTREES
-            .iter()
-            .any(|&(prefix, owner)| uid == owner && topic.starts_with(prefix))
+        || (uid == devmatch::DEVD_UID && topic.starts_with("system/devices/"))
+        || (uid == netpolicy::NET_UID && is_nic_link(topic))
 }

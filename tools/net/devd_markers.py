@@ -12,10 +12,15 @@ from __future__ import annotations
 import os
 
 
+def devd_enabled() -> bool:
+    """Whether a supervised build has `devd` (on unless `LAZYOS_DEVD=0`)."""
+    return os.environ.get("LAZYOS_DEVD") != "0"
+
+
 def devd_markers(driver: str) -> tuple[str, ...]:
     """The serial markers for a boot where `devd` starts `driver`; none when
     the build switched `devd` off."""
-    if os.environ.get("LAZYOS_DEVD") == "0":
+    if not devd_enabled():
         return ()
     return (
         "DEVD:CRED uid=906 caps=0x0",
@@ -27,3 +32,14 @@ def devd_markers(driver: str) -> tuple[str, ...]:
 
 #: A `devd` that could not start its driver or died.
 DEVD_FAIL_MARKERS = ("DEVD:FAIL", "DEVD:START:FAIL", "INIT:DRIVER:DENIED")
+
+
+def devd_left_idle(text: str, driver: str) -> bool:
+    """A supervised boot without the device: `devd` came up, and neither it nor
+    `init` started `driver` (so the driver never runs to say `NODEV`)."""
+    return (
+        "DEVD:READY " in text
+        and f"DEVD:START driver={driver} " not in text
+        and f"INIT:DRIVER:START driver={driver} " not in text
+        and not any(marker in text for marker in DEVD_FAIL_MARKERS)
+    )

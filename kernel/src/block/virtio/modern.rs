@@ -61,16 +61,23 @@ pub(super) fn transport(function: pci::Function) -> Result<Transport, &'static s
         let span = reach.get_mut(bar).ok_or("structure in a missing BAR")?;
         *span = (*span).max(end.div_ceil(PAGE) * PAGE);
     }
-    pci::enable_memory(address);
-    pci::enable_bus_master(address);
-    let mut bases = [0u64; 6];
+    // Every BAR is checked before the function decodes memory or masters the
+    // bus, so a function refused here (left to legacy or to nobody) gets
+    // neither from this path.
+    let mut bars = [0u64; 6];
     for (index, &span) in reach.iter().enumerate().filter(|(_, &span)| span > 0) {
         let (base, len) =
             memory_bar(address, index as u8).ok_or("structure outside a memory BAR")?;
         if span > len {
             return Err("structure beyond its BAR");
         }
-        bases[index] = crate::mem::mmio::map_kernel(base, span)?;
+        bars[index] = base;
+    }
+    pci::enable_memory(address);
+    pci::enable_bus_master(address);
+    let mut bases = [0u64; 6];
+    for (index, &span) in reach.iter().enumerate().filter(|(_, &span)| span > 0) {
+        bases[index] = crate::mem::mmio::map_kernel(bars[index], span)?;
     }
     let at = |location: Location| {
         (bases[usize::from(location.bar)] + u64::from(location.offset)) as *mut u8

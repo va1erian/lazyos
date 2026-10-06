@@ -9,11 +9,16 @@ a damaged one, and a 13-byte frame that leaked out padded.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import analyze_pcap  # noqa: E402
+import pcap  # noqa: E402
 from test_analyze_pcap import analyze, probe, reply, request, text  # noqa: E402
 
 
@@ -54,6 +59,15 @@ class PaddedProbe(unittest.TestCase):
                          expect_probe=True, padded=True)
         self.assertFalse(report.ok)
         self.assertIn("13-byte frame reached the wire", text(report))
+
+    def test_the_command_line_judges_a_padded_capture_with_padded(self):
+        frames = self.base + [padded(probe(14)), probe(1514)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "net.pcap"
+            path.write_bytes(pcap.write_pcap(frames))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(analyze_pcap.main([str(path), "--expect-probe", "--padded"]), 0)
+                self.assertEqual(analyze_pcap.main([str(path), "--expect-probe"]), 1)
 
 
 if __name__ == "__main__":

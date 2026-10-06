@@ -36,9 +36,9 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
 
 
 def device_env(args: argparse.Namespace, env: dict) -> None:
-    """The build switches the device options set."""
-    if args.no_devd:
-        env["LAZYOS_DEVD"] = "0"
+    """The build switches the device options set: `LAZYOS_DEVD` either way,
+    so a value inherited from the environment never overrides `--no-devd`."""
+    env["LAZYOS_DEVD"] = "0" if args.no_devd else "1"
 
 
 def sound_args(backend: str, card: str = "virtio") -> list[str]:

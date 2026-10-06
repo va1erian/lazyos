@@ -17,8 +17,9 @@ NICS = ["virtio", "e1000"]
 
 
 def driver_env(cfg: dict) -> dict[str, str]:
-    """`LAZYOS_DEVD=0` when the launcher switched the device manager off."""
-    return {} if cfg.get("devd", True) else {"LAZYOS_DEVD": "0"}
+    """`LAZYOS_DEVD` as the launcher chose it, so an inherited value never
+    overrides the checkbox."""
+    return {"LAZYOS_DEVD": "1" if cfg.get("devd", True) else "0"}
 
 
 def device_flags(cfg: dict) -> list[str]:

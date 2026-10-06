@@ -34,7 +34,7 @@ class DriverChoiceTests(unittest.TestCase):
         self.assertIn("--sound", argv)
         for flag in ("--sound-card", "--nic", "--no-devd"):
             self.assertNotIn(flag, argv)
-        self.assertNotIn("LAZYOS_DEVD", catalog.build_env(advanced()))
+        self.assertEqual(catalog.build_env(advanced()).get("LAZYOS_DEVD"), "1")
 
     def test_the_hda_card_is_passed_with_the_sound_card(self) -> None:
         argv = demo_argv(sound=True, sound_card="hda")

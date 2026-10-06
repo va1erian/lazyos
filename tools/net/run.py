@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402,E501
 
 import analyze_pcap  # noqa: E402
-from devd_markers import DEVD_FAIL_MARKERS, devd_markers  # noqa: E402
+from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
 from harness_io import stop_qemu, wait_for_marker  # noqa: E402
 from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
 import hostpeers  # noqa: E402
@@ -343,9 +343,15 @@ def main(argv: list[str] | None = None) -> int:
         # `init` starts `devd`, which starts the driver (issue #497).
         pass_markers += devd_markers("netdrv")
         fail_markers += DEVD_FAIL_MARKERS
+    # Without a NIC the driver says so; under `devd` it is never started.
+    via_devd = args.services and devd_enabled()
+
+    def no_nic(t: str) -> bool:
+        return devd_left_idle(t, "netdrv") if via_devd else "NETDRV:NODEV" in t
+
     if args.no_device:
         # `netd` must keep running and waiting for a driver that never comes.
-        done = lambda t: "NETDRV:NODEV" in t and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
+        done = lambda t: no_nic(t) and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731
         fail_markers = ()
     elif args.netd:
         def done(t: str) -> bool:
@@ -376,10 +382,11 @@ def main(argv: list[str] | None = None) -> int:
             ftp_server.close()
 
     if args.no_device:
-        ok = "NETDRV:NODEV" in text and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
+        ok = no_nic(text) and "NET:NIC:FAIL" not in text and "NICCTL:FAIL" not in text
         if args.netd:
             ok = ok and "NETD:READY" in text and "NETD:NIC:WAIT" in text and "NETD:FAIL" not in text
-        what = "the driver and netd idled cleanly" if args.netd else "the driver idled cleanly"
+        driver = "devd started no driver" if via_devd else "the driver idled cleanly"
+        what = f"{driver}, netd waited" if args.netd else driver
         print("NET:HARNESS:" + (f"PASS (no device: {what})" if ok else "FAIL"))
         return 0 if ok else 1
 

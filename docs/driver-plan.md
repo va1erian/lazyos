@@ -268,13 +268,13 @@ driver never trusts client lengths.
 arguments: `devd` asks `os.lazy.init.v1.StartDriver(row, device)`. Its topic
 is `system/devices/<id>`; `system/health/<driver>` stays `healthd`'s.
 
-Small service with `CAP_DEV_CLAIM` and list right only: reads the device list,
-matches against a static **driver manifest** (PCI vendor/device/class →
-driver program, uid, restart policy — same shape as `init`'s `MANIFEST`),
-asks `init` to launch the driver, and publishes retained topics
-`system/devices/<id>` (added/claimed/removed, class, state) and
-`system/health/<driver>`. It never touches device memory itself. Hot-plug is
-explicitly not built, but the topic shape supports it.
+It reads the device inventory, matches it against a static **driver
+manifest** (`libs/devmatch`: PCI vendor/device/class → driver row), asks
+`init` to start the driver, and publishes the retained topic
+`system/devices/<id>` (class, state, driver, owner). It never touches device
+memory itself. Hot-plug is explicitly not built, but the topic shape supports
+it. (The original plan gave `devd` `CAP_DEV_CLAIM` and the `list` right and had
+it publish `system/health/<driver>` too; neither was built.)
 
 ### 3.7 Configuration
 

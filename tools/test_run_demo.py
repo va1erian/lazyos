@@ -315,7 +315,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_DEVD"), "0")
         code, launched = self.run_main("--sound", "none")
         self.assertIn("virtio-sound-pci,audiodev=snd0", launched)
-        self.assertNotIn("LAZYOS_DEVD", self.builds[-1])
+        self.assertEqual(self.builds[-1].get("LAZYOS_DEVD"), "1")
 
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):

@@ -39,7 +39,7 @@ from qemu_qmp import (  # noqa: E402
 
 import analyze_wav  # noqa: E402
 sys.path.insert(0, str(ROOT / "tools" / "net"))
-from devd_markers import DEVD_FAIL_MARKERS, devd_markers  # noqa: E402
+from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
 import mixcheck  # noqa: E402
 
 #: What a sound boot plays: `sndd demo=1`'s own self-test tone straight
@@ -257,6 +257,8 @@ def main() -> int:
         pass_markers, fail_markers = MIX_PASS_MARKERS, MIX_FAIL_MARKERS
     else:
         pass_markers, fail_markers = PASS_MARKERS, FAIL_MARKERS
+    # Under `devd` a missing card means `sndd` is never started (no `NODEV`).
+    via_devd = args.services and devd_enabled()
     if args.services and not args.no_device:
         # `init` starts `devd`, which starts the driver (issue #497).
         pass_markers += devd_markers("sndd")
@@ -309,21 +311,32 @@ def main() -> int:
     qmp: Qmp | None = None
     try:
         qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
-        text = wait_for_marker(serial_log, proc, args.timeout, pass_markers, fail_markers)
+        if args.no_device and via_devd:
+            text = wait_for_marker(serial_log, proc, args.timeout, ("DEVD:READY ",), DEVD_FAIL_MARKERS)
+        else:
+            text = wait_for_marker(serial_log, proc, args.timeout, pass_markers, fail_markers)
         time.sleep(1.0)  # let the backend flush the last periods
     finally:
         stop_qemu(proc, qmp)
 
     if args.no_device:
-        ok = "SNDD:NODEV" in text and "SND:PLAY:FAIL" not in text
-        print("SOUND:HARNESS:" + ("PASS (no device: the driver exited cleanly)" if ok else "FAIL"))
+        idle = devd_left_idle(text, "sndd") if via_devd else "SNDD:NODEV" in text
+        ok = idle and "SND:PLAY:FAIL" not in text
+        what = "devd started no driver" if via_devd else "the driver exited cleanly"
+        print("SOUND:HARNESS:" + (f"PASS (no device: {what})" if ok else "FAIL"))
         return 0 if ok else 1
     missing = [marker for marker in pass_markers if marker not in text]
-    if missing:
+    # A failure marker fails the run even when every pass marker also appeared
+    # (`wait_for_marker` only stops early on one; it does not judge).
+    failed = [marker for marker in fail_markers if marker in text]
+    if missing or failed:
         for line in text.splitlines():
             if any(marker in line for marker in fail_markers):
                 print(line)
-        print(f"SOUND:HARNESS:FAIL the guest never reported {', '.join(missing)}")
+        if failed:
+            print(f"SOUND:HARNESS:FAIL the guest reported {', '.join(failed)}")
+        else:
+            print(f"SOUND:HARNESS:FAIL the guest never reported {', '.join(missing)}")
         return 1
     # Interrupts: armed lines must have delivered some; an unroutable line is
     # a legitimate polling-only run and is reported, not failed.
