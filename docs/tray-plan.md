@@ -453,7 +453,7 @@ Sample app `os.lazy.traydemo` from `tools/xui/new_app.py`, gated by
 (`SHELL:TRAY:SET app=<id>`), click reaches the app
 (`TRAYDEMO:ACTIVATE:PASS`), a Lucide and a pixels icon in a screenshot pair,
 a bad icon shows the package icon, app killed -> `SHELL:TRAY:CLEAR` within
-one ping round (about a second), shell killed -> `SHELL:TRAY:RESTORED n=1`; `pngstats`
+one ping round (about a second; `tray.json` allows 2 s), shell killed -> `SHELL:TRAY:RESTORED n=1`; `pngstats`
 checks; no `LABEL:DENY` under the trace.
 
 ### T2 - Menus (S)

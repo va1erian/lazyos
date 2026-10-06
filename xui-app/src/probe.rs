@@ -36,14 +36,18 @@ pub fn widget_line(window: &str, name: &str, x: i32, y: i32, w: i32, h: i32) -> 
     format!("UI:WIDGET x={x} y={y} w={w} h={h} name={name} window={window}")
 }
 
-/// Write `line` to the console device (serial), else to stdout.
+/// Write `line` to the console device (serial), else to stdout, as one
+/// write: `writeln!` sends the text and the newline separately, and another
+/// task's marker landing between the two glued itself onto the line, so the
+/// session could not parse the name (seen in `tray.json`).
 fn emit(line: &str) {
+    let whole = format!("{line}\n");
     let written = std::fs::OpenOptions::new()
         .write(true)
         .open(fhs::dev::CONSOLE)
-        .and_then(|mut device| writeln!(device, "{line}"));
+        .and_then(|mut device| device.write_all(whole.as_bytes()));
     if written.is_err() {
-        println!("{line}");
+        let _ = std::io::stdout().lock().write_all(whole.as_bytes());
     }
 }
 

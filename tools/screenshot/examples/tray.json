@@ -58,7 +58,7 @@
   {"type": "kill -9 ${demo_pid}"},
   {"wait": 0.6},
   {"key": "enter", "until": "INIT:LAUNCH:EXIT app=os.lazy.traydemo", "timeout": 30, "retries": 1},
-  {"wait_for": "SHELL:TRAY:CLEAR app=os.lazy.traydemo why=gone", "timeout": 5},
+  {"wait_for": "SHELL:TRAY:CLEAR app=os.lazy.traydemo why=gone", "timeout": 2, "note": "one ping round (~1 s, liveness.rs PING_TICKS) plus slack"},
   {"wait": 1.0},
   {"shot": "06_app_killed_icon_gone"},
   {"quit": true}
