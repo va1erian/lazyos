@@ -182,7 +182,7 @@ fn the_total_cap_counts_only_installed_assets() {
         write(&root, name, &[0; 16]);
     }
     let tree = collect(&root, SMALL).unwrap();
-    let console = select(&[tree.clone()], false, SMALL).unwrap();
+    let console = select(std::slice::from_ref(&tree), false, SMALL).unwrap();
     assert_eq!(console.len(), 1, "only `all` without the shell");
     assert_eq!(console[0].0, "/system/share/a.bin");
     let err = select(&[tree], true, SMALL).unwrap_err();
