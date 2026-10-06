@@ -106,7 +106,11 @@ journals and `pkgd`'s `pkg.log` in `/logs` (0750 root), installed apps in
 `/apps` and their docs in `/docs/apps`, and a 0700 home per passwd account in
 `/home/<name>` (hidden by the home volume when one is mounted). Nothing new is
 written under `/data`; no regular file sits at the root (docs/filesystem-plan.md
-F3). The volume is written by `libs/ext2fs`, the code the kernel mounts it with
+F3). Binary data (samples, wallpapers, a demo's module files) goes in
+`assets/` with one `path | licence | install | provenance` line per file in
+`assets/manifest.txt` and lands at `/system/share/<path>`; `LAZYOS_ASSETS=<dir>`
+(`run_demo.py --assets DIR`, the GUI's *Asset dirs*) adds a tree of your own
+with the same manifest (`build_support/assets_embed.rs`, issue #454). The volume is written by `libs/ext2fs`, the code the kernel mounts it with
 (`build_support/os_*.rs`); `cargo run -q -p ext2fs --example osread -- target/lazyos.img
 cat /logs/service.log` reads it from the host (`/logs` is root-only in the guest).
 A rebuild **updates the OS volume in place**: installed apps, settings, logs

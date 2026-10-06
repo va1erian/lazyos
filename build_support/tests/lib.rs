@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+#[path = "../assets_embed.rs"]
+mod assets_embed;
 #[path = "../ca_bundle.rs"]
 mod ca_bundle;
 #[path = "../core_packages.rs"]
@@ -35,9 +37,9 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
-#[path = "../wallpapers_embed.rs"]
-mod wallpapers_embed;
 
+#[cfg(test)]
+mod assets_tests;
 #[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]

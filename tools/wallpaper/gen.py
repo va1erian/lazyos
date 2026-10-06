@@ -10,8 +10,8 @@ licence. They are 2560x1440 (the HiDPI screen; LazyShell scales them down on
 a 1280x720 one) JPEGs: a smooth gradient is several megabytes as a PNG.
 
 Needs numpy and Pillow. The outputs are checked in: the image build only
-copies them (build_support/wallpapers_embed.rs), so nobody needs this script
-to build LazyOS.
+copies them (assets/manifest.txt, build_support/assets_embed.rs), so nobody
+needs this script to build LazyOS. A new picture needs a manifest line.
 """
 
 import argparse

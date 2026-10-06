@@ -1,0 +1,26 @@
+# Every file under assets/ and where it came from (issue #454;
+# build_support/assets_embed.rs). One line per file:
+#
+#   <path> | <licence (SPDX)> | <install> | <provenance>
+#
+# install: `all` copies it to /system/share/<path> in every image, `desktop`
+# only in images with the desktop shell, `none` keeps it here only (it is
+# compiled into a program). A file without a line, or a licence that is not
+# free, fails the build. Original LazyOS work carries the project's licence.
+
+fonts/DroidSans.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag android-4.4_r1, unmodified; compiled into xuid and the xui apps (fonts/README.md)
+fonts/DroidSans-Bold.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag android-4.4_r1, unmodified (fonts/README.md)
+fonts/DroidSerif-Regular.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag android-4.4_r1, unmodified (fonts/README.md)
+fonts/JetBrainsMono-Regular.ttf | OFL-1.1 | none | https://github.com/JetBrains/JetBrainsMono, unmodified; compiled into the kernel console and the Terminal (fonts/README.md)
+fonts/LICENSE-Apache-2.0.txt | Apache-2.0 | none | The Apache License 2.0 text, https://www.apache.org/licenses/LICENSE-2.0
+fonts/OFL.txt | OFL-1.1 | none | The SIL Open Font License 1.1 text shipped with JetBrains Mono
+fonts/README.md | GPL-3.0-or-later | none | LazyOS original: the fonts' credits and uses
+
+samples/archiver-sample.7z | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
+samples/archiver-sample.zip | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
+samples/writer-sample.png | GPL-3.0-or-later | all | LazyOS original: LazyWriter's sample picture (#533, docs/xui-writer.md)
+
+wallpapers/Aurora.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py
+wallpapers/Dunes.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py
+wallpapers/LazyOS-Green.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
+wallpapers/LazyOS-Night.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
