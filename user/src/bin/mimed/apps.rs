@@ -13,6 +13,8 @@ use alloc::vec::Vec;
 /// app the image does not ship falls back to the launch event alone.
 const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/plain", "os.lazy.editor", &["open", "edit"]),
+    // `reveal`: Files opens the folder holding the path with the item
+    // selected (issue #488).
     ("text/plain", "os.lazy.files", &["reveal"]),
     // Markdown opens in the Docs renderer, which is zig-built and therefore
     // optional; `edit` stays with the Editor so the file remains editable, and

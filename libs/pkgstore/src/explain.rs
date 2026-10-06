@@ -60,6 +60,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Use the echo test service, which only repeats what it is sent",
     ),
     (
+        "os.lazy.files.v1",
+        LOW,
+        "See which files you have selected in Files",
+    ),
+    (
         "os.lazy.healthd.v1",
         LOW,
         "See whether the system's services are healthy",
@@ -119,8 +124,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         HIGH,
         "Open network connections to other computers",
     ),
-    ("os.lazy.pkgd.v1", HIGH, "Install and remove applications"),
-    (
+    ("os.lazy.pkgd.v1", HIGH, "Install and remove applications"),    (
         "os.lazy.messenger.policy.v1",
         HIGH,
         "Change what other apps are allowed to do",

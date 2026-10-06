@@ -38,6 +38,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::confd`](#sysconfd) | `os.lazy.confd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
+| [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
 | [`sys::init`](#sysinit) | `os.lazy.init.v1` |
 | [`sys::input`](#sysinput) | `os.lazy.input.v1` |
@@ -236,6 +237,20 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 | `new_event()` | struct `Event` | a `Event` at its zero value |
 
 - `LEVEL` = the `Level` variants; `LEVEL_INFO`, `LEVEL_WARN`, `LEVEL_ERROR`
+
+## `sys::files`
+
+Interface `os.lazy.files.v1`, source [`files.rhai`](files.rhai).
+
+Files, the desktop file explorer (`os.lazy.files`, issue #488).
+
+| Function | IDL | About |
+|---|---|---|
+| `new_selection()` | struct `Selection` | a `Selection` at its zero value |
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `session/{session}/selection` | `Selection` | `session_selection_topic(session)`, `on_session_selection(session, handler)`, `subscribe_session_selection(session)`, `publish_session_selection(session, payload)` |
 
 ## `sys::healthd`
 

@@ -131,7 +131,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   offending interface id as `txn_id` (issue #495). Resolving any other name (checked as
   `os.lazy.messenger.names.resolve.v1` with `fnv1a32(name)` as the method, so a
   rule grants one exact name), calling any interface and every other topic
-  segment need an allow rule for the label. Checks run against the *client's*
+  segment need an allow rule for the label. In a per-session topic
+  (`session/<id>/...`, issue #488) the `<id>` segment of a labelled task must
+  be its own kernel-stamped session and is checked as `+`, so the rule a
+  manifest's `session/+/...` compiles to reaches the app's own session only
+  (`topics::policy_segment`). Checks run against the *client's*
   slot when `messengerd` proxies, and before the registry lookup, so a refusal
   reveals nothing about which names exist. Every refusal is audited with the
   label id and a reason (`LABEL_DEFAULT_DENY`, `RESERVED_NAMESPACE`,

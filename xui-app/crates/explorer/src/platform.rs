@@ -8,6 +8,9 @@
 //! target such as LazyOS ports the explorer by implementing these two traits
 //! (plus a [`Backend`](xui_core::backend::Backend)) and nothing else.
 //!
+//! [`Session`] is the optional third seam: the clipboard and the selection
+//! the explorer shares with other apps; [`NoSession`] is its absence.
+//!
 //! Deletion never follows a symlink: [`Platform::remove`] removes the link
 //! itself, and [`Platform::metadata`] reports a symlink as [`Kind::Symlink`]
 //! rather than resolving it.
@@ -129,4 +132,48 @@ pub trait Launcher {
     /// happened. Purely cosmetic and best-effort, so the default does nothing
     /// and nothing may fail or block here.
     fn hint_open_origin(&self, _window: u64, _tile: i32) {}
+}
+
+/// What a paste did: the top-level items copied in, and what failed (with
+/// why). A name already taken in the folder is never overwritten: the copy
+/// gets `name (2)` instead.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Pasted {
+    /// Top-level items copied into the folder.
+    pub copied: usize,
+    /// What could not be copied, with why.
+    pub failed: Vec<(PathBuf, String)>,
+}
+
+/// What the explorer shares with the rest of the user's session: the
+/// clipboard (copy and paste of files) and the current selection.
+///
+/// Every method has a default, so a target with no clipboard or no session
+/// bus still builds: copy and paste then report `Unsupported` in the status
+/// bar and the selection goes nowhere.
+pub trait Session {
+    /// Put `paths` (absolute, in view order) on the session clipboard.
+    fn copy(&self, _paths: &[PathBuf]) -> io::Result<()> {
+        Err(unsupported())
+    }
+
+    /// Copy the files the clipboard holds into folder `dir` (folders
+    /// recursively). `Ok` with nothing copied and nothing failed means the
+    /// clipboard held no files.
+    fn paste_into(&self, _dir: &Path) -> io::Result<Pasted> {
+        Err(unsupported())
+    }
+
+    /// The selection of the window showing `dir` is now `paths` (absolute,
+    /// empty when nothing is selected). Best-effort: nothing may fail here.
+    fn selection_changed(&self, _dir: &Path, _paths: &[PathBuf]) {}
+}
+
+/// The [`Session`] of a target without one.
+pub struct NoSession;
+
+impl Session for NoSession {}
+
+fn unsupported() -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, "no clipboard on this platform")
 }

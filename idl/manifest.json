@@ -515,6 +515,22 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.files.v1",
+    "interface_id": "0x95bb1421ccc6b3e7",
+    "methods": [],
+    "topics": [
+      {
+        "name": "session/+/selection",
+        "source": "session/{session}/selection",
+        "payload": "Selection",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:session/+/selection",
+        "subscribe_permission": "subscribe:session/+/selection"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.healthd.v1",
     "interface_id": "0xd022082ef0aaed78",
     "methods": [

@@ -42,3 +42,6 @@ interfaces = [
     "os.lazy.input.v1",
     "os.lazy.mimed.v1",
 ]
+# The current selection, on the session topic `idl/files.midl` declares
+# (issue #488). The kernel lets an app reach only its own session there.
+topics = ["publish:session/+/selection"]

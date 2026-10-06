@@ -4969,6 +4969,127 @@ pub mod os_lazy_echo_v1 {
     }
 }
 
+/// `os.lazy.files.v1` (interface id `0x95bb1421ccc6b3e7`).
+#[rustfmt::skip]
+pub mod os_lazy_files_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x95bb1421ccc6b3e7;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.files.v1";
+
+    /// One folder window's selection.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Selection {
+        pub folder: alloc::string::String,
+        pub paths: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_selection(value: &Selection) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.folder)?;
+        let mut nested = Encoder::new();
+        for item in &value.paths {
+            nested.string(1, item)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_selection(body: &[u8]) -> Result<Selection, Error> {
+        let mut out = Selection::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.folder = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.paths.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
+    /// The folder the window shows, as an absolute path.
+    /// The selected items, as absolute paths in view order; empty when
+    /// nothing is selected.
+    /// Published whenever the selection of a Files window changes (and when
+    /// a window opens or gains a new listing), retained so a late subscriber
+    /// learns the current selection at once.
+    /// The declared `session/+/selection` topic (`Selection`, `latest`, retained).
+    pub const TOPIC_SESSION_SELECTION: &str = "session/+/selection";
+    /// The `session/+/selection` delivery policy.
+    pub const TOPIC_SESSION_SELECTION_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `session/+/selection` publishes are retained.
+    pub const TOPIC_SESSION_SELECTION_RETAINED: bool = true;
+
+    /// Build the concrete `session/+/selection` name; each wildcard takes one literal segment.
+    pub fn name_session_selection(session: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Publish)
+    }
+
+    /// Encode a `Selection` payload for `session/+/selection`.
+    pub fn encode_session_selection(value: &Selection) -> Result<Vec<u8>, Error> {
+        encode_selection(value)
+    }
+
+    /// Decode a `session/+/selection` payload; malformed bytes are an error.
+    pub fn decode_session_selection(body: &[u8]) -> Result<Selection, Error> {
+        decode_selection(body)
+    }
+
+    /// Publish a typed `Selection` on `session/+/selection`.
+    pub fn publish_session_selection<P>(publisher: &mut P, session: &str, value: &Selection) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_session_selection(session).map_err(P::Error::from)?;
+        let payload = encode_session_selection(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SESSION_SELECTION_RETAINED)
+    }
+
+    /// Subscribe to `session/+/selection` with its declared QoS.
+    pub fn subscribe_session_selection<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SESSION_SELECTION_QOS)
+    }
+}
+
 /// `os.lazy.healthd.v1` (interface id `0xd022082ef0aaed78`).
 #[rustfmt::skip]
 pub mod os_lazy_healthd_v1 {
@@ -14813,6 +14934,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/confd/changed/#",
         subscribe_permission: "subscribe:system/confd/changed/#",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.files.v1",
+        name: "session/+/selection",
+        payload: "Selection",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:session/+/selection",
+        subscribe_permission: "subscribe:session/+/selection",
     },
     topics::TopicDecl {
         interface: "os.lazy.healthd.v1",

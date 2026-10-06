@@ -882,6 +882,29 @@ pub static INTERFACES: &[Interface] = &[
         topics: &[],
     },
     Interface {
+        name: "os.lazy.files.v1",
+        id: 0x95bb1421ccc6b3e7,
+        doc: "Files, the desktop file explorer (`os.lazy.files`, issue #488).\n\nFiles serves no methods: what it shares with the rest of the session is\nthe selection of its focused folder window, so another app (the Editor, a\nscript) can act on \"what the user picked\" without asking Files. Copy and\npaste go through `os.lazy.clipboard.v1` as `text/uri-list`, and the\n`reveal` verb reaches Files through `mimed.Open` and `init.Launch` with\nthe item's path as the argument.\n\nThe topic is per session: an installed app may publish or subscribe only\nunder its own kernel-stamped session, never another's.",
+        methods: &[],
+        structs: &[
+            Struct {
+                name: "Selection",
+                doc: "One folder window's selection.",
+                fields: &[Field { name: "folder", id: 1, ty: Ty::String }, Field { name: "paths", id: 2, ty: Ty::Array(&Ty::String) }],
+            },
+        ],
+        enums: &[],
+        topics: &[
+            Topic {
+                pattern: "session/+/selection",
+                payload: "Selection",
+                qos: 0,
+                retained: true,
+                doc: "The folder the window shows, as an absolute path.\nThe selected items, as absolute paths in view order; empty when\nnothing is selected.\nPublished whenever the selection of a Files window changes (and when\na window opens or gains a new listing), retained so a late subscriber\nlearns the current selection at once.",
+            },
+        ],
+    },
+    Interface {
         name: "os.lazy.healthd.v1",
         id: 0xd022082ef0aaed78,
         doc: "The service health aggregator (issue #93): retained health rows, a\nheartbeat channel and the aggregate snapshot.\n\nBoth methods answer with the same snapshot shape (the aggregate `summary`\nfirst, then one retained row per service). A service publishes a heartbeat\nwith `Report`; `Status` only reads. Failures are returned as a structured\nerror field (errno-style code, friendly text), not as a typed reply.",

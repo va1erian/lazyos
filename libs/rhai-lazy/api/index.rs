@@ -49,6 +49,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "files",
+        interface: "os.lazy.files.v1",
+        source: include_str!("files.rhai"),
+        topics: &[ApiTopic { helper: "session_selection", pattern: "session/+/selection" }],
+    },
+    ApiModule {
         alias: "healthd",
         interface: "os.lazy.healthd.v1",
         source: include_str!("healthd.rhai"),
