@@ -100,22 +100,36 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
 /// bounded at 4096 bytes; the program path and fixed args need room).
 pub(super) const MAX_LAUNCH_PATH: usize = 1024;
 
-/// Validate the request's `args`: empty (no argument) or one absolute path,
-/// starting with `/`, at most [`MAX_LAUNCH_PATH`] bytes, with no NUL or other
-/// control character. The path becomes exactly one `argv` item after the
-/// app's fixed arguments (`spawnv` splits nothing), so spaces and quotes are
-/// kept and there is no way to smuggle a second argument.
+/// Validate the request's `args`: empty (no argument), one absolute path
+/// (starting with `/`) or one URL (`scheme:...`, a scheme being a letter then
+/// letters, digits, `+`, `-` or `.`), at most [`MAX_LAUNCH_PATH`] bytes, with
+/// no NUL or other control character. A URL is how `mimed` hands a link to
+/// the app registered for its scheme (`x-scheme-handler/https`). The argument
+/// becomes exactly one `argv` item after the app's fixed arguments (`spawnv`
+/// splits nothing), so spaces and quotes are kept and there is no way to
+/// smuggle a second argument.
 pub(super) fn launch_argument(args: &str) -> messenger::Result<Option<String>> {
     if args.is_empty() {
         return Ok(None);
     }
     let valid = args.len() <= MAX_LAUNCH_PATH
-        && args.starts_with('/')
+        && (args.starts_with('/') || has_url_scheme(args))
         && !args.chars().any(char::is_control);
     if !valid {
         return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
     }
     Ok(Some(args.to_string()))
+}
+
+/// Whether `text` starts with a URL scheme and its `:`. A scheme starts with
+/// a letter, so a URL can never read as a `-flag`.
+fn has_url_scheme(text: &str) -> bool {
+    let Some((scheme, _)) = text.split_once(':') else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
 }
 
 /// Launch an app as a supervised child of this task (issue #158).

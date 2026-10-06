@@ -26,6 +26,10 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("SRC.TAR.GZ", "application/gzip"),
         ("PHOTOS.7Z", "application/x-7z-compressed"),
         ("DATA.BIN", mime::FALLBACK_MIME),
+        ("https://example.com/a.zip", "x-scheme-handler/https"),
+        ("HTTP://example.com/", "x-scheme-handler/http"),
+        ("mailto:me@example.com", "x-scheme-handler/mailto"),
+        ("file:///docs/index.html", "text/html"),
     ] {
         let got = db.guess(path);
         if got == expected {

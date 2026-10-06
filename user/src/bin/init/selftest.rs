@@ -141,13 +141,24 @@ pub(super) fn selftest_launch_cap() {
     }
 }
 
-/// The launch-argument self-test: `Launch`'s `args` is one absolute path,
+/// The launch-argument self-test: `Launch`'s `args` is one absolute path or
+/// one URL,
 /// passed through as a single `argv` item (spaces and quotes included, since
 /// `spawnv` splits nothing), and anything else is refused with `-EINVAL`.
 /// Prints `INIT:LAUNCH:ARGS:PASS`.
 pub(super) fn selftest_launch_args() {
     let long = format!("/{}", "a".repeat(MAX_LAUNCH_PATH));
-    let bad = ["relative.txt", "-flag", "/a\0b", "/a\nb", long.as_str()];
+    let bad = [
+        "relative.txt",
+        "-flag",
+        "/a\0b",
+        "/a\nb",
+        long.as_str(),
+        "1http://x/",
+        "ht tp://x/",
+        "https://x/\n",
+        ":nothing",
+    ];
     let refused = bad.iter().all(|arg| {
         matches!(
             launch_argument(arg),
@@ -158,12 +169,13 @@ pub(super) fn selftest_launch_args() {
     let plain = one_item("/u/a.txt");
     let spaced = one_item("/u/my file.txt") && one_item("/u/say \"hi\".txt");
     let empty = matches!(launch_argument(""), Ok(None));
+    let urls = one_item("https://example.com/a?b=c d") && one_item("mailto:me@example.com");
     // The row's `argv` keeps the spaced path as one item after the fixed args.
     let whole = find_app("installer").is_none_or(|app| {
         let row = Service::from_app(app, Some(String::from("/a b/c d.txt")), SysCred::default());
         argv(&row, 0)[1..] == ["--client", "/a b/c d.txt", "attempt=1"]
     });
-    if refused && plain && spaced && empty && whole {
+    if refused && plain && spaced && empty && urls && whole {
         sys::write_str("INIT:LAUNCH:ARGS:PASS\n");
     } else {
         sys::write_str("INIT:LAUNCH:ARGS:FAIL argument validation broke\n");

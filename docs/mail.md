@@ -36,7 +36,13 @@ journal: WAL needs shared file mappings, which LazyOS does not have yet.
 - Accounts with a password over implicit TLS (IMAPS 993, SMTPS 465) or
   STARTTLS. OAuth sign-in (Gmail, Outlook) needs a browser and is not offered.
 - Folders, paged headers, reading, reply and new messages, Get mail.
-- Remote images are not loaded and links are not followed.
+- Remote images are not loaded. A clicked link is handed to `mimed`
+  (`MAIL:LINK:OPEN`), so `http:` and `https:` links open in LazyWeb; a
+  `mailto:` link opens a new message here.
+- Mail registers `x-scheme-handler/mailto`, so a `mailto:` link in LazyWeb,
+  or `sys::mimed::open("mailto:someone@example.com?subject=Hi", "open")` from
+  a `rhai` script, opens the compose window with the address, subject and
+  body filled in.
 - The password field is masked (xui's `Edit::password`) and its text cannot
   be copied or cut.
 - The reading pane is litehtml for now; NetSurf (`xui-netsurf`) is the planned

@@ -35,6 +35,11 @@ pub fn normalize(text: &str) -> Option<String> {
     Some(format!("http://{text}{slash}"))
 }
 
+/// Whether `url` is fetched over the network (`http:` or `https:`).
+pub fn is_network(url: &str) -> bool {
+    has_prefix(url, &["http://", "https://"])
+}
+
 fn has_prefix(text: &str, prefixes: &[&str]) -> bool {
     prefixes.iter().any(|p| {
         text.get(..p.len())
@@ -100,6 +105,12 @@ mod tests {
             normalize("/tmp/page.html").unwrap(),
             "file:///tmp/page.html"
         );
+    }
+
+    #[test]
+    fn network_urls() {
+        assert!(is_network("HTTPS://x/") && is_network("http://x/"));
+        assert!(!is_network("file:///x") && !is_network("data:,x") && !is_network("http"));
     }
 
     #[test]

@@ -12,12 +12,14 @@ of every check avoids keystrokes lost on a busy TCG guest.
 
 * **desktop** (the full run): the checks in the Terminal (their output sent
   to `/dev/console`, since the Terminal reports only a command's first line on
-  serial), then LazyWeb started from the Terminal at http://example.com/ (its
-  installed package, `init.Launch` cannot pass a URL: its argument must be an
-  absolute path) and, once that page reports its title, **Ctrl+L** to reach
-  the address field, `https://theoldnet.com/` and Enter. Ctrl+L is assumed,
-  like every desktop browser's "focus the address bar"; the browser's window
-  is assumed to take the focus when it opens.
+  serial), then `rhai /tmp/open.rhai http://example.com/` (a script the
+  check script writes: `sys::mimed::open`), which has `mimed` pick LazyWeb
+  for `x-scheme-handler/http` and `init` launch it with the URL.
+  Once that page reports its title, **Ctrl+L** reaches the address field for
+  `https://theoldnet.com/`; then the same for the site's download (saved to
+  ~/Downloads) and a `mailto:` link handed back to the OS, **Ctrl+H** for
+  the history page and **Ctrl+J** for the downloads page. The browser's
+  window is assumed to take the focus when it opens.
 * **console** (`run.py --precheck-only`): the checks alone on a console
   image, which needs no browser: a test of the harness itself.
 
@@ -42,7 +44,11 @@ SCRIPT_PATH = "/lazyweb-check.sh"
 #: The host as the guest sees it on QEMU's user network.
 GATEWAY = "10.0.2.2"
 TYPE_DELAY = 0.05
-APP = "/apps/os.lazy.lazyweb/*/bin/lazyweb.elf"
+#: Opens its argument through `mimed`, as any app or script would, and prints
+#: `OPEN:<mime>:<app>`. (`messengerctl` is interactive and reads the console,
+#: so it cannot be given a command from the Terminal.)
+OPEN_SCRIPT = "/tmp/open.rhai"
+OPENER = 'let r = sys::mimed::open(os::args()[0], "open"); print("OPEN:" + r.mime + ":" + r.app)'
 HELPER = 'ok() { if grep -q "$1"; then echo $m:$2:PASS; else echo $m:$2:FAIL; fi; }'
 
 
@@ -68,7 +74,8 @@ def checks(live: bool = False) -> list[tuple[str, str]]:
 
 def body(items: list[tuple[str, str]]) -> bytes:
     """The check script the guest downloads and runs."""
-    lines = ["echo WEBH:started", "m=WEBH", HELPER, *(command for _, command in items), "echo $m:done"]
+    lines = ["echo WEBH:started", "m=WEBH", HELPER, f"echo '{OPENER}' > {OPEN_SCRIPT}",
+             *(command for _, command in items), "echo $m:done"]
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -91,24 +98,56 @@ def _title(title: str | None) -> dict:
     return {"wait_for": f"WEB:TITLE:{title}"}
 
 
+def _address(url: str, until: str, step_timeout: float) -> list[dict]:
+    """Ctrl+L, `url`, Enter, until `until` is on serial."""
+    return [{"key_down": "ctrl"}, {"key": "l"}, {"key_up": "ctrl"},
+            {"wait": 1.0},
+            {"type": url, "delay": TYPE_DELAY},
+            {"key": "enter", "until": until, "timeout": step_timeout}]
+
+
+def _shortcut(key: str, until: str, step_timeout: float) -> list[dict]:
+    """Ctrl+`key`, until `until` is on serial."""
+    return [{"key_down": "ctrl"}, {"key": key, "until": until, "timeout": step_timeout},
+            {"key_up": "ctrl"}]
+
+
 def _browser_steps(step_timeout: float, title: str | None) -> list[dict]:
+    opener = f"rhai {OPEN_SCRIPT} {judge.EXAMPLE_URL} >/dev/console 2>&1"
     return [
-        {"at": 1.0, "type": f"P=$(echo {APP})", "delay": TYPE_DELAY, "phase": "app"},
-        {"key": "enter", "until": f"TERM:CMD:P=$(echo {APP})", "timeout": 30, "retries": 2},
-        {"at": 1.0, "type": f"$P --client {judge.EXAMPLE_URL} >/dev/console 2>&1 &",
-         "delay": TYPE_DELAY},
+        {"at": 1.0, "type": opener, "delay": TYPE_DELAY, "phase": "app"},
         {"key": "enter", "until": "WEB:UP:PASS", "timeout": step_timeout},
         {"wait_for": f"WEB:LOAD:{judge.EXAMPLE_URL}", "timeout": step_timeout},
         {"wait_for": f"WEB:TITLE:{judge.EXAMPLE_TITLE}", "timeout": step_timeout},
         {"at": 5.0, "shot": "01_example"},
-        {"key_down": "ctrl"}, {"key": "l"}, {"key_up": "ctrl"},
-        {"wait": 1.0},
-        {"type": judge.OLDNET_URL, "delay": TYPE_DELAY},
-        {"key": "enter", "until": f"WEB:LOAD:{judge.OLDNET_URL}", "timeout": step_timeout},
+        *_address(judge.OLDNET_URL, f"WEB:LOAD:{judge.OLDNET_URL}", step_timeout),
         {**_title(title), "timeout": step_timeout},
         # Time for the pictures, then a second look (the animated GIF moves).
         {"at": 10.0, "shot": "02_theoldnet"},
         {"at": 2.0, "shot": "03_theoldnet_later"},
+    ]
+
+
+def _feature_steps(step_timeout: float) -> list[dict]:
+    """The download, a `mailto:` link, the history and downloads pages."""
+    download = f"https://theoldnet.com{judge.DOWNLOAD_PATH}"
+    return [
+        *_address(download, "WEB:DOWNLOAD:START:", step_timeout),
+        {"wait_for": "WEB:DOWNLOAD:DONE:", "timeout": step_timeout},
+        {"at": 2.0, "shot": "11_download"},
+        *_address(judge.MAILTO_URL, "WEB:LAUNCH:", step_timeout),
+        {"at": 2.0, "shot": "12_mailto"},
+        *_shortcut("h", "WEB:LOAD:about:history", step_timeout),
+        {"at": 8.0, "shot": "13_history"},
+        *_shortcut("j", "WEB:LOAD:about:downloads", step_timeout),
+        {"at": 8.0, "shot": "14_downloads"},
+        # The History menu, to see its icons: the pointer rests at the
+        # screen's centre, the menu title is at (249, 147) on a 720p desktop.
+        {"at": 1.0, "mouse_move": [-391, -216]},
+        {"at": 1.0, "mouse_down": "left"},
+        {"at": 0.4, "mouse_up": "left"},
+        {"at": 4.0, "shot": "15_menu"},
+        {"key": "esc"},
     ]
 
 
@@ -126,6 +165,8 @@ def script(console: bool = False, live: bool = False, step_timeout: float = 300.
         steps.append({"at": 1.0, "shot": "checks"})
     else:
         steps += _browser_steps(step_timeout, None if live else judge.OLDNET_TITLE)
+        if not live:
+            steps += _feature_steps(step_timeout)
     return steps + [{"at": 1.0, "quit": True}]
 
 

@@ -7,6 +7,9 @@
 //! session-only password store (`secrets.rs`), where esMail keeps its files,
 //! and the fonts. `app/` is the window.
 //!
+//! `xui-mail mailto:...` opens a new message to the link's address (`mimed`
+//! starts Mail that way for `x-scheme-handler/mailto`).
+//!
 //! Serial evidence: `MAIL:UP:PASS` after the first frame, `MAIL:BIND:FAIL:<code>`
 //! when the display cannot be bound and `MAIL:RUN:FAIL:<err>` when the loop
 //! fails; `app/mod.rs` lists the rest.
@@ -47,8 +50,14 @@ fn main() -> std::process::ExitCode {
     backend.on_first_frame(|| println!("MAIL:UP:PASS"));
     let config = esmail::config::Config::load();
     let spec = PlatformSpec::new("Mail").size(Dip(width as f32), Dip(height as f32));
+    // `init` starts Mail with a `mailto:` link when another app opens one.
+    let link = app::mailto::from_args(std::env::args());
     let outcome = run_themed(&backend, spec, move |ui| {
-        app::Mail::build(ui, config).expect("the Mail window was created")
+        let mut mail = app::Mail::build(ui, config).expect("the Mail window was created");
+        if let Some(link) = &link {
+            mail.compose_mailto(ui, link);
+        }
+        mail
     });
     backend.unbind();
     match outcome {

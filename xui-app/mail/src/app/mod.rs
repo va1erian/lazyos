@@ -15,6 +15,7 @@
 mod account;
 mod compose;
 mod layout;
+pub mod mailto;
 mod mailbox;
 mod models;
 mod reader;
@@ -40,6 +41,7 @@ use xui_core::widget::{HasText, Label, ListView, Panel};
 use account::AccountPage;
 use compose::ComposePage;
 use layout::Widgets;
+use mailto::Mailto;
 use models::{FolderRows, MessageRows};
 use reader::Reader;
 
@@ -275,6 +277,31 @@ impl Mail {
     }
 
     fn open_compose(&mut self, ui: &Ui<Msg>, kind: Kind) {
+        self.open_compose_with(ui, kind, None);
+    }
+
+    /// A link clicked in a message: a `mailto:` link opens a new message
+    /// here, anything else goes to the app registered for its scheme (a web
+    /// link to the web browser).
+    fn follow_link(&mut self, ui: &Ui<Msg>, href: &str) {
+        if let Some(link) = mailto::parse(href) {
+            return self.compose_mailto(ui, &link);
+        }
+        match xui_app::platform::launcher::open_url(href) {
+            Ok(()) => {
+                println!("MAIL:LINK:OPEN");
+                self.set_status(&format!("Opened {href}"));
+            }
+            Err(e) => self.set_status(&format!("Cannot open {href}: {e}")),
+        }
+    }
+
+    /// Opens a new message filled in from a `mailto:` link.
+    pub fn compose_mailto(&mut self, ui: &Ui<Msg>, link: &Mailto) {
+        self.open_compose_with(ui, Kind::New, Some(link));
+    }
+
+    fn open_compose_with(&mut self, ui: &Ui<Msg>, kind: Kind, link: Option<&Mailto>) {
         let account = match (&self.selected, kind) {
             (Some((folder, _)), _) => folder.account,
             (None, Kind::New) => self.open.as_ref().map_or(0, |open| open.folder().account),
@@ -287,8 +314,13 @@ impl Mail {
             .selected
             .as_ref()
             .map(|(_, header)| (header, self.selected_body.as_str()));
-        let state =
+        let mut state =
             compose_kind::initial_state(kind, original.filter(|_| kind.needs_original()), config);
+        if let Some(link) = link {
+            state.to = link.to.clone();
+            state.subject = link.subject.clone();
+            state.body = link.body.clone();
+        }
         ui.set_visible(self.panes.id(), false);
         self.compose_page.open(ui, account, &config.username, state);
     }
@@ -339,8 +371,7 @@ impl App for Mail {
                     println!("MAIL:RENDER:PASS");
                 }
             }
-            // Links are not followed: there is no browser to hand them to yet.
-            Msg::Link(href) => self.set_status(&format!("Link: {href}")),
+            Msg::Link(href) => self.follow_link(ui, &href),
             Msg::Copy(text) => ui.set_clipboard_text(&text),
             Msg::Folder(row) => {
                 if let Some(Some(folder)) = self.folder_rows.targets.get(row).cloned() {

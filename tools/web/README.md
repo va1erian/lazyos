@@ -20,7 +20,9 @@ python tools/web/session.py --write         # regenerate tools/screenshot/exampl
 Output (`shots/web/`): `serial.log`, `session.json`, `summary.json`,
 `net.pcap` (the guest's traffic), `requests.json` (every request the host
 servers answered), `shot_01_example.png`, `shot_02_theoldnet.png`,
-`shot_03_theoldnet_later.png`, and `certs/` (the run's throwaway CA and leaf;
+`shot_03_theoldnet_later.png`, `shot_11_download.png`, `shot_12_mailto.png`,
+`shot_13_history.png`, `shot_14_downloads.png`, `shot_15_menu.png` (the History
+menu open), and `certs/` (the run's throwaway CA and leaf;
 `--no-build` reuses them). The verdict lines start with `LAZYWEB:` and the
 last one is `LAZYWEB:HARNESS:PASS|FAIL`; the exit status follows it.
 
@@ -68,15 +70,25 @@ the same desktop session):
    PNG, JPEG and GIF come back whole. They prove the path before the browser
    is blamed; their requests carry `?precheck`, so the judge never counts them
    for the browser.
-2. LazyWeb is started from the Terminal from its installed package,
-   `/apps/os.lazy.lazyweb/*/bin/lazyweb.elf --client http://example.com/`,
-   with its output sent to `/dev/console` (the serial log). `init.Launch`
-   cannot do this: its argument must be an absolute path, not a URL.
+2. LazyWeb is started from the Terminal through `mimed`: the check script
+   writes `/tmp/open.rhai` (`sys::mimed::open(<arg>, "open")`, printing
+   `OPEN:<mime>:<app>`), and `rhai /tmp/open.rhai http://example.com/` has
+   `mimed` guess `x-scheme-handler/http`, pick LazyWeb (its package registers
+   the type) and ask `init` to launch it with the URL. Apps `init` launches
+   print to the serial log. (`messengerctl` reads the console, not its
+   arguments, so it cannot do this from the Terminal.)
 3. After `WEB:UP:PASS`, `WEB:LOAD:http://example.com/` and
    `WEB:TITLE:Example Domain`, a screenshot; then **Ctrl+L**, `https://theoldnet.com/`
    and Enter, which must produce `WEB:LOAD:https://theoldnet.com/` and the page's
    title, and two more screenshots (the second one a few seconds later, while
    the animated GIF moves).
+4. **Ctrl+L** and `https://theoldnet.com/files/oldnet-kit.zip`, which the
+   stand-in sends as an attachment: the browser saves it to `~/Downloads`
+   (`WEB:DOWNLOAD:START`, then `WEB:DOWNLOAD:DONE:<name>:<bytes>`). Then
+   **Ctrl+L** and `mailto:webmaster@theoldnet.com`, which LazyWeb hands to
+   the OS (`WEB:LAUNCH:<url>:OK|FAIL`; FAIL is fine on an image without
+   Mail), **Ctrl+H** (`WEB:LOAD:about:history`) and **Ctrl+J**
+   (`WEB:LOAD:about:downloads`), each with a screenshot.
 
 Assumptions about the browser, to keep in step with `xui-app/web`: it prints
 `WEB:UP:PASS` once its window is up, `WEB:LOAD:<url>` for each page it loads,
@@ -93,8 +105,9 @@ selects the address field and Enter navigates to it.
 | `CHECKS-SEEN` | the host answered each check's request, under its own Host header, SNI naming that host |
 | `BROWSER` | `WEB:UP:PASS`, both `WEB:LOAD`s, `WEB:TITLE:Example Domain` and the stand-in's title (`--live`: any other title), no `WEB:FAIL` |
 | `SERVERS` | the browser's own requests: `GET /` from example.com over HTTP, TLS to theoldnet.com with SNI matching every Host header, `/` and every picture and style sheet the page references (`judge.page_assets`) |
+| `FEATURES` | `mimed` opened `http://example.com/` with LazyWeb (`OPEN:x-scheme-handler/http:os.lazy.lazyweb`), the download completed with the stand-in's exact size and the host served it, the `mailto:` link was handed on, both `about:` pages loaded |
 | `SHOTS` | each screenshot has content, the retro page is colourful (24+ colours) and differs from example.com's |
 
 `--precheck-only` judges `SESSION`, `CHECKS` and `CHECKS-SEEN` on a console
 image; `--live` drops what only the stand-ins can record (`CHECKS-SEEN`,
-`SERVERS`).
+`SERVERS`, `FEATURES`).
