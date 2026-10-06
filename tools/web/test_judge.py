@@ -90,6 +90,10 @@ class FeatureTests(unittest.TestCase):
 
     def test_a_download_the_server_never_sent_fails(self) -> None:
         self.assertTrue(judge.judge_features(FEATURE_SERIAL, good_record()))
+        headers_only = good_record()
+        headers_only.requests.append(Request("https", "theoldnet.com", "HEAD", sites.DOWNLOAD_PATH,
+                                             200, "LazyWeb", "theoldnet.com"))
+        self.assertTrue(judge.judge_features(FEATURE_SERIAL, headers_only))
 
     def test_the_session_drives_every_feature(self) -> None:
         steps = json.dumps(session.script())

@@ -237,7 +237,8 @@ def judge_features(text: str, record=None) -> list[str]:
             problems.append(f"no WEB:LOAD:{page}")
     if not re.search(rf"WEB:LAUNCH:{re.escape(MAILTO_URL)}:(OK|FAIL)", text):
         problems.append(f"{MAILTO_URL} was never handed to the OS")
-    if record is not None and not [r for r in record.requests if r.path.split("?")[0] == DOWNLOAD_PATH
+    if record is not None and not [r for r in record.requests if r.method == "GET"
+                                   and r.path.split("?")[0] == DOWNLOAD_PATH
                                    and r.status == 200 and PRECHECK_TAG not in r.path]:
         problems.append(f"theoldnet.com never served {DOWNLOAD_PATH} to the browser")
     return problems

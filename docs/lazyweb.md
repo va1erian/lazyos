@@ -107,7 +107,10 @@ it launches (a launch argument is an absolute path or a URL). So
 `sys::mimed::open("https://...", "open")` from a `rhai` script, a link in Mail, or a `.html` file in Files
 opens LazyWeb. The other way round, a link LazyWeb cannot follow itself
 (`mailto:` and any scheme NetSurf does not fetch) is handed to `mimed`
-(`WEB:LAUNCH:<url>:OK|FAIL`); Mail registers `x-scheme-handler/mailto` and
+(`WEB:LAUNCH:<url>:OK|FAIL`). Only a click, a key or a typed address may
+do that: a page that sends itself to such a URL on its own (a meta refresh,
+a script) is refused, with `WEB:LAUNCH:<url>:BLOCKED` and a note in the
+status bar. Mail registers `x-scheme-handler/mailto` and
 opens its compose window with the address, subject and body of the link.
 
 ## Testing it

@@ -41,7 +41,7 @@ libmessenger = { path = "../libs/messenger" }
 fhs = { path = "../libs/fhs", features = ["alloc"] }
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "227256c797a8739c3942c73b79fdbafe470952f9" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

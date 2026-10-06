@@ -4,7 +4,7 @@
 //! Serial evidence (the screenshot sessions wait on it): `WEB:LOAD:<url>`
 //! then `WEB:TITLE:<title>` when a load finishes, `WEB:FAIL:<reason>` when a
 //! page cannot be opened or fetched, `WEB:NAV:<url>` when the app starts a
-//! navigation, `WEB:LAUNCH:<url>:OK|FAIL` when a link goes to another app,
+//! navigation, `WEB:LAUNCH:...` (`handoff.rs`) when a link goes to another app,
 //! and the download markers of `transfers.rs`.
 
 use std::cell::Cell;
@@ -26,6 +26,7 @@ use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
 use xui_netsurf::NetSurfViewEvent;
 
 use crate::chrome::{self, Command, Widgets};
+use crate::handoff;
 use crate::indicators::{Badge, Security, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
@@ -282,7 +283,7 @@ impl Browser {
                     self.set_status(&text);
                 }
             }
-            NetSurfViewEvent::LaunchUrl(url) => self.launch(&url),
+            NetSurfViewEvent::LaunchUrl { url, by_user } => self.launch(&url, by_user),
             NetSurfViewEvent::Failed(why) => self.fail(&why),
             NetSurfViewEvent::FetchFailed { url, message } => {
                 let shown = self.internal.shown(&url).to_string();
@@ -359,7 +360,7 @@ impl Browser {
 
     /// A link NetSurf cannot follow: one of our pages' commands, or a URL
     /// for the app registered for its scheme (`mailto:` opens Mail).
-    fn launch(&mut self, url: &str) {
+    fn launch(&mut self, url: &str, by_user: bool) {
         if let Some(command) = PageCommand::parse(url) {
             // Only our own pages may ask: a web page linking to a command
             // gets nothing.
@@ -368,16 +369,8 @@ impl Browser {
             }
             return;
         }
-        match launcher::open_url(url) {
-            Ok(()) => {
-                println!("WEB:LAUNCH:{}:OK", marker_text(url));
-                self.set_status(&format!("Opened {url} in another app"));
-            }
-            Err(e) => {
-                println!("WEB:LAUNCH:{}:FAIL", marker_text(url));
-                self.set_status(&format!("Cannot open {url}: {e}"));
-            }
-        }
+        let status = handoff::open(url, by_user);
+        self.set_status(&status);
     }
 
     fn page_command(&mut self, command: PageCommand) {

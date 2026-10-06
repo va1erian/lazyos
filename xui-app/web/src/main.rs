@@ -17,6 +17,7 @@
 
 mod app;
 mod chrome;
+mod handoff;
 mod indicators;
 mod internal;
 mod keys;
