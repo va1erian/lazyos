@@ -606,7 +606,7 @@ USB sticks (`/home` on the boot stick, `docs/architecture/usb-storage.md`)
 have their own harness, `tools/storage/README.md`:
 
 ```bash
-python tools/storage/run.py              # two boots: write /home/alice on the stick, power off, read it back; e2fsck
+python tools/storage/run.py              # two boots: write /home/user on the stick, power off, read it back; e2fsck
 python tools/storage/test_judge.py       # the judge fails when it should
 cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
 ## Networking in an interactive boot

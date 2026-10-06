@@ -53,7 +53,7 @@ expect /system 0755 0 0
 expect /system/big.bin 0644 0 0
 expect /system/.image-manifest 0644 0 0
 expect /home/user 0755 1000 1000
-expect /data/tmp 1777 0 0
+expect /shared 1777 0 0
 
 # 4. Contents. mkimage writes byte i of a file as (i*31 + seed) mod 256.
 check_pattern() { # path, size, seed
