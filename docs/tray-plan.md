@@ -152,6 +152,7 @@ interface so an app gets it without being granted `os.lazy.init.v1`'s
 /// in its table) may call; `ESRCH` otherwise.
 interface os.lazy.init.app.v1 {
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
+    /// `Reopen`s queued before the first `Watch` are sent on it at once.
     method Watch() -> () = 1
         transfers (events: Channel<os.lazy.init.app.events.v1>);
 }
@@ -172,7 +173,8 @@ Append-only additions elsewhere:
 - `os.lazy.display.v1`: `Role::Popup` and `AllowPopup(task: U64, token: U64,
   x, y, w, h)` (shell-only) for flyouts (§7.3).
 - `os.lazy.init.v1`: `AppInfo.resident`; the `Launch` reply gains
-  `existing: Bool`.
+  `existing: Bool`; `Stop`'s contract changes to "replies after every
+  target has exited" (§5), same signature.
 - `os.lazy.shell.v1` `Status()` gains `tray: Array<TrayEntry>` (app, tooltip,
   status, custom or default, visible) so tests and scripts can read the tray.
 - Topic `session/{session}/apps/resident` (retained, published by `init`):
@@ -208,15 +210,26 @@ resident = true       # new: may run with no window; single instance; always in 
   icon (a long download) lists `os.lazy.shell.tray.v1` itself.
 - **Single instance.** `init.Launch` of a running resident app in the same
   session starts nothing: it sends `Reopen(args)` on the instance's lifecycle
-  channel and answers `existing = true` with its pid. An app that has not
-  called `Watch` gets nothing; reacting is its job (§5.1).
+  channel and answers `existing = true` with its pid. If the instance has not
+  called `Watch` yet (a second launch during its start-up), `init` queues the
+  `Reopen` with its `args` on the instance's row and delivers the queue in
+  order when `Watch` registers, so no launch is lost; the `Launch` reply is
+  the same either way. The queue is per instance and dropped with it; past
+  16 entries the oldest go (repeated launches of a starting app). Reacting
+  to them is the app's job (§5.1).
 - **Quit.** `init.Stop` (the tray's Quit row, logout, `pkgd` removing the
   package) sends `Quit(grace_ms)` first and kills the app only if it is still
   running after the grace period. The grace is a fixed **3 s** for every
   app, with no per-package override and no "this app is not responding"
   dialog: an app that has not exited by then is killed quietly
-  (`INIT:APP:QUIT:TIMEOUT` on serial, a line in the service log). `Stop`'s
-  existing callers keep their semantics, with the grace added. A resident app with durable
+  (`INIT:APP:QUIT:TIMEOUT` on serial, a line in the service log).
+  **`Stop` replies only once every target has exited**, whether it quit on
+  its own or was killed after the grace (today's `Stop` sends `SIGKILL` and
+  answers at once, while a target parked in the kernel may still be
+  running). `init` is one task, so it does not block: it keeps the
+  transaction and answers it from the reap of the last target (or the
+  grace timer's kill and its reap). `pkgd` therefore revokes the policy and
+  deletes the files only after nothing runs on them. A resident app with durable
   state still serves `os.lazy.lifecycle.v1` for shutdown as today.
 - **Restart policy** through `libs/svcpolicy`: a resident app that crashes
   after it ran past the start-up window is restarted with backoff (bounded
@@ -443,7 +456,10 @@ images), autostart + resident, both on Lucide icons.
 with a resident app that never calls `Set` (default item, Open, Quit); the
 demo closes its last window, stays alive and reopens from the icon
 (`TRAYDEMO:REOPEN:PASS`); launching it from the menu again gives
-`existing=true` and a `Reopen`; Quit gives `TRAYDEMO:QUIT:PASS` and a clean
+`existing=true` and a `Reopen`, and a launch during its start-up is
+delivered once it calls `Watch` (`INIT:APP:REOPEN:QUEUED`, then
+`TRAYDEMO:REOPEN:PASS`); `Stop` answers only after the reap
+(`INIT:STOP:DONE` after the exit line); Quit gives `TRAYDEMO:QUIT:PASS` and a clean
 exit, an app ignoring `Quit` is killed after the grace
 (`INIT:APP:QUIT:TIMEOUT`); a crash after start-up is restarted, one at
 start-up shows the notice; `tools/shutdown/run.py` still green; Volume's
