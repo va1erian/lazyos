@@ -69,12 +69,25 @@ class Refs(HTMLParser):
             self.pictures.append(values["src"])
 
 
+class _CopiedHostsOnly(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to the copied hosts over HTTPS: the target is
+    checked before any request goes to it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not wanted(newurl):
+            raise OSError(f"redirected to {newurl}, outside the copied hosts")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_CopiedHostsOnly)
+
+
 def fetch(url: str) -> tuple[bytes, str]:
-    """The body and type of `url`. urllib follows redirects, so a response
-    whose final URL left the copied hosts (or HTTPS) is refused rather than
-    saved under the URL that was asked for."""
+    """The body and type of `url`. A redirect off the copied hosts (or
+    HTTPS) is refused before it is followed, and the final URL is checked
+    again, so nothing is saved under a URL it did not come from."""
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with _OPENER.open(request, timeout=60) as response:
         final = response.geturl()
         if not wanted(final):
             raise OSError(f"redirected to {final}, outside the copied hosts")
