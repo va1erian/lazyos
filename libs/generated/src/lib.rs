@@ -11955,6 +11955,9 @@ pub mod os_lazy_print_v1 {
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0xbf8d5aec16ec445f;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.print.v1";
 
     /// `State::Open` wire value.
     pub const STATE_OPEN: u32 = 0;

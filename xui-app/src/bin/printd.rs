@@ -34,7 +34,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let server = match Server::register(NAME, &[INTERFACE]) {
+    let server = match Server::register(NAME, &[INTERFACE], &[wire::INTERFACE_NAME]) {
         Ok(server) => server,
         Err(code) => {
             println!("PRINTD:FAIL:register {code}");
