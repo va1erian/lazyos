@@ -193,10 +193,12 @@ jobs:
         run: |
           set -euo pipefail
           # Each output is the app's absolute path, or empty when this build
-          # has no such app (its sessions are then skipped).
+          # has no such app (its sessions are then skipped). `build.json` maps
+          # the cargo bin to its file, and not every bin is `xui-<app>`
+          # (LazyWriter's is `writer`), so look the app up by its file name.
           for app in m0 counter sysmon fabricmon client term editor paint files docs writer shell archiver; do
             path=""
-            if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
+            if python -c "import json,os,sys; sys.exit(0 if any(os.path.basename(p) == 'xui-$app.elf' for p in json.load(open('target/xui/build.json')).values()) else 1)"; then
               path="$(pwd)/target/xui/xui-$app.elf"
               test -f "$path"
             fi
