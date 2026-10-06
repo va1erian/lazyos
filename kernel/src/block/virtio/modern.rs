@@ -53,13 +53,15 @@ pub(super) fn transport(function: pci::Function) -> Result<Transport, &'static s
         Some(caps.isr),
         caps.device,
     ];
-    // How far into each BAR the structures reach.
+    // How far into each BAR the structures reach, in bytes: the bound checked
+    // against the BAR. `map_kernel` maps whole pages, so a BAR shorter than a
+    // page still gets one; only the structures inside it are ever touched.
     let mut reach = [0u64; 6];
     for location in locations.iter().flatten() {
         let bar = usize::from(location.bar);
         let end = u64::from(location.end().ok_or("structure wraps")?);
         let span = reach.get_mut(bar).ok_or("structure in a missing BAR")?;
-        *span = (*span).max(end.div_ceil(PAGE) * PAGE);
+        *span = (*span).max(end);
     }
     // Every BAR is checked before the function decodes memory or masters the
     // bus, so a function refused here (left to legacy or to nobody) gets
