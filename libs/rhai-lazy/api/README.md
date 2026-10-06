@@ -36,6 +36,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::audio_mixer`](#sysaudio_mixer) | `os.lazy.audio.mixer.v1` |
 | [`sys::clipboard`](#sysclipboard) | `os.lazy.clipboard.v1` |
 | [`sys::confd`](#sysconfd) | `os.lazy.confd.v1` |
+| [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
@@ -166,6 +167,21 @@ The hierarchical configuration registry (issue #260).
 |---|---|---|
 | `system/confd/changed/{path...}` | `Change` | `changed_topic(path)`, `on_changed(path, handler)`, `subscribe_changed(path)`, `publish_changed(path, payload)` |
 
+## `sys::devd`
+
+Interface `os.lazy.devd.v1`, source [`devd.rhai`](devd.rhai).
+
+The device manager (issue #497, docs/driver-plan.md section 3.6): matches
+
+| Function | IDL | About |
+|---|---|---|
+| `devices()` | `Devices() -> (devices: Array<DeviceState>)` | Every device the kernel enumerated, with its match and state. |
+| `new_device_state()` | struct `DeviceState` | a `DeviceState` at its zero value |
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `system/devices/{id}` | `DeviceState` | `devices_topic(id)`, `on_devices(id, handler)`, `subscribe_devices(id)`, `publish_devices(id, payload)` |
+
 ## `sys::display`
 
 Interface `os.lazy.display.v1`, source [`display.rhai`](display.rhai).
@@ -267,6 +283,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
+| `start_driver(driver, device)` | `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
 | `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |

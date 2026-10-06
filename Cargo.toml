@@ -83,6 +83,8 @@ members = [
     "libs/e1000",
     # Intel High Definition Audio behind sndd (issue #497, driver-plan D7).
     "libs/hda",
+    # devd's static driver manifest (issue #497, driver-plan 3.6).
+    "libs/devmatch",
     "libs/ftpwire",
     # Printing (docs/printing-plan.md P1/P2): IPP messages and the PWG Raster
     # encoder, pure `no_std` + `alloc` with host tests and fuzz entry points.

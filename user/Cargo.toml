@@ -59,6 +59,8 @@ nicdrv = { path = "../libs/nicdrv" }
 e1000 = { path = "../libs/e1000" }
 # Intel High Definition Audio for `sndd` (issue #497, driver-plan D7).
 hda = { path = "../libs/hda" }
+# `devd`'s driver manifest (issue #497, driver-plan 3.6).
+devmatch = { path = "../libs/devmatch" }
 # USB for `usbd` (docs/usb-hid-plan.md U2): xHCI rings and contexts, and the
 # descriptor and boot-report parsers for hostile device input.
 xhci = { path = "../libs/xhci" }
@@ -244,6 +246,15 @@ bench = false
 [[bin]]
 name = "devctl"
 path = "src/bin/devctl.rs"
+test = false
+bench = false
+
+# `devd` (issue #497): matches the enumerated devices against its driver
+# manifest, asks `init` to start each driver, and publishes the devices'
+# state; embedded with the drivers (`build_support/drivers.rs`).
+[[bin]]
+name = "devd"
+path = "src/bin/devd.rs"
 test = false
 bench = false
 

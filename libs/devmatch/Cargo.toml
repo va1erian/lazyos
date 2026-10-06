@@ -1,0 +1,16 @@
+[package]
+name = "devmatch"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "devd's static driver manifest: which driver row each PCI function matches, and which device each driver row is started for"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "devmatch"
+path = "src/lib.rs"
+
+[dev-dependencies]
+# The tests pin the manifest to what each driver accepts.
+e1000 = { path = "../e1000" }
+hda = { path = "../hda" }

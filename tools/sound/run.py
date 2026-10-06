@@ -37,6 +37,8 @@ from qemu_qmp import (  # noqa: E402
 )
 
 import analyze_wav  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools" / "net"))
+from devd_markers import DEVD_FAIL_MARKERS, devd_markers  # noqa: E402
 import mixcheck  # noqa: E402
 
 #: What a sound boot plays: `sndd demo=1`'s own self-test tone straight
@@ -228,6 +230,10 @@ def main() -> int:
         sys.exit("--modplay and --mix are separate runs")
     pass_markers = MODPLAY_PASS_MARKERS if args.modplay else MIX_PASS_MARKERS if args.mix else PASS_MARKERS
     fail_markers = MODPLAY_FAIL_MARKERS if args.modplay else MIX_FAIL_MARKERS if args.mix else FAIL_MARKERS
+    if args.services and not args.no_device:
+        # `init` starts `devd`, which starts the driver (issue #497).
+        pass_markers += devd_markers("sndd")
+        fail_markers += DEVD_FAIL_MARKERS
     if args.freqs is None:
         args.freqs = MODPLAY_FREQS_HZ if args.modplay else DEMO_FREQS_HZ
     if args.min_ms is None:

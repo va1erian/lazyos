@@ -142,6 +142,10 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 let phase = shutdown::request(shutdown, services, broker, &request, &caller)?;
                 services::shutdown_reply(true, &phase)
             }
+            // `devd` asks for a driver row for the device it matched.
+            services::init::wire::METHOD_STARTDRIVER => {
+                super::drivers::start(services, broker, message)
+            }
             // Nothing new starts once the machine is going down.
             services::init::METHOD_LAUNCH if shutdown::stopping() => {
                 Err(messenger::Error::Errno(-messenger::errno::EBUSY))

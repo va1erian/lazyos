@@ -297,9 +297,18 @@ dependencies = [
 name = "devinspect"
 version = "0.1.0"
 dependencies = [
+ "devmatch",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
+]
+
+[[package]]
+name = "devmatch"
+version = "0.1.0"
+dependencies = [
+ "e1000",
+ "hda",
 ]
 
 [[package]]
@@ -1253,6 +1262,7 @@ dependencies = [
  "confd",
  "deskmenu",
  "devinspect",
+ "devmatch",
  "e1000",
  "fhs",
  "font-atlas",

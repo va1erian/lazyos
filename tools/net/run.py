@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402,E501
 
 import analyze_pcap  # noqa: E402
+from devd_markers import DEVD_FAIL_MARKERS, devd_markers  # noqa: E402
 from harness_io import stop_qemu, wait_for_marker  # noqa: E402
 from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
 import hostpeers  # noqa: E402
@@ -338,6 +339,10 @@ def main(argv: list[str] | None = None) -> int:
     qmp: Qmp | None = None
     pass_markers = NETD_PASS_MARKERS if args.netd else PASS_MARKERS
     fail_markers = NETD_FAIL_MARKERS if args.netd else FAIL_MARKERS
+    if args.services:
+        # `init` starts `devd`, which starts the driver (issue #497).
+        pass_markers += devd_markers("netdrv")
+        fail_markers += DEVD_FAIL_MARKERS
     if args.no_device:
         # `netd` must keep running and waiting for a driver that never comes.
         done = lambda t: "NETDRV:NODEV" in t and (not args.netd or "NETD:NIC:WAIT" in t)  # noqa: E731

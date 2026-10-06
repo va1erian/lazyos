@@ -61,7 +61,7 @@ import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import add_limit_option, build_limits  # noqa: E402
-from demo_qemu import sound_args  # noqa: E402
+from demo_qemu import add_device_options, device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
@@ -254,11 +254,7 @@ def main(argv: list[str]) -> int:
                         help="with --desktop, leave LazyShell (taskbar, start menu, desktop "
                              "icons) out of the image (LAZYOS_SHELL=0): the compositor then "
                              "shows background and windows only")
-    parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
-                        help="attach a virtio-sound card and build with LAZYOS_SOUND=1, "
-                             "which boots the `sndd` driver and plays its test tones. "
-                             "BACKEND is a QEMU -audiodev driver (dsound, pa, alsa, sdl, "
-                             "none, ...) or wav:PATH; default: this OS's usual one")
+    add_device_options(parser)  # --sound, --sound-card, --nic, --no-devd
     qemu_net.add_net_options(
         parser,
         "attach a virtio-net card on QEMU's user-mode network and build the network "
@@ -408,6 +404,7 @@ def main(argv: list[str]) -> int:
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"
+        device_env(args, env)
         if args.net:
             # The whole stack (it implies the driver). `demo=0`: an interactive
             # boot runs `netd` without the harness's evidence clients, which
@@ -485,7 +482,7 @@ def main(argv: list[str]) -> int:
     if home_disk:
         command += home_disk_args(home_disk)
     if args.sound:
-        command += sound_args(args.sound)
+        command += sound_args(args.sound, args.sound_card)
     if args.net:
         busy = qemu_net.busy_ports(forwards)
         if busy:

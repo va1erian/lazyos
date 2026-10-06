@@ -7,7 +7,7 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from . import datavol, netopts
+from . import datavol, driveropts, netopts
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
                       build_plan, format_plan, image_build, simple_config)
 from .runner import Runner, open_path
@@ -74,6 +74,9 @@ class Launcher:
             "headless": self.v["headless"].get(),
             "tablet": self.v["tablet"].get(),
             "sound": self.v["sound"].get(),
+            "sound_card": self.v["sound_card"].get(),
+            "nic": self.v["nic"].get(),
+            "devd": self.v["devd"].get(),
             "abi_build": self.v["abi_build"].get(),
             "desktop": self.v["desktop"].get(),
             "services": self.v["services"].get(),
@@ -179,6 +182,9 @@ class Launcher:
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
                                                     "lazyweb")))
+
+        driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
+                               *(self.v[k] for k in ("sound_card", "nic", "devd")))
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

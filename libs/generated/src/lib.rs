@@ -2887,6 +2887,197 @@ pub mod os_lazy_confd_v1 {
     }
 }
 
+/// `os.lazy.devd.v1` (interface id `0xdfcb893f6178130f`).
+#[rustfmt::skip]
+pub mod os_lazy_devd_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xdfcb893f6178130f;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.devd.v1";
+
+    /// One device as `devd` sees it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeviceState {
+        pub id: u64,
+        pub vendor: u32,
+        pub device: u32,
+        pub class: alloc::string::String,
+        pub driver: alloc::string::String,
+        pub model: alloc::string::String,
+        pub state: alloc::string::String,
+        pub owner: u32,
+        pub pid: u64,
+    }
+
+    pub fn encode_device_state(value: &DeviceState) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        target.u32(2, value.vendor)?;
+        target.u32(3, value.device)?;
+        target.string(4, &value.class)?;
+        target.string(5, &value.driver)?;
+        target.string(6, &value.model)?;
+        target.string(7, &value.state)?;
+        target.u32(8, value.owner)?;
+        target.u64(9, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_device_state(body: &[u8]) -> Result<DeviceState, Error> {
+        let mut out = DeviceState::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u64()?;
+                }
+                2 => {
+                    out.vendor = field.as_u32()?;
+                }
+                3 => {
+                    out.device = field.as_u32()?;
+                }
+                4 => {
+                    out.class = field.as_str()?.into();
+                }
+                5 => {
+                    out.driver = field.as_str()?.into();
+                }
+                6 => {
+                    out.model = field.as_str()?.into();
+                }
+                7 => {
+                    out.state = field.as_str()?.into();
+                }
+                8 => {
+                    out.owner = field.as_u32()?;
+                }
+                9 => {
+                    out.pid = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Devices` method id.
+    pub const METHOD_DEVICES: u32 = 665645856;
+
+    /// Every device the kernel enumerated, with its match and state.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DevicesReply {
+        pub devices: alloc::vec::Vec<DeviceState>,
+    }
+
+    pub fn encode_devices_reply(value: &DevicesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.devices {
+            nested.raw(Kind::Struct, 1, &encode_device_state(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_devices_reply(body: &[u8]) -> Result<DevicesReply, Error> {
+        let mut out = DevicesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.devices.push(decode_device_state(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
+    /// The kernel's device id (the `dev=<id>` a driver is started with).
+    /// PCI vendor and device ids.
+    /// The device class name (`net`, `audio`, `storage`, ...).
+    /// The manifest's driver row for it, empty when none matched.
+    /// What the match was (`virtio-net`, `Intel 8254x`, ...), empty when
+    /// none matched.
+    /// `unmatched` (no manifest entry: a device the kernel drives, or one
+    /// nobody does), `starting` (asked of `init`, not claimed yet),
+    /// `claimed`, `released` (its driver let it go), `busy` (its driver
+    /// row already drives another device), `nodriver` (this image does
+    /// not ship the driver the manifest names) or `failed` (`init`
+    /// refused).
+    /// The uid holding the claim, or 4294967295 when nobody does.
+    /// The driver's task, 0 before `init` started it.
+    /// One retained topic per device, published whenever its state changes, so
+    /// a subscriber that starts late learns every device at once.
+    /// The declared `system/devices/+` topic (`DeviceState`, `latest`, retained).
+    pub const TOPIC_SYSTEM_DEVICES: &str = "system/devices/+";
+    /// The `system/devices/+` delivery policy.
+    pub const TOPIC_SYSTEM_DEVICES_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/devices/+` publishes are retained.
+    pub const TOPIC_SYSTEM_DEVICES_RETAINED: bool = true;
+
+    /// Build the concrete `system/devices/+` name; each wildcard takes one literal segment.
+    pub fn name_system_devices(id: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_DEVICES, &[id], topics::Mode::Publish)
+    }
+
+    /// Encode a `DeviceState` payload for `system/devices/+`.
+    pub fn encode_system_devices(value: &DeviceState) -> Result<Vec<u8>, Error> {
+        encode_device_state(value)
+    }
+
+    /// Decode a `system/devices/+` payload; malformed bytes are an error.
+    pub fn decode_system_devices(body: &[u8]) -> Result<DeviceState, Error> {
+        decode_device_state(body)
+    }
+
+    /// Publish a typed `DeviceState` on `system/devices/+`.
+    pub fn publish_system_devices<P>(publisher: &mut P, id: &str, value: &DeviceState) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_devices(id).map_err(P::Error::from)?;
+        let payload = encode_system_devices(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_DEVICES_RETAINED)
+    }
+
+    /// Subscribe to `system/devices/+` with its declared QoS.
+    pub fn subscribe_system_devices<S>(subscriber: &mut S, id: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_DEVICES, &[id], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_DEVICES_QOS)
+    }
+}
+
 /// `os.lazy.display.v1` (interface id `0x5ef41f254d43c2b4`).
 #[rustfmt::skip]
 pub mod os_lazy_display_v1 {
@@ -5528,6 +5719,8 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_STOP: u32 = 1266644741;
     /// `Shutdown` method id.
     pub const METHOD_SHUTDOWN: u32 = 1911669355;
+    /// `StartDriver` method id.
+    pub const METHOD_STARTDRIVER: u32 = 1713728693;
     /// `Ready` method id.
     pub const METHOD_READY: u32 = 197800596;
 
@@ -5786,6 +5979,75 @@ pub mod os_lazy_init_v1 {
                 }
                 2 => {
                     out.phase = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Start the driver row `driver` for device `device` (issue #497,
+    /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
+    /// row may ask: `init` keeps each driver's program, credentials and
+    /// arguments, and `devd` names only the row and the device it matched,
+    /// which the driver receives as `dev=<device>`. A row already running for
+    /// that device is not an error (`started` is false); one running for
+    /// another device is `EBUSY` (one card per driver); an unknown row is
+    /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
+    /// `EBUSY`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StartDriverArgs {
+        pub driver: alloc::string::String,
+        pub device: u64,
+    }
+
+    pub fn encode_start_driver_args(value: &StartDriverArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.driver)?;
+        target.u64(2, value.device)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_start_driver_args(body: &[u8]) -> Result<StartDriverArgs, Error> {
+        let mut out = StartDriverArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.driver = field.as_str()?.into();
+                }
+                2 => {
+                    out.device = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StartDriverReply {
+        pub started: bool,
+        pub pid: u64,
+    }
+
+    pub fn encode_start_driver_reply(value: &StartDriverReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.started)?;
+        target.u64(2, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_start_driver_reply(body: &[u8]) -> Result<StartDriverReply, Error> {
+        let mut out = StartDriverReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.started = field.as_bool()?;
+                }
+                2 => {
+                    out.pid = field.as_u64()?;
                 }
                 _ => {}
             }
@@ -14256,6 +14518,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: false,
         publish_permission: "publish:system/confd/changed/#",
         subscribe_permission: "subscribe:system/confd/changed/#",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.devd.v1",
+        name: "system/devices/+",
+        payload: "DeviceState",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/devices/+",
+        subscribe_permission: "subscribe:system/devices/+",
     },
     topics::TopicDecl {
         interface: "os.lazy.healthd.v1",

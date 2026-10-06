@@ -81,6 +81,8 @@ extern crate alloc;
 mod apps;
 #[path = "init/autostart.rs"]
 mod autostart;
+#[path = "init/drivers.rs"]
+mod drivers;
 #[path = "init/home.rs"]
 mod home;
 #[path = "init/installed.rs"]

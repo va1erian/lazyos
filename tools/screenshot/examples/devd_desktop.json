@@ -1,0 +1,15 @@
+[
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait_for": "DEVD:CLAIMED:PASS", "timeout": 120},
+  {"at": 2.0, "type": "PS1='# '"},
+  {"key": "enter"},
+  {"wait": 2.0},
+  {"type": "devctl drivers"},
+  {"key": "enter", "until": "TERM:OUT:ID  VENDOR", "timeout": 60, "retries": 2},
+  {"wait": 1.0},
+  {"type": "devctl"},
+  {"key": "enter", "until": "TERM:OUT:ID  CLASS", "timeout": 60, "retries": 2},
+  {"wait": 3.0},
+  {"shot": "01_devctl_drivers"},
+  {"quit": true}
+]

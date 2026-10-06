@@ -303,6 +303,20 @@ class MainTests(unittest.TestCase):
         self.run_main()
         self.assertNotIn("LAZYOS_JOURNAL", self.builds[-1])
 
+    def test_driver_choices_reach_qemu_and_the_build(self) -> None:
+        # Issue #497: the HDA card, the e1000 and devd off.
+        code, launched = self.run_main("--sound", "none", "--sound-card", "hda",
+                                       "--net", "--net-forward", "none", "--nic", "e1000",
+                                       "--no-devd")
+        self.assertEqual(code, 0)
+        self.assertIn("intel-hda,id=hda0", launched)
+        self.assertIn("hda-output,bus=hda0.0,audiodev=snd0", launched)
+        self.assertTrue(any(part.startswith("e1000,netdev=") for part in launched), launched)
+        self.assertEqual(self.builds[-1].get("LAZYOS_DEVD"), "0")
+        code, launched = self.run_main("--sound", "none")
+        self.assertIn("virtio-sound-pci,audiodev=snd0", launched)
+        self.assertNotIn("LAZYOS_DEVD", self.builds[-1])
+
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")

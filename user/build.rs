@@ -163,4 +163,19 @@ fn main() {
     if netd {
         println!("cargo:rustc-cfg=lazyos_netd");
     }
+
+    // The device manager (issue #497, docs/driver-plan.md 3.6): whenever the
+    // image carries a sound or network driver, `init` starts `devd`, which
+    // matches the enumerated devices and asks `init` to start each driver for
+    // the device it found. `LAZYOS_DEVD=0` keeps the old static rows (`init`
+    // starts `netdrv`/`sndd` unconditionally and each finds its own device).
+    println!("cargo:rerun-if-env-changed=LAZYOS_DEVD");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_devd)");
+    let sound = env::var_os("LAZYOS_SOUND").as_deref() == Some(std::ffi::OsStr::new("1"))
+        || env::var_os("LAZYOS_DESKTOP").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let net = netd || env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let devd_off = env::var_os("LAZYOS_DEVD").as_deref() == Some(std::ffi::OsStr::new("0"));
+    if (sound || net) && !devd_off {
+        println!("cargo:rustc-cfg=lazyos_devd");
+    }
 }

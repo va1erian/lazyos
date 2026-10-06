@@ -40,6 +40,11 @@ def make_vars() -> dict:
         "headless": b(value=False),
         "tablet": b(value=False),
         "sound": b(value=True),
+        # The driver choices (issue #497, `drivers`): QEMU's sound card and
+        # NIC model, and the device manager.
+        "sound_card": s(value="virtio"),
+        "nic": s(value="virtio"),
+        "devd": b(value=True),
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),

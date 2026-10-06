@@ -93,3 +93,19 @@ pub(super) fn valid_topic(topic: &str) -> bool {
 pub(super) fn is_system_topic(topic: &str) -> bool {
     topic == "system" || topic.starts_with("system/")
 }
+
+/// The `system/` subtrees a dedicated system uid publishes, and nothing else
+/// (issue #497): the device manager its devices, the NIC driver its link.
+/// Everything else under `system/` stays root's.
+const SYSTEM_SUBTREES: &[(&str, u32)] = &[
+    ("system/devices/", devmatch::DEVD_UID),
+    ("system/net/", netpolicy::NET_UID),
+];
+
+/// Whether a task of `uid` may publish `topic` under `system/`.
+pub(super) fn may_publish_system(topic: &str, uid: u32) -> bool {
+    uid == 0
+        || SYSTEM_SUBTREES
+            .iter()
+            .any(|&(prefix, owner)| uid == owner && topic.starts_with(prefix))
+}

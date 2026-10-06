@@ -34,6 +34,8 @@ GATEWAY = "10.0.2.2"
 DNS = "10.0.2.3"
 #: The netdev id (`filter-dump` and `-device` refer to it).
 NETDEV_ID = "n0"
+#: The QEMU device of each NIC model (`run_demo.py --nic`, issue #497).
+NIC_DEVICES = {"virtio": "virtio-net-pci", "e1000": "e1000"}
 
 
 @dataclass(frozen=True)
@@ -97,15 +99,16 @@ def forwards_from(specs: list[str] | None) -> list[Forward]:
 
 
 def netdev_args(forwards: list[Forward], restrict: bool = False,
-                pcap: str | None = None) -> list[str]:
-    """``-netdev user`` with the forwards, the virtio-net card, and an
-    optional packet capture of everything the card sends and receives."""
+                pcap: str | None = None, nic: str = "virtio") -> list[str]:
+    """``-netdev user`` with the forwards, the `nic` card (virtio-net unless
+    asked), and an optional packet capture of everything the card sends and
+    receives."""
     netdev = f"user,id={NETDEV_ID}"
     if restrict:
         # The guest reaches nothing outside; forwards still come in.
         netdev += ",restrict=on"
     netdev += "".join(f",hostfwd={forward.hostfwd()}" for forward in forwards)
-    args = ["-netdev", netdev, "-device", f"virtio-net-pci,netdev={NETDEV_ID}"]
+    args = ["-netdev", netdev, "-device", f"{NIC_DEVICES[nic]},netdev={NETDEV_ID}"]
     if pcap:
         args += ["-object", f"filter-dump,id=netdump,netdev={NETDEV_ID},file={pcap}"]
     return args
@@ -169,4 +172,5 @@ def args_from_options(args: argparse.Namespace) -> tuple[list[str], list[Forward
             raise ValueError("--net-forward/--net-restrict/--net-pcap need --net")
         return [], []
     forwards = forwards_from(args.net_forward)
-    return netdev_args(forwards, args.net_restrict, args.net_pcap), forwards
+    nic = getattr(args, "nic", "virtio")
+    return netdev_args(forwards, args.net_restrict, args.net_pcap, nic), forwards
