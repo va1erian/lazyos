@@ -58,9 +58,12 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: &str) {
     };
     let rows = {
         let model = ctx.tray.model.borrow();
-        let custom = model.get(app).and_then(|entry| entry.custom.as_ref());
-        let menu = custom.map_or(&[][..], |item| item.menu.as_slice());
-        TrayMenu::top(menu, &ctx.tray.name(app))
+        let name = ctx.tray.name(app);
+        match model.get(app).and_then(|entry| entry.custom.as_ref()) {
+            Some(item) => TrayMenu::top(&item.menu, &name),
+            // A resident app's default item: Open, then Quit.
+            None => TrayMenu::default_item(&name),
+        }
     };
     let cell = cell.offset(0, ctx.bar_y());
     let origin = TrayMenu::origin(cell, rows.height(), ctx.screen, ctx.bar_y());
@@ -173,6 +176,19 @@ fn send_pick(ctx: &Ctx, app: &str, id: u32, checked: bool) {
     }
 }
 
+/// A default item's Open (its row, or a click): launch the app through
+/// `init`, zooming from its cell. A running resident app gets it as
+/// `Reopen`.
+pub fn open_app(ctx: &Ctx, app: &str) {
+    let origin = ctx
+        .tray
+        .layout
+        .borrow()
+        .cell(app)
+        .map(|cell| cell.offset(0, ctx.bar_y()));
+    let _ = ctx.launch(app, origin);
+}
+
 /// The shell's Quit row: stop the app through `init`, on a thread of its
 /// own (a `Stop` replies once the app has exited), and drop its item now.
 fn quit(ctx: &Ctx, app: &str) {
@@ -254,6 +270,10 @@ impl PanelApp {
             Pick::Quit => {
                 close(&self.ctx);
                 quit(&self.ctx, &app);
+            }
+            Pick::Open => {
+                close(&self.ctx);
+                open_app(&self.ctx, &app);
             }
             Pick::Submenu { id } => self.open_submenu(ui, &app, id, origin, rect),
         }

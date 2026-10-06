@@ -12,6 +12,7 @@ use user::sys::Cred as SysCred;
 
 use super::apps::AppSpec;
 use super::installed::InstalledApp;
+use super::lifecycle::Lifecycle;
 use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE, LINUX_ROWS};
 
 /// Runtime phase of a service; `label` is the word published in events and
@@ -109,6 +110,9 @@ pub(super) struct Service {
     /// Why the current run says it is failing (`init.ReportFailure`, already
     /// cleaned); cleared at every spawn.
     pub(super) reason: Option<String>,
+    /// A resident app's lifecycle (`os.lazy.init.app.v1`, docs/tray-plan.md
+    /// section 5): its event channel, queued `Reopen`s, a requested quit.
+    pub(super) life: Lifecycle,
 }
 
 impl Service {
@@ -143,6 +147,7 @@ impl Service {
             ready: false,
             title: String::from(spec.name),
             reason: None,
+            life: Lifecycle::default(),
         }
     }
 
@@ -178,6 +183,7 @@ impl Service {
             ready: false,
             title: String::from(app.name),
             reason: None,
+            life: Lifecycle::default(),
         }
     }
 
@@ -214,6 +220,7 @@ impl Service {
             ready: false,
             title: app.name.clone(),
             reason: None,
+            life: Lifecycle::resident(app.resident),
         }
     }
 }

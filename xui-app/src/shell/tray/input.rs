@@ -60,14 +60,25 @@ pub fn on_cell<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, cell: usize, input: Input)
         return;
     };
     super::tooltip::close(ctx);
-    let (activation, has_menu) = {
+    let (custom, activation, has_menu) = {
         let model = ctx.tray.model.borrow();
         let custom = model.get(&app).and_then(|entry| entry.custom.as_ref());
         (
+            custom.is_some(),
             custom.map_or(Activation::Event, |item| item.activate),
             custom.is_some_and(|item| !item.menu.is_empty()),
         )
     };
+    if !custom {
+        // A resident app's default item: a click opens it, a right click
+        // shows Open and Quit; the wheel means nothing to it.
+        match input {
+            Input::Primary => super::menu::open_app(ctx, &app),
+            Input::Secondary => super::menu::open(ctx, ui, &app),
+            Input::Wheel(_) => {}
+        }
+        return;
+    }
     match (input, activation) {
         (Input::Primary, Activation::Menu) => super::menu::open(ctx, ui, &app),
         (Input::Primary, Activation::DefaultItem) => super::menu::run_default(ctx, &app),

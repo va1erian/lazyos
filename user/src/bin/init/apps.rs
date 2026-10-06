@@ -253,6 +253,7 @@ pub fn app_infos() -> Vec<services::AppInfo> {
             hidden: false,
             autostart: autostart_ids().contains(&app.id),
             icon: String::new(),
+            // Built-ins are never resident apps.
             resident: false,
         })
         .collect()

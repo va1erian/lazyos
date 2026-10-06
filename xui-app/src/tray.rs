@@ -112,6 +112,12 @@ impl TrayIcon {
         self.tray.set(item)
     }
 
+    /// The channel the item's events arrive on, for an app that parks on it
+    /// with others (`crate::resident`).
+    pub fn channel(&self) -> Option<u64> {
+        self.tray.events()
+    }
+
     /// Change the given parts of the item.
     pub fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), i64> {
         self.tray.update(patch)

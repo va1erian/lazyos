@@ -147,7 +147,8 @@ fn new_mime_handler() {
 ///
 /// Whether the package ships icons for this type.
 /// One requested permission with the friendly explanation the installer
-/// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
+/// shows. `kind` is `interface`, `topic`, `file`, `network`, `develop` or
+/// `resident` (`entry.resident`, value `true`); `risk` is
 /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
 /// keyed by MIDL interface name, so every client shows the same words.
 fn new_permission() {
@@ -158,7 +159,7 @@ fn new_permission() {
 ///
 /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
 fn new_installed() {
-    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [] }
+    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [], resident: false }
 }
 
 /// A `PkgEvent` with every field at its zero value.
@@ -174,6 +175,8 @@ fn new_installed() {
 /// The menu group (`lazypkg::Category`).
 /// Whether the app starts when a session opens (`entry.autostart`).
 /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
+/// Whether the app is resident (`entry.resident`): it may run with no
+/// window, once per session, with an icon in the taskbar.
 /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
 /// is `install`, `remove`, `denied`, `provision` (a core package
 /// installed, upgraded or re-marked at startup, or the end of a pass),

@@ -91,6 +91,7 @@ pub(super) fn spawn_service(
             services[index].started_tick = sys::clock();
             services[index].last_status = None;
             services[index].reason = None;
+            services[index].life.reset();
             sys::write_str(&format!(
                 "init: started {} (pid {}, attempt {})\n",
                 services[index].name,
@@ -197,6 +198,12 @@ pub(super) fn child_exited(
     let index = services.iter().position(|service| {
         service.pid == pid && matches!(service.phase, Phase::Running | Phase::Stopping)
     })?;
+    // An app that was asked to quit (`Stop`): its exit completes the stop,
+    // however it ended, and is never a crash.
+    if services[index].life.quit && !super::shutdown::stopping() {
+        quit_completed(services, index, status, broker);
+        return None;
+    }
     // During a shutdown nothing restarts: the exit is the stop completing
     // (or a crash on the way down, which is reported but not respawned).
     if services[index].phase == Phase::Stopping || super::shutdown::stopping() {
@@ -211,6 +218,7 @@ pub(super) fn child_exited(
         status,
         uptime: sys::clock().saturating_sub(row.started_tick),
         restarts: row.restarts,
+        resident: row.life.resident,
     };
     row.pid = 0;
     row.last_status = Some(status);
@@ -268,6 +276,28 @@ pub(super) fn child_exited(
         }
     }
     tells_desktop(&exit, &outcome).then(|| Failure::of(&services[index], &outcome))
+}
+
+/// A row asked to quit exited (on its own, or killed after the grace):
+/// retire it.
+fn quit_completed(
+    services: &mut [Service],
+    index: usize,
+    status: u64,
+    broker: &mut router::TopicBroker,
+) {
+    let row = &mut services[index];
+    let how = if row.killed { "killed after the grace" } else { "quit" };
+    sys::write_str(&format!(
+        "INIT:LAUNCH:EXIT app={} status={status} quit={}\n",
+        row.name,
+        u8::from(!row.killed)
+    ));
+    row.phase = Phase::Stopped;
+    row.pid = 0;
+    row.last_status = Some(status);
+    row.life.reset();
+    publish_state(broker, row, "stopped", 0, row.restarts, status, how);
 }
 
 /// A row's task exited while the machine is shutting down: retire it.
