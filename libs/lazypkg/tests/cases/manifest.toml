@@ -149,6 +149,31 @@ permissions = 'develop = "yes"'
 valid = false
 error = "develop"
 
+# --- [permissions] topics -----------------------------------------------------
+
+[[manifest]]
+name = "dots inside a topic segment are fine"
+permissions = 'topics = ["publish:app/org.lazy.demo/x.y", "subscribe:app/org.lazy.demo/#"]'
+valid = true
+
+[[manifest]]
+name = "a .. topic segment is refused"
+permissions = 'topics = ["publish:app/../system/x"]'
+valid = false
+error = "is not a publish:/subscribe: pattern"
+
+[[manifest]]
+name = "a . topic segment is refused"
+permissions = 'topics = ["subscribe:app/./#"]'
+valid = false
+error = "is not a publish:/subscribe: pattern"
+
+[[manifest]]
+name = "a segment of only dots is refused"
+permissions = 'topics = ["publish:app/.../x"]'
+valid = false
+error = "is not a publish:/subscribe: pattern"
+
 [[manifest]]
 name = "develop belongs in [permissions], not [entry]"
 entry = "develop = true"

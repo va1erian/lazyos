@@ -87,6 +87,7 @@ def pkgstore_rules_seeds():
         "files_dotdot": (_HEADER + '[permissions]\nfiles = ["read:/a/../b"]\n').encode(),
         "files_globstar": (_HEADER + '[permissions]\nfiles = ["write:$HOME/**"]\n').encode(),
         "topics_globstar": (_HEADER + '[permissions]\ntopics = ["subscribe:a/**"]\n').encode(),
+        "topics_dotdot": (_HEADER + '[permissions]\ntopics = ["publish:a/../b"]\n').encode(),
         "lines_mixed": b"os.lazy.confd.v1\npublish:t/1\nsubscribe:+/#\nread:$HOME/*\nwrite:/system/x\noutbound\n",
         "lines_hostile": b"publish:a/../b\nread:/a/../b\nwrite:$HOME/**\nos.lazy.nope.v9\n\xc3\xa9\n",
         "lines_many_topics": "".join(f"publish:t/{i}/{i}\n" for i in range(300)).encode(),
