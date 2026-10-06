@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "accountwire"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "acpi"
 version = "0.1.0"
 
@@ -271,6 +279,7 @@ dependencies = [
 name = "lazyos-fuzz"
 version = "0.0.0"
 dependencies = [
+ "accountwire",
  "acpi",
  "ext2fs",
  "framering",
@@ -282,6 +291,8 @@ dependencies = [
  "netstack",
  "nicdrv",
  "nvme",
+ "passwd",
+ "pkgstore",
  "raster",
  "usbhid",
  "usbmsc",
@@ -317,6 +328,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "libmessenger"
+version = "0.1.0"
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,6 +345,13 @@ name = "managed"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ca88d725a0a943b096803bd34e73a4437208b6077654cc4ecb2947a5f91618d"
+
+[[package]]
+name = "messenger-generated"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+]
 
 [[package]]
 name = "miniz_oxide"
@@ -357,12 +379,17 @@ name = "nicdrv"
 version = "0.1.0"
 dependencies = [
  "framering",
+ "messenger-generated",
  "virtio",
  "virtio-net",
 ]
 
 [[package]]
 name = "nvme"
+version = "0.1.0"
+
+[[package]]
+name = "passwd"
 version = "0.1.0"
 
 [[package]]
@@ -374,6 +401,16 @@ dependencies = [
  "base64ct",
  "rand_core",
  "subtle",
+]
+
+[[package]]
+name = "pkgstore"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "lazyos-crypto",
+ "lazypkg",
+ "messenger-generated",
 ]
 
 [[package]]

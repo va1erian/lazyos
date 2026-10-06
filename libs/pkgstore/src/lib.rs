@@ -35,7 +35,7 @@
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
 //! the filesystem only through the trait its caller implements.
 
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, feature = "fuzz")), no_std)]
 
 extern crate alloc;
 
@@ -44,6 +44,8 @@ pub mod audit;
 pub mod develop;
 pub mod docs;
 pub mod explain;
+#[cfg(any(test, feature = "fuzz"))]
+pub mod fuzz;
 pub mod hash;
 pub mod inspect;
 pub mod layout;

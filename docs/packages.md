@@ -145,7 +145,8 @@ show them all at once.
 * **MIME `type`** — `type/subtype` using `[a-z0-9.+-]` only.
 * **`interfaces`** — each matches `[a-z0-9]+(\.[a-z0-9]+)*\.v[0-9]+`.
 * **`topics`** — `publish:` or `subscribe:` followed by `/`-separated segments
-  of `[a-z0-9_.-]+`, `+`, or a final `#`.
+  of `[a-z0-9_.-]+`, `+`, or a final `#`. A segment made only of dots (`.`,
+  `..`) is refused here and by the kernel.
 * **`files`** — `read:` or `write:` followed by a path whose segments are
   `[A-Za-z0-9_.-]+` or `*`, with no `..`. The path is absolute (`/...`) or
   starts with `$HOME/`, the home directory of the user running the app.

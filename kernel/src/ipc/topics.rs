@@ -133,6 +133,14 @@ fn valid_segment_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'#')
 }
 
+/// Whether `segment` is only dots (`.`, `..`, ...). Topics are matched per
+/// segment, never resolved as paths, but a name that reads like a path step
+/// invites someone to treat it as one later; refusing it everywhere means no
+/// consumer ever has to reason about it.
+fn is_dot_only(segment: &str) -> bool {
+    segment.bytes().all(|byte| byte == b'.')
+}
+
 /// Validate a topic (`mode == PUBLISH`) or filter (`mode == SUBSCRIBE`).
 ///
 /// Returns the segment count. Publish topics are literal: wildcards are
@@ -153,7 +161,7 @@ pub fn validate(name: &str, mode: u32) -> Result<usize, Error> {
         if segment.is_empty() || segment.len() > MAX_NAME_BYTES {
             return Err(Error::BadName);
         }
-        if !segment.bytes().all(valid_segment_byte) {
+        if !segment.bytes().all(valid_segment_byte) || is_dot_only(segment) {
             return Err(Error::BadName);
         }
         if segment.as_bytes().contains(&b'+') && mode != MODE_SUBSCRIBE {

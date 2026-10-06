@@ -1,0 +1,5 @@
+publish:a/../b
+read:/a/../b
+write:$HOME/**
+os.lazy.nope.v9
+é

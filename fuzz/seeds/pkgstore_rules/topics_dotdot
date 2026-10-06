@@ -1,0 +1,9 @@
+[app]
+name = "Demo"
+system_name = "org.lazy.demo"
+author = "A"
+version = "1.0.0"
+[entry]
+binary = "bin/app.elf"
+[permissions]
+topics = ["publish:a/../b"]

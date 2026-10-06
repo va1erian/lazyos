@@ -1,0 +1,6 @@
+os.lazy.confd.v1
+publish:t/1
+subscribe:+/#
+read:$HOME/*
+write:/system/x
+outbound
