@@ -30,6 +30,8 @@ fonts/liberation/LiberationSerif-Regular.ttf | OFL-1.1 | desktop | https://githu
 fonts/liberation/AUTHORS | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified
 fonts/liberation/LICENSE | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified: the SIL Open Font License 1.1 with the Liberation copyright notices
 
+licenses/LICENSE-Lucide.txt | ISC | all | Verbatim copy of crates/xui-core/assets/lucide/LICENSE from va1erian/xui 112b411 (the pinned rev): Lucide's ISC notice and the MIT notice for its Feather-derived icons; Settings -> About points to it
+
 samples/archiver-sample.7z | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
 samples/archiver-sample.zip | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
 samples/lazyos-sample.pdf | GPL-3.0-or-later | all | LazyOS original: written by tools/pdf/make_sample.py for the PDF Viewer's session (docs/pdf-reader-plan.md)

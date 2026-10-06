@@ -4562,6 +4562,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "fhs",
  "timezone",
  "uitheme",
  "xui-canvas",

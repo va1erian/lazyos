@@ -182,18 +182,25 @@ jobs:
             exit 0
           fi
           git -C "$work" add -A
-          git -C "$work" -c user.name=github-actions \
-              -c user.email=github-actions@users.noreply.github.com \
-              commit -qm "screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
-          # Concurrent runs (other PRs, xui.yml) push to this shared branch, so
-          # a plain push loses the race. Each run only adds its own runs/<id>
-          # directory, so rebasing onto the new tip never conflicts.
-          for attempt in 1 2 3 4 5 6; do
-            git -C "$work" push -q "$remote" screenshots && break
-            [ "$attempt" -eq 6 ] && { echo "screenshots push kept losing the race" >&2; exit 1; }
-            sleep $((attempt * 2))
-            git -C "$work" -c user.name=github-actions                 -c user.email=github-actions@users.noreply.github.com                 pull -q --rebase "$remote" screenshots
-          done
+          # A re-run keeps its run id, so its runs/<id> directory may already
+          # be published with the same pictures: nothing to commit is success
+          # (a bare `git commit` would exit 1 and fail the job).
+          if git -C "$work" diff --cached --quiet; then
+            echo "$prefix is already published (a re-run); nothing to push"
+          else
+            git -C "$work" -c user.name=github-actions \
+                -c user.email=github-actions@users.noreply.github.com \
+                commit -qm "screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
+            # Concurrent runs (other PRs, xui.yml) push to this shared branch,
+            # so a plain push loses the race. Each run only adds its own
+            # runs/<id> directory, so rebasing onto the new tip never conflicts.
+            for attempt in 1 2 3 4 5 6; do
+              git -C "$work" push -q "$remote" screenshots && break
+              [ "$attempt" -eq 6 ] && { echo "screenshots push kept losing the race" >&2; exit 1; }
+              sleep $((attempt * 2))
+              git -C "$work" -c user.name=github-actions                 -c user.email=github-actions@users.noreply.github.com                 pull -q --rebase "$remote" screenshots
+            done
+          fi
           echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 
