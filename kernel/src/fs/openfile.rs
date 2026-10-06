@@ -43,7 +43,7 @@
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 
 use super::vfs::{FsError, Id, Meta, Node, NodeId, Path, StatFs};
@@ -59,6 +59,11 @@ struct Inode {
     /// The file itself, where its filesystem has nodes: reads and writes go
     /// here and never resolve the path again.
     node: Option<Node>,
+    /// Live open descriptions of this file, counted apart from the `Arc`'s
+    /// references: `rmdir` and `displace` hold the inode briefly too, and a
+    /// close racing with them must still see itself as the last description.
+    /// Changed only under the [`OPEN`] lock.
+    descriptions: AtomicUsize,
 }
 
 impl Inode {
@@ -245,6 +250,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
     let mut open = OPEN.lock();
     if let Some(found) = open.iter().find(|inode| *inode.path.lock() == path) {
         if node_id(found) == id {
+            found.descriptions.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::clone(found));
         }
         found.path.lock().clear();
@@ -254,6 +260,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
         path: Mutex::new(path),
         orphan: AtomicBool::new(false),
         node,
+        descriptions: AtomicUsize::new(1),
     });
     open.push(Arc::clone(&inode));
     Ok(inode)
@@ -267,8 +274,10 @@ fn node_id(inode: &Inode) -> Option<NodeId> {
 /// case the inode leaves the registry.
 fn release(inode: &Arc<Inode>) -> bool {
     let mut open = OPEN.lock();
-    // The registry's own reference plus this description's.
-    if Arc::strong_count(inode) > 2 {
+    // Descriptions are counted, not inferred from the `Arc`: a transient
+    // holder (`rmdir`'s parked list, a `Displaced`) must not hide the last
+    // close from this check.
+    if inode.descriptions.fetch_sub(1, Ordering::Relaxed) > 1 {
         return false;
     }
     open.retain(|entry| !Arc::ptr_eq(entry, inode));
@@ -459,6 +468,13 @@ fn unpark(moved: Vec<(Arc<Inode>, String)>) {
             ),
         }
     }
+}
+
+/// Test hook: a transient reference to the open inode named `path`, the way
+/// `rmdir` holds one while it moves parked files (issue #612).
+#[cfg(lazyos_tests)]
+pub fn hold_for_test(path: &str) -> Option<alloc::boxed::Box<dyn core::any::Any>> {
+    find(path).map(|inode| alloc::boxed::Box::new(inode) as alloc::boxed::Box<dyn core::any::Any>)
 }
 
 /// How many files are registered as open; the leak tests assert it returns to

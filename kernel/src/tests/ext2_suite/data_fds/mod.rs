@@ -90,6 +90,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         "linux_rmdir_parked_refused",
         rmdir_parked::rmdir_parked_refused_changes_nothing,
     ),
+    (
+        "linux_rmdir_parked_transient_holder",
+        rmdir_parked::rmdir_parked_last_close_with_a_transient_holder,
+    ),
     ("linux_rmdir_parked_soak", rmdir_parked::soak_rmdir_parked),
     (
         "linux_data_reserved_prefix_is_refused",

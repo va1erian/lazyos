@@ -216,3 +216,40 @@ pub fn soak_rmdir_parked() -> Result<(), String> {
     );
     data.check_clean()
 }
+
+/// A transient holder of the open inode (as `rmdir` is while it moves parked
+/// files) must not hide the last close: the file is still freed then, and the
+/// directory can be removed afterwards.
+pub fn rmdir_parked_last_close_with_a_transient_holder() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let baseline = free_space()?;
+    for mount in MOUNTS {
+        let dir = format!("{mount}/h");
+        let file = format!("{dir}/f");
+        check!(path_call(SYS_MKDIR, &dir, 0o755) == 0, "mkdir({dir})");
+        let fd = open(&file, O_CREAT | O_RDWR);
+        check!(fd < 16, "open({file}) returned {fd:#x}");
+        check!(write(fd, b"data") == 4, "write to {file}");
+        check!(path_call(SYS_UNLINK, &file, 0) == 0, "unlink({file})");
+        let entries = crate::fs::abi_readdir(Id::ROOT, &dir).map_err(fs_error)?;
+        let parked = entries
+            .iter()
+            .find(|entry| entry.name.starts_with(".unlinked-"))
+            .map(|entry| format!("{dir}/{}", entry.name))
+            .ok_or("no parked entry")?;
+        let hold = crate::fs::openfile::hold_for_test(&parked);
+        check!(hold.is_some(), "{parked} is not registered as open");
+        check!(close(fd) == 0, "close on {mount}");
+        drop(hold);
+        check!(
+            parked_in(&dir)? == 0,
+            "the last close did not free the parked file on {mount} while a holder existed"
+        );
+        check!(rmdir(&dir) == 0, "rmdir({dir}) after the last close");
+    }
+    check!(
+        free_space()? == baseline,
+        "the holder test leaked blocks or inodes"
+    );
+    data.check_clean()
+}
