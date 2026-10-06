@@ -19,6 +19,7 @@ mod app;
 mod chrome;
 mod indicators;
 mod internal;
+mod keys;
 mod page;
 mod transfers;
 

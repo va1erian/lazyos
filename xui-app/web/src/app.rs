@@ -23,12 +23,12 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::icon::Lucide;
 use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
-use xui_core::Key;
 use xui_netsurf::NetSurfViewEvent;
 
 use crate::chrome::{self, Command, Widgets};
 use crate::indicators::{Badge, Security, Throbber};
 use crate::internal::Internal;
+use crate::keys::shortcut;
 use crate::page::Page;
 use crate::transfers::Transfers;
 
@@ -447,27 +447,6 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
-}
-
-/// The window's keyboard shortcuts; Enter and Escape mean the address field
-/// only while it has the focus, so a page's own forms still get them.
-fn shortcut(key: Key, mods: xui_core::Modifiers, in_address: bool) -> Option<Msg> {
-    let menu = |command| Some(Msg::Menu(command));
-    match key {
-        Key::RETURN if in_address => Some(Msg::Go),
-        Key::ESCAPE if in_address => Some(Msg::RestoreAddress),
-        Key::ESCAPE => menu(Command::Stop),
-        Key::LEFT if mods.alt => menu(Command::Back),
-        Key::RIGHT if mods.alt => menu(Command::Forward),
-        Key::HOME if mods.alt => menu(Command::Home),
-        Key::F5 => menu(Command::Reload),
-        Key::L if mods.ctrl => Some(Msg::FocusAddress),
-        Key::H if mods.ctrl => menu(Command::ShowHistory),
-        Key::J if mods.ctrl => menu(Command::ShowDownloads),
-        Key::S if mods.ctrl => menu(Command::SavePage),
-        Key::W if mods.ctrl => menu(Command::Close),
-        _ => None,
-    }
 }
 
 impl App for Browser {
