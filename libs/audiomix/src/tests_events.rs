@@ -198,14 +198,14 @@ fn soak_underruns_match_the_engine_count() {
         state ^= state << 13;
         state ^= state >> 7;
         state ^= state << 17;
-        if state % 3 == 0 {
+        if state.is_multiple_of(3) {
             let room = ring_frames - (written - rig.mixer.position(id, OWNER, 0).unwrap());
             let frames = (state as usize % (2 * PERIOD)).min(room as usize);
             feed(&mut rig, id, &ring, written, frames);
             written += frames as u64;
         }
         reported += rig
-            .step(state % 5 == 0)
+            .step(state.is_multiple_of(5))
             .iter()
             .filter(|e| e.kind == Kind::Underrun)
             .count() as u32;

@@ -91,6 +91,7 @@ impl Owners {
 
 impl RamFs {
     /// What `uid` owns in this filesystem.
+    #[cfg(lazyos_tests)]
     pub fn usage_of(&self, uid: u32) -> Usage {
         self.inner.lock().owners.of(uid)
     }

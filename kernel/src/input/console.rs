@@ -41,6 +41,16 @@ fn valid(slot: usize) -> bool {
     slot != NONE && task::live(slot) && credentials::of(slot).has_cap(CAP_INPUT_CONSOLE)
 }
 
+/// [`valid`] for the keyboard path, which runs in the timer's interrupt and so
+/// must not wait on the credential table: if a `credentials::set` the tick
+/// interrupted holds it, the claim is taken to stand (a key kept off the
+/// terminal queue for one more tick is recoverable, a spin there is not).
+fn valid_in_irq(slot: usize) -> bool {
+    slot != NONE
+        && task::live(slot)
+        && credentials::try_of(slot).map_or(true, |cred| cred.has_cap(CAP_INPUT_CONSOLE))
+}
+
 /// Claim the console for `me` (the syscall checked `CAP_INPUT_CONSOLE`).
 /// Claiming again is not an error; a stale claim (dead or demoted holder) is
 /// taken over.
@@ -72,8 +82,9 @@ pub fn holder() -> Option<usize> {
 }
 
 /// Whether typed keys must stay off the kernel terminal queue right now.
+/// Called from the keyboard path, which can run in an interrupt.
 pub fn claimed() -> bool {
-    holder().is_some()
+    valid_in_irq(HOLDER.load(Ordering::Acquire))
 }
 
 /// Forget any claim (the test suite's reset between cases).

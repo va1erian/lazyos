@@ -12764,8 +12764,10 @@ pub mod os_lazy_messenger_registry_v1 {
 
     /// Posted by the kernel on a registered endpoint for each `Connect`: the
     /// service serves the caller's requests on `connection`, which speaks the
-    /// registered name's interfaces. The message is stamped with the
-    /// connecting task's identity.
+    /// registered name's interfaces (the `Channel` type below is nominal: MIDL
+    /// has no untyped channel, and a service answers on its own interfaces,
+    /// not on this one). The message is stamped with the connecting task's
+    /// identity.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ConnectedArgs {
         pub name: alloc::string::String,

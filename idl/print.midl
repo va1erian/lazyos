@@ -11,47 +11,47 @@ interface os.lazy.print.v1 {
     /// Open a job for the printer at `printer` (`192.168.1.89`,
     /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
     /// the printer shows, a label only.
-    method Open(printer: String, user: String, ticket: Ticket) -> (job: U32);
+    method Open(printer: String = 1, user: String = 2, ticket: Ticket = 3) -> (job: U32 = 1);
     /// Append `bytes` to an open job's document (at most 256 KiB a call).
-    method Write(job: U32, bytes: Bytes) -> ();
+    method Write(job: U32 = 1, bytes: Bytes = 2) -> ();
     /// The document is complete: queue the job for its printer.
-    method Close(job: U32) -> ();
+    method Close(job: U32 = 1) -> ();
     /// Stop a job wherever it is; one the printer has is canceled there.
-    method Cancel(job: U32) -> ();
+    method Cancel(job: U32 = 1) -> ();
     /// What a job is doing.
-    method Status(job: U32) -> (info: JobInfo);
+    method Status(job: U32 = 1) -> (info: JobInfo = 1);
     /// The caller's jobs (every job for root), oldest first.
-    method Jobs() -> (jobs: Array<JobInfo>);
+    method Jobs() -> (jobs: Array<JobInfo> = 1);
 
     /// The print dialog's choices, as IPP job attributes.
     struct Ticket {
         /// `job-name`: the document's title.
-        name: String,
+        name: String = 1,
         /// `document-format`, e.g. `image/pwg-raster`.
-        format: String,
+        format: String = 2,
         /// `copies`, 1 to 99; 0 leaves it to the printer.
-        copies: U32,
+        copies: U32 = 3,
         /// `media`, a PWG name such as `iso_a4_210x297mm`; empty for the
         /// printer's default.
-        media: String,
+        media: String = 4,
         /// `print-color-mode`: `color`, `monochrome`, or empty.
-        color_mode: String,
+        color_mode: String = 5,
         /// `print-quality`: 3 draft, 4 normal, 5 high; 0 for the default.
-        quality: U32
+        quality: U32 = 6
     }
 
     /// One job, for the app that printed it.
     struct JobInfo {
-        job: U32,
-        name: String,
+        job: U32 = 1,
+        name: String = 2,
         /// `ipp://host:port/path`.
-        printer: String,
+        printer: String = 3,
         /// A `State` ordinal.
-        state: U32,
+        state: U32 = 4,
         /// One line for the user, in the printer's words when it gave any.
-        line: String,
+        line: String = 5,
         /// Ink levels (`tri-color 90%, black 50%`), once known.
-        ink: String
+        ink: String = 6
     }
 
     /// Where a job is.
