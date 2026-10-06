@@ -463,7 +463,7 @@ the consent screen and the enforcement come from the same data:
 A label carries at most 256 rules; a manifest that needs more is refused.
 The count includes the baseline every installed app gets (`init`'s
 `ReportFailure` and its names), so a manifest the consent screen accepts
-always installs.
+never fails to install because of the rule limit.
 
 ### Audit
 
