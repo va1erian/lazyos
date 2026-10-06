@@ -559,6 +559,7 @@ checks it:
 ```bash
 python tools/sound/run.py                          # driver tone + beep through the mixer
 python tools/sound/run.py --mix                    # two clients as one chord, a half-volume tone
+python tools/sound/run.py --starve --services     # a stream run dry: exactly one underrun event (#453)
 python tools/sound/run.py --services               # init supervises sndd (_snd) and audiod (_audio)
 python tools/sound/run.py --machine q35 --virtio-disk
 python tools/sound/test_analyze_wav.py             # the detectors' own tests

@@ -785,6 +785,8 @@ pub mod os_lazy_audio_v1 {
     pub const EVENT_KIND_DRAINED: u32 = 2;
     /// `EventKind::DeviceError` wire value.
     pub const EVENT_KIND_DEVICE_ERROR: u32 = 3;
+    /// `EventKind::Period` wire value.
+    pub const EVENT_KIND_PERIOD: u32 = 4;
 
     /// `Direction::Playback` wire value.
     pub const DIRECTION_PLAYBACK: u32 = 0;
@@ -1464,12 +1466,15 @@ pub mod os_lazy_audio_v1 {
     };
 
     /// An `EventKind` ordinal.
-    /// Xruns and drain completion, for clients that would rather not poll
-    /// `Position`. `{card}` is the driver's card name (`virtio-snd0`).
-    /// The declared `system/audio/+/event` topic (`AudioEvent`, `latest`).
+    /// Xruns, drain completion and progress, for clients that would rather
+    /// not poll `Position` (issue #453), on the central broker. `{card}` is
+    /// `mixer` for the streams `audiod` serves applications (the stream ids
+    /// its `OpenStream` granted) and the driver's card name (`virtio-snd0`)
+    /// for the card's own stream, which belongs to the mixer.
+    /// The declared `system/audio/+/event` topic (`AudioEvent`, `buffered`).
     pub const TOPIC_SYSTEM_AUDIO_EVENT: &str = "system/audio/+/event";
     /// The `system/audio/+/event` delivery policy.
-    pub const TOPIC_SYSTEM_AUDIO_EVENT_QOS: u32 = topics::QOS_LATEST;
+    pub const TOPIC_SYSTEM_AUDIO_EVENT_QOS: u32 = topics::QOS_BUFFERED;
     /// Whether `system/audio/+/event` publishes are retained.
     pub const TOPIC_SYSTEM_AUDIO_EVENT_RETAINED: bool = false;
 
@@ -14485,7 +14490,7 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         interface: "os.lazy.audio.v1",
         name: "system/audio/+/event",
         payload: "AudioEvent",
-        qos: topics::QOS_LATEST,
+        qos: topics::QOS_BUFFERED,
         retained: false,
         publish_permission: "publish:system/audio/+/event",
         subscribe_permission: "subscribe:system/audio/+/event",

@@ -215,6 +215,9 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
     ));
 
     let mut service = Service::new(card, infos);
+    // `system/audio/virtio-snd0/event` (issue #453).
+    let mut publisher = user::audio_events::EventPublisher::new(user::audio_events::VIRTIO_CARD);
+    let mut events = alloc::vec::Vec::new();
     // One receive buffer for the life of the service (the heap never reclaims
     // per-call buffers).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
@@ -232,7 +235,11 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
             Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(fail(error)),
         }
-        service.housekeeping();
+        service.housekeeping(&mut events);
+        if !events.is_empty() {
+            publisher.publish(&events, sys::clock());
+            events.clear();
+        }
     }
 }
 

@@ -40,7 +40,14 @@ const MIX_STEPS: &[Step] = &[
 /// player's self-test melody.
 const MODPLAY_STEPS: &[Step] = &[&[(fhs::bin::MODPLAY, &["selftest"])]];
 
-const STEPS: &[Step] = if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
+/// `LAZYOS_SOUND_STARVE=1` (`tools/sound/run.py --starve`): a stream run
+/// dry on purpose, whose events on `system/audio/mixer/event` `beep` checks
+/// (issue #453).
+const STARVE_STEPS: &[Step] = &[&[(fhs::bin::BEEP, &["starve=1"])]];
+
+const STEPS: &[Step] = if option_env!("LAZYOS_SOUND_STARVE").is_some() {
+    STARVE_STEPS
+} else if option_env!("LAZYOS_SOUND_MODPLAY").is_some() {
     MODPLAY_STEPS
 } else if option_env!("LAZYOS_SOUND_MIX").is_some() {
     MIX_STEPS

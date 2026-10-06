@@ -16,6 +16,10 @@
 //!
 //! `demo=1` runs the sound harness's evidence clients through the mixer once a
 //! card is attached (`audiod/demo.rs`).
+//!
+//! Stream events (underrun, drained, progress) go out on
+//! `system/audio/mixer/event` (issue #453, `audiomix::events`), so a client
+//! can wait for room instead of polling `Position`.
 
 #![no_std]
 #![no_main]
@@ -95,6 +99,10 @@ fn run(demo: bool) -> Result<(), MsgError> {
     // per-call buffers).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     let mut stepped_at = None;
+    // `system/audio/mixer/event` (issue #453): underruns, drains, progress.
+    let mut watch = audiomix::events::Watch::new();
+    let mut publisher = user::audio_events::EventPublisher::new(user::audio_events::MIXER_CARD);
+    let mut events = alloc::vec::Vec::new();
     loop {
         // Card pacing, drains and reclaims run at most once per tick, however
         // many requests arrive.
@@ -102,6 +110,9 @@ fn run(demo: bool) -> Result<(), MsgError> {
         if stepped_at != Some(now) {
             stepped_at = Some(now);
             server.step(&endpoint, now);
+            server.observe(&mut watch, now, publisher.wants_periods(now), &mut events);
+            publisher.publish(&events, now);
+            events.clear();
             demo.poll(server.has_card());
         }
         let park = if server.busy() {

@@ -21,6 +21,9 @@ python tools/sound/run.py --services
 # Two clients at once must be one chord at unity; a volume=50 tone half as loud
 python tools/sound/run.py --mix
 
+# A stream run dry on purpose: exactly one underrun event (issue #453)
+python tools/sound/run.py --starve --services
+
 # q35 has no IDE controller the kernel drives: attach the image as virtio-blk
 python tools/sound/run.py --machine q35 --virtio-disk
 
@@ -75,6 +78,18 @@ tone (mixing adds, it does not attenuate); and 880 Hz at half the amplitude of
 440 Hz (within 20%). `test_mixcheck.py` proves it fails for sequential tones, a
 missing partner, the wrong volume, an attenuated mix, a short chord, silence
 and garbage.
+
+## Stream events: `--starve`
+
+`python tools/sound/run.py --starve --services` builds with
+`LAZYOS_SOUND_STARVE=1`, so `audiod demo=1` runs `beep starve=1`: it
+subscribes to `system/audio/mixer/event`, plays 880 Hz, lets its stream run
+dry, plays 660 Hz and drains, and passes only with exactly one `Underrun`, one
+`Drained` and some `Period` events for its own stream (`BEEP:STARVE:PASS`).
+The harness also requires the mixer's and the driver's `AUDIO:EVENT` lines
+(the card's own underrun on `system/audio/virtio-snd0/event`) and judges the
+recording (440, 880, 660 Hz). `--services` matters: it runs the publishers as
+`_snd` and `_audio`, which `messengerd` admits under `system/audio/` only.
 
 ## The detector
 

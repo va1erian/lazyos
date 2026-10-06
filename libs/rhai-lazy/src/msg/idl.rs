@@ -179,7 +179,7 @@ pub static INTERFACES: &[Interface] = &[
             },
         ],
         enums: &[
-            Enum { name: "EventKind", variants: &["Underrun", "Overrun", "Drained", "DeviceError"] },
+            Enum { name: "EventKind", variants: &["Underrun", "Overrun", "Drained", "DeviceError", "Period"] },
             Enum { name: "Direction", variants: &["Playback", "Capture"] },
             Enum { name: "Format", variants: &["S16Le", "S24Le", "S32Le", "Float32"] },
         ],
@@ -187,9 +187,9 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/audio/+/event",
                 payload: "AudioEvent",
-                qos: 0,
+                qos: 1,
                 retained: false,
-                doc: "An `EventKind` ordinal.\nXruns and drain completion, for clients that would rather not poll\n`Position`. `{card}` is the driver's card name (`virtio-snd0`).",
+                doc: "An `EventKind` ordinal.\nXruns, drain completion and progress, for clients that would rather\nnot poll `Position` (issue #453), on the central broker. `{card}` is\n`mixer` for the streams `audiod` serves applications (the stream ids\nits `OpenStream` granted) and the driver's card name (`virtio-snd0`)\nfor the card's own stream, which belongs to the mixer.",
             },
         ],
     },
