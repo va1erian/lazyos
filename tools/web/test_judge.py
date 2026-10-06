@@ -78,6 +78,12 @@ class FeatureTests(unittest.TestCase):
         text = FEATURE_SERIAL.replace(f":{len(sites.download_payload())}", ":1024")
         self.assertTrue(judge.judge_features(text, feature_record()))
 
+    def test_a_renamed_download_passes(self) -> None:
+        text = FEATURE_SERIAL.replace(sites.DOWNLOAD_NAME, "oldnet-kit (2).zip")
+        self.assertEqual(judge.judge_features(text, feature_record()), [])
+        text = FEATURE_SERIAL.replace(sites.DOWNLOAD_NAME, "oldnet-kit.zip.exe")
+        self.assertTrue(judge.judge_features(text, feature_record()))
+
     def test_another_app_for_http_fails(self) -> None:
         text = FEATURE_SERIAL.replace(":os.lazy.lazyweb", ":os.lazy.editor")
         self.assertTrue(judge.judge_features(text, feature_record()))

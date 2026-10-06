@@ -51,8 +51,9 @@
   {"key_up": "ctrl"},
   {"at": 8.0, "shot": "14_downloads"},
   {"at": 1.0, "mouse_move": [-391, -216]},
-  {"at": 1.0, "mouse_click": "left"},
-  {"at": 2.0, "shot": "15_menu"},
+  {"at": 1.0, "mouse_down": "left"},
+  {"at": 0.4, "mouse_up": "left"},
+  {"at": 4.0, "shot": "15_menu"},
   {"key": "esc"},
   {"at": 1.0, "quit": true}
 ]

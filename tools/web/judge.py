@@ -223,9 +223,13 @@ def judge_features(text: str, record=None) -> list[str]:
     if "OPEN:x-scheme-handler/http:os.lazy.lazyweb" not in text:
         problems.append("opening http://example.com/ through mimed did not pick LazyWeb")
     size = len(download_payload())
-    if f"WEB:DOWNLOAD:START:{DOWNLOAD_NAME}" not in text:
+    # A reused image (`--no-build`) already holds the file: the browser then
+    # saves it as "oldnet-kit (1).zip", and so on.
+    stem, ext = DOWNLOAD_NAME.rsplit(".", 1)
+    name = rf"{re.escape(stem)}(?: \(\d+\))?\.{re.escape(ext)}"
+    if not re.search(rf"WEB:DOWNLOAD:START:{name}$", text, re.M):
         problems.append(f"the download of {DOWNLOAD_NAME} never started")
-    if f"WEB:DOWNLOAD:DONE:{DOWNLOAD_NAME}:{size}" not in text:
+    if not re.search(rf"WEB:DOWNLOAD:DONE:{name}:{size}$", text, re.M):
         done = _lines(text, "WEB:DOWNLOAD:")
         problems.append(f"no WEB:DOWNLOAD:DONE:{DOWNLOAD_NAME}:{size} (saw {done})")
     for page in ("about:history", "about:downloads"):

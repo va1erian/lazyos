@@ -144,8 +144,9 @@ def _feature_steps(step_timeout: float) -> list[dict]:
         # The History menu, to see its icons: the pointer rests at the
         # screen's centre, the menu title is at (249, 147) on a 720p desktop.
         {"at": 1.0, "mouse_move": [-391, -216]},
-        {"at": 1.0, "mouse_click": "left"},
-        {"at": 2.0, "shot": "15_menu"},
+        {"at": 1.0, "mouse_down": "left"},
+        {"at": 0.4, "mouse_up": "left"},
+        {"at": 4.0, "shot": "15_menu"},
         {"key": "esc"},
     ]
 
