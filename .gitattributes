@@ -1,3 +1,7 @@
 # The account file is copied byte for byte onto the image and parsed
 # strictly by accountsd: keep it LF on every checkout (issue #508).
 build_support/passwd text eol=lf
+
+# Fuzz seeds are byte-exact inputs written by fuzz/gen_corpus.py (some are
+# CRLF on purpose): never convert their line endings on any checkout.
+fuzz/seeds/** -text
