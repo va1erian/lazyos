@@ -17,9 +17,8 @@ Needs BusyBox (`python tools/abi/busybox.py`), the xui apps and `rhai`
 (`run.py` builds them). QEMU on `PATH` as for the other harnesses. Output:
 `shots/accounts/` (session scripts, serial logs, `audit_*.txt`). The image logs
 `user` straight in (`LAZYOS_AUTOLOGIN=user`, issue #623) through the same path
-as the login screen, and also carries `shellprobe` (`LAZYOS_XUID=1
-LAZYOS_SHELLPROBE=1`, never started on a desktop) and the probe packages
-`probe_packages.py` builds into `target/accounts-assets/`.
+as the login screen, and carries the probe packages `probe_packages.py` builds
+into `target/accounts-assets/`.
 
 ## What it does
 
@@ -63,9 +62,10 @@ delete a canary file, and remove whatever they created.
 | `core_replace` | install `os.lazy.counter` 99.0.0 over the core app |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
-| `shell_role` | run `shellprobe`, which subscribes to `xuid` as the shell while LazyShell holds the role (BLOCKED only on its `subscribe: -13`) |
 
-Not yet scripted: the U1/U2 sets (account management, elevation).
+Not yet scripted: claiming `xuid`'s shell role from the session (no shipped
+program a session can run subscribes to `xuid`; the rule is boot-tested by
+`xuid`'s `XUID:SHELLCALLS` self-test) and the U1/U2 sets.
 
 ## Expectations: how it passes today and gates later
 

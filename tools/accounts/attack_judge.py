@@ -69,7 +69,6 @@ EXPECTATIONS: dict[str, Expect] = {
     "core_replace": Expect("xfail", U3, INSTALL_PATHS),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
-    "shell_role": Expect("blocked", U0),
 }
 
 #: The package `autostart_root` installs (tools/accounts/probe_packages.py).

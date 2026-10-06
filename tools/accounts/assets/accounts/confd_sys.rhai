@@ -12,10 +12,13 @@ try {
     written = true;
 } catch (e) {
     let text = e.to_string();
-    if text.contains("(EACCES)") {
+    if text.contains("(EACCES") {
         verdict = "BLOCKED:EACCES";
-    } else if text.contains("(EPERM)") {
+    } else if text.contains("(EPERM") {
         verdict = "BLOCKED:EPERM";
+    } else if text.contains("code 1004)") {
+        // confd's own refusal, CONFD_DENIED (idl/confd.midl).
+        verdict = "BLOCKED:CONFD_DENIED";
     } else {
         verdict = "ERROR:unrecognised";
     }

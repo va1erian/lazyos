@@ -65,10 +65,8 @@ GENERATED = ROOT / "target" / "accounts-assets"
 GUEST = "/system/share/accounts"
 
 #: The attack session's commands, in order (attack.sh or a rhai script each).
-#: `shell_role` runs last: before U0 it took the desktop's shell role away.
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_home_admin",
-                 "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill",
-                 "shell_role"]
+                 "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {"confd_sys": "confd_sys.rhai", "keyd_provision": "keyd_provision.rhai"}
 #: A step that only prepares a scenario prints this marker instead.
 SETUP_MARKERS = {"autostart_pkg": "TERM:OUT:ACCT:INSTALL:autostart_pkg:"}
@@ -87,11 +85,10 @@ def build() -> bool:
     import demo_builds
     demo_builds.build_rhai()
     # The session logs `user` straight in (LAZYOS_AUTOLOGIN, issue #623);
-    # `shellprobe` (LAZYOS_XUID + LAZYOS_SHELLPROBE embed it, the desktop never
-    # starts it) is the shell-role attacker.
+    # the verify boot clicks the Terminal by name (LAZYOS_UI_PROBE).
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
-               LAZYOS_AUTOLOGIN="user", LAZYOS_XUID="1", LAZYOS_SHELLPROBE="1",
-               LAZYOS_RESET_OS="1", LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
+               LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
+               LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
     if subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT, env=env).returncode:
         return False
     problems = probe_packages.build_all(GENERATED)
@@ -148,14 +145,19 @@ def attack_session(names: list[str]) -> list[dict]:
 
 def verify_session() -> list[dict]:
     """Up and answering, then the session ends with the machine running. The
-    package `autostart_root` installed opens at this login (as `user`) over
-    the Terminal: close it first (Alt+F4 on the focused window)."""
-    close_probe = [{"wait_for": f"INIT:AUTOSTART:PASS app={attack_judge.AUTOPROBE}",
-                    "timeout": 420},
-                   {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 60},
-                   {"at": 1.0, "key_down": "alt"}, {"at": 0.2, "key": "f4"},
-                   {"at": 0.2, "key_up": "alt"}]
-    return [*close_probe, *focus_terminal(), {"at": 2.0, "shot": "up"}]
+    package `autostart_root` installed opens at this login (as `user`) and,
+    whichever opened first, may cover part of the Terminal: raise the Terminal
+    by name (`LAZYOS_UI_PROBE`) at the bottom right of its content, which the
+    smaller window never reaches, then type without clicking again."""
+    raise_terminal = [{"wait_for": f"INIT:AUTOSTART:PASS app={attack_judge.AUTOPROBE}",
+                       "timeout": 420},
+                      {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 60},
+                      {"wait_for": "TERM:UP:PASS", "timeout": 240},
+                      {"at": 1.0, "click_at": {"window": "Terminal", "offset": [250, 150]},
+                       "timeout": 60}]
+    typing = [step for step in focus_terminal()
+              if "mouse_move" not in step and "mouse_click" not in step]
+    return [*raise_terminal, *typing, {"at": 2.0, "shot": "up"}]
 
 
 def boot(name: str, steps: list[dict], out: Path, image: Path, accel: str,
@@ -205,7 +207,7 @@ def main() -> int:
     work.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(IMAGE, work)  # the built image is never booted
     failures: list[str] = []
-    names = SHELL_ATTACKS[:-1] + list(RHAI_ATTACKS) + SHELL_ATTACKS[-1:]
+    names = SHELL_ATTACKS + list(RHAI_ATTACKS)
 
     ok, log = boot("warm", warm_session(), args.out, work, args.accel, args.memory)
     failures += [] if ok else ["warm session did not complete"]

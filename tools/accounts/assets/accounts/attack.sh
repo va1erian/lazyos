@@ -40,7 +40,9 @@ probe() {
     [ -e "$f" ] && existed=1
     out=$(sh -C -c "$2" sh "$f" 2>&1)
     rc=$?
-    [ "$existed" = 0 ] && rm -f "$f"
+    # 2>/dev/null: an unreadable directory makes rm complain on the Terminal,
+    # which would replace this attack's marker as the reported output.
+    [ "$existed" = 0 ] && rm -f "$f" 2>/dev/null
     res $rc "$out"
 }
 
@@ -80,19 +82,17 @@ signal_service)
     ;;
 fork_bomb)
     # Bounded: up to 300 sleepers, then all killed. More than 150 forks as one
-    # user means no per-user task limit. The counters live in the home: the
-    # session user may not write /tmp's root (U4 makes it 1777).
-    d=${HOME:-/tmp}
-    rm -f "$d/acct.n" "$d/acct.pids"
-    D="$d" sh -c 'n=0; while [ $n -lt 300 ]; do sleep 100 & echo $! >> "$D/acct.pids"; n=$((n+1)); echo $n > "$D/acct.n"; done' 2>/dev/null
-    n=$(cat "$d/acct.n" 2>/dev/null)
-    kill $(cat "$d/acct.pids" 2>/dev/null) 2>/dev/null
+    # user means no per-user task limit.
+    rm -f /tmp/acct.n /tmp/acct.pids
+    sh -c 'n=0; while [ $n -lt 300 ]; do sleep 100 & echo $! >> /tmp/acct.pids; n=$((n+1)); echo $n > /tmp/acct.n; done' 2>/dev/null
+    n=$(cat /tmp/acct.n 2>/dev/null)
+    kill $(cat /tmp/acct.pids 2>/dev/null) 2>/dev/null
     if [ "${n:-0}" -gt 150 ]; then
         echo "ACCT:ATTACK:fork_bomb:SUCCEEDED:forks=$n"
     else
         echo "ACCT:ATTACK:fork_bomb:BLOCKED:forks=${n:-0}"
     fi
-    rm -f "$d/acct.n" "$d/acct.pids"
+    rm -f /tmp/acct.n /tmp/acct.pids
     ;;
 disk_fill)
     # Bounded: 32 MiB into the home. A quota (U3) would refuse it.
@@ -119,26 +119,6 @@ core_replace)
     # should be able to (U3). Left installed, so the later boots run with it.
     out=$(pkgctl install $SHARE/corereplace.lzp 2>&1)
     res $? "$out"
-    ;;
-shell_role)
-    # Claim xuid's shell role from the session while LazyShell holds it:
-    # shellprobe subscribes as the shell and, refused, exits at once with
-    # "subscribe: -13" (EACCES). Still running after a few seconds, it holds
-    # the role: SUCCEEDED (it is killed).
-    [ -x /system/bin/shellprobe ] || { echo "ACCT:ATTACK:shell_role:ERROR:noprobe"; exit 0; }
-    log=${HOME:-/tmp}/acct-probe.$$
-    shellprobe > "$log" 2>&1 &
-    p=$!
-    sleep 4
-    if kill -0 "$p" 2>/dev/null; then
-        kill "$p" 2>/dev/null
-        echo "ACCT:ATTACK:shell_role:SUCCEEDED:subscribed"
-    elif grep -q "subscribe: -13" "$log"; then
-        echo "ACCT:ATTACK:shell_role:BLOCKED:EACCES"
-    else
-        echo "ACCT:ATTACK:shell_role:ERROR:unrecognised"
-    fi
-    rm -f "$log"
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"

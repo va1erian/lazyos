@@ -92,6 +92,20 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+### Login and the session user
+
+A desktop image boots to a login screen (`greeter`, run as the `_greeter`
+uid); `user`/`lazy` and `admin`/`nimda` are the development accounts
+(Argon2id hashes in the root-only `/system/etc/shadow`). LazyShell, the
+Terminal and every app run as the logged-in user with no capability, and the
+taskbar's Log out button ends the session (docs/accounts-plan.md U0, #623).
+`LAZYOS_AUTOLOGIN=<name>` (`run_demo.py --autologin NAME`, the GUI's
+"Log in automatically") logs straight in; unset, an image that opens apps at
+login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
+the example sessions run unchanged. Services authorize privileged calls by
+`CAP_SETUID`, never by uid 0: a session cannot write `sys/**` keys, `/conf`
+or `/system`. The attack harness is `python tools/accounts/run.py`.
+
 ### The disk image
 
 `cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
