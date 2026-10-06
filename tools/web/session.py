@@ -138,9 +138,9 @@ def _feature_steps(step_timeout: float) -> list[dict]:
         *_address(judge.MAILTO_URL, "WEB:LAUNCH:", step_timeout),
         {"at": 2.0, "shot": "12_mailto"},
         *_shortcut("h", "WEB:LOAD:about:history", step_timeout),
-        {"at": 3.0, "shot": "13_history"},
+        {"at": 8.0, "shot": "13_history"},
         *_shortcut("j", "WEB:LOAD:about:downloads", step_timeout),
-        {"at": 3.0, "shot": "14_downloads"},
+        {"at": 8.0, "shot": "14_downloads"},
         # The History menu, to see its icons: the pointer rests at the
         # screen's centre, the menu title is at (249, 147) on a 720p desktop.
         {"at": 1.0, "mouse_move": [-391, -216]},
