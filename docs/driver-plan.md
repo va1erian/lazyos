@@ -410,7 +410,7 @@ capabilities through the modern transport (`virtio_modern_suite`). The `dev_*`
 syscall has a seeded argument fuzz and a lifecycle soak
 (`dev_suite::FUZZ`, `FUZZ_SOAK`), which found and fixed a shared-window
 page-table leak. `devd` matches devices to driver rows and asks `init` to start
-them. IOMMU (VT-d) and MSI/IOAPIC are follow-up issues. Details:
+them. IOMMU (VT-d) and MSI/IOAPIC are issues #615 and #616. Details:
 [architecture/drivers.md](architecture/drivers.md).
 
 ## 6. Testing summary

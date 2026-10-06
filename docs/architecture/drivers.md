@@ -171,8 +171,8 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/de
 ## Not done
 
 MSI/MSI-X and the IOAPIC (every driver is on INTx through the PIC) and an
-IOMMU (a driver with `DMA` is still trusted like the kernel): follow-up
-issues. `devd` does not apply the `confd` device policy of
+IOMMU (a driver with `DMA` is still trusted like the kernel): issues #616
+and #615. `devd` does not apply the `confd` device policy of
 [driver-config-plan.md](../driver-config-plan.md) (enable/disable, binding
 overrides) and does not watch for hot-plug; one device per driver row; the
 `e1000e`/`igc` families, HDA capture, HDMI codecs and a DSP-mode (SOF)
