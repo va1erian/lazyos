@@ -113,6 +113,7 @@ binary = "bin/paint.elf"             # must exist in the archive
 args = []                            # optional list of strings, each at most 256 bytes, at most 16 of them
 abi = "native"                       # optional: "native" (default, a LazyOS program) or "linux" (a static musl program)
 autostart = false                    # optional: start the app when the user logs in (default false)
+resident = false                     # optional: may run with no window, single instance, always in the tray (default false)
 
 [[mime]]                             # zero or more
 type = "image/png"
@@ -172,6 +173,20 @@ show them all at once.
 * **`entry.autostart`** — absent or a boolean, default `false`. A user package
   that sets it shows "starts when you log in" on the consent screen and is
   started only after consent.
+* **`entry.resident`** — absent or a boolean, default `false`. A resident app
+  may run with no window, runs once per session and always has an icon in the
+  taskbar ([`tray-plan.md`](tray-plan.md) §5; `init` reports it as
+  `AppInfo.resident`). It implies the permissions such an app needs, so
+  `interfaces` stays about what the app does: the interfaces
+  `os.lazy.shell.tray.v1` and `os.lazy.init.app.v1` and the topic
+  `subscribe:session/+/shell/tray` (the tray generation the client library
+  follows to re-register after a shell restart). They are ordinary requested
+  permissions (`pkgstore::resident`): the consent screen lists each with its
+  explanation, after the manifest's own, plus the low-risk line "Keeps running
+  in the background and shows an icon in the taskbar" (kind `resident`); they
+  count toward the 24-entry limit and are loaded only by an `Install` after
+  consent. Listing one of them explicitly as well adds no second row or rule.
+  Often combined with `autostart`.
 * **`entry.binary`** and every MIME `icon` prefix must resolve to files in the
   archive.
 
@@ -232,7 +247,7 @@ impl App {
     pub fn category(&self) -> Category;              // absent: Category::Accessories
     pub fn parsed_version(&self) -> Option<Version>; // Some for every validated manifest
 }
-// `Entry::autostart: bool` is a plain field (absent: false).
+// `Entry::autostart: bool` and `Entry::resident: bool` are plain fields (absent: false).
 
 pub enum Category { Accessories, Development, Games, Graphics, Internet, Office, System, Utilities }
 pub struct Version { /* parsed text; Ord/Eq as in "Versions" above */ }
@@ -457,6 +472,8 @@ the consent screen and the enforcement come from the same data:
 * `develop = true` allows spawning a child into any `dev:` label
   (`os.lazy.process.label.spawn.v1`, the wildcard method; see "Development
   runs");
+* `resident = true` (under `[entry]`) compiles the two interfaces and the topic
+  it implies exactly as if the manifest listed them (see `entry.resident`);
 * `files` rules are **consent only** today: there is no file sandbox in the
   kernel yet, so they are recorded and shown but compile to nothing.
 
@@ -581,7 +598,7 @@ PNG header check; a missing one falls back to the built-in picture).
 
 `ListApps` lists the core apps first, then the others by `system_name`, each
 with its `origin` (`core`, `user`, or `system` for a built-in program),
-`category`, `autostart`, its MIME `verbs` from the manifest, and `hidden`, which
+`category`, `autostart`, `resident`, its MIME `verbs` from the manifest, and `hidden`, which
 `init` resolves for the *caller's* uid (`user/<uid>/menu/hidden/<id>`, else the
 machine's `sys/menu/hidden/<id>`, `deskmenu::hidden`). A core app also answers to
 its bare short id (`Launch("editor")` starts `os.lazy.editor`), so menus and

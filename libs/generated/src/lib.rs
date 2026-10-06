@@ -12321,7 +12321,8 @@ pub mod os_lazy_pkgd_v1 {
 
     /// Whether the package ships icons for this type.
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network`, `develop` or
+    /// `resident` (`entry.resident`, value `true`); `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12380,6 +12381,7 @@ pub mod os_lazy_pkgd_v1 {
         pub category: alloc::string::String,
         pub autostart: bool,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub resident: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -12405,6 +12407,7 @@ pub mod os_lazy_pkgd_v1 {
             nested.string(1, item)?;
         }
         target.array(13, &nested)?;
+        target.bool(14, value.resident)?;
         Ok(target.finish())
     }
 
@@ -12458,6 +12461,9 @@ pub mod os_lazy_pkgd_v1 {
                         out.verbs.push(item.as_str()?.into());
                     }
                 }
+                14 => {
+                    out.resident = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -12475,6 +12481,8 @@ pub mod os_lazy_pkgd_v1 {
     /// The menu group (`lazypkg::Category`).
     /// Whether the app starts when a session opens (`entry.autostart`).
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
+    /// Whether the app is resident (`entry.resident`): it may run with no
+    /// window, once per session, with an icon in the taskbar.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),

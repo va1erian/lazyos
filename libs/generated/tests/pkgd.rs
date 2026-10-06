@@ -21,6 +21,7 @@ fn installed() -> Installed {
         category: "utilities".into(),
         autostart: true,
         verbs: vec!["open".into()],
+        resident: true,
     }
 }
 
@@ -65,6 +66,22 @@ fn a_row_stored_before_origins_existed_reads_as_a_user_app() {
     assert_eq!(decoded.origin, ORIGIN_USER);
     assert_eq!(ORIGIN_USER, 0);
     assert!(!decoded.autostart && decoded.verbs.is_empty());
+}
+
+#[test]
+fn a_row_stored_before_resident_existed_is_not_resident() {
+    // T3 appended `resident` (field 14): an older row decodes to `false`.
+    let old_style = Installed {
+        resident: false,
+        ..installed()
+    };
+    let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
+    assert!(!decoded.resident);
+    assert!(
+        decode_installed(&encode_installed(&installed()).unwrap())
+            .unwrap()
+            .resident
+    );
 }
 
 #[test]

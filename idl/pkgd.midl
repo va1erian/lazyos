@@ -110,7 +110,8 @@ interface os.lazy.pkgd.v1 {
     }
 
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network`, `develop` or
+    /// `resident` (`entry.resident`, value `true`); `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     struct Permission {
@@ -145,7 +146,10 @@ interface os.lazy.pkgd.v1 {
         /// Whether the app starts when a session opens (`entry.autostart`).
         autostart: Bool = 12,
         /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
-        verbs: Array<String> = 13
+        verbs: Array<String> = 13,
+        /// Whether the app is resident (`entry.resident`): it may run with no
+        /// window, once per session, with an icon in the taskbar.
+        resident: Bool = 14
     }
 
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`

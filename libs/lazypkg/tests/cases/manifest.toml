@@ -18,8 +18,8 @@
 #   [permissions]
 #   <permissions>
 #
-# `valid = true` cases may say what `category`, `autostart` and `develop` read
-# back as.
+# `valid = true` cases may say what `category`, `autostart`, `resident` and
+# `develop` read back as.
 # `valid = false` cases name a substring (`error`) that one of the reported
 # problems must contain on both sides; pick one both wordings share.
 
@@ -122,6 +122,32 @@ name = "autostart belongs in [entry], not [app]"
 app = "autostart = true"
 valid = false
 error = "autostart"
+
+# --- [entry] resident ---------------------------------------------------------
+
+[[manifest]]
+name = "resident is optional and defaults to false"
+valid = true
+resident = false
+
+[[manifest]]
+name = "resident true, with autostart"
+entry = "autostart = true\nresident = true"
+valid = true
+autostart = true
+resident = true
+
+[[manifest]]
+name = "resident must be a boolean"
+entry = 'resident = "yes"'
+valid = false
+error = "resident"
+
+[[manifest]]
+name = "resident belongs in [entry], not [permissions]"
+permissions = "resident = true"
+valid = false
+error = "resident"
 
 [[manifest]]
 name = "an unknown field is still an error"
