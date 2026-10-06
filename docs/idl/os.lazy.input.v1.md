@@ -32,11 +32,16 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | Open | 1 | sync | `(surface: Option<U64>) -> (session: U64) transfers (events: Channel<os.lazy.input.v1>)` |
 | Close | 2 | sync | `(session: U64) -> ()` |
 | GetState | 3 | sync | `() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` |
+| RequestGrant | 4 | sync | `(session: U64, kind: U32) -> ()` |
+| ReleaseGrant | 5 | sync | `(session: U64) -> ()` |
+| Ping | 6 | sync | `(session: U64, token: U64) -> (token: U64, seq: U64)` |
+| AttachKeyState | 7 | sync | `(session: U64) -> () transfers (state: Buffer)` |
 | KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
 | TextInput | 11 | oneway | `(utf8: String) -> ()` |
 | KeyboardEnter | 12 | oneway | `(down: Array<U32>) -> ()` |
 | KeyboardLeave | 13 | oneway | `() -> ()` |
 | LayoutChanged | 14 | oneway | `(layout: String) -> ()` |
+| GrantChanged | 15 | oneway | `(kind: U32, active: Bool, reason: U32) -> ()` |
 
 ## Transfers
 
@@ -46,7 +51,16 @@ Objects a request carries outside its body, in the parcel's
 | Method | Name | Slot |
 |---|---|---|
 | Open | `events` | `handles[0]`, a channel the receiver sends `os.lazy.input.v1` on |
+| AttachKeyState | `state` | `buffers[0]`, a shared buffer |
 
 ## enum `KeyState`
 
 - Down, Up, Repeat
+
+## enum `GrantKind`
+
+- None, Keyboard
+
+## enum `GrantReason`
+
+- Approved, Denied, Released, FocusLost, Escaped, Closed

@@ -82,9 +82,16 @@ impl Tx {
     }
 
     /// Send up to `budget` queued bytes, a FIFO's worth per status poll.
+    ///
+    /// The UART sends at its baud rate (QEMU paces the "empty" bit too), so a
+    /// long drain takes milliseconds with interrupts off; it takes pending
+    /// interrupts at poll points (`arch::irq_window`) while it waits. Measured
+    /// in issue #400: a 128-byte program write held them off for up to 49 ms,
+    /// long enough for QEMU's 16-byte PS/2 queue to overflow and lose keys.
     pub(super) fn drain(&mut self, budget: usize) {
         let mut sent = 0;
         while sent < budget && self.len > 0 {
+            crate::arch::irq_window::poll_point();
             if !self.wait_empty() {
                 return;
             }
@@ -108,6 +115,9 @@ impl Tx {
             if unsafe { inb(self.base + LINE_STATUS) } & THR_EMPTY != 0 {
                 return true;
             }
+            // Safe under the port lock: a window's handlers take no lock but
+            // the i8042 FIFO's, which no serial writer holds.
+            crate::arch::irq_window::poll_point();
             core::hint::spin_loop();
         }
         false

@@ -34,7 +34,7 @@ pub static MODULES: &[ApiModule] = &[
         alias: "confd",
         interface: "os.lazy.confd.v1",
         source: include_str!("confd.rhai"),
-        topics: &[ApiTopic { helper: "changed", pattern: "system/confd/changed/#" }],
+        topics: &[ApiTopic { helper: "changed", pattern: "system/confd/changed/#" }, ApiTopic { helper: "user_changed", pattern: "user/+/confd/changed/#" }],
     },
     ApiModule {
         alias: "devd",
@@ -53,6 +53,12 @@ pub static MODULES: &[ApiModule] = &[
         interface: "os.lazy.echo.v1",
         source: include_str!("echo.rhai"),
         topics: &[],
+    },
+    ApiModule {
+        alias: "files",
+        interface: "os.lazy.files.v1",
+        source: include_str!("files.rhai"),
+        topics: &[ApiTopic { helper: "session_selection", pattern: "session/+/selection" }],
     },
     ApiModule {
         alias: "healthd",

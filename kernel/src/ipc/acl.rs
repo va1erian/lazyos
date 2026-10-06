@@ -64,6 +64,9 @@ pub mod reason {
     /// A labelled app advertised an interface outside its own domain
     /// (`<id>.<name>.v<N>`, issue #495).
     pub const FOREIGN_INTERFACE: u32 = 11;
+    /// A topic or filter that reaches into another uid's private
+    /// `user/<uid>/` namespace (`ipc::topics::private`, issue #407).
+    pub const PRIVATE_NAMESPACE: u32 = 12;
 }
 
 /// Most rules one label may hold.

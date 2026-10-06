@@ -75,12 +75,10 @@ pub(super) fn run() -> messenger::Result<()> {
     }
 }
 
-/// The kernel-stamped actor for a message: the service holds `CAP_SETUID`, so
-/// it may read another task's credential block.
+/// The kernel-stamped actor for a message: the credentials its sender had
+/// when it was queued (issue #446).
 fn actor(message: &Message) -> messenger::Result<sys::Cred> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).map_err(Error::Errno)?;
-    Ok(cred)
+    Ok(message.caller())
 }
 
 /// Route one inbound message.

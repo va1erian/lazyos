@@ -16,7 +16,6 @@ use pkgstore::provision::Shipped;
 use user::messenger::pkgd::wire::ProvisionState;
 use user::messenger::pkgd::{self, wire, Failure};
 use user::messenger::{accounts, Message, Parcel};
-use user::sys;
 
 use super::audit::Audit;
 use super::develop::Logouts;
@@ -221,11 +220,9 @@ impl Pkgd {
     }
 }
 
-/// The kernel-stamped identity of the sender. `pkgd` is root, so it may read
-/// another task's credential block.
+/// The kernel-stamped identity of the sender (issue #446).
 fn caller_of(message: &Message) -> Option<Caller> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(message.sender), &mut cred).ok()?;
+    let cred = message.caller();
     Some(Caller {
         uid: cred.uid,
         session: cred.session,

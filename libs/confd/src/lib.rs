@@ -28,6 +28,7 @@
 
 extern crate alloc;
 
+pub mod announce;
 pub mod codec;
 pub mod dir;
 pub mod fs;
@@ -36,6 +37,7 @@ pub mod service;
 pub mod store;
 pub mod value;
 
+pub use announce::{announcement, Announcement};
 pub use codec::{decode, encode, DecodeError, MAX_ENCODED_LEN};
 pub use fs::{
     load, load_read_only, persist, retire, StoreFs, CORRUPT_FILE, MIGRATED_FILE, STORE_FILE,

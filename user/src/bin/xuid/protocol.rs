@@ -32,13 +32,6 @@ pub(super) fn carries_declared(message: &Message) -> bool {
     message.carries(declared)
 }
 
-/// `sender`'s kernel-stamped credentials, or `None` when they cannot be read
-/// (which every caller treats as "not authorized").
-pub(super) fn sender_cred(sender: u64) -> Option<sys::Cred> {
-    let mut cred = sys::Cred::default();
-    sys::cred_get(Some(sender), &mut cred).ok().map(|()| cred)
-}
-
 /// Whether `cred` authorizes the compositor's administrative operations
 /// (issue #175) on its own: any subscription role, the shell-only calls.
 /// Mirrors accountsd's admin check: uid 0, or `CAP_SETUID` for a delegated
@@ -47,9 +40,9 @@ pub(super) fn privileged(cred: &sys::Cred) -> bool {
     cred.uid == 0 || cred.caps & sys::CAP_SETUID != 0
 }
 
-/// [`privileged`] for `sender`; a read error is "not authorized".
-pub(super) fn is_privileged(sender: u64) -> bool {
-    sender_cred(sender).is_some_and(|cred| privileged(&cred))
+/// [`privileged`] for the caller the kernel stamped on `message`.
+pub(super) fn is_privileged(message: &Message) -> bool {
+    privileged(&message.caller())
 }
 /// The kind of a raw kernel input record.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

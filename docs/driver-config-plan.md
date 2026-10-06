@@ -39,8 +39,9 @@ kernel drivers would read only that. Nothing a kernel driver needs may depend on
 (`user::messenger::confd`), `Get`s **only its own known keys** (never `List`s a
 subtree), and falls back to the documented default for any key that is absent,
 mistyped or out of range. It then subscribes to
-`system/confd/changed/sys/dev/<its subtree>/#`. `confd` announces only `sys/`
-changes, best-effort, with the payload `(path, deleted)` and never the value, so
+`system/confd/changed/sys/dev/<its subtree>/#`. `confd` announces `sys/`
+changes there (and a user's own `user/<uid>/` changes on that uid's private
+`user/<uid>/confd/changed/...`), best-effort, with the payload `(path, deleted)` and never the value, so
 the handler re-`Get`s the named key. (`confd-plan.md` writes the topic
 as `confd/changed/<path>`; the implementation, `user/src/messenger/confd.rs`, uses
 the `system/` prefix.) Driver configuration therefore lives under `sys/`, not

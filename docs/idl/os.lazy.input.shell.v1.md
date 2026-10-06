@@ -24,11 +24,12 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 | NoteSurface | 11 | oneway | `(surface: U64, owner: U64) -> ()` |
 | ForgetSurface | 12 | oneway | `(surface: U64) -> ()` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
-| GrantRequested | 21 | oneway | `(session: U64, kind: U32) -> ()` |
+| GrantRequested | 21 | oneway | `(session: U64, kind: U32, surface: U64) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |
 | SessionOpened | 23 | oneway | `(surface: U64) -> ()` |
 | SessionClosed | 24 | oneway | `(surface: U64) -> ()` |
 | PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
+| GrabChanged | 26 | oneway | `(surface: Option<U64>) -> ()` |
 
 ## Transfers
 

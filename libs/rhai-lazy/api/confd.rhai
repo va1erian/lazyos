@@ -116,3 +116,44 @@ fn subscribe_changed(path) {
 fn publish_changed(path, payload) {
     msg::publish(`system/confd/changed/${path}`, payload)
 }
+
+// Filter for every event of the topic `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest).
+// Announced for every committed `user/<uid>/<path>` change (issue #407):
+// the topic is `user/<uid>/confd/changed/<path>`, in the kernel's per-uid
+// topic namespace, so only that uid and root may subscribe (as only they
+// may read the key). The payload's `path` is the full key. Not retained.
+export const USER_CHANGED_PATTERN = "user/+/confd/changed/#";
+
+/// The topic name of `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest) for these placeholder values.
+fn user_changed_topic(uid, path) {
+    `user/${uid}/confd/changed/${path}`
+}
+
+/// Run `handler(event)` for each event of `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest); `event.payload` is
+/// the decoded `Change`. Returns the `Subscription`.
+fn on_user_changed(handler) {
+    msg::on("user/+/confd/changed/#", handler)
+}
+
+/// Subscribe to `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest) to pull events with `sub.next()`.
+fn subscribe_user_changed() {
+    msg::subscribe("user/+/confd/changed/#")
+}
+
+/// Run `handler(event)` for each event of `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest); `event.payload` is
+/// the decoded `Change`. Returns the `Subscription`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn on_user_changed(uid, path, handler) {
+    msg::on(`user/${uid}/confd/changed/${path}`, handler)
+}
+
+/// Subscribe to `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest) to pull events with `sub.next()`.
+/// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
+fn subscribe_user_changed(uid, path) {
+    msg::subscribe(`user/${uid}/confd/changed/${path}`)
+}
+
+/// Publish `payload` (a `Change`) on `user/{uid}/confd/changed/{path...}` (payload `Change`, qos latest).
+fn publish_user_changed(uid, path, payload) {
+    msg::publish(`user/${uid}/confd/changed/${path}`, payload)
+}

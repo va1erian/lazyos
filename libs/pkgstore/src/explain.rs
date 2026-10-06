@@ -60,6 +60,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Use the echo test service, which only repeats what it is sent",
     ),
     (
+        "os.lazy.files.v1",
+        LOW,
+        "See which files you have selected in Files",
+    ),
+    (
         "os.lazy.healthd.v1",
         LOW,
         "See whether the system's services are healthy",
@@ -121,6 +126,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     ),
     ("os.lazy.pkgd.v1", HIGH, "Install and remove applications"),
     (
+        "os.lazy.print.v1",
+        MEDIUM,
+        "Print documents on printers on your network",
+    ),
+    (
         "os.lazy.messenger.policy.v1",
         HIGH,
         "Change what other apps are allowed to do",
@@ -148,6 +158,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Send and receive messages on topics",
     ),
     (
+        "os.lazy.messenger.topics.bell.v1",
+        LOW,
+        "Be told when messages arrive on topics it listens to",
+    ),
+    (
         "os.lazy.messenger.topics.publish.v1",
         HIGH,
         "Pass the system's internal check for sending messages on any topic",
@@ -156,6 +171,21 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "os.lazy.messenger.topics.subscribe.v1",
         HIGH,
         "Pass the system's internal check for listening on any topic",
+    ),
+    (
+        "os.lazy.devd.v1",
+        LOW,
+        "See which hardware devices the system has found",
+    ),
+    (
+        "os.lazy.print.v1",
+        MEDIUM,
+        "Send documents to your printers and see the print queue",
+    ),
+    (
+        "os.lazy.messenger.topics.bell.v1",
+        HIGH,
+        "Be woken when your own topic subscriptions have new messages",
     ),
     ("os.lazy.process.label.spawn.v1", HIGH, DEVELOP),
 ];

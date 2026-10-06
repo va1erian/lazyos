@@ -43,11 +43,11 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98", default-features = false }
 # The rich-text widget LazyWriter edits with (issue #533), with its native JSON
 # format (`serde`). Same revision as `xui-core`, so one `xui_core` links.
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592", features = ["serde"] }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98", features = ["serde"] }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -59,6 +59,9 @@ messenger-generated = { path = "../libs/generated" }
 # The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
 # platform layer supplies its musl transport (`platform::audio`).
 audioclient = { path = "../libs/audioclient" }
+# The key-state page layout an input session polls (`inputmap::keystate`,
+# docs/input-plan.md I3): the same seqlock reader `inputd` writes for.
+inputmap = { path = "../libs/inputmap" }
 # The Terminal (issue #254) sends a process-group SIGINT on Ctrl-C. `libc` is
 # already in the dependency graph; a direct edge lets `term.rs` name `kill`.
 libc = "0.2"
@@ -110,7 +113,7 @@ deskmenu = { path = "../libs/deskmenu" }
 # would silently replace with DHCP.
 netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "baffd078bac9d0b8ba367780f5489ec66553a592" }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
 
 [[bin]]
 name = "xui-m0"

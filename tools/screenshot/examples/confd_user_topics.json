@@ -1,0 +1,19 @@
+[
+  {"wait_for": "LazyOS login: ", "timeout": 400},
+  {"at": 1.0, "type": "user"},
+  {"at": 1.6, "key": "enter"},
+  {"at": 2.2, "type": "lazy"},
+  {"at": 2.8, "key": "enter", "until": "LOGIN:OK:PASS user=user uid=1000", "timeout": 60, "retries": 1},
+  {"wait": 4.0},
+  {"type": "confctl watch user/1001/confd/changed/#"},
+  {"key": "enter", "until": "(?m)^watch user/1001/confd/changed/#: ", "regex": true, "timeout": 30, "retries": 1},
+  {"type": "confctl watch +/x"},
+  {"key": "enter", "until": "(?m)^watch \\+/x: ", "regex": true, "timeout": 30, "retries": 1},
+  {"type": "confctl watch user/1000/confd/changed/# &"},
+  {"key": "enter", "until": "watching user/1000/confd/changed/#", "timeout": 30, "retries": 1},
+  {"type": "confctl set user/1000/ui/mode str light"},
+  {"key": "enter", "until": "\\bset user/1000/ui/mode", "regex": true, "timeout": 30, "retries": 1},
+  {"wait": 1.0},
+  {"shot": "user_topics"},
+  {"quit": true}
+]

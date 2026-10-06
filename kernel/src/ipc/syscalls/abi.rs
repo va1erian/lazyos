@@ -160,11 +160,13 @@ pub struct MsgArgs {
 /// other handle names it (see `channels::release_endpoint`).
 pub const CLOSE_RELEASE: u64 = 1;
 
-/// `recv` flag: also write the sender's kernel-stamped identity, as
-/// queued ([`crate::ipc::channels::SenderId`], `SenderId::SIZE` bytes), to
-/// `parcel_ptr`; `parcel_len` must be at least that. This is how a service
-/// authorizes a caller by uid or label without `CAP_SETUID`, which reading
-/// an arbitrary task's credentials needs.
+/// `recv` flag: also write the sender's kernel-stamped credentials, as
+/// queued ([`crate::ipc::channels::SenderId`]), to `parcel_ptr`: the whole
+/// `SenderId::SIZE`-byte block (capability bits included) when `parcel_len`
+/// allows it, else the `SenderId::IDENTITY_SIZE`-byte identity; less is
+/// `EINVAL`. This is how a service authorizes a caller by uid, label or
+/// capability without `CAP_SETUID`, which reading an arbitrary task's
+/// credentials needs.
 pub const RECV_SENDER_ID: u64 = 1;
 
 impl MsgArgs {

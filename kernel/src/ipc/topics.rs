@@ -15,6 +15,10 @@
 //!   uses for method names. `+` and `#` hash like any other segment, so a
 //!   wildcard subscribe can be denied explicitly instead of bypassing the
 //!   per-segment rules.
+//! * A per-session topic (`session/<id>/...`) is scoped for a labelled task:
+//!   the `<id>` segment must be the task's own kernel-stamped session and is
+//!   then checked as `+`, so a manifest's `publish:session/+/selection` grants
+//!   exactly the app's own session (issue #488; [`policy_segment`]).
 //! * Evaluation is per segment and default-deny once a policy is loaded, and
 //!   every verdict goes through the audited [`crate::ipc::authorize`] hook, so
 //!   a denied publish shows up in the audit ring with its correlation id.
@@ -22,6 +26,8 @@
 //! The broker reaches this module through the `authorize_topic` syscall op;
 //! the syscall layer only validates pointers and the proxy capability (a
 //! `messengerd` request carries the *client's* slot), never policy itself.
+
+pub mod private;
 
 /// FNV-1a 64, the interface-id hash from `tools/midlc` (`fnv1a64`).
 pub const fn fnv1a64(text: &str) -> u64 {
@@ -175,6 +181,17 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
     let interface = interface(mode).ok_or(Error::BadMode)?;
     let segments = validate(name, mode)?;
     let cred = crate::ipc::credentials::of(actor_slot);
+    // The per-uid namespace is checked first and is never overridden by a
+    // policy rule: it is what keeps one user's events from another.
+    if !private::allows(cred.uid, name) {
+        private::deny(actor_slot, &cred, interface, txn_id);
+        #[cfg(lazyos_label_trace)]
+        crate::ipc::label_trace::denied(
+            cred.label_id,
+            format_args!("topic={name} mode={mode} private"),
+        );
+        return Err(Error::Denied);
+    }
     // An app owns the `app/<id>/` subtree for its label; that is the only
     // implicit grant, everything else goes through the per-segment rules.
     if crate::ipc::policy::owns_topic(&cred, name) {
@@ -193,9 +210,10 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
         }
         return Ok(segments);
     }
-    for segment in name.split('/') {
+    for (index, segment) in name.split('/').enumerate() {
+        let checked = policy_segment(&cred, name, index, segment);
         let decision =
-            crate::ipc::authorize(actor_slot, interface, segment_method(segment), txn_id);
+            crate::ipc::authorize(actor_slot, interface, segment_method(checked), txn_id);
         if decision.denied() {
             #[cfg(lazyos_label_trace)]
             crate::ipc::label_trace::denied(
@@ -206,4 +224,47 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
         }
     }
     Ok(segments)
+}
+
+/// The first segment of a per-session topic (`session/<id>/...`).
+pub const SESSION_ROOT: &str = "session";
+/// What a labelled task's own session segment is authorized as: `+`, the
+/// spelling MIDL gives the `{session}` placeholder in a permission
+/// (`publish:session/+/selection`).
+pub const OWN_SESSION: &str = "+";
+/// What any other session segment of a labelled task is authorized as: a
+/// text no manifest can spell (`:` is outside the permission grammar), so no
+/// rule ever grants it and the refusal is audited like any other.
+pub const OTHER_SESSION: &str = "session:other";
+
+/// The text a segment is authorized as. For a labelled task the segment after
+/// a leading `session` must be its own kernel-stamped session id, in canonical
+/// decimal, and is then checked as [`OWN_SESSION`]; anything else there (a
+/// wildcard, another session, a padded number) is checked as
+/// [`OTHER_SESSION`] and so refused. An app granted `session/+/selection`
+/// therefore reaches exactly its own session's topic, never another's.
+/// Unlabelled tasks keep the literal per-segment check.
+fn policy_segment<'a>(
+    cred: &crate::ipc::credentials::Cred,
+    name: &str,
+    index: usize,
+    segment: &'a str,
+) -> &'a str {
+    if cred.label_id == 0 || index != 1 || name.split('/').next() != Some(SESSION_ROOT) {
+        return segment;
+    }
+    if is_session_id(segment, cred.session) {
+        OWN_SESSION
+    } else {
+        OTHER_SESSION
+    }
+}
+
+/// Whether `segment` is `session` written in canonical decimal (no sign, no
+/// leading zero), so `007` cannot stand in for session 7.
+fn is_session_id(segment: &str, session: u64) -> bool {
+    let canonical = segment == "0" || !segment.starts_with('0');
+    canonical
+        && segment.bytes().all(|byte| byte.is_ascii_digit())
+        && segment.parse::<u64>() == Ok(session)
 }

@@ -237,6 +237,15 @@
         "retained": false,
         "publish_permission": "publish:system/confd/changed/#",
         "subscribe_permission": "subscribe:system/confd/changed/#"
+      },
+      {
+        "name": "user/+/confd/changed/#",
+        "source": "user/{uid}/confd/changed/{path...}",
+        "payload": "Change",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:user/+/confd/changed/#",
+        "subscribe_permission": "subscribe:user/+/confd/changed/#"
       }
     ]
   },
@@ -537,6 +546,22 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.files.v1",
+    "interface_id": "0x95bb1421ccc6b3e7",
+    "methods": [],
+    "topics": [
+      {
+        "name": "session/+/selection",
+        "source": "session/{session}/selection",
+        "payload": "Selection",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:session/+/selection",
+        "subscribe_permission": "subscribe:session/+/selection"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.healthd.v1",
     "interface_id": "0xd022082ef0aaed78",
     "methods": [
@@ -675,6 +700,33 @@
         "oneway": false
       },
       {
+        "name": "RequestGrant",
+        "id": 4,
+        "oneway": false
+      },
+      {
+        "name": "ReleaseGrant",
+        "id": 5,
+        "oneway": false
+      },
+      {
+        "name": "Ping",
+        "id": 6,
+        "oneway": false
+      },
+      {
+        "name": "AttachKeyState",
+        "id": 7,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "state",
+            "kind": "buffer",
+            "slot": 0
+          }
+        ]
+      },
+      {
         "name": "KeyEvent",
         "id": 10,
         "oneway": true
@@ -697,6 +749,11 @@
       {
         "name": "LayoutChanged",
         "id": 14,
+        "oneway": true
+      },
+      {
+        "name": "GrantChanged",
+        "id": 15,
         "oneway": true
       }
     ],
@@ -802,6 +859,11 @@
       {
         "name": "PointerEvent",
         "id": 25,
+        "oneway": true
+      },
+      {
+        "name": "GrabChanged",
+        "id": 26,
         "oneway": true
       }
     ],

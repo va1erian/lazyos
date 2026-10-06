@@ -27,13 +27,15 @@
 //! [`mime`] and [`clipboard`] (issue #115).
 
 mod endpoint;
+mod message;
 mod types;
 pub mod wait;
 
 pub use endpoint::{
     bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals, Endpoint,
-    Message, Server,
+    Server,
 };
+pub use message::Message;
 pub use types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, TaskUsage, DEFAULT_BUFFER,
     EXPIRED_DEADLINE,

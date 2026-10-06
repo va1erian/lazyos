@@ -23,6 +23,7 @@ mod io;
 mod names;
 mod nodes;
 mod reserved;
+mod rmdir_parked;
 mod sizing;
 mod soak;
 mod statx;
@@ -76,6 +77,24 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         names::create_with_no_read_bit,
     ),
     ("linux_data_read_only_volume", names::read_only_volume),
+    // rmdir ignores files unlinked while open (issue #612).
+    (
+        "linux_rmdir_open_unlinked",
+        rmdir_parked::rmdir_with_open_unlinked_file,
+    ),
+    (
+        "linux_rmdir_parked_nested",
+        rmdir_parked::rmdir_parked_nested_and_not_empty,
+    ),
+    (
+        "linux_rmdir_parked_refused",
+        rmdir_parked::rmdir_parked_refused_changes_nothing,
+    ),
+    (
+        "linux_rmdir_parked_transient_holder",
+        rmdir_parked::rmdir_parked_last_close_with_a_transient_holder,
+    ),
+    ("linux_rmdir_parked_soak", rmdir_parked::soak_rmdir_parked),
     (
         "linux_data_reserved_prefix_is_refused",
         reserved::reserved_prefix_is_refused,

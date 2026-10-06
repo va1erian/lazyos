@@ -40,9 +40,29 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   only downward), the target must be the actor or a live task, and the kernel
   task may only restamp itself. `check` validates a spawn before the task exists;
   `read` lets a task read its own identity, or another's with `CAP_SETUID`.
-  A service that only needs to know *who called* reads the identity stamped on
-  the message instead (`RECV_SENDER_ID`, [ipc-fabric.md](ipc-fabric.md)): no
-  capability, no capability bits disclosed.
+  A service never reads its caller's slot: it reads the credentials stamped on
+  the message (`RECV_SENDER_ID`, [ipc-fabric.md](ipc-fabric.md)).
+- **The stamped caller header** (issue #446). When a message is *queued*
+  (`send`, `call`, `connect`), the kernel snapshots the sender's `uid`, `gid`,
+  `caps`, `label_id` and `session` into the queued message
+  (`channels::SenderId`); `recv` with `RECV_SENDER_ID` hands that snapshot to
+  the receiver, and the userspace `Message::caller()` returns it as a
+  `sys::Cred`. Authorizing from it needs no capability (reading another task's
+  credentials with `cred_get` needs `CAP_SETUID`), and it cannot report a
+  stale identity: a sender that exits, or transitions, after queueing leaves
+  the snapshot unchanged, while its slot (`Message::sender`, an address, not
+  an identity) may already belong to a new task. The kernel's own posts carry
+  `Cred::ROOT`. `keyd`, `confd`, `clipboardd`, `xuid`, `init`, `messengerd`,
+  `logd`, `mimed`, `pkgd`, `timed` and the lifecycle `Shutdown` check all
+  authorize from it (the old `caller_uid`/`actor` helpers read `cred_get` of
+  the sender slot). `messengerd`'s topic ACL query (`AUTHORIZE_TOPIC`) still
+  names the slot, which the kernel judges at the time of the call.
+- **`spawnv` fails closed** (issue #446). The credential stamp of a new child
+  is checked before the task exists and applied before it can run; if the
+  application is ever refused, the child is ended and its slot freed at once
+  (`task::abort_unstarted_child`, no `SIGCHLD`) and the spawn returns the
+  gate's error, so no child ever runs with its creator's identity instead of
+  the one asked for.
   Transition records use `AUDIT_INTERFACE = "os.cred."` / `AUDIT_METHOD_SET` with
   `reason` codes for allowed, not-privileged, widening, bad target and
   label-locked.
@@ -92,6 +112,14 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   an empty list. The only implicit grants are the registry's
   register/unregister/resolve calls (checked per name, below) and the app's
   own namespaces.
+- **Per-uid topics** (`topics/private.rs`, issue #407): `user/<uid>/...` is
+  that uid's. A non-root task may publish or subscribe there only with its
+  own uid (canonical decimal) as the second segment, and no non-root filter
+  may reach into another uid's subtree (`user/+/...`, `user/#`, or a leading
+  `#`/`+`). Root may use any. The rule is checked before the per-segment
+  policy and no rule overrides it; a refusal is audited as
+  `PRIVATE_NAMESPACE` (12). `confd` announces `user/<uid>/<path>` changes
+  there (`user/<uid>/confd/changed/<path>`).
 - **Namespaces** (`policy.rs`, issue #308): `register` of `os.lazy.*` needs a
   `system:*` label, or no label plus uid 0, `CAP_IPC_CONTROL` or `CAP_DEV_CLAIM`
   (a provisioned driver); any other unlabelled task falls back to the uid rules
@@ -111,7 +139,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   offending interface id as `txn_id` (issue #495). Resolving any other name (checked as
   `os.lazy.messenger.names.resolve.v1` with `fnv1a32(name)` as the method, so a
   rule grants one exact name), calling any interface and every other topic
-  segment need an allow rule for the label. Checks run against the *client's*
+  segment need an allow rule for the label. In a per-session topic
+  (`session/<id>/...`, issue #488) the `<id>` segment of a labelled task must
+  be its own kernel-stamped session and is checked as `+`, so the rule a
+  manifest's `session/+/...` compiles to reaches the app's own session only
+  (`topics::policy_segment`). Checks run against the *client's*
   slot when `messengerd` proxies, and before the registry lookup, so a refusal
   reveals nothing about which names exist. Every refusal is audited with the
   label id and a reason (`LABEL_DEFAULT_DENY`, `RESERVED_NAMESPACE`,

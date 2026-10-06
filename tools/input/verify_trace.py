@@ -9,6 +9,12 @@ keymaps, the modifier/lock state machine or key repeat fails it.
 
     python tools/input/verify_trace.py shots/input_us/serial.log --layout us
     python tools/input/verify_trace.py shots/input_fr/serial.log --layout fr
+    python tools/input/verify_trace.py shots/input_burst/serial.log --layout us \
+        --burst tools/screenshot/examples/input_burst.json
+
+Both sessions inject keys unpaced (issue #400), so any loss `inputd` reports
+(`INPUTD:RESYNC`, `INPUTD:TRACE:LOST`, `PS2:DROP`) fails them. The burst
+session types 300+ characters at QMP speed (US layout only).
 
 The image must be built with `LAZYOS_SERVICES=1` (a debug build, so `inputd`
 runs with `trace=1`); the FR image also needs `LAZYOS_KBD_LAYOUT=fr`.
@@ -59,14 +65,58 @@ def parse(log: str):
     return events
 
 
+def loss_failures(log: str) -> list[str]:
+    """Any key `inputd` knows it lost: an overflowed raw ring (it resyncs) or
+    trace lines it had to drop. Injection is unpaced (issue #400), so either
+    one is a regression."""
+    failures = []
+    for marker in ("INPUTD:RESYNC", "INPUTD:TRACE:LOST", "PS2:DROP"):
+        lines = [line for line in log.splitlines() if marker in line]
+        if lines:
+            failures.append(f"{len(lines)} '{marker}' line(s), first: {lines[0].strip()}")
+    return failures
+
+
+def check_burst(log: str, script: Path) -> list[str]:
+    """`input_burst.json`: every character of its `type` steps, unpaced,
+    arrives once and in order, and every press is released."""
+    import json
+
+    steps = json.loads(script.read_text())
+    want = "".join(step["type"] for step in steps if "type" in step)
+    events = parse(log)
+    got = "".join(chr(e[1]) for e in events if e[0] == "text")
+    failures = loss_failures(log)
+    if got != want:
+        at = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+        failures.append(
+            f"typed {len(got)} of {len(want)} characters; first difference at {at}: "
+            f"{ascii(got[at:at + 12])} vs {ascii(want[at:at + 12])}"
+        )
+    downs = sum(1 for e in events if e[0] == "key" and e[4] == "down")
+    ups = sum(1 for e in events if e[0] == "key" and e[4] == "up")
+    if downs != ups:
+        failures.append(f"{downs} presses but {ups} releases")
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
     parser.add_argument("--layout", choices=sorted(EXPECTED), required=True)
+    parser.add_argument("--burst", type=Path, metavar="SCRIPT",
+                        help="check an unpaced burst session (input_burst.json) instead")
     args = parser.parse_args()
     log = args.log.read_text(errors="replace")
 
-    failures: list[str] = []
+    if args.burst:
+        failures = check_burst(log, args.burst)
+        for failure in failures:
+            print("  -", failure)
+        print("input burst:", "FAIL" if failures else "PASS")
+        return 1 if failures else 0
+
+    failures: list[str] = loss_failures(log)
     if f"INPUTD:READY layout={args.layout}" not in log:
         failures.append(f"missing 'INPUTD:READY layout={args.layout}'")
 

@@ -6,25 +6,37 @@
 //! frame is dropped, never waited for: the engine keeps its own 35 Hz clock.
 //! Keys arrive on the `inputd` session when the service runs, else as the
 //! compositor's legacy `KeyDown`/`KeyUp`; both feed one edge-tracking queue.
+//! A session also brings the key-state page and the keyboard grab
+//! (`window_input.rs`).
 
 use lazydoom::keymap;
 use lazydoom::keys::Keys;
 use lazydoom::pixels;
+use lazydoom::session::{GrabPolicy, SessionKeys};
 use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
 use xui_app::display::{self, Client, Event, FrameEvent};
-use xui_app::input::{self, Event as InputEvent, KeyState};
+use xui_app::input::{self, KeyStatePage};
 use xui_app::sys::{self, errno};
 use xui_core::Rect;
 
 /// Receive buffer for one event; events are far smaller.
 const EVENT_BYTES: usize = 4096;
+/// The smallest content size: the engine's own resolution.
+const MIN_W: u32 = 320;
+const MIN_H: u32 = 200;
 
 pub struct Window {
     client: Client,
-    window: ClientWindow,
+    pub(crate) window: ClientWindow,
     /// The window-sized RGBA image the next present copies from.
     image: Vec<u8>,
     pub keys: Keys,
+    /// Which physical key pressed which Doom key (session input only).
+    pub(crate) session_keys: SessionKeys,
+    /// The page `inputd` keeps the held keys in while the window is focused.
+    pub(crate) key_page: Option<KeyStatePage>,
+    /// The keyboard grab taken while maximized.
+    pub(crate) grab: GrabPolicy,
 }
 
 impl Window {
@@ -47,7 +59,17 @@ impl Window {
             window,
             image: vec![0; w as usize * h as usize * 4],
             keys: Keys::new(),
+            session_keys: SessionKeys::new(),
+            key_page: None,
+            grab: GrabPolicy::new(),
         };
+        this.attach_key_page();
+        // Resizable down to the engine's native 320x200 and up to the screen,
+        // so the window can be maximized (the frame is scaled to fit, and a
+        // maximized game holds the keyboard grab, `window_input.rs`). An older
+        // compositor refuses it and the window stays fixed-size.
+        let surface = this.window.surface;
+        let _ = client.set_size_hints(surface, MIN_W, MIN_H, 0, 0);
         if let Some((w, h)) = configure {
             this.resize(w, h);
         }
@@ -121,24 +143,11 @@ impl Window {
             return;
         };
         while let Some(parcel) = next_message(session.events, &mut buf) {
-            match input::decode_event(&parcel) {
-                Some(InputEvent::Key {
-                    code, sym, state, ..
-                }) => {
-                    let Some(key) = keymap::from_session(code, sym) else {
-                        continue;
-                    };
-                    match state {
-                        KeyState::Down => self.keys.press(key),
-                        KeyState::Up => self.keys.release(key),
-                        KeyState::Repeat => {}
-                    }
-                }
-                // Focus left: nothing may stay held, or the player runs on.
-                Some(InputEvent::Leave) => self.keys.release_all(),
-                _ => {}
+            if let Some(event) = input::decode_event(&parcel) {
+                self.session_event(session, event);
             }
         }
+        self.reconcile_keys();
     }
 
     /// One compositor event: legacy keys and size changes (pointer input is
@@ -155,7 +164,14 @@ impl Window {
                     self.keys.release(key);
                 }
             }
-            Event::Configure { width, height, .. } => self.resize(width, height),
+            Event::Configure {
+                width,
+                height,
+                state,
+            } => {
+                self.resize(width, height);
+                self.configured(state);
+            }
             _ => {}
         }
     }

@@ -14,10 +14,11 @@ pub(super) enum Item {
     Key(RawKey),
     /// Motion, a button edge or the wheel (validated by `inputmap::Pointer`).
     Pointer(RawPointer),
-    /// The consumer ring overflowed: the events from `seq` on are gone.
+    /// The consumer ring overflowed: `lost` events from `seq` on are gone.
     Dropped {
         ts_ns: u64,
         seq: u64,
+        lost: u64,
     },
 }
 
@@ -71,6 +72,7 @@ fn item_of(event: RawEvent) -> Option<Item> {
         raw_kind::DROPPED => Some(Item::Dropped {
             ts_ns: event.ts_ns,
             seq: event.seq,
+            lost: u64::try_from(event.value).unwrap_or(0),
         }),
         _ => None,
     }

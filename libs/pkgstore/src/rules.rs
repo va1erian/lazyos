@@ -402,6 +402,16 @@ mod tests {
     }
 
     #[test]
+    fn a_session_topic_compiles_to_the_plus_segment() {
+        // The kernel checks the caller's own session segment as `+`.
+        let rules = compile(&manifest("topics = [\"publish:session/+/selection\"]\n")).unwrap();
+        let publish = |segment: &str| allow(publish_scope::INTERFACE_ID, fnv1a32(segment));
+        for segment in ["session", "+", "selection"] {
+            assert!(rules.contains(&publish(segment)), "{segment}");
+        }
+    }
+
+    #[test]
     fn a_service_whose_name_differs_gets_both_names() {
         let rules = compile(&manifest("interfaces = [\"os.lazy.accounts.v1\"]\n")).unwrap();
         let resolve = |name: &str| allow(resolve_scope::INTERFACE_ID, fnv1a32(name));

@@ -48,7 +48,7 @@ impl Compositor {
                 | wire::METHOD_SETICONGEOMETRY
                 | wire::METHOD_HINTLAUNCHORIGIN
         );
-        if shell_only && !self.is_shell_caller(message.sender) {
+        if shell_only && !self.is_shell_caller(message) {
             return error_reply(message.method(), messenger::errno::EACCES);
         }
         match message.method() {
@@ -113,7 +113,7 @@ impl Compositor {
             wire::ROLE_WINDOW => None,
             // Only the shell may own the desktop or a panel (issues #175,
             // #157); anyone else's claim is refused outright.
-            wire::ROLE_DESKTOP | wire::ROLE_PANEL if !self.is_shell_caller(message.sender) => {
+            wire::ROLE_DESKTOP | wire::ROLE_PANEL if !self.is_shell_caller(message) => {
                 Some(messenger::errno::EACCES)
             }
             wire::ROLE_PANEL if panels >= MAX_PANELS => Some(messenger::errno::EBUSY),

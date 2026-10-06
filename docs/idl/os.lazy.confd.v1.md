@@ -24,6 +24,7 @@ Change notifications are best-effort: a subscriber observes
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/confd/changed/#` | `Change` | latest | no | `publish:system/confd/changed/#`, `subscribe:system/confd/changed/#` |
+| `user/+/confd/changed/#` | `Change` | latest | no | `publish:user/+/confd/changed/#`, `subscribe:user/+/confd/changed/#` |
 
 ## struct `Value`
 

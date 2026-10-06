@@ -9,14 +9,19 @@
 //! [`resolve`] turns it into the concrete [`Palette`]: the accent drives the
 //! focused title, focused taskbar entry, focus border and overlay selection
 //! unless a more specific override is set.
+//!
+//! The keys are the machine default; a user other than the administrator may
+//! shadow each one with `user/<uid>/ui/<name>` ([`user_key`], issue #407).
 
 #![cfg_attr(not(test), no_std)]
 
 use confd::Value;
 
 mod scale;
+mod user;
 mod wallpaper;
 pub use scale::*;
+pub use user::*;
 pub use wallpaper::*;
 
 /// Prefix of every key; `system/confd/changed/sys/ui/#` follows changes.

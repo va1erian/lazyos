@@ -27,7 +27,7 @@ use super::pointer_feed::{forwarded, supersedes, MAX_EVENTS};
 const RETRY_TICKS: u64 = 100;
 
 pub(super) struct InputLink {
-    link: Option<ShellLink>,
+    pub(super) link: Option<ShellLink>,
     next_try: u64,
     /// Surfaces `inputd` has been told about.
     registered: BTreeSet<u64>,
@@ -40,6 +40,9 @@ pub(super) struct InputLink {
     pub(super) owns_pointer: bool,
     /// The forwarded buttons `inputd` last reported held.
     pub(super) buttons: u32,
+    /// The surface holding a keyboard grab (I3): its chords are its own,
+    /// so `keys.rs` stands aside until `inputd` reports the grab over.
+    pub(super) grab: Option<u64>,
 }
 
 impl InputLink {
@@ -52,6 +55,7 @@ impl InputLink {
             reported: None,
             owns_pointer: false,
             buttons: 0,
+            grab: None,
         }
     }
 }
@@ -181,9 +185,7 @@ impl Compositor {
                 }
                 Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
                 Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
-                // Hotkeys, grants and the escape chord are not used yet: the
-                // compositor keeps its own hotkey table until they are.
-                Ok(Some(_)) => {}
+                Ok(Some(event)) => self.grant_event(event),
                 Ok(None) => break true,
                 Err(_) => break false,
             }
@@ -212,7 +214,7 @@ impl Compositor {
                         self.held.push(*event);
                     }
                 }
-                Ok(Some(_)) => {}
+                Ok(Some(event)) => self.grant_event(event),
                 Ok(None) | Err(_) => return,
             }
         }
@@ -288,6 +290,7 @@ impl Compositor {
             sys::write_str("xuid: pointer back on the kernel stream\n");
         }
         self.input.next_try = sys::clock() + RETRY_TICKS;
+        self.input.grab = None;
         for surface in self.surfaces.iter_mut() {
             surface.input_session = false;
         }

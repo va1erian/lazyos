@@ -1,0 +1,9 @@
+[
+  {"wait_for": "INPUTD:READY", "timeout": 120},
+  {"wait": 2.0},
+  {"type": "t9qf53019qs2n1jcpayto0oggfuee08bddgoi9uesuz5bph1syr4kt8vspqjsbeeemr8z64hz2u18x3b8jt4zbbczehcdsuewcpp4no75mtddf6633uwow6xa921ljp9icfkegefzaj69lp4nvrisk3fsicttse1j6d1r4mpczj69cayffbpwavjtt2n7wr440ly01960etg2h0087qmu31dj3x88pave6p62brgyf5572dw1msbo9niu8nq908mdb1mgz064fyb8ifl1rovyaa528wsdczmk9a379qvlml0", "delay": 0},
+  {"type": "Shifted Text, Mixed: 42!", "delay": 0},
+  {"wait_for": "INPUTD:TEXT u+21", "timeout": 120},
+  {"wait": 1.0},
+  {"quit": true}
+]

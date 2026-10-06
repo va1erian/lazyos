@@ -636,7 +636,7 @@ USB sticks (`/home` on the boot stick, `docs/architecture/usb-storage.md`)
 have their own harness, `tools/storage/README.md`:
 
 ```bash
-python tools/storage/run.py              # two boots: write /home/alice on the stick, power off, read it back; e2fsck
+python tools/storage/run.py              # two boots: write /home/user on the stick, power off, read it back; e2fsck
 python tools/storage/test_judge.py       # the judge fails when it should
 cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
 ## Networking in an interactive boot
@@ -726,8 +726,9 @@ regressions, not kernel-internal correctness or resource leaks.
 - Well-known paths and program paths come from `libs/fhs`; never write
   one as a literal (`python tools/fhs/check_literals.py` enforces it).
 - Keep source files **under 500 lines**; split by responsibility instead of
-  growing a file past it. Existing oversized files are tracked in issue #194;
-  never make one bigger, extract a module when touching it.
+  growing a file past it. `python tools/check_file_length.py` (a CI step)
+  enforces it for every tracked `.rs`/`.py` file except `@generated` output;
+  its allowlist is empty (issue #484).
 - **Every interface published on Messenger MUST be defined in a `.midl` file
   under `idl/`** and its client/server code generated with `midlc` (see
   `docs/messenger.md` §11 and `idl/confd.midl` as the model). This is

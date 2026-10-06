@@ -10,7 +10,7 @@ name = "Doom"
 system_name = "org.lazy.doom"
 author = "LazyOS (engine: id Software, Chocolate Doom, doomgeneric; data: Freedoom)"
 version = "0.1.0"
-description = "Doom on the doomgeneric engine, playing Freedoom: Phase 1. Ctrl fires, Space opens doors, Shift runs, Alt strafes."
+description = "Doom on the doomgeneric engine, playing Freedoom: Phase 1. Ctrl fires, Space opens doors, Shift runs, Alt strafes. Maximized, the game keeps every key (Alt+Tab and Ctrl+Esc included); Ctrl+Alt+Esc gives the keyboard back."
 category = "games"
 
 [entry]

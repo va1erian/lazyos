@@ -97,29 +97,33 @@ fn list_filters_other_users_paths() {
 }
 
 #[test]
-fn committed_changes_are_announced_only_for_sys() {
+fn committed_changes_are_announced_for_sys_and_owned_user_paths() {
     let mut confd = service();
     confd.set("sys/net/mtu", Value::U64(1500), ROOT).unwrap();
     confd.set("user/1000/theme", push("dark"), ALICE).unwrap();
     confd.delete("sys/net/mtu", ROOT).unwrap();
+    confd.delete("user/1000/theme", ALICE).unwrap();
 
-    // The `user/` write committed but was intentionally not announced; only
-    // the two `sys/` transitions are visible.
+    // The sink decides the topic (`user/<uid>/...` for the user path, which
+    // only that uid may subscribe to); every transition reaches it.
     assert_eq!(
         events(&confd),
         vec![
             (String::from("sys/net/mtu"), false),
+            (String::from("user/1000/theme"), false),
             (String::from("sys/net/mtu"), true),
+            (String::from("user/1000/theme"), true),
         ]
     );
 }
 
 #[test]
-fn announceable_selects_the_system_subtree() {
+fn announceable_selects_sys_and_owned_user_paths() {
     assert!(announceable("sys"));
     assert!(announceable("sys/net/mtu"));
     assert!(!announceable("systolic"));
-    assert!(!announceable("user/1000/theme"));
+    assert!(announceable("user/1000/theme"));
+    assert!(!announceable("user/1000"));
     assert!(!announceable("user"));
 }
 

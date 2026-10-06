@@ -91,6 +91,13 @@ impl Vfs {
         Ok(())
     }
 
+    /// The mount point of the mount holding `path`, judged lexically (the
+    /// longest mount point that is a prefix of it).
+    pub fn mount_point(&self, path: &str) -> Option<alloc::string::String> {
+        let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;
+        Some(self.mounts[mount].point.to_path_string())
+    }
+
     /// The short name of the filesystem holding `path` (`"ext2 (rw)"`, ...).
     pub fn mount_fs_name(&self, path: &str) -> Option<&'static str> {
         let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;

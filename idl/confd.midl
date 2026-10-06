@@ -44,4 +44,10 @@ interface os.lazy.confd.v1 {
     /// subscriber watches a subtree with `system/confd/changed/sys/#`. Not
     /// retained: a change is an event, not state.
     topic "system/confd/changed/{path...}" : Change qos=latest;
+
+    /// Announced for every committed `user/<uid>/<path>` change (issue #407):
+    /// the topic is `user/<uid>/confd/changed/<path>`, in the kernel's per-uid
+    /// topic namespace, so only that uid and root may subscribe (as only they
+    /// may read the key). The payload's `path` is the full key. Not retained.
+    topic "user/{uid}/confd/changed/{path...}" : Change qos=latest;
 }

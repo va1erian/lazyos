@@ -448,7 +448,10 @@ the consent screen and the enforcement come from the same data:
   direction (the kernel authorizes a topic segment by segment, so segments
   granted for different topics combine), plus the topics broker's name and the
   methods the direction needs; the app's own `app/<system_name>/` namespace needs
-  no rule;
+  no rule; in a per-session topic, `session/+/...` (the MIDL spelling of
+  `session/{session}/...`) grants the app's **own** session only, never another
+  user's or a wildcard filter over all of them (Files publishes
+  `publish:session/+/selection`, issue #488);
 * `network = ["outbound"]` allows the socket interface of the network stack;
 * `develop = true` allows spawning a child into any `dev:` label
   (`os.lazy.process.label.spawn.v1`, the wildcard method; see "Development

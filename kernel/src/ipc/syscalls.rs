@@ -232,22 +232,22 @@ fn op_send(args: &MsgArgs) -> Result<MsgResult, i64> {
 }
 
 fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
-    let want_sender = args.flags == RECV_SENDER_ID;
     // Refused before anything is taken off the queue, so a bad block never
     // costs the receiver its message.
-    if want_sender {
-        if args.parcel_len < channels::SenderId::SIZE as u64 {
-            return Err(errno::EINVAL);
-        }
-        access_range(args.parcel_ptr, channels::SenderId::SIZE, true)?;
-    }
+    let sender_len = if args.flags == RECV_SENDER_ID {
+        let len = channels::SenderId::block_len(args.parcel_len).ok_or(errno::EINVAL)?;
+        access_range(args.parcel_ptr, len, true)?;
+        Some(len)
+    } else {
+        None
+    };
     let message = channels::recv(args.handle, args.deadline_ticks()).map_err(channel_errno)?;
     if message.bytes.len() > args.buf_cap as usize {
         return Err(errno::E2BIG);
     }
     copy_out(args.buf_ptr, &message.bytes)?;
-    if want_sender {
-        copy_out(args.parcel_ptr, &message.origin.to_bytes())?;
+    if let Some(len) = sender_len {
+        copy_out(args.parcel_ptr, &message.origin.to_bytes()[..len])?;
     }
     Ok(MsgResult {
         // The kernel transaction id (0 for one-way messages), not the

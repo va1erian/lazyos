@@ -194,7 +194,8 @@ fn populate(fs: &Ext2, now: i64) -> Result<(), Ext2Error> {
         now,
     )?;
     fs.mkdir_p("/home/user", 0o755, 1000, 1000)?;
-    fs.mkdir_p("/data/tmp", 0o1777, 0, 0)?;
+    // A sticky, world-writable directory for the independent checker.
+    fs.mkdir_p("/shared", 0o1777, 0, 0)?;
     Ok(())
 }
 

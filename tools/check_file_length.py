@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Fail when a tracked .rs/.py file is over 500 lines (AGENTS.md, issue #484).
 
-Files whose first lines carry an ``@generated`` marker are exempt. ``ALLOWLIST``
-holds the hand-written files that are still being split, each with its current
-length as a ceiling: they may shrink but never grow. Remove an entry when its
-file is split (the check also complains about entries that no longer need one).
+Files whose first lines carry an ``@generated`` marker are exempt. Every
+hand-written file is now under the limit, so ``ALLOWLIST`` is empty; it stays
+as the escape hatch for a file mid-split, with its current length as a ceiling
+(it may shrink but never grow). The check complains about entries that no
+longer need one.
 """
 
 from __future__ import annotations
@@ -18,27 +19,8 @@ LIMIT = 500
 SUFFIXES = (".rs", ".py")
 HEADER_LINES = 5
 
-# path -> maximum line count while it waits to be split.
-ALLOWLIST: dict[str, int] = {
-    "build_support/os_image.rs": 504,
-    "fuzz/gen_corpus.py": 777,
-    "kernel/src/display.rs": 518,
-    "kernel/src/tests/linux_suite/inet_calls.rs": 603,
-    "kernel/src/tests/linux_suite/inet_core.rs": 574,
-    "libs/fused/src/tests.rs": 501,
-    "libs/generated/tests/display.rs": 508,
-    "libs/netstack/src/stack/sockets.rs": 507,
-    "libs/nvme/src/tests/model.rs": 509,
-    "libs/virtio/src/queue.rs": 545,
-    "tools/net/test_analyze_pcap.py": 501,
-    "tools/net/test_sockets_pcap.py": 505,
-    "tools/run_demo.py": 511,
-    "tools/screenshot/qemu_qmp.py": 551,
-    "user/src/messenger/endpoint.rs": 501,
-    "xui-app/crates/archiver/src/commands.rs": 508,
-    "xui-app/crates/explorer/tests/headless.rs": 507,
-    "xui-app/src/backend.rs": 505,
-}
+# path -> maximum line count while it waits to be split (empty: keep it so).
+ALLOWLIST: dict[str, int] = {}
 
 
 def tracked_files(root: Path = ROOT) -> list[str]:

@@ -9,6 +9,8 @@ use crate::ipc::syscalls::{errno, MsgArgs, MsgResult, OP_AUTHORIZE_TOPIC, REGIST
 use crate::ipc::{acl, audit, topics};
 use libmessenger::{Encoder, Header, Parcel, VERSION};
 
+mod private;
+
 /// Scratch user address space for the syscall-level test: `dispatch`
 /// validates pointers against the active CR3.
 const SPACE: u64 = 0x0040_0000;
@@ -444,4 +446,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_topic_acl_segments_enforced", acl_segments_enforced),
     ("ipc_topic_acl_wildcard_filter", acl_wildcard_filter),
     ("ipc_topic_acl_syscall_gate", syscall_gate),
+    ("ipc_topic_private_rules", private::private_namespace_rules),
+    (
+        "ipc_topic_private_overrides_policy",
+        private::private_namespace_overrides_policy_and_audits,
+    ),
+    (
+        "ipc_topic_private_syscall_gate",
+        private::private_namespace_syscall_gate,
+    ),
+    ("ipc_topic_private_soak", private::private_namespace_soak),
 ];
