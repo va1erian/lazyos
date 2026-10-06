@@ -251,10 +251,17 @@ fn measure(ns: u64, rounds: usize) -> Result<Lateness, String> {
     })
 }
 
+/// Fewest rounds whose median the strict check judges. A median of one or
+/// two samples is just a sample: one vCPU deschedule by a loaded host (a
+/// shared CI runner) fails it, so such a length is judged by its worst only.
+const MEDIAN_MIN_ROUNDS: usize = 10;
+
 /// Sleeps from 100 µs to 1 s. Never early anywhere; under hardware
-/// acceleration with the deadline timer, the median lands within 200 µs of
-/// the deadline (the plan's exit: a 1 ms sleep returns within 1.2 ms) and
-/// the worst within one tick (the host may deschedule the vCPU).
+/// acceleration with the deadline timer, the worst lands within one tick
+/// (the host may deschedule the vCPU) and, for every length with at least
+/// `MEDIAN_MIN_ROUNDS` rounds, the median within 200 µs of the deadline
+/// (the plan's exit: a 1 ms sleep returns within 1.2 ms). The 1 s length
+/// runs once to bound the suite's time, so only its worst is judged.
 pub fn sleep_accuracy() -> Result<(), String> {
     kernel_only();
     let strict = accelerated() && event_timer::available();
@@ -265,7 +272,7 @@ pub fn sleep_accuracy() -> Result<(), String> {
             (1_000_000, 50),
             (3_300_000, 20),
             (12_500_000, 10),
-            (50_000_000, 4),
+            (50_000_000, 10),
             (1_000_000_000, 1),
         ] {
             let lateness = measure(ns, rounds)?;
@@ -275,13 +282,15 @@ pub fn sleep_accuracy() -> Result<(), String> {
                 lateness.median / 1000,
                 lateness.worst / 1000
             );
-            if strict {
+            if strict && rounds >= MEDIAN_MIN_ROUNDS {
                 check!(
                     lateness.median <= 200_000,
                     "{} us sleeps: median {} us late",
                     ns / 1000,
                     lateness.median / 1000
                 );
+            }
+            if strict {
                 check!(
                     lateness.worst <= task::NS_PER_TICK,
                     "{} us sleeps: worst {} us late",
