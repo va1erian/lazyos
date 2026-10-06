@@ -150,7 +150,8 @@ fn surface_calls_roundtrip() {
                 width: 640,
                 height: 480,
                 title: title.clone(),
-                role: ROLE_DESKTOP
+                role: ROLE_DESKTOP,
+                popup: None
             },
             encode_create_surface_args,
             decode_create_surface_args
@@ -386,6 +387,7 @@ fn truncated_bodies_are_rejected() {
         height: 1,
         title: "abc".into(),
         role: 0,
+        popup: None,
     })
     .unwrap();
     assert!(decode_create_surface_args(&body[..body.len() - 1]).is_err());

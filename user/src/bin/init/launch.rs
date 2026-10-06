@@ -270,5 +270,6 @@ fn start_row(
         app: id.to_string(),
         pid,
         session,
+        existing: false,
     })
 }

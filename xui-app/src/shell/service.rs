@@ -197,5 +197,7 @@ fn status(ctx: &Ctx) -> wire::StatusReply {
             })
             .collect(),
         desktop: ctx.icons.borrow().iter().map(launcher).collect(),
+        // The shell starts serving the tray in docs/tray-plan.md stage T1.
+        tray: Vec::new(),
     }
 }
