@@ -26,6 +26,8 @@ members = [
     # The account file /system/etc/passwd (issue #508): strict, fail-closed
     # parsing shared by `accountsd` and the image build, host-tested.
     "libs/passwd",
+    # Fuzz entry point for the accounts/keyd wire decoders (issue #626).
+    "libs/accountwire",
     # Buffer-slot state machines for the pipelined display present (#361).
     "libs/surfbuf",
     # The slab and frame allocators' bookkeeping (issue #485): size classes,

@@ -1,0 +1,4 @@
+# accounts
+root:0:0:s:/root:sh
+
+bob:5:5:x:/home/bob:/bin/sh

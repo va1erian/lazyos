@@ -9,3 +9,11 @@ license = "GPL-3.0-or-later"
 [lib]
 name = "passwd"
 path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/passwd.rs`).
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

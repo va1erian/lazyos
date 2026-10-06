@@ -10,6 +10,11 @@ license = "GPL-3.0-or-later"
 name = "pkgstore"
 path = "src/lib.rs"
 
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/pkgstore_rules.rs`).
+fuzz = []
+
 [dependencies]
 # Where installed apps, the audit log and home directories live.
 fhs = { path = "../fhs" }
@@ -22,6 +27,7 @@ lazyos-crypto = { path = "../crypto" }
 messenger-generated = { path = "../generated" }
 
 [dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
 # The install/upgrade/remove soak runs `tree` on a real ext2 volume (`memio`)
 # and judges it with the library's independent checker (`check::fsck`).
 ext2fs = { path = "../ext2fs", features = ["fuzz"] }
