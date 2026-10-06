@@ -71,7 +71,13 @@ mod tests {
 
     #[test]
     fn data_lives_in_system_share() {
-        for path in [MIME_TYPES, WALLPAPERS, FONTS_LIBERATION, SAMPLES, LAZYRAD_SAMPLES] {
+        for path in [
+            MIME_TYPES,
+            WALLPAPERS,
+            FONTS_LIBERATION,
+            SAMPLES,
+            LAZYRAD_SAMPLES,
+        ] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
         for path in [
