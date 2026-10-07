@@ -37,6 +37,9 @@ const LAUNCH_TICKS: u64 = 1000;
 /// `Shutdown`: `init` answers before it stops anything, so this is a
 /// backstop (the compositor menu's bound in #504).
 const SHUTDOWN_TICKS: u64 = 300;
+/// `Stop` answers once every instance is gone (with T3's quit grace, up to
+/// about 3 s), so it gets more than a spawn.
+const STOP_TICKS: u64 = 500;
 /// One `confd` read.
 const CONFD_TICKS: u64 = 50;
 /// One `timed` read.
@@ -125,6 +128,25 @@ pub fn launched() -> Result<Vec<(String, u64)>, i64> {
         .into_iter()
         .map(|row| (row.name, row.pid))
         .collect())
+}
+
+/// `init.Stop(app)`: stop every instance of `app` in the shell's session
+/// (the tray's Quit row); how many were running.
+pub fn stop(app: &str) -> Result<u64, i64> {
+    let body = init_wire::encode_stop_args(&init_wire::StopArgs {
+        app: app.to_owned(),
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_STOP,
+        body,
+        STOP_TICKS,
+    )?;
+    init_wire::decode_stop_reply(&reply.body)
+        .map(|reply| reply.stopped)
+        .map_err(|_| -errno::EINVAL)
 }
 
 /// `init.Launch(app, arg, 0)`: start `app` in the shell's own session, with

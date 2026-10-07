@@ -448,6 +448,7 @@ sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray --script tools/screenshot/examples/tray.json
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray_menu --script tools/screenshot/examples/tray_menu.json   # menus, the Quit row; rebuild with LAZYOS_RESET_OS=1 first (it switches to the light theme)
 cargo test -p trayclient -p messenger-generated
 cd xui-app && cargo test -p lazyshell
 ```

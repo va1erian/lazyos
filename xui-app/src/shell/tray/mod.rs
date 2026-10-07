@@ -24,6 +24,8 @@ mod generation;
 pub mod icon;
 pub mod input;
 mod liveness;
+pub mod menu;
+mod menu_paint;
 pub mod paint;
 mod service;
 pub mod tooltip;
@@ -82,6 +84,8 @@ pub struct TrayState {
     /// keyed by app, so a relayout cannot move it to another app's cell.
     pub hover: RefCell<Option<(String, u64)>>,
     pub tooltip: RefCell<Option<tooltip::Open>>,
+    /// The open menu panels: the top level, then at most one submenu.
+    pub menus: RefCell<Vec<menu::Panel>>,
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
     probed: RefCell<Vec<(String, Rect)>>,
@@ -99,6 +103,7 @@ impl TrayState {
             beat: Cell::new(0),
             hover: RefCell::new(None),
             tooltip: RefCell::new(None),
+            menus: RefCell::new(Vec::new()),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
         }
