@@ -1263,6 +1263,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fuzzkit"
+version = "0.1.0"
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1842,6 +1846,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyicons"
+version = "0.1.0"
+dependencies = [
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "lazypdf"
 version = "0.1.0"
 dependencies = [
@@ -1855,6 +1867,8 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "fuzzkit",
+ "messenger-generated",
  "timezone",
 ]
 
@@ -3756,6 +3770,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "trayclient"
+version = "0.1.0"
+dependencies = [
+ "messenger-generated",
+]
+
+[[package]]
 name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4352,6 +4373,7 @@ dependencies = [
  "devinspect",
  "fhs",
  "inputmap",
+ "lazyicons",
  "lazyshell",
  "libc",
  "libmessenger",
@@ -4359,6 +4381,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "trayclient",
  "uitheme",
  "xui-archiver",
  "xui-calc",
@@ -4548,6 +4571,7 @@ version = "0.1.0"
 dependencies = [
  "confd",
  "deskmenu",
+ "fhs",
  "timezone",
  "uitheme",
  "xui-canvas",

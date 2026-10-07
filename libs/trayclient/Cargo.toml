@@ -1,0 +1,18 @@
+[package]
+name = "trayclient"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "LazyOS tray client: one app's taskbar item over os.lazy.shell.tray.v1, its events, and re-registration after a shell restart"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "trayclient"
+path = "src/lib.rs"
+
+[dependencies]
+# The `midlc`-generated codecs: no protocol constant is written by hand here.
+messenger-generated = { path = "../generated" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

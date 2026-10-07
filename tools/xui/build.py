@@ -117,6 +117,8 @@ BINS = {
     "xui-calc": "xui-calc.elf",
     # PDF Viewer: Read PDF documents.
     "xui-pdf": "xui-pdf.elf",
+    # Tray Demo: Shows a taskbar tray icon and reacts to it.
+    "xui-traydemo": "xui-traydemo.elf",
 }
 
 

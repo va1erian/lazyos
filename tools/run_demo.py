@@ -30,6 +30,7 @@ Examples
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
+    python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -90,6 +91,9 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-calc.elf",
     "xui-pdf.elf",
 )]
+# The tray sample app, shipped only by `--traydemo` images
+# (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
+TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n for n in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]
 
@@ -261,7 +265,8 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_DESKTOP"] = "1"
             # One build for every missing app: the desktop's own, and the
             # network apps a `--net` desktop also ships.
-            needed = DESKTOP_ELFS + (NET_APPS if args.net else [])
+            needed = (DESKTOP_ELFS + (NET_APPS if args.net else [])
+                      + (TRAYDEMO_APPS if args.traydemo else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
         if args.mail:
@@ -269,6 +274,9 @@ def main(argv: list[str]) -> int:
             if not build_mail():
                 return 1
             env["LAZYOS_MAIL"] = "1"
+        if args.traydemo:
+            # Built with the other xui apps above (`TRAYDEMO_APPS`).
+            env["LAZYOS_TRAYDEMO"] = "1"
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).

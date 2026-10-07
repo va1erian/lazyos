@@ -17,6 +17,7 @@
 
 mod app;
 mod chrome;
+mod fonts;
 mod handoff;
 mod indicators;
 mod internal;
@@ -62,14 +63,8 @@ fn home() -> Option<String> {
 }
 
 fn main() {
-    // Droid Sans (regular and bold), Droid Serif and JetBrains Mono: a page's
-    // CSS families are drawn with these three (`xui_netsurf::FontFamilies`).
-    xui_app::font::register_writer();
-    xui_netsurf::set_font_families(xui_netsurf::FontFamilies {
-        sans_serif: xui_app::font::UI_FAMILY.to_string(),
-        serif: xui_app::font::SERIF_FAMILY.to_string(),
-        monospace: xui_app::font::MONO_FAMILY.to_string(),
-    });
+    // The window in Droid Sans, pages in Liberation (`fonts`).
+    xui_netsurf::set_font_families(fonts::register());
     fetch::trace::now_ms();
     fetch::netsurf::install(Options::default());
 

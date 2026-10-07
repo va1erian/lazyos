@@ -102,6 +102,9 @@ members = [
     # init's supervision decisions (restart, backoff, giving up, the desktop's
     # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.
     "libs/svcpolicy",
+    # One app's tray item over os.lazy.shell.tray.v1 (docs/tray-plan.md):
+    # pure `no_std` + `alloc` over a transport, host-tested.
+    "libs/trayclient",
     "libs/devinspect",
     "libs/netstack",
     "libs/fuzzkit",

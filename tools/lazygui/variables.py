@@ -94,6 +94,9 @@ def make_vars() -> dict:
         # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
         "mail": b(value=False),
         "simple_mail": b(value=False),
+        # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).
+        "traydemo": b(value=False),
+        "simple_traydemo": b(value=False),
         "simple_autologin": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),

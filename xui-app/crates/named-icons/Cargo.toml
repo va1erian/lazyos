@@ -1,0 +1,16 @@
+[package]
+name = "lazyicons"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "OS-wide stable names for xui's Lucide outline icons, with drawing and the docs/icons.md catalog (docs/tray-plan.md 6.3)"
+
+# Pure and host-tested: the name table, lookups and drawing through xui's own
+# `draw_icon`. Usable by every xui app, LazyShell, `lrplay` and scripting.
+[dependencies]
+# The same revision as every other xui crate here, so one `xui_core` links.
+xui-core = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
+
+[dev-dependencies]
+# The tiny-skia software surface, only to check `draw` paints real pixels.
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98", default-features = false }

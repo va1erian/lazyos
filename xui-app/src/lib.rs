@@ -35,3 +35,4 @@ pub mod shell;
 pub mod sys;
 pub mod sysinfo;
 pub mod themed;
+pub mod tray;

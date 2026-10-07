@@ -11,6 +11,7 @@ from . import datavol, driveropts, netopts
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
                       build_plan, format_plan, image_build, simple_config)
 from .runner import Runner, open_path
+from .scriptenv import SCRIPT_ENV
 from .scroll import scrollable
 from .simple import SIMPLE_EXTRAS, build_simple_tab, simple_choice
 from .variables import make_vars
@@ -105,6 +106,7 @@ class Launcher:
             "journal": self.v["journal"].get(),
             "lazyweb": self.v["lazyweb"].get(),
             "mail": self.v["mail"].get(),
+            "traydemo": self.v["traydemo"].get(),
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -134,7 +136,8 @@ class Launcher:
                          self.v["simple_modplayer"], self.v["simple_net"], self._run,
                          self.v["simple_linuxapps"], self.v["simple_hidpi"],
                          self.v["simple_tls"], self.v["simple_lazyweb"],
-                         self.v["simple_mail"], self.v["simple_autologin"])
+                         self.v["simple_mail"], self.v["simple_traydemo"],
+                         self.v["simple_autologin"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -161,6 +164,7 @@ class Launcher:
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
+        self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
@@ -341,6 +345,7 @@ class Launcher:
         self.v["msgctl"].set(False)
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
+        self.v["traydemo"].set("LAZYOS_TRAYDEMO" in SCRIPT_ENV.get(match[0][0], {}))
         self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()
 

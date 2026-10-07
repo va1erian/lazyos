@@ -20,6 +20,7 @@ use xui_core::{Canvas, Control, Dip, MouseButton, Rect, Rgba};
 
 use super::ctx::{BarHover, Ctx};
 use super::menu;
+use super::tray::{self, input::Input};
 use super::theme::{chrome_look, color, fill_bar};
 use xui_core::theme::look;
 
@@ -35,6 +36,10 @@ pub enum BarMsg {
     Move(i32, i32),
     Leave,
     Press(i32, i32),
+    /// A right-button press (the tray's secondary click).
+    Secondary(i32, i32),
+    /// The wheel rolled `delta` notches at `(x, y)`.
+    Wheel(i32, i32, i32),
 }
 
 /// The taskbar window's app.
@@ -157,6 +162,19 @@ impl BarApp {
                 button: MouseButton::Left,
                 ..
             } => Some(BarMsg::Press(x, y)),
+            Event::MouseDown {
+                x,
+                y,
+                button: MouseButton::Right,
+                ..
+            } => Some(BarMsg::Secondary(x, y)),
+            Event::MouseWheel {
+                x,
+                y,
+                delta,
+                horizontal: false,
+                ..
+            } => Some(BarMsg::Wheel(x, y, notches(delta))),
             _ => None,
         });
         BarApp { ctx, root }
@@ -170,11 +188,15 @@ impl BarApp {
         if self.ctx.logout_rect().contains(x, y) {
             return Some(BarHover::Logout);
         }
+        if let Some(hit) = tray::input::hit(&self.ctx, x, y) {
+            return Some(hit);
+        }
         entry_at(&self.ctx.entries.borrow(), x, y).map(BarHover::Entry)
     }
 
     fn set_hover(&self, ui: &Ui<BarMsg>, hover: Option<BarHover>) {
         if self.ctx.bar_hover.replace(hover) != hover {
+            tray::input::hovered(&self.ctx, hover);
             ui.invalidate(self.root.id());
         }
     }
@@ -184,7 +206,16 @@ impl BarApp {
             Some(BarHover::Start) => menu::toggle(&self.ctx, ui),
             Some(BarHover::Entry(index)) => self.click_entry(index),
             Some(BarHover::Logout) => self.press_logout(ui),
-            None => {}
+            Some(BarHover::Tray(cell)) => tray::input::on_cell(&self.ctx, cell, Input::Primary),
+            // The overflow panel arrives with docs/tray-plan.md stage T5.
+            Some(BarHover::Chevron) | None => {}
+        }
+    }
+
+    /// A right press or a wheel roll: only tray cells take them.
+    fn tray_input(&self, x: i32, y: i32, input: Input) {
+        if let Some(BarHover::Tray(cell)) = self.hover_at(x, y) {
+            tray::input::on_cell(&self.ctx, cell, input);
         }
     }
 
@@ -245,8 +276,23 @@ impl App for BarApp {
                 let (x, y) = self.ctx.to_design(x, y);
                 self.press(ui, x, y)
             }
+            BarMsg::Secondary(x, y) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.tray_input(x, y, Input::Secondary)
+            }
+            BarMsg::Wheel(x, y, delta) => {
+                let (x, y) = self.ctx.to_design(x, y);
+                self.tray_input(x, y, Input::Wheel(delta))
+            }
         }
     }
+}
+
+/// A wheel `delta` in notches: the backend reports `WHEEL_DELTA` (120) per
+/// notch, and a partial roll still counts as one.
+fn notches(delta: i16) -> i32 {
+    let delta = i32::from(delta);
+    delta.signum() * (delta.abs() / 120).max(1)
 }
 
 /// A design-pixel shell rectangle as an xui one at scale `s`.
@@ -360,6 +406,12 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
     }
 
     paint_logout(canvas, ctx, &palette, &deco, hover == Some(BarHover::Logout));
+    let tray_hover = match hover {
+        Some(BarHover::Tray(cell)) => Some(cell),
+        _ => None,
+    };
+    tray::paint::paint(canvas, ctx, tray_hover, hover == Some(BarHover::Chevron));
+
     let clock = rect(ctx.clock_rect(), s);
     canvas.draw_text(&ctx.clock.borrow(), clock, &clock_style(ctx).centered());
 }

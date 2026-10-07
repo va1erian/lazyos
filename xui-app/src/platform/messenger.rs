@@ -181,6 +181,25 @@ impl Service {
         self.call_at(interface, method, error_id, body, deadline)
     }
 
+    /// [`Service::call_within`] whose request moves `handles` (this task's
+    /// channel ends) to the service, for a method with a `transfers` clause
+    /// (the tray's `Set` hands over its event channel).
+    pub fn call_moving_within(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        handles: Vec<u64>,
+        ticks: u64,
+    ) -> Result<Parcel, i64> {
+        let deadline = sys::clock_ticks()
+            .saturating_add(ticks.max(1))
+            .max(sys::EXPIRED_DEADLINE + 1);
+        self.call_with(interface, method, error_id, body, handles, deadline)
+            .map_err(|error| error.code)
+    }
+
     /// One call bounded by `deadline` (an absolute PIT tick; `0` waits
     /// forever).
     fn call_at(
@@ -189,6 +208,19 @@ impl Service {
         method: u32,
         error_id: u16,
         body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, CallError> {
+        self.call_with(interface, method, error_id, body, Vec::new(), deadline)
+    }
+
+    /// [`Service::call_at`] carrying `handles`.
+    fn call_with(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        handles: Vec<u64>,
         deadline: u64,
     ) -> Result<Parcel, CallError> {
         let parcel = Parcel {
@@ -204,7 +236,7 @@ impl Service {
                 deadline_ns: 0,
             },
             body,
-            handles: Vec::new(),
+            handles,
             buffers: Vec::new(),
         };
         let mut buf = vec![0u8; REPLY_BUF];

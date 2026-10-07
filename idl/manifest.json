@@ -519,6 +519,11 @@
         "name": "GetOutput",
         "id": 43,
         "oneway": false
+      },
+      {
+        "name": "AllowPopup",
+        "id": 44,
+        "oneway": false
       }
     ],
     "topics": []
@@ -669,8 +674,54 @@
         "retained": true,
         "publish_permission": "publish:system/events/app/+",
         "subscribe_permission": "subscribe:system/events/app/+"
+      },
+      {
+        "name": "session/+/apps/resident",
+        "source": "session/{session}/apps/resident",
+        "payload": "ResidentApps",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:session/+/apps/resident",
+        "subscribe_permission": "subscribe:session/+/apps/resident"
       }
     ]
+  },
+  {
+    "interface": "os.lazy.init.app.v1",
+    "interface_id": "0x616633071591076d",
+    "methods": [
+      {
+        "name": "Watch",
+        "id": 1,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.init.app.events.v1"
+          }
+        ]
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.init.app.events.v1",
+    "interface_id": "0x23f37f265bbdfe2c",
+    "methods": [
+      {
+        "name": "Reopen",
+        "id": 1,
+        "oneway": true
+      },
+      {
+        "name": "Quit",
+        "id": 2,
+        "oneway": true
+      }
+    ],
+    "topics": []
   },
   {
     "interface": "os.lazy.input.v1",
@@ -1669,6 +1720,78 @@
         "name": "AuthorizeTopic",
         "id": 727248511,
         "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.shell.tray.v1",
+    "interface_id": "0xe125dc0e9d908624",
+    "methods": [
+      {
+        "name": "Set",
+        "id": 1,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.shell.tray.events.v1"
+          }
+        ]
+      },
+      {
+        "name": "Update",
+        "id": 2,
+        "oneway": false
+      },
+      {
+        "name": "Clear",
+        "id": 3,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "session/+/shell/tray",
+        "source": "session/{session}/shell/tray",
+        "payload": "Generation",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:session/+/shell/tray",
+        "subscribe_permission": "subscribe:session/+/shell/tray"
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.shell.tray.events.v1",
+    "interface_id": "0x7dc550e02c4d9bf",
+    "methods": [
+      {
+        "name": "Activate",
+        "id": 1,
+        "oneway": true
+      },
+      {
+        "name": "SecondaryActivate",
+        "id": 2,
+        "oneway": true
+      },
+      {
+        "name": "MenuItem",
+        "id": 3,
+        "oneway": true
+      },
+      {
+        "name": "Scroll",
+        "id": 4,
+        "oneway": true
+      },
+      {
+        "name": "Ping",
+        "id": 5,
+        "oneway": true
       }
     ],
     "topics": []

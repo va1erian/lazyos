@@ -17,7 +17,8 @@ from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-expor
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
-from .appsteps import app_steps, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
 from .drivers import device_flags, driver_env  # noqa: F401 (re-exported)
 
@@ -92,6 +93,7 @@ SCRIPTS = [
      ("desktop",), "term"),
     ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
+    ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
 ]
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
@@ -106,7 +108,7 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -236,7 +238,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
         # with zig); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
-    env.update(mail_env(cfg) | login_env(cfg))  # Mail; LAZYOS_AUTOLOGIN (#623)
+    env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)
     return env
 
@@ -250,30 +252,29 @@ def lazyrad_samples(user: str) -> str:
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
-                  modplayer: bool = False, net: bool = False,
-                  linuxapps: bool = False, hidpi: bool = False,
-                  tls: bool = False, lazyweb: bool = False, mail: bool = False,
+                  modplayer: bool = False, net: bool = False, linuxapps: bool = False,
+                  hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
+                  mail: bool = False, traydemo: bool = False,
                   autologin: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
     ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
     image (a core package like the other desktop apps, so it means nothing on
-    the CLI), ``shell``
-    keeps the LazyShell desktop (taskbar, start menu) on it, ``devices``
-    opens the Devices app at boot, ``doom`` adds the Doom package and
-    ``modplayer`` the LazyRAD MOD player package (likewise Desktop only); ``net``
-    adds networking to either interface (the stack, QEMU's user network with
-    host port 8080 forwarded, and on the desktop the Network and Net Tools
-    apps), ``linuxapps`` the Linux command-line programs (dash, lua,
-    sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720
-    desktop at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl,
-    wget, fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser
-    (Desktop only; it implies ``tls``); ``mail`` the Mail app (Desktop only;
-    it implies ``tls``); ``autologin`` skips the Desktop's login screen and
-    logs ``user`` in (issue #623). Machine settings (accelerator, memory, QEMU path)
-    come from ``base``; every image switch is decided here so stale Advanced
-    checkboxes cannot leak into a Simple boot.
+    the CLI), ``shell`` keeps the LazyShell desktop (taskbar, start menu) on
+    it, ``devices`` opens the Devices app at boot, ``doom`` adds the Doom
+    package and ``modplayer`` the LazyRAD MOD player package (likewise Desktop
+    only); ``net`` adds networking to either interface (the stack, QEMU's user
+    network with host port 8080 forwarded, and on the desktop the Network and
+    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash, lua,
+    sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
+    at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
+    fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
+    it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
+    ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
+    Desktop's login screen and logs ``user`` in (issue #623). Machine settings
+    (accelerator, memory, QEMU path) come from ``base``; every image switch is
+    decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
     if build not in dict(SIMPLE_BUILDS).values():
         raise ValueError(f"unknown build profile: {build!r}")
@@ -320,7 +321,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "tls": tls,
         "journal": False,
         "lazyweb": lazyweb,
-        "mail": desktop and mail,
+        "mail": desktop and mail, "traydemo": desktop and traydemo,
         "autologin": DEFAULT_ACCOUNT if desktop and autologin else "",
         "display_mode": HIDPI_MODE if hidpi else "",
     })
@@ -388,7 +389,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.
             argv.append("--lazyweb")
-        argv += mail_argv(cfg) + login_argv(cfg)  # --mail; --autologin NAME (#623)
+        argv += desktop_app_argv(cfg) + login_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

@@ -3181,6 +3181,8 @@ pub mod os_lazy_display_v1 {
     pub const ROLE_DESKTOP: u32 = 1;
     /// `Role::Panel` wire value.
     pub const ROLE_PANEL: u32 = 2;
+    /// `Role::Popup` wire value.
+    pub const ROLE_POPUP: u32 = 3;
 
     /// `Change::Unspecified` wire value.
     pub const CHANGE_UNSPECIFIED: u32 = 0;
@@ -3406,19 +3408,25 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_DISMISS: u32 = 42;
     /// `GetOutput` method id.
     pub const METHOD_GETOUTPUT: u32 = 43;
+    /// `AllowPopup` method id.
+    pub const METHOD_ALLOWPOPUP: u32 = 44;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
     /// field) or the full-screen desktop, which paints above the background
     /// and below every window, has no chrome, never takes focus and replaces
-    /// the previous desktop. The desktop role is compositor-privileged. The
-    /// parcel transfers the event endpoint the compositor sends input on.
+    /// the previous desktop. The desktop role is compositor-privileged. A
+    /// `Popup` (a tray flyout, docs/tray-plan.md section 7.3) needs `popup`,
+    /// the one-shot token the shell granted this task with `AllowPopup`
+    /// (`EACCES` without a valid one). The parcel transfers the event
+    /// endpoint the compositor sends input on.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CreateSurfaceArgs {
         pub width: u32,
         pub height: u32,
         pub title: alloc::string::String,
         pub role: u32,
+        pub popup: core::option::Option<u64>,
     }
 
     pub fn encode_create_surface_args(value: &CreateSurfaceArgs) -> Result<Vec<u8>, Error> {
@@ -3427,6 +3435,16 @@ pub mod os_lazy_display_v1 {
         target.u32(2, value.height)?;
         target.string(3, &value.title)?;
         target.u32(4, value.role)?;
+        match &value.popup {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(5, Some(&nested))?;
+            }
+            None => {
+                target.option(5, None)?;
+            }
+        }
         Ok(target.finish())
     }
 
@@ -3446,6 +3464,15 @@ pub mod os_lazy_display_v1 {
                 }
                 4 => {
                     out.role = field.as_u32()?;
+                }
+                5 => {
+                    if field.payload.is_empty() {
+                        out.popup = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.popup = Some(item.as_u64()?);
+                    }
                 }
                 _ => {}
             }
@@ -5021,6 +5048,61 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
+    /// Shell-only: let task `task` create one `Popup` surface with `token`
+    /// within about two seconds, placed against the screen rectangle
+    /// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md
+    /// section 7.3). A token works once and only for that task. A compositor
+    /// without flyouts answers `EINVAL`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AllowPopupArgs {
+        pub task: u64,
+        pub token: u64,
+        pub x: i32,
+        pub y: i32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_allow_popup_args(value: &AllowPopupArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.task)?;
+        target.u64(2, value.token)?;
+        target.i32(3, value.x)?;
+        target.i32(4, value.y)?;
+        target.u32(5, value.w)?;
+        target.u32(6, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_allow_popup_args(body: &[u8]) -> Result<AllowPopupArgs, Error> {
+        let mut out = AllowPopupArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.task = field.as_u64()?;
+                }
+                2 => {
+                    out.token = field.as_u64()?;
+                }
+                3 => {
+                    out.x = field.as_i32()?;
+                }
+                4 => {
+                    out.y = field.as_i32()?;
+                }
+                5 => {
+                    out.w = field.as_u32()?;
+                }
+                6 => {
+                    out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// The transfers the request `method` declares; `NONE` for a method
     /// that declares none or an unknown method id.
     pub fn request_transfers(method: u32) -> transfers::Transfers {
@@ -5761,6 +5843,7 @@ pub mod os_lazy_init_v1 {
         pub hidden: bool,
         pub autostart: bool,
         pub icon: alloc::string::String,
+        pub resident: bool,
     }
 
     pub fn encode_app_info(value: &AppInfo) -> Result<Vec<u8>, Error> {
@@ -5780,6 +5863,7 @@ pub mod os_lazy_init_v1 {
         target.bool(9, value.hidden)?;
         target.bool(10, value.autostart)?;
         target.string(11, &value.icon)?;
+        target.bool(12, value.resident)?;
         Ok(target.finish())
     }
 
@@ -5824,6 +5908,9 @@ pub mod os_lazy_init_v1 {
                 11 => {
                     out.icon = field.as_str()?.into();
                 }
+                12 => {
+                    out.resident = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -5850,6 +5937,9 @@ pub mod os_lazy_init_v1 {
     /// An installed app's 32-pixel icon, `icons/app-32.png` in its
     /// install directory (every package ships one); empty for a
     /// built-in, which the shell draws from its own icon set.
+    /// Whether the package declared `resident` (docs/tray-plan.md
+    /// section 5): it may run with no window, runs once per session and
+    /// always has a tray icon.
     /// One service lifecycle event (issue #307): the payload of
     /// `system/events/service/<name>`. The topic carries the service name, so
     /// it is not repeated here; `health` is the service's retained health
@@ -5964,6 +6054,69 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
+    /// One running resident app of a session.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResidentApp {
+        pub app: alloc::string::String,
+        pub pid: u64,
+    }
+
+    pub fn encode_resident_app(value: &ResidentApp) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        target.u64(2, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resident_app(body: &[u8]) -> Result<ResidentApp, Error> {
+        let mut out = ResidentApp::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.app = field.as_str()?.into();
+                }
+                2 => {
+                    out.pid = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The app id `Launch` took.
+    /// The instance's task.
+    /// The payload of `session/<session>/apps/resident`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResidentApps {
+        pub apps: alloc::vec::Vec<ResidentApp>,
+    }
+
+    pub fn encode_resident_apps(value: &ResidentApps) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.apps {
+            nested.raw(Kind::Struct, 1, &encode_resident_app(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resident_apps(body: &[u8]) -> Result<ResidentApps, Error> {
+        let mut out = ResidentApps::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.apps.push(decode_resident_app(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// `Services` method id.
     pub const METHOD_SERVICES: u32 = 1672675413;
     /// `Launch` method id.
@@ -6015,7 +6168,10 @@ pub mod os_lazy_init_v1 {
     /// session; only the session's owner (or root) may launch into it. `args`
     /// is empty or one absolute path (at most 1024 bytes, no control
     /// character or `"`), appended to the app's fixed arguments as a single
-    /// `argv` item; any other value is refused with `EINVAL`.
+    /// `argv` item; any other value is refused with `EINVAL`. A resident app
+    /// (`AppInfo.resident`) already running in that session starts nothing:
+    /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
+    /// and answers `existing` true with that instance's pid.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LaunchArgs {
         pub app: alloc::string::String,
@@ -6056,6 +6212,7 @@ pub mod os_lazy_init_v1 {
         pub app: alloc::string::String,
         pub pid: u64,
         pub session: u64,
+        pub existing: bool,
     }
 
     pub fn encode_launch_reply(value: &LaunchReply) -> Result<Vec<u8>, Error> {
@@ -6063,6 +6220,7 @@ pub mod os_lazy_init_v1 {
         target.string(1, &value.app)?;
         target.u64(2, value.pid)?;
         target.u64(3, value.session)?;
+        target.bool(4, value.existing)?;
         Ok(target.finish())
     }
 
@@ -6079,6 +6237,9 @@ pub mod os_lazy_init_v1 {
                 }
                 3 => {
                     out.session = field.as_u64()?;
+                }
+                4 => {
+                    out.existing = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -6512,6 +6673,193 @@ pub mod os_lazy_init_v1 {
         let filter = topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)
+    }
+
+    /// The session's running resident apps (docs/tray-plan.md section 5),
+    /// published by `init` on the central broker on every start and exit of
+    /// one. Retained, so a (restarted) shell puts a default tray item on the
+    /// bar for each at once.
+    /// The declared `session/+/apps/resident` topic (`ResidentApps`, `latest`, retained).
+    pub const TOPIC_SESSION_APPS_RESIDENT: &str = "session/+/apps/resident";
+    /// The `session/+/apps/resident` delivery policy.
+    pub const TOPIC_SESSION_APPS_RESIDENT_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `session/+/apps/resident` publishes are retained.
+    pub const TOPIC_SESSION_APPS_RESIDENT_RETAINED: bool = true;
+
+    /// Build the concrete `session/+/apps/resident` name; each wildcard takes one literal segment.
+    pub fn name_session_apps_resident(session: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Publish)
+    }
+
+    /// Encode a `ResidentApps` payload for `session/+/apps/resident`.
+    pub fn encode_session_apps_resident(value: &ResidentApps) -> Result<Vec<u8>, Error> {
+        encode_resident_apps(value)
+    }
+
+    /// Decode a `session/+/apps/resident` payload; malformed bytes are an error.
+    pub fn decode_session_apps_resident(body: &[u8]) -> Result<ResidentApps, Error> {
+        decode_resident_apps(body)
+    }
+
+    /// Publish a typed `ResidentApps` on `session/+/apps/resident`.
+    pub fn publish_session_apps_resident<P>(publisher: &mut P, session: &str, value: &ResidentApps) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_session_apps_resident(session).map_err(P::Error::from)?;
+        let payload = encode_session_apps_resident(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SESSION_APPS_RESIDENT_RETAINED)
+    }
+
+    /// Subscribe to `session/+/apps/resident` with its declared QoS.
+    pub fn subscribe_session_apps_resident<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SESSION_APPS_RESIDENT_QOS)
+    }
+}
+
+/// `os.lazy.init.app.v1` (interface id `0x616633071591076d`).
+#[rustfmt::skip]
+pub mod os_lazy_init_app_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x616633071591076d;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.init.app.v1";
+
+    /// `Watch` method id.
+    pub const METHOD_WATCH: u32 = 1;
+
+    /// What a `Watch` request carries outside its body.
+    pub const WATCH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Watch` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WatchTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.init.app.events.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Watch` request.
+    pub fn encode_watch_transfers(value: &WatchTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_WATCH => WATCH_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+}
+
+/// `os.lazy.init.app.events.v1` (interface id `0x23f37f265bbdfe2c`).
+#[rustfmt::skip]
+pub mod os_lazy_init_app_events_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x23f37f265bbdfe2c;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.init.app.events.v1";
+
+    /// `Reopen` method id.
+    pub const METHOD_REOPEN: u32 = 1;
+    /// `Quit` method id.
+    pub const METHOD_QUIT: u32 = 2;
+
+    /// The app was launched again in this session (the start menu, a
+    /// desktop icon, `mimed`, the tray's Open row) while this instance runs:
+    /// show yourself and open `args` (empty, or `Launch`'s one path).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReopenArgs {
+        pub args: alloc::string::String,
+    }
+
+    pub fn encode_reopen_args(value: &ReopenArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.args)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reopen_args(body: &[u8]) -> Result<ReopenArgs, Error> {
+        let mut out = ReopenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.args = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// The user, a logout or the package manager asked the app to quit:
+    /// save and exit within `grace_ms`, after which `init` kills it. The
+    /// grace is a fixed 3 s counted from the `Stop`, so `grace_ms` is what
+    /// is left of it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct QuitArgs {
+        pub grace_ms: u32,
+    }
+
+    pub fn encode_quit_args(value: &QuitArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.grace_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_quit_args(body: &[u8]) -> Result<QuitArgs, Error> {
+        let mut out = QuitArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.grace_ms = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
     }
 }
 
@@ -13773,6 +14121,52 @@ pub mod os_lazy_shell_v1 {
         Ok(out)
     }
 
+    /// One tray item.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TrayEntry {
+        pub app: alloc::string::String,
+        pub tooltip: alloc::string::String,
+        pub status: u32,
+        pub custom: bool,
+        pub visible: bool,
+    }
+
+    pub fn encode_tray_entry(value: &TrayEntry) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        target.string(2, &value.tooltip)?;
+        target.u32(3, value.status)?;
+        target.bool(4, value.custom)?;
+        target.bool(5, value.visible)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tray_entry(body: &[u8]) -> Result<TrayEntry, Error> {
+        let mut out = TrayEntry::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.app = field.as_str()?.into();
+                }
+                2 => {
+                    out.tooltip = field.as_str()?.into();
+                }
+                3 => {
+                    out.status = field.as_u32()?;
+                }
+                4 => {
+                    out.custom = field.as_bool()?;
+                }
+                5 => {
+                    out.visible = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Status` method id.
     pub const METHOD_STATUS: u32 = 1;
     /// `ShowStartMenu` method id.
@@ -13786,7 +14180,8 @@ pub mod os_lazy_shell_v1 {
 
     /// What the shell shows right now: the taskbar's window entries (in
     /// taskbar order), the focused window, whether the start menu is open, the
-    /// start-menu rows and the desktop icons.
+    /// start-menu rows, the desktop icons and the tray items (in bar order,
+    /// docs/tray-plan.md).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StatusReply {
         pub windows: alloc::vec::Vec<TaskbarEntry>,
@@ -13794,6 +14189,7 @@ pub mod os_lazy_shell_v1 {
         pub menu_open: bool,
         pub menu: alloc::vec::Vec<Launcher>,
         pub desktop: alloc::vec::Vec<Launcher>,
+        pub tray: alloc::vec::Vec<TrayEntry>,
     }
 
     pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
@@ -13824,6 +14220,11 @@ pub mod os_lazy_shell_v1 {
             nested.raw(Kind::Struct, 1, &encode_launcher(item)?)?;
         }
         target.array(5, &nested)?;
+        let mut nested = Encoder::new();
+        for item in &value.tray {
+            nested.raw(Kind::Struct, 1, &encode_tray_entry(item)?)?;
+        }
+        target.array(6, &nested)?;
         Ok(target.finish())
     }
 
@@ -13860,6 +14261,12 @@ pub mod os_lazy_shell_v1 {
                     let mut nested = field.nested(0)?;
                     while let Some(item) = nested.next()? {
                         out.desktop.push(decode_launcher(item.payload)?);
+                    }
+                }
+                6 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.tray.push(decode_tray_entry(item.payload)?);
                     }
                 }
                 _ => {}
@@ -15295,6 +15702,814 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
     }
 }
 
+/// `os.lazy.shell.tray.v1` (interface id `0xe125dc0e9d908624`).
+#[rustfmt::skip]
+pub mod os_lazy_shell_tray_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xe125dc0e9d908624;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.shell.tray.v1";
+
+    /// `Status::Active` wire value.
+    pub const STATUS_ACTIVE: u32 = 0;
+    /// `Status::Passive` wire value.
+    pub const STATUS_PASSIVE: u32 = 1;
+    /// `Status::Attention` wire value.
+    pub const STATUS_ATTENTION: u32 = 2;
+
+    /// `MenuKind::Normal` wire value.
+    pub const MENU_KIND_NORMAL: u32 = 0;
+    /// `MenuKind::Check` wire value.
+    pub const MENU_KIND_CHECK: u32 = 1;
+    /// `MenuKind::Radio` wire value.
+    pub const MENU_KIND_RADIO: u32 = 2;
+    /// `MenuKind::Separator` wire value.
+    pub const MENU_KIND_SEPARATOR: u32 = 3;
+    /// `MenuKind::Submenu` wire value.
+    pub const MENU_KIND_SUBMENU: u32 = 4;
+
+    /// `Activation::Event` wire value.
+    pub const ACTIVATION_EVENT: u32 = 0;
+    /// `Activation::Menu` wire value.
+    pub const ACTIVATION_MENU: u32 = 1;
+    /// `Activation::DefaultItem` wire value.
+    pub const ACTIVATION_DEFAULT_ITEM: u32 = 2;
+
+    /// An app's item.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Item {
+        pub icon: Icon,
+        pub tooltip: alloc::string::String,
+        pub status: u32,
+        pub badge: core::option::Option<alloc::string::String>,
+        pub menu: alloc::vec::Vec<MenuItem>,
+        pub activate: u32,
+    }
+
+    pub fn encode_item(value: &Item) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_icon(&value.icon)?)?;
+        target.string(2, &value.tooltip)?;
+        target.u32(3, value.status)?;
+        match &value.badge {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(4, Some(&nested))?;
+            }
+            None => {
+                target.option(4, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.menu {
+            nested.raw(Kind::Struct, 1, &encode_menu_item(item)?)?;
+        }
+        target.array(5, &nested)?;
+        target.u32(6, value.activate)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_item(body: &[u8]) -> Result<Item, Error> {
+        let mut out = Item::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.icon = decode_icon(field.payload)?;
+                }
+                2 => {
+                    out.tooltip = field.as_str()?.into();
+                }
+                3 => {
+                    out.status = field.as_u32()?;
+                }
+                4 => {
+                    if field.payload.is_empty() {
+                        out.badge = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.badge = Some(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.menu.push(decode_menu_item(item.payload)?);
+                    }
+                }
+                6 => {
+                    out.activate = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The picture; an unusable one falls back (see `Icon`).
+    /// Text under the verified app name in the tooltip; may be empty.
+    /// A `Status` value: `Passive` items go to the overflow first,
+    /// `Attention` pulses.
+    /// A short count or mark drawn over the icon (at most 3 characters).
+    /// The menu rows, in order; the shell adds the Quit row after them.
+    /// An `Activation` value: what a primary click does.
+    /// The item's picture: exactly one source. An empty `Icon`, one with
+    /// several sources, a Lucide name the named-icon library (`lazyicons`,
+    /// `docs/icons.md`) does not know, an image larger than 64 x 64 or whose
+    /// `data` is not `width * height * 4` bytes, or a `file` name with a
+    /// directory part falls back to the app's
+    /// package icon (`icons/app-16.png`, `app-32.png` at 2x), else to the
+    /// Lucide `app-window` outline, so an item never lacks a picture.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Icon {
+        pub lucide: core::option::Option<alloc::string::String>,
+        pub mask: core::option::Option<Image>,
+        pub pixels: alloc::vec::Vec<Image>,
+        pub file: core::option::Option<alloc::string::String>,
+    }
+
+    pub fn encode_icon(value: &Icon) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.lucide {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        match &value.mask {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_image(item)?)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.pixels {
+            nested.raw(Kind::Struct, 1, &encode_image(item)?)?;
+        }
+        target.array(3, &nested)?;
+        match &value.file {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(4, Some(&nested))?;
+            }
+            None => {
+                target.option(4, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_icon(body: &[u8]) -> Result<Icon, Error> {
+        let mut out = Icon::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    if field.payload.is_empty() {
+                        out.lucide = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.lucide = Some(item.as_str()?.into());
+                    }
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.mask = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.mask = Some(decode_image(item.payload)?);
+                    }
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.pixels.push(decode_image(item.payload)?);
+                    }
+                }
+                4 => {
+                    if field.payload.is_empty() {
+                        out.file = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.file = Some(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A Lucide outline by its kebab-case name (`volume-2`), tinted with
+    /// the bar's ink: the easy choice for an app without art.
+    /// An alpha-only image (`data` holds RGBA; only alpha is used),
+    /// tinted like a Lucide outline.
+    /// Full-colour RGBA at 1x and optionally 2x (at most two images),
+    /// drawn as given; the shell picks the one closest to the cell size.
+    /// Empty: no pixels.
+    /// A PNG under the app's own install directory's `icons/` (a bare
+    /// file name, no `/`).
+    /// Straight RGBA8 pixels, rows tightly packed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Image {
+        pub width: u32,
+        pub height: u32,
+        pub data: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_image(value: &Image) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.width)?;
+        target.u32(2, value.height)?;
+        target.bytes(3, &value.data)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_image(body: &[u8]) -> Result<Image, Error> {
+        let mut out = Image::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.width = field.as_u32()?;
+                }
+                2 => {
+                    out.height = field.as_u32()?;
+                }
+                3 => {
+                    out.data = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A whole menu, as `Update` replaces it (a wrapper so an empty menu is
+    /// told apart from an absent one).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Menu {
+        pub rows: alloc::vec::Vec<MenuItem>,
+    }
+
+    pub fn encode_menu(value: &Menu) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.rows {
+            nested.raw(Kind::Struct, 1, &encode_menu_item(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_menu(body: &[u8]) -> Result<Menu, Error> {
+        let mut out = Menu::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.rows.push(decode_menu_item(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// One menu row. `id` is what `MenuItem` reports back; `parent` is 0 for
+    /// a top-level row or the id of an earlier `Submenu` row.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MenuItem {
+        pub id: u32,
+        pub parent: u32,
+        pub label: alloc::string::String,
+        pub kind: u32,
+        pub enabled: bool,
+        pub checked: bool,
+        pub is_default: bool,
+    }
+
+    pub fn encode_menu_item(value: &MenuItem) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.id)?;
+        target.u32(2, value.parent)?;
+        target.string(3, &value.label)?;
+        target.u32(4, value.kind)?;
+        target.bool(5, value.enabled)?;
+        target.bool(6, value.checked)?;
+        target.bool(7, value.is_default)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_menu_item(body: &[u8]) -> Result<MenuItem, Error> {
+        let mut out = MenuItem::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u32()?;
+                }
+                2 => {
+                    out.parent = field.as_u32()?;
+                }
+                3 => {
+                    out.label = field.as_str()?.into();
+                }
+                4 => {
+                    out.kind = field.as_u32()?;
+                }
+                5 => {
+                    out.enabled = field.as_bool()?;
+                }
+                6 => {
+                    out.checked = field.as_bool()?;
+                }
+                7 => {
+                    out.is_default = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A `MenuKind` value.
+    /// The row a `DefaultItem` activation runs (at most one). Named so
+    /// because `default` is reserved in Rhai.
+    /// The generation of the shell's tray: the payload of
+    /// `session/<session>/shell/tray`. A restarted shell starts empty and
+    /// publishes a new generation once it serves this interface; a client
+    /// that sees the generation change calls `Set` again.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Generation {
+        pub generation: u64,
+    }
+
+    pub fn encode_generation(value: &Generation) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.generation)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_generation(body: &[u8]) -> Result<Generation, Error> {
+        let mut out = Generation::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.generation = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Set` method id.
+    pub const METHOD_SET: u32 = 1;
+    /// `Update` method id.
+    pub const METHOD_UPDATE: u32 = 2;
+    /// `Clear` method id.
+    pub const METHOD_CLEAR: u32 = 3;
+
+    /// Show the app's item, replacing its current one (custom or default).
+    /// The parcel transfers the channel the shell sends the item's events
+    /// on; the shell `Ping`s it on its heartbeat and drops the custom item
+    /// when the channel is gone (`EPIPE`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetArgs {
+        pub item: Item,
+    }
+
+    pub fn encode_set_args(value: &SetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_item(&value.item)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_args(body: &[u8]) -> Result<SetArgs, Error> {
+        let mut out = SetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.item = decode_item(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `Set` request carries outside its body.
+    pub const SET_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Set` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.shell.tray.events.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Set` request.
+    pub fn encode_set_transfers(value: &SetTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
+
+    /// Replace the given parts of the app's item; absent fields are kept
+    /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UpdateArgs {
+        pub icon: core::option::Option<Icon>,
+        pub tooltip: core::option::Option<alloc::string::String>,
+        pub status: core::option::Option<u32>,
+        pub badge: core::option::Option<alloc::string::String>,
+        pub menu: core::option::Option<Menu>,
+    }
+
+    pub fn encode_update_args(value: &UpdateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.icon {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_icon(item)?)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        match &value.tooltip {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        match &value.status {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u32(1, *item)?;
+                target.option(3, Some(&nested))?;
+            }
+            None => {
+                target.option(3, None)?;
+            }
+        }
+        match &value.badge {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(4, Some(&nested))?;
+            }
+            None => {
+                target.option(4, None)?;
+            }
+        }
+        match &value.menu {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_menu(item)?)?;
+                target.option(5, Some(&nested))?;
+            }
+            None => {
+                target.option(5, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_update_args(body: &[u8]) -> Result<UpdateArgs, Error> {
+        let mut out = UpdateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    if field.payload.is_empty() {
+                        out.icon = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.icon = Some(decode_icon(item.payload)?);
+                    }
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.tooltip = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.tooltip = Some(item.as_str()?.into());
+                    }
+                }
+                3 => {
+                    if field.payload.is_empty() {
+                        out.status = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.status = Some(item.as_u32()?);
+                    }
+                }
+                4 => {
+                    if field.payload.is_empty() {
+                        out.badge = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.badge = Some(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    if field.payload.is_empty() {
+                        out.menu = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.menu = Some(decode_menu(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_SET => SET_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+
+    /// Published (retained) by the shell of `session` when it starts serving.
+    /// The declared `session/+/shell/tray` topic (`Generation`, `latest`, retained).
+    pub const TOPIC_SESSION_SHELL_TRAY: &str = "session/+/shell/tray";
+    /// The `session/+/shell/tray` delivery policy.
+    pub const TOPIC_SESSION_SHELL_TRAY_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `session/+/shell/tray` publishes are retained.
+    pub const TOPIC_SESSION_SHELL_TRAY_RETAINED: bool = true;
+
+    /// Build the concrete `session/+/shell/tray` name; each wildcard takes one literal segment.
+    pub fn name_session_shell_tray(session: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Publish)
+    }
+
+    /// Encode a `Generation` payload for `session/+/shell/tray`.
+    pub fn encode_session_shell_tray(value: &Generation) -> Result<Vec<u8>, Error> {
+        encode_generation(value)
+    }
+
+    /// Decode a `session/+/shell/tray` payload; malformed bytes are an error.
+    pub fn decode_session_shell_tray(body: &[u8]) -> Result<Generation, Error> {
+        decode_generation(body)
+    }
+
+    /// Publish a typed `Generation` on `session/+/shell/tray`.
+    pub fn publish_session_shell_tray<P>(publisher: &mut P, session: &str, value: &Generation) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_session_shell_tray(session).map_err(P::Error::from)?;
+        let payload = encode_session_shell_tray(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SESSION_SHELL_TRAY_RETAINED)
+    }
+
+    /// Subscribe to `session/+/shell/tray` with its declared QoS.
+    pub fn subscribe_session_shell_tray<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SESSION_SHELL_TRAY_QOS)
+    }
+}
+
+/// `os.lazy.shell.tray.events.v1` (interface id `0x7dc550e02c4d9bf`).
+#[rustfmt::skip]
+pub mod os_lazy_shell_tray_events_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x7dc550e02c4d9bf;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.shell.tray.events.v1";
+
+    /// A rectangle in screen pixels.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Rect {
+        pub x: i32,
+        pub y: i32,
+        pub w: u32,
+        pub h: u32,
+    }
+
+    pub fn encode_rect(value: &Rect) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.u32(3, value.w)?;
+        target.u32(4, value.h)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_rect(body: &[u8]) -> Result<Rect, Error> {
+        let mut out = Rect::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.w = field.as_u32()?;
+                }
+                4 => {
+                    out.h = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Activate` method id.
+    pub const METHOD_ACTIVATE: u32 = 1;
+    /// `SecondaryActivate` method id.
+    pub const METHOD_SECONDARYACTIVATE: u32 = 2;
+    /// `MenuItem` method id.
+    pub const METHOD_MENUITEM: u32 = 3;
+    /// `Scroll` method id.
+    pub const METHOD_SCROLL: u32 = 4;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 5;
+
+    /// Primary click. `anchor` is the icon in screen pixels; `popup` a
+    /// one-shot token for a flyout (0 when flyouts are unavailable).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActivateArgs {
+        pub anchor: Rect,
+        pub popup: u64,
+    }
+
+    pub fn encode_activate_args(value: &ActivateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_rect(&value.anchor)?)?;
+        target.u64(2, value.popup)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_activate_args(body: &[u8]) -> Result<ActivateArgs, Error> {
+        let mut out = ActivateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.anchor = decode_rect(field.payload)?;
+                }
+                2 => {
+                    out.popup = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Secondary click on an item without a menu.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SecondaryActivateArgs {
+        pub anchor: Rect,
+    }
+
+    pub fn encode_secondary_activate_args(value: &SecondaryActivateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_rect(&value.anchor)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_secondary_activate_args(body: &[u8]) -> Result<SecondaryActivateArgs, Error> {
+        let mut out = SecondaryActivateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.anchor = decode_rect(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The user picked menu row `id`; `checked` is a check or radio row's
+    /// new state (the app sends `Update` to show it).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MenuItemArgs {
+        pub id: u32,
+        pub checked: bool,
+    }
+
+    pub fn encode_menu_item_args(value: &MenuItemArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.id)?;
+        target.bool(2, value.checked)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_menu_item_args(body: &[u8]) -> Result<MenuItemArgs, Error> {
+        let mut out = MenuItemArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u32()?;
+                }
+                2 => {
+                    out.checked = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The wheel rolled `delta` notches over the icon (positive: up).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScrollArgs {
+        pub delta: i32,
+    }
+
+    pub fn encode_scroll_args(value: &ScrollArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.delta)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scroll_args(body: &[u8]) -> Result<ScrollArgs, Error> {
+        let mut out = ScrollArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.delta = field.as_i32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+}
+
 /// Every topic declared across the compiled `.midl` files (issue #307).
 #[rustfmt::skip]
 pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
@@ -15416,6 +16631,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         subscribe_permission: "subscribe:system/events/app/+",
     },
     topics::TopicDecl {
+        interface: "os.lazy.init.v1",
+        name: "session/+/apps/resident",
+        payload: "ResidentApps",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:session/+/apps/resident",
+        subscribe_permission: "subscribe:session/+/apps/resident",
+    },
+    topics::TopicDecl {
         interface: "os.lazy.logind.v1",
         name: "system/events/login/start",
         payload: "LoginStart",
@@ -15523,6 +16747,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         publish_permission: "publish:time/tick",
         subscribe_permission: "subscribe:time/tick",
     },
+    topics::TopicDecl {
+        interface: "os.lazy.shell.tray.v1",
+        name: "session/+/shell/tray",
+        payload: "Generation",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:session/+/shell/tray",
+        subscribe_permission: "subscribe:session/+/shell/tray",
+    },
 ];
 
 /// The declared topic whose pattern matches the concrete `topic`.
@@ -15583,6 +16816,12 @@ pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
         method: 25,
         transfers: transfers::Transfers { handles: 0, buffers: 1 },
     },
+    // os.lazy.init.app.v1.Watch
+    transfers::TransferDecl {
+        interface: 0x616633071591076d,
+        method: 1,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
     // os.lazy.net.nic.v1.AttachRing
     transfers::TransferDecl {
         interface: 0x6748c83c2024715b,
@@ -15599,6 +16838,12 @@ pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
     transfers::TransferDecl {
         interface: 0xc5734f978fef7231,
         method: 1766698328,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+    },
+    // os.lazy.shell.tray.v1.Set
+    transfers::TransferDecl {
+        interface: 0xe125dc0e9d908624,
+        method: 1,
         transfers: transfers::Transfers { handles: 1, buffers: 0 },
     },
 ];

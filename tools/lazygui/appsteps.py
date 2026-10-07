@@ -1,5 +1,6 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail), run before `cargo build`.
+player package, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail), run before `cargo build`,
+and the switches of the desktop apps that need no step of their own (the tray demo).
 `catalog` re-exports them; they live apart to keep it small."""
 
 from __future__ import annotations
@@ -79,6 +80,23 @@ def mail_env(cfg: dict) -> dict[str, str]:
 def mail_argv(cfg: dict) -> list[str]:
     """run_demo's `--mail`, which builds Mail and sets the switches itself."""
     return ["--mail"] if wants_mail(cfg) and not cfg.get("skip_build") else []
+
+
+def wants_traydemo(cfg: dict) -> bool:
+    """The tray demo (docs/tray-plan.md T1) is a desktop app like Mail; unlike
+    Mail it needs no build step: `tools/xui/build.py` always builds it."""
+    return bool(cfg.get("traydemo") and cfg.get("desktop"))
+
+
+def desktop_app_env(cfg: dict) -> dict[str, str]:
+    """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`."""
+    return mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
+
+
+def desktop_app_argv(cfg: dict) -> list[str]:
+    """run_demo's `--mail` and `--traydemo`, which set those switches themselves."""
+    wanted = wants_traydemo(cfg) and not cfg.get("skip_build")
+    return mail_argv(cfg) + (["--traydemo"] if wanted else [])
 
 
 def app_steps(cfg: dict) -> list[dict]:

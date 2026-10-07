@@ -177,7 +177,7 @@ class ServerTests(unittest.TestCase):
 
     def test_precheck_requests(self) -> None:
         record = Record()
-        for scheme, host, path, status in judge.PRECHECK_REQUESTS:
+        for scheme, host, path, status in judge.precheck_requests():
             record.requests.append(Request(scheme, host, "GET", path + "?precheck", status, "fetch",
                                            host if scheme == "https" else None))
         self.assertEqual(judge.judge_precheck_servers(record), [])
@@ -250,7 +250,7 @@ class SessionTests(unittest.TestCase):
         json.loads(session.EXAMPLE.read_text(encoding="utf-8"))
 
     def test_every_check_is_tagged_and_judged(self) -> None:
-        urls = [f"{scheme}://{host}{path}" for scheme, host, path, _ in judge.PRECHECK_REQUESTS]
+        urls = [f"{scheme}://{host}{path}" for scheme, host, path, _ in judge.precheck_requests()]
         commands = [command for _, command in session.checks()]
         for url in urls:
             self.assertTrue([c for c in commands if url + "?precheck" in c or url + "?precheck" in

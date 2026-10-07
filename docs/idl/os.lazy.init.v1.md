@@ -15,7 +15,7 @@ reply, so the error field is hand-written next to these stubs.
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | Services | 1672675413 | sync | `() -> (services: Array<ServiceStatus>)` |
-| Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64)` |
+| Launch | 936096390 | sync | `(app: String, args: String, session: U64) -> (app: String, pid: U64, session: U64, existing: Bool)` |
 | ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
 | Stop | 1266644741 | sync | `(app: String) -> (stopped: U64)` |
 | Shutdown | 1911669355 | sync | `(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` |
@@ -30,6 +30,7 @@ reply, so the error field is hand-written next to these stubs.
 | `system/power/state` | `PowerState` | latest | yes | `publish:system/power/state`, `subscribe:system/power/state` |
 | `system/events/service/+` | `ServiceEvent` | latest | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
 | `system/events/app/+` | `AppFailure` | buffered | yes | `publish:system/events/app/+`, `subscribe:system/events/app/+` |
+| `session/+/apps/resident` | `ResidentApps` | latest | yes | `publish:session/+/apps/resident`, `subscribe:session/+/apps/resident` |
 
 ## struct `PowerState`
 
@@ -60,6 +61,7 @@ reply, so the error field is hand-written next to these stubs.
 - `hidden: Bool`
 - `autostart: Bool`
 - `icon: String`
+- `resident: Bool`
 
 ## struct `ServiceEvent`
 
@@ -79,6 +81,15 @@ reply, so the error field is hand-written next to these stubs.
 - `session: U64`
 - `startup: Bool`
 - `at: U64`
+
+## struct `ResidentApp`
+
+- `app: String`
+- `pid: U64`
+
+## struct `ResidentApps`
+
+- `apps: Array<ResidentApp>`
 
 ## enum `PowerMode`
 

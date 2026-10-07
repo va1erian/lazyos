@@ -19,5 +19,6 @@ pub mod pkg;
 pub mod print;
 pub mod storage;
 pub mod system;
+pub mod topic_feed;
 pub mod topics;
 pub mod urilist;

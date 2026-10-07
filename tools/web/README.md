@@ -37,6 +37,7 @@ theoldnet.com shows only a maintenance notice, so the host serves both
 | `http://example.com/` | `127.0.0.1:80` | `fixtures/example.com/index.html`, today's page ("Learn more"); `--example-page classic.html` serves the long-lived earlier one ("More information...") |
 | `http://theoldnet.com/...` | `127.0.0.1:80` | `301` to `https://theoldnet.com/...`, like the real site |
 | `https://theoldnet.com/`, `https://www.theoldnet.com/` | `127.0.0.1:443` | `fixtures/theoldnet.com/`: a late-90s home page (table layout, `<font>`, `<center>`, a tiled `background=` GIF, a PNG logo with alpha, a JPEG photo, an animated GIF, a rainbow rule, a CSS file, links) |
+| `https://en.wikipedia.org/`, `https://upload.wikimedia.org/`, `https://thumb.wikimedia.org/` | `127.0.0.1:443` | `fixtures/wikipedia/`: the Main Page and "1762" in the 2010 Vector skin that LazyWeb asks for, with their style sheets and pictures (`wiki.py`; `wikicapture.py` refreshes them). `http://` redirects to `https://` |
 
 How the guest gets there: QEMU's user network maps the gateway, `10.0.2.2`,
 to the host's loopback, so a guest connection to `10.0.2.2:443` reaches
@@ -81,7 +82,9 @@ the same desktop session):
    `WEB:TITLE:Example Domain`, a screenshot; then **Ctrl+L**, `https://theoldnet.com/`
    and Enter, which must produce `WEB:LOAD:https://theoldnet.com/` and the page's
    title, and two more screenshots (the second one a few seconds later, while
-   the animated GIF moves).
+   the animated GIF moves). Then the same for
+   `https://en.wikipedia.org/wiki/Main_Page` and `.../wiki/1762`, each with
+   its title and a screenshot (`shot_21_wiki_main.png`, `shot_22_wiki_1762.png`).
 4. **Ctrl+L** and `https://theoldnet.com/files/oldnet-kit.zip`, which the
    stand-in sends as an attachment: the browser saves it to `~/Downloads`
    (`WEB:DOWNLOAD:START`, then `WEB:DOWNLOAD:DONE:<name>:<bytes>`). Then
@@ -107,7 +110,9 @@ selects the address field and Enter navigates to it.
 | `SERVERS` | the browser's own requests: `GET /` from example.com over HTTP, TLS to theoldnet.com with SNI matching every Host header, `/` and every picture and style sheet the page references (`judge.page_assets`) |
 | `FEATURES` | `mimed` opened `http://example.com/` with LazyWeb (`OPEN:x-scheme-handler/http:os.lazy.lazyweb`), the download completed with the stand-in's exact size and the host served it, the `mailto:` link was handed on, both `about:` pages loaded |
 | `SHOTS` | each screenshot has content, the retro page is colourful (24+ colours) and differs from example.com's |
+| `WIKIPEDIA` | both Wikipedia pages loaded under the URL typed with the copy's title; the host saw each page asked for with `useskin=vector` (never without), and every style sheet and picture the pages name |
+| `WIKI-SHOTS` | both Wikipedia screenshots have content and colour (24+) and differ |
 
 `--precheck-only` judges `SESSION`, `CHECKS` and `CHECKS-SEEN` on a console
 image; `--live` drops what only the stand-ins can record (`CHECKS-SEEN`,
-`SERVERS`, `FEATURES`).
+`SERVERS`, `FEATURES`, `WIKIPEDIA`, `WIKI-SHOTS`).

@@ -35,6 +35,10 @@ pub enum BarHover {
     Entry(usize),
     /// The "Log out" button (issue #623).
     Logout,
+    /// A tray cell (its index in the tray layout).
+    Tray(usize),
+    /// The tray's overflow chevron.
+    Chevron,
 }
 
 /// The shared shell state.
@@ -84,6 +88,8 @@ pub struct Ctx {
     pub notice: RefCell<Option<Showing>>,
     pub notice_window: RefCell<Option<WindowHandle<NoticeMsg>>>,
     pub pending_notices: RefCell<VecDeque<Failure>>,
+    /// The taskbar tray (docs/tray-plan.md).
+    pub tray: super::tray::TrayState,
     /// Keys of the one-time log lines already printed.
     noted: RefCell<Vec<&'static str>>,
 }
@@ -126,6 +132,7 @@ impl Ctx {
             notice: RefCell::new(None),
             notice_window: RefCell::new(None),
             pending_notices: RefCell::new(VecDeque::new()),
+            tray: super::tray::TrayState::new(session),
             noted: RefCell::new(Vec::new()),
         }
     }
@@ -190,7 +197,9 @@ impl Ctx {
     /// compositor where each entry now is (only what moved), and repaint.
     pub fn bar_changed(&self) {
         let count = self.taskbar.borrow().windows().len();
-        let reserved = taskbar::reserved_right(self.clock_rect());
+        let clock = self.clock_rect();
+        let logout = taskbar::logout_rect(clock);
+        let reserved = taskbar::reserved_right(clock) + self.tray.relayout(logout.x);
         let rects = taskbar::entry_rects(count, self.screen.0, reserved);
         let surfaces: Vec<u64> = self
             .taskbar
@@ -223,6 +232,7 @@ impl Ctx {
         *self.icon_sent.borrow_mut() = next;
         *self.entries.borrow_mut() = rects;
         self.bar_hover.set(None);
+        super::tray::probe(self);
         self.repaint_bar();
     }
 

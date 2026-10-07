@@ -16,7 +16,8 @@ of every check avoids keystrokes lost on a busy TCG guest.
   check script writes: `sys::mimed::open`), which has `mimed` pick LazyWeb
   for `x-scheme-handler/http` and `init` launch it with the URL.
   Once that page reports its title, **Ctrl+L** reaches the address field for
-  `https://theoldnet.com/`; then the same for the site's download (saved to
+  `https://theoldnet.com/`, then for the copies of two Wikipedia pages
+  (`wiki.py`); then the same for the site's download (saved to
   ~/Downloads) and a `mailto:` link handed back to the OS, **Ctrl+H** for
   the history page and **Ctrl+J** for the downloads page. The browser's
   window is assumed to take the focus when it opens.
@@ -37,6 +38,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 import judge  # noqa: E402
+import wiki  # noqa: E402
 
 EXAMPLE = ROOT / "tools" / "screenshot" / "examples" / "lazyweb.json"
 #: Where the host's plain server hands out the check script (any Host).
@@ -69,7 +71,17 @@ def checks(live: bool = False) -> list[tuple[str, str]]:
         ("png", f"curl -s 'https://theoldnet.com/images/logo.png{tag}' | ok PNG png"),
         ("jpeg", f"curl -s 'https://theoldnet.com/images/photo.jpg{tag}' | ok JFIF jpeg"),
         ("gif", f"curl -s 'https://theoldnet.com/images/construction.gif{tag}' | ok GIF89a gif"),
+        ("wiki", f"curl -s '{_tagged(wiki.ARTICLE_URL + '?useskin=vector')}' "
+                 "| ok '<title>1762' wiki"),
+        ("thumb", f"curl -s '{_tagged(wiki.wiki_picture())}' | wc -c "
+                  f"| ok '^ *{len(wiki.picture_bytes(wiki.wiki_picture()))}$' thumb"),
     ]
+
+
+def _tagged(url: str) -> str:
+    """`url` with the harness's query parameter first (the copies ignore it)."""
+    path, _, query = url.partition("?")
+    return f"{path}?{judge.PRECHECK_TAG}" + (f"&{query}" if query else "")
 
 
 def body(items: list[tuple[str, str]]) -> bytes:
@@ -128,6 +140,17 @@ def _browser_steps(step_timeout: float, title: str | None) -> list[dict]:
     ]
 
 
+def _wiki_steps(step_timeout: float) -> list[dict]:
+    """The Wikipedia copies (issue #632): the Main Page, then an article."""
+    steps: list[dict] = []
+    for url, shot in ((wiki.MAIN_URL, "21_wiki_main"), (wiki.ARTICLE_URL, "22_wiki_1762")):
+        steps += [*_address(url, f"WEB:LOAD:{url}", step_timeout),
+                  {"wait_for": f"WEB:TITLE:{wiki.title(url)}", "timeout": step_timeout},
+                  # Time for the style sheets and pictures.
+                  {"at": 15.0, "shot": shot}]
+    return steps
+
+
 def _feature_steps(step_timeout: float) -> list[dict]:
     """The download, a `mailto:` link, the history and downloads pages."""
     download = f"https://theoldnet.com{judge.DOWNLOAD_PATH}"
@@ -166,7 +189,7 @@ def script(console: bool = False, live: bool = False, step_timeout: float = 300.
     else:
         steps += _browser_steps(step_timeout, None if live else judge.OLDNET_TITLE)
         if not live:
-            steps += _feature_steps(step_timeout)
+            steps += _wiki_steps(step_timeout) + _feature_steps(step_timeout)
     return steps + [{"at": 1.0, "quit": True}]
 
 

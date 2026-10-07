@@ -282,11 +282,13 @@ pub fn reserved_right(clock: Rect) -> i32 {
 }
 
 /// The panel-local rectangle of each of `count` entries on a bar `screen_w`
-/// wide whose clock reserves `clock_w` pixels at the right: `min(160, equal
-/// share)` wide, `ENTRY_GAP` apart from `ENTRY_X`. An entry that would be
-/// narrower than [`ENTRY_MIN_W`] or cross into the clock is `None` (hidden).
-pub fn entry_rects(count: usize, screen_w: i32, clock_w: i32) -> Vec<Option<Rect>> {
-    let right = screen_w - clock_w - ENTRY_GAP;
+/// wide whose right end reserves `right_reserved` pixels: the clock's width
+/// plus the tray's ([`crate::tray::layout::Layout::reserved`]). Entries are
+/// `min(160, equal share)` wide, `ENTRY_GAP` apart from `ENTRY_X`. An entry
+/// that would be narrower than [`ENTRY_MIN_W`] or cross into the reserved
+/// area is `None` (hidden).
+pub fn entry_rects(count: usize, screen_w: i32, right_reserved: i32) -> Vec<Option<Rect>> {
+    let right = screen_w - right_reserved - ENTRY_GAP;
     let avail = right - ENTRY_X;
     if count == 0 {
         return Vec::new();

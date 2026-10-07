@@ -14,6 +14,8 @@
 //! * [`notice`]: the "app stopped" notice `init`'s app failures become.
 //! * [`policy`]: who may call the `os.lazy.shell` service.
 //! * [`wallpaper`]: the desktop picture's size check, crop and brightness.
+//! * [`tray`]: the taskbar tray's items, validation, icon fallback and
+//!   layout (docs/tray-plan.md).
 //!
 //! Coordinates are integer pixels; [`Rect`] is `(x, y, w, h)` with an exclusive
 //! right/bottom edge.
@@ -27,6 +29,7 @@ pub mod notice;
 pub mod policy;
 pub mod shortcut;
 pub mod taskbar;
+pub mod tray;
 pub mod wallpaper;
 
 pub use deskmenu::Entry;

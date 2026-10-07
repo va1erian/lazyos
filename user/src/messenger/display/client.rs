@@ -101,6 +101,7 @@ impl Client {
             height: wire_u32(height),
             title: title.into(),
             role,
+            popup: None,
         })
         .map_err(Error::Parcel)?;
         let (handles, buffers) =

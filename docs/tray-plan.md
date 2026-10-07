@@ -78,15 +78,24 @@ Related: [`shell-plan.md`](shell-plan.md) (LazyShell, one owner per concern),
   `Set` creates or replaces the app's item, `Clear` returns it to the default.
 - **Identity comes from the kernel**, never from the app: the tooltip and
   menu headers show the registry name `init.ListApps` gives that label.
-- **Liveness is the event channel**: the shell `Ping`s it on the heartbeat
-  (as `xuid` does to its clients); `EPIPE` drops the app's custom item. A
+- **Liveness is the event channel**: the shell `Ping`s it about once a
+  second, the cadence `xuid` pings its clients at (not on every 30 ms
+  desktop tick: that would be ~33 sends per item per second for nothing);
+  `EPIPE` drops the app's custom item. A
   resident app's default item stays until `init` reports it stopped.
 
 ## 4. Interfaces (MIDL)
 
 New file `idl/tray.midl`, served by LazyShell under `os.lazy.shell.tray`
 (generated stubs through `midlc`, `idl/manifest.json` updated, Rhai API
-regenerated). Sketch; field ids and errors final at T0:
+regenerated). Sketch; the final definitions are `idl/tray.midl` and
+`idl/init_app.midl` (T0), which differ from it in four places: `midlc`
+does not nest `Option<Array<...>>`, so `Icon.pixels` is a plain array
+(empty for none) and `Update` takes `menu: Option<Menu>`, a struct holding
+the rows; and Rhai reserves `package` and `default`, so those fields are
+`Icon.file` and `MenuItem.is_default`. The resident-apps topic is declared
+in `idl/init.midl` (its publisher's interface), the tray generation topic in
+`idl/tray.midl`.
 
 ```idl
 /// The taskbar tray (docs/tray-plan.md), served by LazyShell. One item per
@@ -444,7 +453,7 @@ Sample app `os.lazy.traydemo` from `tools/xui/new_app.py`, gated by
 (`SHELL:TRAY:SET app=<id>`), click reaches the app
 (`TRAYDEMO:ACTIVATE:PASS`), a Lucide and a pixels icon in a screenshot pair,
 a bad icon shows the package icon, app killed -> `SHELL:TRAY:CLEAR` within
-one heartbeat, shell killed -> `SHELL:TRAY:RESTORED n=1`; `pngstats`
+one ping round (about a second; `tray.json` allows 2 s), shell killed -> `SHELL:TRAY:RESTORED n=1`; `pngstats`
 checks; no `LABEL:DENY` under the trace.
 
 ### T2 - Menus (S)

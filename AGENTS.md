@@ -430,6 +430,23 @@ python tools/crash/run.py            # build, install crashload.lzp, open it fro
 python tools/crash/test_judge.py     # the judge fails when it should
 ```
 
+## Tray icons (`LAZYOS_TRAYDEMO=1`)
+
+Background apps show an icon in the taskbar's tray
+([`docs/tray-plan.md`](docs/tray-plan.md)): LazyShell serves
+`os.lazy.shell.tray`, one item per app, keyed by the caller's label. Apps use
+the client libraries `xui_app::tray` (Rust xui apps) or `libs/trayclient`. The
+sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
+(`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
+`SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray --script tools/screenshot/examples/tray.json
+cargo test -p trayclient -p messenger-generated
+cd xui-app && cargo test -p lazyshell
+```
+
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 
 A ProTracker player written as a LazyRAD project (`lazyrad-os/samples/modplayer`)
