@@ -17,3 +17,5 @@ accounts/display_read.rhai | GPL-3.0-or-later | desktop | LazyOS original: Read 
 accounts/auth_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: an Authenticate flood, judged by rate
 accounts/elev_wait.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request that shows the trusted prompt
 accounts/open_window.rhai | GPL-3.0-or-later | desktop | LazyOS original: open a window while the prompt is up
+accounts/prompt_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: raise the administrator prompt again right after it was cancelled (review of #659, H4)
+accounts/input_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep inputd's shared endpoint full while the prompt is up (review of #659, H3)

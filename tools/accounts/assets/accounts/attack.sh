@@ -125,13 +125,40 @@ core_replace)
     ;;
 prompt_over)
     # The trusted prompt (U2): elevd asks for an administrator, and a window
-    # opens 5 s later while the prompt is up. The harness screenshots both,
-    # types into the prompt and cancels it; prompt_judge.py judges
-    # (prompt_over, prompt_keys). This prints the request's outcome last.
-    rhai $SHARE/elev_wait.rhai &
+    # opens 5 s later while the prompt is up. The harness screenshots both
+    # and cancels the prompt; prompt_judge.py judges. This prints the
+    # request's outcome (ACCT:PROMPT:over:...).
+    rhai $SHARE/elev_wait.rhai over &
     sleep 5
     rhai $SHARE/open_window.rhai > /dev/null
     wait
+    ;;
+prompt_keys)
+    # The Terminal keeps the focus while elevd's prompt is up: the harness
+    # types into the prompt, presses Enter and Escape, and prompt_judge.py
+    # checks the Terminal never got a key (TERM:CMD:inject). Prints
+    # ACCT:PROMPT:keys:<outcome>.
+    rhai $SHARE/elev_wait.rhai keys
+    ;;
+input_flood)
+    # The same while three programs keep inputd's shared endpoint full
+    # (review of #659, H3): the prompt must still own the keyboard, or refuse
+    # to open. One line: ACCT:PROMPT:flood:<outcome>:full=<refused sends>.
+    rm -f /tmp/acct.flood
+    for n in 1 2 3; do
+        rhai --max-ops 0 $SHARE/input_flood.rhai 45 >> /tmp/acct.flood 2>&1 &
+    done
+    sleep 3
+    out=$(rhai $SHARE/elev_wait.rhai flood)
+    wait
+    full=$(sed -n 's/.*:full=\([0-9]*\).*/\1/p' /tmp/acct.flood | awk '{s+=$1} END {print s+0}')
+    rm -f /tmp/acct.flood
+    echo "$out:full=${full:-0}"
+    ;;
+prompt_flood)
+    # Prompt after prompt (review of #659, H4): prompt_flood.rhai prints the
+    # ACCT:ATTACK line itself.
+    rhai $SHARE/prompt_flood.rhai
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"
