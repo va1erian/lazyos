@@ -5503,10 +5503,11 @@ pub mod os_lazy_elevd_v1 {
 
     /// Perform `operation` (a row of the operation table, e.g.
     /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
-    /// administrator approved it on the prompt. A `conf.*` approval covers
-    /// the caller (same uid, label and session) for the next few minutes, so
-    /// an elevated settings editor does not ask again for every key; every
-    /// other operation asks every time. `detail` describes what was done,
+    /// administrator approved it on the prompt. Every change asks every time;
+    /// only the elevated editor's view (`conf.elevate`, then `conf.list` and
+    /// `conf.get`) covers the same caller (uid, label and session; never an
+    /// unlabelled one) for five minutes, until its session ends or it calls
+    /// `Release`. `detail` describes what was done,
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -5596,7 +5597,11 @@ pub mod os_lazy_elevd_v1 {
     /// The asking task's kernel label id (0: unlabelled).
     /// The administrator who approved (or was named), if any.
     /// `granted`, `refused`, `cancelled`, `timedout`, `locked`,
-    /// `failed` (approved, but the service refused) or `invalid`.
+    /// `failed` (approved, but the service refused), `invalid`, `held`
+    /// (refused without a prompt after the asker's unanswered prompts),
+    /// `busy` (the asker already had a request in hand, or too many
+    /// waited) or `nokeys` (the compositor could not secure the
+    /// keyboard, so no prompt was shown).
     /// Every request, whatever came of it. Not retained: the journal is the
     /// record.
     /// The declared `system/events/elevd/request` topic (`Record`, `latest`).

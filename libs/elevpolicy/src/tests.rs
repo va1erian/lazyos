@@ -142,12 +142,12 @@ fn the_table_is_bounded() {
     for uid in 0..100 {
         let caller = Caller {
             uid,
-            label: 0,
+            label: 5,
             session: 1,
         };
         approvals.grant(caller, Class::View, 5);
     }
-    assert!(approvals.live(6) <= approvals::MAX_APPROVALS);
+    assert_eq!(approvals.live(6), approvals::MAX_APPROVALS);
 }
 
 #[test]

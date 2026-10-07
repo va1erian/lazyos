@@ -15,9 +15,18 @@
 //! Every request is audited (`audit.rs`): a serial line and a
 //! `system/events/elevd/request` record that `logd` journals to
 //! `/logs/elevd.log`. Wrong passwords lock the asker out for a growing
-//! delay (`accountdb::ratelimit`). A `conf.*` approval stands for five
-//! minutes for the same uid, label and session; every other operation asks
-//! each time.
+//! delay (`accountdb::ratelimit`). Every change prompts; only the elevated
+//! editor's view (`conf.elevate`, then `conf.list`/`conf.get`) stands, for
+//! five minutes, for the same uid, label and session, never for an
+//! unlabelled caller, and it ends with the session (`sessions.rs`) or a
+//! `Release`.
+//!
+//! A prompt costs the asker something (review of #659, H4): after one was
+//! cancelled or timed out, that caller's requests are refused without a
+//! prompt for a growing hold, every caller waits a short pause, and a caller
+//! has at most one request in hand at a time (`intake.rs`,
+//! `elevpolicy::backoff`, `elevpolicy::queue`). So no program can keep the
+//! prompt up until the person at the screen cannot reach Log out.
 //!
 //! Serial: `ELEVD:UP:PASS`, then one `ELEVD:REQUEST op=<op> uid=<uid>
 //! label=<id> admin=<name> outcome=<outcome>` per request.
@@ -31,8 +40,12 @@ extern crate alloc;
 mod approve;
 #[path = "elevd/audit.rs"]
 mod audit;
+#[path = "elevd/intake.rs"]
+mod intake;
 #[path = "elevd/perform.rs"]
 mod perform;
+#[path = "elevd/sessions.rs"]
+mod sessions;
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -40,11 +53,13 @@ use core::panic::PanicInfo;
 
 use accountdb::ratelimit::Limiter;
 use elevpolicy::approvals::{Approvals, Caller};
+use elevpolicy::backoff::{Backoff, Hold};
+use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
-use user::messenger::{self, accounts, errno, registry, services, Error, Message};
+use user::messenger::{self, accounts, errno, registry, services, Endpoint, Error, Message};
 use user::sys;
 
 use approve::Verdict;
@@ -54,11 +69,23 @@ pub(crate) const NAME: &str = "os.lazy.elevd";
 
 /// What `elevd` keeps between requests.
 pub(crate) struct State {
-    /// Standing `conf.*` approvals.
+    /// The service endpoint, read while a prompt is up too (`intake.rs`).
+    pub(crate) server: Endpoint,
+    /// Standing view approvals.
     pub(crate) approvals: Approvals,
     /// The wrong-password brake, per asker and per administrator name.
     pub(crate) limiter: Limiter,
+    /// The prompt-flood brake: holds after unanswered prompts.
+    pub(crate) backoff: Backoff,
+    /// Requests waiting behind the one being answered.
+    pub(crate) queue: Queue<Message>,
+    /// The caller of the request being answered.
+    pub(crate) active: Option<Caller>,
+    /// `logind`'s session records.
+    pub(crate) sessions: sessions::Feed,
     pub(crate) audit: audit::Audit,
+    /// The receive buffer `intake.rs` reads into.
+    pub(crate) intake_buffer: Vec<u8>,
 }
 
 /// A refusal: a positive errno-style code and the text the asker shows.
@@ -94,23 +121,47 @@ fn run() -> messenger::Result<()> {
     services::init::notify_ready();
     sys::write_str("ELEVD:UP:PASS\n");
     let mut state = State {
+        server,
         approvals: Approvals::new(),
         limiter: Limiter::new(),
+        backoff: Backoff::new(),
+        queue: Queue::new(),
+        active: None,
+        sessions: sessions::Feed::new(),
         audit: audit::Audit::new(),
+        intake_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
     };
     // One receive buffer for the life of the service (the bump allocator
     // never reclaims a per-call one).
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let message = server.recv_with(&mut buffer, None)?;
-        let method = message.method();
-        let reply = match answer(&mut state, &message) {
-            Ok(reply) => reply,
-            Err(Refusal(code, text)) => error_reply(method, code, &text),
+        // What waited behind the last prompt goes first, in order.
+        let message = match state.queue.pop() {
+            Some((_, message)) => message,
+            None => server.recv_with(&mut buffer, None)?,
         };
+        let reply = answer_now(&mut state, &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
+    }
+}
+
+/// The kernel-stamped caller of `message`.
+pub(crate) fn caller_of(message: &Message) -> Caller {
+    let cred = message.caller();
+    Caller {
+        uid: cred.uid,
+        label: cred.label_id,
+        session: cred.session,
+    }
+}
+
+/// Answer `message`: its reply, or its refusal as the error reply.
+pub(crate) fn answer_now(state: &mut State, message: &Message) -> Parcel {
+    match answer(state, message) {
+        Ok(reply) => reply,
+        Err(Refusal(code, text)) => error_reply(message.method(), code, &text),
     }
 }
 
@@ -118,26 +169,50 @@ fn answer(state: &mut State, message: &Message) -> Result<Parcel, Refusal> {
     if message.interface_id() != wire::INTERFACE_ID {
         return Err(Refusal::new(errno::EINVAL, "not an elevd request"));
     }
-    let cred = message.caller();
-    let caller = Caller {
-        uid: cred.uid,
-        label: cred.label_id,
-        session: cred.session,
-    };
+    let caller = caller_of(message);
     match message.method() {
         wire::METHOD_REQUEST => {
             let args = wire::decode_request_args(&message.parcel.body)
                 .map_err(|_| Refusal::new(errno::EINVAL, "malformed request"))?;
-            let (detail, values) = request(state, caller, &args.operation, &args.args)?;
+            state.active = Some(caller);
+            let result = request(state, caller, &args.operation, &args.args);
+            state.active = None;
+            let (detail, values) = result?;
             let body = wire::encode_request_reply(&wire::RequestReply { detail, values })
                 .map_err(|_| Refusal::new(errno::EIO, "the reply could not be encoded"))?;
             Ok(parcel(wire::METHOD_REQUEST, body))
         }
         wire::METHOD_RELEASE => {
             state.approvals.release(caller);
+            sys::write_str(&alloc::format!(
+                "ELEVD:RELEASE uid={} label={} session={}\n",
+                caller.uid,
+                caller.label,
+                caller.session
+            ));
             Ok(parcel(wire::METHOD_RELEASE, Vec::new()))
         }
         _ => Err(Refusal::new(errno::EINVAL, "unknown method")),
+    }
+}
+
+/// Read `logind`'s records and end what the sessions that are over held.
+fn follow_sessions(state: &mut State) {
+    for session in state.sessions.ended() {
+        state.approvals.end_session(session);
+        state.backoff.end_session(session);
+    }
+}
+
+/// Wait out the pause after somebody else's cancelled prompt; refuse a
+/// caller whose own prompts went unanswered.
+fn may_prompt(state: &mut State, caller: Caller) -> Result<(), Refusal> {
+    loop {
+        match state.backoff.check(caller, sys::clock()) {
+            Ok(()) => return Ok(()),
+            Err(hold @ Hold::Caller { .. }) => return Err(intake::held(hold)),
+            Err(Hold::Quiet { until }) => intake::pause(state, until),
+        }
     }
 }
 
@@ -173,10 +248,15 @@ fn request(
         || alloc::format!("uid {}", caller.uid),
         |user| user.name.clone(),
     );
+    follow_sessions(state);
     let now = sys::clock();
     if state.approvals.covers(caller, op.class(), now) {
         record.admin = String::from("(standing approval)");
     } else {
+        if let Err(refusal) = may_prompt(state, caller) {
+            state.audit.log(&record, "held");
+            return Err(refusal);
+        }
         let prefill = asker
             .as_ref()
             .filter(|user| user.admin)
@@ -185,6 +265,7 @@ fn request(
         match approve::approve(state, caller, &record, &prefill) {
             Verdict::Granted(admin) => {
                 record.admin = admin;
+                state.backoff.approved(caller);
                 state.approvals.grant(caller, op.class(), sys::clock());
             }
             verdict => {
@@ -228,7 +309,7 @@ fn parcel(method: u32, body: Vec<u8>) -> Parcel {
 }
 
 /// The standard error reply: `code` and the friendly `text`.
-fn error_reply(method: u32, code: i64, text: &str) -> Parcel {
+pub(crate) fn error_reply(method: u32, code: i64, text: &str) -> Parcel {
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder.
     let _ = body.error(ERROR_FIELD, code as u32, text);

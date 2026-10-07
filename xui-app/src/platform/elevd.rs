@@ -122,8 +122,15 @@ fn value_of(kind: &str, text: &str) -> Option<Value> {
 }
 
 /// Every key, read and written through `elevd` under the approval it holds
-/// (a fresh prompt when it ran out).
+/// (a fresh prompt when it ran out). Dropping it (the Config window closed)
+/// ends the approval at once, so it does not outlive the elevated view.
 pub struct ElevatedConf;
+
+impl Drop for ElevatedConf {
+    fn drop(&mut self) {
+        release();
+    }
+}
 
 fn conf_error(error: CallError) -> ConfStoreError {
     match ConfStoreError::from_confd_code(error.code) {

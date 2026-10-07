@@ -8,20 +8,22 @@
 //! its. A wrong one shows the prompt again with the reason, up to
 //! [`PROMPT_ATTEMPTS`]; every failure counts against the asker and the name
 //! typed (`accountdb::ratelimit`), so guessing is slowed whoever is asked.
+//! A prompt cancelled or left to time out holds the asker back
+//! (`elevpolicy::backoff`), and while it is up the requests that arrive are
+//! sorted, never left to pile up (`intake.rs`).
 
 use alloc::string::String;
 
 use accountdb::ratelimit::Key;
 use elevpolicy::approvals::Caller;
 use elevpolicy::PROMPT_ATTEMPTS;
-use libmessenger::{Decoder, Kind, Parcel};
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_prompt_v1 as prompt;
 use user::messenger::{accounts, display, errno, registry, services, Error};
 use user::sys;
 
 use super::audit::Entry;
-use super::{accounts_endpoint, Refusal, State};
+use super::{accounts_endpoint, intake, Refusal, State};
 
 /// How long the prompt may stay up (PIT ticks): `xuid` gives up after 90 s,
 /// so this only covers a compositor that stopped answering.
@@ -39,6 +41,9 @@ pub(crate) enum Verdict {
     Locked,
     /// No prompt could be shown.
     NoDisplay,
+    /// `xuid` could not take the keyboard from the apps safely, so it
+    /// showed no prompt (`xuid/prompt_keys.rs`).
+    NoKeyboard,
 }
 
 impl Verdict {
@@ -72,6 +77,13 @@ impl Verdict {
                     "there is no screen to ask an administrator on",
                 ),
             ),
+            Verdict::NoKeyboard => (
+                "nokeys",
+                Refusal::new(
+                    errno::EAGAIN,
+                    "the keyboard could not be secured for the administrator prompt; try again",
+                ),
+            ),
         }
     }
 }
@@ -96,14 +108,21 @@ pub(crate) fn approve(state: &mut State, caller: Caller, record: &Entry, prefill
     let mut error = String::new();
     let mut last = String::new();
     for _ in 0..PROMPT_ATTEMPTS {
-        let answer = match ask(record, caller, prefill, &error) {
+        let answer = match ask(state, record, caller, prefill, &error) {
             Ok(answer) => answer,
-            Err(()) => return Verdict::NoDisplay,
+            Err(code) if code == Some(errno::EAGAIN) => return Verdict::NoKeyboard,
+            Err(_) => return Verdict::NoDisplay,
         };
         let (name, secret) = match answer {
             Answer::Approved { name, secret } => (name, secret),
-            Answer::Cancelled => return Verdict::Cancelled,
-            Answer::TimedOut => return Verdict::TimedOut,
+            Answer::Cancelled => {
+                state.backoff.unanswered(caller, sys::clock());
+                return Verdict::Cancelled;
+            }
+            Answer::TimedOut => {
+                state.backoff.unanswered(caller, sys::clock());
+                return Verdict::TimedOut;
+            }
         };
         let keys = [Key::Caller(caller.uid), Key::Name(name.clone())];
         if state.limiter.check(&keys, sys::clock()).is_err() {
@@ -145,10 +164,17 @@ fn check(name: &str, secret: &str) -> Result<bool, ()> {
     }
 }
 
-/// Show one prompt and wait for the answer. `Err` when `xuid` cannot show
-/// one (no display, or it refused).
-fn ask(record: &Entry, caller: Caller, prefill: &str, error: &str) -> Result<Answer, ()> {
-    let display = registry::resolve(display::NAME).map_err(|_| ())?;
+/// Show one prompt and wait for the answer, sorting the requests that
+/// arrive meanwhile. `Err` when `xuid` cannot show one: no display, or its
+/// refusal's code (`EAGAIN`: the keyboard could not be secured).
+fn ask(
+    state: &mut State,
+    record: &Entry,
+    caller: Caller,
+    prefill: &str,
+    error: &str,
+) -> Result<Answer, Option<i64>> {
+    let display = registry::resolve(display::NAME).map_err(|_| None)?;
     let body = prompt::encode_prompt_args(&prompt::PromptArgs {
         summary: record.summary.clone(),
         uid: caller.uid,
@@ -157,19 +183,20 @@ fn ask(record: &Entry, caller: Caller, prefill: &str, error: &str) -> Result<Ans
         admin: String::from(prefill),
         error: String::from(error),
     })
-    .map_err(|_| ())?;
+    .map_err(|_| None)?;
     let request = Parcel {
         header: services::header(prompt::INTERFACE_ID, prompt::METHOD_PROMPT),
         body,
         ..Parcel::default()
     };
-    let reply = display
-        .call(&request, Some(sys::clock() + PROMPT_TICKS))
-        .map_err(|_| ())?;
-    if refused(&reply) {
-        return Err(());
+    let txn = display
+        .begin_call(&request, Some(sys::clock() + PROMPT_TICKS))
+        .map_err(|_| None)?;
+    let reply = intake::await_prompt(state, &display, txn).map_err(|_| None)?;
+    if let Some(code) = refused(&reply) {
+        return Err(Some(code));
     }
-    let reply = prompt::decode_prompt_reply(&reply.body).map_err(|_| ())?;
+    let reply = prompt::decode_prompt_reply(&reply.body).map_err(|_| None)?;
     Ok(match reply.outcome {
         prompt::PROMPT_OUTCOME_APPROVED => Answer::Approved {
             name: reply.name,
@@ -180,13 +207,12 @@ fn ask(record: &Entry, caller: Caller, prefill: &str, error: &str) -> Result<Ans
     })
 }
 
-/// Whether the reply is `xuid`'s structured refusal (busy, not allowed).
-fn refused(reply: &Parcel) -> bool {
-    let mut decoder = Decoder::new(&reply.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::Error && field.id == ERROR_FIELD {
-            return true;
-        }
+/// The code of `xuid`'s structured refusal (busy, not allowed, keyboard
+/// not secured), if the reply is one.
+fn refused(reply: &Parcel) -> Option<i64> {
+    match services::error_field(reply) {
+        Ok(Some(code)) => Some(code),
+        Ok(None) => None,
+        Err(_) => Some(errno::EIO),
     }
-    false
 }

@@ -135,8 +135,7 @@ impl Compositor {
         // field takes a key, until `inputd` confirmed no client window has
         // it. Otherwise the request is refused and `elevd` refuses it too.
         if let Err(why) = self.take_prompt_keys() {
-            sys::write_str(&format!("XUID:PROMPT:REFUSED reason={why}
-"));
+            sys::write_str(&format!("XUID:PROMPT:REFUSED reason={why}\n"));
             return Some(refusal(
                 errno::EAGAIN,
                 "the keyboard could not be taken from the apps for the prompt",
