@@ -113,6 +113,21 @@ fn develop_declined(path) {
     msg::connect("os.lazy.pkgd.v1").invoke("DevelopDeclined", [path])
 }
 
+/// `InstallApproved(path: String, digest: String, core: Bool) -> (app: Installed)`
+///
+/// `elevd`'s install of a package an administrator approved on the
+/// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
+/// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
+/// reported for the file the prompt described: `pkgd` installs the
+/// bytes it reads only when they hash to it, so the file cannot be
+/// swapped between the approval and the install. `core` says what was
+/// approved: `false` (`pkg.install`) refuses a package that would
+/// replace a core app, `true` (`pkg.update-core`) refuses one that would
+/// not. Plain `Install` never replaces a core app for `elevd`.
+fn install_approved(path, digest, core) {
+    msg::connect("os.lazy.pkgd.v1").invoke("InstallApproved", [path, digest, core])
+}
+
 /// A `ProvisionState` with every field at its zero value.
 ///
 /// Core package provisioning progress.
