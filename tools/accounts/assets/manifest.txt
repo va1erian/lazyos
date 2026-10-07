@@ -20,3 +20,5 @@ accounts/open_window.rhai | GPL-3.0-or-later | desktop | LazyOS original: open a
 accounts/keyd_verify.rhai | GPL-3.0-or-later | desktop | LazyOS original: check a password at keyd directly, around accountsd's brake (only accountsd may)
 accounts/auth_hammer.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep failing Authenticate for admin from the session for two minutes
 accounts/admin_lockout.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request approved while the session floods Authenticate for admin
+accounts/prompt_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: raise the administrator prompt again right after it was cancelled (review of #659, H4)
+accounts/input_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep inputd's shared endpoint full while the prompt is up (review of #659, H3)

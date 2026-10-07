@@ -42,6 +42,8 @@ mod hub;
 mod keypages;
 #[path = "inputd/pointer.rs"]
 mod pointer;
+#[path = "inputd/shellchan.rs"]
+mod shellchan;
 #[path = "inputd/source.rs"]
 mod source;
 #[path = "inputd/trace.rs"]
@@ -90,6 +92,7 @@ fn run() -> Result<(), &'static str> {
     let mut outputs: Vec<Output> = Vec::new();
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
+    let mut shell_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     sys::write_str(&format!(
         "INPUTD:READY layout={} interfaces={:#x},{:#x}
 ",
@@ -145,12 +148,19 @@ fn run() -> Result<(), &'static str> {
         // Trace lines waiting: only look for work, never park (a `trace=1`
         // debug image), so they drain at the serial port's own pace.
         let wake = if trace.pending() { now } else { wake };
-        let ready = match wait::wait_any(&[server], wait::WAIT_RAW_INPUT, Some(wake)) {
+        // The compositor's private channel too (`shellchan.rs`).
+        let shell = hub.shell_endpoint();
+        let endpoints = [server, shell.unwrap_or(server)];
+        let count = if shell.is_some() { 2 } else { 1 };
+        let ready = match wait::wait_any(&endpoints[..count], wait::WAIT_RAW_INPUT, Some(wake)) {
             Ok(mask) => mask,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
             // Never spin on a refused wait: fall back to a timed receive.
             Err(_) => 1,
         };
+        if ready & 2 != 0 {
+            shellchan::serve(&mut hub, &mut shell_buffer);
+        }
         if ready & 1 == 0 {
             continue;
         }
@@ -158,6 +168,10 @@ fn run() -> Result<(), &'static str> {
         // the fallback after a refused wait).
         match server.recv_with(&mut buffer, Some(wake)) {
             Ok(message) => {
+                // Whatever the compositor sent before this request was even
+                // queued (a surface noted before its client's `Open`) is
+                // handled first.
+                shellchan::serve(&mut hub, &mut shell_buffer);
                 let reply = hub
                     .handle(&message)
                     .unwrap_or_else(|error| hub::Hub::error_reply(&message, error));

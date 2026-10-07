@@ -8,6 +8,13 @@
 // accepts these calls solely from the task that holds the display grant (the
 // kernel says who that is), so no client can move focus or register a window on
 // someone else's behalf. Everything is per kernel-stamped sender, never per request field.
+//
+// Only `Attach` goes to the shared service endpoint. Every later call (and
+// the compositor's own `Open`, for its trusted prompt's surface) goes on the
+// channel `Attach` transferred, which no client holds: `inputd` serves it
+// ahead of the shared endpoint, so a client filling that queue cannot delay
+// a focus change (docs/accounts-plan.md U2). `Attach` on that channel is
+// refused (`EINVAL`).
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.input.shell.v1";
@@ -93,10 +100,11 @@ fn get_pointer() {
 /// `NoteFocus(surface: Option<U64>) -> () oneway`
 ///
 /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
-/// (docs/performance-plan.md P3.6). Requests from one sender are handled
-/// in the order sent, on the same endpoint as the clients' `Open`, so a
+/// (docs/performance-plan.md P3.6). Requests on the compositor's channel
+/// are handled in the order sent, and before each client request, so a
 /// surface noted before the compositor answers `CreateSurface` is known
 /// by the time its client opens a session. Refused calls are dropped.
+/// The trusted prompt never relies on a note: it waits for `SetFocus`.
 ///
 /// One-way: returns `()` once the message is queued.
 fn note_focus(surface) {

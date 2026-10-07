@@ -33,6 +33,11 @@
 //! (`conf.list`, `conf.get`) for [`APPROVAL_TICKS`] without a prompt per row.
 //! A read changes nothing, and every user's private keys stay behind that one
 //! approval.
+//!
+//! The prompt is never free to raise: [`backoff`] holds back a caller whose
+//! prompts were cancelled or timed out, [`queue`] gives each caller one
+//! request in hand at a time, and [`sessions`] ends what a session held when
+//! `logind` reports it over.
 
 #![no_std]
 
@@ -50,10 +55,15 @@ use values::*;
 pub use values::{parse_value, value_args};
 
 pub mod approvals;
+pub mod backoff;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod queue;
+pub mod sessions;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_flood;
 mod values;
 
 /// How long the elevated editor's view stands (PIT ticks, 100 Hz): 5

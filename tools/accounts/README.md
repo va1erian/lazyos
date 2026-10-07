@@ -74,8 +74,10 @@ delete a canary file, and remove whatever they created.
 | `prompt_spoof` | rhai: open the trusted prompt itself (`os.lazy.display.prompt.v1`, `elevd`'s alone) (U2) |
 | `input_focus` | rhai: move the keyboard focus through `inputd`'s compositor link, to take a prompt's keys (U2) |
 | `display_read` | rhai: `ListSurfaces`, the display protocol's only screen-wide read (no method returns pixels) (U2) |
-| `prompt_over` | `attack.sh prompt_over`: `elevd` shows the prompt, a window (the Counter) opens over it 5 s later; judged from screenshots before and after (`prompt_judge.py`: the panel unchanged) (U2) |
-| `prompt_keys` | the session types `inject` and Escape while the prompt is up: the prompt took the keys (`XUID:PROMPT:DONE ... keys=7`), `elevd` recorded the cancel, no client got them (U2) |
+| `prompt_over` | `attack.sh prompt_over`: `elevd` shows the prompt, a window (the Counter) opens over it 5 s later; judged from screenshots before and after (`prompt_judge.py`: the window's `UI:RECT` overlaps the panel, and the panel is unchanged) (U2) |
+| `prompt_keys` | the Terminal has the focus when the prompt opens; the session types `inject`, Enter and Escape: the prompt took the keys from `inputd` (`XUID:PROMPT:DONE ... keys=8`), `elevd` recorded the cancel, and the Terminal never saw a line (`TERM:CMD:inject`) (U2) |
+| `input_flood` | the same (typing `flooded`) while three programs keep `inputd`'s shared endpoint full (`input_flood.rhai`, refused sends counted: the flood must be real); BLOCKED when no client got the keys, or `xuid` refused a prompt it could not take the keyboard for (review of #659, H3) |
+| `prompt_flood` | cancel a prompt, then ask five more times at once: every request must be refused without a prompt (`EAGAIN`, `elevd`'s hold) (review of #659, H4) |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
 
@@ -83,7 +85,10 @@ Not yet scripted: claiming `xuid`'s shell role from the session (no shipped
 program a session can run subscribes to `xuid`; the rule is boot-tested by
 `xuid`'s `XUID:SHELLCALLS` self-test). A client cannot inject keys at all (a
 raw input source needs `CAP_INPUT_SOURCE`), so `prompt_keys` judges the other
-half: the keys the person types go to the prompt and nowhere else.
+half: the keys the person types go to the prompt and nowhere else. The
+prompt scenarios are judged from their own part of the log (from their
+`attack.sh` command to the next), and each request first waits out the hold
+the previous scenario's cancel left (`elev_wait.rhai`).
 
 ## Expectations: how it passes today and gates later
 

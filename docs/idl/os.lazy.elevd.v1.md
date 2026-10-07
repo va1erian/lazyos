@@ -14,12 +14,16 @@ from `elevd`'s own identity (its system uid, unlabelled) and nobody else.
 Every request is audited: one `system/events/elevd/request` record per
 request (granted, refused, cancelled, timed out), which `logd` journals to
 `/logs/elevd.log`. Wrong admin passwords lock the asker out for a growing
-delay (`EAGAIN`). Failures are a structured error field (errno-style code,
-friendly text): `EINVAL` an unknown operation or bad arguments, `EPERM` a
-caller outside a login session, `ECANCELED` the prompt was cancelled,
-`ETIMEDOUT` nobody answered it, `EACCES` no administrator approved it,
-`ENODEV` no prompt can be shown (no display), or the performing service's
-own error.
+delay (`EAGAIN`), and so does a prompt the asker had cancelled or left to
+time out (`EAGAIN`, no prompt: 5 s, doubling up to 2 minutes, ended by an
+approval). A caller has one request in hand at a time (`EBUSY` for another
+while one is answered or waiting). Failures are a structured error field
+(errno-style code, friendly text): `EINVAL` an unknown operation or bad
+arguments, `EPERM` a caller outside a login session, `ECANCELED` the
+prompt was cancelled, `ETIMEDOUT` nobody answered it, `EACCES` no
+administrator approved it, `ENODEV` no prompt can be shown (no display),
+`EAGAIN` also when the compositor could not take the keyboard from the
+apps for the prompt, or the performing service's own error.
 
 ## Methods
 

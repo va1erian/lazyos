@@ -81,6 +81,7 @@
  {"wait": 1.5},
  {"shot": "07_applied"},
  {"click_at": {"window": "Config", "offset": [351, -262]}, "until": "CONFDED:CLOSE:PASS", "timeout": 40, "retries": 1},
+ {"wait_for": "ELEVD:RELEASE uid=1000 label=", "timeout": 30, "note": "closing the elevated view ends its approval at once (review of #659)"},
  {"wait": 1.5},
  {"shot": "08_closed"},
  {"quit": true}

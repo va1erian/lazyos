@@ -6,6 +6,9 @@
 //! names. Ordinary clients (the static-musl xui apps carry their own copy of
 //! the client half) `Open` a session for a surface they own; the compositor
 //! ([`ShellLink`]) declares surfaces and focus and receives [`ShellEvent`]s.
+//! After `Attach` the compositor sends every shell call on the channel it
+//! handed `inputd`, which no client shares, so a client filling the shared
+//! endpoint's queue cannot delay a focus change (docs/accounts-plan.md U2).
 
 use alloc::vec::Vec;
 
@@ -173,7 +176,9 @@ impl ShellLink {
             Vec::new(),
             handles,
         );
-        if let Err(error) = link.call(&parcel) {
+        // `Attach` is the one call on the shared endpoint: the private
+        // channel only exists once `inputd` has adopted its end.
+        if let Err(error) = call_on(&link.input, &parcel) {
             // The peer may or may not have moved; closing a stale handle only
             // fails harmlessly.
             let _ = peer.close();
@@ -192,20 +197,28 @@ impl ShellLink {
         let _ = self.events.close();
     }
 
-    fn call(&self, parcel: &Parcel) -> Result<Parcel> {
-        call_on(&self.input, parcel)
-    }
-
+    /// A shell call, on the private channel: no client can fill its queue.
     fn shell_call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        self.call(&request(SHELL_INTERFACE, method, body, Vec::new()))
+        call_on(
+            &self.events,
+            &request(SHELL_INTERFACE, method, body, Vec::new()),
+        )
     }
 
-    /// Send a one-way shell request: never waits on `inputd`
-    /// (docs/performance-plan.md P3.6). `Err` only when it could not be
-    /// queued (a full queue is retried later; a dead peer drops the link).
+    /// Send a one-way shell request on the private channel: never waits on
+    /// `inputd` (docs/performance-plan.md P3.6). `Err` only when it could not
+    /// be queued (a full queue is retried later; a dead peer drops the link).
     fn shell_note(&self, method: u32, body: Vec<u8>) -> Result<()> {
-        self.input
+        self.events
             .send(&request(SHELL_INTERFACE, method, body, Vec::new()))
+    }
+
+    /// Open a key session for `surface` (one of the compositor's own,
+    /// registered with owner 0) over the private channel, so a client
+    /// flooding the shared endpoint cannot refuse it: the trusted prompt's
+    /// keyboard (docs/accounts-plan.md U2).
+    pub fn open_keys(&self, surface: u64) -> Result<KeySession> {
+        KeySession::open_on(self.events, surface, false)
     }
 
     /// One-way [`ShellLink::register_surface`].
@@ -342,6 +355,9 @@ pub enum KeyInput {
 /// own client.
 pub struct KeySession {
     service: Endpoint,
+    /// Whether `service` came from name resolution (released on close);
+    /// otherwise it is the [`ShellLink`]'s private channel, which stays.
+    resolved: bool,
     session: u64,
     /// This task's end of the session's event channel.
     events: Endpoint,
@@ -352,7 +368,7 @@ impl KeySession {
     /// Open a session for `surface`, which `inputd` must know as this task's.
     pub fn open(surface: u64) -> Result<KeySession> {
         let service = registry::resolve(NAME)?;
-        let opened = Self::open_on(service, surface);
+        let opened = Self::open_on(service, surface, true);
         if opened.is_err() {
             // A resolved handle: released, never closed (see `ShellLink::close`).
             let _ = service.release();
@@ -360,7 +376,7 @@ impl KeySession {
         opened
     }
 
-    fn open_on(service: Endpoint, surface: u64) -> Result<KeySession> {
+    fn open_on(service: Endpoint, surface: u64, resolved: bool) -> Result<KeySession> {
         let (events, peer) = create_pair()?;
         let body = wire::encode_open_args(&wire::OpenArgs {
             surface: Some(surface),
@@ -379,6 +395,7 @@ impl KeySession {
             // Session ids start at 1; zero is a missing field.
             Ok(reply) if reply.session != 0 => Ok(KeySession {
                 service,
+                resolved,
                 session: reply.session,
                 events,
                 buffer: alloc::vec![0u8; DEFAULT_BUFFER],
@@ -440,7 +457,9 @@ impl KeySession {
                 &request(INTERFACE, wire::METHOD_CLOSE, body, Vec::new()),
             );
         }
-        let _ = self.service.release();
+        if self.resolved {
+            let _ = self.service.release();
+        }
         let _ = self.events.close();
     }
 }

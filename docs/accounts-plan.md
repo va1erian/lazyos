@@ -171,7 +171,26 @@ What exists, and the decisions taken on the way:
   operation opens the prompt every time. Only the elevated Config editor's
   *view* stands: once `conf.elevate` is approved, the same uid, label and
   session may list and read every key (`conf.list`, `conf.get`) for five
-  minutes without a prompt per row; a read changes nothing.
+  minutes without a prompt per row; a read changes nothing. The view ends
+  early when the session ends (`elevd` follows `logind`'s session records,
+  and a session id reused after a `logind` restart starts empty) or when
+  Config closes (`Release`). **Decision (review of #659):** an unlabelled
+  caller (label 0: everything started from a shell or a script) gets no
+  standing view, since they all share that label; each read prompts. Binding
+  the view to the requesting endpoint was rejected: clients share the one
+  endpoint name resolution gives them, so it would not tell them apart.
+- **Prompt floods (review of #659, H4):** a prompt takes every key and
+  click, so it must cost the asker something. After a prompt was cancelled
+  or timed out, `elevd` refuses that caller (uid, label, session) without a
+  prompt (`EAGAIN`, audited `held`) for 5 s, doubling up to 2 minutes; an
+  approval or ten quiet minutes reset it. Every caller waits a 3 s pause
+  after any unanswered prompt, so two programs taking turns still leave the
+  desktop (and Log out) reachable. `elevd` keeps reading while a prompt is
+  up: a caller has one request in hand at a time and at most eight wait;
+  the rest are refused at once (`EBUSY`, audited `busy`). Policy in
+  `libs/elevpolicy` (`backoff`, `queue`, `sessions`, host-tested), service
+  side in `user/src/bin/elevd/intake.rs`. **Decision:** no "deny this app"
+  button on the prompt yet.
 - **Services that trust `elevd`** (by kernel-stamped identity): `accountsd`
   (create, delete, promote, any password), `confd` (`sys/**`, any user's
   keys), `pkgd` (any source path; replacing a core app is now refused from a
@@ -192,8 +211,23 @@ focus to a surface of its own while the prompt is up and reads that
 session (`user/src/bin/xuid/prompt_keys.rs`), so every keyboard (PS/2 or
 USB) types into it under the active layout (`sys/input/layout`, e.g. `fr`).
 No client can read those keys: only a surface's owner opens its session,
-and this surface is the compositor's. Without `inputd` the prompt falls back
-to the kernel's PS/2 key stream (US layout).
+and this surface is the compositor's.
+
+**The prompt fails closed (review of #659, H3).** It opens only once
+`inputd` has confirmed, with a two-way `SetFocus` (retried for up to 1 s),
+that its surface has the keyboard, so no client window does; otherwise
+`xuid` refuses it (`EAGAIN`, `XUID:PROMPT:REFUSED`) and `elevd` refuses the
+request (audited `nokeys`). The focus used to travel as a one-way note on
+`inputd`'s shared endpoint, which any client can fill: a full queue only
+postponed it, and a failed registration fell back to the kernel stream while
+`inputd` still fed the previous window, so an app could have read the
+password. Now the compositor makes every call after `Attach` on the channel
+it handed `inputd`, which no client holds and which `inputd` serves first
+(`user/src/bin/inputd/shellchan.rs`). Only when `inputd` is not running at
+all does the prompt read the kernel's PS/2 key stream (US layout): then no
+client gets keys from `inputd` either. The attack harness floods `inputd`
+during a prompt (`input_flood`) and raises prompts back to back
+(`prompt_flood`).
 
 ### 3.2 Review fixes (PR #659, services and apps)
 

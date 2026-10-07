@@ -90,6 +90,10 @@ EXPECTATIONS: dict[str, Expect] = {
     "display_read": Expect("blocked", U2),
     "prompt_over": Expect("blocked", U2),
     "prompt_keys": Expect("blocked", U2),
+    # Review of #659: a flooded inputd cannot hand the prompt's keys to an
+    # app (H3), and a cancelled prompt cannot be raised again at once (H4).
+    "input_flood": Expect("blocked", U2),
+    "prompt_flood": Expect("blocked", U2),
     "core_replace": Expect("blocked", U2, INSTALL_PATHS),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),

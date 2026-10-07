@@ -144,23 +144,48 @@ def warm_session() -> list[dict]:
 
 
 def prompt_steps() -> list[dict]:
-    """The trusted prompt (U2): elevd asks, a window opens over the prompt,
-    the session types into it and cancels; screenshots before and after the
-    window for `prompt_judge`. The Counter then has the focus: click the
-    Terminal again by name (`LAZYOS_UI_PROBE`) before the next command."""
+    """The trusted prompt (U2), judged by `prompt_judge`:
+
+    * `prompt_over`: elevd asks, a window opens over the prompt; screenshots
+      before and after the window, then Escape. The Counter then has the
+      focus: click the Terminal again by name (`LAZYOS_UI_PROBE`).
+    * `prompt_keys`: the Terminal has the focus; type into the prompt, Enter,
+      Escape. A key that reached the Terminal shows as `TERM:CMD:inject`.
+    * `input_flood`: the same while inputd's shared endpoint is flooded; the
+      prompt may also refuse to open (then the typing reaches the Terminal,
+      harmlessly: no prompt asked for a password).
+    * `prompt_flood`: the first prompt is cancelled, the next requests must be
+      refused without one (the script judges).
+
+    Each request first waits out the hold the previous cancel left (elevd,
+    review of #659 H4), so the gates allow for it."""
+    def typed_at_prompt(name: str, tag: str, text: str, opened: str) -> list[dict]:
+        return [
+            {"at": 1.0, "type": f"sh {GUEST}/attack.sh {name}"},
+            {"at": 0.5, "key": "enter", "until": opened, "regex": True, "timeout": 180},
+            {"at": 1.5, "type": text},
+            {"at": 0.5, "key": "enter"},
+            {"at": 0.5, "key": "esc"},
+            {"wait_for": f"TERM:OUT:ACCT:PROMPT:{tag}:", "timeout": 180},
+        ]
     return [
         {"at": 1.0, "type": f"sh {GUEST}/attack.sh prompt_over"},
         {"at": 0.5, "key": "enter", "until": "XUID:PROMPT:UP", "timeout": 120, "retries": 1},
         {"at": 1.0, "shot": "prompt_up"},
         {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 120},
         {"at": 3.0, "shot": "prompt_window"},
-        {"at": 0.5, "type": prompt_judge.TYPED},
         {"at": 0.5, "key": "esc", "until": "XUID:PROMPT:DONE", "timeout": 60, "retries": 1},
-        {"wait_for": "TERM:OUT:ACCT:PROMPT:", "timeout": 120},
+        {"wait_for": "TERM:OUT:ACCT:PROMPT:over:", "timeout": 120},
         {"at": 2.0, "click_at": {"window": "Terminal", "offset": [250, 150]}, "timeout": 60},
         # The first key after clicking back into the Terminal from another
         # window is lost (with or without the prompt): spend it on End.
         {"at": 1.0, "key": "end"},
+        *typed_at_prompt("prompt_keys", "keys", prompt_judge.TYPED, "XUID:PROMPT:UP"),
+        *typed_at_prompt("input_flood", "flood", prompt_judge.FLOOD_TYPED,
+                         "XUID:PROMPT:(UP|REFUSED)"),
+        {"at": 1.0, "type": f"sh {GUEST}/attack.sh prompt_flood"},
+        {"at": 0.5, "key": "enter", "until": "XUID:PROMPT:UP", "timeout": 180},
+        {"at": 1.5, "key": "esc", "until": "TERM:OUT:ACCT:ATTACK:prompt_flood:", "timeout": 240},
     ]
 
 

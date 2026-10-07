@@ -424,12 +424,23 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   pointer event, no keyboard grab holds, and no window rises above it; the
   display protocol has no way to read the screen. It names the asker from its
   kernel label and uid, Cancel is the default, Escape cancels and it gives up
-  after 90 s. Only `elevd` may open it. A `conf.*` approval stands for five
-  minutes for the same uid, label and session (an elevated settings editor);
-  every other operation asks each time.
+  after 90 s. Only `elevd` may open it. Every change asks each time; only the
+  elevated Config editor's view (`conf.elevate`, then reads) stands, for five
+  minutes, for the same uid, label and session, never for an unlabelled
+  caller, and it ends with the session or when Config closes.
+- The prompt fails closed: it opens only once `inputd` confirmed, on a
+  channel no client shares, that no client window has the keyboard;
+  otherwise the request is refused. Only without any `inputd` does it read
+  the kernel's key stream.
+- A prompt is not free to raise: after one was cancelled or timed out, the
+  asker is refused without a prompt for a growing hold (5 s doubling to
+  2 minutes), every asker waits a short pause, and a caller has one request
+  in hand at a time, so no program can keep the person at the screen from
+  the desktop and Log out.
 - Every request is audited (granted, refused, cancelled, timed out, locked,
-  failed) on `system/events/elevd/request`, which `logd` journals to
-  `/logs/elevd.log`; wrong passwords lock the asker out for a growing delay.
+  failed, held, busy, nokeys) on `system/events/elevd/request`, which `logd`
+  journals to `/logs/elevd.log`; wrong passwords lock the asker out for a
+  growing delay.
 - `CAP_SYS_ADMIN` is never granted to ordinary sessions; system administration
   happens through scoped operations rather than a superuser shell, with every
   call logged.

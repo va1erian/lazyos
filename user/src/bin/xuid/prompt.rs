@@ -8,13 +8,15 @@
 //! * only `elevd`'s kernel-stamped identity may open it ([`Compositor::open_prompt`]);
 //! * it is drawn last, over a dimmed screen, above every window, panel and
 //!   the shell (`prompt_draw.rs`), and no client can raise anything above it;
-//! * while it is up, no client gets a key or a pointer event: `inputd` is
-//!   told no window has focus (which also ends any keyboard grab), grabs are
-//!   refused, and every input record goes to the prompt (`event.rs` hands
-//!   them over first). Its keys come from `inputd`, through a session of
-//!   the compositor's own surface (`prompt_keys.rs`): every keyboard, under
-//!   the active layout. Without `inputd` they come from the kernel's own key
-//!   stream, which only the compositor reads;
+//! * while it is up, no client gets a key or a pointer event: before it
+//!   opens, `inputd` must confirm the focus moved to the compositor's own
+//!   prompt surface (which also ends any keyboard grab), or the prompt is
+//!   refused (`prompt_keys.rs`, fail closed); grabs are refused, and every
+//!   input record goes to the prompt (`event.rs` hands them over first). Its
+//!   keys come from `inputd`, through that surface's session: every
+//!   keyboard, under the active layout. Only when `inputd` is not running at
+//!   all do they come from the kernel's own key stream, which only the
+//!   compositor reads;
 //! * no client can read the screen: the display protocol has no capture;
 //! * it names the asker from what the kernel stamped on `elevd`'s caller:
 //!   its uid and account, and its label, resolved here;
@@ -129,6 +131,16 @@ impl Compositor {
         let short = |text: &str, max: usize| -> String {
             text.chars().filter(|c| !c.is_control()).take(max).collect()
         };
+        // The keyboard first (`prompt_keys.rs`): no prompt opens, and no
+        // field takes a key, until `inputd` confirmed no client window has
+        // it. Otherwise the request is refused and `elevd` refuses it too.
+        if let Err(why) = self.take_prompt_keys() {
+            sys::write_str(&format!("XUID:PROMPT:REFUSED reason={why}\n"));
+            return Some(refusal(
+                errno::EAGAIN,
+                "the keyboard could not be taken from the apps for the prompt",
+            ));
+        }
         let name = short(&args.admin, FIELD_MAX);
         let focus = if name.is_empty() {
             Focus::Name
@@ -160,7 +172,6 @@ impl Compositor {
             "XUID:PROMPT:UP uid={} label={}\n",
             args.uid, args.label_id
         ));
-        self.open_prompt_keys();
         self.sync_input_now();
         self.repaint_full();
         None

@@ -964,13 +964,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.elevd.v1",
         id: 0xc9dbdc9caf1c9788,
-        doc: "The elevation service (docs/accounts-plan.md U2, issue #625).\n\nNobody is handed root or a capability: `elevd` runs a fixed table of\nprivileged *operations* itself (`libs/elevpolicy`), each only after an\nadministrator typed their name and password on the trusted prompt `xuid`\ndraws (`os.lazy.display.prompt.v1` below). The services that perform the\noperations (accounts, confd, pkgd, timed, init) accept the privileged path\nfrom `elevd`'s own identity (its system uid, unlabelled) and nobody else.\n\nEvery request is audited: one `system/events/elevd/request` record per\nrequest (granted, refused, cancelled, timed out), which `logd` journals to\n`/logs/elevd.log`. Wrong admin passwords lock the asker out for a growing\ndelay (`EAGAIN`). Failures are a structured error field (errno-style code,\nfriendly text): `EINVAL` an unknown operation or bad arguments, `EPERM` a\ncaller outside a login session, `ECANCELED` the prompt was cancelled,\n`ETIMEDOUT` nobody answered it, `EACCES` no administrator approved it,\n`ENODEV` no prompt can be shown (no display), or the performing service's\nown error.",
+        doc: "The elevation service (docs/accounts-plan.md U2, issue #625).\n\nNobody is handed root or a capability: `elevd` runs a fixed table of\nprivileged *operations* itself (`libs/elevpolicy`), each only after an\nadministrator typed their name and password on the trusted prompt `xuid`\ndraws (`os.lazy.display.prompt.v1` below). The services that perform the\noperations (accounts, confd, pkgd, timed, init) accept the privileged path\nfrom `elevd`'s own identity (its system uid, unlabelled) and nobody else.\n\nEvery request is audited: one `system/events/elevd/request` record per\nrequest (granted, refused, cancelled, timed out), which `logd` journals to\n`/logs/elevd.log`. Wrong admin passwords lock the asker out for a growing\ndelay (`EAGAIN`), and so does a prompt the asker had cancelled or left to\ntime out (`EAGAIN`, no prompt: 5 s, doubling up to 2 minutes, ended by an\napproval). A caller has one request in hand at a time (`EBUSY` for another\nwhile one is answered or waiting). Failures are a structured error field\n(errno-style code, friendly text): `EINVAL` an unknown operation or bad\narguments, `EPERM` a caller outside a login session, `ECANCELED` the\nprompt was cancelled, `ETIMEDOUT` nobody answered it, `EACCES` no\nadministrator approved it, `ENODEV` no prompt can be shown (no display),\n`EAGAIN` also when the compositor could not take the keyboard from the\napps for the prompt, or the performing service's own error.",
         methods: &[
             Method {
                 name: "Request",
                 id: 38093138,
                 oneway: false,
-                doc: "Perform `operation` (a row of the operation table, e.g.\n`account.create`, `conf.set`, `time.set`) with its `args`, after an\nadministrator approved it on the prompt. A `conf.*` approval covers\nthe caller (same uid, label and session) for the next few minutes, so\nan elevated settings editor does not ask again for every key; every\nother operation asks every time. `detail` describes what was done,\n`values` carries the operation's results (`conf.list`'s paths,\n`conf.get`'s kind and value).",
+                doc: "Perform `operation` (a row of the operation table, e.g.\n`account.create`, `conf.set`, `time.set`) with its `args`, after an\nadministrator approved it on the prompt. Every change asks every time;\nonly the elevated editor's view (`conf.elevate`, then `conf.list` and\n`conf.get`) covers the same caller (uid, label and session; never an\nunlabelled one) for five minutes, until its session ends or it calls\n`Release`. `detail` describes what was done,\n`values` carries the operation's results (`conf.list`'s paths,\n`conf.get`'s kind and value).",
                 params: &[Field { name: "operation", id: 1, ty: Ty::String }, Field { name: "args", id: 2, ty: Ty::Array(&Ty::String) }],
                 returns: &[Field { name: "detail", id: 1, ty: Ty::String }, Field { name: "values", id: 2, ty: Ty::Array(&Ty::String) }],
                 transfers: &[],
@@ -999,7 +999,7 @@ pub static INTERFACES: &[Interface] = &[
                 payload: "Record",
                 qos: 0,
                 retained: false,
-                doc: "The operation table row.\nWhat it would change, as the prompt showed it.\nThe asking task's uid and account name.\nThe asking task's kernel label id (0: unlabelled).\nThe administrator who approved (or was named), if any.\n`granted`, `refused`, `cancelled`, `timedout`, `locked`,\n`failed` (approved, but the service refused) or `invalid`.\nEvery request, whatever came of it. Not retained: the journal is the\nrecord.",
+                doc: "The operation table row.\nWhat it would change, as the prompt showed it.\nThe asking task's uid and account name.\nThe asking task's kernel label id (0: unlabelled).\nThe administrator who approved (or was named), if any.\n`granted`, `refused`, `cancelled`, `timedout`, `locked`,\n`failed` (approved, but the service refused), `invalid`, `held`\n(refused without a prompt after the asker's unanswered prompts),\n`busy` (the asker already had a request in hand, or too many\nwaited) or `nokeys` (the compositor could not secure the\nkeyboard, so no prompt was shown).\nEvery request, whatever came of it. Not retained: the journal is the\nrecord.",
             },
         ],
     },
@@ -1444,13 +1444,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.input.shell.v1",
         id: 0xc258ed5b9b5debfe,
-        doc: "The compositor side of `inputd`. Only the compositor may call it: `inputd`\naccepts these calls solely from the task that holds the display grant (the\nkernel says who that is), so no client can move focus or register a window on\nsomeone else's behalf. Everything is per kernel-stamped sender, never per request field.",
+        doc: "The compositor side of `inputd`. Only the compositor may call it: `inputd`\naccepts these calls solely from the task that holds the display grant (the\nkernel says who that is), so no client can move focus or register a window on\nsomeone else's behalf. Everything is per kernel-stamped sender, never per request field.\n\nOnly `Attach` goes to the shared service endpoint. Every later call (and\nthe compositor's own `Open`, for its trusted prompt's surface) goes on the\nchannel `Attach` transferred, which no client holds: `inputd` serves it\nahead of the shared endpoint, so a client filling that queue cannot delay\na focus change (docs/accounts-plan.md U2). `Attach` on that channel is\nrefused (`EINVAL`).",
         methods: &[
             Method {
                 name: "Attach",
                 id: 1,
                 oneway: false,
-                doc: "Become the shell client; the parcel transfers the endpoint (`handles[0]`)\nthat receives the shell events below. Attaching again replaces it.",
+                doc: "Become the shell client; the parcel transfers the endpoint (`handles[0]`)\nthat receives the shell events below, and on which the compositor makes\nevery later call. Attaching again replaces it.",
                 params: &[],
                 returns: &[],
                 transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.shell.v1") }],
@@ -1531,7 +1531,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "NoteFocus",
                 id: 10,
                 oneway: true,
-                doc: "One-way `SetFocus`: the compositor's main loop never waits on `inputd`\n(docs/performance-plan.md P3.6). Requests from one sender are handled\nin the order sent, on the same endpoint as the clients' `Open`, so a\nsurface noted before the compositor answers `CreateSurface` is known\nby the time its client opens a session. Refused calls are dropped.",
+                doc: "One-way `SetFocus`: the compositor's main loop never waits on `inputd`\n(docs/performance-plan.md P3.6). Requests on the compositor's channel\nare handled in the order sent, and before each client request, so a\nsurface noted before the compositor answers `CreateSurface` is known\nby the time its client opens a session. Refused calls are dropped.\nThe trusted prompt never relies on a note: it waits for `SetFocus`.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::Option(&Ty::U64) }],
                 returns: &[],
                 transfers: &[],
