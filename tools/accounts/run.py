@@ -168,7 +168,8 @@ def lockout_steps() -> list[dict]:
     """`admin_lockout` (review of #659, H5): the session floods
     `Authenticate("admin", ...)` in the background while elevd asks for an
     administrator; admin's right password is typed into the prompt and the
-    request must be granted (the flood counts against the session alone)."""
+    request must be granted (the flood counts against the session alone).
+    It runs after `prompt_steps`, whose judge reads the log's first prompt."""
     return [
         {"at": 1.0, "type": f"sh {GUEST}/attack.sh admin_lockout"},
         {"at": 0.5, "key": "enter", "until": "XUID:PROMPT:UP", "timeout": 120, "retries": 1},
@@ -185,7 +186,7 @@ def attack_session(names: list[str]) -> list[dict]:
     for name in names:
         until = SETUP_MARKERS.get(name, f"TERM:OUT:ACCT:ATTACK:{name}:")
         steps += command(command_for(name), until, timeout=180)
-    return [*steps, *lockout_steps(), *prompt_steps(), *power_off()]
+    return [*steps, *prompt_steps(), *lockout_steps(), *power_off()]
 
 
 def verify_session() -> list[dict]:
