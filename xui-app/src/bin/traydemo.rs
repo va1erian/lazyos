@@ -202,17 +202,25 @@ fn main() {
     demo.borrow_mut().set_item();
     let mut quit = show_window(&demo, true);
     while !quit {
+        // Handle the whole batch before opening the window: a `Quit` after a
+        // `Reopen` in the same batch must still be heard (else `init` kills
+        // the app at the end of the grace), and it wins over any `Show`.
+        let mut show = false;
+        // Bound first: a borrow in the loop header would last the whole loop
+        // and the `borrow_mut` below would panic.
         let wakes = demo.borrow().res.idle(500);
         for wake in wakes {
             match demo.borrow_mut().wake(wake, false) {
-                Flow::Quit => quit = true,
-                Flow::Show => {}
-                Flow::Stay => continue,
+                Flow::Quit => {
+                    quit = true;
+                    break;
+                }
+                Flow::Show => show = true,
+                Flow::Stay => {}
             }
-            if !quit {
-                quit = show_window(&demo, false);
-            }
-            break;
+        }
+        if !quit && show {
+            quit = show_window(&demo, false);
         }
     }
     let _ = demo.borrow().res.tray.borrow_mut().clear();
