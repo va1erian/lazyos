@@ -169,6 +169,13 @@ impl Pkgd {
                     .registry
                     .get(&args.system_name)
                     .map_err(registry_down)?;
+                // The origin installs go by (the shipped set), not the row's,
+                // which provisioning may not have promoted or demoted yet:
+                // elevd's core check must agree with `InstallApproved`'s.
+                let app = app.map(|mut row| {
+                    row.origin = self.origin_of(&row.system_name);
+                    row
+                });
                 wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
             }
             wire::METHOD_DEVELOP => {
