@@ -160,11 +160,14 @@ approved rule set for: same uid, gid and session, never more capabilities
   built with `LAZYOS_SETUP=1`) runs the first-boot setup: the login screen
   asks for the owner, the one `Create` it may make, an administrator.
 - **Guessing is slowed.** `Authenticate` (and `SetPassword`'s old password)
-  may fail three times in a row per account name and per calling uid; each
-  further failure locks that key for a delay doubling from 1 s to 60 s,
-  during which attempts are refused at once (`EAGAIN`) without reaching
-  `keyd` (`accountdb::ratelimit`). `logind` and `elevd`, which check
-  passwords for others, are counted per name only and slow their own askers.
+  may fail three times in a row per key; each further failure locks that
+  key for a delay doubling from 1 s to 60 s, during which attempts are
+  refused at once (`EAGAIN`) without reaching `keyd` (`accountdb::ratelimit`).
+  `logind` and `elevd`, which check passwords for a person at the keyboard,
+  count failures against the account name and slow their own askers; any
+  other caller counts against its own uid only, so it cannot lock another
+  account out. A success clears only the name that authenticated, and a
+  locked key is never evicted from the bounded table.
 - **Default accounts.** The image ships two:
 
   | Name | uid:gid | Home | Password |

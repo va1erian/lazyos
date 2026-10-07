@@ -67,6 +67,7 @@ delete a canary file, and remove whatever they created.
 | `acct_password` | rhai: `accountsd` `SetPassword("admin", ...)`, someone else's (U1) |
 | `keyd_forget` | rhai: `keyd` `Forget("admin")`, `accountsd`'s alone (U1) |
 | `keyd_verify` | rhai: `keyd` `Verify("admin", ...)` directly, around `accountsd`'s brake; `accountsd`'s alone (review of #659, H2) |
+| `admin_lockout` | `attack.sh admin_lockout`: the session floods `Authenticate("admin", ...)` in the background (`auth_hammer.rhai`) while `elevd` asks for an administrator (`conf.elevate`); the harness types admin's right password and the request must be granted: a session's failures count against its own uid, never lock a name for `logind`/`elevd` (review of #659, H5) |
 | `auth_flood` | rhai: 40 wrong `Authenticate("admin", ...)` in a row; BLOCKED when at most 8 were checked and the rest slowed (`EAGAIN`) (U1) |
 | `direct_time` | rhai: `timed` `SetTime` directly, not through `elevd` (U2) |
 | `direct_restart` | rhai: `init` `RestartService("inputd")` directly (U2) |

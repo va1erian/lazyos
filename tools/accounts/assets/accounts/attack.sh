@@ -129,6 +129,18 @@ core_replace)
     out=$(pkgctl install $SHARE/corereplace.lzp 2>&1)
     res $? "$out"
     ;;
+admin_lockout)
+    # Review of #659 (H5): a session flooding Authenticate("admin", ...)
+    # must not lock admin out of the trusted prompt. The flood runs in the
+    # background; 20 s later elevd shows the prompt, the harness types
+    # admin's right password, and the request must be granted.
+    rhai $SHARE/auth_hammer.rhai > /dev/null 2>&1 &
+    hammer=$!
+    sleep 20
+    rhai $SHARE/admin_lockout.rhai
+    kill $hammer 2>/dev/null
+    wait
+    ;;
 prompt_over)
     # The trusted prompt (U2): elevd asks for an administrator, and a window
     # opens 5 s later while the prompt is up. The harness screenshots both,

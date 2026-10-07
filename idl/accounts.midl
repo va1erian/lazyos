@@ -2,8 +2,9 @@
 /// U1). `accountsd` runs as the `_accounts` system uid and owns
 /// `/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
 /// of it. Lookups and `ListUsers` are open to any caller; `Authenticate` is
-/// open but slowed per account name and per caller (`EAGAIN` while a brake
-/// holds). Creating, deleting and promoting accounts, and setting another
+/// open but slowed (`EAGAIN` while a brake holds): a caller's failures count
+/// against its own uid, and against the account name only when `logind` or
+/// `elevd` asked, so no session can lock another account out. Creating, deleting and promoting accounts, and setting another
 /// user's password, are accepted from `elevd` alone (after an administrator
 /// approved them on the trusted prompt, U2), never from a uid or a
 /// capability; the login screen may create the machine's first account during

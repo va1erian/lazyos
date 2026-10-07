@@ -151,9 +151,16 @@ What exists, and the decisions taken on the way:
   **Decision:** default images keep the development accounts (`admin`,
   `user`), which every session script and CI job uses; an autologin image
   skips the setup.
-- **The brake:** three free failures per account name and per calling uid,
-  then 1 s doubling to 60 s, refused at once with `EAGAIN`; `logind` and
-  `elevd` are counted per name only (they slow their own askers).
+- **The brake:** three free failures, then 1 s doubling to 60 s, refused
+  at once with `EAGAIN`. An attempt is refused while its account name or
+  (for an ordinary caller) its uid is locked, but a failure counts against
+  the name only when `logind` or `elevd` asked (they mediate for a person
+  at the keyboard and slow their own askers), and against the caller's uid
+  only otherwise: a session flooding `Authenticate("admin", ...)` locks
+  itself, never `admin` out of logging in or approving. A success clears
+  the authenticated name alone, never a caller's lock, and a full table
+  never evicts a locked slot (it refuses the newcomer instead);
+  `accountdb::ratelimit::Attempt` (review of #659, H5).
 - **`elevd`** (`idl/elevd.midl`, `libs/elevpolicy`, `user/src/bin/elevd`): the
   operation table, the prompt (`xuid`, `os.lazy.display.prompt.v1`, opened
   by `elevd` alone), admin check through `accountsd` (`Lookup.admin`,

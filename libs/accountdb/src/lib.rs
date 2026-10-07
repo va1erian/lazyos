@@ -56,6 +56,8 @@ pub mod ops;
 pub mod policy;
 pub mod ratelimit;
 #[cfg(test)]
+mod ratelimit_tests;
+#[cfg(test)]
 mod tests;
 
 /// Largest database accepted, in bytes.
