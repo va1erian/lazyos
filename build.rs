@@ -49,6 +49,8 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/shadow.rs"]
+mod shadow;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
 #[path = "build_support/ui_probe_embed.rs"]
@@ -66,24 +68,27 @@ mod xui_embed;
 
 use os_image::Sink;
 
-/// The account file (issues #101, #508), `name:uid:gid:secret:home:shell`,
+/// The account file (issues #101, #508), `name:uid:gid:x:home:shell`,
 /// installed as `/system/etc/passwd`: the **only** account source. `accountsd`
 /// has no built-in table and fails closed without it. `build_support/passwd` is
 /// the single copy: the image layout takes the `/home/<name>` directories from
 /// it, and `tools/mkdisk/accounts.py` reads the same file for the home volume.
 /// `admin` (uid 0) is the administrator, `user` (uid 1000) the unprivileged
-/// demo login. The secret is plaintext *on purpose* for bring-up; hashes and
-/// `/system/etc/shadow` are #447's (`docs/security-model.md` section 3). The
-/// shell is BusyBox `sh` (the `sh` applet alias the kernel's Linux loader
-/// resolves to `/system/bin/busybox`, issue #254).
+/// demo login. The password field is `x`: the verifiers are Argon2id hashes in
+/// the root-only `/system/etc/shadow` ([`shadow`], issue #447). The shell is
+/// BusyBox `sh` (the `sh` applet alias the kernel's Linux loader resolves to
+/// `/system/bin/busybox`, issue #254).
 const PASSWD: &[u8] = include_bytes!("build_support/passwd");
 
-/// The account file to install: [`PASSWD`], checked with the parser
-/// `accountsd` loads it with, so a file the daemon would refuse never ships.
-/// `LAZYOS_OMIT_PASSWD=1` leaves it out, for the fail-closed check (an image
-/// on which `accountsd` reports `failed` and no login succeeds).
-fn account_file() -> Option<&'static [u8]> {
+/// The account file and its shadow to install: [`PASSWD`], checked with the
+/// parser `accountsd` loads it with, so a file the daemon would refuse never
+/// ships, and the verifiers of `build_support/passwords`. `LAZYOS_OMIT_PASSWD=1`
+/// leaves both out, for the fail-closed check (an image on which `accountsd`
+/// reports `failed` and no login succeeds).
+fn account_files() -> Option<(&'static [u8], Vec<u8>)> {
     println!("cargo:rerun-if-changed=build_support/passwd");
+    println!("cargo:rerun-if-changed=build_support/passwords");
+    println!("cargo:rerun-if-changed=build_support/shadow.rs");
     println!("cargo:rerun-if-env-changed=LAZYOS_OMIT_PASSWD");
     if let Err(error) = passwd::parse(PASSWD) {
         panic!("build_support/passwd: accountsd would refuse it: {error}");
@@ -93,7 +98,7 @@ fn account_file() -> Option<&'static [u8]> {
         println!("cargo:warning=LAZYOS_OMIT_PASSWD=1: no account file; no login will succeed");
         return None;
     }
-    Some(PASSWD)
+    Some((PASSWD, shadow::build(PASSWD)))
 }
 
 fn main() {
@@ -301,9 +306,11 @@ fn main() {
                 .to_vec(),
         );
 
-        // The account database `accountsd` reads (see [`PASSWD`]).
-        if let Some(passwd) = account_file() {
+        // The account database `accountsd` reads and the verifiers only
+        // `keyd` reads (see [`PASSWD`]).
+        if let Some((passwd, shadow)) = account_files() {
             files.add_bytes(fhs::etc::PASSWD, passwd.to_vec());
+            files.add_bytes(fhs::etc::SHADOW, shadow);
         }
 
         // The system monitor (issue #144). `init` starts `sysmond` from its

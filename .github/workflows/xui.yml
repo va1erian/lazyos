@@ -387,6 +387,10 @@ jobs:
         env:
           LAZYOS_DESKTOP: "1"
           LAZYOS_XUI_AUTOSTART: term,counter
+          # Killing a system service needs its uid since the session stopped
+          # being root (#623): `admin` is still uid 0 (with no capability)
+          # until accounts U1 (#624); then this step needs elevd (#625).
+          LAZYOS_AUTOLOGIN: admin
         run: |
           set -euo pipefail
           cargo build
@@ -416,10 +420,11 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/shell \
             --timeout 300 --script tools/screenshot/examples/shell_demo.json \
             --fail-on "SHELL:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL" --fail-on "TERM:SPAWN:FAIL"
-          grep -q "INIT:AUTOSTART:PASS app=lazyshell" shots/shell/serial.log
-          # LazyShell opens before the apps.
-          first="$(grep -o "INIT:AUTOSTART:PASS app=[a-z]*" shots/shell/serial.log | head -n 1)"
-          test "$first" = "INIT:AUTOSTART:PASS app=lazyshell"
+          # The login launches LazyShell into the session (#623), before the
+          # session's autostart apps.
+          grep -q "INIT:LAUNCH:PASS app=lazyshell" shots/shell/serial.log
+          first="$(grep -o "INIT:LAUNCH:PASS app=[a-z]*" shots/shell/serial.log | head -n 1)"
+          test "$first" = "INIT:LAUNCH:PASS app=lazyshell"
           for marker in SHELL:UP:PASS SHELL:SERVICE:PASS SHELL:DESKTOP:PASS SHELL:MENU:OPEN \
                         "SHELL:LAUNCH:PASS app=os.lazy.sysmon" "INIT:LAUNCH:PASS app=os.lazy.sysmon" \
                         SHELL:TASKBAR:ADD SHELL:TASKBAR:REMOVE \
@@ -428,6 +433,30 @@ jobs:
           done
           test "$(grep -c "SHELL:UP:PASS" shots/shell/serial.log)" -ge 2
           python tools/services/evidence.py shots/shell/serial.log --desktop
+
+      # Accounts U0 (#623): the login screen refuses a wrong password, logs
+      # `user` in (LazyShell as uid 1000), the taskbar's Log out ends the
+      # session (init kills its tasks, xuid releases the display), and a
+      # second login gets a fresh session.
+      - name: Capture login and logout
+        if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.shell != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_AUTOLOGIN: none
+          LAZYOS_UI_PROBE: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/login \
+            --timeout 600 --script tools/screenshot/examples/login_logout.json \
+            --fail-on "SHELL:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL" --fail-on "LOGIN:LOGOUT:FAIL"
+          for marker in "GREETER:LOGIN:FAIL user=user errno=13" "LOGIN:GRAPHICAL:PASS user=user session=1" \
+                        "INIT:LOGOUT:PASS session=1" "LOGIN:LOGOUT:PASS session=1" "XUID:LOGOUT session=1" \
+                        "LOGIN:GRAPHICAL:PASS user=user session=2"; do
+            grep -q "$marker" shots/login/serial.log
+          done
+          python tools/screenshot/pngstats.py shots/login/shot_*.png --min-nonblack 0.01
 
       # Symbols that share their code with navigation keys in the Windows
       # virtual-key vocabulary (`& " ' ( % $ #`) must type, not move the caret.
@@ -501,7 +530,7 @@ jobs:
           ! grep -q "^init: launch .* failed" shots/files/serial.log
 
       # Files S5.1 (issue #488): a script in the Terminal asks `mimed` to
-      # reveal ~/notes.txt (Files opens /home/admin with it selected), Return
+      # reveal ~/notes.txt (Files opens /home/user with it selected), Return
       # opens it in the Editor, Ctrl+C copies it, and Ctrl+V pastes it twice
       # into ~/box (the second copy is `notes (2).txt`); a Rhai script then
       # reads the `session/<id>/selection` topic back. Built with the label
@@ -523,9 +552,9 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/files_s51 \
             --timeout 900 --script tools/screenshot/examples/xui_files_s51.json \
             --fail-on "FILES:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in FILES:REVEAL:PASS:/home/admin/notes.txt FILES:OPEN:PASS:/home/admin/notes.txt \
+          for marker in FILES:REVEAL:PASS:/home/user/notes.txt FILES:OPEN:PASS:/home/user/notes.txt \
               EDITOR:UP:PASS FILES:COPY:PASS:1 FILES:PASTE:PASS:1:0 FILES:SELECTION:PASS \
-              "TERM:OUT:box/notes (2).txt box/notes.txt" TERM:OUT:SEL:/home/admin/box; do
+              "TERM:OUT:box/notes (2).txt box/notes.txt" TERM:OUT:SEL:/home/user/box; do
             grep -q "$marker" shots/files_s51/serial.log
           done
           if grep -q "LABEL:DENY label=app:os.lazy.files" shots/files_s51/serial.log; then
@@ -692,6 +721,8 @@ jobs:
           LAZYOS_DESKTOP: "1"
           LAZYOS_XUI_APPS: ${{ steps.app.outputs.archiver }}:${{ steps.app.outputs.files }}:${{ steps.app.outputs.editor }}
           LAZYOS_XUI_AUTOSTART: archiver
+          # The drop into Files targets the /tmp window by name (#623).
+          LAZYOS_UI_PROBE: "1"
         run: |
           set -euo pipefail
           cargo build
@@ -815,7 +846,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
           # A QEMU without PNG screendump falls back to PPM (qemu_qmp.py),
           # which pngstats cannot judge: that is a broken run, not an empty shard.
           ppms=(shots/*/*.ppm)
@@ -851,7 +882,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -859,7 +890,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|SHELL:|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|SHELL:|LOGIN:|GREETER:|XUID:LOGOUT|INIT:LOGOUT|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -903,6 +934,9 @@ jobs:
             shots/shell/*.png
             shots/shell/serial.log
             shots/shell/summary.json
+            shots/login/*.png
+            shots/login/serial.log
+            shots/login/summary.json
             shots/pointer_restart/*.png
             shots/pointer_restart/serial.log
             shots/pointer_restart/summary.json
@@ -993,7 +1027,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files files_s51 docs docs_open writer writer_light archiver; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -1036,7 +1070,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell editor paint files files_s51 docs docs_open writer writer_light archiver; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"

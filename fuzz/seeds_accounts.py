@@ -8,16 +8,18 @@ import struct
 
 
 def passwd_seeds():
-    # `build_support/passwd` as shipped, then each way a row goes wrong.
+    # `build_support/passwd` as shipped (the password field is `x`: the
+    # verifiers are in /system/etc/shadow, #447), then each way a row goes wrong.
     return {
-        "shipped": b"admin:0:0:nimda:/home/admin:sh\nuser:1000:1000:lazy:/home/user:sh\n",
-        "crlf_comments": b"# accounts\r\nroot:0:0:s:/root:sh\r\n\r\nbob:5:5:x:/home/bob:/bin/sh\r\n",
-        "dup_uid": b"a:1:1:s:/h:sh\nb:1:1:s:/h:sh\n",
-        "dup_name": b"a:1:1:s:/h:sh\na:2:1:s:/h:sh\n",
-        "bad_home": b"a:1:1:s:/home/../etc:sh\n",
-        "uid_overflow": b"a:4294967296:1:s:/h:sh\n",
-        "short_row": b"a:1:1:s:/h\n",
+        "shipped": b"admin:0:0:x:/home/admin:sh\nuser:1000:1000:x:/home/user:sh\n",
+        "crlf_comments": b"# accounts\r\nroot:0:0:x:/root:sh\r\n\r\nbob:5:5:x:/home/bob:/bin/sh\r\n",
+        "dup_uid": b"a:1:1:x:/h:sh\nb:1:1:x:/h:sh\n",
+        "dup_name": b"a:1:1:x:/h:sh\na:2:1:x:/h:sh\n",
+        "bad_home": b"a:1:1:x:/home/../etc:sh\n",
+        "uid_overflow": b"a:4294967296:1:x:/h:sh\n",
+        "short_row": b"a:1:1:x:/h\n",
         "not_utf8": b"a:1:1:\xff\xfe:/h:sh\n",
+        "plaintext": b"admin:0:0:nimda:/home/admin:sh\n",
         "empty": b"",
     }
 

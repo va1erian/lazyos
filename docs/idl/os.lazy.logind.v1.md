@@ -10,6 +10,8 @@ answers the query `messengerctl sessions` renders.
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | Sessions | 916097772 | sync | `() -> (active: U64, sessions: Array<Session>)` |
+| Login | 1441655762 | sync | `(user: String, secret: String) -> (session: U64)` |
+| Logout | 125463051 | sync | `() -> (session: U64)` |
 
 ## Topics
 

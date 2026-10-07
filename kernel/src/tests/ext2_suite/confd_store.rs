@@ -12,8 +12,8 @@ use confd::{Caller, ChangeSink, Confd, StoreFs, Value, TMP_FILE};
 
 /// The store directory `confd` prefers: `/conf` on the OS volume.
 pub(super) const DIR: &str = confd::dir::PREFERRED_DIR;
-const ROOT: Caller = Caller { uid: 0 };
-const ALICE: Caller = Caller { uid: 1000 };
+const ROOT: Caller = Caller::system(0);
+const ALICE: Caller = Caller::user(1000);
 
 /// [`StoreFs`] over a VFS directory: what the binary does with its syscalls.
 pub(super) struct VfsStore {

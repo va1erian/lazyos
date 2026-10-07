@@ -9,7 +9,7 @@
 use alloc::collections::BTreeSet;
 use alloc::string::{String, ToString};
 
-use crate::{parse, valid_name, Entry, LoadError, NAME_MAX, PASSWD_MAX};
+use crate::{parse, valid_name, Entry, LoadError, IN_SHADOW, NAME_MAX, PASSWD_MAX};
 
 /// The rows as a file `parse` accepts.
 fn serialise(entries: &[Entry]) -> String {
@@ -20,7 +20,7 @@ fn serialise(entries: &[Entry]) -> String {
             e.name,
             e.uid,
             e.gid,
-            e.secret,
+            IN_SHADOW,
             e.home,
             e.shell
         ));
@@ -42,7 +42,6 @@ fn check_accepted(entries: &[Entry]) {
         assert!(valid_name(&e.name) && e.name.len() <= NAME_MAX);
         assert!(names.insert(e.name.clone()), "duplicate name accepted");
         assert!(uids.insert(e.uid), "duplicate uid accepted");
-        assert!(!e.secret.is_empty() && !e.secret.contains([':', '\n']));
         assert!(normalised(&e.home) && !e.home.chars().any(char::is_control));
         assert!(!e.shell.is_empty());
         assert!(!e.shell.chars().any(|c| c.is_whitespace() || c.is_control()));
@@ -122,7 +121,12 @@ mod seeded {
         let parts = [
             id(rng),
             id(rng),
-            field(rng, b"pw:\r #x", 6),
+            // Mostly the only accepted value, `x`; anything else must fail.
+            if rng.one_in(3) {
+                field(rng, b"pw:\r #x", 6)
+            } else {
+                b"x".to_vec()
+            },
             rng.pick(&homes).to_vec(),
             field(rng, b"/bin/sh \t\x01", 8),
         ];

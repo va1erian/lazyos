@@ -19,6 +19,23 @@ use crate::{MAX_STORE_BYTES, MAX_VALUE_LEN};
 pub struct Caller {
     /// Effective user id of the calling process.
     pub uid: u32,
+    /// The caller is a system service (it holds `CAP_SETUID`, which `init`
+    /// never stamps on a login session): it may write `sys/**` and read and
+    /// write every `user/<uid>/**`. A uid is never enough (issue #623): a
+    /// root login session is a user like any other.
+    pub system: bool,
+}
+
+impl Caller {
+    /// A login session's (or any unprivileged) caller.
+    pub const fn user(uid: u32) -> Caller {
+        Caller { uid, system: false }
+    }
+
+    /// A system service.
+    pub const fn system(uid: u32) -> Caller {
+        Caller { uid, system: true }
+    }
 }
 
 /// A committed mutation, for the caller to persist and publish.
@@ -93,7 +110,7 @@ impl Store {
     /// reported as absent, so callers cannot probe another user's subtree.
     pub fn get(&self, path: &str, caller: Caller) -> Result<Option<&Value>, Error> {
         validate_path(path)?;
-        if !can_read(path, caller.uid) {
+        if !can_read(path, caller) {
             return Err(Error::Denied);
         }
         Ok(self.entries.get(path))
@@ -108,7 +125,7 @@ impl Store {
     /// unchanged.
     pub fn set(&mut self, path: &str, value: Value, caller: Caller) -> Result<Change, Error> {
         validate_path(path)?;
-        if !can_write(path, caller.uid) {
+        if !can_write(path, caller) {
             return Err(Error::Denied);
         }
         if value.size_bytes() > MAX_VALUE_LEN {
@@ -143,7 +160,7 @@ impl Store {
     /// `Ok(None)` — access is checked first so denial still wins.
     pub fn delete(&mut self, path: &str, caller: Caller) -> Result<Option<Change>, Error> {
         validate_path(path)?;
-        if !can_write(path, caller.uid) {
+        if !can_write(path, caller) {
             return Err(Error::Denied);
         }
         match self.entries.remove(path) {
@@ -177,7 +194,7 @@ impl Store {
         }
         let mut paths = Vec::new();
         for path in self.entries.keys() {
-            if !under_prefix(path, prefix) || !can_read(path, caller.uid) {
+            if !under_prefix(path, prefix) || !can_read(path, caller) {
                 continue;
             }
             paths.push(path.as_str());
@@ -192,7 +209,7 @@ impl Store {
     /// Runs as root: a merge moves already-authorised data between stores and
     /// is not a caller operation.
     pub(crate) fn merge_missing(&mut self, other: &Store) -> (Vec<String>, usize) {
-        let root = Caller { uid: 0 };
+        let root = Caller::system(0);
         let mut added = Vec::new();
         let mut skipped = 0;
         for (path, value) in other.iter_raw() {

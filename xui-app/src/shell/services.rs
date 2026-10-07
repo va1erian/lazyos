@@ -1,5 +1,6 @@
 //! The services LazyShell is a client of: `init` (app registry, `Launch`,
-//! `Shutdown`), `confd` (`sys/ui/*`) and `timed` (the zone name).
+//! `Shutdown`), `logind` (`Logout`), `confd` (`sys/ui/*`) and `timed` (the
+//! zone name).
 //!
 //! Every call is bounded, and an unregistered service is not waited for
 //! (`Service::try_connect`): the shell must keep painting while a service is
@@ -10,6 +11,7 @@
 use confd::Value;
 use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
+use messenger_generated::os_lazy_logind_v1 as logind_wire;
 use messenger_generated::os_lazy_timed_v1 as timed_wire;
 
 use crate::platform::confd_store::from_wire;
@@ -23,6 +25,8 @@ const INIT: &str = "os.lazy.init";
 const CONFD: &str = "os.lazy.confd";
 /// `timed`'s registered name.
 const TIMED: &str = "os.lazy.timed";
+/// `logind`'s registered name.
+const LOGIND: &str = "os.lazy.logind";
 
 /// `ListApps` may take a quarter second (the old compositor menu's bound).
 const LIST_TICKS: u64 = 25;
@@ -184,6 +188,22 @@ pub fn shutdown(mode: u32, reason: &str) -> Result<String, i64> {
     )?;
     init_wire::decode_shutdown_reply(&reply.body)
         .map(|reply| reply.phase)
+        .map_err(|_| -errno::EINVAL)
+}
+
+/// `logind.Logout()` (issue #623): end the shell's own desktop session.
+/// `logind` answers before anything stops; `init` then ends every task of
+/// the session, this shell included, and the login screen comes back.
+pub fn logout() -> Result<u64, i64> {
+    let reply = call(
+        LOGIND,
+        logind_wire::INTERFACE_ID,
+        logind_wire::METHOD_LOGOUT,
+        Vec::new(),
+        SHUTDOWN_TICKS,
+    )?;
+    logind_wire::decode_logout_reply(&reply.body)
+        .map(|reply| reply.session)
         .map_err(|_| -errno::EINVAL)
 }
 

@@ -2,9 +2,9 @@
 after the attacks and come back up, after the clean stop and after a hard kill
 (invariant 1 of docs/accounts-plan.md: no bricking).
 
-Until the login screen ships (U0, #623) "comes back" is the desktop Terminal
-answering a command (`ACCT:BOOT:OK`); the marker moves to the login screen's
-when that lands.
+"Comes back" is a login (`LOGIN:OK:PASS`: the harness image logs `user`
+straight in through the login path, `LAZYOS_AUTOLOGIN`, issue #623) and the
+session's Terminal answering a command (`ACCT:BOOT:OK`).
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from __future__ import annotations
 #: Printed by the Terminal when `echo ACCT:BOOT:OK` runs: the desktop is up
 #: and a session can run a command.
 BOOT_OK = "TERM:OUT:ACCT:BOOT:OK"
+#: Printed by `logind` when a session opened.
+LOGIN_OK = "LOGIN:OK:PASS"
 #: What a panic or a lost task leaves in the serial log.
 BAD = ("panic", "TERM:PANIC", "BIND:FAIL", "SPAWN:FAIL")
 
@@ -32,6 +34,8 @@ def judge_boot(log: str, label: str, after_hard_kill: bool = False) -> list[str]
     """A boot after the attacks: up, answering, no panic; the volume is clean
     unless the boot before it was killed (a hard kill leaves it unclean on purpose)."""
     failures = []
+    if LOGIN_OK not in log:
+        failures.append(f"{label}: nobody logged in (no {LOGIN_OK})")
     if "TERM:UP:PASS" not in log:
         failures.append(f"{label}: the desktop never came up (no TERM:UP:PASS)")
     if BOOT_OK not in log:

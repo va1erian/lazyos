@@ -58,16 +58,32 @@ class AttackJudgeTest(unittest.TestCase):
                              mystery="BLOCKED:EPERM"), TABLE).failures
         self.assertTrue(any("mystery" in f for f in failures))
 
-    def test_the_shipped_table_is_all_xfail_with_an_issue_until_u0_lands(self):
+    def test_the_shipped_table_gates_u0_and_tracks_the_rest(self):
         for name, expect in attack_judge.EXPECTATIONS.items():
             self.assertIn(expect.state, ("blocked", "xfail"), name)
             if expect.state == "xfail":
                 self.assertTrue(expect.issue, f"{name}: an xfail needs its issue")
+                self.assertNotEqual(expect.issue, attack_judge.U0, f"{name}: U0 landed")
+
+    def test_autostart_must_open_as_the_session_user(self):
+        installed = "TERM:OUT:ACCT:INSTALL:autostart_pkg:OK\n"
+        as_user = ("INIT:AUTOSTART:SESSION session=2 uid=1000 apps=2\n"
+                   "INIT:AUTOSTART:PASS app=org.acct.autoprobe session=2\n")
+        marker = attack_judge.autostart_marker(installed, as_user)
+        self.assertEqual(marker, "ACCT:ATTACK:autostart_root:BLOCKED:uid=1000")
+        # The boot-time autostart before U0: no session, root.
+        as_root = "INIT:AUTOSTART:PASS app=org.acct.autoprobe\n"
+        self.assertIn(":SUCCEEDED:", attack_judge.autostart_marker(installed, as_root))
+        as_admin = as_user.replace("uid=1000", "uid=0")
+        self.assertIn(":SUCCEEDED:", attack_judge.autostart_marker(installed, as_admin))
+        self.assertIn(":ERROR:notinstalled", attack_judge.autostart_marker("", as_user))
+        self.assertIn(":ERROR:notopened", attack_judge.autostart_marker(installed, ""))
+        self.assertIn("/apps", attack_judge.side_effects())
 
 
 class BootJudgeTest(unittest.TestCase):
     STOP = "INIT:SHUTDOWN:BEGIN x\nINIT:SHUTDOWN:QUIESCED killed=0\npower: filesystems synced\n"
-    UP = "TERM:UP:PASS\nTERM:OUT:ACCT:BOOT:OK\n"
+    UP = "LOGIN:OK:PASS user=user uid=1000 session=1 pid=9\nTERM:UP:PASS\nTERM:OUT:ACCT:BOOT:OK\n"
 
     def test_good_logs_pass(self):
         self.assertEqual(boot_judge.judge_stop(self.STOP), [])
@@ -78,6 +94,9 @@ class BootJudgeTest(unittest.TestCase):
     def test_no_reboot_marker_fails(self):
         self.assertTrue(boot_judge.judge_boot("TERM:UP:PASS\n", "verify"))
         self.assertTrue(boot_judge.judge_boot("INIT:AUTOSTART:PASS\n", "verify"))
+        # Up and answering, but nobody logged in: not a login session.
+        no_login = self.UP.replace("LOGIN:OK:PASS", "LOGIN:DENIED:PASS")
+        self.assertTrue(boot_judge.judge_boot(no_login, "verify"))
 
     def test_a_panic_fails(self):
         self.assertTrue(boot_judge.judge_boot(self.UP + "kernel panic: oops\n", "verify"))

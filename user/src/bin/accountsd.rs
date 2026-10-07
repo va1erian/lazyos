@@ -6,14 +6,14 @@
 //! needs and nothing else:
 //!
 //! * `Lookup(name/uid)` -- the passwd fields (name, uid, gid, home, shell);
-//! * `Authenticate(name, secret)` -- verified through `keyd` when it is
-//!   registered, otherwise through the documented bring-up verifier;
+//! * `Authenticate(name, secret)` -- verified by `keyd`, and refused when
+//!   `keyd` cannot answer;
 //! * `Create` -- declared, answered `ENOSYS`: account management is the next
 //!   iteration (docs/filesystem-plan.md section 5).
 //!
 //! # Where the database lives
 //!
-//! `/system/etc/passwd` (`fhs::etc::PASSWD`, `name:uid:gid:secret:home:shell`)
+//! `/system/etc/passwd` (`fhs::etc::PASSWD`, `name:uid:gid:x:home:shell`)
 //! is the **only** account source; there is no built-in table. The image
 //! ships `admin` (uid 0) and `user` (uid 1000). The file is parsed strictly
 //! (`libs/passwd`) and the daemon **fails closed**: when it is missing,
@@ -26,10 +26,10 @@
 //!
 //! # The secret
 //!
-//! `keyd` owns password verifiers (`Argon2id`, `SHARE_ONLY` buffers). Until
-//! #447 moves hashes to `/system/etc/shadow`, the file carries a plaintext
-//! secret: this is a **bring-up fallback, not a password hash**. See
-//! [`verify_secret`].
+//! `keyd` owns the password verifiers: Argon2id hashes it loads from the
+//! root-only `/system/etc/shadow` (issue #447). This service never sees one,
+//! and there is no fallback: when `keyd` is unreachable or errs, the login is
+//! refused. See [`verify_secret`].
 
 #![no_std]
 #![no_main]
@@ -53,10 +53,9 @@ const HEALTH_TICKS: u64 = 10;
 const ENOENT: i64 = 2;
 const EFBIG: i64 = 27;
 
-/// One account: the public record plus the secret verifier.
+/// One account: the public record. Its password verifier is `keyd`'s.
 struct Account {
     record: accounts::UserRecord,
-    verifier: String,
 }
 
 impl From<passwd::Entry> for Account {
@@ -69,7 +68,6 @@ impl From<passwd::Entry> for Account {
                 home: entry.home,
                 shell: entry.shell,
             },
-            verifier: entry.secret,
         }
     }
 }
@@ -108,8 +106,7 @@ fn run() -> messenger::Result<()> {
         )),
     }
     let mut health_sent = false;
-    // Printed once, the first time a delegation to keyd is attempted (see
-    // `verify_secret`); purely informational, so it does not gate anything.
+    // Whether `keyd`'s absence was already reported (see `verify_secret`).
     let mut keyd_seen = false;
     // Reused receive buffer: the user bump allocator never reclaims per-call
     // buffers, so the service loop must not allocate one per message.
@@ -197,52 +194,22 @@ fn by_uid(table: &[Account], uid: u32) -> Option<&Account> {
     table.iter().find(|account| account.record.uid == uid)
 }
 
-/// Whether `secret` authenticates `account`.
-///
-/// `keyd` is the real verifier (`docs/security-model.md` section 3): when the
-/// service is registered, the secret goes there and its verdict wins. Until
-/// `keyd` exists this is the **bring-up fallback**: compare against the table's
-/// plaintext verifier. It is a stand-in so the login path can be exercised; no
-/// real deployment may use it.
-///
-/// Every call re-resolves `keyd` and re-provisions *this* account before
-/// asking it to verify, rather than caching "keyd is present" from the first
-/// call: caching it meant a `keyd` that registered after the first login
-/// attempt, or a `keyd` that crashed and restarted with an empty table, was
-/// never (re-)told about any account and every delegated login failed
-/// permanently. `provision` is a cheap upsert (`keyd` replaces the verifier by
-/// name), so re-provisioning on every login is correct, not just tolerated.
-fn verify_secret(account: &Account, secret: &str, keyd_seen: &mut bool) -> bool {
+/// Whether `secret` authenticates `account`: `keyd`'s verdict
+/// (`docs/security-model.md` section 3), and nothing else (issue #447). An
+/// unreachable `keyd`, or any error from `Verify` (a malformed request, an
+/// oversized secret), is a refusal: there is no plaintext copy to compare
+/// against and no fallback. `keyd` is resolved again on every login, so one
+/// that registered late or restarted is found without restarting this service.
+/// `warned` keeps the absence report to one line per outage.
+fn verify_secret(account: &Account, secret: &str, warned: &mut bool) -> bool {
     let Ok(client) = keyd::Client::connect() else {
-        if !*keyd_seen {
-            sys::write_str(
-                "accountsd: keyd absent; bring-up verifier (see docs/security-model.md section 3)\n",
-            );
+        if !*warned {
+            *warned = true;
+            sys::write_str("accountsd: keyd unreachable; every login is refused\n");
         }
-        // A plain comparison is the fallback's whole definition; it is
-        // plaintext by construction and is documented as bring-up-only.
-        return account.verifier == secret;
+        return false;
     };
-    if !*keyd_seen {
-        *keyd_seen = true;
-        sys::write_str("accountsd: password verification delegated to keyd\n");
-    }
-    if let Err(error) = client.provision(&account.record.name, &account.verifier) {
-        sys::write_str(&format!(
-            "accountsd: keyd refused to provision {}: {}\n",
-            account.record.name,
-            error.message()
-        ));
-        // Fall through and ask anyway: keyd may already know this account from
-        // an earlier successful provision, and the verdict is authoritative.
-    }
-    // keyd is authoritative once it is reachable: an error from `verify` (a
-    // malformed request, an internal refusal, anything short of "wrong
-    // password") is a deny, never a reason to fall back to the plaintext
-    // bring-up verifier. Falling back here would let a caller who can force
-    // `verify` to error (e.g. an oversized secret) authenticate against the
-    // weaker plaintext comparison instead of Argon2id. The plaintext fallback
-    // exists only for the "keyd is not registered at all" case above.
+    *warned = false;
     client.verify(&account.record.name, secret).unwrap_or(false)
 }
 

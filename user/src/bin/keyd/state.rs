@@ -130,24 +130,38 @@ impl Keyd {
         }
     }
 
-    /// Provision the demo account: Argon2id over a fresh salt.
-    pub(crate) fn provision_demo_account(&mut self) -> bool {
-        if self.accounts.len() >= MAX_ACCOUNTS {
-            return false;
+    /// Load the account verifiers from the shadow file's text (issue #447).
+    /// All or nothing, like the file's parser: a row `keyd` cannot verify
+    /// against (another cost than its arena's, another salt length) refuses
+    /// the whole file, so a damaged shadow never leaves some accounts
+    /// verifiable and others silently not. Returns how many rows loaded, or
+    /// the `reason=` text.
+    pub(crate) fn load_shadow(&mut self, bytes: &[u8]) -> Result<usize, String> {
+        let rows = passwd::shadow::parse(bytes).map_err(|error| error.to_string())?;
+        let params = kdf::Params::INTERACTIVE;
+        let mut loaded = Vec::new();
+        for (index, row) in rows.into_iter().enumerate() {
+            let cost = (row.cost.m_kib, row.cost.t, row.cost.p);
+            if cost != (params.m_cost_kib, params.t_cost, params.p_cost) {
+                return Err(alloc::format!("cost row={}", index + 1));
+            }
+            let salt: [u8; SALT_LEN] = row
+                .salt
+                .as_slice()
+                .try_into()
+                .map_err(|_| alloc::format!("salt row={}", index + 1))?;
+            loaded.push(Account {
+                user: row.name,
+                salt,
+                verifier: row.verifier,
+            });
         }
-        let mut salt = [0u8; SALT_LEN];
-        self.entropy.try_rdrand();
-        self.entropy.fill(&mut salt);
-        let mut verifier = [0u8; kdf::VERIFIER_LEN];
-        if self.kdf.derive(b"lazyos", &salt, &mut verifier).is_err() {
-            return false;
+        if loaded.len() > MAX_ACCOUNTS {
+            return Err(alloc::format!("rows={} max={MAX_ACCOUNTS}", loaded.len()));
         }
-        self.accounts.push(Account {
-            user: String::from("lazyos"),
-            salt,
-            verifier,
-        });
-        true
+        let count = loaded.len();
+        self.accounts = loaded;
+        Ok(count)
     }
 
     /// Install (or replace) `user`'s verifier: Argon2id over a fresh salt.

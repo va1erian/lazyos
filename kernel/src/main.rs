@@ -383,10 +383,7 @@ fn spawn_program(path: &'static str, args: &[&str]) {
             // hold the raw input bus (it hands reading to `inputd` alone
             // and publishing to input drivers).
             if path != fhs::bin::INIT {
-                ipc::credentials::drop_caps(
-                    index,
-                    ipc::credentials::CAP_INPUT_RAW | ipc::credentials::CAP_INPUT_SOURCE,
-                );
+                drop_input_caps(index);
             }
             // The compositor is latency-sensitive like the kernel mux, and
             // it must take the display grant before any app that would
@@ -436,7 +433,10 @@ fn netd_demo_args() -> alloc::vec::Vec<&'static str> {
 fn spawn_linux_program(name: &'static str, path: &str) {
     match open_program(path) {
         Some(bytes) => match task::spawn_linux(name, &bytes, name) {
-            Ok(index) => serial_println!("LazyOS: spawned {name} as task {index}"),
+            Ok(index) => {
+                drop_input_caps(index);
+                serial_println!("LazyOS: spawned {name} as task {index}")
+            }
             Err(err) => serial_println!("LazyOS: spawn {name} failed: {err}"),
         },
         None => serial_println!("LazyOS: {path} not found"),
@@ -454,7 +454,10 @@ fn spawn_console_shell() {
         Some(bytes) => {
             serial_println!("LazyOS: launching busybox sh");
             match task::spawn_linux_args("sh", &bytes, &["sh"]) {
-                Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
+                Ok(index) => {
+                    drop_input_caps(index);
+                    serial_println!("LazyOS: spawned busybox as task {index}")
+                }
                 Err(err) => serial_println!("LazyOS: spawn busybox failed: {err}"),
             }
         }
@@ -463,6 +466,18 @@ fn spawn_console_shell() {
             fhs::bin::BUSYBOX
         ),
     }
+}
+
+/// Withhold the raw input bus from a kernel-started program (issue #447):
+/// reading every keystroke (`CAP_INPUT_RAW`) and posing as an input device
+/// (`CAP_INPUT_SOURCE`) are `init`'s to hand to `inputd` and the input
+/// drivers. The xui app (`XAPP`) and the console shell get no more than any
+/// other program the kernel starts.
+fn drop_input_caps(index: usize) {
+    ipc::credentials::drop_caps(
+        index,
+        ipc::credentials::CAP_INPUT_RAW | ipc::credentials::CAP_INPUT_SOURCE,
+    );
 }
 
 #[panic_handler]
