@@ -1,5 +1,5 @@
 //! The Docs window: a slim toolbar (an Open button and the current path) above
-//! the litehtml page, and the Open dialog behind the button and `Ctrl+O`.
+//! the Blitz page, and the Open dialog behind the button and `Ctrl+O`.
 //!
 //! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once
 //! the welcome page's first frame has been painted, `DOCS:OPEN:PASS:<path>` after
@@ -18,7 +18,7 @@ use xui_core::widget::StdFileSystem;
 use xui_core::widget::{FileDialog, HasText, Label};
 use xui_core::{Key, Px, Rect};
 use xui_docs::{error_page, load_file, themed};
-use xui_litehtml::{HtmlView, HtmlViewEvent};
+use xui_blitz::{BlitzView, BlitzViewEvent};
 
 /// Height of the toolbar above the page, in pixels.
 const TOOLBAR_H: i32 = 36;
@@ -29,7 +29,7 @@ const START_DIR: &str = fhs::docs::DOCS_ROOT;
 
 /// Everything the window reacts to.
 pub enum Msg {
-    /// litehtml finished a layout pass on its worker thread.
+    /// The engine drew a new frame.
     Frame,
     /// Polls for the first painted frame, to print the render marker once.
     Tick,
@@ -43,26 +43,21 @@ pub enum Msg {
     DialogClosed,
 }
 
-/// A view of `html` filling `bounds`. One view per document: `HtmlView::load`
-/// on a shown view keeps the painter's font cache, keyed by per-document font
-/// ids, so the next document's fonts resolve to the previous one's entries
-/// (small monospace headings, oversized italics). A fresh view starts clean.
-fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String) -> Result<HtmlView<Msg>> {
-    HtmlView::new(
-        ui,
-        bounds,
-        themed(html, ui.theme().is_dark),
-        || Msg::Frame,
-        |event| match event {
-            HtmlViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
-            HtmlViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
-        },
-    )
+/// A view of `html` filling `bounds`. One view per document: a fresh view
+/// starts clean, and dropping the old one stops its engine thread.
+fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String) -> Result<BlitzView<Msg>> {
+    BlitzView::builder(|| Msg::Frame, |event| match event {
+        BlitzViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
+        BlitzViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
+        _ => None,
+    })
+    .html(themed(html, ui.theme().is_dark))
+    .build(ui, bounds)
 }
 
 /// The window's widgets and state.
 pub struct Docs {
-    view: HtmlView<Msg>,
+    view: BlitzView<Msg>,
     /// Where the page view sits (below the toolbar).
     view_bounds: Rect,
     path_label: Rc<Label<Msg>>,
@@ -197,7 +192,7 @@ impl App for Docs {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Frame => self.view.invalidate(),
+            Msg::Frame => self.view.update(),
             Msg::Tick => {
                 if self.render_marker.is_some() && self.view.is_ready() {
                     let suffix = self.render_marker.take().unwrap_or_default();
@@ -206,7 +201,7 @@ impl App for Docs {
             }
             Msg::Link(href) => println!("DOCS:LINK:{href}"),
             Msg::Copy(text) => {
-                // `HtmlView` only reports the request; the app owns the clipboard.
+                // `BlitzView` only reports the request; the app owns the clipboard.
                 ui.set_clipboard_text(&text);
                 println!("DOCS:COPY:{} bytes", text.len());
             }

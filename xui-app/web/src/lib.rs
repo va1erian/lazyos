@@ -1,19 +1,17 @@
 //! LazyWeb's library half: the parts with no window, tested on the host.
 //!
-//! - [`fetch`]: HTTP and HTTPS for NetSurf (ureq, rustls, `nettls-crypto`).
+//! - [`fetch`]: HTTP and HTTPS for Blitz (ureq, rustls, `nettls-crypto`).
 //! - [`address`]: what the address bar turns typed text into.
 //! - [`history`]: the Back/Forward list.
 //! - [`visits`]: the browsing history kept per user.
 //! - [`downloads`]: saving downloads to the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
-//! - [`sites`]: per-site preferences (the Wikipedia skin).
 
 pub mod address;
 pub mod downloads;
 pub mod fetch;
 pub mod history;
 pub mod pages;
-pub mod sites;
 pub mod visits;
 
 /// `text` fit for one serial marker line: control characters (a title can

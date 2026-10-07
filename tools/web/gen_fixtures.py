@@ -3,7 +3,7 @@
 
 The live theoldnet.com shows a maintenance notice, so the harness serves a
 representative late-90s home page instead (`fixtures/theoldnet.com/`). Its
-pictures cover every format NetSurf decodes on the classic web, each drawn
+pictures cover every format Blitz decodes on the classic web, each drawn
 here with the standard library only (`imgenc.py`, `jpegenc.py`):
 
     images/bg_tile.gif        48x48 GIF, a starfield the body tiles (`background=`)

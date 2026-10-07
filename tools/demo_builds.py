@@ -69,17 +69,17 @@ def build_tls() -> bool:
     return required("the HTTPS tools", "nettls/build.py", ("--require",))
 
 
-#: LazyWeb's browser binary (`tools/xui/build.py` builds it with zig).
+#: LazyWeb's browser binary (`tools/xui/build.py` builds it with the other apps).
 LAZYWEB_ELF = ROOT / "target" / "xui" / "xui-lazyweb.elf"
 
 
 def build_lazyweb() -> bool:
-    """LazyWeb (`--lazyweb`): the xui apps when its binary is missing. NetSurf
-    is C, so `tools/xui/build.py` skips it (with a warning) without zig."""
+    """LazyWeb (`--lazyweb`): the xui apps when its binary is missing. It is
+    pure Rust (Blitz), so `tools/xui/build.py` builds it with the rest."""
     if LAZYWEB_ELF.is_file() or (build_xui_apps() and LAZYWEB_ELF.is_file()):
         return True
-    print(f"error: {LAZYWEB_ELF} was not built; LazyWeb needs zig "
-          "(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`)", file=sys.stderr)
+    print(f"error: {LAZYWEB_ELF} was not built "
+          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
     return False
 
 
@@ -89,6 +89,6 @@ def build_xui_apps() -> bool:
 
 
 def build_mail() -> bool:
-    """The xui apps plus Mail (esMail with its IMAP/SMTP core, SQLite and
-    litehtml, built with zig; docs/mail.md) and their core packages."""
+    """The xui apps plus Mail (esMail with its IMAP/SMTP core and SQLite,
+    built with zig; docs/mail.md) and their core packages."""
     return required("Mail", "xui/build.py", ("--mail",))

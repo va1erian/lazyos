@@ -1,0 +1,15 @@
+[package]
+name = "webfonts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Registers the Liberation fonts a desktop image installs with xui-blitz, for LazyWeb, Mail and Docs"
+
+# Blitz draws its own glyphs from font files and LazyOS has no fontconfig, so
+# every app with a `BlitzView` calls `webfonts::register` once at start
+# (issue #649). Without it a page shows no text.
+[dependencies]
+fhs = { path = "../../../libs/fhs" }
+# No `system-fonts`: it loads fontconfig with `dlopen`, which a static binary
+# cannot do. The same revision as every other xui crate here.
+xui-blitz = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e", default-features = false }

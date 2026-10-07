@@ -94,13 +94,13 @@ CORE_APPS: dict[str, CoreApp] = {
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
     # Network Drives: FTP servers as folders under /mnt, through `mountd`.
     "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
-    # C++ (litehtml), built only where zig is installed.
+    # Blitz (pure Rust), built with the other apps.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
-    # The web browser (NetSurf, C, compiled with zig; docs/lazyweb.md). Only a
+    # The web browser (Blitz, pure Rust; docs/lazyweb.md). Only a
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
-    # esMail (docs/mail.md): C and C++ too, and built only on request
+    # esMail (docs/mail.md): links SQLite's C (zig), built only on request
     # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
     "mail": xui_app("xui-mail.elf", "mail", optional=True),
     # The IDE and its player, built by `tools/lazyrad/build.py`.
@@ -194,7 +194,7 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
                         lazyrad_dir: Path | None = None) -> list[Path]:
     """Build every core package whose programs exist; returns the archives.
 
-    A missing optional program (Docs without zig, LazyRAD not built) is skipped
+    A missing optional program (Docs not built, LazyRAD not built) is skipped
     with a note; a missing mandatory one is an error. Stale archives are
     removed first, so an app dropped from the set leaves the image at the next
     build.

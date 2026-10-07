@@ -152,9 +152,9 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
-/// warning) when they were not. The Docs app is C++ (litehtml) and needs the
-/// zig toolchain (`tools/xui/zig.py`), which a developer machine may lack; a
-/// missing one leaves a smaller desktop, not a broken one.
+/// warning) when they were not. Docs is built with the other apps (Blitz, pure
+/// Rust), but a build that skipped it leaves a smaller desktop, not a broken
+/// one.
 const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
 /// The network apps, shipped by a desktop image that has the network stack

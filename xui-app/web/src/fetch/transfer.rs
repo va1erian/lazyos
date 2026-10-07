@@ -2,13 +2,14 @@
 //! the status and headers, stream the decoded body.
 
 use std::io::{self, Read};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ureq::config::AutoHeaderValue;
 use ureq::http::{self, HeaderMap, Response};
 use ureq::unversioned::transport::{Connector, TcpConnector};
 use ureq::{Agent, Body, Error};
 
+use super::cookies::{self, Jar};
 use super::decode::{self, Coding};
 use super::resolve::InlineResolver;
 use super::tls::{self, LazyConfig, TlsConnector};
@@ -22,7 +23,7 @@ const CHUNK: usize = 16 * 1024;
 const ACCEPT_ENCODING: &str = "gzip, deflate";
 
 /// Request headers the fetcher owns: connection management, framing and
-/// content coding are ours to decide, whatever NetSurf passes.
+/// content coding are ours to decide, whatever the view passes.
 const OWN_HEADERS: &[&str] = &[
     "accept-encoding",
     "connection",
@@ -62,10 +63,16 @@ pub(crate) fn agent(options: &Options) -> Agent {
 }
 
 /// Runs `request` and reports it to `sink`, then its `WEB:FETCH` line.
-pub(crate) fn run<S: Sink>(agent: &Agent, options: &Options, request: Request, sink: S) {
+pub(crate) fn run<S: Sink>(
+    agent: &Agent,
+    options: &Options,
+    jar: &Mutex<Jar>,
+    request: Request,
+    sink: S,
+) {
     let url = request.url.clone();
     let mut timing = Timing::start();
-    let outcome = exchange(agent, options, request, sink, &mut timing);
+    let outcome = exchange(agent, options, jar, request, sink, &mut timing);
     timing.report(&outcome, &url);
 }
 
@@ -73,7 +80,8 @@ pub(crate) fn run<S: Sink>(agent: &Agent, options: &Options, request: Request, s
 fn exchange<S: Sink>(
     agent: &Agent,
     options: &Options,
-    request: Request,
+    jar: &Mutex<Jar>,
+    mut request: Request,
     sink: S,
     timing: &mut Timing,
 ) -> String {
@@ -86,6 +94,8 @@ fn exchange<S: Sink>(
     }
     let host = host_of(&request.url);
     let head = request.method == Method::Head;
+    let url = request.url.clone();
+    send_cookies(jar, &mut request);
     let response = match send(agent, options, request) {
         Ok(response) => response,
         Err(why) => return failed(sink, &why.describe(&host)),
@@ -95,6 +105,7 @@ fn exchange<S: Sink>(
     let status = parts.status.as_u16();
     let coding = Coding::of(header_str(&parts.headers, "content-encoding").as_deref());
     sink.status(status);
+    keep_cookies(jar, &url, &parts.headers);
     report_headers(&sink, &parts.headers, coding);
     if !head && has_body(status) {
         if let Err(why) = stream(&sink, body, coding, options.max_body, timing) {
@@ -174,6 +185,29 @@ fn send(agent: &Agent, options: &Options, request: Request) -> Result<Response<B
         None => agent.run(builder.body(()).map_err(bad)?),
     };
     result.map_err(Failure::Net)
+}
+
+/// Adds the jar's `Cookie` header, unless the request names its own.
+fn send_cookies(jar: &Mutex<Jar>, request: &mut Request) {
+    if request.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("cookie")) {
+        return;
+    }
+    let header = jar
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .header(&request.url, cookies::now());
+    if let Some(value) = header {
+        request.headers.push(("Cookie".to_string(), value));
+    }
+}
+
+/// Puts the response's `Set-Cookie` headers in the jar.
+fn keep_cookies(jar: &Mutex<Jar>, url: &str, headers: &HeaderMap) {
+    let now = cookies::now();
+    let mut jar = jar.lock().unwrap_or_else(|p| p.into_inner());
+    for value in headers.get_all("set-cookie") {
+        jar.store(url, &String::from_utf8_lossy(value.as_bytes()), now);
+    }
 }
 
 /// Passes the response headers on, minus framing and the coding we undo.
