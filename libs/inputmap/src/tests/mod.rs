@@ -99,6 +99,7 @@ fn typed(rig: &mut Rig, usage: u16) -> Option<String> {
     text(&out)
 }
 
+mod barrier;
 mod behavior;
 mod console;
 mod grab;

@@ -13,6 +13,7 @@ use inputmap::pointer::MAX_SIDE;
 use inputmap::{Pointer, PointerOut};
 use user::messenger::input::shell_wire;
 use user::messenger::{errno, Error, Result};
+use user::sys;
 
 use super::hub::Hub;
 
@@ -23,6 +24,8 @@ pub(super) struct Cursor {
     pub(super) engine: Pointer,
     /// The attached compositor asked for pointer events.
     pub(super) subscribed: bool,
+    /// The buttons held in the last event sent, to spot a press.
+    pub(super) sent_buttons: u32,
 }
 
 impl Cursor {
@@ -30,6 +33,7 @@ impl Cursor {
         Cursor {
             engine: Pointer::new(DEFAULT_BOUNDS.0, DEFAULT_BOUNDS.1),
             subscribed: false,
+            sent_buttons: 0,
         }
     }
 }
@@ -72,7 +76,9 @@ impl Hub {
         if !self.pointer.subscribed {
             return;
         }
+        let now = sys::clock();
         for out in outputs {
+            self.note_pointer_sent(out, now);
             let body = shell_wire::encode_pointer_event_args(&shell_wire::PointerEventArgs {
                 x: out.x,
                 y: out.y,

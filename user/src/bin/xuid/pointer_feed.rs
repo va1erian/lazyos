@@ -120,6 +120,7 @@ pub(super) fn selftest_pointer_feed() -> &'static str {
         buttons,
         wheel,
         wheel_h: 0,
+        seq: 0,
     };
     let cases: [Case; 6] = [
         // Nothing changed: nothing to do.

@@ -43,9 +43,23 @@ pub(super) struct InputLink {
     /// The surface holding a keyboard grab (I3): its chords are its own,
     /// so `keys.rs` stands aside until `inputd` reports the grab over.
     pub(super) grab: Option<u64>,
+    /// The newest pointer event read from `inputd` and the buttons it held.
+    polled: (u64, u32),
+    /// A press was read and `inputd` holds the keys typed after it until
+    /// told it was handled (`NoteInputDone`).
+    press_unacked: bool,
 }
 
 impl InputLink {
+    /// Record a pointer event read from `inputd`; a newly held button is a
+    /// press `inputd` waits to hear was handled.
+    fn polled_pointer(&mut self, state: &PointerState) {
+        if state.buttons & !self.polled.1 != 0 {
+            self.press_unacked = true;
+        }
+        self.polled = (state.seq, state.buttons);
+    }
+
     pub(super) fn new() -> InputLink {
         InputLink {
             link: None,
@@ -56,6 +70,8 @@ impl InputLink {
             owns_pointer: false,
             buttons: 0,
             grab: None,
+            polled: (0, 0),
+            press_unacked: false,
         }
     }
 }
@@ -98,6 +114,7 @@ impl Compositor {
                 self.input.link = Some(link);
                 self.input.registered.clear();
                 self.input.told_focus = None;
+                self.input.press_unacked = false;
                 sys::write_str("xuid: attached to inputd\n");
                 self.register_chords();
                 self.adopt_inputd_pointer();
@@ -175,6 +192,7 @@ impl Compositor {
             };
             match link.poll_event() {
                 Ok(Some(ShellEvent::Pointer(state))) if self.input.owns_pointer => {
+                    self.input.polled_pointer(&state);
                     if let Some(old) = pending {
                         if !supersedes(before, &old, &state) {
                             self.apply_pointer(&old);
@@ -209,6 +227,7 @@ impl Compositor {
                 Ok(Some(ShellEvent::SessionOpened(surface))) => self.set_session(surface, true),
                 Ok(Some(ShellEvent::SessionClosed(surface))) => self.set_session(surface, false),
                 Ok(Some(ShellEvent::Pointer(state))) => {
+                    self.input.polled_pointer(&state);
                     let (events, count) = self.translate_pointer(&state);
                     for event in &events[..count] {
                         self.held.push(*event);
@@ -275,7 +294,28 @@ impl Compositor {
                 None => return false,
             }
         }
+        // A press is handled once nothing read is still held (an animation
+        // frame holds input), and its focus is noted just above: only then
+        // may `inputd` let the keys typed after it go.
+        let settled = self.held.is_empty() && self.input.told_focus == Some(self.focused);
+        if self.input.press_unacked && settled {
+            match sent(link.note_input_done(self.input.polled.0)) {
+                Some(true) => self.input.press_unacked = false,
+                Some(false) => {}
+                None => return false,
+            }
+        }
         true
+    }
+
+    /// Tell `inputd` at once about focus changes made since the last
+    /// [`Compositor::sync_input`] (a key on the kernel stream committed
+    /// Alt+Tab, held input was handled): keys typed next must not wait for
+    /// the next loop pass to find the new window.
+    pub(super) fn push_input(&mut self) {
+        if self.input.link.is_some() && !self.push_input_state() {
+            self.drop_input_link();
+        }
     }
 
     /// `inputd` went away: forget the link (retried later) and fall back to

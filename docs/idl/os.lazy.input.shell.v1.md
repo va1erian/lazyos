@@ -23,6 +23,7 @@ someone else's behalf. Everything is per kernel-stamped sender, never per reques
 | NoteFocus | 10 | oneway | `(surface: Option<U64>) -> ()` |
 | NoteSurface | 11 | oneway | `(surface: U64, owner: U64) -> ()` |
 | ForgetSurface | 12 | oneway | `(surface: U64) -> ()` |
+| NoteInputDone | 13 | oneway | `(seq: U64) -> ()` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
 | GrantRequested | 21 | oneway | `(session: U64, kind: U32, surface: U64) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |
