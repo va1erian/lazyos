@@ -15,6 +15,9 @@ confd = { path = "../../../libs/confd" }
 # The zone table, civil-date maths and the taskbar clock format keys, shared
 # with `timed` and `xuid`.
 timezone = { path = "../../../libs/timed" }
+# The account name and password rules accountsd applies, so the Accounts
+# page refuses exactly what the service would.
+accountdb = { path = "../../../libs/accountdb" }
 # Where the image ships the Lucide licence notice the About page points to.
 fhs = { path = "../../../libs/fhs" }
 

@@ -59,6 +59,7 @@ pub mod policy;
 pub mod ratelimit;
 #[cfg(test)]
 mod ratelimit_tests;
+pub mod secret;
 #[cfg(test)]
 mod tests;
 

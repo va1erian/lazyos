@@ -152,6 +152,10 @@ impl xui_settings::Accounts for OsAccounts {
     fn set_admin(&self, name: &str, admin: bool) -> Result<(), String> {
         elevated("account.admin", &[name, if admin { "1" } else { "0" }])
     }
+
+    fn set_password(&self, name: &str, new: &str) -> Result<(), String> {
+        elevated("account.password", &[name, new])
+    }
 }
 
 /// One `elevd` request, its refusal as text.

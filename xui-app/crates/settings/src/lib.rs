@@ -19,6 +19,7 @@
 
 pub mod about_page;
 pub mod accounts;
+pub mod accounts_ops;
 pub mod accounts_page;
 pub mod app;
 pub mod appearance_page;
