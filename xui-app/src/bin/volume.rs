@@ -7,7 +7,8 @@
 //!
 //! Serial evidence: `VOLUME:UP:PASS level=<percent> mute=<bool>` once it
 //! read the mixer (`VOLUME:NOCARD` without a mixer or a card),
-//! `VOLUME:LEVEL:<percent>` and `VOLUME:MUTE:<bool>` on every change,
+//! `VOLUME:LEVEL:<percent>` and `VOLUME:MUTE:<bool>` on every change
+//! (`VOLUME:WRITE:FAIL` when the mixer refused it and nothing changed),
 //! `VOLUME:QUIT:PASS` when `init` asks it to quit.
 
 use audioclient::MixerControl;
@@ -97,24 +98,34 @@ fn event(volume: &mut Volume, event: Event) -> bool {
     if !volume.card {
         return false;
     }
+    // Each change is kept only if the mixer took it: a failed write leaves
+    // the level and mute as they were, so the item and the next wheel notch
+    // never start from a value the mixer does not have.
     match event {
         Event::Scroll { delta } => {
             let step = STEP.saturating_mul(delta.unsigned_abs());
+            let previous = volume.gain;
             volume.gain = if delta > 0 {
                 volume.gain.saturating_add(step).min(UNITY_GAIN)
             } else {
                 volume.gain.saturating_sub(step)
             };
-            if write(volume) {
-                println!("VOLUME:LEVEL:{}", volume.percent());
+            if !write(volume) {
+                volume.gain = previous;
+                println!("VOLUME:WRITE:FAIL");
+                return false;
             }
+            println!("VOLUME:LEVEL:{}", volume.percent());
             true
         }
         Event::Activate { .. } | Event::MenuItem { id: ROW_MUTE, .. } => {
             volume.mute = !volume.mute;
-            if write(volume) {
-                println!("VOLUME:MUTE:{}", volume.mute);
+            if !write(volume) {
+                volume.mute = !volume.mute;
+                println!("VOLUME:WRITE:FAIL");
+                return false;
             }
+            println!("VOLUME:MUTE:{}", volume.mute);
             true
         }
         _ => false,

@@ -77,6 +77,16 @@ impl Lifecycle {
         self.quit = false;
     }
 
+    /// A supervised restart of the same row: the old run's channel and quit
+    /// go, but `Reopen`s queued while it was down (a launch during the
+    /// backoff) wait for the new run's `Watch`.
+    pub(super) fn respawn(&mut self) {
+        if let Some(watch) = self.watch.take() {
+            let _ = watch.release();
+        }
+        self.quit = false;
+    }
+
     /// Whether the instance watches its lifecycle.
     pub(super) fn watching(&self) -> bool {
         self.watch.is_some()

@@ -251,10 +251,17 @@ fn reopen_existing(
     };
     authorize(caller, session)?;
     let args = launch_argument(&request.args)?.unwrap_or_default();
+    // A row in restart backoff (or waiting to start) is the instance too:
+    // matching only `Running` would spawn a second copy beside the one the
+    // backoff is about to bring back. Its queued `Reopen` survives the
+    // respawn (`Lifecycle::respawn`) and reaches the new run at its `Watch`.
     let Some(row) = services.iter_mut().find(|row| {
         row.launched
             && row.name == id
-            && row.phase == Phase::Running
+            && matches!(
+                row.phase,
+                Phase::Running | Phase::Restarting | Phase::Pending
+            )
             && row.cred.map(|cred| cred.session) == Some(session)
     }) else {
         return Ok(None);

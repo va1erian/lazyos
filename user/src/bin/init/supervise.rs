@@ -91,7 +91,7 @@ pub(super) fn spawn_service(
             services[index].started_tick = sys::clock();
             services[index].last_status = None;
             services[index].reason = None;
-            services[index].life.reset();
+            services[index].life.respawn();
             sys::write_str(&format!(
                 "init: started {} (pid {}, attempt {})\n",
                 services[index].name,
