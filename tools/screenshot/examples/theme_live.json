@@ -1,12 +1,12 @@
 [
   {"wait_for": "TERM:UP:PASS", "timeout": 240},
   {"at": 2.0, "shot": "01_default_dark"},
-  {"at": 2.0, "type": "confctl set sys/ui/mode str light"},
-  {"at": 2.5, "key": "enter", "until": "TERM:CMD:confctl set sys/ui/mode str light", "timeout": 30, "retries": 2},
+  {"at": 2.0, "type": "confctl set user/1000/ui/mode str light"},
+  {"at": 2.5, "key": "enter", "until": "TERM:CMD:confctl set user/1000/ui/mode str light", "timeout": 30, "retries": 2},
   {"wait_for": "THEME:APPLIED", "timeout": 30},
   {"at": 1.5, "shot": "02_light"},
-  {"at": 2.0, "type": "confctl set sys/ui/accent u64 3368601"},
-  {"at": 2.5, "key": "enter", "until": "TERM:CMD:confctl set sys/ui/accent u64 3368601", "timeout": 30, "retries": 2},
+  {"at": 2.0, "type": "confctl set user/1000/ui/accent u64 3368601"},
+  {"at": 2.5, "key": "enter", "until": "TERM:CMD:confctl set user/1000/ui/accent u64 3368601", "timeout": 30, "retries": 2},
   {"at": 4.0, "shot": "03_light_blue_accent"},
   {"at": 5.0, "quit": true}
 ]
