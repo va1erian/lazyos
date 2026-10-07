@@ -22,3 +22,6 @@ accounts/auth_hammer.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep f
 accounts/admin_lockout.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request approved while the session floods Authenticate for admin
 accounts/prompt_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: raise the administrator prompt again right after it was cancelled (review of #659, H4)
 accounts/input_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep inputd's shared endpoint full while the prompt is up (review of #659, H3)
+accounts/audit_forge.rhai | GPL-3.0-or-later | desktop | LazyOS original: a conf.set value with a line break that would forge an ELEVD:REQUEST line (review of #659)
+accounts/core_claim.rhai | GPL-3.0-or-later | desktop | LazyOS original: pkg.install of a package claiming a core app's system name (review of #659)
+accounts/restart_guarded.rhai | GPL-3.0-or-later | desktop | LazyOS original: service.restart of a service a session may never restart (review of #659)

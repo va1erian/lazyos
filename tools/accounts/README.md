@@ -78,6 +78,9 @@ delete a canary file, and remove whatever they created.
 | `prompt_keys` | the Terminal has the focus when the prompt opens; the session types `inject`, Enter and Escape: the prompt took the keys from `inputd` (`XUID:PROMPT:DONE ... keys=8`), `elevd` recorded the cancel, and the Terminal never saw a line (`TERM:CMD:inject`) (U2) |
 | `input_flood` | the same (typing `flooded`) while three programs keep `inputd`'s shared endpoint full (`input_flood.rhai`, refused sends counted: the flood must be real); BLOCKED when no client got the keys, or `xuid` refused a prompt it could not take the keyboard for (review of #659, H3) |
 | `prompt_flood` | cancel a prompt, then ask five more times at once: every request must be refused without a prompt (`EAGAIN`, `elevd`'s hold) (review of #659, H4) |
+| `audit_forge` | rhai: `elevd` `conf.set` of a `str` value holding a line break and a whole forged `ELEVD:REQUEST ... admin=forged outcome=granted` line; BLOCKED when refused before any prompt (`EINVAL`, "control or formatting characters"), and the judge fails the run if a log line ever starts with the forged fields (review of #659) |
+| `core_claim` | rhai: `elevd` `pkg.install` of `corereplace.lzp` (claims the core `os.lazy.counter`); BLOCKED when refused before any prompt (`EPERM`, "core app": only `pkg.update-core` replaces a core app) (review of #659) |
+| `restart_elevd`, `restart_xuid` | rhai (`restart_guarded.rhai <name>`): `elevd` `service.restart` of a service outside `elevpolicy::RESTARTABLE`; BLOCKED when refused before any prompt (`EPERM`, "may not be restarted") (review of #659) |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
 
