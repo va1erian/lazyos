@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player, the Linux programs, the HTTPS tools, LazyWeb and Mail (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -309,6 +309,51 @@ class LazyWebTests(unittest.TestCase):
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py"])
         self.assertIn("--net", plan[-1]["argv"])
+
+
+class TrayDemoTests(unittest.TestCase):
+    """The tray sample app (LAZYOS_TRAYDEMO=1, docs/tray-plan.md T1) from the
+    Simple tab, the Advanced tab, run_demo and its session script."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_ships_it_on_the_desktop_only(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "traydemo": True})
+        self.assertEqual(env["LAZYOS_TRAYDEMO"], "1")
+        self.assertNotIn("LAZYOS_TRAYDEMO", catalog.build_env({**self.base(), "desktop": True}))
+        self.assertNotIn("LAZYOS_TRAYDEMO", catalog.build_env({**self.base(), "traydemo": True}))
+
+    def test_simple_desktop_gets_it_and_cli_does_not(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", traydemo=True)
+        self.assertTrue(cfg["traydemo"])
+        self.assertEqual(catalog.build_env({**self.base(), **cfg})["LAZYOS_TRAYDEMO"], "1")
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", traydemo=True)["traydemo"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["traydemo"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--traydemo", demo_argv(traydemo=True, desktop=True, skip_build=False))
+        self.assertNotIn("--traydemo", demo_argv(traydemo=True, desktop=False, skip_build=False))
+        self.assertNotIn("--traydemo", demo_argv(traydemo=True, desktop=True, skip_build=True))
+
+    def test_the_tray_session_asks_for_the_app_and_the_ui_probe(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        self.assertEqual(catalog.SCRIPTS[index["tray.json"]][2:], (("desktop",), "term"))
+        cfg = {**self.base(), "mode": "Scripted session", "desktop": True,
+               "xui_autostart": "term", "script": index["tray.json"]}
+        env = catalog.build_env(cfg)
+        self.assertEqual((env["LAZYOS_TRAYDEMO"], env["LAZYOS_UI_PROBE"]), ("1", "1"))
+        # Another script, or the same index outside a session, adds nothing.
+        other = catalog.build_env({**cfg, "script": index["xui_settings.json"]})
+        self.assertNotIn("LAZYOS_UI_PROBE", other)
+        self.assertNotIn("LAZYOS_UI_PROBE", catalog.build_env({**cfg, "mode": "Interactive demo"}))
+
+    def test_no_normal_session_launches_it(self) -> None:
+        # Only `LAZYOS_TRAYDEMO=1` images ship it: `core_apps.json` must not wait for it.
+        path = os.path.join(catalog.ROOT, "tools", "screenshot", "examples", "core_apps.json")
+        with open(path, encoding="utf-8") as script:
+            self.assertNotIn("os.lazy.traydemo", script.read())
 
 
 if __name__ == "__main__":

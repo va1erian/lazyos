@@ -26,6 +26,8 @@ const TIMED: &str = "os.lazy.timed";
 
 /// `ListApps` may take a quarter second (the old compositor menu's bound).
 const LIST_TICKS: u64 = 25;
+/// `Services` (a cached reply in `init`): a tenth of a second.
+const SERVICES_TICKS: u64 = 10;
 /// `Launch` replies after the spawn, which takes a moment under emulation.
 const LAUNCH_TICKS: u64 = 1000;
 /// `Shutdown`: `init` answers before it stops anything, so this is a
@@ -98,6 +100,26 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
             hidden: app.hidden,
             icon: app.icon,
         })
+        .collect())
+}
+
+/// `init.Services`: every supervision row as `(name, pid)`, which maps a
+/// launched app's task to its app id (the tray's caller identity). `init`
+/// answers it from a cached reply, so the bound is short: the tray reads it
+/// on the UI thread.
+pub fn launched() -> Result<Vec<(String, u64)>, i64> {
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_SERVICES,
+        Vec::new(),
+        SERVICES_TICKS,
+    )?;
+    let table = init_wire::decode_services_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
+    Ok(table
+        .services
+        .into_iter()
+        .map(|row| (row.name, row.pid))
         .collect())
 }
 

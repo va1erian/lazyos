@@ -39,6 +39,7 @@ mod services;
 mod submenu;
 mod taskbar;
 mod theme;
+mod tray;
 mod wallpaper;
 
 use std::rc::Rc;

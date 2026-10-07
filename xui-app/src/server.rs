@@ -61,8 +61,23 @@ impl Server {
 
     /// The next queued request, or `None` when nothing is waiting. Never
     /// parks when the queue is empty. A message too large for `buf` is
-    /// dropped (`Err(-E2BIG)`); one that is not a parcel is skipped.
+    /// dropped (`Err(-E2BIG)`); one that is not a parcel is skipped. Any
+    /// channel or buffer the sender transferred is released.
     pub fn poll(&self, buf: &mut [u8]) -> Result<Option<Request>, i64> {
+        Ok(self.receive(buf, false)?.map(|(request, _)| request))
+    }
+
+    /// [`Server::poll`] for a method that transfers a channel (the tray's
+    /// `Set`): the first transferred channel end is kept and returned, and
+    /// the caller must keep or close it. Buffers are still released.
+    pub fn poll_keeping_channel(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<Option<(Request, Option<u64>)>, i64> {
+        self.receive(buf, true)
+    }
+
+    fn receive(&self, buf: &mut [u8], keep: bool) -> Result<Option<(Request, Option<u64>)>, i64> {
         if sys::msg_queued(self.endpoint)? == 0 {
             return Ok(None);
         }
@@ -71,21 +86,25 @@ impl Server {
             Err(code) if code == -errno::ETIMEDOUT => return Ok(None),
             Err(code) => return Err(code),
         };
-        release_transfers(&result);
+        let channel = release_transfers(&result, keep);
         let txn = (result.value != 0).then_some(result.value);
         let Ok(parcel) = Parcel::decode(&buf[..result.bytes as usize]) else {
+            if let Some(handle) = channel {
+                let _ = close(handle, msg_op::CLOSE_RELEASE);
+            }
             // Answer a malformed call so its sender does not wait forever.
             if let Some(txn) = txn {
                 let _ = self.reply(txn, &error_parcel(0, 0, errno::EINVAL, "bad parcel"));
             }
             return Ok(None);
         };
-        Ok(Some(Request {
+        let request = Request {
             sender: result.aux,
             origin,
             txn,
             parcel,
-        }))
+        };
+        Ok(Some((request, channel)))
     }
 
     /// Park until a request is queued or the absolute PIT `deadline` passes
@@ -137,17 +156,24 @@ pub fn error_parcel(interface: u64, method: u32, code: i64, message: &str) -> Pa
     reply_parcel(interface, method, body.finish())
 }
 
-/// Close what a sender transferred with its message: no shell protocol takes
-/// a handle or a buffer, and keeping them would let any caller fill this
-/// task's tables. Only the first of each is reported by the kernel, which is
-/// all a well-formed request could carry anyway.
-fn release_transfers(result: &MsgResult) {
+/// Close what a sender transferred with its message, unless `keep` asks for
+/// the channel (returned): most protocols take no handle or buffer, and
+/// keeping them would let any caller fill this task's tables. Only the first
+/// of each is reported by the kernel, which is all a well-formed request could
+/// carry anyway.
+fn release_transfers(result: &MsgResult, keep: bool) -> Option<u64> {
+    let mut kept = None;
     if result.reserved[1] > 0 {
-        let _ = close(result.reserved[0], msg_op::CLOSE_RELEASE);
+        if keep {
+            kept = Some(result.reserved[0]);
+        } else {
+            let _ = close(result.reserved[0], msg_op::CLOSE_RELEASE);
+        }
     }
     if result.reserved[3] > 0 {
         let _ = sys::display_close_buffer(result.reserved[2]);
     }
+    kept
 }
 
 /// `CLOSE_ENDPOINT` on `handle` with `flags`.

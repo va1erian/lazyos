@@ -223,6 +223,23 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, 0)
         built.assert_not_called()
 
+    def test_traydemo_is_opt_in_and_built_when_missing(self) -> None:
+        # The tray sample ships only with `--traydemo` (TRAYDEMO_XUI_APPS),
+        # which implies the desktop and builds the app when it is missing.
+        demo = self.dir / "xui-traydemo.elf"
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "DESKTOP_ELFS", []), \
+                mock.patch.object(run_demo, "TRAYDEMO_APPS", [demo]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            self.assertEqual(self.run_main("--desktop")[0], 0)
+            self.assertNotIn("LAZYOS_TRAYDEMO", self.builds[-1])
+            built.assert_not_called()
+            self.assertEqual(self.run_main("--traydemo")[0], 0)
+            self.assertEqual(self.builds[-1].get("LAZYOS_TRAYDEMO"), "1")
+            self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+            built.assert_called_once()
+        self.assertNotIn("xui-traydemo.elf", [p.name for p in run_demo.DESKTOP_ELFS])
+
     def test_the_desktop_apps_match_the_image_build(self) -> None:
         # `build_support/xui_embed.rs` fails a desktop build without any of
         # DESKTOP_XUI_APPS and DOCUMENT_XUI_APPS; run_demo checks the same set.

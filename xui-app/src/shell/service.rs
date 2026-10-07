@@ -162,6 +162,26 @@ fn launch_origin(ctx: &Ctx, app: &str) -> Option<lazyshell::Rect> {
     Some(lazyshell::taskbar::START_BUTTON.offset(0, ctx.bar_y()))
 }
 
+/// The tray's items in bar order, then the overflow's.
+fn tray_entries(ctx: &Ctx) -> Vec<wire::TrayEntry> {
+    let model = ctx.tray.model.borrow();
+    let layout = ctx.tray.layout.borrow();
+    layout
+        .cells
+        .iter()
+        .map(|cell| &cell.app)
+        .chain(layout.overflow.iter())
+        .filter_map(|app| model.get(app))
+        .map(|entry| wire::TrayEntry {
+            app: entry.app.clone(),
+            tooltip: entry.tooltip().to_owned(),
+            status: entry.status() as u32,
+            custom: entry.custom.is_some(),
+            visible: layout.visible(&entry.app),
+        })
+        .collect()
+}
+
 /// What the shell shows right now.
 fn status(ctx: &Ctx) -> wire::StatusReply {
     let bar = ctx.taskbar.borrow();
@@ -197,7 +217,6 @@ fn status(ctx: &Ctx) -> wire::StatusReply {
             })
             .collect(),
         desktop: ctx.icons.borrow().iter().map(launcher).collect(),
-        // The shell starts serving the tray in docs/tray-plan.md stage T1.
-        tray: Vec::new(),
+        tray: tray_entries(ctx),
     }
 }

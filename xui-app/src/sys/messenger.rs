@@ -196,6 +196,16 @@ pub fn msg_send(handle: u64, parcel: &Parcel) -> Result<(), i64> {
     messenger_syscall(msg_op::SEND, &args, &mut MsgResult::default())
 }
 
+/// Close `handle`, a channel end this task holds (the peer then sees
+/// `EPIPE`).
+pub fn msg_close(handle: u64) -> Result<(), i64> {
+    let args = MsgArgs {
+        handle,
+        ..MsgArgs::default()
+    };
+    messenger_syscall(msg_op::CLOSE_ENDPOINT, &args, &mut MsgResult::default())
+}
+
 /// How many messages are queued on `handle`'s channel, without parking.
 ///
 /// An expired-deadline `recv` on an empty queue parks until the next timer

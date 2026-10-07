@@ -3770,6 +3770,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "trayclient"
+version = "0.1.0"
+dependencies = [
+ "messenger-generated",
+]
+
+[[package]]
 name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4366,6 +4373,7 @@ dependencies = [
  "devinspect",
  "fhs",
  "inputmap",
+ "lazyicons",
  "lazyshell",
  "libc",
  "libmessenger",
@@ -4373,6 +4381,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "trayclient",
  "uitheme",
  "xui-archiver",
  "xui-calc",

@@ -159,6 +159,18 @@ fn mail_app() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_MAIL");
     std::env::var_os("LAZYOS_MAIL").as_deref() == Some(OsStr::new("1"))
 }
+
+/// The tray sample app (`os.lazy.traydemo`, docs/tray-plan.md T1), shipped
+/// only by `LAZYOS_TRAYDEMO=1` desktop images (`run_demo.py --traydemo`).
+/// `tools/xui/build.py` always builds it, so no extra step is needed.
+const TRAYDEMO_XUI_APPS: &[&str] = &["xui-traydemo.elf"];
+
+/// Whether this build asks for the tray sample app.
+fn traydemo_app() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_TRAYDEMO");
+    std::env::var_os("LAZYOS_TRAYDEMO").as_deref() == Some(OsStr::new("1"))
+}
+
 /// The print spooler (docs/printing-plan.md P6), an xui-app program with no
 /// window: `init` starts it on every desktop image with the network stack.
 const PRINTD_ELF: &str = "xui-printd.elf";
@@ -174,9 +186,10 @@ fn network_stack() -> bool {
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
 /// of binaries built by `tools/xui/build.py`; with `LAZYOS_DESKTOP=1` and no
 /// explicit list, [`DESKTOP_XUI_APPS`], [`DOCUMENT_XUI_APPS`] and the built
-/// [`OPTIONAL_XUI_APPS`] are used, so one switch is enough. An app that is a
-/// core package (`core_packages`) ships as `/system/packages/<sn>.lzp`, the
-/// rest (the Installer, a hand-built client) as an ELF in `/system/bin`
+/// [`OPTIONAL_XUI_APPS`] (plus the switched network, Mail and tray-demo apps)
+/// are used, so one switch is enough. An app that is a core package
+/// (`core_packages`) ships as `/system/packages/<sn>.lzp`, the rest (the
+/// Installer, a hand-built client) as an ELF in `/system/bin`
 /// ([`xui_destination`]). `LAZYOS_XUI_AUTOSTART` picks which packages open at
 /// boot (`core_packages::autostart_shorts`). With `shell`, LazyShell is
 /// embedded too.
@@ -199,6 +212,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .chain(OPTIONAL_XUI_APPS)
             .chain(NETWORK_XUI_APPS.iter().filter(|_| network_stack()))
             .chain(MAIL_XUI_APPS.iter().filter(|_| mail_app()))
+            .chain(TRAYDEMO_XUI_APPS.iter().filter(|_| traydemo_app()))
             .map(|name| dir.join(name))
             .collect(),
         None => Vec::new(),
