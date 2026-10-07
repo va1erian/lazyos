@@ -79,10 +79,12 @@ cap, also the default) and `net/<drv>/mtu` to 576..=1500 (a frame slot is 2048
 bytes). The clamping is `libs/virtio-net/src/settings.rs`; see
 [networking-plan.md](networking-plan.md) section 13.
 
-Ownership is uniform: **administrators (uid 0 via `confctl`, installers) write,
-services only read.** (Since accounts U2, #625, an administrator writes
-`sys/**` through `elevd`'s `conf.set` on the trusted prompt; no session is
-uid 0 and only a `CAP_SETUID` service or `elevd` may write it.) Drivers and `devd` write nothing to `confd`. `<drv>` is the
+Ownership is uniform: **administrators write, services only read.** An
+administrator writes `sys/**` through `elevd`'s `conf.set`, approved on the
+trusted prompt (accounts U2, #625): no session is uid 0, and only a
+`CAP_SETUID` service or `elevd` may write it, so `confctl` from a session
+writes the user's own keys only. An installer that changes `sys/**` asks
+`elevd` the same way. Drivers and `devd` write nothing to `confd`. `<drv>` is the
 driver's program stem (`virtio-net`, `virtio-snd`, `e1000`).
 
 ## 3. The permission problem

@@ -73,7 +73,7 @@ was `user/src/bin/xuid/menu.rs`).
 
 ## Phases
 
-1. **Persistence** (done): confd falls back `/system` -> `/data` -> `/tmp` (`libs/confd/src/dir.rs`, host-tested). Still to verify on a booted image with a data disk.
+1. **Persistence** (done): confd stores in `/conf`, merges an F3 image's `/data/confd` in once, and falls back to `/transient/conf` (degraded) when `/conf` is not writable (`libs/confd/src/dir.rs`, host-tested; see Persistence above).
 2. **Runtime theme in xuid** (done): `libs/uitheme` + `xuid/themefeed.rs`; verified live by `tools/screenshot/examples/theme_live.json`. `GetTheme` reports `mode` and `accent` (done).
 3. **Keyboard** (done, UI only): `inputd` applies `sys/input/layout`.
 4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.

@@ -141,7 +141,10 @@ const _: () = {
     while i < SYSTEM_UIDS.len() {
         let mut j = i + 1;
         while j < SYSTEM_UIDS.len() {
-            assert!(SYSTEM_UIDS[i] != SYSTEM_UIDS[j], "two system services share a uid");
+            assert!(
+                SYSTEM_UIDS[i] != SYSTEM_UIDS[j],
+                "two system services share a uid"
+            );
             j += 1;
         }
         i += 1;
