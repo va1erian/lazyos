@@ -187,7 +187,7 @@ fn prompt_login(
             sys::write_str(&format!(
                 "Login unavailable: the account database ({}) did not load.\n\
                  This system needs recovery; see docs/security-model.md section 3.\n",
-                fhs::etc::PASSWD
+                fhs::state::ACCOUNTS_DB
             ));
             deny(bus, &name, "no-accounts");
             return None;

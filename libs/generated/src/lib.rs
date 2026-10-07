@@ -432,6 +432,7 @@ pub mod os_lazy_accounts_v1 {
         pub gid: u32,
         pub home: alloc::string::String,
         pub shell: alloc::string::String,
+        pub admin: bool,
     }
 
     pub fn encode_user(value: &User) -> Result<Vec<u8>, Error> {
@@ -441,6 +442,7 @@ pub mod os_lazy_accounts_v1 {
         target.u32(3, value.gid)?;
         target.string(4, &value.home)?;
         target.string(5, &value.shell)?;
+        target.bool(6, value.admin)?;
         Ok(target.finish())
     }
 
@@ -464,61 +466,8 @@ pub mod os_lazy_accounts_v1 {
                 5 => {
                     out.shell = field.as_str()?.into();
                 }
-                _ => {}
-            }
-        }
-        Ok(out)
-    }
-
-    /// Account name.
-    /// Numeric user id (`0` = root).
-    /// Primary group id.
-    /// Home directory.
-    /// Login shell path.
-    /// A create request's full payload, including the initial secret.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct NewUser {
-        pub name: alloc::string::String,
-        pub uid: u32,
-        pub gid: u32,
-        pub secret: alloc::string::String,
-        pub home: alloc::string::String,
-        pub shell: alloc::string::String,
-    }
-
-    pub fn encode_new_user(value: &NewUser) -> Result<Vec<u8>, Error> {
-        let mut target = Encoder::new();
-        target.string(1, &value.name)?;
-        target.u32(2, value.uid)?;
-        target.u32(3, value.gid)?;
-        target.string(4, &value.secret)?;
-        target.string(5, &value.home)?;
-        target.string(6, &value.shell)?;
-        Ok(target.finish())
-    }
-
-    pub fn decode_new_user(body: &[u8]) -> Result<NewUser, Error> {
-        let mut out = NewUser::default();
-        let mut decoder = Decoder::new(body);
-        while let Some(field) = decoder.next()? {
-            match field.id {
-                1 => {
-                    out.name = field.as_str()?.into();
-                }
-                2 => {
-                    out.uid = field.as_u32()?;
-                }
-                3 => {
-                    out.gid = field.as_u32()?;
-                }
-                4 => {
-                    out.secret = field.as_str()?.into();
-                }
-                5 => {
-                    out.home = field.as_str()?.into();
-                }
                 6 => {
-                    out.shell = field.as_str()?.into();
+                    out.admin = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -532,6 +481,14 @@ pub mod os_lazy_accounts_v1 {
     pub const METHOD_AUTHENTICATE: u32 = 1137183084;
     /// `Create` method id.
     pub const METHOD_CREATE: u32 = 420340861;
+    /// `Delete` method id.
+    pub const METHOD_DELETE: u32 = 1469573738;
+    /// `SetPassword` method id.
+    pub const METHOD_SETPASSWORD: u32 = 985541106;
+    /// `SetAdmin` method id.
+    pub const METHOD_SETADMIN: u32 = 1706675794;
+    /// `ListUsers` method id.
+    pub const METHOD_LISTUSERS: u32 = 702470087;
 
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
@@ -640,7 +597,9 @@ pub mod os_lazy_accounts_v1 {
         Ok(out)
     }
 
-    /// Verify `secret` against the stored verifier of `name`.
+    /// Verify `secret` against the stored verifier of `name`. After three
+    /// failures in a row for a name or from a caller, further attempts are
+    /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AuthenticateArgs {
         pub name: alloc::string::String,
@@ -693,15 +652,23 @@ pub mod os_lazy_accounts_v1 {
         Ok(out)
     }
 
-    /// Create a user (admin only). `detail` explains a refusal.
+    /// Create the account `name` with the password `secret` (an
+    /// administrator when `admin`): the next free uid, a 0700 home made from
+    /// the skeleton. From `elevd`, or from the login screen while the machine
+    /// has no account (the owner, who must be an admin). `EEXIST` for a taken
+    /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CreateArgs {
-        pub user: NewUser,
+        pub name: alloc::string::String,
+        pub secret: alloc::string::String,
+        pub admin: bool,
     }
 
     pub fn encode_create_args(value: &CreateArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
-        target.raw(Kind::Struct, 1, &encode_new_user(&value.user)?)?;
+        target.string(1, &value.name)?;
+        target.string(2, &value.secret)?;
+        target.bool(3, value.admin)?;
         Ok(target.finish())
     }
 
@@ -709,8 +676,17 @@ pub mod os_lazy_accounts_v1 {
         let mut out = CreateArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.user = decode_new_user(field.payload)?;
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.secret = field.as_str()?.into();
+                }
+                3 => {
+                    out.admin = field.as_bool()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
@@ -718,14 +694,12 @@ pub mod os_lazy_accounts_v1 {
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CreateReply {
-        pub ok: bool,
-        pub detail: alloc::string::String,
+        pub user: User,
     }
 
     pub fn encode_create_reply(value: &CreateReply) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
-        target.bool(1, value.ok)?;
-        target.string(2, &value.detail)?;
+        target.raw(Kind::Struct, 1, &encode_user(&value.user)?)?;
         Ok(target.finish())
     }
 
@@ -733,12 +707,163 @@ pub mod os_lazy_accounts_v1 {
         let mut out = CreateReply::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.user = decode_user(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Delete the account `name` (from `elevd` only). `home` says what
+    /// happens to its home: `keep`, `archive` (moved aside, root-only) or
+    /// `remove`. The last administrator cannot be deleted (`EBUSY`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteArgs {
+        pub name: alloc::string::String,
+        pub home: alloc::string::String,
+    }
+
+    pub fn encode_delete_args(value: &DeleteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.home)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_args(body: &[u8]) -> Result<DeleteArgs, Error> {
+        let mut out = DeleteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
             match field.id {
                 1 => {
-                    out.ok = field.as_bool()?;
+                    out.name = field.as_str()?.into();
                 }
                 2 => {
-                    out.detail = field.as_str()?.into();
+                    out.home = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Set `name`'s password to `secret`. A user may change their own with
+    /// the current one in `old` (checked and slowed like `Authenticate`,
+    /// `EACCES` when wrong); `elevd` may set anyone's without it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetPasswordArgs {
+        pub name: alloc::string::String,
+        pub old: core::option::Option<alloc::string::String>,
+        pub secret: alloc::string::String,
+    }
+
+    pub fn encode_set_password_args(value: &SetPasswordArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        match &value.old {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        target.string(3, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_password_args(body: &[u8]) -> Result<SetPasswordArgs, Error> {
+        let mut out = SetPasswordArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.old = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.old = Some(item.as_str()?.into());
+                    }
+                }
+                3 => {
+                    out.secret = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Make `name` an administrator or not (from `elevd` only). Taking it
+    /// from the last administrator is `EBUSY`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetAdminArgs {
+        pub name: alloc::string::String,
+        pub admin: bool,
+    }
+
+    pub fn encode_set_admin_args(value: &SetAdminArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.bool(2, value.admin)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_admin_args(body: &[u8]) -> Result<SetAdminArgs, Error> {
+        let mut out = SetAdminArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.admin = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every account, in database order. `setup` is true while the machine
+    /// has no account (the login screen then asks for its owner).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListUsersReply {
+        pub users: alloc::vec::Vec<User>,
+        pub setup: bool,
+    }
+
+    pub fn encode_list_users_reply(value: &ListUsersReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.users {
+            nested.raw(Kind::Struct, 1, &encode_user(item)?)?;
+        }
+        target.array(1, &nested)?;
+        target.bool(2, value.setup)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_users_reply(body: &[u8]) -> Result<ListUsersReply, Error> {
+        let mut out = ListUsersReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.users.push(decode_user(item.payload)?);
+                    }
+                }
+                2 => {
+                    out.setup = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -5291,6 +5416,368 @@ pub mod os_lazy_echo_v1 {
     }
 }
 
+/// `os.lazy.elevd.v1` (interface id `0xc9dbdc9caf1c9788`).
+#[rustfmt::skip]
+pub mod os_lazy_elevd_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xc9dbdc9caf1c9788;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.elevd.v1";
+
+    /// One request's audit record: the payload of
+    /// `system/events/elevd/request`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Record {
+        pub operation: alloc::string::String,
+        pub summary: alloc::string::String,
+        pub uid: u32,
+        pub user: alloc::string::String,
+        pub label: u32,
+        pub admin: alloc::string::String,
+        pub outcome: alloc::string::String,
+    }
+
+    pub fn encode_record(value: &Record) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.operation)?;
+        target.string(2, &value.summary)?;
+        target.u32(3, value.uid)?;
+        target.string(4, &value.user)?;
+        target.u32(5, value.label)?;
+        target.string(6, &value.admin)?;
+        target.string(7, &value.outcome)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_record(body: &[u8]) -> Result<Record, Error> {
+        let mut out = Record::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.operation = field.as_str()?.into();
+                }
+                2 => {
+                    out.summary = field.as_str()?.into();
+                }
+                3 => {
+                    out.uid = field.as_u32()?;
+                }
+                4 => {
+                    out.user = field.as_str()?.into();
+                }
+                5 => {
+                    out.label = field.as_u32()?;
+                }
+                6 => {
+                    out.admin = field.as_str()?.into();
+                }
+                7 => {
+                    out.outcome = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Request` method id.
+    pub const METHOD_REQUEST: u32 = 38093138;
+    /// `Release` method id.
+    pub const METHOD_RELEASE: u32 = 1830722334;
+
+    /// Perform `operation` (a row of the operation table, e.g.
+    /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
+    /// administrator approved it on the prompt. A `conf.*` approval covers
+    /// the caller (same uid, label and session) for the next few minutes, so
+    /// an elevated settings editor does not ask again for every key; every
+    /// other operation asks every time. `detail` describes what was done,
+    /// `values` carries the operation's results (`conf.list`'s paths,
+    /// `conf.get`'s kind and value).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestArgs {
+        pub operation: alloc::string::String,
+        pub args: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_request_args(value: &RequestArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.operation)?;
+        let mut nested = Encoder::new();
+        for item in &value.args {
+            nested.string(1, item)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_args(body: &[u8]) -> Result<RequestArgs, Error> {
+        let mut out = RequestArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.operation = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.args.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RequestReply {
+        pub detail: alloc::string::String,
+        pub values: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_request_reply(value: &RequestReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.detail)?;
+        let mut nested = Encoder::new();
+        for item in &value.values {
+            nested.string(1, item)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_request_reply(body: &[u8]) -> Result<RequestReply, Error> {
+        let mut out = RequestReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.detail = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.values.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
+    /// The operation table row.
+    /// What it would change, as the prompt showed it.
+    /// The asking task's uid and account name.
+    /// The asking task's kernel label id (0: unlabelled).
+    /// The administrator who approved (or was named), if any.
+    /// `granted`, `refused`, `cancelled`, `timedout`, `locked`,
+    /// `failed` (approved, but the service refused) or `invalid`.
+    /// Every request, whatever came of it. Not retained: the journal is the
+    /// record.
+    /// The declared `system/events/elevd/request` topic (`Record`, `latest`).
+    pub const TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST: &str = "system/events/elevd/request";
+    /// The `system/events/elevd/request` delivery policy.
+    pub const TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/events/elevd/request` publishes are retained.
+    pub const TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_RETAINED: bool = false;
+
+    /// Build the concrete `system/events/elevd/request` name; each wildcard takes one literal segment.
+    pub fn name_system_events_elevd_request() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `Record` payload for `system/events/elevd/request`.
+    pub fn encode_system_events_elevd_request(value: &Record) -> Result<Vec<u8>, Error> {
+        encode_record(value)
+    }
+
+    /// Decode a `system/events/elevd/request` payload; malformed bytes are an error.
+    pub fn decode_system_events_elevd_request(body: &[u8]) -> Result<Record, Error> {
+        decode_record(body)
+    }
+
+    /// Publish a typed `Record` on `system/events/elevd/request`.
+    pub fn publish_system_events_elevd_request<P>(publisher: &mut P, value: &Record) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_events_elevd_request().map_err(P::Error::from)?;
+        let payload = encode_system_events_elevd_request(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_RETAINED)
+    }
+
+    /// Subscribe to `system/events/elevd/request` with its declared QoS.
+    pub fn subscribe_system_events_elevd_request<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_QOS)
+    }
+}
+
+/// `os.lazy.display.prompt.v1` (interface id `0x84929e679d4d88b2`).
+#[rustfmt::skip]
+pub mod os_lazy_display_prompt_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x84929e679d4d88b2;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.display.prompt.v1";
+
+    /// `PromptOutcome::Approved` wire value.
+    pub const PROMPT_OUTCOME_APPROVED: u32 = 0;
+    /// `PromptOutcome::Cancelled` wire value.
+    pub const PROMPT_OUTCOME_CANCELLED: u32 = 1;
+    /// `PromptOutcome::TimedOut` wire value.
+    pub const PROMPT_OUTCOME_TIMED_OUT: u32 = 2;
+
+    /// `Prompt` method id.
+    pub const METHOD_PROMPT: u32 = 1337716571;
+
+    /// Show the prompt for `summary` (what would change), asked by the task
+    /// of `uid` (`user`) under kernel label `label_id`, and wait for the
+    /// person at the screen. `admin` pre-fills the name field (the asker,
+    /// when it is an administrator); `error` is shown above the fields (a
+    /// retry after a refused password). The reply comes when they answer:
+    /// `outcome` is a `PromptOutcome`, with `name` and `secret` when
+    /// approved.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PromptArgs {
+        pub summary: alloc::string::String,
+        pub uid: u32,
+        pub user: alloc::string::String,
+        pub label_id: u32,
+        pub admin: alloc::string::String,
+        pub error: alloc::string::String,
+    }
+
+    pub fn encode_prompt_args(value: &PromptArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.summary)?;
+        target.u32(2, value.uid)?;
+        target.string(3, &value.user)?;
+        target.u32(4, value.label_id)?;
+        target.string(5, &value.admin)?;
+        target.string(6, &value.error)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_prompt_args(body: &[u8]) -> Result<PromptArgs, Error> {
+        let mut out = PromptArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.summary = field.as_str()?.into();
+                }
+                2 => {
+                    out.uid = field.as_u32()?;
+                }
+                3 => {
+                    out.user = field.as_str()?.into();
+                }
+                4 => {
+                    out.label_id = field.as_u32()?;
+                }
+                5 => {
+                    out.admin = field.as_str()?.into();
+                }
+                6 => {
+                    out.error = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PromptReply {
+        pub outcome: u32,
+        pub name: alloc::string::String,
+        pub secret: alloc::string::String,
+    }
+
+    pub fn encode_prompt_reply(value: &PromptReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.outcome)?;
+        target.string(2, &value.name)?;
+        target.string(3, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_prompt_reply(body: &[u8]) -> Result<PromptReply, Error> {
+        let mut out = PromptReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.outcome = field.as_u32()?;
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.secret = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+}
+
 /// `os.lazy.files.v1` (interface id `0x95bb1421ccc6b3e7`).
 #[rustfmt::skip]
 pub mod os_lazy_files_v1 {
@@ -6133,6 +6620,10 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_READY: u32 = 197800596;
     /// `ReportFailure` method id.
     pub const METHOD_REPORTFAILURE: u32 = 425853579;
+    /// `Home` method id.
+    pub const METHOD_HOME: u32 = 1391791790;
+    /// `RestartService` method id.
+    pub const METHOD_RESTARTSERVICE: u32 = 726211199;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -6496,6 +6987,102 @@ pub mod os_lazy_init_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.reason = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
+    /// from the accounts service alone (the `_accounts` system uid,
+    /// unlabelled): `init` runs the change as root. `op` is `create` (a 0700
+    /// `/home/<name>` owned by `uid`/`gid`, filled from the skeleton; an
+    /// existing home is kept), `archive` (moved to
+    /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
+    /// human account's (1000 or more) and `name` a login name. The reply
+    /// comes once the change is done; a failed change is `EIO`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HomeArgs {
+        pub op: alloc::string::String,
+        pub name: alloc::string::String,
+        pub uid: u32,
+        pub gid: u32,
+    }
+
+    pub fn encode_home_args(value: &HomeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.op)?;
+        target.string(2, &value.name)?;
+        target.u32(3, value.uid)?;
+        target.u32(4, value.gid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_home_args(body: &[u8]) -> Result<HomeArgs, Error> {
+        let mut out = HomeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.op = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.uid = field.as_u32()?;
+                }
+                4 => {
+                    out.gid = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Restart the system service `name` (docs/accounts-plan.md U2): its
+    /// running task is killed and the supervisor starts it again as after a
+    /// crash. Accepted from `elevd` alone, after an administrator approved
+    /// it; an app or an unknown row is `ENOENT`, a row not running `EAGAIN`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RestartServiceArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_restart_service_args(value: &RestartServiceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_restart_service_args(body: &[u8]) -> Result<RestartServiceArgs, Error> {
+        let mut out = RestartServiceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RestartServiceReply {
+        pub pid: u64,
+    }
+
+    pub fn encode_restart_service_reply(value: &RestartServiceReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_restart_service_reply(body: &[u8]) -> Result<RestartServiceReply, Error> {
+        let mut out = RestartServiceReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pid = field.as_u64()?;
             }
         }
         Ok(out)
@@ -8201,6 +8788,8 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_PING: u32 = 2142761129;
     /// `Provision` method id.
     pub const METHOD_PROVISION: u32 = 1596114784;
+    /// `Forget` method id.
+    pub const METHOD_FORGET: u32 = 1849666444;
 
     /// Check a username/password pair against the stored Argon2id verifier.
     /// The plaintext `secret` crosses the channel; the kernel stamps the
@@ -8538,10 +9127,13 @@ pub mod os_lazy_keyd_v1 {
         Ok(out)
     }
 
-    /// Install or replace an account's password verifier. Root only: the
-    /// accounts service pushes its database here so `Verify` can answer for
-    /// every account. `keyd` derives and stores the Argon2id verifier and the
-    /// secret does not outlive the call.
+    /// Install or replace an account's password verifier (docs/accounts-plan.md
+    /// U1). Accepted only from the accounts service (the `_accounts` system
+    /// uid, unlabelled): whoever may plant a verifier may become that user.
+    /// `keyd` derives the Argon2id verifier over a fresh salt, starts
+    /// answering `Verify` with it, and returns it as the account database
+    /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+    /// survives a reboot; the secret does not outlive the call.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ProvisionArgs {
         pub user: alloc::string::String,
@@ -8567,6 +9159,52 @@ pub mod os_lazy_keyd_v1 {
                     out.secret = field.as_str()?.into();
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ProvisionReply {
+        pub verifier: alloc::string::String,
+    }
+
+    pub fn encode_provision_reply(value: &ProvisionReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.verifier)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_provision_reply(body: &[u8]) -> Result<ProvisionReply, Error> {
+        let mut out = ProvisionReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.verifier = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Drop an account's verifier: it can no longer log in. Accepted only
+    /// from the accounts service, like `Provision`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ForgetArgs {
+        pub user: alloc::string::String,
+    }
+
+    pub fn encode_forget_args(value: &ForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_forget_args(body: &[u8]) -> Result<ForgetArgs, Error> {
+        let mut out = ForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.user = field.as_str()?.into();
             }
         }
         Ok(out)
@@ -16575,6 +17213,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/devices/+",
         subscribe_permission: "subscribe:system/devices/+",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.elevd.v1",
+        name: "system/events/elevd/request",
+        payload: "Record",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/events/elevd/request",
+        subscribe_permission: "subscribe:system/events/elevd/request",
     },
     topics::TopicDecl {
         interface: "os.lazy.files.v1",

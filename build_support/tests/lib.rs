@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+#[path = "../accounts_seed.rs"]
+mod accounts_seed;
 #[path = "../assets_embed.rs"]
 mod assets_embed;
 #[path = "../ca_bundle.rs"]
@@ -29,8 +31,6 @@ mod os_manifest;
 mod os_recover;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
-#[path = "../shadow.rs"]
-mod shadow;
 #[path = "../tls_embed.rs"]
 mod tls_embed;
 #[path = "../usb_fat.rs"]
@@ -40,6 +40,8 @@ mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
 
+#[cfg(test)]
+mod accounts_tests;
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
@@ -60,8 +62,6 @@ mod limits_tests;
 mod recover_tests;
 #[cfg(test)]
 mod samples_tests;
-#[cfg(test)]
-mod shadow_tests;
 #[cfg(test)]
 mod tls_files_tests;
 #[cfg(test)]

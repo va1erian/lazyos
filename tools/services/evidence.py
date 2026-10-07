@@ -45,8 +45,8 @@ REQUIRED: list[tuple[str, str]] = [
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
     ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
-    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
-     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
+    ("accountsd loaded 2 rows from /conf/accounts/db (issues #508, #624)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 admins=1 file=/conf/accounts/db$"),
     ("mime overrides from /system/share/mime.types (issue #508)",
      r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]
@@ -67,8 +67,8 @@ DESKTOP: list[tuple[str, str]] = [
     ("timed published time/tick", r"TIMED:TICK:PASS unix=\d+ offset=-?\d+ zone=\S+$"),
     ("logd journals in /logs (issue #508)", r"^LOGD:STORE:READY dir=/logs boot=[0-9a-f]{16} "),
     ("confd store in /conf (issue #508)", r"^CONFD:READY dir=/conf persistent=true$"),
-    ("accountsd loaded 2 rows from /system/etc/passwd (issue #508)",
-     r"^ACCOUNTS:LOAD:PASS rows=2 file=/system/etc/passwd$"),
+    ("accountsd loaded 2 rows from /conf/accounts/db (issues #508, #624)",
+     r"^ACCOUNTS:LOAD:PASS rows=2 admins=1 file=/conf/accounts/db$"),
     ("mime overrides from /system/share/mime.types (issue #508)",
      r"^MIME:GUESS:PASS SAMPLE\.LZT \S+ \(/system/share/mime\.types\)$"),
 ]

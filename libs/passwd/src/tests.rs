@@ -32,7 +32,7 @@ fn the_shipped_file_has_admin_and_user() {
     assert_eq!(
         rows,
         [
-            ("admin", 0, 0, "/home/admin", "sh"),
+            ("admin", 1001, 1001, "/home/admin", "sh"),
             ("user", 1000, 1000, "/home/user", "sh"),
         ]
     );

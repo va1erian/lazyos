@@ -80,6 +80,10 @@ jobs:
             -Zbuild-std=core,alloc -- -D warnings
       - name: Clippy (host libraries)
         run: cargo clippy -p libmessenger -p messenger-generated -p lazyos-crypto -p font-atlas -p confd -p timezone -p inputmap -- -D warnings
+      - name: Account database and elevd operation table (host tests, seeded fuzz, clippy)
+        run: |
+          cargo test -p accountdb -p elevpolicy
+          cargo clippy -p accountdb -p elevpolicy --all-targets --features accountdb/fuzz,elevpolicy/fuzz -- -D warnings
       - name: Zone and DST resolution tests (timed)
         run: cargo test -p timezone
       - name: Keymap, modifier, repeat and pointer tests (inputd, includes the seeded pointer fuzz)
@@ -198,8 +202,10 @@ jobs:
       # Issue #508 section 3: the accounts are `admin` and `user` from
       # /system/etc/passwd. `user` logs in on the console, lands in its home
       # with HOME/USER/PATH set, and cannot read /home/admin, /conf or
-      # /logs/kernel.log; `admin` lands in /home/admin. Then an image without
-      # the account file: accountsd fails closed and no login succeeds.
+      # /logs/kernel.log; `admin` (uid 1001 in the `admin` group, not root:
+      # docs/accounts-plan.md U1) lands in /home/admin and cannot list /conf
+      # either. Then an image without the account database: accountsd fails
+      # closed and no login succeeds.
       - name: Accounts, homes and permissions
         run: |
           python tools/screenshot/qemu_session.py --image target/lazyos.img \

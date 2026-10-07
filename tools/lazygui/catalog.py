@@ -17,6 +17,7 @@ from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-expor
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
+from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
@@ -94,17 +95,6 @@ SCRIPTS = [
     ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
-]
-
-# Simple mode: (label, cargo profile) and (label, description) choices.
-SIMPLE_BUILDS = [("Debug", "dev"), ("Release", "release")]
-SIMPLE_INTERFACES = [
-    ("CLI",
-     "A basic terminal screen with the system shell (busybox sh) connected to it."),
-    ("Desktop",
-     "The full services suite (init, messengerd, logd, healthd, keyd, accounts, "
-     "clipboardd, ...) plus the xuid compositor, the LazyShell desktop and an XUI "
-     "app window."),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
@@ -250,84 +240,6 @@ def lazyrad_samples(user: str) -> str:
     return os.pathsep.join(entries)
 
 
-def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
-                  shell: bool = True, devices: bool = False, doom: bool = False,
-                  modplayer: bool = False, net: bool = False, linuxapps: bool = False,
-                  hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
-                  mail: bool = False, traydemo: bool = False,
-                  autologin: bool = False) -> dict:
-    """The full configuration for a Simple-mode choice.
-
-    ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
-    ``CLI`` or ``Desktop``; ``lazyrad`` adds the LazyRAD IDE to a Desktop
-    image (a core package like the other desktop apps, so it means nothing on
-    the CLI), ``shell`` keeps the LazyShell desktop (taskbar, start menu) on
-    it, ``devices`` opens the Devices app at boot, ``doom`` adds the Doom
-    package and ``modplayer`` the LazyRAD MOD player package (likewise Desktop
-    only); ``net`` adds networking to either interface (the stack, QEMU's user
-    network with host port 8080 forwarded, and on the desktop the Network and
-    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash, lua,
-    sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
-    at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
-    fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
-    it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
-    ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
-    Desktop's login screen and logs ``user`` in (issue #623). Machine settings
-    (accelerator, memory, QEMU path) come from ``base``; every image switch is
-    decided here so stale Advanced checkboxes cannot leak into a Simple boot.
-    """
-    if build not in dict(SIMPLE_BUILDS).values():
-        raise ValueError(f"unknown build profile: {build!r}")
-    if interface not in dict(SIMPLE_INTERFACES):
-        raise ValueError(f"unknown interface: {interface!r}")
-    desktop = interface == "Desktop"
-    lazyweb = desktop and lazyweb
-    tls = tls or lazyweb or (desktop and mail)
-    cfg = dict(base)
-    cfg.update({
-        "mode": "Interactive demo",
-        "profile": build,
-        "skip_build": False,
-        # Kernel limits are an Advanced-only control: never carried into Simple.
-        "limits": "",
-        "headless": False,
-        "extra": base.get("extra", ""),
-        "busybox": "",
-        "cli": not desktop,
-        # The desktop gets a sound card (type `beep` in the Terminal); the CLI
-        # image stays quiet, since a sound card there means boot-time test tones.
-        "sound": desktop,
-        # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services, compositor,
-        # the xui apps as its clients (nothing opens at boot), no demo/evidence programs.
-        # The individual switches stay off so no Advanced checkbox leaks in.
-        "desktop": desktop,
-        "services": False,
-        "xuid": False,
-        "shellprobe": False,
-        "msgctl": False,
-        "msgrd": False,
-        "xui_client": False,
-        "xui_app": "(none)",
-        "prebuild_xui": desktop,
-        "lazyrad": desktop and lazyrad,
-        "shell": desktop and shell,
-        "devices": desktop and devices,
-        "doom": desktop and doom,
-        "modplayer": desktop and modplayer,
-        "net": net or tls,
-        "net_forwards": "",
-        "net_restrict": False,
-        "linuxapps": linuxapps,
-        "tls": tls,
-        "journal": False,
-        "lazyweb": lazyweb,
-        "mail": desktop and mail, "traydemo": desktop and traydemo,
-        "autologin": DEFAULT_ACCOUNT if desktop and autologin else "",
-        "display_mode": HIDPI_MODE if hidpi else "",
-    })
-    return cfg
-
-
 def cargo_step(cfg: dict) -> dict:
     """The `cargo build` step that produces target/lazyos.img."""
     argv = [CARGO, "build"]
@@ -419,7 +331,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # Recreate the OS volume (apps, settings, logs) instead of updating it; it needs a
         # build, so "Skip build" wins. run_demo asks before erasing and has no terminal
         # here, so the GUI asks first (datavol.confirm_reset_os) and passes --yes for it.
-        if cfg.get("reset_os") and not cfg["skip_build"]:
+        if (cfg.get("reset_os") or cfg.get("setup")) and not cfg["skip_build"]:
             argv += ["--reset-os", "--yes"]
         argv += device_flags(cfg)  # sound card, NIC model, devd (`drivers`)
         # A virtio-net card on QEMU's user network with the forwards; run_demo

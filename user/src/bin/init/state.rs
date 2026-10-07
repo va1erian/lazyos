@@ -126,9 +126,27 @@ const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
 #[cfg(lazyos_netd)]
 const NETD_UID: u32 = netpolicy::NETD_UID;
 
+/// The account database service's identity (docs/accounts-plan.md U1): the
+/// `_accounts` system uid, owner of `/conf/accounts`, and **no capability**.
+/// Whatever it needs done as root (a home) it asks this supervisor for, and
+/// `keyd` takes verifiers from this identity alone.
+const ACCOUNTS_CRED: SysCred =
+    SysCred::new(accountdb::ACCOUNTS_UID, accountdb::ACCOUNTS_UID, 0, 0, 0);
+
+/// The elevation service's identity (docs/accounts-plan.md U2): the `_elev`
+/// system uid and **no capability**. The services it calls accept its
+/// privileged requests by this identity alone.
+const ELEVD_CRED: SysCred = SysCred::new(accountdb::ELEVD_UID, accountdb::ELEVD_UID, 0, 0, 0);
+
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
+    if name == "accountsd" {
+        return Some(ACCOUNTS_CRED);
+    }
+    if name == "elevd" {
+        return Some(ELEVD_CRED);
+    }
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
@@ -257,6 +275,15 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &[],
+    },
+    // Administrator-approved operations (docs/accounts-plan.md U2): it
+    // checks passwords through `accountsd` and audits on the broker.
+    ServiceSpec {
+        name: "elevd",
+        path: fhs::bin::ELEVD,
+        args: "",
+        restart: Restart::Always,
+        deps: &["accountsd", "messengerd"],
     },
     // The login prompt reads its keys through `inputd`'s console session
     // (issue #396), so it starts once `inputd` serves; it reads the login

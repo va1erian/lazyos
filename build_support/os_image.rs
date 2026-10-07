@@ -35,19 +35,65 @@ pub enum Source {
     Bytes(Vec<u8>),
 }
 
-/// One file of the OS volume: its absolute path, bytes and mode (root-owned).
+/// One file of the OS volume: its absolute path, bytes, mode and owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OsFile {
     pub path: String,
     pub source: Source,
     pub mode: u16,
+    /// Owner and how the build places it ([`Placement::ROOT`] for nearly
+    /// every file).
+    pub placement: Placement,
+}
+
+/// Who owns a placed file, and whether an update may replace it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub uid: u32,
+    pub gid: u32,
+    /// A seed: written only when the path does not exist yet, and never
+    /// listed in the manifest, so an update neither replaces nor deletes
+    /// it (the account database a running system keeps changing).
+    pub seed: bool,
+}
+
+impl Placement {
+    /// A root-owned file the build owns: replaced by every update.
+    pub const ROOT: Placement = Placement {
+        uid: 0,
+        gid: 0,
+        seed: false,
+    };
+
+    /// A file owned by `uid`/`gid`, replaced by every update.
+    pub const fn owned(uid: u32, gid: u32) -> Placement {
+        Placement {
+            uid,
+            gid,
+            seed: false,
+        }
+    }
+
+    /// A seed owned by `uid`/`gid`: written once, then the system's.
+    pub const fn seed(uid: u32, gid: u32) -> Placement {
+        Placement {
+            uid,
+            gid,
+            seed: true,
+        }
+    }
 }
 
 /// Where the embed modules put the files they select.
 pub trait Sink {
     /// Add `path` (relative to the volume root, or absolute) with `mode`. A
     /// later entry for the same path replaces the earlier one.
-    fn add(&mut self, path: &str, source: Source, mode: u16);
+    fn add(&mut self, path: &str, source: Source, mode: u16) {
+        self.add_placed(path, source, mode, Placement::ROOT);
+    }
+
+    /// [`Sink::add`] with an owner other than root, or as a seed.
+    fn add_placed(&mut self, path: &str, source: Source, mode: u16, placement: Placement);
 
     /// Add the file at `source`, with the mode its name implies.
     fn add_file(&mut self, path: &str, source: PathBuf) {
@@ -77,13 +123,14 @@ impl OsFiles {
 }
 
 impl Sink for OsFiles {
-    fn add(&mut self, path: &str, source: Source, mode: u16) {
+    fn add_placed(&mut self, path: &str, source: Source, mode: u16, placement: Placement) {
         match clean_path(path) {
             Some(path) => {
                 let file = OsFile {
                     path: path.clone(),
                     source,
                     mode,
+                    placement,
                 };
                 self.files.insert(path, file);
             }
@@ -340,6 +387,10 @@ pub fn write_volume(
             .map_err(|e| volume_error(&format!("chmod {}", dir.path), e))?;
     }
     for file in files {
+        // A seed the system already has is the system's now.
+        if file.placement.seed && volume.lookup(&file.path).is_ok() {
+            continue;
+        }
         let parent = file.path.rsplit_once('/').map_or("/", |(parent, _)| parent);
         volume
             .mkdir_p(if parent.is_empty() { "/" } else { parent }, 0o755, 0, 0)
@@ -349,8 +400,9 @@ pub fn write_volume(
             Source::Path(path) => std::fs::read(path)
                 .map_err(|e| format!("read {} for {}: {e}", path.display(), file.path))?,
         };
+        let Placement { uid, gid, .. } = file.placement;
         volume
-            .write_file(&file.path, &bytes, file.mode, 0, 0, stamp)
+            .write_file(&file.path, &bytes, file.mode, uid, gid, stamp)
             .map_err(|e| volume_error(&format!("write {}", file.path), e))?;
     }
     // Everything else is on the disk before the manifest that lists it: the

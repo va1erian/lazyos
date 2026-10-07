@@ -64,7 +64,7 @@ class Launcher:
             "limits": self.v["limits"].get().strip(),
             "display_mode": self.v["display_mode"].get().strip(),
             "assets": self.v["assets"].get().strip(),
-            "autologin": self.v["autologin"].get().strip(),
+            "autologin": self.v["autologin"].get().strip(), "setup": self.v["setup"].get(),
             "times": self.v["times"].get().strip(),
             "timeout": self.v["timeout"].get().strip(),
             "abi_time": self.v["abi_time"].get().strip(),
@@ -135,7 +135,7 @@ class Launcher:
                          v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
                          v["simple_linuxapps"], v["simple_hidpi"], v["simple_tls"],
                          v["simple_lazyweb"], v["simple_mail"], v["simple_traydemo"],
-                         v["simple_autologin"])
+                         v["simple_autologin"], v["simple_setup"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -234,6 +234,7 @@ class Launcher:
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
         ttk.Checkbutton(row, text="Skip build", variable=self.v["skip_build"]).pack(side="left")
         ttk.Checkbutton(row, text="Headless", variable=self.v["headless"]).pack(side="left", padx=12)
+        ttk.Checkbutton(row, text="First-boot setup", variable=self.v["setup"]).pack(side="left")
         ttk.Checkbutton(row, text="USB tablet", variable=self.v["tablet"]).pack(side="left")
         ttk.Checkbutton(row, text="Sound card", variable=self.v["sound"]).pack(side="left", padx=12)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)
@@ -450,11 +451,9 @@ class Launcher:
         self.log.configure(state="disabled")
 
     def _poll(self) -> None:
-        """Drain a bounded batch of runner messages, then reschedule.
-
-        The batch cap keeps a step that out-produces this loop from starving the
-        Tk event loop, so Stop and window-close still get processed.
-        """
+        """Drain a bounded batch of runner messages, then reschedule. The batch
+        cap keeps a step that out-produces this loop from starving the Tk event
+        loop, so Stop and window-close still get processed."""
         for _ in range(1000):
             try:
                 msg = self.runner.q.get_nowait()

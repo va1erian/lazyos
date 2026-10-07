@@ -1,0 +1,26 @@
+[package]
+name = "accountdb"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The account database /conf/accounts/db: strict parsing, the generated passwd and group views, account operations, who may perform them and the Authenticate rate limit, shared by accountsd, keyd and the image build (docs/accounts-plan.md U1, issue #624)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "accountdb"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/accountdb.rs`).
+fuzz = []
+
+[dependencies]
+# The name, home and shell rules and the Argon2id verifier row the account
+# file and the shadow file already use, so the three agree by construction.
+passwd = { path = "../passwd" }
+# Where homes live (`/home/<name>`).
+fhs = { path = "../fhs", features = ["alloc"] }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

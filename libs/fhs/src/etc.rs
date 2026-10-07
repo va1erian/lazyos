@@ -1,13 +1,23 @@
 //! System configuration files in [`SYSTEM_ETC`](crate::SYSTEM_ETC).
 
-/// The account database (`name:uid:gid:x:home:shell`), read by
-/// `accountsd`. Written by the image build; `accountsd` fails closed without
-/// it. The fourth field is always `x`: the password lives in [`SHADOW`].
+/// The accounts' public columns (`name:uid:gid:x:home:shell`), a view of
+/// the account database ([`ACCOUNTS_DB`](crate::state::ACCOUNTS_DB),
+/// docs/accounts-plan.md U1) for Linux programs (`/etc/passwd`). 0644, owned
+/// by `_accounts`. Written by the image build and `accountsd`.
 pub const PASSWD: &str = "/system/etc/passwd";
 
-/// The password verifiers (issue #447): one Argon2id hash per account, mode
-/// 0600 and owned by root, read only by `keyd`. Written by the image build.
+/// The groups (`name:gid:member,member`), the other view of the account
+/// database; the kernel adds it to the Linux `/etc/group`. 0644, owned by
+/// `_accounts`. Written by the image build and `accountsd`.
+pub const GROUP: &str = "/system/etc/group";
+
+/// The password verifiers of images before U1 (issue #447). The account
+/// database holds them now; an update removes this file.
 pub const SHADOW: &str = "/system/etc/shadow";
+
+/// The skeleton a new account's home is copied from (docs/accounts-plan.md
+/// U1). Written by the image build.
+pub const SKEL: &str = "/system/etc/skel";
 
 /// The trust anchors for TLS clients: one PEM bundle generated at build time
 /// from a pinned Mozilla root list (docs/tls-plan.md §5.2). Linux programs see
@@ -59,6 +69,8 @@ mod tests {
     fn lives_in_system_etc() {
         assert!(PASSWD.starts_with(crate::SYSTEM_ETC));
         assert!(SHADOW.starts_with(crate::SYSTEM_ETC));
+        assert!(GROUP.starts_with(crate::SYSTEM_ETC));
+        assert!(SKEL.starts_with(crate::SYSTEM_ETC));
         assert!(CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
         assert!(HOSTS.starts_with(crate::SYSTEM_ETC));
         assert!(UI_PROBE.starts_with(crate::SYSTEM_ETC));

@@ -17,6 +17,26 @@
         "name": "Create",
         "id": 420340861,
         "oneway": false
+      },
+      {
+        "name": "Delete",
+        "id": 1469573738,
+        "oneway": false
+      },
+      {
+        "name": "SetPassword",
+        "id": 985541106,
+        "oneway": false
+      },
+      {
+        "name": "SetAdmin",
+        "id": 1706675794,
+        "oneway": false
+      },
+      {
+        "name": "ListUsers",
+        "id": 702470087,
+        "oneway": false
       }
     ],
     "topics": []
@@ -551,6 +571,45 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.elevd.v1",
+    "interface_id": "0xc9dbdc9caf1c9788",
+    "methods": [
+      {
+        "name": "Request",
+        "id": 38093138,
+        "oneway": false
+      },
+      {
+        "name": "Release",
+        "id": 1830722334,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/events/elevd/request",
+        "source": "system/events/elevd/request",
+        "payload": "Record",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/elevd/request",
+        "subscribe_permission": "subscribe:system/events/elevd/request"
+      }
+    ]
+  },
+  {
+    "interface": "os.lazy.display.prompt.v1",
+    "interface_id": "0x84929e679d4d88b2",
+    "methods": [
+      {
+        "name": "Prompt",
+        "id": 1337716571,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.files.v1",
     "interface_id": "0x95bb1421ccc6b3e7",
     "methods": [],
@@ -645,6 +704,16 @@
         "name": "ReportFailure",
         "id": 425853579,
         "oneway": true
+      },
+      {
+        "name": "Home",
+        "id": 1391791790,
+        "oneway": false
+      },
+      {
+        "name": "RestartService",
+        "id": 726211199,
+        "oneway": false
       }
     ],
     "topics": [
@@ -967,6 +1036,11 @@
       {
         "name": "Provision",
         "id": 1596114784,
+        "oneway": false
+      },
+      {
+        "name": "Forget",
+        "id": 1849666444,
         "oneway": false
       }
     ],

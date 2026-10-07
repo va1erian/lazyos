@@ -1,15 +1,16 @@
-//! Fuzzing of the Messenger wire decoding behind `accountsd` and `keyd`
-//! (issue #626).
+//! Fuzzing of the Messenger wire decoding behind `accountsd`, `keyd`, `elevd`
+//! and the trusted prompt (issue #626, docs/accounts-plan.md U1/U2).
 //!
 //! `accountsd` (a binary, so not host-testable) turns a request into a call of
 //! `messenger_generated::os_lazy_accounts_v1::decode_*_args` on the parcel
 //! body, and `keyd` does the same with `os_lazy_keyd_v1`. Both bodies come
 //! from any process that may reach the service (lookups are open to every
 //! caller), so the decoders are the untrusted-input surface of the account
-//! stack. [`run`] is the shared entry point for the cargo-fuzz target
+//! stack; `elevd`'s requests come from any session task and its prompt
+//! replies from `xuid`. [`run`] is the shared entry point for the cargo-fuzz target
 //! (`fuzz/fuzz_targets/accountwire.rs`) and the seeded tests: it feeds the
 //! bytes to the parcel envelope decoder and to every request and reply body
-//! decoder of both interfaces. None may panic, and a value that decodes must
+//! decoder of these interfaces. None may panic, and a value that decodes must
 //! re-encode and decode back to itself.
 //!
 //! The account database (`libs/passwd`) has its own entry point
@@ -17,7 +18,10 @@
 //! table row from the decoded fields.
 
 use libmessenger::Parcel;
-use messenger_generated::{os_lazy_accounts_v1 as accounts, os_lazy_keyd_v1 as keyd};
+use messenger_generated::{
+    os_lazy_accounts_v1 as accounts, os_lazy_display_prompt_v1 as prompt,
+    os_lazy_elevd_v1 as elevd, os_lazy_keyd_v1 as keyd,
+};
 
 /// Decode `body` with `decode`; when it is a value, check it survives a round
 /// trip through `encode`.
@@ -48,13 +52,33 @@ fn accounts_bodies(body: &[u8]) {
         body,
         accounts,
         decode_user / encode_user,
-        decode_new_user / encode_new_user,
         decode_lookup_args / encode_lookup_args,
         decode_lookup_reply / encode_lookup_reply,
         decode_authenticate_args / encode_authenticate_args,
         decode_authenticate_reply / encode_authenticate_reply,
         decode_create_args / encode_create_args,
         decode_create_reply / encode_create_reply,
+        decode_delete_args / encode_delete_args,
+        decode_set_password_args / encode_set_password_args,
+        decode_set_admin_args / encode_set_admin_args,
+        decode_list_users_reply / encode_list_users_reply,
+    );
+}
+
+/// Every body decoder of `os.lazy.elevd.v1` and the prompt interface.
+fn elevd_bodies(body: &[u8]) {
+    check!(
+        body,
+        elevd,
+        decode_request_args / encode_request_args,
+        decode_request_reply / encode_request_reply,
+        decode_record / encode_record,
+    );
+    check!(
+        body,
+        prompt,
+        decode_prompt_args / encode_prompt_args,
+        decode_prompt_reply / encode_prompt_reply,
     );
 }
 
@@ -78,6 +102,8 @@ fn keyd_bodies(body: &[u8]) {
         decode_generate_reply / encode_generate_reply,
         decode_list_reply / encode_list_reply,
         decode_provision_args / encode_provision_args,
+        decode_provision_reply / encode_provision_reply,
+        decode_forget_args / encode_forget_args,
     );
 }
 
@@ -93,9 +119,11 @@ pub fn run(input: &[u8]) {
         assert_eq!(Parcel::decode(&bytes).as_ref(), Ok(&parcel));
         accounts_bodies(&parcel.body);
         keyd_bodies(&parcel.body);
+        elevd_bodies(&parcel.body);
     }
     accounts_bodies(input);
     keyd_bodies(input);
+    elevd_bodies(input);
 }
 
 #[cfg(test)]
@@ -147,14 +175,26 @@ mod seeded {
             })
             .unwrap(),
             wire::encode_create_args(&wire::CreateArgs {
-                user: wire::NewUser {
-                    name: "guest".into(),
-                    uid: 1001,
-                    gid: 100,
-                    secret: "s".into(),
-                    home: "/home/guest".into(),
-                    shell: "/bin/sh".into(),
-                },
+                name: "guest".into(),
+                secret: "s".into(),
+                admin: true,
+            })
+            .unwrap(),
+            wire::encode_set_password_args(&wire::SetPasswordArgs {
+                name: "user".into(),
+                old: Some("lazy".into()),
+                secret: "new".into(),
+            })
+            .unwrap(),
+            elevd::encode_request_args(&elevd::RequestArgs {
+                operation: "conf.set".into(),
+                args: vec!["sys/ui/demo".into(), "str".into(), "x".into()],
+            })
+            .unwrap(),
+            prompt::encode_prompt_reply(&prompt::PromptReply {
+                outcome: prompt::PROMPT_OUTCOME_APPROVED,
+                name: "admin".into(),
+                secret: "nimda".into(),
             })
             .unwrap(),
             keyd::encode_provision_args(&keyd::ProvisionArgs {

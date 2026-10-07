@@ -1,0 +1,5 @@
+# seed
+next:1002
+group:admin:10
+user:user:1000:1000:/home/user:sh::argon2id:19456:2:1:abababababababababababababababab:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a
+user:admin:1001:1001:/home/admin:sh:admin:argon2id:19456:2:1:abababababababababababababababab:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a

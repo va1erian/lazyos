@@ -35,6 +35,9 @@ impl DirSpec {
 
 /// A directory only its owner may enter.
 pub const PRIVATE: u16 = 0o700;
+/// A directory only its owner may list or change, which others may cross to
+/// reach an entry they know the name of (and its own mode allows).
+pub const TRAVERSE_ONLY: u16 = 0o711;
 
 /// Where the build puts the manifest of the paths it placed.
 pub const MANIFEST_PATH: &str = fhs::system::IMAGE_MANIFEST;
@@ -99,6 +102,7 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
         fhs::SYSTEM_ETC,
         fhs::SYSTEM_SHARE,
         fhs::SYSTEM_PACKAGES,
+        fhs::etc::SKEL,
     ]
     .iter()
     .map(|path| DirSpec::new(path, 0o755, 0, 0))
@@ -108,7 +112,16 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     // uids, these owners change with them.
     out.extend([
         // Only `confd` reads the raw store; everyone else goes through it.
-        DirSpec::new(fhs::state::CONF_ROOT, PRIVATE, 0, 0),
+        // Traversable (no listing) so `_accounts` reaches its own directory
+        // below it; every entry of confd's has its own private mode.
+        DirSpec::new(fhs::state::CONF_ROOT, TRAVERSE_ONLY, 0, 0),
+        // The account database, `accountsd`'s alone (docs/accounts-plan.md U1).
+        DirSpec::new(
+            fhs::state::ACCOUNTS_DIR,
+            PRIVATE,
+            accountdb::ACCOUNTS_UID,
+            accountdb::ACCOUNTS_UID,
+        ),
         // Per-service state dirs, each created by its owner.
         DirSpec::new(fhs::state::CONF_SVC, PRIVATE, 0, 0),
         // `logd`'s journals and `pkgd`'s audit log carry every user's
@@ -134,14 +147,11 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
 }
 
 /// The mode of a file the build places, from where it goes: 0755 for anything
-/// under `/system/bin` (the programs), 0600 for the shadow file, 0644 for
-/// everything else. All are root-owned. A name never decides it, so a data
-/// file cannot become executable by being called `*.ELF`.
+/// under `/system/bin` (the programs), 0644 for everything else. A name never
+/// decides it, so a data file cannot become executable by being called
+/// `*.ELF`. (The account database is placed with its own mode and owner,
+/// `accounts_seed.rs`.)
 pub fn file_mode(path: &str) -> u16 {
-    // The password verifiers: root only (issue #447).
-    if path == fhs::etc::SHADOW {
-        return 0o600;
-    }
     let in_bin = path
         .trim_start_matches('/')
         .strip_prefix(fhs::SYSTEM_BIN.trim_start_matches('/'))

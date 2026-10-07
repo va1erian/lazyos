@@ -56,8 +56,13 @@ pub(crate) fn self_test(keyd: &mut Keyd) -> Result<(), String> {
     // Argon2id password verification, both directions: a provisioned
     // account verifies, a wrong password and an unknown name do not, and
     // re-provisioning replaces the secret.
-    keyd.provision("selftest-user", "first")
+    let stored = keyd
+        .provision("selftest-user", "first")
         .map_err(|error| error.message())?;
+    // What `accountsd` would persist reads back as a verifier.
+    if accountdb::Verifier::parse(&stored).is_none() {
+        return Err(String::from("provisioned verifier does not parse"));
+    }
     if !keyd.verify("selftest-user", "first") {
         return Err(String::from("provisioned account rejected"));
     }

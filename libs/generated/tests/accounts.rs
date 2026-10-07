@@ -1,4 +1,5 @@
-//! Round-trip tests for the generated `os.lazy.accounts.v1` stubs (issue #285).
+//! Round-trip tests for the generated `os.lazy.accounts.v1` stubs (issues
+//! #285, #624).
 
 use messenger_generated::os_lazy_accounts_v1::*;
 
@@ -6,9 +7,10 @@ fn user() -> User {
     User {
         name: "guest".into(),
         uid: 1001,
-        gid: 100,
+        gid: 1001,
         home: "/home/guest".into(),
-        shell: "/bin/sh".into(),
+        shell: "sh".into(),
+        admin: true,
     }
 }
 
@@ -62,35 +64,56 @@ fn authenticate_roundtrips() {
 }
 
 #[test]
-fn create_roundtrips_with_empty_strings() {
-    let args = CreateArgs {
-        user: NewUser {
-            name: "ann".into(),
-            uid: 2000,
-            gid: 2000,
-            secret: "s3cret".into(),
-            home: String::new(),
-            shell: String::new(),
-        },
+fn account_management_roundtrips() {
+    let create = CreateArgs {
+        name: "ann".into(),
+        secret: "s3cret".into(),
+        admin: false,
     };
-    let body = encode_create_args(&args).unwrap();
-    assert_eq!(decode_create_args(&body).unwrap(), args);
-
-    let reply = CreateReply {
-        ok: false,
-        detail: "uid already exists".into(),
-    };
+    let body = encode_create_args(&create).unwrap();
+    assert_eq!(decode_create_args(&body).unwrap(), create);
+    let reply = CreateReply { user: user() };
     let body = encode_create_reply(&reply).unwrap();
     assert_eq!(decode_create_reply(&body).unwrap(), reply);
+
+    let delete = DeleteArgs {
+        name: "ann".into(),
+        home: "archive".into(),
+    };
+    let body = encode_delete_args(&delete).unwrap();
+    assert_eq!(decode_delete_args(&body).unwrap(), delete);
+
+    // `old` absent (elevd setting anyone's) and present (a user's own).
+    for old in [None, Some(String::from("before"))] {
+        let args = SetPasswordArgs {
+            name: "ann".into(),
+            old,
+            secret: "after".into(),
+        };
+        let body = encode_set_password_args(&args).unwrap();
+        assert_eq!(decode_set_password_args(&body).unwrap(), args);
+    }
+
+    let promote = SetAdminArgs {
+        name: "ann".into(),
+        admin: true,
+    };
+    let body = encode_set_admin_args(&promote).unwrap();
+    assert_eq!(decode_set_admin_args(&body).unwrap(), promote);
+
+    let list = ListUsersReply {
+        users: vec![user(), User::default()],
+        setup: false,
+    };
+    let body = encode_list_users_reply(&list).unwrap();
+    assert_eq!(decode_list_users_reply(&body).unwrap(), list);
 }
 
 #[test]
 fn truncated_body_is_rejected() {
     let body = encode_create_args(&CreateArgs {
-        user: NewUser {
-            name: "ann".into(),
-            ..NewUser::default()
-        },
+        name: "ann".into(),
+        ..CreateArgs::default()
     })
     .unwrap();
     assert!(decode_create_args(&body[..body.len() - 2]).is_err());

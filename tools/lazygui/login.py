@@ -9,6 +9,13 @@ which logs in `user`: the screenshot sessions' images). `run_demo.py
 --autologin NAME` and the GUI (Simple: "Log in automatically as user";
 Advanced: the "Autologin" field) set it; `run_demo.py` without the flag asks
 for the login screen.
+
+`LAZYOS_SETUP=1` (docs/accounts-plan.md U1, `run_demo.py --setup`, the GUI's
+"First-boot setup") builds a desktop with no account at all: its login screen
+asks for the owner, who becomes an administrator. The account database is a
+seed an update never replaces, so the setup recreates the OS volume
+(`LAZYOS_RESET_OS=1`); an autologin image skips the setup, so the two
+exclude each other here.
 """
 
 from __future__ import annotations
@@ -33,16 +40,23 @@ def check_name(name: str) -> str:
 
 def login_env(cfg: dict) -> dict[str, str]:
     """`LAZYOS_AUTOLOGIN` for a GUI build: the configured name, or nothing
-    (the image's default) when none is set."""
+    (the image's default) when none is set; the first-boot setup instead when
+    asked for."""
+    if cfg.get("setup"):
+        return {"LAZYOS_SETUP": "1", "LAZYOS_AUTOLOGIN": NONE, "LAZYOS_RESET_OS": "1"}
     name = check_name(cfg.get("autologin", ""))
     return {"LAZYOS_AUTOLOGIN": name} if name else {}
 
 
 def login_argv(cfg: dict) -> list[str]:
-    """`run_demo.py`'s `--autologin NAME` for the configured name (a build
-    switch, so nothing with "Skip build")."""
+    """`run_demo.py`'s `--autologin NAME` for the configured name, or
+    `--setup` (build switches, so nothing with "Skip build")."""
+    if cfg.get("skip_build"):
+        return []
+    if cfg.get("setup"):
+        return ["--setup"]
     name = check_name(cfg.get("autologin", ""))
-    if not name or name == NONE or cfg.get("skip_build"):
+    if not name or name == NONE:
         return []
     return ["--autologin", name]
 
@@ -53,6 +67,10 @@ def add_login_option(parser: argparse.ArgumentParser) -> None:
                         help="log the account NAME (e.g. user) straight into the desktop "
                              "instead of showing the login screen (LAZYOS_AUTOLOGIN; "
                              "default: the login screen; docs/accounts-plan.md U0)")
+    parser.add_argument("--setup", action="store_true",
+                        help="start with no account: the login screen asks for the owner, "
+                             "an administrator (first-boot setup, LAZYOS_SETUP=1; recreates "
+                             "the OS volume like --reset-os; docs/accounts-plan.md U1)")
 
 
 def build_login(args: argparse.Namespace) -> dict[str, str]:
@@ -60,8 +78,15 @@ def build_login(args: argparse.Namespace) -> dict[str, str]:
     login screen. Nothing with `--no-build` (the image keeps what it has),
     where a name is an error."""
     name = check_name(args.autologin or "")
+    setup = getattr(args, "setup", False)
     if args.no_build:
-        if name:
-            raise ValueError("--autologin needs a build: it is compiled into the image")
+        if name or setup:
+            raise ValueError("--autologin and --setup need a build: they are compiled into the image")
         return {}
+    if setup:
+        if name and name != NONE:
+            raise ValueError("--setup asks for the owner at the login screen; it excludes --autologin")
+        # The account database is a seed: only a new OS volume starts empty.
+        args.reset_os = True
+        return {"LAZYOS_AUTOLOGIN": NONE, "LAZYOS_SETUP": "1"}
     return {"LAZYOS_AUTOLOGIN": name or NONE}

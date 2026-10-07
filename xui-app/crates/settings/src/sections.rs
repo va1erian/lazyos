@@ -14,14 +14,16 @@ pub enum Section {
     Hidden,
     Time,
     About,
+    Accounts,
 }
 
 impl Section {
     /// Sidebar order. Session scripts (`xui_settings*.json`) click rows by
     /// position: a new section moves the rows below it, so re-record their
     /// clicks. Hidden apps sits next to Menu (issue #509 §5), which moved
-    /// Time & Date and About down one row.
-    pub const ALL: [Section; 7] = [
+    /// Time & Date and About down one row; Accounts (docs/accounts-plan.md
+    /// U1) comes last, so no row moved.
+    pub const ALL: [Section; 8] = [
         Section::Appearance,
         Section::Windows,
         Section::Keyboard,
@@ -29,6 +31,7 @@ impl Section {
         Section::Hidden,
         Section::Time,
         Section::About,
+        Section::Accounts,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -40,6 +43,7 @@ impl Section {
             Section::Menu => "Menu",
             Section::Hidden => "Hidden apps",
             Section::About => "About",
+            Section::Accounts => "Accounts",
         }
     }
 
@@ -52,6 +56,7 @@ impl Section {
             Section::Menu => Lucide::List,
             Section::Hidden => Lucide::EyeOff,
             Section::About => Lucide::Info,
+            Section::Accounts => Lucide::Users,
         }
     }
 

@@ -8,7 +8,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.accounts.v1",
         HIGH,
-        "Look up user accounts and create new ones",
+        "See the user accounts and change your own password",
     ),
     (
         "os.lazy.audio.v1",
@@ -32,9 +32,19 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Show its own windows on the desktop",
     ),
     (
+        "os.lazy.display.prompt.v1",
+        HIGH,
+        "Show the administrator prompt, which only the elevation service may do",
+    ),
+    (
         "os.lazy.echo.v1",
         LOW,
         "Use the echo test service, which only repeats what it is sent",
+    ),
+    (
+        "os.lazy.elevd.v1",
+        MEDIUM,
+        "Ask an administrator to approve a system change, such as adding a user or changing a system setting",
     ),
     (
         "os.lazy.files.v1",

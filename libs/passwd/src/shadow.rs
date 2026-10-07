@@ -88,8 +88,9 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Entry>, LoadError> {
     Ok(entries)
 }
 
-/// One row, or the name of the first field that is wrong.
-fn parse_row(row: &str) -> Result<Entry, &'static str> {
+/// One row, or the name of the first field that is wrong. Public for the
+/// account database (`libs/accountdb`), whose rows carry the same verifier.
+pub fn parse_row(row: &str) -> Result<Entry, &'static str> {
     let fields: Vec<&str> = row.split(':').collect();
     if fields.len() != FIELDS {
         return Err("count");

@@ -86,14 +86,25 @@ fn ping() {
     msg::connect("os.lazy.keyd.v1").invoke("Ping", [])
 }
 
-/// `Provision(user: String, secret: String) -> ()`
+/// `Provision(user: String, secret: String) -> (verifier: String)`
 ///
-/// Install or replace an account's password verifier. Root only: the
-/// accounts service pushes its database here so `Verify` can answer for
-/// every account. `keyd` derives and stores the Argon2id verifier and the
-/// secret does not outlive the call.
+/// Install or replace an account's password verifier (docs/accounts-plan.md
+/// U1). Accepted only from the accounts service (the `_accounts` system
+/// uid, unlabelled): whoever may plant a verifier may become that user.
+/// `keyd` derives the Argon2id verifier over a fresh salt, starts
+/// answering `Verify` with it, and returns it as the account database
+/// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+/// survives a reboot; the secret does not outlive the call.
 fn provision(user, secret) {
     msg::connect("os.lazy.keyd.v1").invoke("Provision", [user, secret])
+}
+
+/// `Forget(user: String) -> ()`
+///
+/// Drop an account's verifier: it can no longer log in. Accepted only
+/// from the accounts service, like `Provision`.
+fn forget(user) {
+    msg::connect("os.lazy.keyd.v1").invoke("Forget", [user])
 }
 
 /// A `KeyInfo` with every field at its zero value.

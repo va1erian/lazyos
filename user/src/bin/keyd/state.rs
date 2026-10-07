@@ -11,8 +11,8 @@ pub(crate) const MAX_KEYS: usize = 32;
 /// Live keys one uid may hold, so a single client cannot fill the table and
 /// lock everyone else out of `GenerateKey`.
 pub(crate) const MAX_KEYS_PER_OWNER: usize = 8;
-/// Password accounts the service holds.
-pub(crate) const MAX_ACCOUNTS: usize = 16;
+/// Password accounts the service holds: every account the database may.
+pub(crate) const MAX_ACCOUNTS: usize = accountdb::MAX_USERS;
 /// Bytes in a generated symmetric key (256-bit).
 pub(crate) const KEY_LEN: usize = 32;
 /// Salt bytes for a password verifier.
@@ -130,30 +130,35 @@ impl Keyd {
         }
     }
 
-    /// Load the account verifiers from the shadow file's text (issue #447).
-    /// All or nothing, like the file's parser: a row `keyd` cannot verify
-    /// against (another cost than its arena's, another salt length) refuses
-    /// the whole file, so a damaged shadow never leaves some accounts
-    /// verifiable and others silently not. Returns how many rows loaded, or
-    /// the `reason=` text.
-    pub(crate) fn load_shadow(&mut self, bytes: &[u8]) -> Result<usize, String> {
-        let rows = passwd::shadow::parse(bytes).map_err(|error| error.to_string())?;
+    /// Load the account verifiers from the account database's text
+    /// (`libs/accountdb`, docs/accounts-plan.md U1). All or nothing, like the
+    /// database's parser: a verifier `keyd` cannot check against (another
+    /// cost than its arena's, another salt length) refuses the whole file, so
+    /// a damaged database never leaves some accounts verifiable and others
+    /// silently not. Accounts without a password (`!`) are skipped: nobody
+    /// logs in as them. Returns how many verifiers loaded, or the `reason=`
+    /// text.
+    pub(crate) fn load_db(&mut self, bytes: &[u8]) -> Result<usize, String> {
+        let db = accountdb::parse(bytes).map_err(|error| error.to_string())?;
         let params = kdf::Params::INTERACTIVE;
         let mut loaded = Vec::new();
-        for (index, row) in rows.into_iter().enumerate() {
-            let cost = (row.cost.m_kib, row.cost.t, row.cost.p);
+        for user in db.users {
+            let Some(secret) = user.secret else {
+                continue;
+            };
+            let cost = (secret.cost.m_kib, secret.cost.t, secret.cost.p);
             if cost != (params.m_cost_kib, params.t_cost, params.p_cost) {
-                return Err(alloc::format!("cost row={}", index + 1));
+                return Err(alloc::format!("cost user={}", user.name));
             }
-            let salt: [u8; SALT_LEN] = row
+            let salt: [u8; SALT_LEN] = secret
                 .salt
                 .as_slice()
                 .try_into()
-                .map_err(|_| alloc::format!("salt row={}", index + 1))?;
+                .map_err(|_| alloc::format!("salt user={}", user.name))?;
             loaded.push(Account {
-                user: row.name,
+                user: user.name,
                 salt,
-                verifier: row.verifier,
+                verifier: secret.hash,
             });
         }
         if loaded.len() > MAX_ACCOUNTS {
@@ -165,8 +170,9 @@ impl Keyd {
     }
 
     /// Install (or replace) `user`'s verifier: Argon2id over a fresh salt.
-    /// The plaintext is only borrowed for the derivation.
-    pub(crate) fn provision(&mut self, user: &str, secret: &str) -> Result<(), Error> {
+    /// The plaintext is only borrowed for the derivation. Returns the
+    /// verifier in the account database's form, for `accountsd` to persist.
+    pub(crate) fn provision(&mut self, user: &str, secret: &str) -> Result<String, Error> {
         if user.is_empty() {
             return Err(Error::Errno(-errno::EINVAL));
         }
@@ -195,7 +201,17 @@ impl Keyd {
                 verifier,
             }),
         }
-        Ok(())
+        let params = kdf::Params::INTERACTIVE;
+        let stored = accountdb::Verifier {
+            cost: accountdb::Cost {
+                m_kib: params.m_cost_kib,
+                t: params.t_cost,
+                p: params.p_cost,
+            },
+            salt: salt.to_vec(),
+            hash: verifier,
+        };
+        Ok(stored.to_text())
     }
 
     /// Check a password against the stored verifier for `user`.

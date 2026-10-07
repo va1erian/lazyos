@@ -1,6 +1,7 @@
 # User accounts and app permissions plan
 
-Status: planned 2026-10-06. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
+Status: U0 done (#623, PR #645); U1 (#624) and U2 (#625) implemented
+2026-10-07 (section 3.1); U3-U5 planned. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
 (phases 0-3, #446, #447) and [`security-model.md`](security-model.md); where
 the two overlap, this plan says *what the user gets*, the hardening plan says
 *how the plumbing is closed*.
@@ -117,6 +118,67 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 - Every request (granted, refused, cancelled) is logged to `/logs`.
 - Protocol in `idl/elevd.midl`; services accept the privileged path only from
   `elevd` (by label), which replaces their `uid == 0` checks.
+
+### 3.1 Where U1 and U2 landed (2026-10-07)
+
+What exists, and the decisions taken on the way:
+
+- **The account database** is `/conf/accounts/db` (`libs/accountdb`: parser,
+  views, operations, who may, the brake; host-tested, seeded fuzz entry
+  `accountdb::fuzz::run`, cargo-fuzz target `fuzz/fuzz_targets/accountdb.rs`).
+  One file holds accounts, groups and verifiers; `accountsd` runs as
+  `_accounts` (uid 908, no capability), owns `/conf/accounts` (0700; `/conf`
+  became 0711 so it can be reached) and writes the database atomically
+  (`db.new`, fsync, rename). `/system/etc/passwd` and `/system/etc/group`
+  are generated views owned by `_accounts`. **Decision:** there is no
+  `/system/etc/shadow` view any more: `keyd` reads the verifiers from the
+  database itself, and a second copy of them had no reader. The image build
+  seeds the database once (`build_support/accounts_seed.rs`, a seed an
+  update never replaces) from `passwd`, `groups` and `passwords`.
+- **uids:** accounts get the next never-used uid from 1000 (a `next:` record
+  keeps a deleted account's uid from being handed out again); `admin` is now
+  uid 1001 in the `admin` group (gid 10); nobody logs in as uid 0 (the
+  parser refuses a uid 0 account). `elevd` is `_elev` (909).
+- **Homes:** only root can give a directory to another uid, so `accountsd`
+  asks `init` (`init.Home`, accepted from `_accounts` alone), which copies
+  `/system/etc/skel` into a 0700 home with a BusyBox helper, or archives
+  (`/home/.archived/<name>-<uid>`) or removes it, and answers when done.
+- **First-boot setup:** an image built with `LAZYOS_SETUP=1`
+  (`run_demo.py --setup`, the GUI's "First-boot setup") has no account; the
+  login screen asks for the owner, the one `Create` `accountsd` takes from
+  the `_greeter` identity while the database is empty, an administrator.
+  **Decision:** default images keep the development accounts (`admin`,
+  `user`), which every session script and CI job uses; an autologin image
+  skips the setup.
+- **The brake:** three free failures per account name and per calling uid,
+  then 1 s doubling to 60 s, refused at once with `EAGAIN`; `logind` and
+  `elevd` are counted per name only (they slow their own askers).
+- **`elevd`** (`idl/elevd.midl`, `libs/elevpolicy`, `user/src/bin/elevd`): the
+  operation table, the prompt (`xuid`, `os.lazy.display.prompt.v1`, opened
+  by `elevd` alone), admin check through `accountsd` (`Lookup.admin`,
+  `Authenticate`), up to three tries per request, lockout per asker and
+  per name, the audit topic `system/events/elevd/request`
+  (`/logs/elevd.log`). **Decision:** `conf.*` approvals stand five minutes
+  for the same uid, label and session (the elevated Config editor and
+  Settings' machine settings), everything else asks every time.
+- **Services that trust `elevd`** (by kernel-stamped identity): `accountsd`
+  (create, delete, promote, any password), `confd` (`sys/**`, any user's
+  keys), `pkgd` (any source path; replacing a core app is now refused from a
+  session: `core_replace` is blocked), `timed` (`SetTime`), `init`
+  (`RestartService`). `keyd` takes `Provision`/`Forget` from `accountsd`
+  alone.
+- **Apps:** Settings has an Accounts page (list, add, remove, make admin,
+  change your password) and writes `sys/**` and the clock through `elevd`;
+  Config shows only `user/<uid>/**` until **Elevate**; the Installer replaces
+  a core app through `pkg.update-core`.
+- **Kernel:** a native `write_file` replaces a file its caller owns in a
+  directory it cannot write (the views); native writes now drop the Linux
+  ABI table's cached metadata of the same path (a Linux `stat` saw the old
+  size); `/etc/group` lists the group view.
+
+Known limits: the prompt reads the kernel's PS/2 key stream (as `xuid`'s
+own chords do), so a USB-only keyboard cannot type into it yet, and its
+characters follow the kernel's US layout, not `sys/input/layout`.
 
 ### U3-U5 (outline, issues later)
 

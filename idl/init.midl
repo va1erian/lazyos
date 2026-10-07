@@ -70,6 +70,22 @@ interface os.lazy.init.v1 {
     /// one, and every new run starts with none.
     method ReportFailure(reason: String = 1) -> () oneway;
 
+    /// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
+    /// from the accounts service alone (the `_accounts` system uid,
+    /// unlabelled): `init` runs the change as root. `op` is `create` (a 0700
+    /// `/home/<name>` owned by `uid`/`gid`, filled from the skeleton; an
+    /// existing home is kept), `archive` (moved to
+    /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
+    /// human account's (1000 or more) and `name` a login name. The reply
+    /// comes once the change is done; a failed change is `EIO`.
+    method Home(op: String = 1, name: String = 2, uid: U32 = 3, gid: U32 = 4) -> ();
+
+    /// Restart the system service `name` (docs/accounts-plan.md U2): its
+    /// running task is killed and the supervisor starts it again as after a
+    /// crash. Accepted from `elevd` alone, after an administrator approved
+    /// it; an app or an unknown row is `ENOENT`, a row not running `EAGAIN`.
+    method RestartService(name: String = 1) -> (pid: U64 = 1);
+
     /// What the machine does once userspace is quiesced (`Shutdown`'s `mode`).
     enum PowerMode { PowerOff, Reboot }
 

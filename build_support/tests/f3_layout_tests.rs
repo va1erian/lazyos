@@ -18,6 +18,7 @@ fn bytes(path: &str, mode: u16) -> OsFile {
         path: path.into(),
         source: Source::Bytes(path.as_bytes().to_vec()),
         mode,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 

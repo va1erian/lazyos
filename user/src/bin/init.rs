@@ -85,6 +85,8 @@ mod autostart;
 mod drivers;
 #[path = "init/home.rs"]
 mod home;
+#[path = "init/homes.rs"]
+mod homes;
 #[path = "init/installed.rs"]
 mod installed;
 #[path = "init/launch.rs"]
@@ -188,6 +190,8 @@ fn run() -> messenger::Result<()> {
     let mut selftest = LaunchSelftest::new();
     let mut autostart = Autostart::new();
     let mut installed = InstalledApps::new();
+    // `accountsd`'s home changes in flight (`homes.rs`, U1).
+    let mut homes = homes::HomeJobs::default();
     // The desktop's app-failure notices go out on the central broker.
     let mut notices = notice::Notices::new();
     // Set by a `Shutdown` request; from then on nothing starts or restarts and
@@ -259,6 +263,7 @@ fn run() -> messenger::Result<()> {
                 installed: &mut installed,
                 cache: &mut cache,
                 shutdown: &mut shutdown,
+                homes: &mut homes,
             },
             &server,
             &mut buffer,
@@ -266,7 +271,11 @@ fn run() -> messenger::Result<()> {
         // Reap one exit; the bell stays ready while more are waiting.
         if ready & wait::CHILD_READY != 0 {
             if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
-                if let Some(failure) = child_exited(&mut services, pid, status, &mut broker) {
+                // A home helper answers its request; it is no service row.
+                let helper = homes.finished(pid, status, &server);
+                if let Some(failure) =
+                    child_exited(&mut services, pid, status, &mut broker).filter(|_| !helper)
+                {
                     notices.publish(&failure);
                 }
                 // The exit may unblock dependents (only a stop can; still cheap).

@@ -367,3 +367,57 @@ pub fn launch_app(app: &str, args: &str, session: u64) -> Result<LaunchResult> {
     let endpoint = resolve_service(INIT_NAME)?;
     launch(&endpoint, app, args, session)
 }
+
+/// Call `method` of `init` with an already-encoded `body`, mapping a
+/// supervisor refusal to [`Error::Init`].
+fn call_body(
+    endpoint: &Endpoint,
+    method: u32,
+    body: Vec<u8>,
+    deadline: Option<u64>,
+) -> Result<Parcel> {
+    let request = Parcel {
+        header: header(INTERFACE, method),
+        body,
+        ..Parcel::default()
+    };
+    let reply = endpoint.call(&request, deadline)?;
+    if let Some(code) = error_field(&reply)? {
+        return Err(Error::Init(code));
+    }
+    Ok(reply)
+}
+
+/// Call `init`'s `Home` (docs/accounts-plan.md U1): make (`create`), set
+/// aside (`archive`) or `remove` the home of account `name`. Only the
+/// accounts service is listened to.
+pub fn home(
+    endpoint: &Endpoint,
+    op: &str,
+    name: &str,
+    uid: u32,
+    gid: u32,
+    deadline: Option<u64>,
+) -> Result<()> {
+    let body = wire::encode_home_args(&wire::HomeArgs {
+        op: alloc::string::String::from(op),
+        name: alloc::string::String::from(name),
+        uid,
+        gid,
+    })
+    .map_err(Error::Parcel)?;
+    call_body(endpoint, wire::METHOD_HOME, body, deadline).map(|_| ())
+}
+
+/// Call `init`'s `RestartService` (docs/accounts-plan.md U2): the restarted
+/// row's new pid. Only `elevd` is listened to.
+pub fn restart_service(endpoint: &Endpoint, name: &str, deadline: Option<u64>) -> Result<u64> {
+    let body = wire::encode_restart_service_args(&wire::RestartServiceArgs {
+        name: alloc::string::String::from(name),
+    })
+    .map_err(Error::Parcel)?;
+    let reply = call_body(endpoint, wire::METHOD_RESTARTSERVICE, body, deadline)?;
+    Ok(wire::decode_restart_service_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .pid)
+}

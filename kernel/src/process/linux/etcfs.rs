@@ -82,22 +82,48 @@ pub(super) fn render_passwd(source: &str) -> String {
     out
 }
 
-/// `/etc/group`: one group per distinct primary gid, named after its first
-/// account, with that account as a member.
-pub(super) fn render_group(source: &str) -> String {
+/// `/etc/group`: the groups of LazyOS's group view (`name:gid:member,member`,
+/// `/system/etc/group`, docs/accounts-plan.md U1: `admin`), then one group
+/// per distinct primary gid, named after its first account, with that account
+/// as a member, unless the view already has that gid or name (the `admin`
+/// account's primary group yields to the `admin` group). Malformed lines are
+/// skipped.
+pub(super) fn render_group(source: &str, groups: &str) -> String {
     let mut out = String::new();
-    let mut seen: Vec<&str> = Vec::new();
-    for account in accounts(source) {
-        if seen.contains(&account.gid) {
+    let mut gids: Vec<&str> = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    for line in groups.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        let [name, gid, members] = fields[..] else {
+            continue;
+        };
+        if name.is_empty() || !numeric(gid) || gids.contains(&gid) || names.contains(&name) {
             continue;
         }
-        seen.push(account.gid);
+        gids.push(gid);
+        names.push(name);
+        out.push_str(&format!("{name}:x:{gid}:{members}\n"));
+    }
+    for account in accounts(source) {
+        if gids.contains(&account.gid) || names.contains(&account.name) {
+            continue;
+        }
+        gids.push(account.gid);
         out.push_str(&format!(
             "{}:x:{}:{}\n",
             account.name, account.gid, account.name
         ));
     }
     out
+}
+
+/// LazyOS's group view, read with the kernel's identity (empty without one).
+fn group_source() -> String {
+    crate::fs::abi_read(Id::ROOT, fhs::etc::GROUP)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_default()
 }
 
 /// The account file, read with the kernel's identity: only the public columns
@@ -119,7 +145,7 @@ const DEFAULT_ACCOUNTS: &str = "root:0:0::/root:sh\n";
 pub(super) fn contents(path: &str) -> Option<Vec<u8>> {
     let text = match path {
         "/etc/passwd" => render_passwd(&account_source()),
-        "/etc/group" => render_group(&account_source()),
+        "/etc/group" => render_group(&account_source(), &group_source()),
         "/etc/hostname" => String::from("lazyos\n"),
         "/etc/os-release" => {
             String::from("NAME=LazyOS\nID=lazyos\nPRETTY_NAME=\"LazyOS\"\nVERSION_ID=0.1\n")

@@ -70,10 +70,11 @@ pub fn render_passwd_for_test(source: &str) -> alloc::string::String {
     etcfs::render_passwd(source)
 }
 
-/// `/etc/group` rendered from a LazyOS account file (the compat suite).
+/// `/etc/group` rendered from a LazyOS account file and group view (the
+/// compat suite).
 #[cfg(lazyos_tests)]
-pub fn render_group_for_test(source: &str) -> alloc::string::String {
-    etcfs::render_group(source)
+pub fn render_group_for_test(source: &str, groups: &str) -> alloc::string::String {
+    etcfs::render_group(source, groups)
 }
 
 /// The robust-list walk a thread's exit runs (the compat suite).

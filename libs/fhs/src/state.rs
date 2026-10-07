@@ -17,6 +17,24 @@ pub const CONF_FALLBACK: &str = "/transient/conf";
 /// creates nothing there.
 pub const CONF_SVC: &str = "/conf/svc";
 
+/// The account database's directory (docs/accounts-plan.md U1), 0700 and
+/// owned by the `_accounts` service account. Written by `accountsd`.
+pub const ACCOUNTS_DIR: &str = "/conf/accounts";
+
+/// The account database itself (`libs/accountdb`): every account, group and
+/// password verifier, 0600 `_accounts`. The image build seeds it once;
+/// `accountsd` writes it (a temporary file renamed over it) and `keyd` reads
+/// the verifiers. Written by `accountsd`.
+pub const ACCOUNTS_DB: &str = "/conf/accounts/db";
+
+/// The temporary file `accountsd` writes before renaming it over
+/// [`ACCOUNTS_DB`]. Written by `accountsd`.
+pub const ACCOUNTS_DB_NEW: &str = "/conf/accounts/db.new";
+
+/// Where a deleted account's home goes when it is archived rather than
+/// removed: `<HOME_ARCHIVE>/<name>-<uid>`, 0700 root. Written by `init`.
+pub const HOME_ARCHIVE: &str = "/home/.archived";
+
 /// `printd`'s spool: one `<id>.job` record and `<id>.doc` document per print
 /// job until its printer has it, so a queued job survives a restart. Under
 /// [`CONF_SVC`], 0700 root. Written by `printd`.

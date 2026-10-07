@@ -14,13 +14,24 @@
 //! The window cannot be closed (there would be no way to log in), and it
 //! never shows a password: the field is masked and nothing here prints one.
 //!
-//! Serial evidence: `GREETER:UP:PASS` after the first frame;
+//! # First-boot setup (docs/accounts-plan.md U1)
+//!
+//! On a machine with no account yet (`accountsd`'s `ListUsers` says
+//! `setup`: an image built with `LAZYOS_SETUP=1`), the screen asks for the
+//! owner instead: a name and a password typed twice. `accountsd` accepts
+//! that one `Create` from this identity while the database is empty, and
+//! makes the account an administrator; the screen then logs it in.
+//!
+//! Serial evidence: `GREETER:UP:PASS` after the first frame (and
+//! `GREETER:SETUP:UP` when it asks for the owner);
 //! `GREETER:LOGIN:PASS user=<name> session=<id>` or
-//! `GREETER:LOGIN:FAIL user=<name> errno=<e>`.
+//! `GREETER:LOGIN:FAIL user=<name> errno=<e>`; `GREETER:SETUP:PASS
+//! user=<name>` or `GREETER:SETUP:FAIL errno=<e>`.
 
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_logind_v1 as wire;
 use xui_app::launch;
+use xui_app::platform::accounts;
 use xui_app::platform::messenger::Service;
 use xui_app::sys::{self, errno};
 use xui_core::app::{App, Ui};
@@ -40,6 +51,8 @@ const FIELD_W: i32 = 240;
 #[derive(Clone)]
 enum Msg {
     Login,
+    /// Create the owner account (first-boot setup).
+    Setup,
     /// The close button: a login screen stays.
     Close,
 }
@@ -48,17 +61,51 @@ enum Msg {
 struct Widgets {
     name: Handle<Edit<Msg>>,
     password: Handle<Edit<Msg>>,
+    /// The password again (setup only).
+    confirm: Handle<Edit<Msg>>,
     message: Handle<Label<Msg>>,
 }
 
+/// One captioned field.
+fn field(caption: &str, edit: Build<Edit<Msg>, Msg>) -> Layout<Msg> {
+    row().gap(8).children((
+        label(caption).width(CAPTION_W).align(Align::Center),
+        edit.width(FIELD_W),
+    ))
+}
+
 impl Widgets {
-    fn layout(&self) -> Layout<Msg> {
-        let field = |caption: &str, edit: Build<Edit<Msg>, Msg>| {
-            row().gap(8).children((
-                label(caption).width(CAPTION_W).align(Align::Center),
-                edit.width(FIELD_W),
+    /// The first-boot setup: the owner's name and password, typed twice.
+    fn setup_layout(&self) -> Layout<Msg> {
+        column()
+            .padding(Insets::new(Dip(20.0), Dip(12.0), Dip(20.0), Dip(8.0)))
+            .gap(8)
+            .children((
+                label("Welcome! Create this computer's owner (an administrator)."),
+                field("Name", edit().placeholder("user name").bind(&self.name)),
+                field(
+                    "Password",
+                    edit()
+                        .password()
+                        .placeholder("password")
+                        .bind(&self.password),
+                ),
+                field(
+                    "Confirm",
+                    edit()
+                        .password()
+                        .placeholder("password again")
+                        .bind(&self.confirm),
+                ),
+                row().gap(8).children((
+                    label("").width(CAPTION_W),
+                    button("Create account").on_click(Msg::Setup).width(140),
+                )),
+                label("").bind(&self.message).fixed(24),
             ))
-        };
+    }
+
+    fn layout(&self) -> Layout<Msg> {
         column()
             .padding(Insets::new(Dip(20.0), Dip(16.0), Dip(20.0), Dip(12.0)))
             .gap(10)
@@ -91,6 +138,7 @@ impl App for Greeter {
     fn update(&mut self, msg: Msg, _ui: &mut Ui<Msg>) {
         match msg {
             Msg::Login => self.login(),
+            Msg::Setup => self.setup(),
             Msg::Close => self
                 .w
                 .message
@@ -101,6 +149,42 @@ impl App for Greeter {
 }
 
 impl Greeter {
+    /// Create the owner account, then log it in.
+    fn setup(&mut self) {
+        let name = self.w.name.get().text().trim().to_string();
+        let secret = self.w.password.get().text();
+        let message = self.w.message.get();
+        if !accounts::valid_name(&name) {
+            message.set_text("A name is lowercase letters, digits, '-' and '_'.");
+            return;
+        }
+        if secret.is_empty() {
+            message.set_text("Choose a password.");
+            return;
+        }
+        if secret != self.w.confirm.get().text() {
+            message.set_text("The two passwords differ.");
+            return;
+        }
+        message.set_text("Creating the account...");
+        if let Err(refusal) = accounts::create_owner(&name, &secret) {
+            println!("GREETER:SETUP:FAIL errno={}", -refusal.code);
+            message.set_text(&refusal.message);
+            return;
+        }
+        println!("GREETER:SETUP:PASS user={name}");
+        match call_login(&name, &secret) {
+            Ok(session) => {
+                println!("GREETER:LOGIN:PASS user={name} session={session}");
+                message.set_text("Starting your desktop...");
+            }
+            Err(code) => {
+                println!("GREETER:LOGIN:FAIL user={name} errno={}", -code);
+                message.set_text(refusal(code));
+            }
+        }
+    }
+
     fn login(&mut self) {
         let name = self.w.name.get().text().trim().to_string();
         if name.is_empty() {
@@ -149,6 +233,7 @@ fn refusal(code: i64) -> &'static str {
     match -code {
         errno::EACCES => "Wrong user name or password.",
         errno::EBUSY => "A desktop session is already open.",
+        errno::EAGAIN => "Too many failed attempts; wait a moment and try again.",
         errno::ENOENT => "The login service is not running yet; try again.",
         errno::ETIMEDOUT => "The login service did not answer; try again.",
         _ => "Login failed; see the system log.",
@@ -159,7 +244,15 @@ fn main() {
     launch::run("GREETER", "Log in", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("GREETER:UP:PASS"));
         let w = Widgets::default();
-        ui.root(w.layout())
+        // A machine without accounts asks for its owner (first-boot setup).
+        let setup = matches!(accounts::list(), Ok((_, true)));
+        let layout = if setup {
+            println!("GREETER:SETUP:UP");
+            w.setup_layout()
+        } else {
+            w.layout()
+        };
+        ui.root(layout)
             .inspect_err(|error| println!("GREETER:BUILD:FAIL:{error}"))?;
         ui.on_close(|| Some(Msg::Close));
         Ok(Greeter { w })

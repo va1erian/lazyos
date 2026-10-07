@@ -31,6 +31,8 @@ ipp = { path = "../libs/ipp", features = ["fuzz"] }
 raster = { path = "../libs/raster", features = ["fuzz"] }
 nvme = { path = "../libs/nvme", features = ["fuzz"] }
 passwd = { path = "../libs/passwd", features = ["fuzz"] }
+accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
+elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
 accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
 
@@ -172,6 +174,20 @@ bench = false
 [[bin]]
 name = "passwd"
 path = "fuzz_targets/passwd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "accountdb"
+path = "fuzz_targets/accountdb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "elevpolicy"
+path = "fuzz_targets/elevpolicy.rs"
 test = false
 doc = false
 bench = false

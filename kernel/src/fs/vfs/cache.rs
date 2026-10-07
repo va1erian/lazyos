@@ -39,8 +39,8 @@ impl Vfs {
 
     /// Drop the cached metadata for `path` (and, for a directory, everything
     /// cached below it). Mutations call this internally; it is public so a
-    /// filesystem that changed behind the VFS's back can be re-read.
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
+    /// filesystem that changed behind the VFS's back can be re-read (the
+    /// Linux ABI table after a native write to the same volume).
     pub fn invalidate(&mut self, path: &str) {
         let path = Path::parse(path);
         if let Ok((mount, rel)) = self.resolve_mount(&path) {

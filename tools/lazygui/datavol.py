@@ -87,7 +87,7 @@ def confirm_reset_os(cfg: dict) -> bool:
     Mirrors the plan rule in ``catalog.build_plan``: the flag only takes effect
     in the interactive demo, and not with "Skip build".
     """
-    if not (cfg.get("reset_os") and not cfg.get("skip_build")
+    if not ((cfg.get("reset_os") or cfg.get("setup")) and not cfg.get("skip_build")
             and cfg.get("mode") == "Interactive demo"):
         return True
     return messagebox.askyesno(

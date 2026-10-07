@@ -25,7 +25,7 @@ fn layout_has_the_mount_points_and_each_service_s_place() {
         ("/apps", 0o755),
         ("/docs", 0o755),
         ("/docs/apps", 0o755),
-        ("/conf", 0o700),
+        ("/conf", 0o711),
         ("/conf/svc", 0o700),
         ("/logs", 0o750),
         ("/data", 0o755),
@@ -35,7 +35,13 @@ fn layout_has_the_mount_points_and_each_service_s_place() {
     }
     // A home per passwd account living in /home, private to its owner.
     let admin = spec(&all, "/home/admin");
-    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 0, 0));
+    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 1001, 1001));
+    // The account database's directory is `_accounts`' alone (U1).
+    let accounts = spec(&all, "/conf/accounts");
+    assert_eq!(
+        (accounts.mode, accounts.uid),
+        (0o700, accountdb::ACCOUNTS_UID)
+    );
     let user = spec(&all, "/home/user");
     assert_eq!((user.mode, user.uid, user.gid), (0o700, 1000, 1000));
     // Exactly the two accounts' homes; nothing is seeded under /data any more.
@@ -199,6 +205,7 @@ fn file(path: &str) -> OsFile {
         path: path.into(),
         source: Source::Bytes(Vec::new()),
         mode: 0o644,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 

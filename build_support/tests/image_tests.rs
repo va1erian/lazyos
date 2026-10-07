@@ -68,6 +68,7 @@ fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
         path: path.into(),
         source: Source::Bytes(bytes.to_vec()),
         mode,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 
@@ -133,7 +134,7 @@ fn a_missing_image_is_created_with_three_mbr_entries_and_a_clean_volume() {
     assert_eq!((meta.mode & 0o7777, meta.uid, meta.gid), (0o755, 0, 0));
     for (path, mode, owner) in [
         ("/home/user", 0o700, 1000),
-        ("/conf", 0o700, 0),
+        ("/conf", 0o711, 0),
         ("/logs", 0o750, 0),
         ("/apps", 0o755, 0),
         ("/docs/apps", 0o755, 0),
@@ -334,6 +335,7 @@ fn a_failed_create_leaves_no_temp_file_and_the_old_image_alone() {
         path: "/X.ELF".into(),
         source: Source::Path(dir.0.join("does-not-exist")),
         mode: 0o755,
+        placement: crate::os_image::Placement::ROOT,
     };
     let result = compose(
         &planned,
