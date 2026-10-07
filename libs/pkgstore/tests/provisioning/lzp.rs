@@ -30,7 +30,8 @@ pub fn noise(len: usize, seed: u64) -> Vec<u8> {
 }
 
 /// A core-style package: manifest, a program of `program_len` bytes made
-/// from `seed`, the three icons and one page of documentation.
+/// from `seed`, the three icons, one page of documentation and an empty
+/// resource.
 pub fn package(system_name: &str, version: &str, program_len: usize, seed: u64) -> Vec<u8> {
     package_with(system_name, version, program_len, seed, "")
 }
@@ -61,6 +62,8 @@ pub fn package_with(
             format!("# {short} {version} build {seed}\n").into_bytes(),
             true,
         ),
+        // Unpacking an empty file yields no piece; it must still exist.
+        ("resources/empty".into(), Vec::new(), true),
     ];
     zip(&members)
 }
