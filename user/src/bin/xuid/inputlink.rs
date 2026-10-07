@@ -31,8 +31,8 @@ pub(super) struct InputLink {
     next_try: u64,
     /// Surfaces `inputd` has been told about.
     registered: BTreeSet<u64>,
-    /// The focus `inputd` last heard (`None`: never told).
-    told_focus: Option<Option<u64>>,
+    /// The focus `inputd` last heard (`None`: never told, or unsure).
+    pub(super) told_focus: Option<Option<u64>>,
     /// The last failure logged, so a changing error is reported but retries
     /// of the same one stay quiet.
     reported: Option<Option<i64>>,
@@ -86,6 +86,13 @@ impl Compositor {
     pub(super) fn sync_input_now(&mut self) {
         self.input.next_try = 0;
         self.sync_input();
+    }
+
+    /// Try to reach `inputd` now, whatever the backoff; whether a link
+    /// exists afterwards (the trusted prompt, `prompt_keys.rs`).
+    pub(super) fn reconnect_input(&mut self) -> bool {
+        self.sync_input_now();
+        self.input.link.is_some()
     }
 
     /// Try to attach to `inputd`; whether a link now exists.
@@ -229,10 +236,11 @@ impl Compositor {
     /// Register new surfaces, forget destroyed ones and report focus, as
     /// one-way notes (docs/performance-plan.md P3.6): the compositor never
     /// waits on `inputd` here, where a two-way call could stall the cursor
-    /// for up to its 200 ms timeout. `inputd` handles one sender's requests
-    /// in order on the endpoint the clients' `Open` also arrives on, so a
+    /// for up to its 200 ms timeout. The notes travel on the link's private
+    /// channel, which `inputd` serves before each client request, so a
     /// surface noted when it is created is known before its client can open
-    /// a session. `false` when `inputd` is gone. A note that found the queue
+    /// a session (`inputd/shellchan.rs`); no client can fill that queue.
+    /// `false` when `inputd` is gone. A note that found the queue
     /// full is not a dead link: it stays undone and is retried on the next
     /// pass, since dropping the link would flip every window to legacy keys
     /// and back, and the keys typed across that switch went to whichever

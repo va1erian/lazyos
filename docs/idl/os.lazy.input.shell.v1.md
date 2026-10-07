@@ -7,6 +7,13 @@ accepts these calls solely from the task that holds the display grant (the
 kernel says who that is), so no client can move focus or register a window on
 someone else's behalf. Everything is per kernel-stamped sender, never per request field.
 
+Only `Attach` goes to the shared service endpoint. Every later call (and
+the compositor's own `Open`, for its trusted prompt's surface) goes on the
+channel `Attach` transferred, which no client holds: `inputd` serves it
+ahead of the shared endpoint, so a client filling that queue cannot delay
+a focus change (docs/accounts-plan.md U2). `Attach` on that channel is
+refused (`EINVAL`).
+
 ## Methods
 
 | Method | Id | Kind | Signature |

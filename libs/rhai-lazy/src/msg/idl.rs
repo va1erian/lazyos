@@ -1444,13 +1444,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.input.shell.v1",
         id: 0xc258ed5b9b5debfe,
-        doc: "The compositor side of `inputd`. Only the compositor may call it: `inputd`\naccepts these calls solely from the task that holds the display grant (the\nkernel says who that is), so no client can move focus or register a window on\nsomeone else's behalf. Everything is per kernel-stamped sender, never per request field.",
+        doc: "The compositor side of `inputd`. Only the compositor may call it: `inputd`\naccepts these calls solely from the task that holds the display grant (the\nkernel says who that is), so no client can move focus or register a window on\nsomeone else's behalf. Everything is per kernel-stamped sender, never per request field.\n\nOnly `Attach` goes to the shared service endpoint. Every later call (and\nthe compositor's own `Open`, for its trusted prompt's surface) goes on the\nchannel `Attach` transferred, which no client holds: `inputd` serves it\nahead of the shared endpoint, so a client filling that queue cannot delay\na focus change (docs/accounts-plan.md U2). `Attach` on that channel is\nrefused (`EINVAL`).",
         methods: &[
             Method {
                 name: "Attach",
                 id: 1,
                 oneway: false,
-                doc: "Become the shell client; the parcel transfers the endpoint (`handles[0]`)\nthat receives the shell events below. Attaching again replaces it.",
+                doc: "Become the shell client; the parcel transfers the endpoint (`handles[0]`)\nthat receives the shell events below, and on which the compositor makes\nevery later call. Attaching again replaces it.",
                 params: &[],
                 returns: &[],
                 transfers: &[Transfer { name: "events", channel: Some("os.lazy.input.shell.v1") }],
@@ -1531,7 +1531,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "NoteFocus",
                 id: 10,
                 oneway: true,
-                doc: "One-way `SetFocus`: the compositor's main loop never waits on `inputd`\n(docs/performance-plan.md P3.6). Requests from one sender are handled\nin the order sent, on the same endpoint as the clients' `Open`, so a\nsurface noted before the compositor answers `CreateSurface` is known\nby the time its client opens a session. Refused calls are dropped.",
+                doc: "One-way `SetFocus`: the compositor's main loop never waits on `inputd`\n(docs/performance-plan.md P3.6). Requests on the compositor's channel\nare handled in the order sent, and before each client request, so a\nsurface noted before the compositor answers `CreateSurface` is known\nby the time its client opens a session. Refused calls are dropped.\nThe trusted prompt never relies on a note: it waits for `SetFocus`.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::Option(&Ty::U64) }],
                 returns: &[],
                 transfers: &[],

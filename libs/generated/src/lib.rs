@@ -8395,10 +8395,11 @@ pub mod os_lazy_input_shell_v1 {
     }
 
     /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
-    /// (docs/performance-plan.md P3.6). Requests from one sender are handled
-    /// in the order sent, on the same endpoint as the clients' `Open`, so a
+    /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
+    /// are handled in the order sent, and before each client request, so a
     /// surface noted before the compositor answers `CreateSurface` is known
     /// by the time its client opens a session. Refused calls are dropped.
+    /// The trusted prompt never relies on a note: it waits for `SetFocus`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NoteFocusArgs {
         pub surface: core::option::Option<u64>,
