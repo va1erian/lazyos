@@ -156,11 +156,10 @@ Wikipedia and its sister projects serve the Vector 2022 skin, a CSS grid with
 custom properties. NetSurf had neither, so LazyWeb used to ask the Wikimedia
 wikis for their 2010 skin (`useskin=vector`, a rewrite in `sites.rs`). Blitz
 lays Vector 2022 out (issue #632), so the rewrite is gone and pages are fetched
-as linked. Known flaws: a floated infobox can run past the section rule under
-it, and some inline text loses its spacing (Hacker News' header, "Firstappeared"
-in infoboxes). The harness's Wikipedia copies are still the 2010 skin
-(`tools/web/wikicapture.py`, `wiki.py` expect `useskin=vector`) and need
-re-capturing for 2022.
+as linked; the harness's copies (`tools/web/wikicapture.py`) are Vector 2022
+too. Known flaws: a floated infobox can run past the section rule under it,
+and some inline text loses its spacing (Hacker News' header, "Firstappeared"
+in infoboxes).
 
 ## Testing it
 

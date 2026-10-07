@@ -7,61 +7,477 @@
   "file": "23e8ebb6964015d5.svg",
   "type": "image/svg+xml"
  },
+ "https://en.wikipedia.org/static/images/icons/enwiki-25.svg": {
+  "file": "1e04a736b040dfac.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-tagline-en-25.svg": {
+  "file": "94e1d65575020bfc.svg",
+  "type": "image/svg+xml"
+ },
  "https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg": {
   "file": "3b523e4334b69d5e.svg",
   "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/static/images/project-logos/enwiki-25-2x.png": {
-  "file": "c526de92e19af7f0.png",
-  "type": "image/png"
- },
- "https://en.wikipedia.org/static/images/project-logos/enwiki-25.png": {
-  "file": "f534e20a46b07ce4.png",
-  "type": "image/png"
  },
  "https://en.wikipedia.org/w/extensions/UniversalLanguageSelector/resources/images/cog-sprite.svg?39d1e": {
   "file": "2e01c46858b70161.svg",
   "type": "image/svg+xml"
  },
- "https://en.wikipedia.org/w/extensions/Wikibase/client/resources/images/edit.svg?34bc5": {
-  "file": "4ba740e1eb40cac8.svg",
-  "type": "image/svg+xml"
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-digitaldocument-uls-v2.png?f6941": {
+  "file": "55d80c8125b8404d.png",
+  "type": "image/png"
  },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-digitaldocument.png?b8b50": {
   "file": "35983b6cb85ac97a.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-golden-star-uls-v2.png?fa142": {
+  "file": "32c8f1813cb6ca3e.png",
   "type": "image/png"
  },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-golden-star.png?ed948": {
   "file": "793b1a815fc9e9d7.png",
   "type": "image/png"
  },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-problematic-uls-v2.png?eb075": {
+  "file": "d17d70fee8bab19a.png",
+  "type": "image/png"
+ },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-problematic.png?f3177": {
   "file": "bce2172c53456545.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-proofread-uls-v2.png?b4303": {
+  "file": "93e40e0c8a47a658.png",
   "type": "image/png"
  },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-proofread.png?e81f9": {
   "file": "baf57fa8b3ad3962.png",
   "type": "image/png"
  },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-silver-star-uls-v2.png?ae993": {
+  "file": "775c854f831e9248.png",
+  "type": "image/png"
+ },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-silver-star.png?28684": {
   "file": "b85e6ef34e603c23.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-validated-uls-v2.png?3c5c6": {
+  "file": "857b7e60af3d57bf.png",
   "type": "image/png"
  },
  "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-validated.png?6232c": {
   "file": "ffc446831dc1c0f0.png",
   "type": "image/png"
  },
- "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.cite.parsoid.styles%7Cext.cite.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediaBadges%7Cmediawiki.skinning.content.parsoid%7Cskins.vector.styles.legacy%7Cwikibase.client.init&only=styles&skin=vector": {
-  "file": "cceb84c74b9c4b20.css",
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.cite.parsoid.styles%7Cext.cite.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediaBadges%7Cext.wikimediaBadges.ulsV2%7Cext.wikimediamessages.styles%7Cmediawiki.skinning.content.parsoid%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles%7Cwikibase.client.init&only=styles&skin=vector-2022": {
+  "file": "e5e5fca504cd3182.css",
   "type": "text/css; charset=utf-8"
  },
- "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cmediawiki.skinning.content.parsoid%7Cmediawiki.skins.legacy%7Cskins.vector.styles.legacy%7Cwikibase.client.init&only=styles&skin=vector": {
-  "file": "d92d7bdbd0df608f.css",
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediamessages.styles%7Cmediawiki.skinning.content.parsoid%7Cmediawiki.skins.legacy%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles%7Cwikibase.client.init&only=styles&skin=vector-2022": {
+  "file": "8d3799508b3fee4c.css",
   "type": "text/css; charset=utf-8"
  },
- "https://en.wikipedia.org/w/load.php?lang=en&modules=site.styles&only=styles&skin=vector": {
-  "file": "ffd30193d889731c.css",
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=site.styles&only=styles&skin=vector-2022": {
+  "file": "d240b0b5d072f471.css",
   "type": "text/css; charset=utf-8"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bell&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "7d9b3028d6bc4c87.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bell&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5c9ad2a714b69d97.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bell&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d34b7ba9b51372c7.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bellOutline&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d62adc1f79a91884.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bellOutline&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b89182c02e2fce75.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=bellOutline&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ead2c9d82b4f7951.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=close&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "795262d75e6936e2.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=close&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "4e121b10a784f872.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=close&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "f55b72c182ac23de.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=ellipsis&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "09289beabf9dc3b0.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=ellipsis&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "cf9e79116d4cacca.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=ellipsis&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ce15d3b28182d670.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=eye&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "7abf946ad319d1a0.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=eye&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "a76fc1ddd24f85f1.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=eye&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "dfb39f53272e97a8.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=halfStar&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "a2839f0055533340.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=halfStar&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b087dabfa59a28f4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=halfStar&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "1e2368c90949e736.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=heart&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "9870ce41b318596f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=heart&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "9b5fc0796ddfaec5.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=heart&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "6c8f0f783feffe93.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=imageGallery&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b62d56afae833391.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=imageGallery&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ca4f16f6c9770c49.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=imageGallery&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "dd5daddf7536f20b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=labFlask&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "a02bd1d1dae4704c.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=labFlask&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "c4f8f6a2714e49a9.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=labFlask&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "435f5aabdeee3fa1.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=language&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "894a26d8d1ffa4c8.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=language&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5c13c8d076d83e4c.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=language&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "858c90a0a24ecfc4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=listBullet&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "a660831fea784ba5.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=listBullet&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "0a7d182a1b96c562.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=listBullet&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "45d9dcaaf13d0022.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=lock&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "3adc8cde2da1ee2e.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=lock&variant=destructive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "98e5c83dc1ffe587.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=lock&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "61dc74d3ed4cfe59.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=lock&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5754710114ed9316.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logIn&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "bfa1a9f139d13746.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logIn&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "bc8300c221a55ca2.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logIn&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "f4dae57237b81775.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logOut&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5b8f86ac70477f51.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logOut&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "0a430ab4b8e90833.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=logOut&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5a29524475075786.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=menu&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "2abffc74e3da1177.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=menu&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ba18c1c6fc57bae4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=menu&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "dfbf8b08e15b6c2d.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=move&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "062c649d4e4d2c25.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=move&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "dcedb9fa5b7bab38.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=move&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "e481dfc4b12630a7.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=sandbox&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "7ac5d538d3c15777.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=sandbox&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "191c3accf4b9757a.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=sandbox&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "fac2aa90f871386b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=search&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "7014d357aa87c777.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=search&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5bcc288f92829810.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=search&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "41fe7052e9e4408e.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=settings&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "e600b158590af907.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=settings&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b84f65405a71a501.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=settings&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "85d21e9de093fdde.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=star&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "90d18da749357f56.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=star&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "f04bd027fc3848d4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=star&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ed636d94004333bb.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=trash&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "9ca7ce13baec83a5.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=trash&variant=destructive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d6eea9be0f05b7f0.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=trash&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b84d78e538d6505b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=trash&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d51b7869c3d63628.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=tray&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "eebff425ed98fb50.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=tray&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "cae122b70fb1c267.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=tray&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "e05270df2abb4cbf.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unLock&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "5dc85567c3a34900.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unLock&variant=destructive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "07708e410e55a5d4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unLock&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "9d82205999f2f48c.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unLock&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "1b786bfcb2954447.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unStar&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "2cd561dbdd5a0026.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unStar&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "33dada119bf7b75d.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=unStar&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "3811bb108ccfa589.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAdd&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "9c26275b807da6d2.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAdd&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "8bf67d1544b42aa1.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAdd&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "367e59d8f69948f9.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAvatar&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "f5ae4618a17f2f7b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAvatar&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "688a690b0c434701.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userAvatar&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ead20bf0191b3074.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userContributions&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "777a1f0900de8298.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userContributions&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "195f7ef5970265e7.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userContributions&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d41ad5f6ed52465c.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userGroup&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "d4b77c382d3ef536.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userGroup&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "04423eccadfef49f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userGroup&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "ec74a06c0dacf7b7.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTalk&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "2edf96ab19da4900.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTalk&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "b8767007e1e21f53.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTalk&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "851f104dcfc4b21b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTemporary&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "646e86ff8ebaa620.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTemporary&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "f7addbed2ad54d1f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=userTemporary&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "bdd8915c9c941102.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=verticalEllipsis&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "42dfa5188aefa490.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=verticalEllipsis&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "62098b49447ba65a.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=verticalEllipsis&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "005e10eb299f2a97.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=watchlist&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "c83a4ad807276e48.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=watchlist&variant=invert&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "842b7710f7e0f19f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/load.php?modules=skins.vector.icons&image=watchlist&variant=progressive&format=original&lang=en&skin=vector-2022&version=2i5by": {
+  "file": "38ecc1fb1664c27e.svg",
+  "type": "image/svg+xml"
  },
  "https://en.wikipedia.org/w/resources/assets/mediawiki_compact.svg": {
   "file": "c4705b86f4a29b4a.svg",
@@ -75,69 +491,33 @@
   "file": "0c9a85fa34cc4d72.svg",
   "type": "image/svg+xml"
  },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/arrow-down.svg?f88ee": {
-  "file": "9eb8bb8389f7d9dc.svg",
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles/images/arrow-down-invert.svg?1223d": {
+  "file": "95f33b62709db4cb.svg",
   "type": "image/svg+xml"
  },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/bullet-icon.svg?d4515": {
-  "file": "0ccda0ca68045b17.svg",
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles/images/arrow-down-progressive.svg?5cd6d": {
+  "file": "fb09ba0bb07f4134.svg",
   "type": "image/svg+xml"
  },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/link-external-small-ltr-progressive.svg?fb64d": {
-  "file": "5918d96c2da5881b.svg",
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles/images/link-external-small-ltr-progressive.svg?fb64d": {
+  "file": "5908bd081f6d5c22.svg",
   "type": "image/svg+xml"
  },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/search.svg?a45d6": {
-  "file": "566efe2e608b9d19.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-icon-hl.svg?72bac": {
-  "file": "6ceed9cc937cc44f.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-icon.svg?75797": {
-  "file": "c39795e9356e9f28.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-temp-icon-hl.svg?9a8e5": {
-  "file": "c25c2985e036e37f.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-temp-icon.svg?6e0c5": {
-  "file": "5fc4cbc999d22d69.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/user-avatar.svg?943a0": {
-  "file": "9e4dc3da5497937c.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/user-temporary.svg?c97f0": {
-  "file": "68f86b76cc855a93.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/watch-icon-hl.svg?9bf90": {
-  "file": "fdf7eb5ecea66165.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/watch-icon.svg?6ab6f": {
-  "file": "3db85b27b01d47b4.svg",
-  "type": "image/svg+xml"
- },
- "https://en.wikipedia.org/wiki/1762?useskin=vector": {
-  "file": "b0c3586898db9ef9.html",
+ "https://en.wikipedia.org/wiki/1762": {
+  "file": "56d98fde33e455cc.html",
   "type": "text/html; charset=UTF-8"
  },
- "https://en.wikipedia.org/wiki/Main_Page?useskin=vector": {
-  "file": "ff4f59d96a01e931.html",
+ "https://en.wikipedia.org/wiki/Main_Page": {
+  "file": "d71ec714e950bddf.html",
   "type": "text/html; charset=UTF-8"
- },
- "https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&type=1x1&usesul3=1": {
-  "file": "86d0ec315879ed1a.png",
-  "type": "image/png"
  },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/08/Coronation_portrait_of_Peter_III_of_Russia_-1761.JPG/120px-Coronation_portrait_of_Peter_III_of_Russia_-1761.JPG?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "2df67c0e6dc15c31.jpg",
   "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/Nintendo-3DS-AquaOpen.png/250px-Nintendo-3DS-AquaOpen.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "1d4754e125851f9a.png",
+  "type": "image/png"
  },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0b/Wikiversity_logo_2017.svg/60px-Wikiversity_logo_2017.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "74def2ab6b5e7eae.png",
@@ -151,25 +531,17 @@
   "file": "b2403092d59d2e59.jpg",
   "type": "image/jpeg"
  },
- "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2f/Charles_Lennox%2C_2nd_Duke_of_Richmond%2C_by_circle_of_Jean_Marc_Nattier.jpg/250px-Charles_Lennox%2C_2nd_Duke_of_Richmond%2C_by_circle_of_Jean_Marc_Nattier.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
-  "file": "12893c9c72612e3c.jpg",
-  "type": "image/jpeg"
- },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4c/Wikisource-logo.svg/40px-Wikisource-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "d159a47403a8f3c7.png",
   "type": "image/png"
  },
- "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/67/Charlotte_Jordan_2023_%28cropped%29.jpg/250px-Charlotte_Jordan_2023_%28cropped%29.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
-  "file": "8dacaf60525bf0f0.jpg",
-  "type": "image/jpeg"
- },
- "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/Egypt_flag_on_6oct_war.jpg/250px-Egypt_flag_on_6oct_war.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
-  "file": "58abb81c84c4ad6b.jpg",
-  "type": "image/jpeg"
- },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Wikimedia_Community_Logo.svg/40px-Wikimedia_Community_Logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "51253a427010ccf0.png",
   "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/76/In_Memory_of_Theo_Faiss_by_Edith_Maryon.jpg/120px-In_Memory_of_Theo_Faiss_by_Edith_Maryon.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "42f4b8b70e8e7321.jpg",
+  "type": "image/jpeg"
  },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8d/Johann_Gottlieb_Fichte.jpg/120px-Johann_Gottlieb_Fichte.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "a44e0b88005a01e4.jpg",
@@ -179,9 +551,17 @@
   "file": "4d99ccd847ec339a.png",
   "type": "image/png"
  },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a2/Randy-Moss_8-28-09_Patriots-vs-Redskins.jpg/250px-Randy-Moss_8-28-09_Patriots-vs-Redskins.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "e2e886447e3e6754.jpg",
+  "type": "image/jpeg"
+ },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/MediaWiki-2020-icon.svg/40px-MediaWiki-2020-icon.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "208dfc94345cd580.png",
   "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/Luxembourg%2C_vue_a%C3%A9rienne_du_quartier_Ville-Haute_%28102%29.jpg/250px-Luxembourg%2C_vue_a%C3%A9rienne_du_quartier_Ville-Haute_%28102%29.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "67cb59e17ee97dd5.jpg",
+  "type": "image/jpeg"
  },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/2014_Rallye_Deutschland_by_2eight_DSC2587.jpg/250px-2014_Rallye_Deutschland_by_2eight_DSC2587.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "3eb205ef90c12500.jpg",
@@ -195,10 +575,6 @@
   "file": "778690e81ab46361.png",
   "type": "image/png"
  },
- "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e7/Thomas_Mundy_Peterson_by_William_R._Tobias.jpg/250px-Thomas_Mundy_Peterson_by_William_R._Tobias.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
-  "file": "58189af890cbb1f0.jpg",
-  "type": "image/jpeg"
- },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e9/Spencer_PercevalCE.jpg/120px-Spencer_PercevalCE.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "64bb98610c3f356f.jpg",
   "type": "image/jpeg"
@@ -206,6 +582,10 @@
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ef/George_IV_1821_color.jpg/120px-George_IV_1821_color.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "1cb561032d654e50.jpg",
   "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f9/Tripedalia-cystophora.png/500px-Tripedalia-cystophora.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "804a18bff630ee42.png",
+  "type": "image/png"
  },
  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fa/Wikibooks-logo.svg/40px-Wikibooks-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
   "file": "a14711baa38a0fcd.png",

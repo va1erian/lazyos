@@ -2,15 +2,13 @@
 the host and judging what the browser did with them.
 
 `wikicapture.py` saved two English Wikipedia pages, the Main Page and "1762",
-as LazyWeb asks for them (`?useskin=vector`, the 2010 Vector skin that
-NetSurf lays out well; `xui-app/web/src/sites.rs`), with their style sheets
-and pictures, under `fixtures/wikipedia/`. The HTTPS stand-in (`sites.py`)
+as LazyWeb asks for them (the default skin, Vector 2022), with their style
+sheets and pictures, under `fixtures/wikipedia/`. The HTTPS stand-in (`sites.py`)
 answers for en.wikipedia.org, upload.wikimedia.org and thumb.wikimedia.org
 from that copy; plain HTTP redirects to HTTPS, like the real sites.
 
-The browser keeps the URL it was given (`/wiki/1762`), so `WEB:LOAD` names
-that, while the server must see `useskin=vector` on every page request: the
-rewrite happens below NetSurf, at the fetch.
+The browser asks for the URL it was given (`/wiki/1762`) as it is: LazyWeb
+adds no skin parameter.
 """
 
 from __future__ import annotations
@@ -32,8 +30,6 @@ from wikicapture import OUT as FIXTURE, PAGES, Refs, wanted  # noqa: E402
 HOSTS = ("en.wikipedia.org", "upload.wikimedia.org", "thumb.wikimedia.org")
 MAIN_URL = "https://en.wikipedia.org/wiki/Main_Page"
 ARTICLE_URL = "https://en.wikipedia.org/wiki/1762"
-#: The query LazyWeb adds to every wiki page it fetches.
-SKIN = ("useskin", "vector")
 #: The query the harness's own `curl` requests carry (`judge.PRECHECK_TAG`).
 PRECHECK_TAG = "precheck"
 
@@ -48,7 +44,7 @@ def manifest() -> dict[str, dict]:
 def _normalise(url: str, drop: tuple[str, ...] = (PRECHECK_TAG,)) -> str:
     """`url` with percent-encoding undone and the query parameters `drop`
     names (the harness's own) left out, so a request matches however
-    NetSurf escaped it."""
+    the browser escaped it."""
     parts = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
              if k not in drop]
@@ -58,24 +54,12 @@ def _normalise(url: str, drop: tuple[str, ...] = (PRECHECK_TAG,)) -> str:
 
 def lookup(host: str, path: str) -> tuple[str, bytes] | None:
     """(content type, body) of the copy of `https://<host><path>`, or None.
-    A `/wiki/` URL that is no page (the tracking pixel the Main Page shows
-    without JavaScript) also gets the skin parameter from LazyWeb, which
-    the copy, saved under the URL the page names, does not have."""
+"""
     url = f"https://{host}{path}"
-    entry = manifest().get(_normalise(url)) or _bare().get(_normalise(url, _NOT_COPIED))
+    entry = manifest().get(_normalise(url))
     if entry is None:
         return None
     return entry["type"], (FIXTURE / "files" / entry["file"]).read_bytes()
-
-
-#: Query parameters a request may carry that the copy's URLs do not.
-_NOT_COPIED = (PRECHECK_TAG, SKIN[0])
-
-
-@functools.lru_cache(maxsize=1)
-def _bare() -> dict[str, dict]:
-    """The manifest keyed by URL without the skin parameter."""
-    return {_normalise(url, _NOT_COPIED): entry for url, entry in manifest().items()}
 
 
 def picture_bytes(url: str) -> bytes:
@@ -88,8 +72,8 @@ def picture_bytes(url: str) -> bytes:
 
 
 def _page(url: str) -> str:
-    """The copy of `url` (without the skin parameter) as text."""
-    found = lookup("en.wikipedia.org", f"{urlsplit(url).path}?{urlencode([SKIN])}")
+    """The copy of `url` as text."""
+    found = lookup("en.wikipedia.org", urlsplit(url).path)
     if found is None:
         raise KeyError(f"no copy of {url} in {FIXTURE}")
     return found[1].decode("utf-8", "replace")
@@ -144,8 +128,8 @@ def judge_serial(text: str) -> list[str]:
 
 
 def judge_servers(record) -> list[str]:
-    """What the host saw: each page asked for in the 2010 skin, never in
-    the default one, and every style sheet and picture of both pages."""
+    """What the host saw: each page asked for as linked, and every style
+    sheet and picture of both pages."""
     browser = [r for r in record.requests if r.host in HOSTS and PRECHECK_TAG not in r.path]
     got = {_normalise(f"https://{r.host}{r.path}") for r in browser
            if r.scheme == "https" and r.method == "GET" and r.status == 200}
@@ -153,15 +137,13 @@ def judge_servers(record) -> list[str]:
     for page in PAGES:
         if _normalise(page) not in got:
             problems.append(f"the browser never fetched {page}")
-        styles, pictures = resources(page.split("?")[0])
-        bare = {_normalise(u, _NOT_COPIED) for u in got}
+        styles, pictures = resources(page)
         for url in styles + pictures:
-            if _normalise(url) not in got and _normalise(url, _NOT_COPIED) not in bare:
+            if _normalise(url) not in got:
                 problems.append(f"the browser never fetched {url}")
     for r in browser:
-        query = dict(parse_qsl(urlsplit(r.path).query))
-        if r.path.startswith("/wiki/") and query.get(SKIN[0]) != SKIN[1]:
-            problems.append(f"{r.host}{r.path} was asked for without useskin=vector")
+        if "useskin" in r.path:
+            problems.append(f"{r.host}{r.path} was asked for with a skin parameter")
         if r.scheme == "https" and r.sni != r.host:
             problems.append(f"{r.path}: SNI {r.sni!r} on a connection for Host {r.host!r}")
     return problems

@@ -210,7 +210,7 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
         pictures = shots(out)
         ok = report("SHOTS", ", ".join(p.name for p in pictures), judge.judge_shots(pictures)) and ok
         if not args.live:
-            ok = report("WIKIPEDIA", "both pages in the 2010 skin, with every style sheet and "
+            ok = report("WIKIPEDIA", "both pages in the default skin, with every style sheet and "
                         "picture", wiki.judge_serial(text) + wiki.judge_servers(record)) and ok
             wiki_shots = sorted(out.glob("shot_2*_wiki_*.png"))
             ok = report("WIKI-SHOTS", ", ".join(p.name for p in wiki_shots),
