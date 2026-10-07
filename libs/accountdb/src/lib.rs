@@ -32,8 +32,10 @@
 //!
 //! The parser is strict and fails closed, like `libs/passwd`'s: a file that is
 //! too large, not text or has any malformed or conflicting record yields a
-//! [`LoadError`] and no account at all. uid 0 is refused: no account logs in
-//! as root (the `admin` account is an ordinary uid in the `admin` group). An
+//! [`LoadError`] and no account at all. An account's uid and primary gid lie
+//! in [`FIRST_UID`]`..=`[`LAST_UID`] and its name passes
+//! [`valid_account_name`]: no account logs in as root or as a system service
+//! (the `admin` account is an ordinary uid in the `admin` group). An
 //! empty database (no user) is valid: it is a machine waiting for its owner
 //! (the first-boot setup, [`Db::needs_setup`]).
 #![no_std]
@@ -89,6 +91,16 @@ pub const ELEVD_UID: u32 = 909;
 pub const LOGIN_SHELL: &str = "sh";
 /// The `<secret>` of an account without a password.
 pub const LOCKED: &str = "!";
+/// Names no account may take: the superuser's, which programs take for uid 0.
+pub const RESERVED_NAMES: &[&str] = &["root"];
+
+/// A name an account may have: a login name ([`valid_name`]) that is not a
+/// system service's (`_`-prefixed, `_accounts`, `_elev`, ...) nor reserved
+/// ([`RESERVED_NAMES`]). The parser, `Create`, `init`'s homes and the login
+/// screen's setup all apply it, so they agree by construction.
+pub fn valid_account_name(name: &str) -> bool {
+    valid_name(name) && !name.starts_with('_') && !RESERVED_NAMES.contains(&name)
+}
 
 /// An Argon2id password verifier, as `keyd` derives and checks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -282,12 +294,19 @@ fn parse_user(rest: &str) -> Result<User, &'static str> {
     let [name, uid, gid, home, shell, groups, secret] = fields[..] else {
         return Err("count");
     };
-    if !valid_name(name) {
+    if !valid_account_name(name) {
         return Err("name");
     }
-    // Nobody logs in as root (docs/accounts-plan.md, decisions).
-    let uid = passwd::parse_id(uid).filter(|uid| *uid != 0).ok_or("uid")?;
-    let gid = passwd::parse_id(gid).ok_or("gid")?;
+    // Nobody logs in as root (docs/accounts-plan.md, decisions), nor as a
+    // system service, nor with a system group as its own: an account's uid
+    // and primary gid are in the accounts' range (review of #659).
+    let accounts = FIRST_UID..=LAST_UID;
+    let uid = passwd::parse_id(uid)
+        .filter(|uid| accounts.contains(uid))
+        .ok_or("uid")?;
+    let gid = passwd::parse_id(gid)
+        .filter(|gid| accounts.contains(gid))
+        .ok_or("gid")?;
     if !passwd::valid_home(home) {
         return Err("home");
     }

@@ -65,20 +65,32 @@ fn an_empty_database_waits_for_its_owner() {
 
 #[test]
 fn every_kind_of_bad_record_fails_closed() {
-    let cases: [(&str, &str); 14] = [
-        ("user:root:0:0:/root:sh::!", "field=uid"),
-        ("user:Bob:1:1:/h:sh::!", "field=name"),
-        ("user:bob:1:1:home:sh::!", "field=home"),
-        ("user:bob:1:1:/h:s h::!", "field=shell"),
-        ("user:bob:1:1:/h:sh::plain", "field=secret"),
-        ("user:bob:1:1:/h:sh:admin,admin:!", "field=groups"),
-        ("user:bob:1:1:/h:sh", "field=count"),
+    let cases: [(&str, &str); 20] = [
+        ("user:root:0:0:/root:sh::!", "field=name"),
+        ("user:bob:0:1000:/h:sh::!", "field=uid"),
+        ("user:bob:908:1000:/h:sh::!", "field=uid"),
+        ("user:bob:60000:1000:/h:sh::!", "field=uid"),
+        ("user:bob:1000:0:/h:sh::!", "field=gid"),
+        ("user:bob:1000:10:/h:sh::!", "field=gid"),
+        ("user:_svc:1000:1000:/h:sh::!", "field=name"),
+        ("user:Bob:1000:1000:/h:sh::!", "field=name"),
+        ("user:bob:1000:1000:home:sh::!", "field=home"),
+        ("user:bob:1000:1000:/h:s h::!", "field=shell"),
+        ("user:bob:1000:1000:/h:sh::plain", "field=secret"),
+        ("user:bob:1000:1000:/h:sh:admin,admin:!", "field=groups"),
+        ("user:bob:1000:1000:/h:sh", "field=count"),
         ("group:admin:x", "field=gid"),
         ("next:5", "field=next"),
         ("wheel:1", "field=kind"),
-        ("user:bob:1:1:/h:sh:nogroup:!", "unknown-group"),
-        ("user:a:1:1:/h:sh::!\nuser:a:2:2:/h:sh::!", "duplicate-name"),
-        ("user:a:1:1:/h:sh::!\nuser:b:1:2:/h:sh::!", "duplicate-uid"),
+        ("user:bob:1000:1000:/h:sh:nogroup:!", "unknown-group"),
+        (
+            "user:a:1000:1000:/h:sh::!\nuser:a:1001:1001:/h:sh::!",
+            "duplicate-name",
+        ),
+        (
+            "user:a:1000:1000:/h:sh::!\nuser:b:1000:1001:/h:sh::!",
+            "duplicate-uid",
+        ),
         ("group:a:1\ngroup:b:1", "duplicate-gid"),
     ];
     for (text, reason) in cases {
@@ -110,6 +122,8 @@ fn create_refuses_bad_and_taken_names() {
     let mut db = db();
     assert_eq!(db.create("Bad", false, None), Err(OpError::BadName));
     assert_eq!(db.create("_accounts", false, None), Err(OpError::BadName));
+    assert_eq!(db.create("root", false, None), Err(OpError::BadName));
+    assert!(valid_account_name("owner") && !valid_account_name("_svc"));
     assert_eq!(db.create("user", false, None), Err(OpError::Exists));
     assert_eq!(db.create("admin", false, None), Err(OpError::Exists));
 }

@@ -93,8 +93,7 @@ impl HomeJobs {
             services::init::wire::decode_home_args(&message.parcel.body).map_err(Error::Parcel)?;
         let human = accountdb::FIRST_UID..=accountdb::LAST_UID;
         if !matches!(args.op.as_str(), "create" | "archive" | "remove")
-            || !accountdb::valid_name(&args.name)
-            || args.name.starts_with('_')
+            || !accountdb::valid_account_name(&args.name)
             || !human.contains(&args.uid)
             || !human.contains(&args.gid)
         {

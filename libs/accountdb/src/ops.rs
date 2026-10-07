@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::{
-    valid_name, Db, Group, User, Verifier, ADMIN_GID, ADMIN_GROUP, FIRST_UID, LAST_UID,
+    valid_account_name, Db, Group, User, Verifier, ADMIN_GID, ADMIN_GROUP, FIRST_UID, LAST_UID,
     LOGIN_SHELL, MAX_USERS,
 };
 
@@ -66,7 +66,7 @@ impl Db {
         secret: Option<Verifier>,
     ) -> Result<User, OpError> {
         // `_`-prefixed names are the system services' (`_accounts`, ...).
-        if !valid_name(name) || name.starts_with('_') {
+        if !valid_account_name(name) {
             return Err(OpError::BadName);
         }
         if self.user(name).is_some() || self.groups.iter().any(|g| g.name == name) {
