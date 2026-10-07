@@ -145,9 +145,10 @@ const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
 /// The network apps, shipped by a desktop image that has the network stack
 /// (`LAZYOS_NETD=1`, docs/networking-host-access.md): Network (status and
-/// configuration) and Net Tools (ping, lookups, a web fetch and a web server
-/// the host can reach). Without the stack they would have nothing to show.
-const NETWORK_XUI_APPS: &[&str] = &["xui-network.elf", "xui-nettools.elf"];
+/// configuration), Net Tools (ping, lookups, a web fetch and a web server
+/// the host can reach) and Network Drives (FTP servers mounted under `/mnt`
+/// through `mountd`). Without the stack they would have nothing to show.
+const NETWORK_XUI_APPS: &[&str] = &["xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf"];
 
 /// Mail (esMail, docs/mail.md), shipped by `LAZYOS_MAIL=1` desktop images:
 /// `python tools/xui/build.py --mail` builds it (`run_demo.py --mail` does

@@ -425,6 +425,10 @@ pub mod timed;
 /// stubs and a blocking [`devd::Client`].
 pub mod devd;
 
+/// The network mount service `mountd` (docs/smb-plan.md §3.4): the generated
+/// `os.lazy.mount.v1` stubs and its service name.
+pub mod mount;
+
 // ---------------------------------------------------------------------------
 // Audio (docs/driver-plan.md D6)
 // ---------------------------------------------------------------------------

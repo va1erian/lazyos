@@ -9897,6 +9897,247 @@ pub mod os_lazy_mimed_v1 {
     }
 }
 
+/// `os.lazy.mount.v1` (interface id `0x9d456629506ac305`).
+#[rustfmt::skip]
+pub mod os_lazy_mount_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x9d456629506ac305;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.mount.v1";
+
+    /// One mount the service knows about.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MountInfo {
+        pub name: alloc::string::String,
+        pub kind: alloc::string::String,
+        pub host: alloc::string::String,
+        pub port: u32,
+        pub user: alloc::string::String,
+        pub path: alloc::string::String,
+        pub state: alloc::string::String,
+        pub detail: alloc::string::String,
+        pub owner: u32,
+    }
+
+    pub fn encode_mount_info(value: &MountInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.kind)?;
+        target.string(3, &value.host)?;
+        target.u32(4, value.port)?;
+        target.string(5, &value.user)?;
+        target.string(6, &value.path)?;
+        target.string(7, &value.state)?;
+        target.string(8, &value.detail)?;
+        target.u32(9, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mount_info(body: &[u8]) -> Result<MountInfo, Error> {
+        let mut out = MountInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.kind = field.as_str()?.into();
+                }
+                3 => {
+                    out.host = field.as_str()?.into();
+                }
+                4 => {
+                    out.port = field.as_u32()?;
+                }
+                5 => {
+                    out.user = field.as_str()?.into();
+                }
+                6 => {
+                    out.path = field.as_str()?.into();
+                }
+                7 => {
+                    out.state = field.as_str()?.into();
+                }
+                8 => {
+                    out.detail = field.as_str()?.into();
+                }
+                9 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Mount` method id.
+    pub const METHOD_MOUNT: u32 = 1041399898;
+    /// `Unmount` method id.
+    pub const METHOD_UNMOUNT: u32 = 2047171115;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+
+    /// The mount's name: it is served at `path`, `/mnt/<name>`.
+    /// The filesystem daemon's protocol (`ftp`).
+    /// The server's host name or address, as given.
+    /// The server's TCP port.
+    /// The account it logs in as (`anonymous` when none was given).
+    /// Where it is mounted.
+    /// `connecting`, `mounted` or `failed`.
+    /// Why a mount failed, empty otherwise.
+    /// The requester's uid: the files' owner.
+    /// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
+    /// with `password` (an empty `user` is the anonymous login). `name` is 1
+    /// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
+    /// `.`, `-` and `:`; `port` 1 to 65535 (0 means 21); `user` and
+    /// `password` at most 128 bytes with no control character. `path` is the
+    /// mount point the daemon will serve.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MountArgs {
+        pub name: alloc::string::String,
+        pub host: alloc::string::String,
+        pub port: u32,
+        pub user: alloc::string::String,
+        pub password: alloc::string::String,
+    }
+
+    pub fn encode_mount_args(value: &MountArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.host)?;
+        target.u32(3, value.port)?;
+        target.string(4, &value.user)?;
+        target.string(5, &value.password)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mount_args(body: &[u8]) -> Result<MountArgs, Error> {
+        let mut out = MountArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.host = field.as_str()?.into();
+                }
+                3 => {
+                    out.port = field.as_u32()?;
+                }
+                4 => {
+                    out.user = field.as_str()?.into();
+                }
+                5 => {
+                    out.password = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MountReply {
+        pub path: alloc::string::String,
+    }
+
+    pub fn encode_mount_reply(value: &MountReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mount_reply(body: &[u8]) -> Result<MountReply, Error> {
+        let mut out = MountReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop the mount `name` and forget it (a failed one is just forgotten).
+    /// The daemon is stopped at once; the kernel takes the dead mount out of
+    /// `/mnt` within a few seconds, and until then it fails every call.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct UnmountArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_unmount_args(value: &UnmountArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_unmount_args(body: &[u8]) -> Result<UnmountArgs, Error> {
+        let mut out = UnmountArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every mount the service knows about, in the order they were asked for.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub mounts: alloc::vec::Vec<MountInfo>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.mounts {
+            nested.raw(Kind::Struct, 1, &encode_mount_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.mounts.push(decode_mount_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+}
+
 /// `os.lazy.net.nic.v1` (interface id `0x6748c83c2024715b`).
 #[rustfmt::skip]
 pub mod os_lazy_net_nic_v1 {

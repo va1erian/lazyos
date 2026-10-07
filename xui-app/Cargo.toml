@@ -71,6 +71,8 @@ libc = "0.2"
 fhs = { path = "../libs/fhs" }
 # Row layouts and names of the device inspection ops (the Devices app, #481).
 devinspect = { path = "../libs/devinspect" }
+# `mountd`'s request rules, so Network Drives refuses what the service would.
+mounttable = { path = "../libs/mounttable" }
 # The client half of the pipelined `Present` (issue #372): the same pure slot
 # state machine `xdemo` and the kernel display suite drive.
 surfbuf = { path = "../libs/surfbuf" }
@@ -241,3 +243,7 @@ path = "src/bin/pdf.rs"
 [[bin]]
 name = "xui-traydemo"
 path = "src/bin/traydemo.rs"
+
+[[bin]]
+name = "xui-netdrives"
+path = "src/bin/netdrives.rs"

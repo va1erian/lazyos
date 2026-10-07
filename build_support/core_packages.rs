@@ -149,6 +149,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         // Tray Demo, the tray sample app (docs/tray-plan.md T1); only
         // `LAZYOS_TRAYDEMO=1` images ship it (`xui_embed`).
         "traydemo",
+        // Network Drives: Mount FTP servers as folders under /mnt.
+        "netdrives",
     ];
     CORE.contains(&short_of(stem))
 }

@@ -132,6 +132,8 @@ programs! {
     FTP = "ftp";
     /// `ftpfuse`, an FTP server mounted under `/mnt` (docs/smb-plan.md).
     FTPFUSE = "ftpfuse";
+    /// `mountd`, the network mount service that starts `ftpfuse` for apps.
+    MOUNTD = "mountd";
     /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
     /// docs/tls-plan.md §7).
     FETCH = "fetch";

@@ -87,6 +87,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Look up which app opens a file type and open files with other apps",
     ),
     (
+        "os.lazy.mount.v1",
+        HIGH,
+        "Connect to file servers on the network and mount them as folders",
+    ),
+    (
         "os.lazy.net.nic.v1",
         HIGH,
         "Control the network card directly",

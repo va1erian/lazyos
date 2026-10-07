@@ -116,6 +116,8 @@ BINS = {
     "xui-pdf": "xui-pdf.elf",
     # Tray Demo: Shows a taskbar tray icon and reacts to it.
     "xui-traydemo": "xui-traydemo.elf",
+    # Network Drives: Mount FTP servers as folders under /mnt.
+    "xui-netdrives": "xui-netdrives.elf",
 }
 
 

@@ -92,7 +92,8 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
 TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
-NET_APPS = [ROOT / "target" / "xui" / n for n in ("xui-network.elf", "xui-nettools.elf", "xui-printd.elf")]
+NET_APPS = [ROOT / "target" / "xui" / n
+            for n in ("xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf", "xui-printd.elf")]
 
 
 def confirm(question: str) -> bool:

@@ -1113,6 +1113,28 @@
     ]
   },
   {
+    "interface": "os.lazy.mount.v1",
+    "interface_id": "0x9d456629506ac305",
+    "methods": [
+      {
+        "name": "Mount",
+        "id": 1041399898,
+        "oneway": false
+      },
+      {
+        "name": "Unmount",
+        "id": 2047171115,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.net.nic.v1",
     "interface_id": "0x6748c83c2024715b",
     "methods": [

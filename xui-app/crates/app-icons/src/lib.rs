@@ -93,6 +93,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/traydemo",
         Art::Lucide(Lucide::Star, Tone::Amber),
     ),
+    // Network Drives: a server's files, opened as a folder.
+    (
+        "xui-app/packages/netdrives",
+        Art::Lucide(Lucide::FolderOpen, Tone::Cobalt),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

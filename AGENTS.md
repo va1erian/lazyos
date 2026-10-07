@@ -693,6 +693,24 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out sh
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 
+## Network Drives (FTP mounts from the desktop)
+
+`ftpfuse` serves an FTP server at `/mnt/<name>` through the FUSE mechanism
+(syscall 35, `CAP_FS_PROVIDER`). Apps hold no capabilities, so the desktop
+asks `mountd` (`os.lazy.mount.v1`, `idl/mount.midl`; uid 907 with only
+`CAP_FS_PROVIDER`), which starts one `ftpfuse` per mount with the caller's
+ownership (`owner=`) and reports `connecting`/`mounted`/`failed`. The rules are
+`libs/mounttable` (host-tested); the front end is the core package **Network
+Drives** (`os.lazy.netdrives`, `xui-app/src/bin/netdrives.rs`), shipped in
+every `--net` desktop. See [`docs/smb-plan.md`](docs/smb-plan.md) §3.4.
+
+```bash
+python tools/run_demo.py --desktop --net  # then Internet -> Network Drives, server 10.0.2.2
+cargo test -p mounttable
+python tools/fuse/ui_run.py               # build, mount from the app against a host FTP server, judge
+python tools/fuse/test_ui_judge.py        # the judge fails when it should
+```
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers

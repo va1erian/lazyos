@@ -1,0 +1,55 @@
+/// The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
+/// supervises one user-space filesystem daemon per mount (`ftpfuse` today),
+/// each serving `/mnt/<name>` through the FUSE mechanism, so a program that
+/// may not register a filesystem itself (an installed app has no
+/// capabilities) can still ask for one.
+///
+/// A mount belongs to its requester: its files are reported as owned by the
+/// caller's kernel-stamped uid and gid, and only that uid (or root) may
+/// unmount it. `Mount` answers at once with the mount in state `connecting`;
+/// the daemon then logs in and the state becomes `mounted`, or `failed` with
+/// a reason in `detail`. Callers poll `List`. A failed mount stays listed
+/// until it is unmounted, so its reason can be read. Failures of a request
+/// itself are returned as a structured error field (errno-style code,
+/// friendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in
+/// use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
+/// `EAGAIN` when every slot is taken.
+interface os.lazy.mount.v1 {
+    /// One mount the service knows about.
+    struct MountInfo {
+        /// The mount's name: it is served at `path`, `/mnt/<name>`.
+        name: String = 1,
+        /// The filesystem daemon's protocol (`ftp`).
+        kind: String = 2,
+        /// The server's host name or address, as given.
+        host: String = 3,
+        /// The server's TCP port.
+        port: U32 = 4,
+        /// The account it logs in as (`anonymous` when none was given).
+        user: String = 5,
+        /// Where it is mounted.
+        path: String = 6,
+        /// `connecting`, `mounted` or `failed`.
+        state: String = 7,
+        /// Why a mount failed, empty otherwise.
+        detail: String = 8,
+        /// The requester's uid: the files' owner.
+        owner: U32 = 9
+    }
+
+    /// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
+    /// with `password` (an empty `user` is the anonymous login). `name` is 1
+    /// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
+    /// `.`, `-` and `:`; `port` 1 to 65535 (0 means 21); `user` and
+    /// `password` at most 128 bytes with no control character. `path` is the
+    /// mount point the daemon will serve.
+    method Mount(name: String = 1, host: String = 2, port: U32 = 3, user: String = 4, password: String = 5) -> (path: String = 1);
+
+    /// Stop the mount `name` and forget it (a failed one is just forgotten).
+    /// The daemon is stopped at once; the kernel takes the dead mount out of
+    /// `/mnt` within a few seconds, and until then it fails every call.
+    method Unmount(name: String = 1) -> ();
+
+    /// Every mount the service knows about, in the order they were asked for.
+    method List() -> (mounts: Array<MountInfo> = 1);
+}
