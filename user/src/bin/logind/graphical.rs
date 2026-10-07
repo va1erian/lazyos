@@ -239,6 +239,12 @@ impl Desktop {
             logind::wire::METHOD_LOGOUT => {
                 let caller = message.caller();
                 match self.active.as_ref() {
+                    // Without the bus the end could not be announced, so `init`
+                    // would never stop the session's tasks: refuse, keep it.
+                    Some(active) if caller.session == active.id && self.bus.is_none() => (
+                        logind::error_reply(method, errno::EAGAIN, "cannot announce the logout"),
+                        After::Nothing,
+                    ),
                     Some(active) if caller.session == active.id && active.id != 0 => {
                         let body = logind::wire::encode_logout_reply(&logind::wire::LogoutReply {
                             session: active.id,
@@ -358,24 +364,33 @@ impl Desktop {
     }
 
     /// End the active session: `init` stops its tasks on the event, and the
-    /// next loop pass brings the login screen back.
+    /// next loop pass brings the login screen back. The end is announced
+    /// first: if it cannot be, the session stays active (its tasks are still
+    /// running) and a later Log out tries again, instead of a login screen
+    /// opening over a session nobody stopped.
     fn end_session(&mut self) {
-        let Some(active) = self.active.take() else {
+        let Some(active) = self.active.as_ref() else {
             return;
         };
-        let record = &mut self.sessions[active.index];
-        record.state = String::from("exited");
-        sys::write_str(&format!(
-            "LOGIN:LOGOUT:PASS session={} user={}\n",
-            active.id, record.user
-        ));
+        let (id, index) = (active.id, active.index);
         let account = accounts::UserRecord {
-            name: record.user.clone(),
-            uid: record.uid,
+            name: self.sessions[index].user.clone(),
+            uid: self.sessions[index].uid,
             ..accounts::UserRecord::default()
         };
-        publish_end(&mut self.bus, &account, active.id, 0);
-        publish_session(&mut self.bus, &account, active.id, 0, "exited");
+        if !publish_end(&mut self.bus, &account, id, 0) {
+            sys::write_str(&format!(
+                "LOGIN:LOGOUT:FAIL session={id} reason=unannounced\n"
+            ));
+            return;
+        }
+        self.active = None;
+        self.sessions[index].state = String::from("exited");
+        sys::write_str(&format!(
+            "LOGIN:LOGOUT:PASS session={id} user={}\n",
+            account.name
+        ));
+        publish_session(&mut self.bus, &account, id, 0, "exited");
     }
 }
 
@@ -402,22 +417,24 @@ pub fn publish_session(
     }
 }
 
-/// Publish `system/events/login/end` for `session`.
+/// Publish `system/events/login/end` for `session`; whether the broker took
+/// it (`init` stops the session's tasks on it).
 fn publish_end(
     bus: &mut Option<router::Bus>,
     account: &accounts::UserRecord,
     session: u64,
     status: u64,
-) {
-    if let Some(bus) = bus.as_mut() {
-        let event = logind::wire::LoginEnd {
-            user: account.name.clone(),
-            uid: account.uid,
-            session,
-            status,
-        };
-        let _ = logind::wire::publish_system_events_login_end(bus, &event);
-    }
+) -> bool {
+    let Some(bus) = bus.as_mut() else {
+        return false;
+    };
+    let event = logind::wire::LoginEnd {
+        user: account.name.clone(),
+        uid: account.uid,
+        session,
+        status,
+    };
+    logind::wire::publish_system_events_login_end(bus, &event).is_ok()
 }
 
 /// A short reason for a failed `Launch`.
