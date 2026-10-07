@@ -1,13 +1,20 @@
 //! `pkgd`'s heap while it provisions a whole core set on a fresh image (issue
-//! #509): the user heap never returns a block over 64 KiB, and `pkgd` restarts
+//! #509): the user heap never reuses a block over 1 MiB, and `pkgd` restarts
 //! once it grew by 32 MiB, so one first-boot pass must stay well under that.
 //!
 //! The set is the real one when `tools/xui/build.py` has built it
-//! (`target/pkg/core/*.lzp`), else twelve synthetic packages with programs of
-//! 2.8 to 5.8 MB (the size of the xui apps) that do not compress. Reading
-//! each package into the one kept buffer and unpacking every file through the
-//! one kept scratch buffer is what keeps it bounded: a fresh `Vec` per file
-//! would grow the heap by every file of every package.
+//! (`target/pkg/core/*.lzp`; CI's xui workflow runs this test after building
+//! it, with `PKGSTORE_REQUIRE_CORE_SET=1` so a missing set fails instead of
+//! falling back), else twelve synthetic packages with programs of 2.8 to
+//! 5.8 MB that do not compress.
+//!
+//! What keeps it bounded: each package is read into the one kept buffer, and
+//! every file is unpacked to disk through `lazypkg`'s 1 MiB window, which the
+//! heap recycles. So the pass grows the heap by the largest *package* alone,
+//! whatever its files expand to. The real set's programs expand about 2.3x
+//! (LazyWeb's 6.4 MB package holds a 14.7 MB program): when a file was
+//! unpacked whole into a kept scratch buffer, the pass also grew by the
+//! largest *file*, 21 MB in all, two thirds of the recycle threshold.
 
 mod provisioning;
 
@@ -28,7 +35,17 @@ fn clock() -> i64 {
 }
 
 /// The built core set, `(system_name, version, bytes)`, if there is one.
+/// `PKGSTORE_REQUIRE_CORE_SET=1` makes its absence a failure (CI, after
+/// building it).
 fn built_core_set() -> Option<Vec<(String, String, Vec<u8>)>> {
+    let set = read_core_set();
+    if set.is_none() && std::env::var_os("PKGSTORE_REQUIRE_CORE_SET").is_some() {
+        panic!("PKGSTORE_REQUIRE_CORE_SET is set but target/pkg/core has no readable .lzp");
+    }
+    set
+}
+
+fn read_core_set() -> Option<Vec<(String, String, Vec<u8>)>> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/pkg/core");
     let mut set = Vec::new();
     for entry in std::fs::read_dir(dir).ok()? {
@@ -81,13 +98,37 @@ fn provisioning_the_core_set_stays_under_the_recycle_threshold() {
     assert_eq!(tally.installed as usize, set.len());
     assert_eq!(tally.failed, 0);
     println!(
-        "{} packages, {total} bytes: heap grew by {growth} bytes",
-        set.len()
+        "{} packages, {total} bytes, largest {}: heap grew by {growth} bytes",
+        set.len(),
+        image.largest()
     );
     assert!(
         growth < RECYCLE_BYTES,
         "provisioning grew the heap by {growth} bytes (limit {RECYCLE_BYTES})"
     );
-    // The bound is the largest package plus the largest file, not the set.
-    assert!(growth < 3 * image.largest() + (1 << 20), "{growth}");
+    // The bound is the largest package (the kept buffer) plus a little, not
+    // the set and not any file: the slack is for the small blocks of the
+    // pass that the heap's classes would recycle anyway.
+    let bound = image.largest() + (1 << 20);
+    assert!(
+        growth < bound,
+        "provisioning grew the heap by {growth} bytes (bound {bound})"
+    );
+    for (_, _, bytes) in &set {
+        installed_files_match(&fs, &pkgd, bytes);
+    }
+}
+
+/// Every file of the package `bytes` is on disk, byte for byte, under its
+/// install directory: the streamed extraction writes what `read` returns.
+fn installed_files_match(fs: &Ext2, pkgd: &Pkgd, bytes: &[u8]) {
+    let package = lazypkg::Package::open(bytes).unwrap();
+    let row = &pkgd.rows[&package.manifest().app.system_name];
+    let root = pkgstore::layout::install_path(&row.install_dir).unwrap();
+    for entry in package.entries().filter(|entry| !entry.is_dir) {
+        let path = pkgstore::layout::entry_path(&root, entry.name).unwrap();
+        let mut disk = vec![0; entry.size as usize];
+        assert_eq!(fs.read(&path, 0, &mut disk).unwrap(), disk.len(), "{path}");
+        assert!(disk == package.read(entry.name).unwrap(), "{path} differs");
+    }
 }

@@ -144,6 +144,15 @@ jobs:
           fi
           ls -l target/xui/*.elf || true
 
+      # `ci.yml` runs this test with its synthetic set (no packages there);
+      # here it provisions the real core set just built, so a package that
+      # outgrows `pkgd`'s memory bound fails the build (issue #509).
+      - name: pkgd provisioning memory with the real core set
+        if: steps.app.outputs.available == 'true'
+        env:
+          PKGSTORE_REQUIRE_CORE_SET: "1"
+        run: cargo test -p pkgstore --test provision_memory -- --nocapture
+
       - name: Upload the apps
         if: steps.app.outputs.available == 'true'
         uses: actions/upload-artifact@v4

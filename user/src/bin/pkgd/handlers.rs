@@ -55,9 +55,6 @@ pub(crate) struct Pkgd {
     /// The package file buffer, reused so a service that reads many packages
     /// does not grow by one package each time.
     pub(crate) buffer: Vec<u8>,
-    /// The extraction buffer (`pkgstore::tree::extract_with`), kept for the
-    /// same reason.
-    pub(crate) scratch: Vec<u8>,
     /// The core set: what the image ships in `/system/packages`.
     pub(crate) core: Vec<Shipped>,
     /// This start's provisioning progress (`Provisioned`).
@@ -77,7 +74,6 @@ impl Pkgd {
             audit: Audit::new(),
             accounts: Peer::new(accounts::NAME),
             buffer: Vec::new(),
-            scratch: Vec::new(),
             core: Vec::new(),
             provisioned: ProvisionState {
                 done: false,

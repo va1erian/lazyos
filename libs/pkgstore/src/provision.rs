@@ -176,10 +176,10 @@ pub fn plan(shipped: &[Shipped], current: &[Current]) -> Vec<Action> {
 }
 
 /// Put the installs and upgrades largest package first (`size` is the
-/// archive's size in bytes), the other steps after them. Extraction reuses
-/// one buffer sized to the largest file it has seen, and `pkgd`'s heap never
-/// returns a block over 64 KiB, so meeting the big packages first means the
-/// buffer grows once instead of once per bigger package.
+/// archive's size in bytes), the other steps after them. Packages are read
+/// into one reused buffer, and `pkgd`'s heap never reuses a block over 1 MiB,
+/// so meeting the big packages first means the buffer grows once instead of
+/// once per bigger package (`pkgd` also sizes it up front).
 pub fn largest_first(actions: &mut [Action], size: impl Fn(&str) -> usize) {
     actions.sort_by_key(|action| match action {
         Action::Install(name) | Action::Upgrade(name) => core::cmp::Reverse(size(name)),

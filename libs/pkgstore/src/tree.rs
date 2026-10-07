@@ -44,6 +44,8 @@ pub trait TreeFs {
     fn mkdir(&mut self, path: &str) -> Result<(), Self::Error>;
     /// Create or replace the file `path` with `data`.
     fn write(&mut self, path: &str, data: &[u8]) -> Result<(), Self::Error>;
+    /// Append `data` to the end of the existing file `path`.
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), Self::Error>;
     /// Set the permission bits of `path`.
     fn chmod(&mut self, path: &str, mode: u16) -> Result<(), Self::Error>;
     /// The entry names in the directory `path`, without `.` and `..`.
@@ -60,21 +62,23 @@ pub trait Source {
     fn entries(&self) -> Vec<(&str, bool)>;
     /// The bytes of the file entry `name`.
     fn read(&self, name: &str) -> Result<Vec<u8>, String>;
-    /// [`Source::read`] into `out`, replacing its contents. A source that can
-    /// fill a caller-owned buffer overrides it, so extraction reuses one
-    /// allocation for every entry (see [`extract_with`]).
-    fn read_into(&self, name: &str, out: &mut Vec<u8>) -> Result<(), String> {
-        let data = self.read(name)?;
-        out.clear();
-        out.extend_from_slice(&data);
-        Ok(())
-    }
-    /// The size of the largest file entry, when the source knows it, so
-    /// [`extract_with`] can size its buffer once.
-    fn largest(&self) -> usize {
-        0
+    /// [`Source::read`] handed to `sink` in order, in pieces. A source that
+    /// can unpack piece by piece overrides it, so extraction never holds a
+    /// whole file (see [`extract`]). `Err(None)` means `sink` refused a piece.
+    fn read_chunks(
+        &self,
+        name: &str,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), Refused>,
+    ) -> Result<(), Option<String>> {
+        let data = self.read(name).map_err(Some)?;
+        sink(&data).map_err(|Refused| None)
     }
 }
+
+/// What a [`Source::read_chunks`] sink returns to stop the stream; the sink
+/// keeps the reason.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refused;
 
 impl Source for lazypkg::Package<'_> {
     fn entries(&self) -> Vec<(&str, bool)> {
@@ -87,16 +91,15 @@ impl Source for lazypkg::Package<'_> {
         lazypkg::Package::read(self, name).map_err(|error| format!("{error}"))
     }
 
-    fn read_into(&self, name: &str, out: &mut Vec<u8>) -> Result<(), String> {
-        lazypkg::Package::read_into(self, name, out).map_err(|error| format!("{error}"))
-    }
-
-    fn largest(&self) -> usize {
-        lazypkg::Package::entries(self)
-            .filter(|entry| !entry.is_dir)
-            .map(|entry| entry.size as usize)
-            .max()
-            .unwrap_or(0)
+    fn read_chunks(
+        &self,
+        name: &str,
+        sink: &mut dyn FnMut(&[u8]) -> Result<(), Refused>,
+    ) -> Result<(), Option<String>> {
+        lazypkg::Package::read_chunks(self, name, sink).map_err(|error| match error {
+            lazypkg::ChunkError::Read(error) => Some(format!("{error}")),
+            lazypkg::ChunkError::Sink(Refused) => None,
+        })
     }
 }
 
@@ -139,31 +142,65 @@ pub fn ensure_dir<F: TreeFs>(fs: &mut F, path: &str) -> Result<(), TreeError<F::
     }
 }
 
-/// Write `data` to `path`, check its size on disk and give it `mode`.
-fn place<F: TreeFs>(
+/// Unpack the file entry `name` of `source` to `path` as it is inflated (the
+/// first piece creates or replaces the file, the others are appended), check
+/// its size on disk and give it `mode`. So a long-lived caller (`pkgd`, whose
+/// heap never reuses a block over 1 MiB) holds one piece at a time, never a
+/// whole file. A failure part-way leaves a partial file, which the caller
+/// removes with the rest of the tree.
+fn unpack<F: TreeFs, S: Source + ?Sized>(
     fs: &mut F,
+    source: &S,
+    name: &str,
     path: &str,
-    label: &str,
-    data: &[u8],
     mode: u16,
 ) -> Result<(), TreeError<F::Error>> {
-    fs.write(path, data)
-        .map_err(fs_err(format!("writing {label}")))?;
-    match fs.stat(path).map_err(fs_err(format!("checking {label}")))? {
-        Some(Node::File(size)) if size == data.len() as u64 => {}
+    let mut written = 0u64;
+    let mut failed = None;
+    let streamed = source.read_chunks(name, &mut |piece| {
+        let result = if written == 0 {
+            fs.write(path, piece)
+        } else {
+            fs.append(path, piece)
+        };
+        written += piece.len() as u64;
+        result.map_err(|error| {
+            failed = Some(error);
+            Refused
+        })
+    });
+    match streamed {
+        Ok(()) => {}
+        Err(Some(error)) => return Err(TreeError::Bad(format!("unpacking {name}: {error}"))),
+        Err(None) => {
+            let step = format!("writing {name}");
+            return Err(match failed {
+                Some(error) => TreeError::Fs { step, error },
+                None => TreeError::Bad(step),
+            });
+        }
+    }
+    if written == 0 {
+        // An empty entry has no piece: create the file still.
+        fs.write(path, &[])
+            .map_err(fs_err(format!("writing {name}")))?;
+    }
+    match fs.stat(path).map_err(fs_err(format!("checking {name}")))? {
+        Some(Node::File(size)) if size == written => {}
         _ => {
             return Err(TreeError::Bad(format!(
-                "writing {label}: the file on disk has the wrong size"
+                "writing {name}: the file on disk has the wrong size"
             )))
         }
     }
     fs.chmod(path, mode)
-        .map_err(fs_err(format!("setting the mode of {label}")))
+        .map_err(fs_err(format!("setting the mode of {name}")))
 }
 
 /// Extract every entry of `source` under `install_path` (an
 /// `layout::install_path`): directories first (parents before children), then
-/// each file, verified by size after the write and given its mode
+/// each file, unpacked piece by piece (so memory is one piece, whatever the
+/// file's size), verified by size after the write and given its mode
 /// (`layout::file_mode`: 0755 under `bin/`, 0644 elsewhere, set before the app
 /// is activated, so it is never registered with a program `init` cannot
 /// start). Returns the number of files written. The caller removes
@@ -172,19 +209,6 @@ pub fn extract<F: TreeFs, S: Source + ?Sized>(
     fs: &mut F,
     source: &S,
     install_path: &str,
-) -> Result<usize, TreeError<F::Error>> {
-    extract_with(fs, source, install_path, &mut Vec::new())
-}
-
-/// [`extract`], unpacking every file through `scratch`. A long-lived caller
-/// (`pkgd`, whose heap never returns a block over 64 KiB) passes the same
-/// buffer for every package, so extracting many packages in one run grows
-/// its heap by the largest file once instead of by every file.
-pub fn extract_with<F: TreeFs, S: Source + ?Sized>(
-    fs: &mut F,
-    source: &S,
-    install_path: &str,
-    scratch: &mut Vec<u8>,
 ) -> Result<usize, TreeError<F::Error>> {
     let app_dir = install_path
         .rsplit_once('/')
@@ -200,21 +224,11 @@ pub fn extract_with<F: TreeFs, S: Source + ?Sized>(
             .map_err(|error| TreeError::Bad(format!("creating {dir}: {error}")))?;
         ensure_dir(fs, &path)?;
     }
-    // Grown once, to exactly the largest file: a buffer that doubled its way
-    // up would leave each smaller block behind in `pkgd`'s heap.
-    let largest = source.largest();
-    if scratch.capacity() < largest {
-        scratch.clear();
-        scratch.reserve_exact(largest);
-    }
     let mut written = 0;
     for &(name, _) in entries.iter().filter(|(_, is_dir)| !is_dir) {
         let path = layout::entry_path(install_path, name)
             .map_err(|error| TreeError::Bad(format!("writing {name}: {error}")))?;
-        source
-            .read_into(name, scratch)
-            .map_err(|error| TreeError::Bad(format!("unpacking {name}: {error}")))?;
-        place(fs, &path, name, scratch, layout::file_mode(name))?;
+        unpack(fs, source, name, &path, layout::file_mode(name))?;
         written += 1;
     }
     Ok(written)
@@ -298,10 +312,7 @@ pub fn stage_docs<F: TreeFs, S: Source + ?Sized>(
     for &(name, relative) in &files {
         let path = layout::entry_path(&staging, relative)
             .map_err(|error| TreeError::Bad(format!("{name}: {error}")))?;
-        let data = source
-            .read(name)
-            .map_err(|error| TreeError::Bad(format!("unpacking {name}: {error}")))?;
-        place(fs, &path, name, &data, DATA_MODE)?;
+        unpack(fs, source, name, &path, DATA_MODE)?;
     }
     Ok(files.len())
 }

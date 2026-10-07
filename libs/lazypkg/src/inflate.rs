@@ -35,9 +35,10 @@ pub(crate) fn decompress(method: u16, data: &[u8], size: u32) -> Result<Vec<u8>,
 ///
 /// `out` is sized once to the declared size and filled in place, so a caller
 /// that passes the same `Vec` for every entry reuses one allocation. That is
-/// what keeps `pkgd` bounded: the user heap never returns a block over 64 KiB,
-/// and growing a fresh `Vec` while inflating would leave every intermediate
-/// size behind.
+/// what keeps a long-lived reader bounded: the user heap never reuses a block
+/// over 1 MiB, and growing a fresh `Vec` while inflating would leave every
+/// intermediate size behind. Large entries are better streamed
+/// ([`crate::chunks`]), which never holds a whole entry.
 pub(crate) fn decompress_into(
     method: u16,
     data: &[u8],

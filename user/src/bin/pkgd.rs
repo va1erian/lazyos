@@ -56,10 +56,13 @@
 //!
 //! # Memory
 //!
-//! The user heap never returns blocks over 64 KiB, and extracting a package
-//! allocates its largest file. So `pkgd` ends itself (and `init`, which supervises
-//! it with `Restart::Always`, starts a fresh one) once its heap has grown past
-//! [`RECYCLE_BYTES`] and it is idle between two requests.
+//! The user heap never reuses a block over 1 MiB, and reading a package holds
+//! the whole archive (one buffer, kept and reused, sized to the largest
+//! package seen); its files are unpacked to disk through a 1 MiB window
+//! (`lazypkg::CHUNK`), never whole. So a provisioning pass grows the heap by
+//! about the largest package, and `pkgd` ends itself (and `init`, which
+//! supervises it with `Restart::Always`, starts a fresh one) once its heap has
+//! grown past [`RECYCLE_BYTES`] and it is idle between two requests.
 
 #![no_std]
 #![no_main]

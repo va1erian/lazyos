@@ -54,6 +54,14 @@ impl TreeFs for Ext2Tree<'_> {
         }
     }
 
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), Ext2Error> {
+        let end = self.0.lookup(path)?.size;
+        match self.0.write(path, end, data)? {
+            written if written == data.len() => Ok(()),
+            _ => Err(Ext2Error::NoSpace),
+        }
+    }
+
     fn chmod(&mut self, path: &str, mode: u16) -> Result<(), Ext2Error> {
         let change = AttrChange {
             mode: Some(mode),

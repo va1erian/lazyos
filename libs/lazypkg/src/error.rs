@@ -224,3 +224,11 @@ impl fmt::Display for ReadError {
         }
     }
 }
+
+/// Why [`crate::Package::read_chunks`] stopped: the entry is bad, or the
+/// sink refused a piece (and nothing more was produced).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChunkError<E> {
+    Read(ReadError),
+    Sink(E),
+}

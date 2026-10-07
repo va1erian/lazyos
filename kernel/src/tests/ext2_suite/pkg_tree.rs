@@ -108,6 +108,14 @@ impl TreeFs for VfsTree {
         }
     }
 
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), FsError> {
+        let end = self.vfs.stat(Id::ROOT, path)?.size;
+        match self.vfs.write(Id::ROOT, path, end, data)? {
+            written if written == data.len() => Ok(()),
+            _ => Err(FsError::NoSpace),
+        }
+    }
+
     fn chmod(&mut self, path: &str, mode: u16) -> Result<(), FsError> {
         self.vfs
             .setattr(Id::ROOT, path, AttrRequest::Mode(mode))
