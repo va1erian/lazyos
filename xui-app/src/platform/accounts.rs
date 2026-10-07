@@ -161,21 +161,22 @@ fn elevated(operation: &str, args: &[&str]) -> Result<(), String> {
         .map_err(|error| super::elevd::describe(&error))
 }
 
-/// A login name as `accountsd` accepts one: `[a-z_][a-z0-9_-]*`, 1 to 32
-/// bytes. Used both to vet replies and to check what a user typed.
+/// A login name as `accountsd` accepts one (`accountdb::valid_name`:
+/// `[a-z_][a-z0-9_-]*`, 1 to 32 bytes). Used to vet replies.
 pub fn valid_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    let Some(first) = bytes.next() else {
-        return false;
-    };
-    name.len() <= 32
-        && (first.is_ascii_lowercase() || first == b'_')
-        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    accountdb::valid_name(name)
+}
+
+/// A name a new account may take: a login name that is neither a system
+/// service's (`_`-prefixed) nor reserved (`root`), the rule `accountsd`
+/// applies to `Create` (`accountdb::valid_account_name`).
+pub fn valid_new_name(name: &str) -> bool {
+    accountdb::valid_account_name(name)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::valid_name;
+    use super::{valid_name, valid_new_name};
 
     #[test]
     fn names_follow_the_database_rule() {
@@ -185,5 +186,9 @@ mod tests {
         assert!(!valid_name("1a"));
         assert!(!valid_name(""));
         assert!(!valid_name(&"a".repeat(33)));
+        // A new account is never a system service's nor root.
+        assert!(valid_name("_accounts") && !valid_new_name("_accounts"));
+        assert!(!valid_new_name("root"));
+        assert!(valid_new_name("owner"));
     }
 }

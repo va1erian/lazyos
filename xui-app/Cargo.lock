@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "accountdb"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "passwd",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2947,6 +2955,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "passwd"
+version = "0.1.0"
+
+[[package]]
 name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5478,6 +5490,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "audioclient",
  "confd",
  "deskmenu",
