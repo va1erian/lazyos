@@ -195,6 +195,43 @@ No client can read those keys: only a surface's owner opens its session,
 and this surface is the compositor's. Without `inputd` the prompt falls back
 to the kernel's PS/2 key stream (US layout).
 
+### 3.2 Review fixes (PR #659, services and apps)
+
+- **The database left `/conf` (H1).** `/conf` had become 0711 so
+  `_accounts` could reach `/conf/accounts`, which let any user read confd's
+  0644 store by name. **Decision:** the database lives in its own top-level
+  directory, `/accounts` (`fhs::state::ACCOUNTS_DIR`, 0700 `_accounts`), and
+  `/conf` is 0700 root again. The next in-place update moves a database
+  from `/conf/accounts` (`build_support/os_state.rs`) and makes every file
+  in `/conf` 0600; confd creates its files 0600 and repairs its directory
+  and files at every start. Gate: `read_conf_store` in the attack harness.
+- **`keyd.Verify` is `accountsd`'s alone (H2)**, like `Provision`,
+  `Forget` and the new `Restore`: a direct `Verify` went around the brake.
+  Gate: `keyd_verify`.
+- **No session can lock an account out (H5).** See "The brake" above
+  (`ratelimit::Attempt`). **Decision:** `Authenticate` stays open (a user's
+  own password change needs it); only the counting changed. Gate:
+  `admin_lockout` (a session floods `Authenticate("admin")` while admin's
+  right password approves an `elevd` request).
+- **Homes belong to their accounts (H6).** Homes are seed directories of
+  the image: made with the database, never re-created or re-chowned by an
+  update. `init.Home` `create` keeps a home its account owns, hands over a
+  root-owned one (`chown -hR`), and archives one another uid owns
+  (`/home/.archived/<name>-<uid>`) before making it afresh. **Decision:**
+  the migration of pre-U1 volumes (admin moved from uid 0 to 1001) runs at
+  boot: `accountsd` asks `create` for every account at start, which covers
+  the OS volume and the home volume alike (the build never sees the home
+  volume, and `tools/mkdisk` only formats new ones). `run_demo.py --setup`
+  (and the GUI's setup) formats the home volume with no home on it.
+- **The setup screen never traps (H7):** after the owner is created the
+  greeter switches to the login form; it waits for `accountsd` (asking
+  every second) instead of guessing the login form.
+- Also: the database parser requires an account's uid and primary gid in
+  1000..=59999 and a name `accountdb::valid_account_name` accepts (no
+  leading `_`, not `root`), the rule `Create`, `init.Home` and the greeter
+  share; a `SetPassword` whose database write fails puts `keyd`'s old
+  verifier back (`keyd.Restore`).
+
 ### U3-U5 (outline, issues later)
 
 - **U3 brick-proofing:** per-user installs labelled `app:<sn>@<uid>` that
