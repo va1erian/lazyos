@@ -16,8 +16,8 @@
 //! `task::poll_until`, which masks interrupts again after every nap.
 
 use super::*;
-use crate::arch::nmi::{self, Interrupted};
 use crate::arch::irqchip;
+use crate::arch::nmi::{self, Interrupted};
 use crate::task::harness;
 
 /// The PIT's PIC line.

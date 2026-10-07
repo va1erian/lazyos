@@ -178,7 +178,10 @@ fn every_golden_names_its_isa_overrides() {
         // The SCI (IRQ 9) is level-triggered on every QEMU machine.
         let (gsi, flags) = madt.isa_gsi(9);
         assert_eq!(gsi, 9, "{name}");
-        assert!(crate::madt::inti(flags, crate::madt::Signal::ISA).level, "{name}");
+        assert!(
+            crate::madt::inti(flags, crate::madt::Signal::ISA).level,
+            "{name}"
+        );
         // QEMU overrides the PCI-routed lines 5, 9, 10, 11 to level, active
         // high (PIIX and ICH9 alike), which is how the kernel programs a PCI
         // function's Interrupt Line on the I/O APIC.
