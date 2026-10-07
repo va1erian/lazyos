@@ -59,7 +59,9 @@ import probe_packages  # noqa: E402
 import prompt_judge  # noqa: E402
 
 IMAGE = ROOT / "target/lazyos.img"
-BUSYBOX = ROOT / "target/abi/busybox/busybox"
+#: Where the image build finds BusyBox (build_support/busybox_embed.rs): CI's
+#: cached copy first, then a local build.
+BUSYBOX = (ROOT / "tools/abi/busybox", ROOT / "target/abi/busybox/busybox")
 ASSETS = HERE / "assets"
 #: The probe packages' asset tree, generated at build time (probe_packages.py).
 GENERATED = ROOT / "target" / "accounts-assets"
@@ -94,8 +96,8 @@ def command_for(name: str) -> str:
 def build(apps: bool = True) -> bool:
     """`rhai`, the xui apps (unless `apps` is false: CI hands them over
     built, `target/xui` and `target/pkg`), the probe packages and the image."""
-    if not BUSYBOX.is_file():
-        print(f"missing {BUSYBOX}: run tools/abi/busybox.py (the Terminal needs sh)")
+    if not any(path.is_file() for path in BUSYBOX):
+        print(f"missing {BUSYBOX[1]}: run tools/abi/busybox.py (the Terminal needs sh)")
         return False
     import demo_builds
     demo_builds.build_rhai()
