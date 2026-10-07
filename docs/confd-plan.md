@@ -86,14 +86,20 @@ call:
 - `user/<uid>/**` — only that user (and uid 0) can read or write.
 - Any other top-level path is rejected (`CONFD_BAD_PATH`).
 
+*Since U0 and U2 of [`accounts-plan.md`](accounts-plan.md) (#623, #625),
+"uid 0" above reads "a system service": a caller holding `CAP_SETUID`, or
+`elevd` by its kernel-stamped identity after an administrator approved the
+change on the trusted prompt. A login session, whatever its uid, never is.*
+
 The store lives in `/conf`, 0700 root: only `confd` reads the raw store. (The
 plan's "unprivileged with only its own grant" waits for per-service uids,
 #446/#447; `confd` runs as uid 0 today.) Secrets do not go in `confd` in v1;
 use `keyd` directly.
 
 `/conf/svc/<service>/` (`fhs::state::CONF_SVC`, 0700 root) is the documented
-home of service state that is not key/value, such as `keyd`'s verifiers
-(#447): each service creates and owns its own directory there. `confd` creates
+home of service state that is not key/value (`keyd`'s verifiers, once
+planned here, live in the account database `/accounts/db`,
+accounts-plan U1): each service creates and owns its own directory there. `confd` creates
 nothing under it and never reads it.
 
 ---

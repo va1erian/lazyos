@@ -71,7 +71,8 @@ first or say so in the release notes and the IDE's run console.
    `Inspect`.
 2. Write it to `/transient`.
 3. `mimed.Open(path, "install")`. `mimed` asks `init` to launch the Installer
-   as root into the caller's session, so it runs unlabelled and shows its
+   into the caller's session (as that user since accounts U0, #623, never
+   as root), so it runs unlabelled and shows its
    trusted consent screen, then calls `pkgd.Install`.
 4. Learn the outcome from `system/events/pkg/install` and
    `system/events/pkg/denied`, matched by `system_name` and digest. If the

@@ -114,8 +114,8 @@ login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
 the example sessions run unchanged. A first-boot setup image
 (`LAZYOS_SETUP=1`, `run_demo.py --setup`, which implies `--desktop`) never
 logs anyone in. Services authorize privileged calls by
-`CAP_SETUID`, never by uid 0: a session cannot write `sys/**` keys, `/conf`
-or `/system`. The attack harness is `python tools/accounts/run.py`; the
+`CAP_SETUID` or by `elevd`'s kernel-stamped identity, never by uid 0: a
+session cannot write `sys/**` keys, `/conf` or `/system`. The attack harness is `python tools/accounts/run.py`; the
 session `tools/screenshot/examples/login_logout.json` (an image built with
 `LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
 logs out from the LazyOS menu ("Log out...", then "Log out now") and logs in again;
@@ -663,11 +663,14 @@ copy of the desktop image, runs attacks as the session user from the Terminal
 signals, reading `/home/admin`, fork and disk fill), powers off, reboots (also
 after a hard kill) and audits the OS volume from the host
 (`osread ... tree /`). Each attack has an expectation (`blocked` or
-`xfail` with its issue) in `tools/accounts/attack_judge.py`: while the desktop
-runs as root (U0, #623) all are `xfail` and the harness passes; flip a row to
-`blocked` when its phase lands. A phase is not done until its scenarios are
-here. See `tools/accounts/README.md`; `python tools/accounts/test_judge.py`
-is the judges' self-test.
+`xfail` with its issue) in `tools/accounts/attack_judge.py`: the U0-U2
+scenarios (accounts, `elevd`, the prompt, `sys/**`, core apps) are `blocked`,
+and only `fork_bomb` and `disk_fill` stay `xfail` until U3 (quotas); flip a
+row to `blocked` when its phase lands. A policy probe counts as blocked only
+as `BLOCKED:EPERM-policy` (the refusal carries the service's policy text). A
+phase is not done until its scenarios are here. CI runs it in `xui.yml`'s
+`accounts` shard. See `tools/accounts/README.md`;
+`python tools/accounts/test_judge.py` is the judges' self-test.
 
 ## Device manager (`devd`) and driver choices
 
@@ -783,7 +786,7 @@ python tools/net/test_qemu_net.py                         # the QEMU argument he
 
 `ftpfuse` serves an FTP server at `/mnt/<name>` through the FUSE mechanism
 (syscall 35, `CAP_FS_PROVIDER`). Apps hold no capabilities, so the desktop
-asks `mountd` (`os.lazy.mount.v1`, `idl/mount.midl`; uid 907 with only
+asks `mountd` (`os.lazy.mount.v1`, `idl/mount.midl`; uid 910 with only
 `CAP_FS_PROVIDER`), which starts one `ftpfuse` per mount with the caller's
 ownership (`owner=`) and reports `connecting`/`mounted`/`failed`. The rules are
 `libs/mounttable` (host-tested); the front end is the core package **Network

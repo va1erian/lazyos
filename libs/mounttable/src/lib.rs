@@ -24,8 +24,9 @@ use alloc::vec::Vec;
 pub use table::{Entry, Error, State, Table, TIMED_OUT};
 
 /// The `_mountd` system user the service runs as: only `CAP_FS_PROVIDER`,
-/// which every `ftpfuse` it starts inherits.
-pub const MOUNTD_UID: u32 = 907;
+/// which every `ftpfuse` it starts inherits. Not 907: that is `_greeter`'s,
+/// which logind and accountsd trust to log people in.
+pub const MOUNTD_UID: u32 = 910;
 
 /// Most mounts the service keeps, failed ones included.
 pub const MAX_MOUNTS: usize = 8;

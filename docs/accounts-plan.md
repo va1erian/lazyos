@@ -1,7 +1,8 @@
 # User accounts and app permissions plan
 
-Status: U0 done (#623, PR #645); U1 (#624) and U2 (#625) implemented
-2026-10-07 (section 3.1); U3-U5 planned. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
+Status: U0 done (#623, PR #645); U1 (#624) and U2 (#625) done (PR #659,
+review fixes #660 and #661; sections 3.1-3.3; U2's system-wide install
+gate is still open); U3 next, then U4 and U5. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
 (phases 0-3, #446, #447) and [`security-model.md`](security-model.md); where
 the two overlap, this plan says *what the user gets*, the hardening plan says
 *how the plumbing is closed*.
@@ -59,15 +60,15 @@ Decisions (2026-10-06):
 
 ## 3. Phases
 
-| Phase | What the user gets | Issue |
-|---|---|---|
-| U0 | The desktop is not root: graphical login, logout, apps as the user | #623 |
-| U1 | Real accounts: create, delete, passwords, admin group, setup wizard | #624 |
-| U2 | `elevd`: admin-approved privileged operations on a trusted prompt | #625 |
-| U3 | Brick-proofing: per-user installs, protected core apps, quotas, safe mode | later |
-| U4 | Isolation beyond files: clipboard, windows, topics, process lists | later |
-| U5 | Enforced, revocable, per-user app permissions and a trusted file picker | later |
-| UT | Tooling: account monkey, attack harness, fuzzing | #626 |
+| Phase | What the user gets | Issue | Status |
+|---|---|---|---|
+| U0 | The desktop is not root: graphical login, logout, apps as the user | #623 | done (PR #645) |
+| U1 | Real accounts: create, delete, passwords, admin group, setup wizard | #624 | done (PR #659, #660, #661) |
+| U2 | `elevd`: admin-approved privileged operations on a trusted prompt | #625 | done (PR #659, #660, #661) but for the system-wide install gate: a session still installs into `/apps` with no prompt (#625) |
+| U3 | Brick-proofing: per-user installs, protected core apps, quotas, safe mode | later | next |
+| U4 | Isolation beyond files: clipboard, windows, topics, process lists | later | later |
+| U5 | Enforced, revocable, per-user app permissions and a trusted file picker | later | later |
+| UT | Tooling: account monkey, attack harness, fuzzing | #626 | attack harness (in CI), account monkey and fuzzing landed for U0-U2; grows per phase |
 
 Order: U0, then U1 and U2 together, then U3, U4, U5. UT starts with U0 and
 grows with each phase: every phase lands with its attack scenarios.
@@ -88,7 +89,8 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
   account (with #447); services authorize the shell role by label or
   capability, never `uid == 0`. Same for keyd `Provision` and confd `sys/**`.
 - Hashed passwords in a 0600 `/system/etc/shadow`, no plaintext fallback, no
-  printed passwords outside test images (#447).
+  printed passwords outside test images (#447). (U1 replaced the shadow file
+  with the account database `/accounts/db`; section 3.1.)
 - Done when: Terminal `id` prints uid 1000, `rm /system/bin/init` is
   `EACCES`, every existing screenshot session passes under autologin, and the
   kernel suite passes.
@@ -422,6 +424,6 @@ kernel surface, host tests for libraries, harnesses whose judges have
   as a non-admin, judged by the same invariants plus a host-side ext2 audit
   that no file outside the user's home changed owner or content.
 - **Fuzzing** (UT): seeded `fuzz::run(&[u8])` entry points (shared with
-  `fuzz/` cargo-fuzz targets) for the account database parser, the passwd and
-  shadow parsers, accountsd and elevd requests, and the pkgd manifest/grant
-  compiler.
+  `fuzz/` cargo-fuzz targets) for the account database parser, accountsd and
+  elevd requests (landed: `accountdb`, `accountwire` and `elevpolicy` in
+  `fuzz/fuzz_targets/`), and the pkgd manifest/grant compiler.

@@ -243,7 +243,8 @@ had the VM not stopped, which the judge rejects.
 - **Linux `reboot(2)`** is still accepted and ignored: the kernel cannot run
   `init`'s sequence for a Linux caller, and the shell commands no longer reach
   BusyBox's applets.
-- **Who may shut down:** root or any login-session caller, for now. A tighter
+- **Who may shut down:** a system service (`CAP_SETUID`) or any
+  login-session caller, for now (above). A tighter
   policy (console session only, or a `confd` setting) can come later without
   changing the sequence.
 - **App veto or delay** ("unsaved changes"): deferred. Apps get `SIGTERM` and

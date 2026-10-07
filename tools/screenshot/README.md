@@ -247,7 +247,7 @@ name looks account-related), `acct_shell` (`id`, `su`, `passwd`, `login`,
 (a wrong password: a word, noise, empty or 300 characters, at the prompt it
 clicks first if the guest printed one). Targets come from the `UI:RECT` /
 `UI:WIDGET` lines of a `LAZYOS_UI_PROBE=1` image; a target the guest does not
-print (no login screen, Accounts page or elevd prompt before U0-U2) is
+print (no login screen on an autologin image, no elevd prompt open) is
 skipped and counted under `accounts.skipped` in `report.json`, never a
 failure. Power rows (shut down, restart) are never targeted. Pointer moves
 home to the top-left corner first (PS/2 relative motion), so an account run
@@ -255,7 +255,7 @@ does about one action every 2 s; `actions.jsonl` records the same actions and
 `--replay` re-resolves them against the replayed guest (`--replay` turns
 `--accounts` on when the file holds account actions).
 
-Invariants over serial: a grant marker (`ELEVD:GRANT`, `ACCT:...GRANT`; set
+Invariants over serial: a grant (`elevd`'s `ELEVD:REQUEST ... outcome=granted`; set
 `--grant-pattern`) without a preceding *correct* admin password action is a
 finding, and so is `ACCT:ATTACK:...:SUCCEEDED`. Every password the monkey
 types is wrong unless `--admin-password PW` is given (a quarter of password
@@ -269,11 +269,12 @@ with `osread tree` and `stat` (kind, mode, owner, size, content hash; `--audit-r
 repeatable) and reports every change outside `/home/<--accounts-user>`,
 `/transient`, `/tmp`, `/logs` (`--audit-allow PREFIX` adds more) as
 `AUDIT:` lines in `audit.json` / `audit_diff.txt` and on the console; the
-copy is deleted. The desktop still runs as root, so findings are expected
-(a first run found writes to `/conf` and `/home/admin` and `chown` on
-`/system/bin/busybox`): `--accounts-expect-root` is the known-open mode that
-reports them without failing the run, so it can be judged for crashes.
-Drop it once login (#623) lands; then any finding fails the run.
+copy is deleted. A first run, while the desktop still ran as root, found
+writes to `/conf` and `/home/admin` and `chown` on `/system/bin/busybox`;
+since U0 (#623, PR #645) the session runs as `user` with no capability, so
+without `--accounts-expect-root` any finding fails the run.
+`--accounts-expect-root` stays as the known-open mode that reports findings
+without failing, so a run can still be judged for crashes alone.
 `--runs N` walks seeds as before (one copy and baseline boot per seed).
 
 ## CI

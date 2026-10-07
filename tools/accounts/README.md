@@ -13,6 +13,10 @@ python tools/accounts/test_judge.py       # the judges' self-test (fixtures for 
 python tools/accounts/attack_judge.py shots/accounts/attack/serial.log   # re-judge a log
 ```
 
+CI runs it in `.github/workflows/xui.yml`'s `accounts` shard
+(`test_judge.py`, then `run.py --prebuilt-apps`, which must end with
+`ACCOUNTS: PASS`).
+
 Needs BusyBox (`python tools/abi/busybox.py`), the xui apps and `rhai`
 (`run.py` builds them). QEMU on `PATH` as for the other harnesses. Output:
 `shots/accounts/` (session scripts, serial logs, `audit_*.txt`). The image logs

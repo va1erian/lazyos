@@ -425,9 +425,9 @@ Stage status as of 2026-10-03 (issue and PR numbers are GitHub's):
 | S0 kernel foundations (#53) | landed | `python tools/test/run.py` (about 780 cases in `kernel/src/tests/`, over a hundred of them soaks); 256 task slots, RTC wall clock |
 | S1 Messenger core (#63) | landed | `ipc_*` kernel tests, `libs/messenger` fuzz |
 | S2 services, registry, pub/sub (#88) | landed | `LAZYOS_SERVICES=1` sessions, `midlc` CI; every interface and topic in MIDL; `confd`, `timed` |
-| S3 users, sessions, storage (#97) | landed, with gaps | ext2 OS volume at `/` with homes, `/conf`, `/logs` and `/apps` on it (#478, #506, #525); console login; services still root, passwords plaintext at rest |
+| S3 users, sessions, storage (#97) | landed, with gaps | ext2 OS volume at `/` with homes, `/conf`, `/logs` and `/apps` on it (#478, #506, #525); console login; since 2026-10-07 ([`accounts-plan.md`](accounts-plan.md) U0-U2, PRs #645, #659-#661) the account database `/accounts/db` with Argon2id verifiers, no plaintext at rest, account management and `elevd`; most services still root |
 | S4 GUI stack (#112) | landed | `xuid` WM, drag & drop, xui client mode, clipboard, MIME, pipelined Present and damage-only compositing (#501), `inputd` (#395) |
-| S5 desktop shell (#156) | largely landed | LazyShell (#157, PR #505), the core apps as packages with the Installer (#509, #524), Settings, Docs, Task Manager; missing: graphical login (the desktop session is uid 0 without a login) and signed bundles |
+| S5 desktop shell (#156) | largely landed | LazyShell (#157, PR #505), the core apps as packages with the Installer (#509, #524), Settings, Docs, Task Manager; graphical login with the session as the logged-in user (accounts U0, #623, PR #645); missing: signed bundles |
 | S6 networking | N0-N5 landed | `netdrv`, `netd` (smoltcp), DHCP, TCP/UDP/DNS, `nc`, `nslookup`, `ftp`, Linux `AF_INET` (PRs #417-#459); `python tools/net/run.py --netd` judges the packet capture. HTTPS clients `curl`/`wget`/`fetch` with verified TLS (`LAZYOS_TLS=1`, [`tls-plan.md`](tls-plan.md) T0-T3, PR #554) and the LazyWeb browser on NetSurf (`LAZYOS_LAZYWEB=1`, [`lazyweb.md`](lazyweb.md), PR #562). Not started: loopback, TLS via `keyd`, daemons, a firewall, remote Messenger |
 | S7 sandboxing | started | installed apps confined by kernel labels compiled from their manifests, with install consent (#432, #445, #464); driver class rules at boot (#503). No uid policy (the ACL stays in bootstrap-allow), service accounts, syscall allowlists or signing: [`security-hardening-plan.md`](security-hardening-plan.md) |
 | S8 SMP & performance | started (performance only) | latency harness `python tools/perf/run.py` and the IRQ-driven wake path, P0-P1 of [`performance-plan.md`](performance-plan.md) (#563); no SMP |
@@ -441,6 +441,9 @@ Immediate next steps:
    [`security-hardening-plan.md`](security-hardening-plan.md).
 2. **A real session:** graphical login through `logind`, with the desktop and
    its apps running as the logged-in user (hardening phase 3, shell plan S5.2).
+   Done as [`accounts-plan.md`](accounts-plan.md) U0-U2 (real accounts and
+   `elevd` included); next are U3-U5 (brick-proofing, isolation, per-user app
+   permissions).
 3. **Filesystem F7:** migrate an old `/data` disk, then remove `/data`, the
    legacy mount layout and `--data-disk` ([`filesystem-plan.md`](filesystem-plan.md)).
 4. **Keep the ABI bench and kernel suite green** as the regression gate for

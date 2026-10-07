@@ -1,10 +1,12 @@
-//! The password file, `/system/etc/shadow` (issue #447).
+//! The verifier row format of the former `/system/etc/shadow` (issue #447).
 //!
 //! One verifier per line, `name:argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`: the
 //! account name, the Argon2id cost (memory in KiB, passes, lanes) and the salt
-//! and verifier in lowercase hex. The image build writes it (mode 0600, owned
-//! by root) and only `keyd` reads it: the verifiers never leave `keyd`, and no
-//! plaintext password is stored anywhere on the volume.
+//! and verifier in lowercase hex. Since accounts U1 there is no shadow file:
+//! the verifiers are records of the account database `/accounts/db`
+//! (`libs/accountdb`, 0600 `_accounts`), which reuses this row format and
+//! which `keyd` reads at boot; no plaintext password is stored anywhere on
+//! the volume.
 //!
 //! Like the account file it is parsed strictly and fails closed: a row that
 //! is malformed in any field, a repeated name, a file that is not text or too

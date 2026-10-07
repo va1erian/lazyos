@@ -228,7 +228,7 @@ chunk, and the VFS cache above it has the expiry gap of §3.1.
 A daemon needs `CAP_FS_PROVIDER` and an installed app holds no capability, so
 the desktop cannot start `ftpfuse` itself. **`mountd`** (`user/src/bin/mountd.rs`,
 `LAZYOS_NETD=1` images) is the one place that may: a supervised service running
-as `_mountd` (uid 907) with `CAP_FS_PROVIDER` and nothing else, serving
+as `_mountd` (uid 910) with `CAP_FS_PROVIDER` and nothing else, serving
 `os.lazy.mount.v1` (`idl/mount.midl`: `Mount`, `Unmount`, `List`). Each
 `Mount` starts one `ftpfuse`, which inherits that credential; a package reaches
 the service only through its manifest's `os.lazy.mount.v1` permission.

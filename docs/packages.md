@@ -426,27 +426,31 @@ Files larger than the 1 MiB a single `write_file` takes are written as one
 `pkgd` is spawned by `init` with `init`'s identity: **root with every capability
 but raw input**. The privilege is needed and is the reason this is one small
 service: `CAP_IPC_CONTROL` for the kernel's `acl_load`, uid 0 for `/apps`,
-`/docs/apps`, `/logs/pkg.log` and the `sys/` part of `confd`, and uid 0 for `mimed`'s `Register`/`Unregister`.
+`/docs/apps` and `/logs/pkg.log`, and `CAP_SETUID` for the `sys/` part of
+`confd` and `mimed`'s `Register`/`Unregister`.
 Because it is root, it checks every request against the kernel-stamped identity
-of the sender (`pkgstore::access`):
+of the sender (`pkgstore::access`). Privilege is a capability or `elevd`'s
+identity, never a uid: a *system* caller is a service holding `CAP_SETUID`
+(which `init` never stamps on a login session) or `elevd`
+(`elevpolicy::is_elevd`):
 
-* only root or the owner of a login session may `Install` or `Remove`; a task
-  carrying an app label never may;
-* it reads a package *as root*, so for an unprivileged caller it only accepts
+* only a system caller or the owner of a login session may `Install` or
+  `Remove`; a task carrying an app label never may;
+* it reads a package *as root*, so for any other caller it only accepts
   paths that are readable by design:
 
   ```text
-  allowed = under(path, /transient) || under(path, caller_home) || caller_uid == 0
+  allowed = system || under(path, /transient) || under(path, /system/share) || under(path, caller_home)
   ```
 
   `caller_home` is the caller's home from `accountsd`'s `Lookup`. The path is
   normalised first (`//`, `.` and `..` folded; ext2 has no symlinks) and that
   normalised path is the one read, so `/home/user/../admin/x.lzp` is judged as
   `/home/admin/x.lzp`. Anything else is refused with "packages can only be
-  installed from /transient or your home folder"; root may name any absolute
-  path (`pkgctl install /system/share/samples/pkgdemo.lzp` as root works, a
-  user copies the sample to `/transient` first). There is no "open as uid"
-  call, and without this a user could install, and so copy out into
+  installed from /transient, /system/share or your home folder". `elevd`
+  applies the asker's own rule before it asks `pkgd` to inspect a file, so
+  it never reads a package for someone who could not. There is no "open as
+  uid" call, and without this a user could install, and so copy out into
   world-readable `/apps`, a package they cannot read;
 * refusals are answered with a structured error (errno-style code plus a
   friendly sentence) and audited as `denied`.
@@ -536,8 +540,8 @@ the rules `pkgd` loaded for it.
    then `spawnv`s the player with `AS_LABELLED "dev:<system_name>"` and
    `personality::STDIO` (its stdout and stderr on the IDE's pipes).
 
-Who may call `Develop` is `Install`'s rule (`may_manage`: root or a session
-owner, never a labelled task), so the IDE cannot approve itself. Approvals live
+Who may call `Develop` is `Install`'s rule (`may_manage`: a system service or a
+session owner, never a labelled task), so the IDE cannot approve itself. Approvals live
 in `pkgd`'s memory only, per label and session; when the session logs out
 (`system/events/login/end`) `pkgd` revokes its labels by loading an empty rule
 set (`PKGD:UNDEVELOP:PASS`, audited as `undevelop`), and the kernel refuses to

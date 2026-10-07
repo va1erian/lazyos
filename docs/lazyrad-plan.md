@@ -401,7 +401,7 @@ runs programs with, `pkgd.Inspect` (the platform's own permission wording and ev
 LazyRAD `lazyrad-ide/src/make_app.rs` plus the `Installer::review/launch` seam.
 
 **Staging path.** `pkgd` reads packages as root and, for an unprivileged caller,
-only from `/transient` or the caller's home. The installer stages
+only from `/transient`, `/system/share` or the caller's home. The installer stages
 `/transient/lazyrad-<system_name>-<version>.lzp` (about 2 MiB deflated, within
 the ramfs's limits and `Inspect`'s 8 MiB cap), calls `pkgd`, and deletes it.
 

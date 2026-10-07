@@ -7,6 +7,8 @@ status. Design rationale is not repeated here; the plan docs own it:
 - [Platform plan](platform-plan.md) - roadmap stages S0-S9 (the `Stage` column below).
 - [Messenger specification](messenger.md) - wire format, handles, topics, policy.
 - [Security model](security-model.md) - trust rules, sandbox profiles, secrets.
+- [Accounts plan](accounts-plan.md) - user accounts, login, `elevd` and the
+  trusted prompt (U0-U2 landed, U3-U5 next).
 - [Linux ABI plan](linux-abi-plan.md) - compatibility bridge.
 - [XUI plan](xui-plan.md) - userspace toolkit target.
 - [Shell plan](shell-plan.md) - S5 desktop shell (LazyShell) on XUI.

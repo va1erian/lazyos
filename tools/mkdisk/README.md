@@ -17,8 +17,10 @@ python -m tools.mkdisk [PATH] [--size 64M] [--label NAME] [--block-size N] [--fo
 in `lazyos.cfg`; filesystem plan F1/F2). `--home-volume` formats it: the label
 defaults to `lazyhome`, and `<user>/` directories sit at the **volume root**
 (the root is `/home` once mounted) with the owner and mode `/home/<user>` has
-in the seeded layout (`0700`, that account's `uid:gid`: `/admin` for uid 0 and
-`/user` for uid 1000). There
+in the seeded layout (`0700`, that account's `uid:gid` from
+`build_support/passwd`: `/admin` for uid 1001 and `/user` for uid 1000;
+`run_demo.py --setup` formats it with no home, and `accountsd` has `init`
+make each account's home at boot). There
 is no `/home` and no `/tmp` inside it: `/tmp` belongs to the OS volume.
 `run_demo.py` creates it on first use (`--home-disk`, `--no-home-disk`,
 `--reset-home`), and the launcher's **Home volume** group manages it.
