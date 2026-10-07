@@ -14,15 +14,22 @@
 //! check and the use are the same bytes, and `elevd` needs no storage of
 //! its own.
 //!
-//! What is refused here, before anyone is asked: a package with problems,
-//! `pkg.install` of a package that would replace a core app (only
+//! What is refused here, before anyone is asked: a file the asker could not
+//! install from themselves (`elevd` reads as a system service, so it applies
+//! the asker's own source rule, `pkgstore::access::source_allowed`: the
+//! shared `/transient`, `/system/share` or the asker's home; otherwise a
+//! request would tell the asker about files it cannot read), a package with
+//! problems, `pkg.install` of a package that would replace a core app (only
 //! `pkg.update-core` may), and `pkg.update-core` of one that would not.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use elevpolicy::approvals::Caller;
 use elevpolicy::package::{self, Facts, Permission};
 use elevpolicy::Operation;
+use pkgstore::access;
+use user::messenger::accounts::UserRecord as User;
 use user::messenger::errno;
 use user::messenger::pkgd::{self, wire, PackageInfo};
 
@@ -34,17 +41,35 @@ pub(crate) struct Approved {
     pub(crate) summary: String,
     /// The archive's SHA-256, as `pkgd` reported it.
     pub(crate) digest: String,
+    /// The normalised path that was inspected (and is installed).
+    pub(crate) path: String,
 }
 
-/// Inspect the package `op` names; `None` when `op` is not a package
-/// install.
-pub(crate) fn prepare(op: &Operation) -> Option<Result<Approved, Refusal>> {
+/// Inspect the package `op` names for `caller` (whose account is `asker`);
+/// `None` when `op` is not a package install.
+pub(crate) fn prepare(
+    op: &Operation,
+    caller: Caller,
+    asker: Option<&User>,
+) -> Option<Result<Approved, Refusal>> {
     let (path, update) = match op {
         Operation::PkgInstall { path } => (path, false),
         Operation::PkgUpdateCore { path } => (path, true),
         _ => return None,
     };
-    Some(inspect(path, update))
+    Some(source(path, caller, asker).and_then(|path| inspect(&path, update)))
+}
+
+/// `path` normalised, if the asker could install from it themselves.
+fn source(path: &str, caller: Caller, asker: Option<&User>) -> Result<String, Refusal> {
+    let asker_caller = access::Caller {
+        uid: caller.uid,
+        session: caller.session,
+        label_id: caller.label,
+        system: false,
+    };
+    let home = asker.map(|user| user.home.as_str());
+    access::source_allowed(&asker_caller, home, path).map_err(|why| Refusal(errno::EPERM, why))
 }
 
 fn inspect(path: &str, update: bool) -> Result<Approved, Refusal> {
@@ -77,6 +102,7 @@ fn inspect(path: &str, update: bool) -> Result<Approved, Refusal> {
     Ok(Approved {
         summary: package::summary(&facts(&info, replaces)),
         digest: info.digest,
+        path: String::from(path),
     })
 }
 

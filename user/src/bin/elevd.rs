@@ -249,6 +249,13 @@ fn request(
             "only a program of a login session may ask for an administrator",
         ));
     }
+    let asker = accounts_endpoint()
+        .ok()
+        .and_then(|endpoint| accounts::lookup_uid(&endpoint, caller.uid).ok().flatten());
+    record.user = asker.as_ref().map_or_else(
+        || alloc::format!("uid {}", caller.uid),
+        |user| user.name.clone(),
+    );
     // What no administrator may be asked to approve (a guarded service's
     // restart), and a package's facts in place of its path: refused or
     // settled before any prompt.
@@ -256,7 +263,7 @@ fn request(
         state.audit.log(&record, "refused");
         return Err(Refusal::new(errno::EPERM, why));
     }
-    let package = match package::prepare(&op) {
+    let package = match package::prepare(&op, caller, asker.as_ref()) {
         Some(Ok(approved)) => {
             record.summary = approved.summary.clone();
             Some(approved)
@@ -267,13 +274,6 @@ fn request(
         }
         None => None,
     };
-    let asker = accounts_endpoint()
-        .ok()
-        .and_then(|endpoint| accounts::lookup_uid(&endpoint, caller.uid).ok().flatten());
-    record.user = asker.as_ref().map_or_else(
-        || alloc::format!("uid {}", caller.uid),
-        |user| user.name.clone(),
-    );
     follow_sessions(state);
     let now = sys::clock();
     if state.approvals.covers(caller, op.class(), now) {

@@ -30,7 +30,7 @@ pub(crate) type Done = (String, Vec<String>);
 /// (`package.rs`): `pkgd` installs those bytes or nothing.
 pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done, Refusal> {
     match op {
-        Operation::PkgInstall { path } | Operation::PkgUpdateCore { path } => {
+        Operation::PkgInstall { .. } | Operation::PkgUpdateCore { .. } => {
             let approved = package.ok_or_else(|| {
                 Refusal::new(
                     errno::EINVAL,
@@ -40,7 +40,7 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             let core = matches!(op, Operation::PkgUpdateCore { .. });
             let client = pkgd::Client::connect().map_err(Refusal::of)?;
             let app = client
-                .install_approved(path, &approved.digest, core)
+                .install_approved(&approved.path, &approved.digest, core)
                 .map_err(|failure| Refusal(failure.code, failure.text))?;
             done(format!("Installed {} {}", app.system_name, app.version))
         }
