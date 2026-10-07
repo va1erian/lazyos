@@ -16,6 +16,7 @@ import sys
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
@@ -107,18 +108,15 @@ SIMPLE_INTERFACES = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
 DEVICES_AUTOSTART = "devices"
-# The desktop session's apps (issues #215/#216): embedded side by side, opened
-# by `init` as `xuid` clients when `LAZYOS_XUI_AUTOSTART` lists them.
-# The document apps ship with every desktop image (`build.rs`
-# `SHIP_DOCUMENT_APPS`); they open on demand (Start menu, right-click menu,
-# open-with), never at boot. The GUI does not list the embedded apps: the
-# desktop profile (`LAZYOS_DESKTOP=1`) makes `build.rs` embed its own default
-# set, so a new app needs no change here.
+# The desktop session's apps (issues #215/#216): embedded side by side, opened by `init`
+# as `xuid` clients when `LAZYOS_XUI_AUTOSTART` lists them. The document apps ship with
+# every desktop image (`build.rs`) and open on demand, never at boot. The GUI does not
+# list the embedded apps: `LAZYOS_DESKTOP=1` makes `build.rs` embed its own default set.
 DOCUMENT_APPS = ("editor", "files", "paint", "writer", "archiver")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
 DISKS = ["virtio", "ata"]
@@ -240,7 +238,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
         # with zig); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
-    env.update(desktop_app_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
+    env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)
     return env
 
@@ -256,7 +254,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,
                   hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
-                  mail: bool = False, traydemo: bool = False) -> dict:
+                  mail: bool = False, traydemo: bool = False,
+                  autologin: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -272,7 +271,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
     fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
     it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
-    ``tls``); ``traydemo`` the tray sample app (Desktop only). Machine settings
+    ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
+    Desktop's login screen and logs ``user`` in (issue #623). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -297,10 +297,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         # The desktop gets a sound card (type `beep` in the Terminal); the CLI
         # image stays quiet, since a sound card there means boot-time test tones.
         "sound": desktop,
-        # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services
-        # suite + compositor + the xui apps as its clients (embedded; nothing
-        # opens at boot, every app opens on demand), with no demo/evidence programs. The individual switches stay off so no
-        # Advanced checkbox leaks in.
+        # Desktop = the single `LAZYOS_DESKTOP=1` profile (issue #217): services, compositor,
+        # the xui apps as its clients (nothing opens at boot), no demo/evidence programs.
+        # The individual switches stay off so no Advanced checkbox leaks in.
         "desktop": desktop,
         "services": False,
         "xuid": False,
@@ -323,6 +322,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "journal": False,
         "lazyweb": lazyweb,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
+        "autologin": DEFAULT_ACCOUNT if desktop and autologin else "",
         "display_mode": HIDPI_MODE if hidpi else "",
     })
     return cfg
@@ -389,7 +389,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.
             argv.append("--lazyweb")
-        argv += desktop_app_argv(cfg)  # --mail, --traydemo
+        argv += desktop_app_argv(cfg) + login_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
@@ -416,10 +416,9 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--no-home-disk")
         if cfg.get("data_disk", False):
             argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
-        # Recreate the OS volume (apps, settings, logs, /data) instead of the
-        # in-place update; it needs a build, so "Skip build" wins.
-        # run_demo asks before erasing and has no terminal here, so the GUI asks
-        # first (datavol.confirm_reset_os) and passes --yes on its behalf.
+        # Recreate the OS volume (apps, settings, logs) instead of updating it; it needs a
+        # build, so "Skip build" wins. run_demo asks before erasing and has no terminal
+        # here, so the GUI asks first (datavol.confirm_reset_os) and passes --yes for it.
         if cfg.get("reset_os") and not cfg["skip_build"]:
             argv += ["--reset-os", "--yes"]
         argv += device_flags(cfg)  # sound card, NIC model, devd (`drivers`)

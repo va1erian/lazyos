@@ -7,9 +7,9 @@ try {
     sys::keyd::provision("acct-probe", "acct-probe-secret-1");
 } catch (e) {
     let text = e.to_string();
-    if text.contains("(EACCES)") {
+    if text.contains("(EACCES") {
         verdict = "BLOCKED:EACCES";
-    } else if text.contains("(EPERM)") {
+    } else if text.contains("(EPERM") {
         verdict = "BLOCKED:EPERM";
     } else {
         verdict = "ERROR:unrecognised";

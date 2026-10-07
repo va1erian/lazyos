@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use user::messenger::{self, logind, router, services, Message};
 use user::sys::{self, Cred as SysCred};
 
-use super::apps::{find_app, is_available};
+use super::apps::{find_app, is_available, SHELL_APP_ID};
 use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
@@ -23,11 +23,12 @@ pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
     Ok(message.caller())
 }
 
-/// The session-owner policy: a caller may launch into its own session; root or
-/// a holder of `CAP_SETUID` (the supervisor) may launch anywhere; everyone
-/// else is refused.
+/// The session-owner policy: a caller may launch into its own session; a
+/// holder of `CAP_SETUID` (`logind`, the supervisor) may launch anywhere;
+/// everyone else is refused. A uid is never enough (issue #623): a root login
+/// session holds no capability and stays in its own session.
 pub(super) fn authorize(caller: &SysCred, target_session: u64) -> messenger::Result<()> {
-    if caller.session == target_session || caller.uid == 0 || caller.caps & CAP_SETUID != 0 {
+    if caller.session == target_session || caller.caps & CAP_SETUID != 0 {
         Ok(())
     } else {
         Err(messenger::Error::Errno(-messenger::errno::EPERM))
@@ -201,11 +202,37 @@ pub(super) fn launch_row(
     if !is_available(app) {
         return Err(messenger::Error::Errno(-messenger::errno::ENOENT));
     }
-    let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
+    let (path_arg, cred, session) = match app.system_uid {
+        Some(uid) => admit_system(request, caller, uid)?,
+        None => admit(services, request, caller, autostart)?,
+    };
     retire_stopped(services, app.id);
     let mut row = Service::from_app(app, path_arg, cred);
     row.env = sessions::env(session, cred.uid);
-    start_row(services, broker, row, &cred, session, autostart)
+    let result = start_row(services, broker, row, &cred, session, autostart)?;
+    // The desktop shell opening in a login session opens the session: its
+    // autostart apps follow, as the session's user (issue #623).
+    if app.id == SHELL_APP_ID && session != 0 {
+        super::autostart::open_session(cred);
+    }
+    Ok(result)
+}
+
+/// The checks for a system program (`AppSpec::system_uid`): only a
+/// `CAP_SETUID` holder (`logind`) may start it, with no argument, and it
+/// runs as its own uid with no capability and no session, whoever asked.
+fn admit_system(
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+    uid: u32,
+) -> messenger::Result<(Option<String>, SysCred, u64)> {
+    if caller.caps & CAP_SETUID == 0 {
+        return Err(messenger::Error::Errno(-messenger::errno::EPERM));
+    }
+    if !request.args.is_empty() || request.session != 0 {
+        return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
+    }
+    Ok((None, SysCred::new(uid, uid, 0, 0, 0), 0))
 }
 
 /// Launch one installed app: [`launch_row`]'s path with the installed row, its
@@ -219,6 +246,11 @@ fn launch_installed(
     caller: &SysCred,
     autostart: bool,
 ) -> messenger::Result<services::LaunchResult> {
+    if app.resident {
+        if let Some(result) = reopen_existing(services, app.id, request, caller)? {
+            return Ok(result);
+        }
+    }
     let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
     let mut row = Service::from_installed(app, path_arg, cred);
@@ -226,6 +258,52 @@ fn launch_installed(
     let result = start_row(services, broker, row, &cred, session, autostart)?;
     report_label(result.pid, app.id);
     Ok(result)
+}
+
+/// A resident app runs once per session (docs/tray-plan.md section 5): a
+/// launch while an instance runs in the target session starts nothing, its
+/// argument reaches the instance as `Reopen` (queued until it watches), and
+/// the answer is that instance with `existing` set. A quitting instance
+/// (`Stopping`) does not count: the new launch starts a fresh one.
+fn reopen_existing(
+    services: &mut [Service],
+    id: &str,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+) -> messenger::Result<Option<services::LaunchResult>> {
+    let session = if request.session == 0 {
+        caller.session
+    } else {
+        request.session
+    };
+    authorize(caller, session)?;
+    let args = launch_argument(&request.args)?.unwrap_or_default();
+    // A row in restart backoff (or waiting to start) is the instance too:
+    // matching only `Running` would spawn a second copy beside the one the
+    // backoff is about to bring back. Its queued `Reopen` survives the
+    // respawn (`Lifecycle::respawn`) and reaches the new run at its `Watch`.
+    let Some(row) = services.iter_mut().find(|row| {
+        row.launched
+            && row.name == id
+            && matches!(
+                row.phase,
+                Phase::Running | Phase::Restarting | Phase::Pending
+            )
+            && row.cred.map(|cred| cred.session) == Some(session)
+    }) else {
+        return Ok(None);
+    };
+    super::lifecycle::reopen(row, &args);
+    let pid = row.pid;
+    sys::write_str(&format!(
+        "INIT:LAUNCH:EXISTING app={id} pid={pid} session={session}\n"
+    ));
+    Ok(Some(services::LaunchResult {
+        app: id.to_string(),
+        pid,
+        session,
+        existing: true,
+    }))
 }
 
 /// A stopped or failed launched row for the same app is superseded: the

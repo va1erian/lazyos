@@ -19,6 +19,7 @@ Examples
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
+    python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
@@ -40,6 +41,8 @@ virtio-blk device and mounted at ``/home``. It is created on first use and never
 regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
 for the demo accounts (owned by them) and nothing else, so log in as ``user``
 (password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home.
+The desktop starts at its login screen and runs everything as the account that
+logged in (issue #623); ``--autologin NAME`` logs that account straight in.
 
 In the demo: two windows run concurrently (a demo program and the `sh`
 interpreter). Press Tab to move focus (green border); typed input goes to the
@@ -87,13 +90,15 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
     "xui-calc.elf",
     "xui-pdf.elf",
+    "xui-volume.elf",
 )]
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
 TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n
-            for n in ("xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf", "xui-printd.elf")]
+            for n in ("xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf", "xui-printd.elf",
+                      "xui-netstatus.elf")]
 
 
 def confirm(question: str) -> bool:

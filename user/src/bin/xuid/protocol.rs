@@ -34,10 +34,11 @@ pub(super) fn carries_declared(message: &Message) -> bool {
 
 /// Whether `cred` authorizes the compositor's administrative operations
 /// (issue #175) on its own: any subscription role, the shell-only calls.
-/// Mirrors accountsd's admin check: uid 0, or `CAP_SETUID` for a delegated
-/// system service.
+/// A system service holding `CAP_SETUID`, never a uid (issue #623): a root
+/// login session holds no capability, and its LazyShell gets the shell role
+/// like any other session's, as the display's session.
 pub(super) fn privileged(cred: &sys::Cred) -> bool {
-    cred.uid == 0 || cred.caps & sys::CAP_SETUID != 0
+    cred.caps & sys::CAP_SETUID != 0
 }
 
 /// [`privileged`] for the caller the kernel stamped on `message`.

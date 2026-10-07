@@ -89,6 +89,8 @@ programs! {
     INSTALLER = "installer";
     /// LazyShell, the desktop shell xui app (issue #157).
     LAZYSHELL = "lazyshell";
+    /// The graphical login screen xui app (issue #623), run as `_greeter`.
+    GREETER = "greeter";
     /// The image viewer (not shipped yet).
     VIEWER = "viewer";
     /// The program runner (not shipped yet).

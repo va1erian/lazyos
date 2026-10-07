@@ -92,6 +92,25 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+### Login and the session user
+
+A desktop image boots to a login screen (`greeter`, run as the `_greeter`
+uid); `user`/`lazy` and `admin`/`nimda` are the development accounts
+(Argon2id hashes in the root-only `/system/etc/shadow`). LazyShell, the
+Terminal and every app run as the logged-in user with no capability, and the
+taskbar's Log out button ends the session (docs/accounts-plan.md U0, #623).
+`LAZYOS_AUTOLOGIN=<name>` (`run_demo.py --autologin NAME`, the GUI's
+"Log in automatically") logs straight in; unset, an image that opens apps at
+login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
+the example sessions run unchanged. Services authorize privileged calls by
+`CAP_SETUID`, never by uid 0: a session cannot write `sys/**` keys, `/conf`
+or `/system`. The attack harness is `python tools/accounts/run.py`; the
+session `tools/screenshot/examples/login_logout.json` (an image built with
+`LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
+logs out with the taskbar button (`taskbar:logout` probe) and logs in again.
+Session scripts work as `user` (`/home/user`, `user/1000/**` confd keys); a
+step that must touch a system service logs in `admin` (still uid 0 until U1).
+
 ### The disk image
 
 `cargo build` writes `target/lazyos.img` as an MBR disk with three partitions:
@@ -426,9 +445,33 @@ sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 (`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
 `SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
 
+A package with `[entry] resident = true` is a *resident app*: it runs once
+per session, may live with no window (`xui_app::resident`: a windowless loop,
+windows opened on demand and closed to the tray), always has a tray icon (the
+shell gives a running resident app a default item with Open and Quit from
+`init`'s retained `session/<s>/apps/resident`), and gets its lifecycle from
+`init` over `os.lazy.init.app.v1`: `Reopen` on a second launch (queued until
+it watches), `Quit` on a `Stop` with a hard 3 s grace from the `Stop` (then a
+kill, `INIT:APP:QUIT:TIMEOUT`); `Stop` answers once every target is reaped
+(`INIT:STOP:DONE`). The tray applets Volume (`os.lazy.volume`, every desktop:
+the wheel sets the mixer's master volume) and Network Status
+(`os.lazy.netstatus`, `LAZYOS_NETD=1` images) open with every session. The
+lifecycle session needs `rhai` (`python tools/rhai/build.py`); the applets
+session records the sound card and is judged by ear:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray_resident --script tools/screenshot/examples/tray_resident.json
+LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/tray_applets --script tools/screenshot/examples/tray_applets.json --extra-arg=-audiodev --extra-arg=wav,id=a0,path=shots/tray_applets/volume.wav --extra-arg=-device --extra-arg=virtio-sound-pci,audiodev=a0
+python tools/tray/volume_check.py shots/tray_applets/volume.wav    # TRAY:VOLUME:PASS: the 660 Hz tone at half the 440 Hz one
+python tools/tray/test_volume_check.py
+cargo test -p lazypkg -p pkgstore -p svcpolicy -p netpolicy
+```
+
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray --script tools/screenshot/examples/tray.json
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray_menu --script tools/screenshot/examples/tray_menu.json   # menus, the Quit row; rebuild with LAZYOS_RESET_OS=1 first (it switches to the light theme)
 cargo test -p trayclient -p messenger-generated
 cd xui-app && cargo test -p lazyshell
 ```

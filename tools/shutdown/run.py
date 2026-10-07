@@ -17,11 +17,11 @@ Each boot's serial log is judged by `judge.py` (which requires `logd` to have
 persisted records to `/logs`, `confd` to keep its store in `/conf` and `pkgd`
 to stop through the lifecycle contract before `confd`). The second boot must
 also mount the volume clean (no "was not cleanly unmounted"), print the nonce
-and find the first boot's records in `/logs/service.log` (its boot id, from
-`LOGD:STORE:READY ... boot=<id>`): from the guest's Terminal (autostarted as
-root) and, after QEMU exits, from the host (`libs/ext2fs`'s `osread`
-example), which does not depend on who the Terminal runs as (`/logs` is 0750
-root). Screenshots and logs land in `shots/shutdown/`.
+and the first boot's records must be in `/logs/service.log` (its boot id,
+from `LOGD:STORE:READY ... boot=<id>`), read after QEMU exits from the host
+(`libs/ext2fs`'s `osread` example): `/logs` is 0750 root, and the Terminal
+runs as the session user (`user`, issue #623), which may not read it.
+Screenshots and logs land in `shots/shutdown/`.
 
     python tools/shutdown/run.py              # build the desktop image, boot twice, judge
     python tools/shutdown/run.py --no-build   # reuse target/lazyos.img
@@ -125,7 +125,7 @@ def power_off_session(nonce: str) -> list[dict]:
     ]
 
 
-def reboot_session(nonce: str, boot_id: str) -> list[dict]:
+def reboot_session(nonce: str) -> list[dict]:
     # LazyShell's start button is at (44, 704); the menu is bottom-anchored on
     # the taskbar, so "Restart..." (the second-to-last row) is at (134, 648)
     # whatever the configured rows. The confirmation swaps the power rows in
@@ -135,10 +135,6 @@ def reboot_session(nonce: str, boot_id: str) -> list[dict]:
         *focus_terminal(),
         *command(f"cat {NOTE}", f"TERM:OUT:{nonce}"),
         {"wait_for": f"TERM:OUT:{nonce}", "timeout": 30},
-        # The first boot's records are in its journal: its boot line names it.
-        # (The autostarted Terminal runs as root, session 0, so it may read
-        # `/logs`, which is 0750 root; the harness also reads it from the host.)
-        *command(f"grep -q id={boot_id} {JOURNAL}; echo journal-$?", "TERM:OUT:journal-"),
         *home(1.0),
         {"at": 2.4, "mouse_move": [44, 704]},
         {"at": 3.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 20,
@@ -214,15 +210,13 @@ def main() -> int:
         failures.append("power-off: logd's journals were not ready (no LOGD:STORE:READY)")
     boot_id = boot_id.group(1) if boot_id else "0" * 16
 
-    ok, log = boot("reboot", reboot_session(nonce, boot_id), args.out, args.accel, args.memory)
+    ok, log = boot("reboot", reboot_session(nonce), args.out, args.accel, args.memory)
     failures += [] if ok else ["reboot session did not complete"]
     failures += [f"reboot: {f}" for f in judge(log, "reboot")]
     if "was not cleanly unmounted" in log:
         failures.append("the OS volume was not clean after the power-off")
     if f"TERM:OUT:{nonce}" not in log:
         failures.append(f"{NOTE} did not survive the power-off")
-    if "TERM:OUT:journal-0" not in log:
-        failures.append(f"{JOURNAL} lost the first boot's records")
     if f"id={boot_id}" not in read_journal():
         failures.append(f"{JOURNAL} read from the image lacks the first boot's records")
     if "SHELL:POWER:REQUEST mode=1 phase=" not in log:

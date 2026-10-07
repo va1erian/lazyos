@@ -26,21 +26,39 @@ pub(super) fn clamp_panel(size: (i32, i32), at: (i32, i32), screen: Rect) -> (i3
     (axis(at.0, size.0, screen.w), axis(at.1, size.1, screen.h))
 }
 
-/// The shell authorization rule (issue #157): a privileged identity may
-/// always be the shell; otherwise the caller needs a real session that owns
-/// the display, or, before any session does, a display with no live shell.
+/// Who asks for the shell role, as the rule needs it.
+#[derive(Clone, Copy)]
+pub(super) struct ShellClaim {
+    /// A system service (`CAP_SETUID`; never a uid, issue #623).
+    pub(super) privileged: bool,
+    /// An installed (labelled) app: never the shell.
+    pub(super) labelled: bool,
+    pub(super) session: u64,
+    /// The task already holds the live subscription (a re-subscribe).
+    pub(super) current: bool,
+}
+
+/// The shell authorization rule (issues #157, #623): a privileged identity
+/// may always be the shell. Otherwise the caller is an unlabelled task of a
+/// real session, and either already the shell, or the shell is gone and its
+/// session owns the display (a restarted LazyShell) or no session does yet. A
+/// live shell is never displaced by another task, even of its own session: an
+/// app of the session could otherwise read every window's title and focus.
 pub(super) fn shell_allowed(
-    privileged: bool,
-    session: u64,
+    claim: ShellClaim,
     display_session: Option<u64>,
     shell_live: bool,
 ) -> bool {
-    privileged
-        || (session != 0
-            && match display_session {
-                Some(owner) => owner == session,
-                None => !shell_live,
-            })
+    if claim.privileged {
+        return true;
+    }
+    if claim.labelled || claim.session == 0 {
+        return false;
+    }
+    if claim.current {
+        return true;
+    }
+    !shell_live && display_session.is_none_or(|owner| owner == claim.session)
 }
 
 impl Compositor {
@@ -184,14 +202,36 @@ pub(super) fn selftest_shell_calls() -> &'static str {
     let placed = clamp_panel((200, 32), (700, 590), screen) == (600, 568)
         && clamp_panel((200, 32), (-5, -5), screen) == (0, 0)
         && clamp_panel((900, 700), (50, 50), screen) == (0, 0);
-    // Privilege always; the owning session; the first session only while no
-    // shell is live; never session 0 or another session.
-    let auth = shell_allowed(true, 0, Some(7), true)
-        && shell_allowed(false, 7, Some(7), true)
-        && !shell_allowed(false, 8, Some(7), false)
-        && shell_allowed(false, 9, None, false)
-        && !shell_allowed(false, 9, None, true)
-        && !shell_allowed(false, 0, None, false);
+    // Privilege always; the owning session once its shell is gone, or the
+    // live shell itself; never another task while the shell lives, another
+    // session, session 0 or an installed app.
+    let claim = |session: u64| ShellClaim {
+        privileged: false,
+        labelled: false,
+        session,
+        current: false,
+    };
+    let privileged = ShellClaim {
+        privileged: true,
+        ..claim(0)
+    };
+    let current = ShellClaim {
+        current: true,
+        ..claim(7)
+    };
+    let app = ShellClaim {
+        labelled: true,
+        ..claim(9)
+    };
+    let auth = shell_allowed(privileged, Some(7), true)
+        && shell_allowed(current, Some(7), true)
+        && shell_allowed(claim(7), Some(7), false)
+        && !shell_allowed(claim(7), Some(7), true)
+        && !shell_allowed(claim(8), Some(7), false)
+        && shell_allowed(claim(9), None, false)
+        && !shell_allowed(claim(9), None, true)
+        && !shell_allowed(app, None, false)
+        && !shell_allowed(claim(0), None, false);
     if placed && auth {
         "XUID:SHELLCALLS:PASS\n"
     } else {

@@ -20,7 +20,7 @@
   {"wait_for": "SHELL:TRAY:TOOLTIP app=os.lazy.traydemo", "timeout": 30},
   {"wait": 1.0},
   {"shot": "02_activated_badge_tooltip"},
-  {"click_at": {"target": "tray:os.lazy.traydemo"}, "button": "right", "until": "TRAYDEMO:SECONDARY:PASS", "timeout": 30, "retries": 2},
+  {"click_at": {"target": "tray:os.lazy.traydemo"}, "button": "right", "until": "SHELL:TRAY:MENU:OPEN app=os.lazy.traydemo", "timeout": 30, "retries": 2, "note": "an item with a menu opens it (stage T2); one without gets SecondaryActivate"},
   {"mouse_scroll": 1, "until": "TRAYDEMO:SCROLL:", "timeout": 30, "retries": 2},
   {"click_at": {"window": "Tray Demo"}, "note": "focus the demo window"},
   {"wait": 0.5},
@@ -58,7 +58,7 @@
   {"type": "kill -9 ${demo_pid}"},
   {"wait": 0.6},
   {"key": "enter", "until": "INIT:LAUNCH:EXIT app=os.lazy.traydemo", "timeout": 30, "retries": 1},
-  {"wait_for": "SHELL:TRAY:CLEAR app=os.lazy.traydemo why=gone", "timeout": 2, "note": "one ping round (~1 s, liveness.rs PING_TICKS) plus slack"},
+  {"wait_for": "SHELL:TRAY:CLEAR app=os.lazy.traydemo why=(gone|stopped)", "regex": true, "timeout": 2, "note": "a dead channel (one ping round, ~1 s) or, for a resident app, init reporting it gone, whichever comes first; 2 s with slack"},
   {"wait": 1.0},
   {"shot": "06_app_killed_icon_gone"},
   {"quit": true}

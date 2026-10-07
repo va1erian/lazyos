@@ -19,10 +19,12 @@
 //! The prompt reads its keys through `inputd`'s sessionless console session
 //! (issue #396, `console.rs`), falling back to the kernel terminal.
 //!
-//! A graphical session (issue #157, `graphical.rs`) replaces step 4: when the
-//! confd key `sys/session/mode` is `graphical`, `init` launches the desktop
-//! shell (LazyShell) into the session instead, and a failure falls back to the
-//! console shell. The console path is unchanged.
+//! A desktop image logs in graphically instead (issues #157, #623,
+//! `graphical.rs`): no console prompt, a login screen run as `_greeter` that
+//! calls `Login`, or the build's autologin account, and `init` launching the
+//! desktop shell into each session as the user; `Logout` ends the session.
+//! The confd key `sys/session/mode` (`graphical`/`console`) overrides the
+//! image's default. The console path below is unchanged.
 //!
 //! Failed attempts wait [`FAIL_DELAY_TICKS`] before the next prompt (the
 //! documented rate-limit), and the session capabilities are empty
@@ -58,15 +60,14 @@ const FAIL_DELAY_TICKS: u64 = 30;
 const SESSION_CAPS: u32 = 0;
 /// Longest name/secret line the prompt accepts.
 const LINE_MAX: usize = 64;
-/// The login screen's help: the default accounts of `/system/etc/passwd`
-/// (`build_support/passwd`), documented in `docs/security-model.md` section 3.
-/// Bring-up plaintext secrets until #447 hashes them.
-const LOGIN_HELP: &str = "Default accounts: admin (password nimda, uid 0) and \
-                          user (password lazy, uid 1000).\n";
+/// The login prompt's help: the default accounts of `/system/etc/passwd`
+/// (`build_support/passwd`). Their passwords are never printed (issue #447):
+/// `docs/security-model.md` section 3 documents them.
+const LOGIN_HELP: &str = "Default accounts: admin and user \
+                          (passwords: docs/security-model.md section 3).\n";
 
-/// The session whose shell is currently running. A graphical session's shell
-/// is `init`'s child, not ours, so its exit is never reaped here: the session
-/// stays active (there is no logout yet).
+/// The console session whose shell is currently running (a graphical
+/// session is `graphical.rs`'s).
 struct ActiveSession {
     /// Index into the session table.
     index: usize,
@@ -92,6 +93,13 @@ fn run() -> messenger::Result<()> {
     registry::register(logind::NAME, &published, &[logind::INTERFACE], 0)?;
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
+    // Reused receive buffer: the user bump allocator never reclaims per-call
+    // buffers, so long-lived loops must not allocate one per message.
+    let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
+    if graphical::requested() {
+        // Returns only when the image has no login screen to show.
+        graphical::run(&server, &mut buffer)?;
+    }
     sys::write_str("logind: waiting for the accounts service\n");
     let mut accountsd: Option<Endpoint> = None;
     let mut bus: Option<router::Bus> = None;
@@ -99,9 +107,6 @@ fn run() -> messenger::Result<()> {
     let mut active: Option<ActiveSession> = None;
     let mut next_session = 0u64;
     let mut keys = console::ConsoleKeys::new();
-    // Reused receive buffer: the user bump allocator never reclaims per-call
-    // buffers, so long-lived loops must not allocate one per message.
-    let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
 
     loop {
         // Answer `Sessions` queries even while a shell runs.
@@ -200,21 +205,9 @@ fn prompt_login(
     // system learns about it through Messenger.
     *next_session += 1;
     let id = *next_session;
-    // A graphical session: `init` launches the desktop shell into it.
-    let desktop = if graphical::requested() {
-        graphical::start(bus, &user, id)
-    } else {
-        None
-    };
-    let pid = match desktop {
-        Some(pid) => pid,
-        None => match spawn_console_shell(&user, id) {
-            Some(pid) => pid,
-            None => {
-                deny(bus, &name, "spawn-failed");
-                return None;
-            }
-        },
+    let Some(pid) = spawn_console_shell(&user, id) else {
+        deny(bus, &name, "spawn-failed");
+        return None;
     };
     let started = sys::clock();
     sessions.push(logind::SessionRecord {

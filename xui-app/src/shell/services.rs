@@ -1,5 +1,6 @@
 //! The services LazyShell is a client of: `init` (app registry, `Launch`,
-//! `Shutdown`), `confd` (`sys/ui/*`) and `timed` (the zone name).
+//! `Shutdown`), `logind` (`Logout`), `confd` (`sys/ui/*`) and `timed` (the
+//! zone name).
 //!
 //! Every call is bounded, and an unregistered service is not waited for
 //! (`Service::try_connect`): the shell must keep painting while a service is
@@ -10,6 +11,7 @@
 use confd::Value;
 use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
+use messenger_generated::os_lazy_logind_v1 as logind_wire;
 use messenger_generated::os_lazy_timed_v1 as timed_wire;
 
 use crate::platform::confd_store::from_wire;
@@ -23,6 +25,8 @@ const INIT: &str = "os.lazy.init";
 const CONFD: &str = "os.lazy.confd";
 /// `timed`'s registered name.
 const TIMED: &str = "os.lazy.timed";
+/// `logind`'s registered name.
+const LOGIND: &str = "os.lazy.logind";
 
 /// `ListApps` may take a quarter second (the old compositor menu's bound).
 const LIST_TICKS: u64 = 25;
@@ -33,6 +37,9 @@ const LAUNCH_TICKS: u64 = 1000;
 /// `Shutdown`: `init` answers before it stops anything, so this is a
 /// backstop (the compositor menu's bound in #504).
 const SHUTDOWN_TICKS: u64 = 300;
+/// `Stop` answers once every instance is gone (with T3's quit grace, up to
+/// about 3 s), so it gets more than a spawn.
+const STOP_TICKS: u64 = 500;
 /// One `confd` read.
 const CONFD_TICKS: u64 = 50;
 /// One `timed` read.
@@ -123,9 +130,29 @@ pub fn launched() -> Result<Vec<(String, u64)>, i64> {
         .collect())
 }
 
+/// `init.Stop(app)`: stop every instance of `app` in the shell's session
+/// (the tray's Quit row); how many were running.
+pub fn stop(app: &str) -> Result<u64, i64> {
+    let body = init_wire::encode_stop_args(&init_wire::StopArgs {
+        app: app.to_owned(),
+    })
+    .map_err(|_| -errno::EINVAL)?;
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_STOP,
+        body,
+        STOP_TICKS,
+    )?;
+    init_wire::decode_stop_reply(&reply.body)
+        .map(|reply| reply.stopped)
+        .map_err(|_| -errno::EINVAL)
+}
+
 /// `init.Launch(app, arg, 0)`: start `app` in the shell's own session, with
-/// `arg` (one absolute path, or `""`); the new task's pid.
-pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {
+/// `arg` (one absolute path, or `""`); the task's pid, and whether it is a
+/// resident app's running instance that got the launch as `Reopen`.
+pub fn launch(app: &str, arg: &str) -> Result<(u64, bool), i64> {
     let body = init_wire::encode_launch_args(&init_wire::LaunchArgs {
         app: app.to_owned(),
         args: arg.to_owned(),
@@ -140,7 +167,7 @@ pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {
         LAUNCH_TICKS,
     )?;
     init_wire::decode_launch_reply(&reply.body)
-        .map(|reply| reply.pid)
+        .map(|reply| (reply.pid, reply.existing))
         .map_err(|_| -errno::EINVAL)
 }
 
@@ -162,6 +189,22 @@ pub fn shutdown(mode: u32, reason: &str) -> Result<String, i64> {
     )?;
     init_wire::decode_shutdown_reply(&reply.body)
         .map(|reply| reply.phase)
+        .map_err(|_| -errno::EINVAL)
+}
+
+/// `logind.Logout()` (issue #623): end the shell's own desktop session.
+/// `logind` answers before anything stops; `init` then ends every task of
+/// the session, this shell included, and the login screen comes back.
+pub fn logout() -> Result<u64, i64> {
+    let reply = call(
+        LOGIND,
+        logind_wire::INTERFACE_ID,
+        logind_wire::METHOD_LOGOUT,
+        Vec::new(),
+        SHUTDOWN_TICKS,
+    )?;
+    logind_wire::decode_logout_reply(&reply.body)
+        .map(|reply| reply.session)
         .map_err(|_| -errno::EINVAL)
 }
 

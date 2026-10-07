@@ -117,10 +117,11 @@ dependency `inputd` is still stopped; `usbd`'s input then goes nowhere.
   "Shut down now" and "Cancel", and only the confirmation calls `init.Shutdown`
   (`force = false`, reason "requested from the start menu"; markers
   `SHELL:POWER:CONFIRM`, `SHELL:POWER:REQUEST mode=<m> phase=<p>`,
-  `SHELL:POWER:REQUEST:FAIL mode=<m> errno=<e>`). The desktop image's
-  LazyShell is autostarted by `init` as root (uid 0, session 0) and is
-  admitted; a LazyShell launched into a user's login session is admitted by
-  its session id; an installed (labelled) app never is. The shell raises no
+  `SHELL:POWER:REQUEST:FAIL mode=<m> errno=<e>`). LazyShell runs in the
+  user's login session (issue #623) and is admitted by its session id, as is
+  anything else in a login session; a system service is admitted by
+  `CAP_SETUID`; an installed (labelled) app never is, nor a sessionless task
+  without the capability (the login screen, a driver). The shell raises no
   overlay itself: `xuid` follows `init`'s retained `system/power/state`, which
   `init` publishes before it stops anything. Nothing but `init` calls
   `power()`.

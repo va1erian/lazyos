@@ -13,7 +13,9 @@
 //! is therefore not restarted, and an app the user killed (a terminating
 //! signal) is simply stopped. When an app row ends failed, [`tells_desktop`]
 //! says so and `init` publishes `system/events/app/<id>` for the shell's
-//! notice, with the app's own [`clean_reason`] when it reported one.
+//! notice, with the app's own [`clean_reason`] when it reported one. A
+//! *resident* app (docs/tray-plan.md) is kept running: it is restarted
+//! after a crash past start-up whatever its manifest's policy says.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -73,6 +75,12 @@ pub struct Exit {
     pub uptime: u64,
     /// The row's rapid-crash count before this exit.
     pub restarts: u64,
+    /// Whether the app is resident (docs/tray-plan.md section 5): whatever
+    /// its manifest says, a crash after start-up restarts it with backoff,
+    /// while a clean exit, a kill by the user and a failure while starting
+    /// do not. (An exit after a `Quit` never reaches [`decide`]: `init`
+    /// retires the row when it asks the app to quit.)
+    pub resident: bool,
 }
 
 /// Why a row ended failed.
@@ -110,6 +118,14 @@ pub enum Outcome {
 
 /// Decide what `exit` leads to (see the crate docs for the rules).
 pub fn decide(exit: Exit) -> Outcome {
+    let exit = if exit.resident && exit.app {
+        Exit {
+            policy: Restart::OnFailure,
+            ..exit
+        }
+    } else {
+        exit
+    };
     let mut restarts = if exit.uptime >= STABLE_TICKS {
         0
     } else {

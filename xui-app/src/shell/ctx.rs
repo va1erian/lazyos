@@ -33,6 +33,8 @@ use crate::display::Client;
 pub enum BarHover {
     Start,
     Entry(usize),
+    /// The "Log out" button (issue #623).
+    Logout,
     /// A tray cell (its index in the tray layout).
     Tray(usize),
     /// The tray's overflow chevron.
@@ -59,6 +61,8 @@ pub struct Ctx {
     pub clock_w: Cell<i32>,
     pub clock: RefCell<String>,
     pub bar_hover: Cell<Option<BarHover>>,
+    /// The "Log out" button was pressed once and asks for a second press.
+    pub logout_armed: Cell<bool>,
     pub menu: RefCell<Menu>,
     pub menu_hover: Cell<Option<usize>>,
     /// The desktop icons on screen: the desktop folder's entries (or, with
@@ -111,6 +115,7 @@ impl Ctx {
             clock_w: Cell::new(0),
             clock: RefCell::new(String::new()),
             bar_hover: Cell::new(None),
+            logout_armed: Cell::new(false),
             menu: RefCell::new(Menu::default()),
             menu_hover: Cell::new(None),
             icons: RefCell::new(Vec::new()),
@@ -169,6 +174,11 @@ impl Ctx {
         taskbar::clock_rect(self.screen.0, self.clock_w.get())
     }
 
+    /// The "Log out" button's panel-local rectangle, left of the clock.
+    pub fn logout_rect(&self) -> Rect {
+        taskbar::logout_rect(self.clock_rect())
+    }
+
     /// Ask the taskbar to repaint.
     pub fn repaint_bar(&self) {
         if let Some(bar) = &*self.bar.borrow() {
@@ -188,7 +198,8 @@ impl Ctx {
     pub fn bar_changed(&self) {
         let count = self.taskbar.borrow().windows().len();
         let clock = self.clock_rect();
-        let reserved = clock.w + self.tray.relayout(clock.x);
+        let logout = taskbar::logout_rect(clock);
+        let reserved = taskbar::reserved_right(clock) + self.tray.relayout(logout.x);
         let rects = taskbar::entry_rects(count, self.screen.0, reserved);
         let surfaces: Vec<u64> = self
             .taskbar
@@ -244,10 +255,12 @@ impl Ctx {
         }
         let result = services::launch(app, arg);
         match result {
-            Ok(pid) => println!("SHELL:LAUNCH:PASS app={app} pid={pid}"),
+            Ok((pid, existing)) => {
+                println!("SHELL:LAUNCH:PASS app={app} pid={pid} existing={existing}")
+            }
             Err(code) => println!("SHELL:LAUNCH:FAIL app={app} err={}", -code),
         }
-        result
+        result.map(|(pid, _)| pid)
     }
 
     /// Re-read the start menu: `sys/ui/menu` plus `init`'s installed apps,

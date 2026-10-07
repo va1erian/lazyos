@@ -10,7 +10,7 @@ identity, and explained if denied.**
 
 ## 0. Implementation status
 
-This document is the target model. As of 2026-10-03 the kernel and services
+This document is the target model. As of 2026-10-06 the kernel and services
 have the mechanisms in the left column; everything in the right column, and
 everything below not listed here, is specification
 ([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail;
@@ -20,8 +20,8 @@ after the table says what is actually enforced today.
 
 | Mechanism implemented | Specified only |
 |---|---|
-| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; the kernel gives the programs it starts root credentials and their descendants inherit them (which is why `init`-started services and apps run as uid 0 unless they drop privilege); audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts for the core services (section 4.1 "system services do not run as root" is the goal, not the state) |
-| Console login through `logind` + `accountsd`, Argon2id verification inside `keyd`, hashes in `SHARE_ONLY` buffers; failed logins audited (section 3) | Password hashes at rest (the account file holds plaintext), rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`; `keyd` key ids are not yet scoped to their owner (issue #187) |
+| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; the kernel gives the programs it starts root credentials and their descendants inherit them (which is why `init`-started services run as uid 0 unless they drop privilege); audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts for the core services (section 4.1 "system services do not run as root" is the goal, not the state) |
+| Console login and the desktop's graphical login through `logind` + `accountsd` (a login screen run as the `_greeter` uid, or the build's `LAZYOS_AUTOLOGIN`), logout ending every task of the session; Argon2id verifiers loaded by `keyd` from the root-only `/system/etc/shadow` (0600), no plaintext anywhere; failed logins delayed and audited (section 3, issues #447, #623) | Per-name rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`, account management (U1) and elevation (U2, docs/accounts-plan.md) |
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
 | Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals), `CAP_DEV_CLAIM` (device claims through syscall 23, 4.2); `CAP_SYS_ADMIN` gates the display grant (4.2); per-driver device-class rules installed at boot (#481) | Dropping capabilities on `execve` |
 | Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy; app labels with label-keyed rules compiled from a package manifest and loaded by `pkgd`, reserved `os.lazy.*`/`app.<id>.*` namespaces (4.3, 6) | A uid policy loader, the policy language/compiler, hot reload, revocation of live handles (5.2, 6) |
@@ -43,13 +43,26 @@ What is enforced today, honestly:
   `network` permission gates only the Messenger socket interface: the Linux
   `AF_INET` path in the kernel does not check labels, and the per-uid call
   rules in `libs/netpolicy` wait for the uid policy loader.
-- **Almost everything is root.** `xuid` and the apps `init` starts at boot run
-  as uid 0 (labelled or not), and so do the services except the drivers and
-  their stacks (`sndd`, `audiod`, `usbd`, `netdrv`, `netd`); several services
-  authorize admin calls with `uid == 0` (hardening plan section 1).
-- **Passwords are plaintext** in the world-readable `/system/etc/passwd`;
-  `keyd` verifies with Argon2id, but against a verifier `accountsd` provisions
-  from that plaintext at each login.
+- **The desktop session is not root** (U0, issue #623). A desktop image
+  boots to a login screen (or the build's autologin account); LazyShell, the
+  Terminal and every app, installed autostart apps included, run as the
+  logged-in user with no capability, so the VFS mode bits apply to them
+  (`rm /system/bin/init` is `EACCES`) and they cannot signal services. The
+  services still run as uid 0 except the drivers and their stacks (`sndd`,
+  `audiod`, `usbd`, `netdrv`, `netd`), and `xuid` is still started by the
+  kernel; the `admin` account is still uid 0 (U1 makes it a group).
+- **Privileged calls need a capability, not a uid.** `keyd` `Provision`,
+  `confd` `sys/**` writes (and other users' `user/<uid>/**`), `pkgd`'s
+  unrestricted install source, `mimed` `Unregister`, `xuid`'s privileged
+  subscriptions and shell-only calls, and `init`'s launch-anywhere, `Stop`
+  and `Shutdown` rules ask for `CAP_SETUID`, which `init` keeps for the
+  services and never stamps on a login session. A root login session is a
+  user like any other to them. `xuid` gives the shell role to an unlabelled
+  task of the session that owns the display, never displacing a live shell.
+- **No plaintext passwords.** `/system/etc/passwd` carries `x`; the
+  verifiers are Argon2id hashes in `/system/etc/shadow` (root, 0600) that the
+  image build derives and only `keyd` reads. Without `keyd` (or the shadow)
+  every login fails closed.
 
 ---
 
@@ -106,7 +119,7 @@ approved rule set for: same uid, gid and session, never more capabilities
   Password hashes are **Argon2id**, and only `keyd` can
   verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
 - **The account file** (issue #508) is `/system/etc/passwd`
-  (`name:uid:gid:secret:home:shell`), written by the image build from
+  (`name:uid:gid:x:home:shell`), written by the image build from
   `build_support/passwd`, the only copy. It is the **only** account source:
   `accountsd` has no built-in table and parses it strictly (`libs/passwd`). It
   **fails closed**: a missing, unreadable, oversize (over 1 KiB) or malformed
@@ -117,27 +130,40 @@ approved rule set for: same uid, gid and session, never more capabilities
   situation, never a machine with a default password. A good load prints
   `ACCOUNTS:LOAD:PASS rows=<n>`. `Create` answers `ENOSYS`: accounts change only
   with the image until account management exists.
-- **Default accounts.** The image ships two, shown on the login screen:
+- **Default accounts.** The image ships two:
 
   | Name | uid:gid | Home | Password |
   |---|---|---|---|
   | `admin` | `0:0` | `/home/admin` | `nimda` |
   | `user` | `1000:1000` | `/home/user` | `lazy` |
 
-  The passwords are **plaintext bring-up secrets** in a world-readable file,
-  compared by `accountsd` when `keyd` is absent and provisioned into `keyd`
-  otherwise. Hashes in a root-only `/system/etc/shadow` are #447's next task.
+  These are development passwords (`build_support/passwords`). The image
+  build hashes them with Argon2id (keyd's own cost, a salt derived from name
+  and password) into `/system/etc/shadow`, mode 0600 and owned by root, and
+  writes `x` in the passwd field: no plaintext reaches the volume, and the
+  login prompt and screen never print them (issue #447). `keyd` loads the
+  shadow at boot, all or nothing (`KEYD:SHADOW:PASS rows=<n>` /
+  `KEYD:SHADOW:FAIL`); `accountsd` only relays `Authenticate` to `keyd`'s
+  `Verify` and refuses every login when `keyd` cannot answer. `keyd`
+  `Provision` (U1's account management) needs `CAP_SETUID`.
 - **Session environment.** A console login starts the passwd shell in the
   account's home with `HOME`, `USER` and `PATH=/system/bin`. Every app `init`
   launches into a session, installed (labelled) apps included, gets the same
   three variables; the account comes from the login event `logind` publishes
   (`system/events/login/session/<id>` carries the home), so a launch never looks
-  it up again. The desktop's boot-time session 0 (uid 0, no login) is resolved
-  once through `accountsd`.
+  it up again.
 - **Login** (`logind`) runs a small PAM-like pipeline: identify → authenticate
   (console password, later key/2FA) → create session → grant the session its
   default capabilities (own compositor, own clipboard, session topics, home dir).
-- **Console sessions** start the compositor + desktop shell as the user.
+- **Desktop sessions** (issue #623, `user/src/bin/logind/graphical.rs`): on a
+  desktop image (`sys/session/mode`, default `graphical` there) `logind`
+  shows the login screen (`greeter`, run by `init` as the `_greeter` system
+  uid 907, the only identity `logind`'s `Login` accepts) or logs the build's
+  `LAZYOS_AUTOLOGIN` account in through the same path. `init` launches
+  LazyShell into the new session and then the session's autostart apps,
+  all stamped with the user's uid and gid and no capability. `Logout` (the
+  taskbar's Log out button) publishes `system/events/login/end`; `init` then
+  kills every task stamped with the session id and the login screen returns.
 - **Service accounts** never log in; they receive their profile at supervision
   time.
 - Failed logins are rate-limited and audited (source, user, attempt).

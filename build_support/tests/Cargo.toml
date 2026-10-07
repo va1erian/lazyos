@@ -16,6 +16,9 @@ ext2fs = { path = "../../libs/ext2fs", features = ["fuzz"] }
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
 # The USB stick image's FAT volumes (`usb_ramdisk.rs`), as in the root build.
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
+# `/system/etc/shadow` (`shadow.rs`): the account file's parser and keyd's KDF.
+passwd = { path = "../../libs/passwd" }
+lazyos-crypto = { path = "../../libs/crypto" }
 
 [dev-dependencies]
 # The roots the image's CA bundle is built from (the root crate pins it).

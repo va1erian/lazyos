@@ -31,6 +31,8 @@ struct ManifestCase {
     #[serde(default)]
     autostart: Option<bool>,
     #[serde(default)]
+    resident: Option<bool>,
+    #[serde(default)]
     develop: Option<bool>,
 }
 
@@ -81,6 +83,9 @@ fn manifest_cases() {
                 }
                 if let Some(autostart) = case.autostart {
                     assert_eq!(manifest.entry.autostart, autostart, "{}", case.name);
+                }
+                if let Some(resident) = case.resident {
+                    assert_eq!(manifest.entry.resident, resident, "{}", case.name);
                 }
                 if let Some(develop) = case.develop {
                     assert_eq!(manifest.permissions.develop, develop, "{}", case.name);

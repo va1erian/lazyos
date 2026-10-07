@@ -104,6 +104,7 @@ pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 pub mod errno {
     pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const EIO: i64 = 5;
     pub const E2BIG: i64 = 7;
     pub const EAGAIN: i64 = 11;

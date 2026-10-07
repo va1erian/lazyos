@@ -89,12 +89,24 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
     packages
 }
 
-/// The short ids `LAZYOS_XUI_AUTOSTART` names: comma-separated, each a short
-/// id (`terminal`), an xui binary stem (`term`) or a `system_name`
-/// (`os.lazy.terminal`); `none` or unset opens nothing.
+/// The resident tray applets (docs/tray-plan.md T3): they open with every
+/// session of an image that ships them, whatever `LAZYOS_XUI_AUTOSTART`
+/// says, as the taskbar's own volume and network icons.
+pub const APPLETS: &[&str] = &["volume", "netstatus"];
+
+/// The short ids to open at boot: what `LAZYOS_XUI_AUTOSTART` names
+/// (comma-separated, each a short id (`terminal`), an xui binary stem
+/// (`term`) or a `system_name` (`os.lazy.terminal`); `none` or unset opens
+/// nothing), plus the [`APPLETS`].
 pub fn autostart_shorts() -> Vec<String> {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
-    parse_autostart(std::env::var("LAZYOS_XUI_AUTOSTART").ok().as_deref())
+    let mut shorts = parse_autostart(std::env::var("LAZYOS_XUI_AUTOSTART").ok().as_deref());
+    for applet in APPLETS {
+        if !shorts.iter().any(|short| short == applet) {
+            shorts.push((*applet).to_string());
+        }
+    }
+    shorts
 }
 
 /// [`autostart_shorts`] of a `LAZYOS_XUI_AUTOSTART` value (`None`: unset).
@@ -149,6 +161,10 @@ pub fn is_core_stem(stem: &str) -> bool {
         // Tray Demo, the tray sample app (docs/tray-plan.md T1); only
         // `LAZYOS_TRAYDEMO=1` images ship it (`xui_embed`).
         "traydemo",
+        // Volume: Sound volume in the taskbar tray.
+        "volume",
+        // Network Status: Network status in the taskbar tray.
+        "netstatus",
         // Network Drives: Mount FTP servers as folders under /mnt.
         "netdrives",
     ];

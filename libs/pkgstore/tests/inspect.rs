@@ -41,3 +41,61 @@ fn problems_are_capped_and_each_line_is_bounded() {
     assert!(info.problems.len() <= 13);
     assert!(info.problems.iter().all(|p| p.chars().count() <= 200));
 }
+
+/// `(kind, value)` of every permission `Inspect` lists for a package whose
+/// manifest ends with `extra`, and its problems.
+fn listed(extra: &str) -> (Vec<(String, String)>, Vec<String>) {
+    let bytes = lzp::package_with("os.lazy.demo", "1.0.0", 256, 3, extra);
+    let Ok(assessed) = assess(&bytes) else {
+        panic!("the package opens")
+    };
+    let info = assessed.info;
+    let permissions = info
+        .permissions
+        .into_iter()
+        .map(|p| (p.kind, p.value))
+        .collect();
+    (permissions, info.problems)
+}
+
+fn pair(kind: &str, value: &str) -> (String, String) {
+    (kind.into(), value.into())
+}
+
+#[test]
+fn a_resident_package_lists_what_resident_implies() {
+    let (permissions, problems) = listed("resident = true\n");
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(
+        permissions,
+        [
+            pair("interface", "os.lazy.shell.tray.v1"),
+            pair("interface", "os.lazy.init.app.v1"),
+            pair("topic", "subscribe:session/+/shell/tray"),
+            pair("resident", "true"),
+        ]
+    );
+    let (plain, _) = listed("");
+    assert!(plain.is_empty(), "{plain:?}");
+}
+
+#[test]
+fn the_implied_permissions_count_toward_the_limit() {
+    let interfaces = |count: usize| {
+        let names: Vec<String> = (0..count).map(|i| format!("\"x.y{i}.v1\"")).collect();
+        format!("[permissions]\ninterfaces = [{}]\n", names.join(", "))
+    };
+    // 20 + 2 interfaces, the topic and the resident line: 24, the limit.
+    let (permissions, problems) = listed(&format!("resident = true\n{}", interfaces(20)));
+    assert_eq!(permissions.len(), 24);
+    assert!(problems.is_empty(), "{problems:?}");
+    // One more is refused, though the manifest itself names only 21.
+    let (permissions, problems) = listed(&format!("resident = true\n{}", interfaces(21)));
+    assert_eq!(permissions.len(), 25);
+    assert_eq!(
+        problems,
+        ["the package requests 25 permissions; at most 24 are allowed"]
+    );
+    let (_, problems) = listed(&interfaces(21));
+    assert!(problems.is_empty(), "{problems:?}");
+}

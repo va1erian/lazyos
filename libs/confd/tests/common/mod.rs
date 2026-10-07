@@ -12,16 +12,16 @@ use std::fmt;
 use confd::store::Caller;
 use confd::{StoreFs, Value};
 
-/// Root's uid.
-pub const ROOT: Caller = Caller { uid: 0 };
+/// A system service (root with `CAP_SETUID`).
+pub const ROOT: Caller = Caller::system(0);
 /// A regular user.
-pub const ALICE: Caller = Caller { uid: 1000 };
+pub const ALICE: Caller = Caller::user(1000);
 /// A second regular user.
-pub const BOB: Caller = Caller { uid: 1001 };
+pub const BOB: Caller = Caller::user(1001);
 
 /// Builds a caller with the given uid.
 pub fn caller(uid: u32) -> Caller {
-    Caller { uid }
+    Caller::user(uid)
 }
 
 /// Shortcut for a string value.

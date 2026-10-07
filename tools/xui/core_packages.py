@@ -118,6 +118,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_TRAYDEMO=1` images ship it, so a desktop build without its ELF
     # skips it here; such an image fails on it in `build_support/xui_embed.rs`.
     "traydemo": xui_app("xui-traydemo.elf", "traydemo", optional=True),
+    # Volume, the tray applet over the mixer (docs/tray-plan.md T3).
+    "volume": xui_app("xui-volume.elf", "volume"),
+    # Network Status, the tray applet over `netd` (docs/tray-plan.md T3):
+    # shipped with the other network apps (`LAZYOS_NETD=1`).
+    "netstatus": xui_app("xui-netstatus.elf", "netstatus", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

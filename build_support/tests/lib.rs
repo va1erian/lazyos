@@ -29,6 +29,8 @@ mod os_manifest;
 mod os_recover;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
+#[path = "../shadow.rs"]
+mod shadow;
 #[path = "../tls_embed.rs"]
 mod tls_embed;
 #[path = "../usb_fat.rs"]
@@ -58,6 +60,8 @@ mod limits_tests;
 mod recover_tests;
 #[cfg(test)]
 mod samples_tests;
+#[cfg(test)]
+mod shadow_tests;
 #[cfg(test)]
 mod tls_files_tests;
 #[cfg(test)]

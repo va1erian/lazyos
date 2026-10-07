@@ -20,11 +20,13 @@ args = ["--client"]
 # A static musl program: `init` starts it under the Linux ABI personality.
 abi = "linux"
 autostart = false
+# Keeps running with no window and always has a tray icon (docs/tray-plan.md
+# section 5). It implies the tray (`os.lazy.shell.tray.v1`), the lifecycle
+# line (`os.lazy.init.app.v1`) and the tray generation topic.
+resident = true
 
 [permissions]
-# Derived from a run under `LAZYOS_LABEL_TRACE=1` (tools/screenshot/examples/
-# tray.json shows no `LABEL:DENY`): a window, keyboard input, the tray item,
-# and the shell's tray generation (docs/tray-plan.md), which the kernel lets
-# an app read only for its own session.
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.shell.tray.v1"]
-topics = ["subscribe:session/+/shell/tray"]
+# Derived from runs under `LAZYOS_LABEL_TRACE=1` (tools/screenshot/examples/
+# tray.json, tray_menu.json and tray_resident.json show no `LABEL:DENY`): a
+# window and keyboard input; the rest is implied by `resident`.
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]

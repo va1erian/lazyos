@@ -234,6 +234,9 @@ def _check_entry(entry, problems):
     autostart = entry.get("autostart", False)
     if not isinstance(autostart, bool):
         problems.append(f"entry.autostart {autostart!r} must be true or false")
+    resident = entry.get("resident", False)
+    if not isinstance(resident, bool):
+        problems.append(f"entry.resident {resident!r} must be true or false")
     args = entry.get("args", [])
     if not isinstance(args, list) or len(args) > MAX_ARGS:
         problems.append(f"entry.args may hold at most {MAX_ARGS} items")
@@ -297,7 +300,7 @@ def validate_manifest(manifest):
         return problems + ["app must be a table"]
     _check_app(app, problems)
     entry = manifest.get("entry")
-    _check_keys(entry, {"binary", "args", "abi", "autostart"}, "entry", problems)
+    _check_keys(entry, {"binary", "args", "abi", "autostart", "resident"}, "entry", problems)
     if not isinstance(entry, dict):
         return problems + ["entry must be a table"]
     _check_entry(entry, problems)

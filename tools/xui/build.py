@@ -107,6 +107,9 @@ BINS = {
     # LazyShell, the desktop shell (issue #157): `build.rs` embeds it as
     # /system/bin/lazyshell on the desktop profile unless LAZYOS_SHELL=0.
     "xui-shell": "xui-shell.elf",
+    # The graphical login screen (issue #623), embedded with LazyShell as
+    # /system/bin/greeter.
+    "xui-greeter": "xui-greeter.elf",
     # The Devices app (issue #481): owners, rights and the driver class rules.
     # `build_support/xui_embed.rs` places it at /system/bin/devices.
     "xui-devices": "xui-devices.elf",
@@ -116,6 +119,10 @@ BINS = {
     "xui-pdf": "xui-pdf.elf",
     # Tray Demo: Shows a taskbar tray icon and reacts to it.
     "xui-traydemo": "xui-traydemo.elf",
+    # Volume: Sound volume in the taskbar tray.
+    "xui-volume": "xui-volume.elf",
+    # Network Status: Network status in the taskbar tray.
+    "xui-netstatus": "xui-netstatus.elf",
     # Network Drives: Mount FTP servers as folders under /mnt.
     "xui-netdrives": "xui-netdrives.elf",
 }

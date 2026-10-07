@@ -1,6 +1,8 @@
 # Tray icons and resident apps (plan)
 
-Status: **draft**. Covers the "tray" that `shell-plan.md` (S5.3) and
+Status: **T0-T3 implemented** (interfaces, icons, menus, resident apps and
+the Volume and Network Status applets); T4 (flyouts) and T5 (overflow
+panel, settings, Rhai) remain. Covers the "tray" that `shell-plan.md` (S5.3) and
 `platform-plan.md` promise for LazyShell's taskbar, and the app lifecycle
 it needs: a *resident* app that keeps running with no window and shows itself
 through a taskbar icon, a tooltip, a menu and, on a click, a small flyout.
@@ -376,11 +378,13 @@ and the Rhai bindings.
   `icon.rs` (source resolution and fallback, Lucide names through
   `lazyicons`), `paint.rs`,
   `menu.rs` (the declarative menu as a shell `Panel`, reusing the start
-  menu's look and keyboard navigation), `tooltip.rs`, `overflow.rs`,
+  menu's look), `tooltip.rs`, `overflow.rs`,
   `liveness.rs`.
 - Input: left click per the item's `activate` (`Event` -> `Activate`,
   `Menu` -> open the menu, `DefaultItem` -> the default row); right click
-  opens the menu (or `SecondaryActivate` for an item without one); wheel ->
+  always opens the menu, since every menu ends with the shell's Quit row
+  and an app must not hide it by giving no rows (an item without rows of
+  its own also gets `SecondaryActivate`); wheel ->
   `Scroll`; hover 500 ms -> tooltip panel headed by the verified app name.
 - Every menu ends with a shell-added **Quit <App>** row (`init.Stop`), which
   the app cannot remove or relabel.
@@ -458,8 +462,10 @@ checks; no `LABEL:DENY` under the trace.
 
 ### T2 - Menus (S)
 Declarative menus rendered by the shell (checks, radios, separators, one
-submenu level, keyboard navigation), the unremovable Quit row (stopping
-through `init.Stop` as it is until T3 adds `Quit`).
+submenu level), the unremovable Quit row (stopping through `init.Stop` as
+it is until T3 adds `Quit`). Keyboard navigation is deferred to issue #648:
+shell panels never take keyboard focus, so it needs a shell-wide key route
+shared with the start menu, which has the same gap.
 **Evidence:** `tray_menu.json`: open by right click, toggle a check
 (`TRAYDEMO:MENU:<id>:<checked>`), Quit stops the app, item gone; light and
 dark theme screenshots.

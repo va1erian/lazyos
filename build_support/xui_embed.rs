@@ -36,28 +36,38 @@ pub fn shell_enabled(desktop: bool, services: bool, xuid: bool) -> bool {
     }
 }
 
-/// Embed `xui-shell.elf` as `lazyshell`. `init` opens it first at boot, as
-/// the desktop's shell, and restarts it when it dies. A missing binary fails
-/// the build: a desktop that asked for its shell must not boot without one.
+/// The graphical login screen's binary under `target/xui/` (issue #623,
+/// `xui-app/src/bin/greeter.rs`); stored as `fhs::bin::GREETER`.
+const GREETER_XUI_APP: &str = "xui-greeter.elf";
+
+/// Embed `xui-shell.elf` as `lazyshell` and the login screen as `greeter`.
+/// `logind` opens the login screen (or logs straight in) and has `init`
+/// launch the shell into each desktop session; `init` restarts both when
+/// they die. A missing binary fails the build: a desktop that asked for its
+/// shell must not boot without one, or without a way to log in.
 fn embed_shell(sink: &mut dyn Sink) {
-    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
-        .join("target")
-        .join("xui")
-        .join(SHELL_XUI_APP);
-    println!("cargo:rerun-if-changed={}", path.display());
-    if !path.is_file() {
-        panic!(
-            "LazyShell ({}) is not built; run `python tools/xui/build.py`, \
-             or opt out with LAZYOS_SHELL=0",
+    for (file, destination, what) in [
+        (SHELL_XUI_APP, fhs::bin::LAZYSHELL, "LazyShell"),
+        (GREETER_XUI_APP, fhs::bin::GREETER, "The login screen"),
+    ] {
+        let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+            .join("target")
+            .join("xui")
+            .join(file);
+        println!("cargo:rerun-if-changed={}", path.display());
+        if !path.is_file() {
+            panic!(
+                "{what} ({}) is not built; run `python tools/xui/build.py`, \
+                 or opt out of the shell with LAZYOS_SHELL=0",
+                path.display()
+            );
+        }
+        println!(
+            "cargo:warning={what} embedded: {} as {destination}",
             path.display()
         );
+        sink.add_file(destination, path);
     }
-    println!(
-        "cargo:warning=LazyShell embedded: {} as {}",
-        path.display(),
-        fhs::bin::LAZYSHELL
-    );
-    sink.add_file(fhs::bin::LAZYSHELL, path);
 }
 
 /// The xui programs that stay unlabelled in `/system/bin` (issue #509), by the
@@ -73,6 +83,7 @@ const XUI_DESTINATIONS: &[(&str, &str)] = &[
     ("devices", fhs::bin::DEVICES),
     ("installer", fhs::bin::INSTALLER),
     ("shell", fhs::bin::LAZYSHELL),
+    ("greeter", fhs::bin::GREETER),
 ];
 
 /// The stem of an xui app binary (`xui-sysmon.elf` -> `sysmon`).
@@ -135,6 +146,9 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-calc.elf",
     // PDF Viewer: Read PDF documents.
     "xui-pdf.elf",
+    // Volume, the tray applet over the mixer (docs/tray-plan.md T3): every
+    // desktop image has the sound stack (`drivers::embed`).
+    "xui-volume.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
@@ -146,9 +160,15 @@ const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 /// The network apps, shipped by a desktop image that has the network stack
 /// (`LAZYOS_NETD=1`, docs/networking-host-access.md): Network (status and
 /// configuration), Net Tools (ping, lookups, a web fetch and a web server
-/// the host can reach) and Network Drives (FTP servers mounted under `/mnt`
-/// through `mountd`). Without the stack they would have nothing to show.
-const NETWORK_XUI_APPS: &[&str] = &["xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf"];
+/// the host can reach), Network Status (its tray icon) and Network Drives
+/// (FTP servers mounted under `/mnt` through `mountd`). Without the stack
+/// they would have nothing to show.
+const NETWORK_XUI_APPS: &[&str] = &[
+    "xui-network.elf",
+    "xui-nettools.elf",
+    "xui-netstatus.elf",
+    "xui-netdrives.elf",
+];
 
 /// Mail (esMail, docs/mail.md), shipped by `LAZYOS_MAIL=1` desktop images:
 /// `python tools/xui/build.py --mail` builds it (`run_demo.py --mail` does

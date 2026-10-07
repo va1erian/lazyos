@@ -42,6 +42,12 @@ struct Text {
 
 /// Open or close the tooltip from the hover state.
 pub fn pump<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
+    // An open menu sits where the tooltip would, and a panel created later
+    // is on top: it would take the menu's clicks.
+    if !ctx.tray.menus.borrow().is_empty() {
+        close(ctx);
+        return;
+    }
     let hover = ctx.tray.hover.borrow().clone();
     let target = hover.and_then(|(app, since)| {
         let rested = sys::clock_ticks().saturating_sub(since);

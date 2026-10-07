@@ -111,30 +111,24 @@ fn by_uid(uid: u32) -> Option<Owner> {
 }
 
 /// Learn from one inbound message, if it is a login event `logind` published.
-pub(super) fn observe(services: &[Service], message: &Message) {
-    let Some((topic, payload)) = router::published(message) else {
-        return;
-    };
+/// Returns the session that just ended (a logout, issue #623), whose tasks
+/// the caller must end.
+pub(super) fn observe(services: &[Service], message: &Message) -> Option<u64> {
+    let (topic, payload) = router::published(message)?;
     if !from_logind(services, message.sender) {
-        return;
+        return None;
     }
     if topic == logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END {
-        if let Ok(end) = logind::wire::decode_login_end(&payload) {
-            forget(end.session);
-        }
-        return;
+        let end = logind::wire::decode_login_end(&payload).ok()?;
+        forget(end.session);
+        return (end.session != 0).then_some(end.session);
     }
     // `system/events/login/session/<id>`: the id is the last segment.
     let prefix = logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_SESSION.trim_end_matches('+');
-    let Some(id) = topic
+    let id = topic
         .strip_prefix(prefix)
-        .and_then(|id| id.parse::<u64>().ok())
-    else {
-        return;
-    };
-    let Ok(record) = logind::wire::decode_login_session(&payload) else {
-        return;
-    };
+        .and_then(|id| id.parse::<u64>().ok())?;
+    let record = logind::wire::decode_login_session(&payload).ok()?;
     // Only a live session has an owner; any other state (exited, or one this
     // table does not know) forgets it, so no stale owner outlives its session.
     if matches!(record.state.as_str(), "starting" | "active") {
@@ -149,6 +143,7 @@ pub(super) fn observe(services: &[Service], message: &Message) {
     } else {
         forget(id);
     }
+    None
 }
 
 /// Whether `sender` is the task of the running `logind` manifest row.

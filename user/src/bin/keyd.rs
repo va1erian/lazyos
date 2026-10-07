@@ -34,12 +34,14 @@
 //!
 //! # Provisioning
 //!
-//! `accountsd` pushes its database into `keyd` with the root-only `Provision`
-//! method the first time it delegates a login, and again for every user created
-//! afterwards; `keyd`'s verdict is authoritative once it is registered, so an
-//! account `keyd` was never told about cannot log in. `keyd` also provisions one
-//! demo account in memory at boot (`lazyos`/`lazyos`) and the self-test checks
-//! it. Every verifier is Argon2id under [`kdf::Params::INTERACTIVE`].
+//! At boot `keyd` loads the accounts' verifiers from the root-only
+//! `/system/etc/shadow` (issue #447; the image build hashes them), all or
+//! nothing: without the file every login fails closed. `accountsd` asks
+//! `Verify` for each login and `keyd`'s verdict is final; there is no
+//! plaintext anywhere and no demo account. `Provision` (install or replace a
+//! verifier) is for account management (U1) and needs `CAP_SETUID`: whoever
+//! may plant a verifier may become that user. Every verifier is Argon2id under
+//! [`kdf::Params::INTERACTIVE`].
 //!
 //! Keys are scoped to the uid that generated them (taken from the sender's
 //! kernel-stamped credentials): `Sign`, `Wrap`, `Unwrap` and `List` only see the
@@ -98,10 +100,7 @@ fn run() -> messenger::Result<()> {
         sys::write_str("KEYD:SELFTEST:FAIL:no entropy source\n");
         sys::exit(1);
     }
-    if !keyd.provision_demo_account() {
-        sys::write_str("KEYD:SELFTEST:FAIL:account provisioning\n");
-        sys::exit(1);
-    }
+    load_shadow(&mut keyd);
     match self_test(&mut keyd) {
         Ok(()) => sys::write_str("KEYD:SELFTEST:PASS\n"),
         // Keep serving: some operations may still be usable, and `init` would
@@ -136,6 +135,26 @@ fn run() -> messenger::Result<()> {
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
+    }
+}
+
+/// Load the account verifiers from `/system/etc/shadow` (issue #447), which
+/// only root can read. Without it (or with a damaged one) `keyd` serves on
+/// with no account, so every login fails closed: there is no plaintext or
+/// built-in fallback. Prints `KEYD:SHADOW:PASS rows=<n>` or
+/// `KEYD:SHADOW:FAIL reason=<...>`.
+fn load_shadow(keyd: &mut Keyd) {
+    let loaded = match user::files::read_up_to(fhs::etc::SHADOW, passwd::shadow::SHADOW_MAX) {
+        Ok(bytes) => keyd.load_shadow(&bytes),
+        Err(2) => Err(String::from("missing")),
+        Err(code) => Err(format!("unreadable errno={code}")),
+    };
+    match loaded {
+        Ok(rows) => sys::write_str(&format!("KEYD:SHADOW:PASS rows={rows}\n")),
+        Err(reason) => sys::write_str(&format!(
+            "KEYD:SHADOW:FAIL reason={reason} file={}; no account can log in\n",
+            fhs::etc::SHADOW
+        )),
     }
 }
 
@@ -196,9 +215,11 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
             )
         }
         api::METHOD_PROVISION => {
-            // Only root may plant a verifier: whoever can provision an account
-            // can log in as it.
-            if caller_uid(message)? != 0 {
+            // Whoever can plant a verifier can log in as that account, which
+            // is the authority to take on another identity: `CAP_SETUID`
+            // (the accounts and login services), never a uid. A root login
+            // session holds no capability and is refused like any other.
+            if message.caller().caps & sys::CAP_SETUID == 0 {
                 return Err(Error::Errno(-errno::EPERM));
             }
             let args = api::decode_provision_args(body).map_err(parse)?;

@@ -29,6 +29,9 @@ def make_vars() -> dict:
         "limits": s(value=""),
         "display_mode": s(value=""),
         "assets": s(value=""),
+        # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
+        # the image's default (the login screen on the desktop).
+        "autologin": s(value=""),
         "times": s(value="10,14,18"),
         "timeout": s(value="180"),
         "abi_time": s(value="8"),
@@ -94,6 +97,7 @@ def make_vars() -> dict:
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).
         "traydemo": b(value=False),
         "simple_traydemo": b(value=False),
+        "simple_autologin": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

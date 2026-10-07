@@ -22,10 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 #: Paths the session user may change, and what every boot rewrites on its own
 #: (the journals; `lost+found`). Everything else is the system's.
-ALLOWED = ("/home/user", "/logs", "/lost+found", "/tmp", "/transient",
-           # The Terminal's shell history while the session still runs as root
-           # (`admin`, before U0, #623); the session's home is /home/user after.
-           "/home/admin/.ash_history")
+ALLOWED = ("/home/user", "/logs", "/lost+found", "/tmp", "/transient")
 
 # kind, mode, uid, gid, size, mtime, hash
 Node = tuple[str, ...]

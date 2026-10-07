@@ -9,6 +9,7 @@ fn exit(policy: Restart, app: bool, status: u64, uptime: u64, restarts: u64) -> 
         status,
         uptime,
         restarts,
+        resident: false,
     }
 }
 
@@ -175,4 +176,59 @@ fn every_policy_has_its_wire_word() {
     assert_eq!(Restart::Always.label(), "always");
     assert_eq!(Restart::OnFailure.label(), "on-failure");
     assert_eq!(Restart::Once.label(), "once");
+}
+
+#[test]
+fn a_resident_app_restarts_after_a_crash_past_start_up_only() {
+    let resident = |status, uptime| Exit {
+        resident: true,
+        ..exit(Restart::Once, true, status, uptime, 0)
+    };
+    // A crash after start-up: restarted with backoff, whatever the manifest.
+    assert_eq!(
+        decide(resident(139, STARTUP_TICKS + 1)),
+        Outcome::Restart {
+            restarts: 1,
+            delay: BACKOFF_BASE
+        }
+    );
+    // Failing while starting: the notice, no restart.
+    assert!(matches!(
+        decide(resident(1, 10)),
+        Outcome::Failed {
+            cause: Cause::StartUp,
+            ..
+        }
+    ));
+    // A clean exit (it chose to) and a kill by the user: stopped.
+    assert!(matches!(
+        decide(resident(0, STARTUP_TICKS + 1)),
+        Outcome::Stopped { .. }
+    ));
+    assert!(matches!(
+        decide(resident(137, STARTUP_TICKS + 1)),
+        Outcome::Stopped { .. }
+    ));
+    // Every such run lasted past start-up, so it counts as recovered: the
+    // restart count resets and the backoff stays at its first step.
+    let again = Exit {
+        restarts: 3,
+        ..resident(139, STARTUP_TICKS + 1)
+    };
+    assert!(matches!(
+        decide(again),
+        Outcome::Restart { restarts: 1, .. }
+    ));
+    // `resident` only means something for an app.
+    let service = Exit {
+        resident: true,
+        ..exit(Restart::Once, false, 1, STARTUP_TICKS + 1, 0)
+    };
+    assert!(matches!(
+        decide(service),
+        Outcome::Failed {
+            cause: Cause::NoPolicy,
+            ..
+        }
+    ));
 }

@@ -24,6 +24,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::explain::{self, HIGH, LOW, MEDIUM};
+use crate::resident;
 use crate::rules::{self, CompileError, MAX_RULES};
 
 /// The fixed part of the manifest the line-based path completes.
@@ -73,11 +74,25 @@ fn check_manifest(text: &str) -> bool {
     }
 
     let shown = explain::permissions(&manifest);
+    // `resident` adds its row and each implied entry the manifest lacks.
+    let unlisted = |own: &[String], implied: &[&str]| {
+        implied
+            .iter()
+            .filter(|e| !own.iter().any(|o| o == *e))
+            .count()
+    };
+    let implied = if manifest.entry.resident {
+        1 + unlisted(&wanted.interfaces, &resident::INTERFACES)
+            + unlisted(&wanted.topics, &resident::TOPICS)
+    } else {
+        0
+    };
     let count = wanted.interfaces.len()
         + wanted.topics.len()
         + wanted.files.len()
         + wanted.network.len()
-        + usize::from(wanted.develop);
+        + usize::from(wanted.develop)
+        + implied;
     assert_eq!(
         shown.len(),
         count,
@@ -249,6 +264,14 @@ mod seeded {
             rules::compile(&manifest),
             Err(CompileError::TooManyRules { .. })
         ));
+    }
+
+    #[test]
+    fn a_resident_manifest_lists_its_implied_permissions() {
+        for permissions in ["", "interfaces = [\"os.lazy.init.app.v1\"]\n"] {
+            let text = format!("{HEADER}resident = true\n[permissions]\n{permissions}");
+            assert!(check_manifest(&text), "{text}");
+        }
     }
 
     #[test]

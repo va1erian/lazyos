@@ -67,9 +67,9 @@ mod tests {
         let mut store = confd::Store::new();
         let value = confd::Value::Str("UTC".into());
         assert!(store
-            .set(ZONE_KEY, value.clone(), confd::Caller { uid: 1000 })
+            .set(ZONE_KEY, value.clone(), confd::Caller::user(1000))
             .is_err());
-        assert!(store.set(ZONE_KEY, value, confd::Caller { uid: 0 }).is_ok());
-        assert!(store.get(ZONE_KEY, confd::Caller { uid: 1000 }).is_ok());
+        assert!(store.set(ZONE_KEY, value, confd::Caller::system(0)).is_ok());
+        assert!(store.get(ZONE_KEY, confd::Caller::user(1000)).is_ok());
     }
 }

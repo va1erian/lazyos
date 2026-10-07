@@ -1,2 +1,2 @@
-admin:0:0:nimda:/home/admin:sh
-user:1000:1000:lazy:/home/user:sh
+admin:0:0:x:/home/admin:sh
+user:1000:1000:x:/home/user:sh

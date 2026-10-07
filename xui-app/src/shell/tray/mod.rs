@@ -24,7 +24,10 @@ mod generation;
 pub mod icon;
 pub mod input;
 mod liveness;
+pub mod menu;
+mod menu_paint;
 pub mod paint;
+mod resident;
 mod service;
 pub mod tooltip;
 
@@ -76,12 +79,15 @@ pub struct TrayState {
     known: RefCell<Vec<Known>>,
     service: RefCell<service::TrayService>,
     generation: RefCell<generation::Generation>,
+    resident: RefCell<resident::ResidentFeed>,
     beat: Cell<u64>,
     /// The cell under the pointer and since when (PIT ticks).
     /// The app whose cell the pointer rests on, and since when (PIT ticks):
     /// keyed by app, so a relayout cannot move it to another app's cell.
     pub hover: RefCell<Option<(String, u64)>>,
     pub tooltip: RefCell<Option<tooltip::Open>>,
+    /// The open menu panels: the top level, then at most one submenu.
+    pub menus: RefCell<Vec<menu::Panel>>,
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
     probed: RefCell<Vec<(String, Rect)>>,
@@ -96,16 +102,19 @@ impl TrayState {
             known: RefCell::new(Vec::new()),
             service: RefCell::new(service::TrayService::default()),
             generation: RefCell::new(generation::Generation::new(session)),
+            resident: RefCell::new(resident::ResidentFeed::new(session)),
             beat: Cell::new(0),
             hover: RefCell::new(None),
             tooltip: RefCell::new(None),
+            menus: RefCell::new(Vec::new()),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
         }
     }
 
-    /// Lay the cells out left of the clock at `clock_x`; the width the
-    /// window entries must leave free.
+    /// Lay the cells out left of `clock_x`, the left edge of what sits right
+    /// of the tray (the Log out button, then the clock); the width the window
+    /// entries must leave free on top of those.
     pub fn relayout(&self, clock_x: i32) -> i32 {
         let next = layout::layout(&self.model.borrow(), clock_x);
         let reserved = next.reserved;
@@ -193,7 +202,7 @@ impl TrayState {
 pub fn pump<M: 'static>(ctx: &std::rc::Rc<Ctx>, ui: &xui_core::app::Ui<M>) {
     let tray = &ctx.tray;
     let changed = tray.service.borrow_mut().pump(ctx);
-    let dropped = liveness::pump(ctx);
+    let dropped = liveness::pump(ctx) | resident::pump(ctx);
     if changed || dropped {
         tray.pictures
             .borrow_mut()

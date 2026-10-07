@@ -6281,8 +6281,12 @@ pub mod os_lazy_init_v1 {
     }
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
-    /// takes it): each is killed and its supervision row retired without a
-    /// restart. `stopped` is how many were running. Only root, a holder of
+    /// takes it), retiring its supervision row without a restart: an
+    /// instance that watches its lifecycle (`os.lazy.init.app.v1`), or a
+    /// resident app that may still come to watch, is sent `Quit` and killed
+    /// if it still runs 3 s after this call (docs/tray-plan.md section 5);
+    /// any other is killed at once. The reply comes once every instance has
+    /// exited. `stopped` is how many were running. Only root, a holder of
     /// `CAP_SETUID` (the package manager) or the session owner may stop; an
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
@@ -9205,6 +9209,10 @@ pub mod os_lazy_logind_v1 {
 
     /// `Sessions` method id.
     pub const METHOD_SESSIONS: u32 = 916097772;
+    /// `Login` method id.
+    pub const METHOD_LOGIN: u32 = 1441655762;
+    /// `Logout` method id.
+    pub const METHOD_LOGOUT: u32 = 125463051;
 
     /// Snapshot the session table, oldest session first.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -9239,6 +9247,89 @@ pub mod os_lazy_logind_v1 {
                     }
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Log in from the graphical login screen (issue #623): authenticate
+    /// `user` with `secret` and open their desktop session, the same path a
+    /// built-in autologin takes. Only the login screen's own identity (the
+    /// `_greeter` system uid, unlabelled) may call it; a refused password is
+    /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginArgs {
+        pub user: alloc::string::String,
+        pub secret: alloc::string::String,
+    }
+
+    pub fn encode_login_args(value: &LoginArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.string(2, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_args(body: &[u8]) -> Result<LoginArgs, Error> {
+        let mut out = LoginArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.secret = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoginReply {
+        pub session: u64,
+    }
+
+    pub fn encode_login_reply(value: &LoginReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_login_reply(body: &[u8]) -> Result<LoginReply, Error> {
+        let mut out = LoginReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// End the caller's graphical session (issue #623): `init` stops every
+    /// task stamped with that session, and the login screen comes back. Only
+    /// a task of the active graphical session may call it (`EPERM`
+    /// otherwise).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LogoutReply {
+        pub session: u64,
+    }
+
+    pub fn encode_logout_reply(value: &LogoutReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_logout_reply(body: &[u8]) -> Result<LogoutReply, Error> {
+        let mut out = LogoutReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.session = field.as_u64()?;
             }
         }
         Ok(out)
@@ -12563,7 +12654,8 @@ pub mod os_lazy_pkgd_v1 {
 
     /// Whether the package ships icons for this type.
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network`, `develop` or
+    /// `resident` (`entry.resident`, value `true`); `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12622,6 +12714,7 @@ pub mod os_lazy_pkgd_v1 {
         pub category: alloc::string::String,
         pub autostart: bool,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub resident: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -12647,6 +12740,7 @@ pub mod os_lazy_pkgd_v1 {
             nested.string(1, item)?;
         }
         target.array(13, &nested)?;
+        target.bool(14, value.resident)?;
         Ok(target.finish())
     }
 
@@ -12700,6 +12794,9 @@ pub mod os_lazy_pkgd_v1 {
                         out.verbs.push(item.as_str()?.into());
                     }
                 }
+                14 => {
+                    out.resident = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -12717,6 +12814,8 @@ pub mod os_lazy_pkgd_v1 {
     /// The menu group (`lazypkg::Category`).
     /// Whether the app starts when a session opens (`entry.autostart`).
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
+    /// Whether the app is resident (`entry.resident`): it may run with no
+    /// window, once per session, with an icon in the taskbar.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),
