@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "112b411c0e0889e1757da9e09481c8e9c5acca98"` (see
+the same `rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -185,7 +185,9 @@ natural-width runs, and `Surface::pixels` for a clone-free present. `xui-icons`
 (explorer's optional `village-icons`) is the git dependency at the same rev.
 There is no vendored copy and no `[patch]`.
 
-**Bumping the pinned rev:** both `xui-core` and `xui-canvas` (and the dev-only
+**Bumping the pinned rev:** `python tools/xui/bump_pin.py <rev|branch>` does all of
+this (add `--lazyrad <ref>` for `lazyrad-os`'s LazyRAD pin, `--dry-run` to preview);
+by hand: both `xui-core` and `xui-canvas` (and the dev-only
 `xui-canvas` plus optional `xui-icons` in the `crates/*` manifests) MUST move to
 the same new commit together, or two different `xui_core` versions end up in the
 graph. Bump every `rev = "..."` under `xui-app/`, then run `cargo fetch` in
@@ -259,7 +261,7 @@ the client (`PointerDown`/`PointerUp` without a button id, and screen-absolute
 presses/releases carry the button id, so the client backend no longer recovers
 the surface origin from the last press.
 
-**Docs app.** `xui-docs` (`xui-app/docs/`) renders Markdown with `xui-litehtml`,
+**Docs app.** `xui-docs` (`xui-app/docs/`) renders Markdown with `xui-blitz`,
 a `xuid` client like the other apps; see [`xui-docs.md`](xui-docs.md). The
 mouse wheel now reaches xui apps (see `architecture/display.md`).
 

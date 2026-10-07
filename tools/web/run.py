@@ -82,7 +82,7 @@ def build(env_extra: dict[str, str], console: bool) -> str | None:
         if not _tool(str(ROOT / "tools" / "rhai" / "build.py")):
             return "tools/rhai/build.py failed"
         if not LAZYWEB_ELF.is_file():
-            return (f"{LAZYWEB_ELF} was not built (NetSurf needs zig: pip install ziglang==0.16.0); "
+            return (f"{LAZYWEB_ELF} was not built (run `python tools/xui/build.py` and read its errors); "
                     "--precheck-only tests the harness without it")
         # The session starts the browser from the Terminal.
         env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEB="1", LAZYOS_XUI_AUTOSTART="term")

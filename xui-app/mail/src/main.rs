@@ -38,6 +38,7 @@ fn main() -> std::process::ExitCode {
     }
     secrets::install();
     xui_app::font::register_docs();
+    webfonts::register();
 
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),

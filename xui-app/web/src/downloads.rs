@@ -1,4 +1,4 @@
-//! Downloads: what NetSurf cannot show goes to the user's Downloads folder.
+//! Downloads: what the view cannot show goes to the user's Downloads folder.
 //!
 //! [`Saver`] is the engine's [`Downloader`]: it names each download from the
 //! server's file name (sanitised, never trusted as a path), picks a name that
@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use xui_netsurf::{DownloadId, DownloadInfo, DownloadSink, Downloader};
+use xui_blitz::{DownloadId, DownloadInfo, DownloadSink, Downloader};
 
 /// The longest file name kept, in bytes.
 const MAX_NAME: usize = 120;

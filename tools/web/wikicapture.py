@@ -43,7 +43,7 @@ PAGES = ["https://en.wikipedia.org/wiki/Main_Page?useskin=vector",
 HOSTS = ("en.wikipedia.org", "upload.wikimedia.org", "thumb.wikimedia.org")
 #: LazyWeb's user agent (`xui-app/web/src/fetch/mod.rs`): Wikipedia serves
 #: by user agent in places, so ask as the browser does.
-USER_AGENT = "Mozilla/5.0 (LazyOS) NetSurf/3.11 LazyWeb/0.1.0 (harness fixture capture)"
+USER_AGENT = "Mozilla/5.0 (LazyOS) Blitz LazyWeb/0.1.0 (harness fixture capture)"
 EXTENSIONS = {"text/html": ".html", "text/css": ".css", "image/png": ".png",
               "image/jpeg": ".jpg", "image/gif": ".gif", "image/svg+xml": ".svg",
               "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico"}
@@ -57,6 +57,9 @@ class Refs(HTMLParser):
         super().__init__()
         self.styles: list[str] = []
         self.pictures: list[str] = []
+        # The `<link rel=icon>` hrefs, also in `pictures` (the capture saves
+        # them): a browser that draws no tab icon never fetches them.
+        self.icons: list[str] = []
 
     def handle_starttag(self, tag, attrs) -> None:
         values = dict(attrs)
@@ -65,6 +68,7 @@ class Refs(HTMLParser):
             self.styles.append(values["href"])
         elif tag == "link" and "icon" in rel and values.get("href"):
             self.pictures.append(values["href"])
+            self.icons.append(values["href"])
         elif tag == "img" and values.get("src"):
             self.pictures.append(values["src"])
 

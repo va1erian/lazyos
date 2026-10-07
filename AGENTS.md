@@ -194,13 +194,16 @@ python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expe
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 ```
 
-## Docs app and the C++ toolchain
+## Docs app and the zig toolchain
 
-`xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
-(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`; see
-[`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
-warning and every other app still builds. `python tools/xui/test_zig.py` tests
-the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
+`xui-docs` renders Markdown on a Blitz view (`xui-blitz`, pure Rust), so
+`python tools/xui/build.py` builds it with the other apps and no zig (see
+[`docs/xui-docs.md`](docs/xui-docs.md)). zig (`pip install ziglang==0.16.0`) is
+now needed only for Mail's SQLite (`--mail`); without it the script skips Mail
+with a warning and every other app still builds. Blitz draws its own glyphs
+from font files, so an app with a `BlitzView` calls `webfonts::register()`
+(`xui-app/crates/webfonts`) at start or its pages show no text.
+`python tools/xui/test_zig.py` tests the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
 ## LazyWriter (word processor)
@@ -317,8 +320,8 @@ trusts that proxy's CA too.
 
 `xui-mail` (`os.lazy.mail`, `xui-app/mail/`) is va1erian/esmail's IMAP/SMTP
 core (a pinned git dependency, built with its `rustls` feature over
-`nettls-crypto`) behind a xui window; zig builds it like the Docs app
-(`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
+`nettls-crypto`) behind a xui window, its reading pane a Blitz view; zig builds
+it for SQLite (`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
 See [`docs/mail.md`](docs/mail.md).
 
 ```bash
@@ -331,15 +334,19 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-mail
 ## LazyWeb browser (`LAZYOS_LAZYWEB=1`)
 
 LazyWeb (`os.lazy.lazyweb`, crate `lazyweb` in `xui-app/web`) is the web
-browser: NetSurf, compiled with zig by `tools/xui/build.py` into
-`target/xui/xui-lazyweb.elf`, over the HTTPS stack above; a core package
+browser: Blitz (`xui-blitz`, pure Rust), built with the other apps by
+`tools/xui/build.py` into `target/xui/xui-lazyweb.elf`, over the HTTPS stack
+above (the fetcher keeps the cookie jar; `webfonts` registers the Liberation
+fonts);  a core package
 (`xui-app/packages/lazyweb`) that only `LAZYOS_LAZYWEB=1` images ship, which
 needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` (the build refuses it otherwise).
-NetSurf is GPL-2.0-only, so LazyWeb is too: link only GPLv2-compatible crates
-into it (no GPL-3.0, no Apache-2.0-only). See [`docs/lazyweb.md`](docs/lazyweb.md).
+LazyWeb is still declared GPL-2.0-only (the licence NetSurf required; whether
+to relicense now that Blitz is MIT/Apache-2.0 is open, issue #649), so until
+that is decided link only GPLv2-compatible crates into it (no GPL-3.0, no
+Apache-2.0-only). See [`docs/lazyweb.md`](docs/lazyweb.md).
 
 ```bash
-python tools/run_demo.py --lazyweb        # desktop + networking + HTTPS + the browser (needs zig)
+python tools/run_demo.py --lazyweb        # desktop + networking + HTTPS + the browser
 python tools/web/run.py                   # build, browse example.com then theoldnet.com, judge
 python tools/web/run.py --precheck-only   # the harness alone (console image, curl), no browser needed
 python tools/web/run.py --live            # the real sites (manual, needs internet)

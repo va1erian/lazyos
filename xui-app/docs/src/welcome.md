@@ -1,7 +1,7 @@
 # Docs
 
 This is the LazyOS documentation viewer. It renders **Markdown** with
-[litehtml](https://github.com/litehtml/litehtml), so a page is laid out like a
+[Blitz](https://github.com/DioxusLabs/blitz), so a page is laid out like a
 web page: wrapped text, tables, lists and code, in a window you can scroll with
 the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
 

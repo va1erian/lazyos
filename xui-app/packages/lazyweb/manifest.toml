@@ -1,7 +1,7 @@
 # LazyWeb: a core LazyOS app, packaged by `tools/xui/build.py` (issue #509).
 #
-# The web browser, on the NetSurf engine (docs/lazyweb.md). NetSurf is
-# GPL-2.0-only, so `bin/lazyweb.elf` is too. It is not checked in: the build
+# The web browser, on the Blitz engine (docs/lazyweb.md). Still declared
+# GPL-2.0-only (the relicensing question is open, issue #649). It is not checked in: the build
 # copies the built xui app (`target/xui/xui-lazyweb.elf`) into a scratch copy
 # of this tree. `version` is replaced by the workspace version and `autostart`
 # is set from `LAZYOS_XUI_AUTOSTART`. Only a desktop image with the network
@@ -12,7 +12,7 @@ name = "LazyWeb"
 system_name = "os.lazy.lazyweb"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web: HTML, CSS and images over HTTP and HTTPS (NetSurf)"
+description = "Browse the web: HTML, CSS and images over HTTP and HTTPS"
 category = "internet"
 
 [entry]

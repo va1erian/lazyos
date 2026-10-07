@@ -105,14 +105,16 @@ def resources(url: str) -> tuple[list[str], list[str]]:
     """(style sheets, pictures) the copy of `url` names in its HTML, as
     absolute URLs, on the hosts the capture copies (`wikicapture.wanted`).
     The rule is the capture's, not what it saved, so a resource the capture
-    failed to save is still expected and fails the judge."""
+    failed to save is still expected and fails the judge. The page's icon is
+    not: Blitz draws no favicon, so it never asks for one."""
     refs = Refs()
     refs.feed(_page(url))
 
     def kept(found: list[str]) -> list[str]:
         return sorted({u for u in (urljoin(url, ref) for ref in found) if wanted(u)})
 
-    return kept(refs.styles), kept(refs.pictures)
+    pictures = [ref for ref in refs.pictures if ref not in refs.icons]
+    return kept(refs.styles), kept(pictures)
 
 
 @functools.lru_cache(maxsize=1)

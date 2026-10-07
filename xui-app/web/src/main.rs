@@ -1,10 +1,10 @@
-//! `lazyweb`: LazyWeb, a web browser on the NetSurf browser core.
+//! `lazyweb`: LazyWeb, a web browser on the Blitz engine.
 //!
 //! A `xuid` desktop client. `lazyweb [URL]` opens the URL (an address as the
 //! address bar takes it: `example.com` is `http://example.com/`), or the
 //! built-in start page; `init` starts it with a URL when another app opens a
 //! link (`mimed` types `https://...` as `x-scheme-handler/https`). Pages are
-//! laid out and drawn by NetSurf (`xui-netsurf`); `http:` and `https:` are
+//! laid out and drawn by Blitz (`xui-blitz`); `http:` and `https:` are
 //! fetched by [`lazyweb::fetch`]. The history is kept in the app's folder in
 //! the user's home and downloads go to `$HOME/Downloads`.
 //!
@@ -64,9 +64,9 @@ fn home() -> Option<String> {
 
 fn main() {
     // The window in Droid Sans, pages in Liberation (`fonts`).
-    xui_netsurf::set_font_families(fonts::register());
+    fonts::register();
     fetch::trace::now_ms();
-    fetch::netsurf::install(Options::default());
+    fetch::blitz::install(Options::default());
 
     // Without a home nothing is kept: the history lives in memory and
     // downloads go to the scratch volume.
@@ -83,7 +83,7 @@ fn main() {
     };
     let saver = Saver::new(folder.clone());
     let transfers = Transfers::new(saver.destinations(), folder);
-    xui_netsurf::set_downloader(Arc::new(saver));
+    xui_blitz::set_downloader(Arc::new(saver));
 
     let setup = Setup {
         url: url_arg(),

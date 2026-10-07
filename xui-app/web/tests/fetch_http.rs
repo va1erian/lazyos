@@ -222,3 +222,25 @@ fn many_fetches_run_side_by_side() {
         assert_eq!(record.lock().unwrap().body, format!("/{i}").as_bytes());
     }
 }
+
+#[test]
+fn a_cookie_set_by_a_redirect_rides_on_the_next_request() {
+    let server = Server::plain(|seen, out| match seen.path.as_str() {
+        "/login" => respond(
+            out,
+            "302 Found",
+            &[("Location", "/home"), ("Set-Cookie", "sid=abc; Path=/; HttpOnly")],
+            b"",
+        ),
+        _ => respond(out, "200 OK", &[], b"home"),
+    });
+    let fetcher = fetcher();
+    for path in ["/login", "/home"] {
+        let (sink, rx) = Recorder::new();
+        fetcher.fetch_here(Request::get(&server.url("http", "127.0.0.1", path)), sink);
+        assert_eq!(outcome(&rx), Ok(()));
+    }
+    let seen = server.requests.lock().unwrap();
+    assert_eq!(seen[0].header("cookie"), None);
+    assert_eq!(seen[1].header("cookie"), Some("sid=abc"));
+}

@@ -236,7 +236,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_JOURNAL"] = "1"
     if cfg.get("lazyweb"):
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
-        # with zig); with the desktop, the stack and HTTPS set above.
+        # with the other apps); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)

@@ -53,16 +53,16 @@ def tls_step(cfg: dict) -> list[dict]:
 
 def lazyweb_step(cfg: dict) -> list[dict]:
     """The step that builds the LazyWeb browser (with the other xui apps and
-    their core packages; NetSurf needs zig), when the image embeds it."""
+    their core packages), when the image embeds it."""
     if not cfg.get("lazyweb"):
         return []
-    return [{"label": "Build xui apps with LazyWeb (zig)", "argv": [PY, "tools/xui/build.py"]}]
+    return [{"label": "Build xui apps with LazyWeb", "argv": [PY, "tools/xui/build.py"]}]
 def mail_step(cfg: dict) -> list[dict]:
     """The step that builds Mail (esMail; docs/mail.md) with the other xui apps
     and repackages them, when a desktop image embeds it."""
     if not wants_mail(cfg):
         return []
-    return [{"label": "Build Mail (esMail, with zig) and the core packages",
+    return [{"label": "Build Mail (esMail, with zig for SQLite) and the core packages",
              "argv": [PY, "tools/xui/build.py", "--mail"]}]
 
 

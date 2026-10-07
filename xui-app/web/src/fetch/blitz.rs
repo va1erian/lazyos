@@ -1,9 +1,9 @@
-//! The bridge to NetSurf: [`HttpFetcher`] as `xui_netsurf`'s `Fetcher`, with
+//! The bridge to Blitz: [`HttpFetcher`] as `xui_blitz`'s `Fetcher`, with
 //! its `FetchResponder` as our [`Sink`].
 
 use std::sync::Arc;
 
-use xui_netsurf::{FetchMethod, FetchRequest, FetchResponder, Fetcher};
+use xui_blitz::{FetchMethod, FetchRequest, FetchResponder, Fetcher};
 
 use super::{HttpFetcher, Method, Options, Request, Sink};
 
@@ -41,19 +41,18 @@ impl Fetcher for HttpFetcher {
             FetchMethod::Post => Method::Post,
         };
         let request = Request {
-            // A wiki page is asked for in the skin NetSurf lays out well.
-            url: crate::sites::fetch_url(&request.url).into_owned(),
+            url: request.url,
             method,
             headers: request.headers,
             body: request.body,
         };
-        // xui-netsurf calls this on a thread of its own per request.
+        // xui-blitz calls this on a thread of its own per request.
         self.fetch_here(request, responder);
     }
 }
 
-/// Makes NetSurf fetch `http:` and `https:` through a new [`HttpFetcher`].
+/// Makes Blitz fetch `http:` and `https:` through a new [`HttpFetcher`].
 /// Call once, before the first view opens.
 pub fn install(options: Options) {
-    xui_netsurf::set_fetcher(Arc::new(HttpFetcher::new(options)));
+    xui_blitz::set_fetcher(Arc::new(HttpFetcher::new(options)));
 }

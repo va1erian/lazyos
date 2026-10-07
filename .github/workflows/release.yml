@@ -55,9 +55,9 @@ jobs:
 
       - uses: ./.github/actions/busybox
 
-      # The Docs app embeds litehtml (C++), built with zig (docs/xui-docs.md);
-      # a release must ship every desktop app, so zig is required here.
-      - name: Install zig (C++ toolchain for the Docs app)
+      # Docs and LazyWeb render with Blitz (pure Rust) and need no zig; it
+      # stays for the C builds (Mail's SQLite, docs/mail.md) and the zig tests.
+      - name: Install zig (C toolchain for Mail and the helper's tests)
         run: python -m pip install ziglang==0.16.0
 
       - name: Build the desktop apps

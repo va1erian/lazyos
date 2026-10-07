@@ -1,6 +1,6 @@
 //! Markdown to a styled HTML page: the pure, host-testable half of the Docs app.
 //!
-//! The page goes to litehtml, which has no scripting: the only untrusted-input
+//! The page goes to Blitz, which has no scripting: the only untrusted-input
 //! concern is markup smuggled through the Markdown, so raw HTML in the source
 //! is rendered as literal text and never reaches the layout engine as markup.
 
@@ -72,8 +72,8 @@ pub fn themed(html: String, dark: bool) -> String {
 /// complete HTML page.
 pub fn page(markdown: &str) -> String {
     let (markdown, cut) = truncate(markdown);
-    // No task lists: they render as `<input>` checkboxes, which litehtml does
-    // not draw.
+    // No task lists: they render as `<input>` checkboxes, which litehtml (the
+    // engine before Blitz) did not draw.
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     // Raw HTML becomes text: `push_html` escapes a `Text` event.
     let events = Parser::new_ext(markdown, options).map(|event| match event {

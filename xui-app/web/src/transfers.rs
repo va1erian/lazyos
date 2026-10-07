@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use lazyweb::downloads::Destinations;
 use lazyweb::marker_text;
 use lazyweb::pages::{self, DownloadRow, DownloadState};
-use xui_netsurf::{DownloadId, DownloadInfo};
+use xui_blitz::{DownloadId, DownloadInfo};
 
 /// One download this window started.
 struct Transfer {

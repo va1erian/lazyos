@@ -1,10 +1,12 @@
 # LazyWeb, the web browser
 
 LazyWeb (`os.lazy.lazyweb`) is LazyOS's web browser: the
-[NetSurf](https://www.netsurf-browser.org/) engine (HTML 4 and CSS 2.1 with
-parts of CSS 3, PNG, JPEG, GIF and animated GIF, BMP and ICO through its
-libraries, SVG through `resvg`) in a desktop window of the `xuid` compositor, fetching pages over
-`http://` and `https://`. HTTPS uses the TLS work of
+[Blitz](https://github.com/DioxusLabs/blitz) engine (html5ever, Servo's Stylo
+for CSS including grid, flexbox, floats and `var()`, Taffy for layout, Parley
+for text, `vello_cpu` for painting; PNG, JPEG, GIF, WebP and SVG; no
+JavaScript) behind xui's `xui-blitz` web view, in a desktop window of the
+`xuid` compositor, fetching pages over `http://` and `https://`. It replaced
+NetSurf (issue #649). HTTPS uses the TLS work of
 [tls-plan.md](tls-plan.md): rustls with the pure-Rust `nettls-crypto`
 provider, certificates checked against the system bundle at
 `/etc/ssl/certs/ca-certificates.crt`, names resolved by musl through
@@ -15,7 +17,7 @@ Where it lives:
 
 | Piece | Where |
 |---|---|
-| The app (crate `lazyweb`) | `xui-app/web`, a static musl xui client; NetSurf's C libraries compiled with zig by `tools/xui/build.py` into `target/xui/xui-lazyweb.elf` |
+| The app (crate `lazyweb`) | `xui-app/web`, a static musl xui client in pure Rust, built with the other apps by `tools/xui/build.py` into `target/xui/xui-lazyweb.elf` (no zig) |
 | The core package | `xui-app/packages/lazyweb` (manifest, icons, help), packed by `tools/xui/core_packages.py`; `pkgd` installs it into `/apps` at boot |
 | The image switch | `LAZYOS_LAZYWEB=1` (`build_support/lazyweb_embed.rs`), which needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` and fails the build, saying what to run, when the browser is not built |
 | The front ends | `python tools/run_demo.py --lazyweb`; the launcher's *LazyWeb browser* (Simple tab, Network) and the raw switch (Advanced tab, Networking) |
@@ -23,10 +25,13 @@ Where it lives:
 
 ## Licence
 
-NetSurf is licensed GPL-2.0-only, so LazyWeb, which links it, is
-**GPL-2.0-only** too (`license = "GPL-2.0-only"` in its `Cargo.toml`), and
-everything linked into the browser binary must be available under a
-GPLv2-compatible licence: MIT, BSD, ISC, Zlib, Apache-2.0 *only alongside*
+NetSurf was licensed GPL-2.0-only, so LazyWeb, which linked it, is still
+declared **GPL-2.0-only** (`license = "GPL-2.0-only"` in its `Cargo.toml`).
+Blitz and its tree are MIT or Apache-2.0 (Stylo is MPL-2.0, which is
+GPL-compatible) and the Liberation fonts are SIL OFL 1.1, so the browser no
+longer has to be GPL-2.0-only; whether to relicense it is open (issue #649),
+and until it is decided the rule below stands: everything linked into the
+browser binary must be available under a GPLv2-compatible licence: MIT, BSD, ISC, Zlib, Apache-2.0 *only alongside*
 one of those (Apache-2.0 alone is not GPLv2-compatible), or the GPLv2 itself.
 That is why the TLS stack avoids `ring` and `aws-lc` (§3.2 of
 [tls-plan.md](tls-plan.md)), and why GPL-3.0 code cannot be linked: LazyOS's
@@ -35,19 +40,20 @@ offered under a GPLv2-compatible licence as well. `python
 tools/nettls/licenses.py` is the gate for the TLS crates; the browser's own
 dependency tree needs the same check. The package's help page states the
 licence; whoever distributes an image must also offer the corresponding source
-of NetSurf, its libraries and LazyWeb (the revisions the build pins).
+of LazyWeb (the revisions the build pins); the Liberation fonts ship with
+their licence.
 
 ## Running it
 
 ```bash
-python tools/run_demo.py --lazyweb     # builds the browser (needs zig) and the desktop, boots it
+python tools/run_demo.py --lazyweb     # builds the browser and the desktop, boots it
 ```
 
 `--lazyweb` implies `--desktop`, `--net` (a virtio-net card on QEMU's user
 network, which reaches the internet through the host) and `--tls` (`curl`,
-`wget` and `fetch` beside the browser). NetSurf is C, so building it needs zig:
-`pip install ziglang==0.16.0`, then `python tools/xui/build.py`; `run_demo.py`
-runs that when `target/xui/xui-lazyweb.elf` is missing. Open LazyWeb from the
+`wget` and `fetch` beside the browser). The browser is pure Rust and needs no
+zig: `python tools/xui/build.py` builds it with the other apps, and
+`run_demo.py` runs that when `target/xui/xui-lazyweb.elf` is missing. Open LazyWeb from the
 desktop's menu (Settings -> Menu offers it, like every core package), or from
 the Terminal by opening a URL:
 
@@ -88,7 +94,7 @@ clear it. LazyWeb's own pages (`about:history`, `about:downloads`,
 `x-lazyweb:clear-history`, `x-lazyweb:open/N` and `x-lazyweb:cancel/N` act
 only while one of those pages is on show, so a web page cannot use them.
 
-A response NetSurf cannot show, or one sent as an attachment
+A response the view cannot show, or one sent as an attachment
 (`Content-Disposition: attachment`), is downloaded: saved without a prompt to
 `$HOME/Downloads` (`/tmp` when there is no home), first as `<name>.part`,
 renamed when complete, with ` (1)`, ` (2)` and so on added to a name already
@@ -106,11 +112,10 @@ LazyWeb's package registers it with `mimed` for `x-scheme-handler/http`,
 it launches (a launch argument is an absolute path or a URL). So
 `sys::mimed::open("https://...", "open")` from a `rhai` script, a link in Mail, or a `.html` file in Files
 opens LazyWeb. The other way round, a link LazyWeb cannot follow itself
-(`mailto:` and any scheme NetSurf does not fetch) is handed to `mimed`
+(`mailto:` and any scheme the view does not fetch) is handed to `mimed`
 (`WEB:LAUNCH:<url>:OK|FAIL`). Only a click, a key or a typed address may
-do that: a page that sends itself to such a URL on its own (a meta refresh,
-a script) is refused, with `WEB:LAUNCH:<url>:BLOCKED` and a note in the
-status bar. Mail registers `x-scheme-handler/mailto` and
+do that (`WEB:LAUNCH:<url>:BLOCKED` is the refusal otherwise): Blitz has no
+scripts and no meta refresh, so every launch it reports is the user's. Mail registers `x-scheme-handler/mailto` and
 opens its compose window with the address, subject and body of the link.
 
 ## Fonts
@@ -125,25 +130,35 @@ CSS `sans-serif`, `serif` and `monospace` (and the families sorted into
 them, such as Arial, Times or Courier) map to the three. The window itself
 stays in Droid Sans, like every xui app.
 
+## Cookies
+
+Blitz keeps no cookies, so the fetcher does (`xui-app/web/src/fetch/cookies.rs`,
+RFC 6265 without scripts): the `Set-Cookie` of every response, a redirect's
+included, goes into an in-memory jar (a session: nothing is written to disk)
+and matching cookies ride on later requests (`Domain`, `Path`, `Secure`,
+`Max-Age` and `Expires` are honoured; at most 3000 cookies and 50 per host).
+There is no `SameSite` handling: the fetcher cannot tell a picture on a page
+from the page, so a third-party image carries its own site's cookies.
+
+## Rendering notes
+
+Each view has its own engine thread and every frame re-rasterises the visible
+viewport on the CPU, on scroll and hover too: watch `WEB:TIME`. Scrollbars are
+Blitz's overlay ones. The body's background image stops at the end of the body
+instead of filling the viewport (upstream). A failed page shows xui-blitz's
+error page, titled "Problem loading page", after `WEB:FAIL`.
+
 ## Wikipedia
 
-Wikipedia and its sister projects serve the Vector 2022 skin by default, whose
-layout is a CSS grid with custom properties; NetSurf has neither, so the page
-falls into one column with every menu open. LazyWeb therefore asks the
-Wikimedia wikis for their 2010 Vector skin, laid out with floats and built
-for browsers without JavaScript: a fetch of a `/wiki/` or `/w/index.php` page
-on `wikipedia.org`, `wiktionary.org` and the other Wikimedia domains gets
-`useskin=vector` added (`xui-app/web/src/sites.rs`), unless the URL already
-names a skin. The address bar, history and links keep the URL as written.
-
-The engine work behind the rest (issue #632, in `va1erian/xui`'s
-`xui-netsurf`): CSS `opacity` is applied (a box at 0 draws nothing, so the
-skins' hidden menu checkboxes no longer show as empty squares; one between 0
-and 1 scales the alpha of what the box draws), SVG pictures are drawn by
-`resvg` at twice their size so they stay sharp on the 2x desktop, and the text
-of inline `::before`/`::after` pseudo-elements is laid out (the ` · ` between
-the items of a navigation box). Still missing: CSS grid, `var()` and
-`mask-image`, so the Vector 2022 skin itself stays one column.
+Wikipedia and its sister projects serve the Vector 2022 skin, a CSS grid with
+custom properties. NetSurf had neither, so LazyWeb used to ask the Wikimedia
+wikis for their 2010 skin (`useskin=vector`, a rewrite in `sites.rs`). Blitz
+lays Vector 2022 out (issue #632), so the rewrite is gone and pages are fetched
+as linked. Known flaws: a floated infobox can run past the section rule under
+it, and some inline text loses its spacing (Hacker News' header, "Firstappeared"
+in infoboxes). The harness's Wikipedia copies are still the 2010 skin
+(`tools/web/wikicapture.py`, `wiki.py` expect `useskin=vector`) and need
+re-capturing for 2022.
 
 ## Testing it
 
