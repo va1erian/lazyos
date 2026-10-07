@@ -15,6 +15,7 @@
 pub mod icon;
 pub mod item;
 pub mod layout;
+pub mod menu;
 pub mod policy;
 
 use item::{Invalid, Item, Patch, Status};
@@ -242,5 +243,7 @@ impl Tray {
 
 #[cfg(test)]
 mod fuzz;
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod tests;
