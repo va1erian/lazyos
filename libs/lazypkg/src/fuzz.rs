@@ -4,7 +4,8 @@
 //! (`fuzz/fuzz_targets/lazypkg.rs`) and the seeded tests below: it opens
 //! `input` as a package and, if that succeeds, reads every entry and calls
 //! `digest` and `install_dir`. It must never panic on any input, so every
-//! operation returns a `Result` that is deliberately ignored.
+//! operation returns a `Result` that is deliberately ignored, except that
+//! reading an entry whole and piece by piece must agree.
 
 /// Open `input` and exercise the whole validated surface. Never panics.
 pub fn run(input: &[u8]) {
@@ -14,7 +15,18 @@ pub fn run(input: &[u8]) {
     let _ = package.digest();
     let _ = package.install_dir();
     for entry in package.entries() {
-        let _ = package.read(entry.name);
+        let whole = package.read(entry.name);
+        let mut pieces = alloc::vec::Vec::new();
+        let streamed = package.read_chunks(entry.name, |piece| {
+            pieces.extend_from_slice(piece);
+            Ok::<(), ()>(())
+        });
+        // The two readers agree on every entry, good or bad.
+        match (whole, streamed) {
+            (Ok(data), Ok(())) => assert_eq!(data, pieces),
+            (Err(error), Err(crate::ChunkError::Read(streamed))) => assert_eq!(error, streamed),
+            (whole, streamed) => panic!("read {whole:?} but read_chunks {streamed:?}"),
+        }
     }
 }
 

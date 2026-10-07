@@ -47,6 +47,11 @@ impl TreeFs for SysFs {
         files::write_large(path, data)
     }
 
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), i64> {
+        data.chunks(files::MAX_FILE)
+            .try_for_each(|chunk| files::append_file(path, chunk))
+    }
+
     fn chmod(&mut self, path: &str, mode: u16) -> Result<(), i64> {
         files::chmod(path, mode)
     }

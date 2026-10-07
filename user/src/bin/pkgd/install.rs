@@ -222,10 +222,8 @@ impl Pkgd {
                 format!("clearing {install_path}: {}", describe(&error)),
             )
         })?;
-        let mut scratch = core::mem::take(&mut self.scratch);
-        let staged = tree::extract_with(&mut SysFs, package, &install_path, &mut scratch)
+        let staged = tree::extract(&mut SysFs, package, &install_path)
             .and_then(|_| tree::stage_docs(&mut SysFs, package, &subject.system_name));
-        self.scratch = scratch;
         let staged = match staged {
             Ok(staged) => staged,
             Err(error) => {

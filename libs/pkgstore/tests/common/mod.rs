@@ -176,6 +176,13 @@ impl TreeFs for MemTree {
         Ok(())
     }
 
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), Fault> {
+        self.spend()?;
+        let file = self.files.get_mut(path).expect("append to a missing file");
+        file.0.extend_from_slice(data);
+        Ok(())
+    }
+
     fn chmod(&mut self, path: &str, mode: u16) -> Result<(), Fault> {
         self.spend()?;
         self.files.get_mut(path).expect("chmod of a missing file").1 = mode;

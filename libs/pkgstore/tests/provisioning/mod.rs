@@ -1,13 +1,13 @@
 //! What `pkgd` does at startup with the core packages, on a real ext2 volume
 //! (`libs/ext2fs`, the driver the kernel mounts `/` with): the
 //! `pkgstore::provision` decisions carried out with the same `pkgstore::tree`
-//! calls `pkgd` makes, its reused package and extraction buffers, and its
-//! hash-chained audit log. The `confd` rows are a map here.
+//! calls `pkgd` makes, its reused package buffer, the streamed extraction,
+//! and its hash-chained audit log. The `confd` rows are a map here.
 //!
-//! [`Heap`] measures what matters for `pkgd`'s memory: the user heap never
-//! returns a block over 64 KiB, so every such allocation is growth that only a
-//! restart gives back. Filesystem calls are excluded (in `pkgd` they happen in
-//! the kernel).
+//! [`Heap`] measures what matters for `pkgd`'s memory: the user heap
+//! (`user/src/heap.rs`) reuses freed blocks only up to its largest size class,
+//! 1 MiB, so every larger allocation is growth that only a restart gives back.
+//! Filesystem calls are excluded (in `pkgd` they happen in the kernel).
 
 #![allow(dead_code)]
 
@@ -25,8 +25,10 @@ use pkgstore::layout;
 use pkgstore::provision::{self, Action, Current, Shipped, Tally};
 use pkgstore::tree::{self, Node, TreeFs};
 
-/// The largest block the user heap recycles.
-const RECYCLED: usize = 64 * 1024;
+/// The largest block the user heap recycles (`MAX_CLASS` in
+/// `user/src/heap.rs`); a block aligned past `MAX_ALIGN` is never recycled.
+const RECYCLED: usize = 1 << 20;
+const MAX_ALIGN: usize = 4096;
 
 thread_local! {
     static COUNTING: Cell<bool> = const { Cell::new(false) };
@@ -40,7 +42,7 @@ pub struct Heap;
 
 unsafe impl GlobalAlloc for Heap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if layout.size() > RECYCLED {
+        if layout.size() > RECYCLED || layout.align() > MAX_ALIGN {
             let _ = COUNTING.try_with(|on| {
                 if on.get() && !PAUSED.with(Cell::get) {
                     GROWTH.with(|g| g.set(g.get() + layout.size()));
@@ -98,6 +100,16 @@ impl TreeFs for Ext2Tree<'_> {
                 Err(error) => return Err(error),
             }
             match self.0.write(path, 0, data)? {
+                written if written == data.len() => Ok(()),
+                _ => Err(Ext2Error::NoSpace),
+            }
+        })
+    }
+
+    fn append(&mut self, path: &str, data: &[u8]) -> Result<(), Ext2Error> {
+        unmeasured(|| {
+            let end = self.0.lookup(path)?.size;
+            match self.0.write(path, end, data)? {
                 written if written == data.len() => Ok(()),
                 _ => Err(Ext2Error::NoSpace),
             }
@@ -200,10 +212,9 @@ pub struct Pkgd {
     pub rows: BTreeMap<String, Row>,
     pub stamp: Option<String>,
     pub chain: Chain,
-    /// The package file buffer and the extraction buffer, kept for the life
-    /// of the service as `pkgd` keeps them.
+    /// The package file buffer, kept for the life of the service as `pkgd`
+    /// keeps it.
     buffer: Vec<u8>,
-    scratch: Vec<u8>,
 }
 
 impl Pkgd {
@@ -213,7 +224,6 @@ impl Pkgd {
             stamp: None,
             chain: Chain::default(),
             buffer: Vec::new(),
-            scratch: Vec::new(),
         }
     }
 
@@ -300,7 +310,7 @@ impl Pkgd {
             tree::remove_if_empty(tree_fs, &layout::app_dir(name).unwrap());
         };
         tree::remove_tree(&mut tree_fs, &path).map_err(|e| format!("{e:?}"))?;
-        let staged = tree::extract_with(&mut tree_fs, &package, &path, &mut self.scratch)
+        let staged = tree::extract(&mut tree_fs, &package, &path)
             .and_then(|_| tree::stage_docs(&mut tree_fs, &package, name));
         let staged = match staged {
             Ok(staged) => staged,

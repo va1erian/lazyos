@@ -32,6 +32,7 @@ extern crate std;
 
 extern crate alloc;
 
+mod chunks;
 mod error;
 mod files;
 #[cfg(any(test, feature = "fuzz"))]
@@ -44,12 +45,15 @@ mod path;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_chunks;
+#[cfg(test)]
 mod testzip;
 mod validate;
 mod version;
 mod zip;
 
-pub use error::{ManifestError, OpenError, Problem, ReadError};
+pub use chunks::CHUNK;
+pub use error::{ChunkError, ManifestError, OpenError, Problem, ReadError};
 pub use files::HOME_VAR;
 pub use manifest::{App, Category, Entry, Manifest, MimeHandler, Permissions};
 pub use version::{Version, VersionError, MAX_VERSION_LEN};
@@ -173,6 +177,46 @@ impl<'a> Package<'a> {
         extract_into(self.bytes, entry, out)
     }
 
+    /// [`Package::read`] piece by piece: the entry's bytes go to `sink` in
+    /// order, in pieces of at most [`CHUNK`] bytes, through one window, so
+    /// unpacking an entry of any size costs one [`CHUNK`] of memory. Size and
+    /// CRC-32 are verified after the last piece, so a sink that writes as it
+    /// goes must discard what it wrote when this fails. An empty entry calls
+    /// `sink` not at all.
+    pub fn read_chunks<E>(
+        &self,
+        name: &str,
+        mut sink: impl FnMut(&[u8]) -> Result<(), E>,
+    ) -> Result<(), ChunkError<E>> {
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.info.name == name)
+            .ok_or(ChunkError::Read(ReadError::NoSuchEntry))?;
+        if entry.info.is_dir {
+            return Err(ChunkError::Read(ReadError::IsDirectory));
+        }
+        let corrupt = || ChunkError::Read(ReadError::Corrupt { name: name.into() });
+        let end = entry
+            .data_start
+            .checked_add(entry.info.compressed_size as usize)
+            .ok_or_else(corrupt)?;
+        let data = self.bytes.get(entry.data_start..end).ok_or_else(corrupt)?;
+        let actual = chunks::decompress_chunks(entry.method, data, entry.info.size, &mut sink)
+            .map_err(|halt| match halt {
+                chunks::Halt::Sink(error) => ChunkError::Sink(error),
+                chunks::Halt::Inflate(error) => ChunkError::Read(read_error(name, error)),
+            })?;
+        if actual != entry.info.crc32 {
+            return Err(ChunkError::Read(ReadError::CrcMismatch {
+                name: name.into(),
+                expected: entry.info.crc32,
+                actual,
+            }));
+        }
+        Ok(())
+    }
+
     /// SHA-256 of the whole archive.
     pub fn digest(&self) -> [u8; 32] {
         self.digest
@@ -227,16 +271,8 @@ fn extract_into(bytes: &[u8], entry: &ZipEntry<'_>, out: &mut Vec<u8>) -> Result
     let data = bytes
         .get(entry.data_start..end)
         .ok_or_else(|| ReadError::Corrupt { name: name.into() })?;
-    inflate::decompress_into(entry.method, data, entry.info.size, out).map_err(
-        |error| match error {
-            inflate::InflateError::Corrupt => ReadError::Corrupt { name: name.into() },
-            inflate::InflateError::SizeMismatch { expected, actual } => ReadError::SizeMismatch {
-                name: name.into(),
-                expected,
-                actual,
-            },
-        },
-    )?;
+    inflate::decompress_into(entry.method, data, entry.info.size, out)
+        .map_err(|error| read_error(name, error))?;
     let actual = inflate::crc32(out);
     if actual != entry.info.crc32 {
         return Err(ReadError::CrcMismatch {
@@ -246,6 +282,18 @@ fn extract_into(bytes: &[u8], entry: &ZipEntry<'_>, out: &mut Vec<u8>) -> Result
         });
     }
     Ok(())
+}
+
+/// An inflate failure of the entry `name`, as the caller sees it.
+fn read_error(name: &str, error: inflate::InflateError) -> ReadError {
+    match error {
+        inflate::InflateError::Corrupt => ReadError::Corrupt { name: name.into() },
+        inflate::InflateError::SizeMismatch { expected, actual } => ReadError::SizeMismatch {
+            name: name.into(),
+            expected,
+            actual,
+        },
+    }
 }
 
 fn manifest_read_error(error: ReadError) -> OpenError {
