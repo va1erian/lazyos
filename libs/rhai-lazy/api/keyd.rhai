@@ -108,6 +108,17 @@ fn forget(user) {
     msg::connect("os.lazy.keyd.v1").invoke("Forget", [user])
 }
 
+/// `Restore(user: String, verifier: String) -> ()`
+///
+/// Put back a verifier the account database holds
+/// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+/// for `user`: `accountsd` undoes a `Provision` whose database write
+/// failed, so `keyd` never answers for a password the database lost.
+/// Accepted only from the accounts service, like `Provision`.
+fn restore(user, verifier) {
+    msg::connect("os.lazy.keyd.v1").invoke("Restore", [user, verifier])
+}
+
 /// A `KeyInfo` with every field at its zero value.
 ///
 /// One row of the key list: identity and counters only, never material.

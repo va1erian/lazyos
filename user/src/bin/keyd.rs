@@ -43,7 +43,8 @@
 //! unlabelled; no capability or uid 0 is enough): `Verify`, because
 //! `accountsd` slows password guessing and a direct check would get around
 //! that brake; `Provision` (install or replace a verifier, returning it for
-//! the database) and `Forget`, because whoever may plant a verifier may
+//! the database), `Restore` (put back the database's verifier when that
+//! write failed) and `Forget`, because whoever may plant a verifier may
 //! become that user. Every verifier is Argon2id under
 //! [`kdf::Params::INTERACTIVE`].
 //!
@@ -256,6 +257,15 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
             let args = api::decode_forget_args(body).map_err(parse)?;
             keyd.forget_account(&bounded_text(args.user)?);
             Ok(wire::ok_reply(api::METHOD_FORGET))
+        }
+        api::METHOD_RESTORE => {
+            if !from_accountsd(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
+            let args = api::decode_restore_args(body).map_err(parse)?;
+            let user = bounded_text(args.user)?;
+            keyd.restore(&user, &args.verifier)?;
+            Ok(wire::ok_reply(api::METHOD_RESTORE))
         }
         api::METHOD_GENERATE => {
             let owner = caller_uid(message)?;

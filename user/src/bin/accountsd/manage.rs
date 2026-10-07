@@ -116,9 +116,15 @@ pub(crate) fn set_password(
     if db.user(&args.name).is_none() {
         return Err(op_refusal(OpError::NotFound));
     }
+    let old_verifier = db.user(&args.name).and_then(|user| user.secret.clone());
     let verifier = provision(&args.name, &args.secret)?;
     db.set_secret(&args.name, verifier).map_err(op_refusal)?;
-    store::persist(&db).map_err(|text| Refusal(errno::EIO, text))?;
+    if let Err(text) = store::persist(&db) {
+        // `keyd` already answers for the new password, which the database
+        // lost: put the old verifier back (review of #659).
+        undo_provision(&args.name, old_verifier.as_ref());
+        return Err(Refusal(errno::EIO, text));
+    }
     state.db = Ok(db);
     sys::write_str(&format!(
         "ACCOUNTS:PASSWORD:PASS user={} by={}\n",
@@ -197,6 +203,23 @@ fn provision(name: &str, secret: &str) -> Result<Verifier, Refusal> {
     let client = keyd::Client::connect().map_err(unavailable)?;
     let text = client.provision(name, secret).map_err(unavailable)?;
     Verifier::parse(&text).ok_or_else(|| Refusal::new(errno::EIO, "keyd returned no verifier"))
+}
+
+/// Undo a `Provision` whose database write failed: `keyd` gets back the
+/// verifier the database still holds, or forgets the account when it held
+/// none. A failure is reported: `keyd` then answers for the new password
+/// until it restarts and reloads the database.
+fn undo_provision(name: &str, old: Option<&Verifier>) {
+    let restored = keyd::Client::connect().and_then(|client| match old {
+        Some(verifier) => client.restore(name, &verifier.to_text()),
+        None => client.forget(name),
+    });
+    if let Err(error) = restored {
+        sys::write_str(&format!(
+            "ACCOUNTS:PASSWORD:UNDO:FAIL user={name} error={}\n",
+            error.message()
+        ));
+    }
 }
 
 /// Have `keyd` drop `name`'s verifier (best effort: an unknown name is fine).

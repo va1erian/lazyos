@@ -140,26 +140,12 @@ impl Keyd {
     /// text.
     pub(crate) fn load_db(&mut self, bytes: &[u8]) -> Result<usize, String> {
         let db = accountdb::parse(bytes).map_err(|error| error.to_string())?;
-        let params = kdf::Params::INTERACTIVE;
         let mut loaded = Vec::new();
         for user in db.users {
             let Some(secret) = user.secret else {
                 continue;
             };
-            let cost = (secret.cost.m_kib, secret.cost.t, secret.cost.p);
-            if cost != (params.m_cost_kib, params.t_cost, params.p_cost) {
-                return Err(alloc::format!("cost user={}", user.name));
-            }
-            let salt: [u8; SALT_LEN] = secret
-                .salt
-                .as_slice()
-                .try_into()
-                .map_err(|_| alloc::format!("salt user={}", user.name))?;
-            loaded.push(Account {
-                user: user.name,
-                salt,
-                verifier: secret.hash,
-            });
+            loaded.push(account_of(&user.name, &secret)?);
         }
         if loaded.len() > MAX_ACCOUNTS {
             return Err(alloc::format!("rows={} max={MAX_ACCOUNTS}", loaded.len()));
@@ -325,6 +311,21 @@ impl Keyd {
         self.keys.retain(|key| key.owner != owner);
     }
 
+    /// Put back `user`'s verifier as the database stores it (`Restore`):
+    /// `accountsd` undoing a `Provision` it could not persist. A verifier
+    /// this service could not check against is refused (`EINVAL`).
+    pub(crate) fn restore(&mut self, user: &str, text: &str) -> Result<(), Error> {
+        let invalid = || Error::Errno(-errno::EINVAL);
+        let verifier = accountdb::Verifier::parse(text).ok_or_else(invalid)?;
+        let account = account_of(user, &verifier).map_err(|_| invalid())?;
+        match self.accounts.iter().position(|known| known.user == user) {
+            Some(index) => self.accounts[index] = account,
+            None if self.accounts.len() < MAX_ACCOUNTS => self.accounts.push(account),
+            None => return Err(Error::Errno(-errno::ENOMEM)),
+        }
+        Ok(())
+    }
+
     /// Drop `user`'s account, if any. Used once, right after the boot
     /// self-test, to scrub the throwaway account it provisions to exercise
     /// re-provisioning: left in place it would count against
@@ -333,6 +334,27 @@ impl Keyd {
     pub(crate) fn forget_account(&mut self, user: &str) {
         self.accounts.retain(|account| account.user != user);
     }
+}
+
+/// `user`'s account from a database verifier, or the `reason=` text when
+/// this service could not check against it (another cost than its arena's,
+/// another salt length).
+fn account_of(user: &str, secret: &accountdb::Verifier) -> Result<Account, String> {
+    let params = kdf::Params::INTERACTIVE;
+    let cost = (secret.cost.m_kib, secret.cost.t, secret.cost.p);
+    if cost != (params.m_cost_kib, params.t_cost, params.p_cost) {
+        return Err(alloc::format!("cost user={user}"));
+    }
+    let salt: [u8; SALT_LEN] = secret
+        .salt
+        .as_slice()
+        .try_into()
+        .map_err(|_| alloc::format!("salt user={user}"))?;
+    Ok(Account {
+        user: String::from(user),
+        salt,
+        verifier: secret.hash,
+    })
 }
 
 /// Map a crypto failure onto the friendly errno the client sees.

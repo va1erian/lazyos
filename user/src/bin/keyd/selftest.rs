@@ -78,6 +78,18 @@ pub(crate) fn self_test(keyd: &mut Keyd) -> Result<(), String> {
             "provisioned secret did not replace the old one",
         ));
     }
+    // `Restore` puts back what the database holds (an undone `Provision`).
+    keyd.restore("selftest-user", &stored)
+        .map_err(|error| error.message())?;
+    if !keyd.verify("selftest-user", "first") || keyd.verify("selftest-user", "second") {
+        return Err(String::from("restored verifier not in force"));
+    }
+    if keyd
+        .restore("selftest-user", "argon2id:1:1:1:00:00")
+        .is_ok()
+    {
+        return Err(String::from("a malformed verifier was restored"));
+    }
 
     // A signing key produces a tag and counts its use.
     let hmac_key = keyd

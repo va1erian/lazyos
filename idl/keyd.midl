@@ -43,6 +43,12 @@ interface os.lazy.keyd.v1 {
     /// Drop an account's verifier: it can no longer log in. Accepted only
     /// from the accounts service, like `Provision`.
     method Forget(user: String = 1) -> ();
+    /// Put back a verifier the account database holds
+    /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+    /// for `user`: `accountsd` undoes a `Provision` whose database write
+    /// failed, so `keyd` never answers for a password the database lost.
+    /// Accepted only from the accounts service, like `Provision`.
+    method Restore(user: String = 1, verifier: String = 2) -> ();
 
     /// One row of the key list: identity and counters only, never material.
     struct KeyInfo {

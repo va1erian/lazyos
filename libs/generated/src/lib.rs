@@ -8796,6 +8796,8 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_PROVISION: u32 = 1596114784;
     /// `Forget` method id.
     pub const METHOD_FORGET: u32 = 1849666444;
+    /// `Restore` method id.
+    pub const METHOD_RESTORE: u32 = 267943793;
 
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
@@ -9212,6 +9214,41 @@ pub mod os_lazy_keyd_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.user = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Put back a verifier the account database holds
+    /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+    /// for `user`: `accountsd` undoes a `Provision` whose database write
+    /// failed, so `keyd` never answers for a password the database lost.
+    /// Accepted only from the accounts service, like `Provision`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RestoreArgs {
+        pub user: alloc::string::String,
+        pub verifier: alloc::string::String,
+    }
+
+    pub fn encode_restore_args(value: &RestoreArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.user)?;
+        target.string(2, &value.verifier)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_restore_args(body: &[u8]) -> Result<RestoreArgs, Error> {
+        let mut out = RestoreArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.user = field.as_str()?.into();
+                }
+                2 => {
+                    out.verifier = field.as_str()?.into();
+                }
+                _ => {}
             }
         }
         Ok(out)

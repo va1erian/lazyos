@@ -1717,6 +1717,15 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "Restore",
+                id: 267943793,
+                oneway: false,
+                doc: "Put back a verifier the account database holds\n(`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has\nfor `user`: `accountsd` undoes a `Provision` whose database write\nfailed, so `keyd` never answers for a password the database lost.\nAccepted only from the accounts service, like `Provision`.",
+                params: &[Field { name: "user", id: 1, ty: Ty::String }, Field { name: "verifier", id: 2, ty: Ty::String }],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

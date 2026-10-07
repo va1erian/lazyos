@@ -455,6 +455,7 @@ The secrets and crypto service (issue #102).
 | `ping()` | `Ping() -> ()` | Round-trip probe. |
 | `provision(user, secret)` | `Provision(user: String, secret: String) -> (verifier: String)` | Install or replace an account's password verifier (docs/accounts-plan.md |
 | `forget(user)` | `Forget(user: String) -> ()` | Drop an account's verifier: it can no longer log in. Accepted only |
+| `restore(user, verifier)` | `Restore(user: String, verifier: String) -> ()` | Put back a verifier the account database holds |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
 
 ## `sys::lifecycle`

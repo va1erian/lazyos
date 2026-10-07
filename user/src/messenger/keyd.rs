@@ -153,6 +153,17 @@ impl Client {
         self.call(wire::METHOD_FORGET, body).map(|_| ())
     }
 
+    /// Put back `user`'s database verifier inside `keyd` (the accounts
+    /// service only), undoing a `provision` that could not be persisted.
+    pub fn restore(&self, user: &str, verifier: &str) -> Result<()> {
+        let body = wire::encode_restore_args(&wire::RestoreArgs {
+            user: String::from(user),
+            verifier: String::from(verifier),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_RESTORE, body).map(|_| ())
+    }
+
     /// HMAC-SHA256 `digest` under the stored key; returns the tag.
     pub fn sign(&self, key: u64, digest: &[u8]) -> Result<Vec<u8>> {
         let body = wire::encode_sign_args(&wire::SignArgs {
