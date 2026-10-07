@@ -103,6 +103,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/netstatus",
         Art::Lucide(Lucide::Link, Tone::Cobalt),
     ),
+    // Network Drives: a server's files, opened as a folder.
+    (
+        "xui-app/packages/netdrives",
+        Art::Lucide(Lucide::FolderOpen, Tone::Cobalt),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

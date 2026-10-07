@@ -734,6 +734,7 @@ name = "devinspect"
 version = "0.1.0"
 dependencies = [
  "devmatch",
+ "mounttable",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
@@ -2128,6 +2129,10 @@ dependencies = [
  "wasi",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "mounttable"
+version = "0.1.0"
 
 [[package]]
 name = "moxcms"
@@ -4378,6 +4383,7 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
+ "mounttable",
  "netstack",
  "printd",
  "surfbuf",

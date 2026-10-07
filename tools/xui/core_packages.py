@@ -92,6 +92,8 @@ CORE_APPS: dict[str, CoreApp] = {
     # fails that build when they are missing), so others need not build them.
     "network": xui_app("xui-network.elf", "network", optional=True),
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
+    # Network Drives: FTP servers as folders under /mnt, through `mountd`.
+    "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
     # C++ (litehtml), built only where zig is installed.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
     # The web browser (NetSurf, C, compiled with zig; docs/lazyweb.md). Only a

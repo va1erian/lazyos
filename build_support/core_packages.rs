@@ -165,6 +165,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "volume",
         // Network Status: Network status in the taskbar tray.
         "netstatus",
+        // Network Drives: Mount FTP servers as folders under /mnt.
+        "netdrives",
     ];
     CORE.contains(&short_of(stem))
 }

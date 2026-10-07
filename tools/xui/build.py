@@ -123,6 +123,8 @@ BINS = {
     "xui-volume": "xui-volume.elf",
     # Network Status: Network status in the taskbar tray.
     "xui-netstatus": "xui-netstatus.elf",
+    # Network Drives: Mount FTP servers as folders under /mnt.
+    "xui-netdrives": "xui-netdrives.elf",
 }
 
 

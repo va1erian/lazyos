@@ -26,7 +26,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use user::files;
-use user::messenger::{self, confd, pkgd, registry, router, services};
+use user::messenger::{self, confd, mount, pkgd, registry, router, services};
 use user::sys::{self, Cred as SysCred};
 
 use super::service::{Phase, Service};
@@ -50,6 +50,8 @@ const GRACEFUL: &[(&str, &str)] = &[
     ("confd", confd::NAME),
     ("logd", services::LOGD_NAME),
     ("pkgd", pkgd::NAME),
+    // Stops its `ftpfuse` daemons, which are its children, not `init`'s.
+    ("mountd", mount::NAME),
 ];
 
 /// Services left running into `power`: `usbd` serves the USB stick that may
