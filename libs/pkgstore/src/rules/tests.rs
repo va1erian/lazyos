@@ -80,7 +80,6 @@ fn a_non_resident_manifest_compiles_as_before() {
     assert_eq!(plain.len(), 3);
 }
 
-
 fn allow(interface_id: u64, method: u32) -> LabelRule {
     LabelRule {
         interface_id,
