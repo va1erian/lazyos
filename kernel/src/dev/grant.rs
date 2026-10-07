@@ -33,7 +33,10 @@ pub fn resource_rights(info: &DeviceInfo) -> u32 {
     }
     // A line value of 0xFF is "not connected"; anything else is a real wire,
     // even if the PIC cannot deliver it (then `irq_enable` says ENOSYS).
-    if info.resources.irq().is_some_and(|irq| irq.line < LINES) {
+    // A message capability is an interrupt too (issue #616).
+    if info.resources.irq().is_some_and(|irq| irq.line < LINES)
+        || (matches!(info.bus, BusId::Pci(_)) && info.resources.message_capable())
+    {
         granted |= rights::DEV_IRQ;
     }
     if matches!(info.bus, BusId::Pci(_)) {

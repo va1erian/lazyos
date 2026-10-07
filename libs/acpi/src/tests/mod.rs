@@ -149,3 +149,42 @@ fn seal_round_trips_through_the_parser() {
     *image.table_mut(b"FACP").unwrap() = fadt;
     assert!(discover(&image).fadt.is_ok());
 }
+
+#[test]
+fn inti_flags_decode_over_the_bus_default() {
+    use crate::madt::{inti, Signal};
+    // Conforming flags keep the bus default.
+    assert_eq!(inti(0, Signal::ISA), Signal::ISA);
+    assert_eq!(inti(0, Signal::PCI), Signal::PCI);
+    // QEMU's PCI-line overrides: active high, level.
+    let qemu = inti(0x0D, Signal::ISA);
+    assert_eq!((qemu.level, qemu.active_low), (true, false));
+    // Active low, level (a real chipset's SCI).
+    assert_eq!(inti(0x0F, Signal::ISA), Signal::PCI);
+    // Edge, high spelled out on a PCI line.
+    assert_eq!(inti(0x05, Signal::PCI), Signal::ISA);
+    // Reserved encodings fall back to the bus, never to a guess.
+    assert_eq!(inti(0x0A, Signal::ISA), Signal::ISA);
+    assert_eq!(inti(0x0A, Signal::PCI), Signal::PCI);
+}
+
+#[test]
+fn every_golden_names_its_isa_overrides() {
+    for (name, image) in all() {
+        let madt = discover(&image).madt.unwrap();
+        let ioapic = madt.ioapic_for(9, |_| 24).expect(name);
+        assert_eq!(ioapic.gsi_base, 0, "{name}");
+        assert!(madt.ioapic_for(24, |_| 24).is_none(), "{name}");
+        // The SCI (IRQ 9) is level-triggered on every QEMU machine.
+        let (gsi, flags) = madt.isa_gsi(9);
+        assert_eq!(gsi, 9, "{name}");
+        assert!(crate::madt::inti(flags, crate::madt::Signal::ISA).level, "{name}");
+        // QEMU overrides the PCI-routed lines 5, 9, 10, 11 to level, active
+        // high (PIIX and ICH9 alike), which is how the kernel programs a PCI
+        // function's Interrupt Line on the I/O APIC.
+        for line in [5u8, 9, 10, 11] {
+            let (gsi, flags) = madt.isa_gsi(line);
+            assert_eq!((gsi, flags), (u32::from(line), 0x0D), "{name} IRQ {line}");
+        }
+    }
+}

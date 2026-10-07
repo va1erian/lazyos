@@ -34,7 +34,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use x86_64::structures::idt::InterruptStackFrame;
 
-use super::{clock, lapic, pic};
+use super::{clock, lapic};
 
 /// The deadline timer's vector, next to the APIC tick's.
 pub const VECTOR: u8 = lapic::TIMER_VECTOR + 1;
@@ -152,7 +152,7 @@ pub extern "x86-interrupt" fn handler(_stack: InterruptStackFrame) {
     // The timer is idle now; whatever expiry decides re-arms it.
     ARMED.store(u64::MAX, Ordering::Relaxed);
     lapic::eoi();
-    if pic::is_masked(0) {
+    if super::irqchip::is_masked(0) {
         return;
     }
     crate::task::expire_due();

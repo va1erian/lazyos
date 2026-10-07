@@ -39,6 +39,8 @@ const TPR: u32 = 0x80;
 const EOI: u32 = 0xB0;
 const SVR: u32 = 0xF0;
 const ESR: u32 = 0x280;
+/// First of the eight 32-bit interrupt request registers (16 bytes apart).
+const IRR: u32 = 0x200;
 const LVT_TIMER: u32 = 0x320;
 const LVT_LINT0: u32 = 0x350;
 const LVT_LINT1: u32 = 0x360;
@@ -110,7 +112,13 @@ fn cpuid1() -> (u32, u32) {
 
 /// Bring the local APIC up in virtual-wire mode with its timer masked.
 /// `madt_address` is only cross-checked: `IA32_APIC_BASE` is authoritative.
+/// Once it is up, later calls (the tick, the deadline timer and the
+/// interrupt controller each want it) return the mode and change nothing:
+/// reprogramming the LVT would stop a running timer.
 pub fn init(madt_address: Option<u64>) -> Result<Mode, &'static str> {
+    if let Some(mode) = mode() {
+        return Ok(mode);
+    }
     let (ecx, edx) = cpuid1();
     if edx & (1 << 9) == 0 {
         return Err("no local APIC");
@@ -187,9 +195,26 @@ pub fn current_mode() -> Option<Mode> {
     mode()
 }
 
-/// Acknowledge the APIC timer interrupt. Not for 8259 (ExtINT) interrupts.
+/// Acknowledge the interrupt in service: the APIC timer, an I/O APIC line or
+/// an MSI vector. Not for 8259 (ExtINT) interrupts, which the APIC does not
+/// track. For a level-triggered I/O APIC line the EOI is broadcast to the I/O
+/// APIC, which clears the entry's remote IRR.
 pub fn eoi() {
     write(EOI, 0);
+}
+
+/// Leave virtual-wire mode: mask LINT0 so the 8259 can no longer interrupt
+/// (every line now comes from the I/O APIC, issue #616).
+pub fn mask_lint0() {
+    write(LVT_LINT0, LVT_MASKED | DELIVERY_EXTINT);
+}
+
+/// Whether `vector` is pending in the interrupt request register: delivered
+/// to this APIC and not yet taken by the CPU (interrupts off). The suite
+/// uses it to see a device's interrupt arrive without servicing it.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
+pub fn requested(vector: u8) -> bool {
+    mode().is_some() && read(IRR + u32::from(vector / 32) * 0x10) & (1 << (vector % 32)) != 0
 }
 
 /// Start the timer counting down from `u32::MAX`, masked and one-shot, so

@@ -46,6 +46,12 @@ jobs:
           # skip cleanly and the device core must work without an IDE drive.
           - name: q35-virtio
             args: "--machine q35 --virtio-disk --nic"
+          # The 8259 and INTx only (issue #616): every other leg runs the
+          # I/O APIC and MSI/MSI-X, this one the path older images took.
+          - name: pic-intx
+            args: "--nic"
+            irqchip: pic
+            msi: "0"
           # A scratch NVMe disk for the NVMe request-path tests (nvme_suite,
           # docs/nvme-install-plan.md N1).
           - name: nvme
@@ -63,6 +69,9 @@ jobs:
       # installs it on first use.
       - name: Run the kernel test harness
         run: python tools/test/run.py --out shots/kernel-tests ${{ matrix.args }}
+        env:
+          LAZYOS_IRQCHIP: ${{ matrix.irqchip }}
+          LAZYOS_MSI: ${{ matrix.msi }}
 
       - name: Append report to the job summary
         if: always()

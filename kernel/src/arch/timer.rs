@@ -85,7 +85,7 @@ pub unsafe fn end_of_tick() {
     if lapic_tick() {
         lapic::eoi();
     } else {
-        pic::end_of_interrupt(0);
+        super::irqchip::eoi(0);
     }
 }
 
@@ -94,13 +94,19 @@ pub unsafe fn end_of_tick() {
 /// be ignored. The 8259 never delivers a request latched on a masked line,
 /// but the local APIC delivers a vector already in its IRR whatever the LVT
 /// mask says now, and the kernel relies on "line 0 masked" meaning no tick
-/// (tests and drivers enable interrupts with the tick off).
+/// (tests and drivers enable interrupts with the tick off). The same holds
+/// for the PIT through the I/O APIC (issue #616): masking its redirection
+/// entry does not withdraw a tick it already sent to the local APIC.
 pub fn stale_tick() -> bool {
-    if lapic_tick() && lapic::timer_masked() {
+    let masked = if lapic_tick() {
+        lapic::timer_masked()
+    } else {
+        super::irqchip::chip() == super::irqchip::Chip::IoApic && super::irqchip::is_masked(0)
+    };
+    if masked {
         lapic::eoi();
-        return true;
     }
-    false
+    masked
 }
 
 /// Mask or unmask the APIC tick (the `pic::set_masked(0, _)` path when the

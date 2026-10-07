@@ -4,6 +4,8 @@ QEMU gets, and whether `init` starts the device manager `devd`. Split out of
 
 The cards are run_demo flags (`--sound-card`, `--nic`); `devd` is the build
 switch `LAZYOS_DEVD` (on by default, `run_demo.py --no-devd` turns it off).
+Interrupt routing (issue #616) is `LAZYOS_IRQCHIP` (`--irqchip`) and
+`LAZYOS_MSI` (`--no-msi`).
 """
 
 from __future__ import annotations
@@ -14,12 +16,18 @@ from .netplan import wants_net
 SOUND_CARDS = ["virtio", "hda"]
 #: `run_demo.py --nic` values, default first.
 NICS = ["virtio", "e1000"]
+#: `run_demo.py --irqchip` values, default first.
+IRQCHIPS = ["ioapic", "pic"]
 
 
 def driver_env(cfg: dict) -> dict[str, str]:
-    """`LAZYOS_DEVD` as the launcher chose it, so an inherited value never
-    overrides the checkbox."""
-    return {"LAZYOS_DEVD": "1" if cfg.get("devd", True) else "0"}
+    """`LAZYOS_DEVD`, `LAZYOS_IRQCHIP` and `LAZYOS_MSI` as the launcher chose
+    them, so an inherited value never overrides the controls."""
+    return {
+        "LAZYOS_DEVD": "1" if cfg.get("devd", True) else "0",
+        "LAZYOS_IRQCHIP": cfg.get("irqchip", IRQCHIPS[0]),
+        "LAZYOS_MSI": "1" if cfg.get("msi", True) else "0",
+    }
 
 
 def device_flags(cfg: dict) -> list[str]:
@@ -38,4 +46,8 @@ def device_flags(cfg: dict) -> list[str]:
         flags += ["--nic", nic]
     if not cfg.get("devd", True):
         flags.append("--no-devd")
+    if cfg.get("irqchip", IRQCHIPS[0]) != IRQCHIPS[0]:
+        flags += ["--irqchip", cfg["irqchip"]]
+    if not cfg.get("msi", True):
+        flags.append("--no-msi")
     return flags

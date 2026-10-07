@@ -110,6 +110,10 @@ impl VirtioCard {
         let mut claimed = device::claim(row, false)?;
         let transport = virtio_device::transport(&claimed)?;
         device::arm(&mut claimed)?;
+        if claimed.mode == Some(user::dev::IrqMode::MsiX) {
+            // Queues set up below take MSI-X table entry 0 too.
+            transport.use_msix(0)?;
+        }
         transport.negotiate(0, 0)?;
         let core = Region::alloc(claimed.handle, CORE_BYTES)?;
 

@@ -78,7 +78,7 @@ pub fn irq_kernel_handler() -> Result<(), String> {
 /// armed or unmasked.
 pub fn irq_polling_fallback() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let mouse_mask = pic::is_masked(12);
+    let mouse_mask = irqchip::is_masked(12);
     let unrouted = rig(12, false, false)?;
     expect_errno(
         sys(OP_IRQ_ENABLE, unrouted.handle, 0, 0, 0),
@@ -90,7 +90,7 @@ pub fn irq_polling_fallback() -> Result<(), String> {
         "an unroutable claim was armed"
     );
     check!(
-        pic::is_masked(12) == mouse_mask,
+        irqchip::is_masked(12) == mouse_mask,
         "the fallback touched the mouse line"
     );
 

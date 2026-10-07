@@ -86,16 +86,16 @@ pub fn mask_stops_the_tick() -> Result<(), String> {
     kernel_only();
     with_lines(&[0], || {
         check!(wait_tick(task::ticks()), "no tick with line 0 open");
-        pic::set_masked(0, true);
-        check!(pic::is_masked(0), "line 0 does not read back masked");
+        irqchip::set_masked(0, true);
+        check!(irqchip::is_masked(0), "line 0 does not read back masked");
         let before = task::ticks();
         busy_ms(reference, 100);
         let after = task::ticks();
         check!(after == before, "{} ticks while masked", after - before);
         // SAFETY: `rdtsc` only reads the time-stamp counter.
         let unmasked_at = unsafe { core::arch::x86_64::_rdtsc() };
-        pic::set_masked(0, false);
-        check!(!pic::is_masked(0), "line 0 does not read back open");
+        irqchip::set_masked(0, false);
+        check!(!irqchip::is_masked(0), "line 0 does not read back open");
         check!(wait_tick(after), "no tick after unmasking");
         let moved = task::ticks() - after;
         // Only the time since the unmask may be counted (TCG can deliver the
@@ -118,11 +118,11 @@ pub fn mask_unmask_soak() -> Result<(), String> {
     kernel_only();
     with_lines(&[0], || {
         for round in 0..400u32 {
-            pic::set_masked(0, true);
+            irqchip::set_masked(0, true);
             if round % 50 == 0 {
                 busy_ms(reference, 1);
             }
-            pic::set_masked(0, false);
+            irqchip::set_masked(0, false);
         }
         let start = task::ticks();
         busy_ms(reference, 200);

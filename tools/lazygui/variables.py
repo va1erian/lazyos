@@ -49,6 +49,9 @@ def make_vars() -> dict:
         "sound_card": s(value="virtio"),
         "nic": s(value="virtio"),
         "devd": b(value=True),
+        # Interrupt routing (issue #616): the controller and MSI.
+        "irqchip": s(value="ioapic"),
+        "msi": b(value=True),
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),

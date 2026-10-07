@@ -64,10 +64,10 @@ fn kernel_only() {
 /// Run `body` with interrupts on and only the tick's PIC line unmasked, and
 /// with kernel threads allowed to sleep in I/O; restore everything after.
 fn with_sleeping_threads<T>(body: impl FnOnce() -> T) -> T {
-    use crate::arch::pic;
-    let saved: [bool; 16] = core::array::from_fn(|l| pic::is_masked(l as u8));
+    use crate::arch::irqchip;
+    let saved: [bool; 16] = core::array::from_fn(|l| irqchip::is_masked(l as u8));
     for line in 0..16u8 {
-        pic::set_masked(line, line != 0);
+        irqchip::set_masked(line, line != 0);
     }
     block::iowait::set_test_sleep(true);
     x86_64::instructions::interrupts::enable();
@@ -75,7 +75,7 @@ fn with_sleeping_threads<T>(body: impl FnOnce() -> T) -> T {
     x86_64::instructions::interrupts::disable();
     block::iowait::set_test_sleep(false);
     for (line, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(line as u8, masked);
+        irqchip::set_masked(line as u8, masked);
     }
     result
 }

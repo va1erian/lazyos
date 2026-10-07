@@ -17,8 +17,13 @@ SOUND_CARDS = {
 NICS = ("virtio", "e1000")
 
 
+#: `--irqchip` values, default first (issue #616).
+IRQCHIPS = ["ioapic", "pic"]
+
+
 def add_device_options(parser: argparse.ArgumentParser) -> None:
-    """`--sound`, `--sound-card`, `--nic` and `--no-devd`."""
+    """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip` and
+    `--no-msi`."""
     parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
                         help="attach a sound card (--sound-card) and build with LAZYOS_SOUND=1, "
                              "which boots the `sndd` driver and plays its test tones. "
@@ -33,12 +38,21 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-devd", action="store_true",
                         help="build without the device manager (LAZYOS_DEVD=0): `init` starts "
                              "the drivers at boot and each finds its own device")
+    parser.add_argument("--irqchip", choices=IRQCHIPS, default=IRQCHIPS[0],
+                        help="interrupt controller for the legacy lines (LAZYOS_IRQCHIP, "
+                             "issue #616): the I/O APIC (default, when the MADT names one) "
+                             "or the 8259 PIC")
+    parser.add_argument("--no-msi", action="store_true",
+                        help="build with LAZYOS_MSI=0: drivers take INTx lines, never "
+                             "MSI or MSI-X vectors")
 
 
 def device_env(args: argparse.Namespace, env: dict) -> None:
     """The build switches the device options set: `LAZYOS_DEVD` either way,
     so a value inherited from the environment never overrides `--no-devd`."""
     env["LAZYOS_DEVD"] = "0" if args.no_devd else "1"
+    env["LAZYOS_IRQCHIP"] = args.irqchip
+    env["LAZYOS_MSI"] = "0" if args.no_msi else "1"
 
 
 def sound_args(backend: str, card: str = "virtio") -> list[str]:

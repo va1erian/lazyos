@@ -3,7 +3,7 @@
 //! noticing. A bus produces [`DeviceInfo`] rows and drops them into the table.
 
 use super::pci::{self, Address, Function};
-use super::{BusId, DeviceId, DeviceInfo, Irq, Resources};
+use super::{BusId, DeviceId, DeviceInfo, Irq, Msi, MsiX, Resources};
 
 /// A bus that can discover devices.
 pub trait Bus {
@@ -76,6 +76,9 @@ pub fn device_info(function: Function) -> DeviceInfo {
             line: pci::interrupt_line(address),
         });
     }
+    if header == 0 {
+        message_capabilities(address, &mut resources);
+    }
     let (subsystem_vendor, subsystem_device) = pci::subsystem_id(address);
     DeviceInfo {
         id: DeviceId(0),
@@ -90,6 +93,49 @@ pub fn device_info(function: Function) -> DeviceInfo {
         revision: pci::revision(address),
         resources,
     }
+}
+
+/// Capability ids of MSI and MSI-X.
+const CAP_MSI: u8 = 0x05;
+const CAP_MSIX: u8 = 0x11;
+
+/// Record the function's MSI and MSI-X capabilities (issue #616). Both are
+/// hostile input: an MSI-X table that does not lie inside one of the
+/// function's own sized memory BARs is dropped, so the kernel never maps or
+/// writes outside the device.
+fn message_capabilities(address: Address, resources: &mut Resources) {
+    pci::for_each_capability(address, |cap| match cap.id {
+        CAP_MSI if resources.msi().is_none() => {
+            let control = pci::read16(address, cap.offset + 2);
+            resources.set_msi(Msi {
+                cap: cap.offset,
+                is_64: control & (1 << 7) != 0,
+                maskable: control & (1 << 8) != 0,
+            });
+        }
+        CAP_MSIX if resources.msix().is_none() => {
+            let control = pci::read16(address, cap.offset + 2);
+            let table = pci::read32(address, cap.offset + 4);
+            if let Some(msix) = check_msix(resources, cap.offset, control, table) {
+                resources.set_msix(msix);
+            }
+        }
+        _ => {}
+    });
+}
+
+/// Decode an MSI-X capability (`control`, the table offset/BIR dword) and
+/// keep it only if its table fits a memory BAR of `resources`.
+pub(crate) fn check_msix(resources: &Resources, cap: u8, control: u16, table: u32) -> Option<MsiX> {
+    let msix = MsiX {
+        cap,
+        table_size: (control & 0x7FF) + 1,
+        table_bar: (table & 0x7) as u8,
+        table_offset: table & !0x7,
+    };
+    let bar = resources.bar(msix.table_bar)?;
+    let end = u64::from(msix.table_offset).checked_add(msix.table_len())?;
+    (bar.kind == super::BarKind::Mem && bar.base != 0 && end <= bar.len).then_some(msix)
 }
 
 /// Convenience for callers that have coordinates rather than a [`Function`]:

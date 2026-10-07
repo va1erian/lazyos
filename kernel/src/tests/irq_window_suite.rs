@@ -17,7 +17,7 @@
 //! shows up in every attempt.
 
 use super::*;
-use crate::arch::{clock, irq_window, irqoff, pic};
+use crate::arch::{clock, irq_window, irqchip, irqoff};
 
 /// The latency bound the windows keep (`irqoff::REPORT_US`).
 pub(in crate::tests) const BOUND_US: u64 = irqoff::REPORT_US;
@@ -144,10 +144,10 @@ pub(in crate::tests) fn kernel_task_only() {
 /// windows armed and the PIT line unmasked, so poll points take real ticks.
 /// The maxima are reset first; windows are disarmed again afterwards.
 pub(in crate::tests) fn in_syscall<R>(nr: u64, f: impl FnOnce() -> R) -> (R, Latency) {
-    let saved_mask = pic::is_masked(0);
+    let saved_mask = irqchip::is_masked(0);
     irqoff::reset();
     irq_window::arm();
-    pic::set_masked(0, false);
+    irqchip::set_masked(0, false);
     // A tick left pending by earlier tests belongs to them, not to `f`.
     clock::resync();
     let missed = clock::missed_ticks();
@@ -159,7 +159,7 @@ pub(in crate::tests) fn in_syscall<R>(nr: u64, f: impl FnOnce() -> R) -> (R, Lat
     irqoff::enter_native(nr);
     let result = f();
     irqoff::exit();
-    pic::set_masked(0, saved_mask);
+    irqchip::set_masked(0, saved_mask);
     irq_window::disarm();
     // No scheduler runs in the suite to charge the window ticks: drop them,
     // or the next test's scheduler entry would book them to its task.
@@ -227,16 +227,16 @@ pub fn closed_outside_syscall() -> Result<(), String> {
     calibrated()?;
     kernel_task_only();
     irqoff::close();
-    let saved_mask = pic::is_masked(0);
+    let saved_mask = irqchip::is_masked(0);
     irq_window::arm();
-    pic::set_masked(0, false);
+    irqchip::set_masked(0, false);
     let (opened, ticks) = (irq_window::opened(), task::ticks());
     spin_us(25_000, irq_window::poll_point);
     irq_window::open();
     let outside = (irq_window::opened() - opened, task::ticks() - ticks);
     let if_on = x86_64::instructions::interrupts::are_enabled();
     irq_window::disarm();
-    pic::set_masked(0, saved_mask);
+    irqchip::set_masked(0, saved_mask);
     check!(!if_on, "a poll point left interrupts on");
     check!(
         outside == (0, 0),

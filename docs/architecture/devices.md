@@ -29,7 +29,8 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL`/`DEV:DMA` boot lines and routing log |
 | `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool: bitmap, first-fit with alignment, stats |
 | `kernel/src/ipc/shared/dma.rs` | `create_from_frames`: a Buffer over an existing contiguous run, `DmaOwner` |
-| `kernel/src/arch/irq_stubs.rs`, `arch/pic.rs` | IDT stubs for the PIC lines; mask/EOI/in-service/IRR helpers |
+| `kernel/src/arch/irq_stubs.rs`, `arch/irqchip.rs` | IDT stubs for the legacy lines; mask/EOI/spurious/request helpers on the 8259 or the I/O APIC |
+| `kernel/src/dev/msi.rs`, `dev/msi_hw.rs`, `arch/msi_stubs.rs` | MSI and MSI-X: vectors, the lock-free vector handler, capability programming ([interrupts.md](interrupts.md)) |
 | `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
 | `kernel/src/ipc/channels_kernel.rs` | `post_from_kernel`: one-way messages from the kernel identity |
 | `user/src/dev.rs` | Userspace wrappers for syscall 23 |
@@ -66,7 +67,10 @@ The legacy block drivers (ATA PIO, legacy virtio-blk) are registered this way
 with no behavior change; their `attach` still calls the same probe code, so the
 block registry, boot-device selection and logs are identical.
 
-**Interrupts (D2).** PIC lines 3-11 and 13-15 (and the cascade) have IDT stubs
+**Interrupts (D2).** Since issue #616 the lines below sit on the I/O APIC by
+default and a function with MSI or MSI-X gets a vector of its own; the
+contract is unchanged and [interrupts.md](interrupts.md) has the details.
+PIC lines 3-11 and 13-15 (and the cascade) have IDT stubs
 (`arch/irq_stubs.rs`); the timer, keyboard and mouse keep their own handlers and
 can never be claimed. `irq::dispatch(line)` runs in interrupt context on one CPU,
 so it takes no lock and allocates nothing: it recognises a spurious IRQ 7/15
@@ -222,9 +226,10 @@ command-register helpers (status bits are never written back), capability walk,
 claim/release with generations, ATA/virtio-blk as in-kernel drivers (D1);
 interrupt dispatch and the shared-INTx contract (D2); the `dev_*` syscall, MMIO
 mappings, grant rule, class ACL, audit, quota and teardown (D3); the DMA pool
-and `dma_alloc` (D4, #241). Not done: function-level reset (teardown clears the
-command register enables instead), MMCONFIG, MSI/MSI-X, IOAPIC,
-ACPI/platform enumeration beyond the single ATA seed, and an IOMMU.
+and `dma_alloc` (D4, #241); the I/O APIC and MSI/MSI-X (#616,
+[interrupts.md](interrupts.md)). Not done: function-level reset (teardown
+clears the command register enables instead), MMCONFIG, ACPI/platform
+enumeration beyond the single ATA seed, and an IOMMU.
 
 **DMA and the device's lifetime.** Bus mastering is always off before a DMA
 run can be reused. `release`, task exit and task reap quiesce the device. While

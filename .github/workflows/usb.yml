@@ -74,6 +74,9 @@ jobs:
           # U5: the same session on q35 (boot disk on virtio-blk).
           - name: q35
             args: "--machine q35 --virtio-disk"
+          # The 8259 and INTx only (issue #616); the other legs judge MSI.
+          - name: pic
+            args: "--irq-path pic"
           # H3: keyboard and mouse behind a usb-hub (full speed, route
           # string), then the hub unplugged: everything below it detaches.
           - name: hub
