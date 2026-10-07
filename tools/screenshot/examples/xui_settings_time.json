@@ -660,6 +660,36 @@
   "retries": 1
  },
  {
+  "wait_for": "XUID:PROMPT:UP",
+  "occurrence": 1,
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret"
+ },
+ {
+  "wait_for": "ELEVD:REQUEST op=conf.set .*outcome=granted",
+  "regex": true,
+  "occurrence": 1,
+  "timeout": 120,
+  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
+ },
+ {
+  "wait": 1.0
+ },
+ {
   "wait": 2.5
  },
  {
@@ -855,6 +885,36 @@
   "retries": 1
  },
  {
+  "wait_for": "XUID:PROMPT:UP",
+  "occurrence": 2,
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret"
+ },
+ {
+  "wait_for": "ELEVD:REQUEST op=conf.set .*outcome=granted",
+  "regex": true,
+  "occurrence": 2,
+  "timeout": 120,
+  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
+ },
+ {
+  "wait": 1.0
+ },
+ {
   "wait": 2.5
  },
  {
@@ -1039,6 +1099,47 @@
   "until": "Zone(2)",
   "timeout": 40,
   "retries": 1
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_move": [
+   6,
+   197
+  ],
+  "note": "from the Europe/Paris row down to Use this zone"
+ },
+ {
+  "mouse_click": "left",
+  "until": "XUID:PROMPT:UP",
+  "timeout": 40,
+  "retries": 1
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret"
+ },
+ {
+  "wait_for": "ELEVD:REQUEST op=conf.set .*outcome=granted",
+  "regex": true,
+  "occurrence": 3,
+  "timeout": 120,
+  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
+ },
+ {
+  "wait": 1.0
  },
  {
   "wait": 2.5
@@ -1647,6 +1748,36 @@
   "until": "Time(Apply)",
   "timeout": 40,
   "retries": 1
+ },
+ {
+  "wait_for": "XUID:PROMPT:UP",
+  "occurrence": 4,
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret"
+ },
+ {
+  "wait_for": "ELEVD:REQUEST op=time.set .*outcome=granted",
+  "regex": true,
+  "occurrence": 1,
+  "timeout": 120,
+  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
+ },
+ {
+  "wait": 1.0
  },
  {
   "wait": 2.5

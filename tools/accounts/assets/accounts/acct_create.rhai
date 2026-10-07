@@ -1,14 +1,19 @@
 // Attack: Create an administrator account directly at accountsd, as the session user (U1).
 // Prints one ACCT:ATTACK line; the harness judges it (tools/accounts/).
-// Only a recognised refusal counts as BLOCKED: any other failure is an
-// ERROR, so a broken probe can never pass as proof of isolation.
+// BLOCKED only with EPERM *and* accountsd's policy (libs/accountdb/src/policy.rs)
+// text: a wrong old password (EACCES), an ACL refusal or any other EPERM is
+// another reason, printed as such, which the judge refuses, so a regression
+// cannot pass as BLOCKED. Anything unrecognised is an ERROR.
+let policy = "only an administrator, through elevd, may create, delete or promote accounts";
 let verdict = "SUCCEEDED:ok";
 try {
     msg::connect("os.lazy.accounts.v1", "os.lazy.accountsd").invoke("Create", ["acctprobe", "probe-secret-1", true]);
 } catch (e) {
     let text = e.to_string();
-    if text.contains("(EPERM") {
-        verdict = "BLOCKED:EPERM";
+    if text.contains("(EPERM") && text.contains(policy) {
+        verdict = "BLOCKED:EPERM-policy";
+    } else if text.contains("(EPERM") {
+        verdict = "BLOCKED:EPERM-other";
     } else if text.contains("(EACCES") {
         verdict = "BLOCKED:EACCES";
     } else {

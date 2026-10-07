@@ -12,7 +12,7 @@
 //!
 //! The user is whoever runs the shell ([`ThemeFeed::follow_user`], from the
 //! shell's `Subscribe`): a graphical login's LazyShell runs as that user.
-//! For a user other than the administrator, each of its `user/<uid>/ui/*`
+//! For every account (any uid but 0), each of its `user/<uid>/ui/*`
 //! keys shadows the machine key, and the feed also follows
 //! `user/<uid>/confd/changed/ui/#`, which only that uid and root (`xuid`) may
 //! subscribe to.

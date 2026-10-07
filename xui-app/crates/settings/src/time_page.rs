@@ -1,9 +1,14 @@
 //! The Time & Date page: the current time, setting the clock, the time zone
 //! and the taskbar clock format.
 //!
-//! The clock and the zone go to `timed` ([`System::set_time`] needs
-//! `CAP_SYS_TIME`, [`System::set_zone`] persists to confd); the format
-//! toggles are confd keys the LazyShell taskbar follows live ([`time_ops`]).
+//! All four are machine settings, and all four ask an administrator
+//! (docs/accounts-plan.md U2): the clock and the zone go to `timed`
+//! ([`System::set_time`], [`System::set_zone`], through `elevd` for a
+//! session), the format toggles are `sys/time/*` confd keys the LazyShell
+//! taskbar follows live ([`time_ops`]), written through `elevd` too. So each
+//! writes on an explicit action, once: moving through the zone list only
+//! chooses, **Use this zone** applies it; a refused or cancelled change shows
+//! the stored value again.
 
 use std::rc::Rc;
 
@@ -25,8 +30,10 @@ pub enum TimeMsg {
     Apply,
     /// Refill the fields with the current time.
     Now,
-    /// A zone row was selected.
+    /// A zone row was selected (nothing is written).
     Zone(usize),
+    /// Switch to the selected zone.
+    ApplyZone,
     Clock24(bool),
     Seconds(bool),
 }
@@ -74,6 +81,9 @@ impl TimePage {
                                     .on_select(|i| Msg::Time(TimeMsg::Zone(i)))
                                     .bind(&zones)
                                     .fill(1),
+                                row().child(
+                                    button("Use this zone").on_click(Msg::Time(TimeMsg::ApplyZone)),
+                                ),
                             ))
                             .fill(1),
                         column()
@@ -145,12 +155,18 @@ impl TimePage {
                     Err(text) => text,
                 };
             }
-            TimeMsg::Zone(i) => match timezone::ZONES.get(i) {
-                Some(zone) => system
-                    .set_zone(zone.name)
-                    .map(|()| format!("Time zone set to {}.", zone.name)),
-                None => return String::new(),
-            },
+            TimeMsg::Zone(_) => return String::new(),
+            TimeMsg::ApplyZone => {
+                match self.zones.selected().and_then(|i| timezone::ZONES.get(i)) {
+                    Some(zone) if system.now().is_some_and(|now| now.zone == zone.name) => {
+                        return format!("The time zone already is {}.", zone.name);
+                    }
+                    Some(zone) => system
+                        .set_zone(zone.name)
+                        .map(|()| format!("Time zone set to {}.", zone.name)),
+                    None => return String::from("Select a time zone first."),
+                }
+            }
             TimeMsg::Clock24(on) => time_ops::set_clock24(store, on).map(|()| {
                 String::from(if on {
                     "Clock shows 24-hour time."
@@ -173,7 +189,11 @@ impl TimePage {
                 }
                 text
             }
-            Err(error) => format!("Could not save: {error}"),
+            Err(error) => {
+                // Show what is in effect, not what was refused.
+                self.load(store, system);
+                format!("Could not save: {error}")
+            }
         }
     }
 

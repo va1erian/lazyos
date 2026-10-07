@@ -251,6 +251,12 @@ impl Greeter {
             message.set_text("Choose a password.");
             return;
         }
+        // The rule `accountsd` applies, so the form refuses exactly what the
+        // service would.
+        if let Err(rule) = accountdb::secret::check_secret(&secret) {
+            message.set_text(&sentence(rule));
+            return;
+        }
         if secret != self.w.confirm.get().text() {
             message.set_text("The two passwords differ.");
             return;
@@ -340,6 +346,15 @@ fn refusal(code: i64) -> &'static str {
     }
 }
 
+/// A service's lowercase reason as a sentence for the form.
+fn sentence(reason: &str) -> String {
+    let mut chars = reason.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}.", first.to_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
 fn main() {
     launch::run("GREETER", "Log in", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("GREETER:UP:PASS"));
@@ -365,7 +380,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::Mode;
+    use super::{sentence, Mode};
+
+    #[test]
+    fn a_reason_reads_as_a_sentence() {
+        assert_eq!(
+            sentence(accountdb::secret::SECRET_RULE),
+            "A password is 4 to 64 characters, without control characters."
+        );
+        assert_eq!(sentence(""), "");
+    }
 
     #[test]
     fn the_first_answer_decides_and_silence_waits() {

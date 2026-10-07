@@ -72,9 +72,16 @@ pub fn header(interface_id: u64, method: u32) -> Header {
 /// errno-style code plus friendly text in a structured [`ERROR_FIELD`].
 pub fn error_reply(interface_id: u64, method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+    refusal(interface_id, method, code, error.message())
+}
+
+/// A refusal with the service's own reason instead of the errno's generic
+/// text (`code` positive, `EPERM` say): what a policy check answers, so a
+/// caller and the attack harness can tell it from any other `EPERM`.
+pub fn refusal(interface_id: u64, method: u32, code: i64, text: &str) -> Parcel {
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
-    let _ = body.error(ERROR_FIELD, code as u32, error.message());
+    let _ = body.error(ERROR_FIELD, code as u32, text);
     Parcel {
         header: header(interface_id, method),
         body: body.finish(),

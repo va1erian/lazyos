@@ -28,6 +28,7 @@ session installed must open at that login as `user`.
     python tools/accounts/run.py              # build, boot four times, judge
     python tools/accounts/run.py --no-build   # reuse target/lazyos.img (built with this script's assets)
     python tools/accounts/run.py --quick      # skip the hard-kill boot
+    python tools/accounts/run.py --prebuilt-apps  # CI: the xui apps are already in target/
     python tools/accounts/run.py --accel none # force TCG
 
 The image needs BusyBox (`tools/abi/busybox.py`), the xui apps and `rhai`
@@ -58,7 +59,9 @@ import probe_packages  # noqa: E402
 import prompt_judge  # noqa: E402
 
 IMAGE = ROOT / "target/lazyos.img"
-BUSYBOX = ROOT / "target/abi/busybox/busybox"
+#: Where the image build finds BusyBox (build_support/busybox_embed.rs): CI's
+#: cached copy first, then a local build.
+BUSYBOX = (ROOT / "tools/abi/busybox", ROOT / "target/abi/busybox/busybox")
 ASSETS = HERE / "assets"
 #: The probe packages' asset tree, generated at build time (probe_packages.py).
 GENERATED = ROOT / "target" / "accounts-assets"
@@ -75,7 +78,8 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
-    "direct_time", "direct_restart", "prompt_spoof", "input_focus", "display_read",
+    "direct_time", "direct_zone", "direct_restart", "prompt_spoof", "input_focus",
+    "display_read",
     # Review of #659: what elevd refuses before any prompt.
     "audit_forge", "core_claim")}
 RHAI_ATTACKS |= {f"restart_{name}": f"restart_guarded.rhai {name}" for name in ("elevd", "xuid")}
@@ -89,9 +93,11 @@ def command_for(name: str) -> str:
     return f"sh {GUEST}/attack.sh {name}"
 
 
-def build() -> bool:
-    if not BUSYBOX.is_file():
-        print(f"missing {BUSYBOX}: run tools/abi/busybox.py (the Terminal needs sh)")
+def build(apps: bool = True) -> bool:
+    """`rhai`, the xui apps (unless `apps` is false: CI hands them over
+    built, `target/xui` and `target/pkg`), the probe packages and the image."""
+    if not any(path.is_file() for path in BUSYBOX):
+        print(f"missing {BUSYBOX[1]}: run tools/abi/busybox.py (the Terminal needs sh)")
         return False
     import demo_builds
     demo_builds.build_rhai()
@@ -100,7 +106,8 @@ def build() -> bool:
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
-    if subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT, env=env).returncode:
+    if apps and subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT,
+                               env=env).returncode:
         return False
     problems = probe_packages.build_all(GENERATED)
     for problem in problems:
@@ -266,12 +273,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--prebuilt-apps", action="store_true",
+                        help="build rhai, the probe packages and the image, but take the xui "
+                             "apps and core packages as they are in target/ (CI)")
     parser.add_argument("--quick", action="store_true", help="skip the hard-kill boot")
     parser.add_argument("--accel", default="auto")
     parser.add_argument("--memory", help="guest RAM (default: the session tool's, 1G)")
     parser.add_argument("--out", type=Path, default=ROOT / "shots/accounts")
     args = parser.parse_args()
-    if not args.no_build and not build():
+    if not args.no_build and not build(apps=not args.prebuilt_apps):
         return 1
     if not IMAGE.is_file():
         print(f"missing {IMAGE}")

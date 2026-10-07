@@ -18,8 +18,6 @@ use user::sys;
 
 use super::{authn, record, store, Refusal, State};
 
-/// Longest password accepted (what `keyd` takes).
-const SECRET_MAX: usize = 64;
 /// How long `init` may take to make or remove a home (PIT ticks): a copy of
 /// the skeleton, or a recursive removal of a large home under emulation.
 const HOME_TICKS: u64 = 6000;
@@ -185,15 +183,10 @@ fn database(state: &State) -> Result<&Db, Refusal> {
         .map_err(|_| Refusal::new(errno::EIO, "no account database"))
 }
 
-/// A password is not empty, fits `keyd`, and holds no control character.
+/// A new password follows the one rule (`accountdb::secret`): long enough,
+/// fits `keyd`, no control character.
 fn check_secret(secret: &str) -> Result<(), Refusal> {
-    if secret.is_empty() || secret.len() > SECRET_MAX || secret.chars().any(char::is_control) {
-        return Err(Refusal::new(
-            errno::EINVAL,
-            "a password is 1 to 64 characters, without control characters",
-        ));
-    }
-    Ok(())
+    accountdb::secret::check_secret(secret).map_err(|rule| Refusal::new(errno::EINVAL, rule))
 }
 
 /// Have `keyd` derive `name`'s verifier from `secret` (and start answering

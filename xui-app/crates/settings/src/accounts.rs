@@ -37,6 +37,9 @@ pub trait Accounts {
     fn remove(&self, name: &str) -> Result<(), String>;
     /// Make `name` an administrator or not: asks an administrator.
     fn set_admin(&self, name: &str, admin: bool) -> Result<(), String>;
+    /// Set another account's password without the old one (recovery):
+    /// asks an administrator.
+    fn set_password(&self, name: &str, new: &str) -> Result<(), String>;
 }
 
 /// An in-memory [`Accounts`] for tests and previews: `admin` and `user`, the
@@ -143,5 +146,27 @@ impl Accounts for MemAccounts {
             .ok_or_else(|| String::from("there is no such user"))?;
         entry.0.admin = admin;
         Ok(())
+    }
+
+    fn set_password(&self, name: &str, new: &str) -> Result<(), String> {
+        self.approved()?;
+        let mut accounts = self.accounts.borrow_mut();
+        let entry = accounts
+            .iter_mut()
+            .find(|(account, _)| account.name == name)
+            .ok_or_else(|| String::from("there is no such user"))?;
+        entry.1 = new.to_string();
+        Ok(())
+    }
+}
+
+impl MemAccounts {
+    /// `name`'s password (tests only).
+    pub fn password(&self, name: &str) -> Option<String> {
+        self.accounts
+            .borrow()
+            .iter()
+            .find(|(account, _)| account.name == name)
+            .map(|(_, password)| password.clone())
     }
 }

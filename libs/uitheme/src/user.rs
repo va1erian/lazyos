@@ -2,9 +2,11 @@
 //! default `sys/ui/<name>` for that uid, key by key (a user key that is
 //! present wins; an absent one falls back to the machine value).
 //!
-//! The administrator (uid 0) has no personal theme: what it sets *is* the
-//! machine default, so [`user_key`] is `None` for uid 0 and its session
-//! paints from `sys/ui/*` alone. `confd` lets only the owner (and root) read
+//! Only uid 0 (root, which no session runs as since accounts U1) has no
+//! personal theme: what it sets *is* the machine default, so [`user_key`] is
+//! `None` for uid 0. Every account, administrators included, has its own;
+//! the machine default changes through Settings' "Make this the default for
+//! everyone", which writes `sys/ui/*` through `elevd`. `confd` lets only the owner (and root) read
 //! or write `user/<uid>`, and announces its changes on
 //! `user/<uid>/confd/changed/ui/...`, which only that uid and root may
 //! subscribe to (the kernel's per-uid topic namespace).
@@ -22,7 +24,7 @@ pub const USER_SUBTREE: &str = "ui";
 /// covers every per-user theme key.
 pub const USER_FILTER_PATH: &str = "ui/#";
 
-/// Whether `uid` has a personal theme (everyone but the administrator).
+/// Whether `uid` has a personal theme (every account; not uid 0).
 pub const fn personal(uid: u32) -> bool {
     uid != 0
 }

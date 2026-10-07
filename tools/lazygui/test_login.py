@@ -100,6 +100,20 @@ class AutologinTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=argv):
                 login.build_login(parse(argv))
 
+    def test_setup_is_a_desktop_image(self) -> None:
+        # The Advanced tab's checkbox needs no Desktop tick: the setup is the
+        # desktop login screen's, so it brings the profile (a console image
+        # with no account could never log anyone in), and never an autologin.
+        cfg = dict(catalog.simple_config(demo_config(), "dev", "CLI"),
+                   setup=True, autologin="user", skip_build=False)
+        self.assertFalse(cfg.get("desktop"))
+        env = catalog.build_env(cfg)
+        self.assertEqual(env["LAZYOS_DESKTOP"], "1")
+        self.assertEqual((env["LAZYOS_SETUP"], env["LAZYOS_AUTOLOGIN"]), ("1", "none"))
+        argv = catalog.build_plan(cfg)[-1]["argv"]
+        self.assertIn("--setup", argv)
+        self.assertNotIn("--autologin", argv)
+
     def test_run_demo_flag(self) -> None:
         self.assertEqual(login.build_login(parse(["--autologin", "user"])),
                          {"LAZYOS_AUTOLOGIN": "user"})

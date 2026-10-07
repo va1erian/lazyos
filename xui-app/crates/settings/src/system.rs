@@ -31,9 +31,11 @@ pub struct StoreStatus {
 pub trait System {
     /// The current instant, or `None` when the time service is unreachable.
     fn now(&self) -> Option<Now>;
-    /// Step the wall clock to `unix` (UTC seconds). Needs `CAP_SYS_TIME`.
+    /// Step the wall clock to `unix` (UTC seconds). Needs `CAP_SYS_TIME`,
+    /// or an administrator's approval through `elevd`.
     fn set_time(&self, unix: i64) -> Result<(), String>;
-    /// Switch the system time zone (persisted by the service).
+    /// Switch the system time zone (persisted by the service). The same
+    /// rule as [`System::set_time`]: a machine setting.
     fn set_zone(&self, zone: &str) -> Result<(), String>;
     /// The OS name and version (`LazyOS 0.1.0 (x86_64)`).
     fn os_version(&self) -> String;

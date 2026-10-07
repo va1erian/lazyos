@@ -1498,9 +1498,54 @@
  },
  {
   "mouse_click": "left",
-  "until": "SETTINGS:MSG:Layout(1)",
+  "until": "SETTINGS:MSG:Keyboard(Select(1))",
   "timeout": 40,
   "retries": 1
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_move": [
+   -2,
+   56
+  ],
+  "note": "from the French row down to Use this layout"
+ },
+ {
+  "mouse_click": "left",
+  "until": "XUID:PROMPT:UP",
+  "timeout": 40,
+  "retries": 1
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret"
+ },
+ {
+  "wait_for": "ELEVD:REQUEST op=conf.set .*outcome=granted",
+  "regex": true,
+  "occurrence": 1,
+  "timeout": 120,
+  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "wait_for": "SETTINGS:LAYOUT:APPLIED:fr",
+  "timeout": 30
  },
  {
   "wait": 1.5

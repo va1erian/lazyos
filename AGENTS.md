@@ -111,7 +111,9 @@ Tab, `nimda`, Enter, or Escape to cancel; from the Terminal,
 `LAZYOS_AUTOLOGIN=<name>` (`run_demo.py --autologin NAME`, the GUI's
 "Log in automatically") logs straight in; unset, an image that opens apps at
 login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
-the example sessions run unchanged. Services authorize privileged calls by
+the example sessions run unchanged. A first-boot setup image
+(`LAZYOS_SETUP=1`, `run_demo.py --setup`, which implies `--desktop`) never
+logs anyone in. Services authorize privileged calls by
 `CAP_SETUID`, never by uid 0: a session cannot write `sys/**` keys, `/conf`
 or `/system`. The attack harness is `python tools/accounts/run.py`; the
 session `tools/screenshot/examples/login_logout.json` (an image built with

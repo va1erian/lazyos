@@ -9,6 +9,7 @@ accounts/acct_delete.rhai | GPL-3.0-or-later | desktop | LazyOS original: Delete
 accounts/acct_promote.rhai | GPL-3.0-or-later | desktop | LazyOS original: Make the session user an administrator directly at accountsd (U1)
 accounts/acct_password.rhai | GPL-3.0-or-later | desktop | LazyOS original: Set another user's password (admin's) without being an administrator (U1)
 accounts/direct_time.rhai | GPL-3.0-or-later | desktop | LazyOS original: Step the clock at timed directly instead of through elevd (U2)
+accounts/direct_zone.rhai | GPL-3.0-or-later | desktop | LazyOS original: Switch the time zone at timed directly instead of through elevd (U2)
 accounts/direct_restart.rhai | GPL-3.0-or-later | desktop | LazyOS original: Restart a system service at init directly instead of through elevd (U2)
 accounts/keyd_forget.rhai | GPL-3.0-or-later | desktop | LazyOS original: Drop admin's password verifier at keyd (only accountsd may, U1)
 accounts/prompt_spoof.rhai | GPL-3.0-or-later | desktop | LazyOS original: Open the trusted administrator prompt itself (only elevd may, U2)

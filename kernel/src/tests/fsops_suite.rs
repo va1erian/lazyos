@@ -6,6 +6,7 @@ use crate::ipc::credentials::{self, Cred};
 use crate::process::power;
 
 mod append;
+mod coherence;
 mod owner;
 mod read_at;
 
@@ -426,6 +427,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "fsops_abi_sees_native_rewrites",
         owner::abi_sees_native_rewrites,
+    ),
+    (
+        "fsops_abi_sees_native_attributes",
+        coherence::abi_sees_native_attributes,
+    ),
+    (
+        "fsops_abi_sees_native_directories",
+        coherence::abi_sees_native_directories,
+    ),
+    (
+        "fsops_native_sees_abi_mutations",
+        coherence::native_sees_abi_mutations,
+    ),
+    (
+        "fsops_soak_cross_table_coherence",
+        coherence::soak_cross_table_coherence,
     ),
     ("fsops_soak_append_churn", append::soak_append_churn),
     ("fsops_read_at_semantics", read_at::read_at_semantics),

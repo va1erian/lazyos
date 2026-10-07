@@ -2,6 +2,10 @@
 //! desktop pictures, [`wallpaper_ops`]) choices, each a titled section, on the
 //! window itself rather than on a card of its own
 //! (docs/xui-theme-proposals.md, Midnight).
+//!
+//! Every choice here is the user's own theme ([`crate::user_theme`]); **Make
+//! this the default for everyone** publishes it as the machine default the
+//! login screen and other accounts follow, which asks an administrator.
 
 use std::rc::Rc;
 
@@ -100,9 +104,10 @@ impl AppearancePage {
                             .bind(&anim),
                     ),
                 ),
-                button("Reset to defaults")
-                    .on_click(Msg::ResetAppearance)
-                    .align(Align::Start),
+                row().gap(8).children((
+                    button("Reset to defaults").on_click(Msg::ResetAppearance),
+                    button("Make this the default for everyone").on_click(Msg::MakeDefault),
+                )),
             )),
         )?;
         Ok(AppearancePage {

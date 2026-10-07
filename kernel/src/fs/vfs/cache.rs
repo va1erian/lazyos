@@ -48,6 +48,32 @@ impl Vfs {
         }
     }
 
+    /// Drop only the cached metadata of `path`'s inode, keeping its name and
+    /// everything cached below it: what a change of contents or attributes
+    /// made through the other mount table needs (`chmod` on a directory does
+    /// not change the names inside it). Every cached name of the inode
+    /// (a hard link) loses the metadata, since it is keyed by inode number;
+    /// when this name is not cached but the mount caches some inode, the
+    /// inode number comes from the filesystem, so a change through one link
+    /// is never answered stale through another.
+    pub fn forget(&mut self, path: &str) {
+        let path = Path::parse(path);
+        let Ok((mount, rel)) = self.resolve_mount(&path) else {
+            return;
+        };
+        let ino = match self.dentry.get(&(mount, rel.clone())) {
+            Some(dentry) => dentry.ino,
+            None if self.inodes.keys().any(|(cached, _)| *cached == mount) => {
+                match self.mounts[mount].fs.stat(&rel) {
+                    Ok(meta) => meta.ino,
+                    Err(_) => return,
+                }
+            }
+            None => return,
+        };
+        self.inodes.remove(&(mount, ino));
+    }
+
     /// Cache-aware metadata lookup for an absolute path.
     pub(super) fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
         let (mount, rel) = self.resolve_mount(path)?;

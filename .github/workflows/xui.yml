@@ -36,6 +36,7 @@ on:
       - "xui-app/**"
       - "tools/xui/**"
       - "tools/screenshot/**"
+      - "tools/accounts/**"
       - "tools/ci/**"
       - "kernel/**"
       - "libs/**"
@@ -50,6 +51,7 @@ on:
       - "xui-app/**"
       - "tools/xui/**"
       - "tools/screenshot/**"
+      - "tools/accounts/**"
       - "tools/ci/**"
       - "kernel/**"
       - "libs/**"
@@ -167,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [owner, client, desktop, apps, docs, files-s51, writer, azerty]
+        shard: [owner, client, desktop, apps, docs, files-s51, writer, azerty, accounts]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -839,6 +841,79 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_fr --timeout 300 --script tools/screenshot/examples/input_symbols_fr.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
           grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
 
+      # Accounts (docs/accounts-plan.md U0-U2, review of #659): its own shard,
+      # since the harness boots a copy of the desktop four times. It builds
+      # `rhai` (its probes are scripts) and the image with its own assets; the
+      # apps come from `build`. ACCOUNTS: PASS is the verdict; the judges'
+      # self-test runs first.
+      - name: Accounts attack harness
+        if: ${{ !cancelled() && matrix.shard == 'accounts' && steps.app.outputs.term != '' && steps.app.outputs.shell != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/accounts/test_judge.py
+          python tools/accounts/run.py --prebuilt-apps 2>&1 | tee accounts-run.log
+          grep -q "^ACCOUNTS: PASS" accounts-run.log
+
+      # The first-boot setup: no account, the owner is created on the login
+      # screen, adds an account through elevd's prompt, sets its password and
+      # changes their own; the account then logs in. The second boot of the
+      # same image finds the accounts and the changed password. A setup image
+      # never logs anyone in, whatever LAZYOS_XUI_AUTOSTART opens.
+      - name: Capture first-boot setup and its reboot
+        if: ${{ !cancelled() && matrix.shard == 'accounts' && steps.app.outputs.term != '' && steps.app.outputs.shell != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_SETUP: "1"
+          LAZYOS_XUI_AUTOSTART: term,settings
+          LAZYOS_UI_PROBE: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/accounts_setup \
+            --timeout 900 --script tools/screenshot/examples/accounts_setup.json \
+            --fail-on "SETTINGS:BUILD:FAIL" --fail-on "GREETER:SETUP:FAIL" --fail-on "INIT:HOME:FAIL"
+          for marker in "GREETER:SETUP:PASS user=owner" "SETTINGS:ACCOUNTS:ADD:PASS user=bob admin=0" \
+                        "SETTINGS:ACCOUNTS:SETPASSWORD:PASS user=bob" \
+                        "SETTINGS:ACCOUNTS:PASSWORD:PASS user=owner" "LOGIN:OK:PASS user=bob uid=1001 session=2"; do
+            grep -q "$marker" shots/accounts_setup/serial.log
+          done
+          if grep -q "LOGIN:OK:PASS user=user" shots/accounts_setup/serial.log; then
+            echo "::error::the setup image logged user in"; exit 1
+          fi
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/accounts_setup_reboot \
+            --timeout 600 --script tools/screenshot/examples/accounts_setup_reboot.json
+          grep -q "LOGIN:OK:PASS user=owner uid=1000" shots/accounts_setup_reboot/serial.log
+          python tools/screenshot/pngstats.py shots/accounts_setup/shot_*.png shots/accounts_setup_reboot/shot_*.png --min-nonblack 0.01
+
+      # The Config app (docs/confd-editor.md): the user's own keys, Elevate
+      # through the trusted prompt, a sys/** write prompting again, release;
+      # then Settings writing the menu and the default theme through elevd.
+      - name: Capture Config and Settings' machine settings
+        if: ${{ !cancelled() && matrix.shard == 'accounts' && steps.app.outputs.term != '' && steps.app.outputs.shell != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_AUTOLOGIN: user
+          LAZYOS_UI_PROBE: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/confd \
+            --timeout 900 --script tools/screenshot/examples/xui_confd.json \
+            --fail-on "CONFDED:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in CONFDED:UP:PASS CONFDED:ELEVATE:PASS "ELEVD:RELEASE"; do
+            grep -q "$marker" shots/confd/serial.log
+          done
+          # Settings on the same image: the menu edits saved in one request, the
+          # user's theme made the machine default (one approval per key).
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/settings_machine \
+            --timeout 900 --script tools/screenshot/examples/xui_settings_machine.json \
+            --fail-on "SETTINGS:BUILD:FAIL"
+          test "$(grep -c "ELEVD:REQUEST op=conf.set .*summary=\"Set the setting sys/ui/menu" shots/settings_machine/serial.log)" -eq 1
+          grep -q "SETTINGS:THEME:DEFAULT:PASS keys=1" shots/settings_machine/serial.log
+
       # Each shard checks its own captures (the globs of the other shards
       # match nothing here). A shard whose apps this build skipped (Docs
       # without zig) ran no session, so it has nothing to check; a session
@@ -848,7 +923,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png shots/accounts_setup/*.png shots/accounts_setup_reboot/*.png shots/confd/*.png shots/settings_machine/*.png)
           # A QEMU without PNG screendump falls back to PPM (qemu_qmp.py),
           # which pngstats cannot judge: that is a broken run, not an empty shard.
           ppms=(shots/*/*.ppm)
@@ -884,7 +959,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit shots/accounts_setup shots/accounts_setup_reboot shots/confd shots/settings_machine shots/accounts/warm shots/accounts/attack shots/accounts/verify shots/accounts/verify-kill; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -892,7 +967,7 @@ jobs:
             fi
             if [ -f "$dir/serial.log" ]; then
               echo "--- markers ---"
-              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|SHELL:|LOGIN:|GREETER:|XUID:LOGOUT|INIT:LOGOUT|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
+              grep -aE "XUIAPP|SYSMON|FABMON|TERM:|EDITOR:|PAINT:|FILES:|DOCS:|WRITER:|ARCHIVER:|SHELL:|LOGIN:|GREETER:|XUID:LOGOUT|XUID:PROMPT|ELEVD:|ACCT:|CONFDED:|SETTINGS:ACCOUNTS|INIT:LOGOUT|INIT:AUTOSTART|INIT:RESTART|panic|PANIC" "$dir/serial.log" || echo "(none)"
               echo "--- serial tail ---"
               tail -n 40 "$dir/serial.log"
             fi
@@ -987,6 +1062,22 @@ jobs:
             shots/print_quit/serial.log
             shots/print_quit/summary.json
             shots/print_quit/printer.log
+            shots/accounts_setup/*.png
+            shots/accounts_setup/serial.log
+            shots/accounts_setup/summary.json
+            shots/accounts_setup_reboot/*.png
+            shots/accounts_setup_reboot/serial.log
+            shots/accounts_setup_reboot/summary.json
+            shots/confd/*.png
+            shots/confd/serial.log
+            shots/confd/summary.json
+            shots/settings_machine/*.png
+            shots/settings_machine/serial.log
+            shots/settings_machine/summary.json
+            shots/accounts/*/*.png
+            shots/accounts/*/serial.log
+            shots/accounts/*/summary.json
+            shots/accounts/audit_*.txt
           if-no-files-found: warn
 
   # Write-scoped job: no checkout of repository code, only the screenshots
@@ -1029,7 +1120,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd settings_machine; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -1072,7 +1163,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd settings_machine; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"

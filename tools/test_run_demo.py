@@ -152,6 +152,16 @@ class MainTests(unittest.TestCase):
         self.assertEqual(image[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
         self.assertNotIn(b"admin", image)
 
+    def test_setup_is_a_desktop_image(self) -> None:
+        # The first-boot setup is the desktop login screen's: --setup alone
+        # builds the desktop profile, never a console image with no account.
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _ = self.run_main("--setup", "--yes")
+        self.assertEqual(code, 0)
+        build = self.builds[-1]
+        self.assertEqual((build.get("LAZYOS_SETUP"), build.get("LAZYOS_DESKTOP")), ("1", "1"))
+        self.assertEqual(build.get("LAZYOS_AUTOLOGIN"), "none")
+
     def test_reset_os_sets_the_build_variable(self) -> None:
         code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)

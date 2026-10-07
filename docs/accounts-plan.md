@@ -101,7 +101,8 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 - Creating an account creates its 0700 home (on the home volume when mounted)
   from a skeleton; deleting one archives or removes it on request.
 - First boot of a fresh image runs a setup wizard: the owner account, as an
-  admin. `LAZYOS_AUTOLOGIN` images skip it with the build's accounts.
+  admin. A setup image never logs anyone in (`LAZYOS_AUTOLOGIN` and the
+  autologin `LAZYOS_XUI_AUTOSTART` implies are ignored, with a warning).
 - Settings gets an **Accounts** page: add/remove users, change your password,
   make admin (the last two privileged ones go through U2).
 - `Authenticate` is rate-limited per name and per caller.
@@ -149,8 +150,13 @@ What exists, and the decisions taken on the way:
   login screen asks for the owner, the one `Create` `accountsd` takes from
   the `_greeter` identity while the database is empty, an administrator.
   **Decision:** default images keep the development accounts (`admin`,
-  `user`), which every session script and CI job uses; an autologin image
-  skips the setup.
+  `user`), which every session script and CI job uses. **Decision (review of
+  #659):** a setup image never logs anyone in: `user/build.rs` drops any
+  autologin, explicit or implied by `LAZYOS_XUI_AUTOSTART`, and the seed
+  ignores `LAZYOS_AUTOLOGIN`, each with a cargo warning (before, an
+  autostart image seeded no account yet logged `user` in). The setup is the
+  desktop login screen's, so `run_demo.py --setup` implies `--desktop` and
+  the GUI's setup checkbox sets `LAZYOS_DESKTOP=1`.
 - **The brake:** three free failures, then 1 s doubling to 60 s, refused
   at once with `EAGAIN`. An attempt is refused while its account name or
   (for an ordinary caller) its uid is locked, but a failure counts against
@@ -196,17 +202,52 @@ What exists, and the decisions taken on the way:
   keys), `pkgd` (any source path; `InstallApproved`, the only install that
   replaces a core app for `elevd`, and only for `pkg.update-core`;
   replacing a core app is refused from a session: `core_replace` is
-  blocked), `timed` (`SetTime`), `init` (`RestartService`, the services in
-  `elevpolicy::RESTARTABLE` only). `keyd` takes `Provision`/`Forget` from `accountsd`
-  alone.
+  blocked), `timed` (`SetTime`, `SetZone`), `init` (`RestartService`, the
+  services in `elevpolicy::RESTARTABLE` only). `keyd` takes
+  `Provision`/`Forget` from `accountsd` alone. A refusal of `timed` and
+  `init` carries a policy text (`services::refusal`), like `accountsd`'s,
+  which the attack harness requires.
 - **Apps:** Settings has an Accounts page (list, add, remove, make admin,
-  change your password) and writes `sys/**` and the clock through `elevd`;
-  Config shows only `user/<uid>/**` until **Elevate**; the Installer replaces
-  a core app through `pkg.update-core`.
+  set another account's password, change your password) and writes `sys/**`,
+  the clock and the zone through `elevd`; Config shows only `user/<uid>/**`
+  until **Elevate**; the Installer replaces a core app through
+  `pkg.update-core`.
+- **Settings and the prompt (review of #659):** every `sys/**` write
+  prompts, so Settings writes a machine setting on an explicit action, once:
+  the keyboard layout on **Use this layout** (moving through the list only
+  chooses), the start menu on **Save** (moves, renames and pins edit a draft;
+  **Revert** drops it), the zone on **Use this zone**. A cancelled or refused
+  prompt shows the stored value again, never the refused one.
+- **The zone (decision, review of #659):** `timed.SetZone` had no check
+  while the 24-hour toggle (`sys/time/*`) needed an administrator. Both are
+  machine settings, so both need one: `SetZone` takes `CAP_SYS_TIME` or
+  `elevd`, like `SetTime`, and a session's change is `elevd`'s `conf.set` of
+  `sys/time/zone`, which `timed` follows.
+- **The theme (decision, review of #659):** every account has a personal
+  theme (`user/<uid>/ui/*`, `uitheme::personal`), administrators included,
+  so the machine theme (`sys/ui/*`: the login screen and every account
+  without its own value) changes only through Appearance's **Make this the
+  default for everyone**: each key that differs from the machine value is
+  written through `elevd` (one approval per key; a multi-key operation in
+  `elevd` would make it one), then the user's copy is dropped so they follow
+  the default they set. A desktop picture under `/home` stays the user's.
+- **Passwords (decision, review of #659):** one rule,
+  `accountdb::secret::check_secret`: 4 to 64 characters (bytes for the
+  maximum, `keyd`'s limit), no control character. `accountsd` applies it to
+  every new password; the greeter's setup and the Accounts page check it
+  ahead of time with the same text, and ask for each new password twice.
+  An administrator recovers an account from the Accounts page (**Set
+  password**, `elevd`'s `account.password`, no old password). The page
+  refuses removing the account you use and removing or demoting the last
+  administrator (`accounts_ops`, host-tested).
 - **Kernel:** a native `write_file` replaces a file its caller owns in a
-  directory it cannot write (the views); native writes now drop the Linux
-  ABI table's cached metadata of the same path (a Linux `stat` saw the old
-  size); `/etc/group` lists the group view.
+  directory it cannot write (the views); `/etc/group` lists the group view.
+  The two mount tables' metadata caches stay coherent both ways
+  (`kernel/src/fs/coherence.rs`): every native mutation, `chmod`/`chown`,
+  `mkdir` and `rmdir` included, drops the Linux ABI table's entries for what
+  it changed, and every ABI mutation drops the native table's (a native
+  `chmod` that tightens a file refuses a Linux `access` at once;
+  `fsops_suite/coherence.rs`).
 
 The prompt's keys come from `inputd`, like any window's: `xuid` gives the
 focus to a surface of its own while the prompt is up and reads that

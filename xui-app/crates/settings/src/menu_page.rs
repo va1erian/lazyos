@@ -2,9 +2,11 @@
 //! above the power rows. Every app is in its category's submenu anyway, so
 //! nothing is pinned by default.
 //!
-//! Left, the menu's entries; right, the registry apps not in it yet. Every
-//! button saves through [`menu_ops`] at once, where `xuid` follows the key
-//! live. The page owns the working list and only ever shows what was saved.
+//! Left, the menu's entries; right, the registry apps not in it yet. The menu
+//! is a machine setting whose every write asks an administrator, so the
+//! buttons edit a draft and **Save** writes it in one request ([`menu_ops`]);
+//! **Revert** goes back to what is stored. A refused save keeps the draft,
+//! so nothing typed is lost.
 
 use std::rc::Rc;
 
@@ -12,7 +14,7 @@ use deskmenu::Entry;
 use xui_core::app::Ui;
 use xui_core::arrange::{button, column, edit, label, row, Build, Handle, LayoutExt, Mounted};
 use xui_core::backend::{Result, WidgetId};
-use xui_core::widget::{Button, Edit, ListView};
+use xui_core::widget::{Button, Edit, Label, ListView};
 use xui_core::HasText;
 
 use crate::app::{choice_list, Msg};
@@ -32,6 +34,10 @@ pub enum MenuMsg {
     Rename,
     Add,
     Reset,
+    /// Write the draft (one request).
+    Save,
+    /// Drop the draft and show the stored menu again.
+    Revert,
 }
 
 /// A button raising `msg`.
@@ -49,8 +55,12 @@ pub struct MenuPage {
     entries: Rc<ListView<Msg>>,
     available: Rc<ListView<Msg>>,
     rename: Rc<Edit<Msg>>,
+    state: Rc<Label<Msg>>,
     _mounted: Mounted<Msg>,
+    /// The draft the buttons edit.
     list: Vec<Entry>,
+    /// What the store holds.
+    saved: Vec<Entry>,
     apps: Vec<AppChoice>,
     free: Vec<AppChoice>,
 }
@@ -59,7 +69,8 @@ impl MenuPage {
     /// Lays the page out in the container `page`.
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<MenuPage> {
         let (entries, available, rename) = (Handle::new(), Handle::new(), Handle::new());
-        // Both columns end in two rows of buttons, so the lists line up.
+        let state = Handle::new();
+        // Both columns end in rows of buttons, so the lists line up.
         let mounted = ui.mount_in(
             page,
             row().padding(20).gap(20).children((
@@ -76,6 +87,11 @@ impl MenuPage {
                         row().gap(6).children((
                             edit().placeholder("New label").bind(&rename).fill(1),
                             command("Rename", MenuMsg::Rename),
+                        )),
+                        row().gap(6).children((
+                            command("Save", MenuMsg::Save),
+                            command("Revert", MenuMsg::Revert),
+                            label("").bind(&state).fill(1),
                         )),
                     ))
                     .fill(3),
@@ -94,8 +110,10 @@ impl MenuPage {
             entries: entries.get(),
             available: available.get(),
             rename: rename.get(),
+            state: state.get(),
             _mounted: mounted,
             list: Vec::new(),
+            saved: Vec::new(),
             apps: Vec::new(),
             free: Vec::new(),
         })
@@ -104,8 +122,14 @@ impl MenuPage {
     /// Re-read the store and the registry and repaint both lists.
     pub fn load(&mut self, store: &dyn ConfigStore) {
         self.apps = store.apps();
-        self.list = menu_ops::load(store);
+        self.saved = menu_ops::load(store);
+        self.list = self.saved.clone();
         self.refresh(Some(0));
+    }
+
+    /// Whether the draft differs from the stored menu.
+    pub fn unsaved(&self) -> bool {
+        self.list != self.saved
     }
 
     /// Rebuild both lists from the working state, selecting entry `select`.
@@ -120,6 +144,11 @@ impl MenuPage {
         self.available
             .select(if names.is_empty() { None } else { Some(0) });
         self.fill_rename();
+        self.state.set_text(if self.unsaved() {
+            "Unsaved changes"
+        } else {
+            ""
+        });
     }
 
     /// Show the selected entry's label in the rename box.
@@ -136,48 +165,79 @@ impl MenuPage {
     pub fn update(&mut self, msg: MenuMsg, store: &dyn ConfigStore) -> String {
         let selected = self.entries.selected();
         let needs_entry = || String::from("Select a menu entry first.");
+        let list = &mut self.list;
         let result = match msg {
-            MenuMsg::Select(_) => {
+            // The row the message names (a session or a test may raise it).
+            MenuMsg::Select(row) => {
+                self.entries
+                    .select(Some(row).filter(|row| *row < list.len()));
                 self.fill_rename();
                 return String::new();
             }
-            MenuMsg::Pick(_) => return String::new(),
+            MenuMsg::Pick(row) => {
+                let free = self.free.len();
+                self.available.select(Some(row).filter(|row| *row < free));
+                return String::new();
+            }
+            MenuMsg::Save => return self.save(store),
+            MenuMsg::Revert => {
+                let at = selected.unwrap_or(0);
+                self.list = self.saved.clone();
+                self.refresh(Some(at));
+                return String::from("Changes dropped.");
+            }
             MenuMsg::Up | MenuMsg::Down => {
                 let Some(i) = selected else {
                     return needs_entry();
                 };
                 let delta = if msg == MenuMsg::Up { -1 } else { 1 };
-                menu_ops::move_by(store, &mut self.list, i, delta).map(|to| (Some(to), "Moved."))
+                menu_ops::move_by(list, i, delta).map(Some)
             }
             MenuMsg::Remove => {
                 let Some(i) = selected else {
                     return needs_entry();
                 };
-                menu_ops::remove(store, &mut self.list, i).map(|to| (Some(to), "Removed."))
+                menu_ops::remove(list, i).map(Some)
             }
             MenuMsg::Rename => {
                 let Some(i) = selected else {
                     return needs_entry();
                 };
                 let label = self.rename.text();
-                menu_ops::rename(store, &mut self.list, i, &label).map(|()| (Some(i), "Renamed."))
+                menu_ops::rename(list, i, &label).map(|()| Some(i))
             }
             MenuMsg::Add => match self.available.selected().and_then(|i| self.free.get(i)) {
-                Some(app) => {
-                    let app = app.clone();
-                    menu_ops::add(store, &mut self.list, &app).map(|to| (Some(to), "Added."))
-                }
+                Some(app) => menu_ops::add(list, &app.clone()).map(Some),
                 None => return String::from("Select an app to add first."),
             },
-            MenuMsg::Reset => menu_ops::reset(store, &mut self.list)
-                .map(|()| (Some(0), "Menu reset to defaults.")),
+            MenuMsg::Reset => {
+                menu_ops::reset(list);
+                Ok(Some(0))
+            }
         };
         match result {
-            Ok((select, ok)) => {
+            Ok(select) => {
                 self.refresh(select);
-                ok.to_owned()
+                String::from("Changed; press Save to apply it.")
             }
             Err(error) => format!("Could not change the menu: {error}"),
+        }
+    }
+
+    /// Write the draft in one request.
+    fn save(&mut self, store: &dyn ConfigStore) -> String {
+        if !self.unsaved() {
+            return String::from("Nothing to save.");
+        }
+        match menu_ops::save(store, &self.list) {
+            Ok(()) => {
+                println!("SETTINGS:MENU:SAVED:{}", self.list.len());
+                self.saved = self.list.clone();
+                let at = self.entries.selected();
+                self.refresh(at);
+                String::from("Menu saved.")
+            }
+            Err(error) => format!("Menu not saved: {error}"),
         }
     }
 }

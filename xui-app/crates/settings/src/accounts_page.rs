@@ -1,11 +1,13 @@
 //! The Accounts page (docs/accounts-plan.md U1): the accounts of this
-//! computer, adding and removing one, making one an administrator, and
-//! changing your own password.
+//! computer, adding and removing one, making one an administrator, setting
+//! another account's password, and changing your own.
 //!
-//! Changing your own password needs only your current one. Adding, removing
-//! and promoting accounts are privileged: they go through [`Accounts`] to
-//! `elevd`, which shows the trusted prompt where an administrator approves
-//! (U2). A removed account's home is archived, never deleted outright.
+//! Changing your own password needs only your current one. Adding, removing,
+//! promoting and setting someone else's password are privileged: they go
+//! through [`Accounts`] to `elevd`, which shows the trusted prompt where an
+//! administrator approves (U2). A removed account's home is archived, never
+//! deleted outright. Every new password is typed twice and follows
+//! `accountdb::secret`'s rule; the rules live in [`accounts_ops`].
 
 use std::rc::Rc;
 
@@ -19,7 +21,11 @@ use xui_core::widget::{Button, CheckBox, Edit, ListView};
 use xui_core::HasText;
 
 use crate::accounts::{Account, Accounts};
+use crate::accounts_ops::{self, Outcome};
 use crate::app::{choice_list, Msg};
+
+/// Width of a name or password field: three and a button fit a row.
+const FIELD_W: i32 = 112;
 
 /// Messages the Accounts page's widgets raise.
 #[derive(Clone, Debug, PartialEq)]
@@ -29,7 +35,10 @@ pub enum AccountsMsg {
     /// Make the selected account an administrator (`true`) or not.
     Admin(bool),
     Remove,
+    /// Set the selected account's password (an administrator approves).
+    SetPassword,
     Add,
+    /// Change your own password.
     Password,
 }
 
@@ -38,15 +47,26 @@ fn command(text: &str, msg: AccountsMsg) -> Build<Button<Msg>, Msg> {
     button(text).on_click(Msg::Accounts(msg))
 }
 
+/// The page's password fields, each typed twice where it is new.
+struct Secrets {
+    /// The selected account's new password.
+    set: Rc<Edit<Msg>>,
+    set_again: Rc<Edit<Msg>>,
+    /// A new account's.
+    add: Rc<Edit<Msg>>,
+    add_again: Rc<Edit<Msg>>,
+    /// Yours: current, new, new again.
+    old: Rc<Edit<Msg>>,
+    new: Rc<Edit<Msg>>,
+    confirm: Rc<Edit<Msg>>,
+}
+
 /// The page's widgets and the accounts listed.
 pub struct AccountsPage {
     list: Rc<ListView<Msg>>,
     name: Rc<Edit<Msg>>,
-    password: Rc<Edit<Msg>>,
     admin: Rc<CheckBox<Msg>>,
-    old: Rc<Edit<Msg>>,
-    new: Rc<Edit<Msg>>,
-    confirm: Rc<Edit<Msg>>,
+    secrets: Secrets,
     _mounted: Mounted<Msg>,
     accounts: Vec<Account>,
 }
@@ -54,51 +74,69 @@ pub struct AccountsPage {
 impl AccountsPage {
     /// Lays the page out in the container `page`.
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<AccountsPage> {
-        let (list, name, password, admin) =
-            (Handle::new(), Handle::new(), Handle::new(), Handle::new());
-        let (old, new, confirm) = (Handle::new(), Handle::new(), Handle::new());
+        let (list, name, admin) = (Handle::new(), Handle::new(), Handle::new());
+        let h: [Handle<Edit<Msg>>; 7] = std::array::from_fn(|_| Handle::new());
         let secret = |hint: &str, handle: &Handle<Edit<Msg>>| {
-            edit().password().placeholder(hint).bind(handle).width(130)
+            edit()
+                .password()
+                .placeholder(hint)
+                .bind(handle)
+                .width(FIELD_W)
         };
         let mounted = ui.mount_in(
             page,
-            column().padding(16).gap(8).children((
+            column().padding(12).gap(6).children((
                 label("Accounts on this computer"),
                 choice_list(&[])
                     .on_select(|i| Msg::Accounts(AccountsMsg::Select(i)))
                     .bind(&list)
-                    .size(440, 110)
+                    .size(440, 96)
                     .align(Align::Start),
                 row().gap(6).children((
                     command("Make administrator", AccountsMsg::Admin(true)),
                     command("Remove administrator", AccountsMsg::Admin(false)),
                     command("Remove", AccountsMsg::Remove),
                 )),
+                label("Set the selected account's password"),
+                row().gap(6).children((
+                    secret("new password", &h[0]),
+                    secret("again", &h[1]),
+                    command("Set password", AccountsMsg::SetPassword),
+                )),
                 label("Add an account"),
                 row().gap(6).children((
-                    edit().placeholder("name").bind(&name).width(130),
-                    secret("password", &password),
+                    edit().placeholder("name").bind(&name).width(FIELD_W),
+                    secret("password", &h[2]),
+                    secret("again", &h[3]),
+                )),
+                row().gap(6).children((
                     checkbox("Administrator").bind(&admin),
                     command("Add", AccountsMsg::Add),
                 )),
                 label("Change your password"),
                 row().gap(6).children((
-                    secret("current", &old),
-                    secret("new", &new),
-                    secret("new again", &confirm),
+                    secret("current", &h[4]),
+                    secret("new", &h[5]),
+                    secret("new again", &h[6]),
+                    command("Change", AccountsMsg::Password),
                 )),
-                command("Change password", AccountsMsg::Password).align(Align::Start),
-                label("Adding, removing and promoting accounts asks an administrator."),
+                label("All but your own password ask an administrator."),
             )),
         )?;
+        let [set, set_again, add, add_again, old, new, confirm] = h.map(|handle| handle.get());
         Ok(AccountsPage {
             list: list.get(),
             name: name.get(),
-            password: password.get(),
             admin: admin.get(),
-            old: old.get(),
-            new: new.get(),
-            confirm: confirm.get(),
+            secrets: Secrets {
+                set,
+                set_again,
+                add,
+                add_again,
+                old,
+                new,
+                confirm,
+            },
             _mounted: mounted,
             accounts: Vec::new(),
         })
@@ -130,11 +168,17 @@ impl AccountsPage {
     /// Handle one message; returns the status line text.
     pub fn update(&mut self, msg: AccountsMsg, accounts: &dyn Accounts) -> String {
         let outcome = match msg {
-            AccountsMsg::Select(_) => return String::new(),
-            AccountsMsg::Admin(admin) => self.set_admin(accounts, admin),
-            AccountsMsg::Remove => self.remove(accounts),
+            AccountsMsg::Select(row) => {
+                // The row the message names (a session or a test may raise it).
+                self.list
+                    .select(Some(row).filter(|row| *row < self.accounts.len()));
+                return String::new();
+            }
             AccountsMsg::Add => self.add(accounts),
             AccountsMsg::Password => self.change_password(accounts),
+            AccountsMsg::Admin(_) | AccountsMsg::Remove | AccountsMsg::SetPassword => {
+                self.on_selected(msg, accounts)
+            }
         };
         let text = match outcome {
             Ok(text) => text,
@@ -148,65 +192,63 @@ impl AccountsPage {
         }
     }
 
-    fn set_admin(
-        &self,
-        accounts: &dyn Accounts,
-        admin: bool,
-    ) -> std::result::Result<String, String> {
-        let account = self.selected().ok_or("select an account first")?;
-        accounts.set_admin(&account.name, admin)?;
-        Ok(if admin {
-            format!("{} is an administrator.", account.name)
-        } else {
-            format!("{} is no longer an administrator.", account.name)
-        })
-    }
-
-    fn remove(&self, accounts: &dyn Accounts) -> std::result::Result<String, String> {
-        let account = self.selected().ok_or("select an account first")?;
-        if accounts.me().as_deref() == Some(account.name.as_str()) {
-            return Err(String::from("you cannot remove the account you are using"));
+    /// One of the actions on the selected account.
+    fn on_selected(&self, msg: AccountsMsg, accounts: &dyn Accounts) -> Outcome {
+        let target = self.selected().ok_or("select an account first")?;
+        let list = &self.accounts;
+        match msg {
+            AccountsMsg::Admin(admin) => accounts_ops::set_admin(accounts, list, target, admin),
+            AccountsMsg::Remove => accounts_ops::remove(accounts, list, target),
+            _ => {
+                let s = &self.secrets;
+                let outcome = accounts_ops::set_password(
+                    accounts,
+                    target,
+                    &s.set.text(),
+                    &s.set_again.text(),
+                );
+                clear(&[&s.set, &s.set_again]);
+                if outcome.is_ok() {
+                    println!("SETTINGS:ACCOUNTS:SETPASSWORD:PASS user={}", target.name);
+                }
+                outcome
+            }
         }
-        accounts.remove(&account.name)?;
-        Ok(format!(
-            "{} was removed; its home is archived.",
-            account.name
-        ))
     }
 
-    fn add(&self, accounts: &dyn Accounts) -> std::result::Result<String, String> {
+    fn add(&self, accounts: &dyn Accounts) -> Outcome {
+        let s = &self.secrets;
         let name = self.name.text().trim().to_string();
-        let password = self.password.text();
-        if name.is_empty() || password.is_empty() {
-            return Err(String::from("type a name and a password"));
-        }
         let admin = self.admin.is_checked();
-        accounts.create(&name, &password, admin)?;
-        self.name.set_text("");
-        self.password.set_text("");
-        self.admin.set_checked(false);
-        println!(
-            "SETTINGS:ACCOUNTS:ADD:PASS user={name} admin={}",
-            u8::from(admin)
-        );
-        Ok(format!("{name} was added."))
+        let outcome = accounts_ops::add(accounts, &name, &s.add.text(), &s.add_again.text(), admin);
+        clear(&[&s.add, &s.add_again]);
+        if outcome.is_ok() {
+            self.name.set_text("");
+            self.admin.set_checked(false);
+            println!(
+                "SETTINGS:ACCOUNTS:ADD:PASS user={name} admin={}",
+                u8::from(admin)
+            );
+        }
+        outcome
     }
 
-    fn change_password(&self, accounts: &dyn Accounts) -> std::result::Result<String, String> {
-        let me = accounts.me().ok_or("your account is unknown")?;
-        let (old, new) = (self.old.text(), self.new.text());
-        if new.is_empty() {
-            return Err(String::from("type a new password"));
+    fn change_password(&self, accounts: &dyn Accounts) -> Outcome {
+        let s = &self.secrets;
+        let outcome =
+            accounts_ops::change_own(accounts, &s.old.text(), &s.new.text(), &s.confirm.text());
+        clear(&[&s.old, &s.new, &s.confirm]);
+        if outcome.is_ok() {
+            let me = accounts.me().unwrap_or_default();
+            println!("SETTINGS:ACCOUNTS:PASSWORD:PASS user={me}");
         }
-        if new != self.confirm.text() {
-            return Err(String::from("the two new passwords differ"));
-        }
-        let result = accounts.change_password(&me, &old, &new);
-        for field in [&self.old, &self.new, &self.confirm] {
-            field.set_text("");
-        }
-        result?;
-        println!("SETTINGS:ACCOUNTS:PASSWORD:PASS user={me}");
-        Ok(String::from("Your password was changed."))
+        outcome
+    }
+}
+
+/// Empty password fields once their value was used, refused or not.
+fn clear(fields: &[&Rc<Edit<Msg>>]) {
+    for field in fields {
+        field.set_text("");
     }
 }

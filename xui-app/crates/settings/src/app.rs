@@ -8,9 +8,13 @@
 //! for the quick accent and background choices, and the full `ColorPanel`
 //! (HSV field, hue slider, HEX/RGB boxes) for any of the five themed colours.
 //! The Appearance page also lists the desktop pictures ([`wallpaper_ops`]).
-//! Every change is written straight to the [`ConfigStore`] (confd on LazyOS),
-//! where `xuid` and `inputd` pick it up live, and the status line reports the
-//! outcome. The clock, the zone and the About facts go through [`System`].
+//! Every change is written to the [`ConfigStore`] (confd on LazyOS), where
+//! `xuid` and `inputd` pick it up live, and the status line reports the
+//! outcome. A machine setting (`sys/**`) asks an administrator on each write,
+//! so the pages that edit one write on an explicit action, once: the
+//! keyboard layout on **Use this layout**, the menu on **Save**, the time
+//! zone on **Use this zone**, the machine theme on **Make this the default
+//! for everyone** (one approval per key that differs). The clock, the zone and the About facts go through [`System`].
 //! The window itself follows the theme it edits ([`theme_ops::xui_theme_for`]).
 
 use std::rc::Rc;
@@ -31,15 +35,14 @@ use crate::accounts::Accounts;
 use crate::accounts_page::{AccountsMsg, AccountsPage};
 use crate::appearance_page::AppearancePage;
 use crate::hidden_page::{HiddenMsg, HiddenPage};
-use crate::keyboard;
-use crate::keyboard_page::KeyboardPage;
+use crate::keyboard_page::{KeyboardMsg, KeyboardPage};
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
 use crate::system::System;
 use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
-use crate::user_theme::UserTheme;
+use crate::user_theme::{self, UserTheme};
 use crate::wallpaper_ops;
 use crate::windows_page::WindowsPage;
 
@@ -79,7 +82,9 @@ pub enum Msg {
     /// The colour panel committed `0xRRGGBB` for the selected target.
     Commit(u32),
     UseDefault,
-    Layout(usize),
+    /// Make the user's theme the machine default (asks an administrator).
+    MakeDefault,
+    Keyboard(KeyboardMsg),
     Menu(MenuMsg),
     Hidden(HiddenMsg),
     Time(TimeMsg),
@@ -108,7 +113,10 @@ struct Pages {
 
 /// The Settings app.
 pub struct SettingsApp {
+    /// The theme keys redirected to the user's own ([`UserTheme`]).
     store: Rc<dyn ConfigStore>,
+    /// The store as given: the machine keys, for [`Msg::MakeDefault`].
+    machine: Rc<dyn ConfigStore>,
     system: Rc<dyn System>,
     accounts: Rc<dyn Accounts>,
     /// The page title: the selected section's name.
@@ -200,7 +208,8 @@ impl SettingsApp {
         let mut app = SettingsApp {
             // A user's theme edits are its own; the administrator's are the
             // machine default (issue #407).
-            store: UserTheme::scoped(store),
+            store: UserTheme::scoped(Rc::clone(&store)),
+            machine: store,
             system,
             accounts,
             title: title.get(),
@@ -262,10 +271,7 @@ impl SettingsApp {
         let picture = wallpaper_ops::current(self.store.as_ref());
         a.wallpaper
             .select(wallpaper_ops::row_of(&self.pictures, picture.as_deref()));
-        match keyboard::current(self.store.as_ref()) {
-            Some(i) => p.keyboard.show_layout(i),
-            None => p.keyboard.show_default(),
-        }
+        p.keyboard.load(self.store.as_ref());
         self.load_target(self.target);
         self.pages.menu.load(self.store.as_ref());
     }
@@ -290,6 +296,31 @@ impl SettingsApp {
             Ok(()) => self.status.set_text(ok),
             Err(error) => self.status.set_text(&format!("Could not save: {error}")),
         }
+    }
+
+    /// Publish the user's theme as the machine default.
+    fn make_default(&mut self, ui: &Ui<Msg>) {
+        let Some(uid) = self.store.uid() else {
+            return self.status.set_text("Your account is unknown.");
+        };
+        let text = match user_theme::make_default(self.machine.as_ref(), uid) {
+            Ok(done) if done.written == 0 => {
+                String::from("Your theme already is the default for everyone.")
+            }
+            Ok(done) => {
+                println!("SETTINGS:THEME:DEFAULT:PASS keys={}", done.written);
+                let note = if done.kept_picture {
+                    " Your own picture stays yours."
+                } else {
+                    ""
+                };
+                format!("Your theme is now the default for everyone.{note}")
+            }
+            Err(error) => format!("The default theme was not changed: {error}"),
+        };
+        self.status.set_text(&text);
+        self.load_state();
+        self.retheme(ui);
     }
 }
 
@@ -383,36 +414,27 @@ impl App for SettingsApp {
                 self.load_state();
                 self.retheme(ui);
             }
-            Msg::Layout(i) => {
-                self.report(keyboard::set(store, i), "Keyboard layout changed.");
-                self.pages.keyboard.show_active(i);
-            }
-            Msg::Time(msg) => {
-                let text = self.pages.time.update(msg, store, self.system.as_ref());
-                if !text.is_empty() {
-                    self.status.set_text(&text);
-                }
-            }
+            Msg::MakeDefault => self.make_default(ui),
+            Msg::Keyboard(msg) => say(&self.status, self.pages.keyboard.update(msg, store)),
+            Msg::Time(msg) => say(
+                &self.status,
+                self.pages.time.update(msg, store, self.system.as_ref()),
+            ),
             Msg::AboutRefresh => self.pages.about.load(self.system.as_ref()),
-            Msg::Accounts(msg) => {
-                let text = self.pages.accounts.update(msg, self.accounts.as_ref());
-                if !text.is_empty() {
-                    self.status.set_text(&text);
-                }
-            }
-            Msg::Menu(msg) => {
-                let text = self.pages.menu.update(msg, store);
-                if !text.is_empty() {
-                    self.status.set_text(&text);
-                }
-            }
-            Msg::Hidden(msg) => {
-                let text = self.pages.hidden.update(msg, store);
-                if !text.is_empty() {
-                    self.status.set_text(&text);
-                }
-            }
+            Msg::Accounts(msg) => say(
+                &self.status,
+                self.pages.accounts.update(msg, self.accounts.as_ref()),
+            ),
+            Msg::Menu(msg) => say(&self.status, self.pages.menu.update(msg, store)),
+            Msg::Hidden(msg) => say(&self.status, self.pages.hidden.update(msg, store)),
         }
+    }
+}
+
+/// Put a page's answer on the status line (an empty one says nothing).
+fn say(status: &Label<Msg>, text: String) {
+    if !text.is_empty() {
+        status.set_text(&text);
     }
 }
 

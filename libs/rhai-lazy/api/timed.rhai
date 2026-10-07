@@ -39,7 +39,11 @@ fn get_zone() {
 /// `SetZone(name: String) -> ()`
 ///
 /// Switch to the built-in zone `name` and persist it to `confd`.
-/// An unknown name fails with `EINVAL`.
+/// An unknown name fails with `EINVAL`. A machine setting, like the
+/// clock: the caller's kernel-stamped credentials must hold
+/// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
+/// (a session asks `elevd` to write `sys/time/zone`, which `timed`
+/// follows).
 fn set_zone(name) {
     msg::connect("os.lazy.timed.v1").invoke("SetZone", [name])
 }
@@ -47,7 +51,8 @@ fn set_zone(name) {
 /// `SetTime(unix_secs: I64) -> ()`
 ///
 /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
-/// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
+/// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+/// an administrator approved `time.set`); anyone else gets `EPERM`.
 fn set_time(unix_secs) {
     msg::connect("os.lazy.timed.v1").invoke("SetTime", [unix_secs])
 }

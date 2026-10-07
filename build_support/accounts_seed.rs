@@ -52,8 +52,9 @@ pub enum Seed {
 }
 
 /// The seed this build asks for: `LAZYOS_OMIT_PASSWD=1` omits it,
-/// `LAZYOS_SETUP=1` empties it unless the image logs someone in
-/// (`LAZYOS_AUTOLOGIN` images skip the setup with the build's accounts).
+/// `LAZYOS_SETUP=1` empties it. A setup image never logs anyone in
+/// (`user/build.rs` drops its autologin), so a `LAZYOS_AUTOLOGIN` name is
+/// ignored with a warning rather than keeping accounts the setup would hide.
 pub fn from_env() -> Seed {
     for name in ["LAZYOS_OMIT_PASSWD", "LAZYOS_SETUP", "LAZYOS_AUTOLOGIN"] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -70,16 +71,14 @@ pub fn from_env() -> Seed {
         return Seed::Accounts;
     }
     let autologin = std::env::var("LAZYOS_AUTOLOGIN").unwrap_or_default();
-    match autologin.trim() {
-        "" | "none" => Seed::Setup,
-        name => {
-            println!(
-                "cargo:warning=LAZYOS_SETUP=1 with LAZYOS_AUTOLOGIN={name}: an autologin image \
-                 skips the first-boot setup and keeps the build's accounts"
-            );
-            Seed::Accounts
-        }
+    if !matches!(autologin.trim(), "" | "none") {
+        println!(
+            "cargo:warning=LAZYOS_SETUP=1 ignores LAZYOS_AUTOLOGIN={}: a first-boot setup \
+             image has no account until its owner is created, and logs nobody in",
+            autologin.trim()
+        );
     }
+    Seed::Setup
 }
 
 /// The seed database. Every account of `passwd` needs exactly one password

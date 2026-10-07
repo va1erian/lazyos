@@ -1,13 +1,13 @@
-// Attack: Restart a system service at init directly instead of through elevd (U2).
+// Attack: Switch the time zone at timed directly instead of through elevd (U2).
 // Prints one ACCT:ATTACK line; the harness judges it (tools/accounts/).
-// BLOCKED only with EPERM *and* init's refusal (user/src/bin/init/homes.rs)
+// BLOCKED only with EPERM *and* timed's refusal (user/src/bin/timed/handler.rs)
 // text: a wrong old password (EACCES), an ACL refusal or any other EPERM is
 // another reason, printed as such, which the judge refuses, so a regression
 // cannot pass as BLOCKED. Anything unrecognised is an ERROR.
-let policy = "only elevd may restart a service, once an administrator approved";
+let policy = "only an administrator, through elevd, may change the clock or the time zone";
 let verdict = "SUCCEEDED:ok";
 try {
-    sys::init::restart_service("inputd");
+    sys::timed::set_zone("Asia/Tokyo");
 } catch (e) {
     let text = e.to_string();
     if text.contains("(EPERM") && text.contains(policy) {
@@ -20,4 +20,4 @@ try {
         verdict = "ERROR:unrecognised";
     }
 }
-print("ACCT:ATTACK:direct_restart:" + verdict);
+print("ACCT:ATTACK:direct_zone:" + verdict);

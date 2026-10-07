@@ -54,14 +54,17 @@ What is enforced today, honestly:
   1001, an ordinary account in the `admin` group (U1, issue #624).
 - **Privileged changes go through `elevd`** (U2, issue #625). A session asks
   `elevd` for one operation of a fixed table (system installs and core app
-  updates, `sys/**` settings, the clock, accounts, the power policy, a
-  service restart); `xuid` shows the trusted prompt over a dimmed screen,
+  updates, `sys/**` settings, the clock and the time zone, accounts, the
+  power policy, a service restart); `xuid` shows the trusted prompt over a dimmed screen,
   above every client, naming the asker from its kernel label and uid; an
   administrator types their name and password (a non-admin can hand the
   machine to one); `elevd` then performs the operation itself. Nobody is
   handed root or a capability. `accountsd`, `confd`, `pkgd`, `timed` and
   `init` accept these privileged paths from `elevd`'s kernel-stamped
-  identity (its uid, unlabelled, outside any session), never from a session.
+  identity (its uid, unlabelled, outside any session), never from a session;
+  `timed` also takes `SetTime` and `SetZone` from `CAP_SYS_TIME`. Their
+  refusals name the policy (`EPERM` with its text), so the attack harness
+  can tell them from any other `EPERM`.
   Every request is audited (`system/events/elevd/request`, journalled to
   `/logs/elevd.log`), and wrong passwords lock the asker out for a growing
   delay.
@@ -160,8 +163,12 @@ approved rule set for: same uid, gid and session, never more capabilities
   from `/system/etc/skel`, which `init` makes as root on `accountsd`'s request
   alone (`init.Home`); `Delete` archives or removes it. The last administrator
   can be neither deleted nor demoted. A machine with no account (an image
-  built with `LAZYOS_SETUP=1`) runs the first-boot setup: the login screen
-  asks for the owner, the one `Create` it may make, an administrator.
+  built with `LAZYOS_SETUP=1`, which never logs anyone in) runs the
+  first-boot setup: the login screen asks for the owner, the one `Create` it
+  may make, an administrator. Every new password follows one rule
+  (`accountdb::secret`: 4 to 64 characters, no control character), which
+  `accountsd` enforces and the login screen and Settings check ahead of
+  time.
 - **Guessing is slowed.** `Authenticate` (and `SetPassword`'s old password)
   may fail three times in a row per key; each further failure locks that
   key for a delay doubling from 1 s to 60 s, during which attempts are

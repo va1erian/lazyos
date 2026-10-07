@@ -70,6 +70,7 @@ delete a canary file, and remove whatever they created.
 | `admin_lockout` | `attack.sh admin_lockout`: the session floods `Authenticate("admin", ...)` in the background (`auth_hammer.rhai`) while `elevd` asks for an administrator (`conf.elevate`); the harness types admin's right password and the request must be granted: a session's failures count against its own uid, never lock a name for `logind`/`elevd` (review of #659, H5) |
 | `auth_flood` | rhai: 40 wrong `Authenticate("admin", ...)` in a row; BLOCKED when at most 8 were checked and the rest slowed (`EAGAIN`) (U1) |
 | `direct_time` | rhai: `timed` `SetTime` directly, not through `elevd` (U2) |
+| `direct_zone` | rhai: `timed` `SetZone` directly: the zone is a machine setting like the clock (review of #659) |
 | `direct_restart` | rhai: `init` `RestartService("inputd")` directly (U2) |
 | `prompt_spoof` | rhai: open the trusted prompt itself (`os.lazy.display.prompt.v1`, `elevd`'s alone) (U2) |
 | `input_focus` | rhai: move the keyboard focus through `inputd`'s compositor link, to take a prompt's keys (U2) |
@@ -112,6 +113,15 @@ package writes `/apps`, `/docs/apps` and `/conf`).
 
 Always a failure, whatever the state: no marker, `ERROR`, `BLOCKED:ENOENT` (the
 target was missing, so nothing was attacked), a scenario missing from the table.
+
+The `accountsd`, `timed` and `init` probes (`acct_*`, `direct_*`) have a
+`refusal`: they count as BLOCKED only as `BLOCKED:EPERM-policy`, which the
+script prints when the refusal is `EPERM` *and* carries the service's policy
+text (`attack_judge.POLICY_TEXT`, e.g. accountsd's "only an administrator,
+through elevd, may ..."). A wrong old password or an ACL (`EACCES`) or any
+other `EPERM` prints its own detail and fails the run, so a regression that
+refuses for the wrong reason cannot pass as BLOCKED. `test_judge.py` checks
+each script's text against the source that says it.
 
 ## Files
 
