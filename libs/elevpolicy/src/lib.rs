@@ -245,9 +245,10 @@ impl Operation {
                 want(3)?;
                 let path = conf_path(arg(0).unwrap_or(""))?;
                 let value = parse_value(arg(1).unwrap_or(""), arg(2).unwrap_or(""))?;
-                // A text value is shown and stored as it is: nothing in it
-                // may make it read other than it is (`text::misleading`).
-                if matches!(&value, Value::Str(text) if !text::plain(text)) {
+                // A text value is stored as it is: nothing in it may make
+                // it read other than it is (`text::misleading`), but rows
+                // and columns, which the prompt and audit show escaped.
+                if matches!(&value, Value::Str(text) if !text::plain_rows(text)) {
                     return Err("a text value may not hold control or formatting characters");
                 }
                 Operation::ConfSet { path, value }
