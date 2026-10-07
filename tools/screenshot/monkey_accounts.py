@@ -14,8 +14,8 @@ counted under ``accounts.skipped`` in ``report.json``, so a recorded run
 replays against an image that has more or fewer of them. Shutdown, restart and
 power rows are never targeted (they look like a freeze: ``BAD_TARGET``).
 
-Invariant (forward-looking, harmless today): a grant marker
-(``ELEVD:GRANT``, ``ACCT:...GRANT``, ``--grant-pattern``) is a finding unless
+Invariant: a grant marker
+(elevd's ``ELEVD:REQUEST ... outcome=granted``, ``--grant-pattern``) is a finding unless
 a password action marked correct (``--admin-password``) preceded it; the
 random passwords the monkey types are all wrong. ``ACCT:ATTACK:...:SUCCEEDED``
 is a finding too. Findings reach ``monkey.py`` as ``ACCT-INVARIANT:`` lines.
@@ -30,7 +30,11 @@ import time
 
 from session_pointer import _CORNER_STEP, _RECT, _WIDGET, POINTER, resolve_pixel
 
-GRANT = r"\b(?:ELEVD|ACCT):[A-Za-z_:]*GRANT"
+#: elevd's audit line (`ELEVD:REQUEST op=... outcome=granted summary="..."`):
+#: every field before the quoted summary is one token, so a summary that
+#: quotes `outcome=granted` cannot match. The other two are older spellings.
+GRANT = (r'\bELEVD:REQUEST (?:[^ "]+ )*outcome=granted(?: |$)'
+         r"|\b(?:ELEVD|ACCT):[A-Za-z_:]*GRANT")
 ATTACK_OK = re.compile(r"ACCT:ATTACK:\S*:SUCCEEDED")
 FINDING_PREFIX = "ACCT-INVARIANT:"
 BAD_TARGET = re.compile(r"shut|power|restart|reboot|halt|poweroff|suspend", re.I)
@@ -298,8 +302,8 @@ def add_arguments(p) -> None:
                    help="weight the profile toward login/logout, Settings, the Installer, elevd and "
                         "account commands in the Terminal; check the account invariants")
     g.add_argument("--accounts-expect-root", action="store_true",
-                   help="known-open mode: the desktop still runs as root, so --audit findings are "
-                        "reported but do not fail the run")
+                   help="known-open mode: --audit findings are reported but do not fail the run "
+                        "(kept from when the desktop ran as root)")
     g.add_argument("--accounts-user", default="user", help="the session's account; /home/<it> may change")
     g.add_argument("--admin-password", help="the real admin password: a quarter of the password "
                                             "actions use it, and only those may precede a grant marker")

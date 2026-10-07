@@ -102,6 +102,16 @@ class InvariantChecks(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertTrue(out[0].startswith(ma.FINDING_PREFIX))
 
+    def test_elevd_audit_line_is_a_grant(self):
+        inv = ma.Invariants()
+        line = ('ELEVD:REQUEST op=pkg.install uid=1000 label=0 session=1 admin=admin '
+                'outcome=granted summary="Install Demo"')
+        self.assertEqual(len(inv.observe([line])), 1)
+        for other in ('ELEVD:REQUEST op=pkg.install uid=1000 admin=- outcome=cancelled summary=""',
+                      'ELEVD:REQUEST op=conf.set uid=1000 admin=- outcome=refused '
+                      'summary="Set x to \\" outcome=granted \\""'):
+            self.assertEqual(inv.observe([other]), [], other)
+
     def test_grant_after_admin_password_is_fine_once(self):
         inv = ma.Invariants()
         inv.credit()
