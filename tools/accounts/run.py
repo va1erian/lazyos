@@ -28,6 +28,7 @@ session installed must open at that login as `user`.
     python tools/accounts/run.py              # build, boot four times, judge
     python tools/accounts/run.py --no-build   # reuse target/lazyos.img (built with this script's assets)
     python tools/accounts/run.py --quick      # skip the hard-kill boot
+    python tools/accounts/run.py --prebuilt-apps  # CI: the xui apps are already in target/
     python tools/accounts/run.py --accel none # force TCG
 
 The image needs BusyBox (`tools/abi/busybox.py`), the xui apps and `rhai`
@@ -87,7 +88,9 @@ def command_for(name: str) -> str:
     return f"sh {GUEST}/attack.sh {name}"
 
 
-def build() -> bool:
+def build(apps: bool = True) -> bool:
+    """`rhai`, the xui apps (unless `apps` is false: CI hands them over
+    built, `target/xui` and `target/pkg`), the probe packages and the image."""
     if not BUSYBOX.is_file():
         print(f"missing {BUSYBOX}: run tools/abi/busybox.py (the Terminal needs sh)")
         return False
@@ -98,7 +101,8 @@ def build() -> bool:
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
-    if subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT, env=env).returncode:
+    if apps and subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT,
+                               env=env).returncode:
         return False
     problems = probe_packages.build_all(GENERATED)
     for problem in problems:
@@ -264,12 +268,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--prebuilt-apps", action="store_true",
+                        help="build rhai, the probe packages and the image, but take the xui "
+                             "apps and core packages as they are in target/ (CI)")
     parser.add_argument("--quick", action="store_true", help="skip the hard-kill boot")
     parser.add_argument("--accel", default="auto")
     parser.add_argument("--memory", help="guest RAM (default: the session tool's, 1G)")
     parser.add_argument("--out", type=Path, default=ROOT / "shots/accounts")
     args = parser.parse_args()
-    if not args.no_build and not build():
+    if not args.no_build and not build(apps=not args.prebuilt_apps):
         return 1
     if not IMAGE.is_file():
         print(f"missing {IMAGE}")
