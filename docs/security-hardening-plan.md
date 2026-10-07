@@ -70,7 +70,7 @@ label ACL engine. What makes the result pretend is how they are wired:
   |---|---|
   | accountsd `Create`, confd `sys/` writes, netd `Renew`/`Reattach` | `CAP_SYS_ADMIN` |
   | logd `Tail`, other users' sessions in logind `Sessions` | `CAP_AUDIT_READ` |
-  | timed `SetZone` | `CAP_SYS_TIME` |
+  | timed `SetZone` | `CAP_SYS_TIME` or `elevd` (done, review of #659) |
   | keyd `Provision` | caller is `_accounts` |
 
 - **Per-method rules live in MIDL**, next to the method they protect, and are

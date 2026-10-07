@@ -10,7 +10,7 @@
 //! focused title, focused taskbar entry, focus border and overlay selection
 //! unless a more specific override is set.
 //!
-//! The keys are the machine default; a user other than the administrator may
+//! The keys are the machine default; every account (uid 0 aside) may
 //! shadow each one with `user/<uid>/ui/<name>` ([`user_key`], issue #407).
 
 #![cfg_attr(not(test), no_std)]
