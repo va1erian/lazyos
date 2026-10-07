@@ -132,7 +132,10 @@ approved rule set for: same uid, gid and session, never more capabilities
   account: a directory of the optional home volume, or of the OS volume
   without one (the image build makes one per passwd account, filesystem F4).
   Password hashes are **Argon2id**, and only `keyd` can
-  verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
+  verify them. `keyd` derives a verifier and returns it to `accountsd`, which
+  stores it in the account database (`/accounts/db`, 0600 `_accounts`); `keyd`
+  loads them at boot and checks passwords in its own memory, and no other
+  service or client ever receives one.
 - **The account database** (issue #624, docs/accounts-plan.md U1) is
   `/accounts/db` (`libs/accountdb`): every account, the groups (`admin`
   makes administrators) and the Argon2id verifiers, owned by the `_accounts`

@@ -123,7 +123,9 @@ creates the owner, adds an account in Settings through the prompt, cancels
 another prompt, changes a password and logs in as the new account, and
 `accounts_setup_reboot.json` boots that image again (old password refused).
 Session scripts work as `user` (`/home/user`, `user/1000/**` confd keys); a
-step that must touch a system service logs in `admin` (still uid 0 until U1).
+step that must touch a system service asks `elevd` and approves the prompt as
+`admin` (uid 1001, like any account; `xuid_pointer_restart.json` restarts
+`inputd` with `service.restart`).
 
 ### The disk image
 

@@ -83,7 +83,7 @@
   {"wait_for": "TERM:UP:PASS", "occurrence": 2, "timeout": 240},
   {"wait_for": "SETTINGS:UP:PASS", "occurrence": 2, "timeout": 240},
   {"wait": 3.0},
-  {"click_at": {"window": "Terminal", "offset": [0, 120]}},
+  {"click_at": {"window": "Terminal", "offset": [-305, 120]}, "note": "the left edge of the Terminal, which Settings (opened after it) does not cover"},
   {"wait": 0.5},
   {"type": "PS1='# '"},
   {"key": "enter", "until": "TERM:CMD:PS1='# '", "timeout": 30, "retries": 2},
