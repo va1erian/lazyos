@@ -144,7 +144,10 @@ fn home(op, name, uid, gid) {
 /// Restart the system service `name` (docs/accounts-plan.md U2): its
 /// running task is killed and the supervisor starts it again as after a
 /// crash. Accepted from `elevd` alone, after an administrator approved
-/// it; an app or an unknown row is `ENOENT`, a row not running `EAGAIN`.
+/// it, and only for the services `elevpolicy::RESTARTABLE` lists (never
+/// `elevd`, `logind`, `accountsd`, `keyd`, `confd`, `logd` or `init`'s
+/// own fabric): any other name is `EPERM`, an app or an unknown row
+/// `ENOENT`, a row not running `EAGAIN`.
 fn restart_service(name) {
     msg::connect("os.lazy.init.v1").invoke("RestartService", [name])
 }

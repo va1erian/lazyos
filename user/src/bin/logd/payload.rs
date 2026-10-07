@@ -106,17 +106,20 @@ fn declared(topic: &str, payload: &[u8]) -> Option<String> {
     }
     // `elevd`'s audit trail (docs/accounts-plan.md U2): `/logs/elevd.log`.
     if topics::matches(elevd::TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, topic) {
+        // Rendered by `elevpolicy::audit` as elevd's serial line is: no
+        // value in a record can forge a line or a field of the journal.
         let record = elevd::decode_system_events_elevd_request(payload).ok()?;
-        return Some(format!(
-            "op={} outcome={} uid={} user={} label={} admin={} summary={}",
-            record.operation,
-            record.outcome,
-            record.uid,
-            record.user,
-            record.label,
-            record.admin,
-            record.summary
-        ));
+        let line = elevpolicy::audit::Line {
+            operation: &record.operation,
+            uid: record.uid,
+            label: record.label,
+            session: 0,
+            user: &record.user,
+            admin: &record.admin,
+            outcome: &record.outcome,
+            summary: &record.summary,
+        };
+        return Some(line.journal());
     }
     None
 }

@@ -33,7 +33,8 @@ const PROMPT_TICKS: u64 = 12_000;
 pub(crate) enum Verdict {
     /// An administrator (named) approved it.
     Granted(String),
-    /// No administrator approved it; the last name typed, if any.
+    /// No administrator approved it; the last name typed, when it names an
+    /// account (otherwise empty: what was typed there may be a password).
     Refused(String),
     Cancelled,
     TimedOut,
@@ -128,13 +129,20 @@ pub(crate) fn approve(state: &mut State, caller: Caller, record: &Entry, prefill
         if state.limiter.check(&keys, sys::clock()).is_err() {
             return Verdict::Locked;
         }
-        last = name.clone();
-        match check(&name, &secret) {
-            Ok(true) => {
+        let checked = check(&name, &secret);
+        // The audit names what was typed only when it is an account's name
+        // (review of #659): a password typed into the name field by
+        // mistake must never reach `/logs/elevd.log`.
+        last = match &checked {
+            Ok(answer) if answer.known => name.clone(),
+            _ => String::new(),
+        };
+        match checked {
+            Ok(Checked { approved: true, .. }) => {
                 state.limiter.succeeded(&keys);
                 return Verdict::Granted(name);
             }
-            Ok(false) => {
+            Ok(_) => {
                 state.limiter.failed(&keys, sys::clock());
                 error = String::from("That is not an administrator's name and password.");
             }
@@ -147,20 +155,34 @@ pub(crate) fn approve(state: &mut State, caller: Caller, record: &Entry, prefill
     Verdict::Refused(last)
 }
 
+/// What [`check`] found.
+struct Checked {
+    /// `name` is an account's.
+    known: bool,
+    /// `name` is an administrator's and `secret` its password.
+    approved: bool,
+}
+
 /// Whether `name` is an administrator and `secret` its password. `Err`:
 /// `accountsd`'s own brake holds for that name.
-fn check(name: &str, secret: &str) -> Result<bool, ()> {
-    let Ok(endpoint) = accounts_endpoint() else {
-        return Ok(false);
+fn check(name: &str, secret: &str) -> Result<Checked, ()> {
+    let mut checked = Checked {
+        known: false,
+        approved: false,
     };
-    let admin = accounts::lookup_name(&endpoint, name)
-        .ok()
-        .flatten()
-        .is_some_and(|user| user.admin);
+    let Ok(endpoint) = accounts_endpoint() else {
+        return Ok(checked);
+    };
+    let account = accounts::lookup_name(&endpoint, name).ok().flatten();
+    checked.known = account.is_some();
+    let admin = account.is_some_and(|user| user.admin);
     match accounts::authenticate(&endpoint, name, secret) {
-        Ok(ok) => Ok(admin && ok),
+        Ok(ok) => {
+            checked.approved = admin && ok;
+            Ok(checked)
+        }
         Err(Error::Errno(code)) if code == -errno::EAGAIN => Err(()),
-        Err(_) => Ok(false),
+        Err(_) => Ok(checked),
     }
 }
 

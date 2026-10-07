@@ -7052,7 +7052,10 @@ pub mod os_lazy_init_v1 {
     /// Restart the system service `name` (docs/accounts-plan.md U2): its
     /// running task is killed and the supervisor starts it again as after a
     /// crash. Accepted from `elevd` alone, after an administrator approved
-    /// it; an app or an unknown row is `ENOENT`, a row not running `EAGAIN`.
+    /// it, and only for the services `elevpolicy::RESTARTABLE` lists (never
+    /// `elevd`, `logind`, `accountsd`, `keyd`, `confd`, `logd` or `init`'s
+    /// own fabric): any other name is `EPERM`, an app or an unknown row
+    /// `ENOENT`, a row not running `EAGAIN`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RestartServiceArgs {
         pub name: alloc::string::String,
@@ -13613,6 +13616,8 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_DEVELOP: u32 = 803454394;
     /// `DevelopDeclined` method id.
     pub const METHOD_DEVELOPDECLINED: u32 = 1386916580;
+    /// `InstallApproved` method id.
+    pub const METHOD_INSTALLAPPROVED: u32 = 1599511615;
 
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
@@ -13950,6 +13955,72 @@ pub mod os_lazy_pkgd_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.path = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// `elevd`'s install of a package an administrator approved on the
+    /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
+    /// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
+    /// reported for the file the prompt described: `pkgd` installs the
+    /// bytes it reads only when they hash to it, so the file cannot be
+    /// swapped between the approval and the install. `core` says what was
+    /// approved: `false` (`pkg.install`) refuses a package that would
+    /// replace a core app, `true` (`pkg.update-core`) refuses one that would
+    /// not. Plain `Install` never replaces a core app for `elevd`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallApprovedArgs {
+        pub path: alloc::string::String,
+        pub digest: alloc::string::String,
+        pub core: bool,
+    }
+
+    pub fn encode_install_approved_args(value: &InstallApprovedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.string(2, &value.digest)?;
+        target.bool(3, value.core)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_approved_args(body: &[u8]) -> Result<InstallApprovedArgs, Error> {
+        let mut out = InstallApprovedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.digest = field.as_str()?.into();
+                }
+                3 => {
+                    out.core = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallApprovedReply {
+        pub app: Installed,
+    }
+
+    pub fn encode_install_approved_reply(value: &InstallApprovedReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_installed(&value.app)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_approved_reply(body: &[u8]) -> Result<InstallApprovedReply, Error> {
+        let mut out = InstallApprovedReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = decode_installed(field.payload)?;
             }
         }
         Ok(out)

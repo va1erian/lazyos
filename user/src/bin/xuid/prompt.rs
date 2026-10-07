@@ -43,6 +43,9 @@ use super::protocol::{Event, EventKind};
 pub(super) const PROMPT_TICKS: u64 = 9000;
 /// Longest name or password typed.
 const FIELD_MAX: usize = 64;
+/// Longest summary kept: more than the prompt has room for, so a longer one
+/// (never one `elevd` sends) ends in the visible `...` of `prompt_draw.rs`.
+const SUMMARY_MAX: usize = 2 * elevpolicy::MAX_SUMMARY;
 
 /// Where the keyboard goes inside the prompt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,8 +131,15 @@ impl Compositor {
         let Ok(args) = wire::decode_prompt_args(&message.parcel.body) else {
             return Some(refusal(errno::EINVAL, "malformed prompt"));
         };
+        // A field typed or named here is cut at `max`; the summary and the
+        // error are bounded by `elevd` and wrapped with a visible `...`
+        // when they do not fit (`prompt_draw.rs`). A control character never
+        // reaches the screen: it shows as `?`, never silently dropped.
         let short = |text: &str, max: usize| -> String {
-            text.chars().filter(|c| !c.is_control()).take(max).collect()
+            text.chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .take(max)
+                .collect()
         };
         // The keyboard first (`prompt_keys.rs`): no prompt opens, and no
         // field takes a key, until `inputd` confirmed no client window has
@@ -159,7 +169,7 @@ impl Compositor {
         self.grab = None;
         self.prompt = Some(Prompt {
             txn,
-            summary: short(&args.summary, 200),
+            summary: short(&args.summary, SUMMARY_MAX),
             asker: asker(args.label_id, &args.user, args.uid),
             error: short(&args.error, 120),
             name,

@@ -36,15 +36,6 @@ pub fn parse_value(kind: &str, text: &str) -> Result<Value, &'static str> {
     })
 }
 
-/// A value as the prompt shows it (bytes as a length only).
-pub(crate) fn value_text(value: &Value) -> String {
-    match value {
-        Value::Str(text) => format!("\"{text}\""),
-        Value::Bytes(bytes) => format!("{} bytes", bytes.len()),
-        other => value_args(other).1,
-    }
-}
-
 /// `unix` as `YYYY-MM-DD HH:MM UTC`.
 pub(crate) fn civil(unix: i64) -> String {
     let days = unix.div_euclid(86_400);
@@ -81,12 +72,13 @@ pub(crate) fn conf_path(path: &str) -> Result<String, &'static str> {
     Ok(path.to_string())
 }
 
-/// An absolute package path of sane shape (`pkgd` normalises and checks it
-/// again before reading).
+/// An absolute package path of sane shape, with no character that could
+/// make it read other than it is (`pkgd` normalises and checks it again
+/// before reading).
 pub(crate) fn package_path(path: &str) -> Result<String, &'static str> {
     let ok = path.starts_with('/')
         && path.len() > 1
-        && !path.chars().any(char::is_control)
+        && crate::text::plain(path)
         && path[1..]
             .split('/')
             .all(|part| !matches!(part, "" | "." | ".."));

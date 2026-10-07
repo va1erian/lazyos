@@ -172,6 +172,26 @@ impl Client {
             .app)
     }
 
+    /// `InstallApproved(path, digest, core)`: `elevd`'s install of what an
+    /// administrator approved (only `elevd` may call it).
+    pub fn install_approved(
+        &self,
+        path: &str,
+        digest: &str,
+        core: bool,
+    ) -> core::result::Result<Installed, Failure> {
+        let body = wire::encode_install_approved_args(&wire::InstallApprovedArgs {
+            path: String::from(path),
+            digest: String::from(digest),
+            core,
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_INSTALLAPPROVED, body)?;
+        Ok(wire::decode_install_approved_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .app)
+    }
+
     /// `Remove(system_name)`.
     pub fn remove(&self, system_name: &str) -> core::result::Result<(), Failure> {
         let body = wire::encode_remove_args(&wire::RemoveArgs {

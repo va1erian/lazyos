@@ -75,7 +75,10 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
-    "direct_time", "direct_restart", "prompt_spoof", "input_focus", "display_read")}
+    "direct_time", "direct_restart", "prompt_spoof", "input_focus", "display_read",
+    # Review of #659: what elevd refuses before any prompt.
+    "audit_forge", "core_claim")}
+RHAI_ATTACKS |= {f"restart_{name}": f"restart_guarded.rhai {name}" for name in ("elevd", "xuid")}
 #: A step that only prepares a scenario prints this marker instead.
 SETUP_MARKERS = {"autostart_pkg": "TERM:OUT:ACCT:INSTALL:autostart_pkg:"}
 

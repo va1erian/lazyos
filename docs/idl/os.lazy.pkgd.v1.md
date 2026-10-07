@@ -27,6 +27,7 @@ typed reply; a package that fails validation reports every problem in
 | Provisioned | 1076218465 | sync | `() -> (state: ProvisionState)` |
 | Develop | 803454394 | sync | `(path: String, confirm: Bool) -> (label: String, approved: Bool)` |
 | DevelopDeclined | 1386916580 | sync | `(path: String) -> ()` |
+| InstallApproved | 1599511615 | sync | `(path: String, digest: String, core: Bool) -> (app: Installed)` |
 
 ## Topics
 

@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "screenshot"))
 from pngstats import decode_png  # noqa: E402
 
 #: The prompt panel's design size (`user/src/bin/xuid/prompt_draw.rs`).
-PANEL = (480, 240)
+PANEL = (480, 324)
 #: The fraction of the panel's pixels that must not change.
 SAME_MIN = 0.98
 #: The fraction of the panel the window must cover for `prompt_over` to mean
