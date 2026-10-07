@@ -39,6 +39,13 @@ pub fn register_docs() {
     register_mono();
 }
 
+/// Registers a further font file read at run time (LazyWeb's web fonts),
+/// with the same timing rule as [`register_mono`]: before the backend is
+/// created. The shaper parses the bytes in memory.
+pub fn add(bytes: Vec<u8>) {
+    xui_canvas::add_font(bytes);
+}
+
 /// Droid Serif Regular (Apache-2.0), LazyWriter's Serif family. There is no
 /// serif bold or italic face: the shaper synthesises both.
 pub const SERIF_BYTES: &[u8] = include_bytes!("../../assets/fonts/DroidSerif-Regular.ttf");

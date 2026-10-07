@@ -1,0 +1,242 @@
+{
+ "https://en.wikipedia.org/static/favicon/wikipedia.ico": {
+  "file": "d4007aad56bcd6a8.ico",
+  "type": "image/vnd.microsoft.icon"
+ },
+ "https://en.wikipedia.org/static/images/footer/wikimedia.svg": {
+  "file": "23e8ebb6964015d5.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg": {
+  "file": "3b523e4334b69d5e.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/static/images/project-logos/enwiki-25-2x.png": {
+  "file": "c526de92e19af7f0.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/static/images/project-logos/enwiki-25.png": {
+  "file": "f534e20a46b07ce4.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/UniversalLanguageSelector/resources/images/cog-sprite.svg?39d1e": {
+  "file": "2e01c46858b70161.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/extensions/Wikibase/client/resources/images/edit.svg?34bc5": {
+  "file": "4ba740e1eb40cac8.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-digitaldocument.png?b8b50": {
+  "file": "35983b6cb85ac97a.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-golden-star.png?ed948": {
+  "file": "793b1a815fc9e9d7.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-problematic.png?f3177": {
+  "file": "bce2172c53456545.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-proofread.png?e81f9": {
+  "file": "baf57fa8b3ad3962.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-silver-star.png?28684": {
+  "file": "b85e6ef34e603c23.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/extensions/WikimediaBadges/resources/images/badge-validated.png?6232c": {
+  "file": "ffc446831dc1c0f0.png",
+  "type": "image/png"
+ },
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.cite.parsoid.styles%7Cext.cite.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediaBadges%7Cmediawiki.skinning.content.parsoid%7Cskins.vector.styles.legacy%7Cwikibase.client.init&only=styles&skin=vector": {
+  "file": "cceb84c74b9c4b20.css",
+  "type": "text/css; charset=utf-8"
+ },
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=ext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cmediawiki.skinning.content.parsoid%7Cmediawiki.skins.legacy%7Cskins.vector.styles.legacy%7Cwikibase.client.init&only=styles&skin=vector": {
+  "file": "d92d7bdbd0df608f.css",
+  "type": "text/css; charset=utf-8"
+ },
+ "https://en.wikipedia.org/w/load.php?lang=en&modules=site.styles&only=styles&skin=vector": {
+  "file": "ffd30193d889731c.css",
+  "type": "text/css; charset=utf-8"
+ },
+ "https://en.wikipedia.org/w/resources/assets/mediawiki_compact.svg": {
+  "file": "c4705b86f4a29b4a.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/resources/src/mediawiki.skinning/images/magnify-clip-ltr.svg?8330e": {
+  "file": "d654bcd75caede50.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/resources/src/mediawiki.skinning/images/magnify-clip-rtl.svg?38fd5": {
+  "file": "0c9a85fa34cc4d72.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/arrow-down.svg?f88ee": {
+  "file": "9eb8bb8389f7d9dc.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/bullet-icon.svg?d4515": {
+  "file": "0ccda0ca68045b17.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/link-external-small-ltr-progressive.svg?fb64d": {
+  "file": "5918d96c2da5881b.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/search.svg?a45d6": {
+  "file": "566efe2e608b9d19.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-icon-hl.svg?72bac": {
+  "file": "6ceed9cc937cc44f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-icon.svg?75797": {
+  "file": "c39795e9356e9f28.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-temp-icon-hl.svg?9a8e5": {
+  "file": "c25c2985e036e37f.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/unwatch-temp-icon.svg?6e0c5": {
+  "file": "5fc4cbc999d22d69.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/user-avatar.svg?943a0": {
+  "file": "9e4dc3da5497937c.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/user-temporary.svg?c97f0": {
+  "file": "68f86b76cc855a93.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/watch-icon-hl.svg?9bf90": {
+  "file": "fdf7eb5ecea66165.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/w/skins/Vector/resources/skins.vector.styles.legacy/images/watch-icon.svg?6ab6f": {
+  "file": "3db85b27b01d47b4.svg",
+  "type": "image/svg+xml"
+ },
+ "https://en.wikipedia.org/wiki/1762?useskin=vector": {
+  "file": "b0c3586898db9ef9.html",
+  "type": "text/html; charset=UTF-8"
+ },
+ "https://en.wikipedia.org/wiki/Main_Page?useskin=vector": {
+  "file": "ff4f59d96a01e931.html",
+  "type": "text/html; charset=UTF-8"
+ },
+ "https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&type=1x1&usesul3=1": {
+  "file": "86d0ec315879ed1a.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/08/Coronation_portrait_of_Peter_III_of_Russia_-1761.JPG/120px-Coronation_portrait_of_Peter_III_of_Russia_-1761.JPG?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "2df67c0e6dc15c31.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0b/Wikiversity_logo_2017.svg/60px-Wikiversity_logo_2017.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "74def2ab6b5e7eae.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0c/Wikifunctions-logo.svg/40px-Wikifunctions-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "cd38c0956cd773b5.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0e/Elizabeth_of_Russia_by_V.Eriksen.jpg/120px-Elizabeth_of_Russia_by_V.Eriksen.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "b2403092d59d2e59.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2f/Charles_Lennox%2C_2nd_Duke_of_Richmond%2C_by_circle_of_Jean_Marc_Nattier.jpg/250px-Charles_Lennox%2C_2nd_Duke_of_Richmond%2C_by_circle_of_Jean_Marc_Nattier.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "12893c9c72612e3c.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4c/Wikisource-logo.svg/40px-Wikisource-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "d159a47403a8f3c7.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/67/Charlotte_Jordan_2023_%28cropped%29.jpg/250px-Charlotte_Jordan_2023_%28cropped%29.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "8dacaf60525bf0f0.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/Egypt_flag_on_6oct_war.jpg/250px-Egypt_flag_on_6oct_war.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "58abb81c84c4ad6b.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Wikimedia_Community_Logo.svg/40px-Wikimedia_Community_Logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "51253a427010ccf0.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8d/Johann_Gottlieb_Fichte.jpg/120px-Johann_Gottlieb_Fichte.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "a44e0b88005a01e4.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/99/Wiktionary-logo-en-v2.svg/40px-Wiktionary-logo-en-v2.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "4d99ccd847ec339a.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/MediaWiki-2020-icon.svg/40px-MediaWiki-2020-icon.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "208dfc94345cd580.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/2014_Rallye_Deutschland_by_2eight_DSC2587.jpg/250px-2014_Rallye_Deutschland_by_2eight_DSC2587.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "3eb205ef90c12500.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dd/Wikivoyage-Logo-v3-icon.svg/40px-Wikivoyage-Logo-v3-icon.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "40a2bbf396061b8b.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/df/Wikispecies-logo.svg/40px-Wikispecies-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "778690e81ab46361.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e7/Thomas_Mundy_Peterson_by_William_R._Tobias.jpg/250px-Thomas_Mundy_Peterson_by_William_R._Tobias.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "58189af890cbb1f0.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e9/Spencer_PercevalCE.jpg/120px-Spencer_PercevalCE.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "64bb98610c3f356f.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ef/George_IV_1821_color.jpg/120px-George_IV_1821_color.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "1cb561032d654e50.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fa/Wikibooks-logo.svg/40px-Wikibooks-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "a14711baa38a0fcd.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fa/Wikiquote-logo.svg/40px-Wikiquote-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "2adb7a919ef5b710.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fb/The_Piazza_at_Havana_RMG_BHC0418.tiff/lossy-page1-250px-The_Piazza_at_Havana_RMG_BHC0418.tiff.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "ecadcdbdab406b14.jpg",
+  "type": "image/jpeg"
+ },
+ "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/ff/Wikidata-logo.svg/60px-Wikidata-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "fd91ab023dd3ef9e.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/20px-Commons-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "3d93e6b29439b175.png",
+  "type": "image/png"
+ },
+ "https://thumb.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/40px-Commons-logo.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail": {
+  "file": "9dcccac55e21c265.png",
+  "type": "image/png"
+ },
+ "https://upload.wikimedia.org/wikipedia/commons/4/4d/Icon_pdf_file.png": {
+  "file": "1fecc512da1b318f.png",
+  "type": "image/png"
+ },
+ "https://upload.wikimedia.org/wikipedia/commons/5/5d/Checker-16x16.png": {
+  "file": "a6ef24dcb63ca8ba.png",
+  "type": "image/png"
+ }
+}

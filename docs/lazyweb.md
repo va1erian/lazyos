@@ -3,7 +3,7 @@
 LazyWeb (`os.lazy.lazyweb`) is LazyOS's web browser: the
 [NetSurf](https://www.netsurf-browser.org/) engine (HTML 4 and CSS 2.1 with
 parts of CSS 3, PNG, JPEG, GIF and animated GIF, BMP and ICO through its
-libraries) in a desktop window of the `xuid` compositor, fetching pages over
+libraries, SVG through `resvg`) in a desktop window of the `xuid` compositor, fetching pages over
 `http://` and `https://`. HTTPS uses the TLS work of
 [tls-plan.md](tls-plan.md): rustls with the pure-Rust `nettls-crypto`
 provider, certificates checked against the system bundle at
@@ -113,6 +113,38 @@ a script) is refused, with `WEB:LAUNCH:<url>:BLOCKED` and a note in the
 status bar. Mail registers `x-scheme-handler/mailto` and
 opens its compose window with the address, subject and body of the link.
 
+## Fonts
+
+Pages are drawn with the Liberation fonts (Sans, Serif and Mono with their
+bold, italic and bold italic faces, SIL OFL 1.1) that desktop images install
+in `/system/share/fonts/liberation`; LazyWeb reads them at start
+(`xui-app/web/src/fonts.rs`, serial `WEB:FONTS:<loaded>/12`). They are
+metric-compatible with Arial, Times New Roman and Courier New, so pages set
+in those keep their line breaks, and italic text gets a real italic face.
+CSS `sans-serif`, `serif` and `monospace` (and the families sorted into
+them, such as Arial, Times or Courier) map to the three. The window itself
+stays in Droid Sans, like every xui app.
+
+## Wikipedia
+
+Wikipedia and its sister projects serve the Vector 2022 skin by default, whose
+layout is a CSS grid with custom properties; NetSurf has neither, so the page
+falls into one column with every menu open. LazyWeb therefore asks the
+Wikimedia wikis for their 2010 Vector skin, laid out with floats and built
+for browsers without JavaScript: a fetch of a `/wiki/` or `/w/index.php` page
+on `wikipedia.org`, `wiktionary.org` and the other Wikimedia domains gets
+`useskin=vector` added (`xui-app/web/src/sites.rs`), unless the URL already
+names a skin. The address bar, history and links keep the URL as written.
+
+The engine work behind the rest (issue #632, in `va1erian/xui`'s
+`xui-netsurf`): CSS `opacity` is applied (a box at 0 draws nothing, so the
+skins' hidden menu checkboxes no longer show as empty squares; one between 0
+and 1 scales the alpha of what the box draws), SVG pictures are drawn by
+`resvg` at twice their size so they stay sharp on the 2x desktop, and the text
+of inline `::before`/`::after` pseudo-elements is laid out (the ` · ` between
+the items of a navigation box). Still missing: CSS grid, `var()` and
+`mask-image`, so the Vector 2022 skin itself stays one column.
+
 ## Testing it
 
 ```bash
@@ -127,7 +159,8 @@ The harness serves stand-ins for both sites from the host on their real ports
 over HTTPS whose certificate comes from a throwaway CA the test image trusts),
 points the names at the host through the image's `/etc/hosts`, starts the
 browser at `http://example.com/`, types `https://theoldnet.com/` into the
-address bar, downloads a file the site sends as an attachment, follows a
+address bar, opens copies of two Wikipedia pages with their style sheets and
+pictures (`tools/web/wiki.py`), downloads a file the site sends as an attachment, follows a
 `mailto:` address, opens `about:history` and `about:downloads`, and judges
 the browser's serial markers (`WEB:UP:PASS`,
 `WEB:LOAD:<url>`, `WEB:TITLE:<title>`, never `WEB:FAIL:<reason>`), the requests

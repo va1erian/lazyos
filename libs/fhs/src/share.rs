@@ -10,6 +10,12 @@ pub const MIME_TYPES: &str = "/system/share/mime.types";
 /// Written by the image build.
 pub const WALLPAPERS: &str = "/system/share/wallpapers";
 
+/// The Liberation fonts a desktop image ships (`Liberation{Sans,Serif,Mono}-
+/// {Regular,Bold,Italic,BoldItalic}.ttf`, SIL OFL 1.1; `assets/fonts/liberation`),
+/// metric-compatible with Arial, Times New Roman and Courier New: LazyWeb
+/// reads them at start for web pages. Written by the image build.
+pub const FONTS_LIBERATION: &str = "/system/share/fonts/liberation";
+
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
 /// `writer-sample.png`, `archiver-sample.zip`, `archiver-sample.7z`,
 /// `lazyos-sample.pdf`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
@@ -55,6 +61,12 @@ pub const LRDEV_TEST_LZP: &str = "/system/share/samples/lrdev-test.lzp";
 /// Written by the image build.
 pub const MODPLAYER_LZP: &str = "/system/share/samples/modplayer.lzp";
 
+/// The full licence notice of the Lucide icons every xui app draws (ISC, and
+/// MIT for the icons Lucide took from Feather), which their terms require to
+/// travel with every copy; Settings -> About points to it. Written by the
+/// image build (`assets/licenses`).
+pub const LUCIDE_LICENSE: &str = "/system/share/licenses/LICENSE-Lucide.txt";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";
@@ -65,7 +77,14 @@ mod tests {
 
     #[test]
     fn data_lives_in_system_share() {
-        for path in [MIME_TYPES, WALLPAPERS, SAMPLES, LAZYRAD_SAMPLES] {
+        for path in [
+            MIME_TYPES,
+            WALLPAPERS,
+            FONTS_LIBERATION,
+            SAMPLES,
+            LAZYRAD_SAMPLES,
+            LUCIDE_LICENSE,
+        ] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
         }
         for path in [

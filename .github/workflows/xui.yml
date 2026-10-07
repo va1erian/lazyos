@@ -17,7 +17,12 @@ name: xui-app
 # serial tail and a step `timeline` in `summary.json`; the logs and shots are
 # uploaded even when the job fails so a red run can be diagnosed.
 #
-# The build/boot job runs with a read-only token and no persisted git
+# Layout: `build` compiles the apps once; `capture` is a matrix of shards
+# that boot their sessions in parallel (one image build per session, a few
+# sessions per shard) instead of one runner booting them all in a row; each
+# shard uploads `xui-app-screenshots-<shard>`, and `publish` merges them.
+#
+# The build/boot jobs run with a read-only token and no persisted git
 # credentials; only the separate `publish` job, which never runs repository
 # code, gets write access to push screenshots and comment.
 
@@ -69,28 +74,33 @@ env:
   LAZYOS_RESET_OS: "1"
 
 jobs:
-  xui:
+  # The apps are built once (static musl, zig for the C++ ones) and handed to
+  # every capture shard as an artifact: `target/xui` (the ELFs and
+  # `build.json`) and `target/pkg` (the core and sample `.lzp` packages the
+  # image build embeds).
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      captured: ${{ steps.app.outputs.counter != '' }}
+      available: ${{ steps.app.outputs.available }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
+      # musl-tools for the static build, from the same cached package set as
+      # the capture shards (QEMU is unused here; a cached install is seconds).
       - uses: ./.github/actions/qemu
         with:
           packages: qemu-system-x86 musl-tools
 
-      # The OS workspace (`.`) and the standalone app workspace (`xui-app`)
-      # have separate lockfiles and target dirs, so both are listed. rust-cache
-      # recurses into nested target dirs (the Docs app's `target/xui-zig`), so
-      # no extra entry is needed; it also sets CARGO_INCREMENTAL=0.
+      # The app workspace (`xui-app`) has its own lockfile and target dir.
+      # rust-cache recurses into nested target dirs (the Docs app's
+      # `target/xui-zig`), so `.` covers that; it also sets CARGO_INCREMENTAL=0.
       - uses: ./.github/actions/rust-cache
         with:
-          key: xui
+          key: xui-apps
           workspaces: |
             . -> target
             xui-app -> target
@@ -118,48 +128,83 @@ jobs:
           python tools/screenshot/test_qmp_mouse.py
           python tools/screenshot/test_freeze_probe.py
 
-      - name: Build the app (static musl)
+      - name: Build the apps (static musl)
         id: app
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p target/xui
           python tools/xui/build.py | tee target/xui/build.json
-          m0=""; counter=""; sysmon=""; fabricmon=""; client=""; term=""
-          editor=""; paint=""; files=""; docs=""; writer=""; shell=""; archiver=""
           if python -c "import json,sys; sys.exit(0 if 'xui-m0' in json.load(open('target/xui/build.json')) else 1)"; then
-            m0="$(pwd)/target/xui/xui-m0.elf"
-            counter="$(pwd)/target/xui/xui-counter.elf"
-            sysmon="$(pwd)/target/xui/xui-sysmon.elf"
-            fabricmon="$(pwd)/target/xui/xui-fabricmon.elf"
-            client="$(pwd)/target/xui/xui-client.elf"
-            term="$(pwd)/target/xui/xui-term.elf"
-            # The document apps (Editor, Paint, Files, Docs, LazyWriter) are
-            # built by the same script; a build without them just skips their
-            # sessions.
-            for app in editor paint files docs writer shell archiver; do
-              if python -c "import json,sys; sys.exit(0 if 'xui-$app' in json.load(open('target/xui/build.json')) else 1)"; then
-                printf -v "$app" '%s' "$(pwd)/target/xui/xui-$app.elf"
-              fi
-            done
+            echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::xui app unavailable; skipping the visual run"
           fi
-          echo "m0=$m0" >> "$GITHUB_OUTPUT"
-          echo "counter=$counter" >> "$GITHUB_OUTPUT"
-          echo "sysmon=$sysmon" >> "$GITHUB_OUTPUT"
-          echo "fabricmon=$fabricmon" >> "$GITHUB_OUTPUT"
-          echo "client=$client" >> "$GITHUB_OUTPUT"
-          echo "term=$term" >> "$GITHUB_OUTPUT"
-          echo "editor=$editor" >> "$GITHUB_OUTPUT"
-          echo "paint=$paint" >> "$GITHUB_OUTPUT"
-          echo "files=$files" >> "$GITHUB_OUTPUT"
-          echo "docs=$docs" >> "$GITHUB_OUTPUT"
-          echo "writer=$writer" >> "$GITHUB_OUTPUT"
-          echo "archiver=$archiver" >> "$GITHUB_OUTPUT"
-          # LazyShell (issue #157) is part of every desktop image.
-          echo "shell=$shell" >> "$GITHUB_OUTPUT"
           ls -l target/xui/*.elf || true
+
+      - name: Upload the apps
+        if: steps.app.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xui-app-builds
+          path: |
+            target/xui/*.elf
+            target/xui/build.json
+            target/pkg/
+          if-no-files-found: error
+          retention-days: 1
+
+  # One runner per shard, all in parallel: each builds the OS image for its
+  # sessions only (with the apps from `build`) and boots them. Sessions that
+  # share build switches share a shard so `cargo build` stays incremental
+  # within it; the AZERTY captures (a `user` crate switch) have their own.
+  capture:
+    needs: build
+    if: needs.build.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [owner, client, desktop, apps, docs, files-s51, writer, azerty]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: xui-image
+
+      - name: Download the apps
+        uses: actions/download-artifact@v4
+        with:
+          name: xui-app-builds
+          path: target
+
+      - name: Locate the apps
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Each output is the app's absolute path, or empty when this build
+          # has no such app (its sessions are then skipped). `build.json` maps
+          # the cargo bin to its file, and not every bin is `xui-<app>`
+          # (LazyWriter's is `writer`), so look the app up by its file name.
+          for app in m0 counter sysmon fabricmon client term editor paint files docs writer shell archiver; do
+            path=""
+            if python -c "import json,os,sys; sys.exit(0 if any(os.path.basename(p) == 'xui-$app.elf' for p in json.load(open('target/xui/build.json')).values()) else 1)"; then
+              path="$(pwd)/target/xui/xui-$app.elf"
+              test -f "$path"
+            fi
+            echo "$app=$path" >> "$GITHUB_OUTPUT"
+          done
+          ls -l target/xui/*.elf
 
       # The Terminal hosts BusyBox `sh` (issue #254); the pinned static musl
       # binary is embedded in the desktop image by `build.rs`.
@@ -167,7 +212,7 @@ jobs:
 
       # M0: the gradient proves bind/present from a static musl program.
       - name: Capture M0 (gradient present)
-        if: ${{ !cancelled() && steps.app.outputs.m0 != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'owner' && steps.app.outputs.m0 != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -182,7 +227,7 @@ jobs:
 
       # M1 + M2: the Counter paints, then a scripted click increments it.
       - name: Capture M1/M2 (counter, real input)
-        if: ${{ !cancelled() && steps.app.outputs.counter != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'owner' && steps.app.outputs.counter != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -205,7 +250,7 @@ jobs:
       # service session (`LAZYOS_SERVICES=1`) so the Services tab (issue #489)
       # lists what `init` supervises with `healthd`'s health for each.
       - name: Capture sysmon (dashboard + services)
-        if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'owner' && steps.app.outputs.sysmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -227,7 +272,7 @@ jobs:
       # full service session (`LAZYOS_SERVICES=1`), so the registry lists every
       # registered service and `messengerd`'s topics broker answers live.
       - name: Capture fabricmon (fabric panel)
-        if: ${{ !cancelled() && steps.app.outputs.fabricmon != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'owner' && steps.app.outputs.fabricmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -249,7 +294,7 @@ jobs:
       # with Space, then exercises the WM (drag, minimize, Alt+Tab restore,
       # close). This image has no LazyShell, so there is no taskbar.
       - name: Capture client mode (window, focus routing, WM)
-        if: ${{ !cancelled() && steps.app.outputs.client != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'client' && steps.app.outputs.client != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -272,7 +317,7 @@ jobs:
       # xuid; this image has no services, so the Services tab shows why
       # (`SYSMON:SERVICES:NONE`) instead of hanging on a missing `init`.
       - name: Capture sysmon as a xuid client (owner-mode fallback)
-        if: ${{ !cancelled() && steps.app.outputs.sysmon != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'client' && steps.app.outputs.sysmon != '' }}
         shell: bash
         env:
           LAZYOS_XUID: "1"
@@ -301,7 +346,7 @@ jobs:
       # self-test or clipboard demo pair), and no registered-but-unshipped app
       # may log a launch failure.
       - name: Capture desktop session (multi-app + Terminal)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.term != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -337,7 +382,7 @@ jobs:
       # pointer from it again; a click on the taskbar then restores the
       # Counter (screenshot `02_taskbar_click_after_restart`).
       - name: Capture inputd restart (pointer handover)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.term != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -359,7 +404,7 @@ jobs:
       # with the pid captured from `INIT:LAUNCH:PASS`) and waits for `init` to
       # restart it with the window list intact (`SHELL:RESTART:PASS`).
       - name: Capture LazyShell session (taskbar, start menu, restart)
-        if: ${{ !cancelled() && steps.app.outputs.shell != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.shell != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -390,7 +435,7 @@ jobs:
       # checked on serial. Same symbols on US here and, with physical keys,
       # on AZERTY in the last capture step.
       - name: Capture symbol typing (US)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -408,7 +453,7 @@ jobs:
       # drives it with real keys and pointer input and waits on the app's own
       # serial markers. `/tmp` is ramfs, so saves land there.
       - name: Capture Editor (type, edit, save)
-        if: ${{ !cancelled() && steps.app.outputs.editor != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.editor != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -424,7 +469,7 @@ jobs:
           ! grep -q "^init: launch .* failed" shots/editor/serial.log
 
       - name: Capture Paint (draw, undo, save PNG)
-        if: ${{ !cancelled() && steps.app.outputs.paint != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.paint != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -440,7 +485,7 @@ jobs:
           ! grep -q "^init: launch .* failed" shots/paint/serial.log
 
       - name: Capture Files (browse, open)
-        if: ${{ !cancelled() && steps.app.outputs.files != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.files != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -462,7 +507,7 @@ jobs:
       # reads the `session/<id>/selection` topic back. Built with the label
       # trace: the installed Files must be refused nothing.
       - name: Capture Files S5.1 (reveal, open, copy, paste, selection topic)
-        if: ${{ !cancelled() && steps.app.outputs.files != '' && steps.app.outputs.editor != '' && steps.app.outputs.term != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'files-s51' && steps.app.outputs.files != '' && steps.app.outputs.editor != '' && steps.app.outputs.term != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -497,7 +542,7 @@ jobs:
       # PS/2 wheel driver, `xuid`'s PointerWheel and the client backend. The
       # page must move on wheel-down and return to the top on wheel-up.
       - name: Capture Docs (Markdown, mouse wheel)
-        if: ${{ !cancelled() && steps.app.outputs.docs != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'docs' && steps.app.outputs.docs != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -543,7 +588,7 @@ jobs:
       # cancelled dialog leaves the page alone, and a typed path loads the
       # document into the view.
       - name: Capture Docs (Open dialog, test document)
-        if: ${{ !cancelled() && steps.app.outputs.docs != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'docs' && steps.app.outputs.docs != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -593,7 +638,7 @@ jobs:
       # from the new, empty one and hold more than a few colours (text and the
       # picture), so a reopen that loaded nothing fails.
       - name: Capture LazyWriter (format, save, export, reopen)
-        if: ${{ !cancelled() && steps.app.outputs.writer != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'writer' && steps.app.outputs.writer != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -641,7 +686,7 @@ jobs:
       # from Files onto the Archiver and the readme from the Archiver onto
       # Files, and open the readme from inside the archive (the Editor).
       - name: Capture Archiver (browse, extract, test, create, drag and drop)
-        if: ${{ !cancelled() && steps.app.outputs.archiver != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.archiver != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -661,7 +706,7 @@ jobs:
       # `sys/ui/mode` to light, then starts the app (which reads the theme
       # once, at start); its document area must come out light.
       - name: Capture LazyWriter in the light theme
-        if: ${{ !cancelled() && steps.app.outputs.writer != '' && steps.app.outputs.term != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'writer' && steps.app.outputs.writer != '' && steps.app.outputs.term != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -706,7 +751,7 @@ jobs:
       # LazyWriter as soon as the job is queued, while the printer still reads
       # slowly: the page must arrive whole all the same.
       - name: Print from LazyWriter to a fake printer
-        if: ${{ !cancelled() && steps.app.outputs.writer != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'writer' && steps.app.outputs.writer != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
@@ -727,10 +772,9 @@ jobs:
       # session types *physical* keys (`qwerty` is `azerty` there) into the
       # Editor and the Terminal, so a wrong keymap, a lost session or a key
       # read as an arrow shows up as different text in the screenshot and on
-      # the Terminal's serial marker. Runs after the US captures (see the
-      # next step for why).
+      # the Terminal's serial marker. Its own shard (see the next step).
       - name: Capture desktop session on AZERTY (Editor + Terminal)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'azerty' && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
         shell: bash
         env:
           LAZYOS_KBD_LAYOUT: fr
@@ -745,11 +789,11 @@ jobs:
           grep -q "TERM:OUT:azerty" shots/desktop_fr/serial.log
 
       # The same symbols on AZERTY (physical keys). This and the AZERTY
-      # desktop step above are the last captures: `LAZYOS_KBD_LAYOUT` is a
-      # `user` crate switch, so every other capture shares one US build and
-      # the French `user` is compiled once instead of toggled back and forth.
+      # desktop step above are the `azerty` shard: `LAZYOS_KBD_LAYOUT` is a
+      # `user` crate switch, so the other shards keep one US build and the
+      # French `user` is compiled once instead of toggled back and forth.
       - name: Capture symbol typing (AZERTY)
-        if: ${{ !cancelled() && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
+        if: ${{ !cancelled() && matrix.shard == 'azerty' && steps.app.outputs.term != '' && steps.app.outputs.editor != '' }}
         shell: bash
         env:
           LAZYOS_KBD_LAYOUT: fr
@@ -762,16 +806,26 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/symbols_fr --timeout 300 --script tools/screenshot/examples/input_symbols_fr.json --fail-on "(TERM|EDITOR):[A-Z]+:FAIL"
           grep -qF 'TERM:OUT:&"(%$#' shots/symbols_fr/serial.log
 
+      # Each shard checks its own captures (the globs of the other shards
+      # match nothing here). A shard whose apps this build skipped (Docs
+      # without zig) ran no session, so it has nothing to check; a session
+      # that did run and missed a shot already failed its own step.
       - name: Verify screenshots are non-blank
-        if: steps.app.outputs.counter != ''
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
-          if [ ${#pngs[@]} -eq 0 ]; then
-            echo "::error::no screenshots were captured"
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png)
+          # A QEMU without PNG screendump falls back to PPM (qemu_qmp.py),
+          # which pngstats cannot judge: that is a broken run, not an empty shard.
+          ppms=(shots/*/*.ppm)
+          if [ ${#ppms[@]} -gt 0 ]; then
+            echo "::error::QEMU wrote PPM screenshots (${ppms[0]}...); PNG screendump is required"
             exit 1
+          fi
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "::warning::shard ${{ matrix.shard }} ran no session (its apps were not built)"
+            exit 0
           fi
           # Client mode has no LazyShell, and xuid itself paints no taskbar
           # (issue #157): once the window is minimized or closed the frame is
@@ -793,11 +847,11 @@ jobs:
       # On a red run, show what each boot reached: the app markers, the session
       # outcome (which gate failed and when) and the serial tail.
       - name: Dump serial markers and session timelines
-        if: failure() && steps.app.outputs.counter != ''
+        if: failure()
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/shell shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -814,11 +868,13 @@ jobs:
 
       # Uploaded on failure too (the publish job still needs a green run), so
       # the shots, serial logs and timelines of a failing run can be inspected.
+      # The patterns span several `shots/<group>` directories, so the artifact
+      # root is `shots/` and the shards merge back into one tree in `publish`.
       - name: Upload screenshots artifact
-        if: always() && steps.app.outputs.counter != ''
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xui-app-screenshots
+          name: xui-app-screenshots-${{ matrix.shard }}
           path: |
             shots/m0/*.png
             shots/m0/serial.log
@@ -847,6 +903,18 @@ jobs:
             shots/shell/*.png
             shots/shell/serial.log
             shots/shell/summary.json
+            shots/pointer_restart/*.png
+            shots/pointer_restart/serial.log
+            shots/pointer_restart/summary.json
+            shots/symbols_us/*.png
+            shots/symbols_us/serial.log
+            shots/symbols_us/summary.json
+            shots/desktop_fr/*.png
+            shots/desktop_fr/serial.log
+            shots/desktop_fr/summary.json
+            shots/symbols_fr/*.png
+            shots/symbols_fr/serial.log
+            shots/symbols_fr/summary.json
             shots/editor/*.png
             shots/editor/serial.log
             shots/editor/summary.json
@@ -888,9 +956,9 @@ jobs:
   # Write-scoped job: no checkout of repository code, only the screenshots
   # artifact the read-only job uploaded.
   publish:
-    needs: xui
+    needs: [build, capture]
     if: >-
-      needs.xui.outputs.captured == 'true' &&
+      needs.build.outputs.available == 'true' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
@@ -898,10 +966,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Download screenshots artifact
+      - name: Download screenshots artifacts
         uses: actions/download-artifact@v4
         with:
-          name: xui-app-screenshots
+          pattern: xui-app-screenshots-*
+          merge-multiple: true
           path: shots
 
       - name: Publish screenshots to 'screenshots' branch
@@ -930,18 +999,25 @@ jobs:
             done
           done
           git -C "$work" add -A
-          git -C "$work" -c user.name=github-actions \
-              -c user.email=github-actions@users.noreply.github.com \
-              commit -qm "xui screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
-          # Concurrent runs (other PRs, xui.yml) push to this shared branch, so
-          # a plain push loses the race. Each run only adds its own runs/<id>
-          # directory, so rebasing onto the new tip never conflicts.
-          for attempt in 1 2 3 4 5 6; do
-            git -C "$work" push -q "$remote" screenshots && break
-            [ "$attempt" -eq 6 ] && { echo "screenshots push kept losing the race" >&2; exit 1; }
-            sleep $((attempt * 2))
-            git -C "$work" -c user.name=github-actions                 -c user.email=github-actions@users.noreply.github.com                 pull -q --rebase "$remote" screenshots
-          done
+          # A re-run keeps its run id, so its runs/<id> directory may already
+          # be published with the same pictures: nothing to commit is success
+          # (a bare `git commit` would exit 1 and fail the job).
+          if git -C "$work" diff --cached --quiet; then
+            echo "$prefix is already published (a re-run); nothing to push"
+          else
+            git -C "$work" -c user.name=github-actions \
+                -c user.email=github-actions@users.noreply.github.com \
+                commit -qm "xui screenshots for ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
+            # Concurrent runs (other PRs, screenshots.yml) push to this shared
+            # branch, so a plain push loses the race. Each run only adds its own
+            # runs/<id> directory, so rebasing onto the new tip never conflicts.
+            for attempt in 1 2 3 4 5 6; do
+              git -C "$work" push -q "$remote" screenshots && break
+              [ "$attempt" -eq 6 ] && { echo "screenshots push kept losing the race" >&2; exit 1; }
+              sleep $((attempt * 2))
+              git -C "$work" -c user.name=github-actions                 -c user.email=github-actions@users.noreply.github.com                 pull -q --rebase "$remote" screenshots
+            done
+          fi
           echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 

@@ -220,13 +220,14 @@ mod tests {
     }
 
     #[test]
-    fn a_full_rule_set_has_no_room_for_the_sentinel() {
-        // 85 interfaces compile to 255 rules: with the sentinel, 256 fit.
-        let fits: Vec<String> = (0..85).map(|i| format!("\"x.y{i}.v1\"")).collect();
+    fn the_largest_rule_set_still_has_room_for_the_sentinel() {
+        // 84 interfaces compile to 252 rules, the most that leaves room for
+        // the 3 baseline rules an install adds; the sentinel fits in that room.
+        let fits: Vec<String> = (0..84).map(|i| format!("\"x.y{i}.v1\"")).collect();
         let text = format!("interfaces = [{}]\n", fits.join(", "));
-        assert_eq!(rules(&manifest(&text)).unwrap().len(), MAX_RULES);
+        assert_eq!(rules(&manifest(&text)).unwrap().len(), 253);
         // One more interface is over.
-        let over: Vec<String> = (0..86).map(|i| format!("\"x.y{i}.v1\"")).collect();
+        let over: Vec<String> = (0..85).map(|i| format!("\"x.y{i}.v1\"")).collect();
         let text = format!("interfaces = [{}]\n", over.join(", "));
         assert!(matches!(
             rules(&manifest(&text)),
