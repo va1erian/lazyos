@@ -26,9 +26,13 @@
 //! | `power.policy` | key, value | `confd` `Set` of `sys/power/<key>` |
 //! | `service.restart` | service name | `init` `RestartService` |
 //!
-//! A `conf.*` approval stands for [`APPROVAL_TICKS`] for the same caller
-//! (uid, label and session, [`approvals`]): an elevated settings editor does
-//! not ask for every key. Every other operation asks every time.
+//! Every change asks every time: each `conf.set`, `conf.delete` and every
+//! other operation opens the prompt (decision of 2026-10-07). Only the
+//! elevated editor's *view* stands: once `conf.elevate` is approved, the same
+//! caller (uid, label and session, [`approvals`]) may read every key
+//! (`conf.list`, `conf.get`) for [`APPROVAL_TICKS`] without a prompt per row.
+//! A read changes nothing, and every user's private keys stay behind that one
+//! approval.
 
 #![no_std]
 
@@ -42,14 +46,18 @@ use alloc::vec::Vec;
 
 pub use accountdb::{ACCOUNTS_UID, ELEVD_UID};
 pub use confd::Value;
+use values::*;
+pub use values::{parse_value, value_args};
 
 pub mod approvals;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 #[cfg(test)]
 mod tests;
+mod values;
 
-/// How long a `conf.*` approval stands (PIT ticks, 100 Hz): 5 minutes.
+/// How long the elevated editor's view stands (PIT ticks, 100 Hz): 5
+/// minutes. Changes never stand ([`Class::Once`]).
 pub const APPROVAL_TICKS: u64 = 5 * 60 * 100;
 /// Wrong passwords one request may type before it is refused.
 pub const PROMPT_ATTEMPTS: u32 = 3;
@@ -148,8 +156,9 @@ pub enum Operation {
 /// Whether an approval of the operation may stand for later requests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Class {
-    /// A `conf.*` operation: approved for [`APPROVAL_TICKS`].
-    Conf,
+    /// Reading every key in the elevated editor (`conf.elevate`,
+    /// `conf.list`, `conf.get`): approved for [`APPROVAL_TICKS`].
+    View,
     /// Asked for every time.
     Once,
 }
@@ -350,11 +359,9 @@ impl Operation {
     /// Whether its approval may stand ([`Class`]).
     pub fn class(&self) -> Class {
         match self {
-            Operation::ConfSet { .. }
-            | Operation::ConfDelete { .. }
-            | Operation::ConfList { .. }
-            | Operation::ConfGet { .. }
-            | Operation::ConfElevate => Class::Conf,
+            Operation::ConfList { .. } | Operation::ConfGet { .. } | Operation::ConfElevate => {
+                Class::View
+            }
             _ => Class::Once,
         }
     }
@@ -436,129 +443,4 @@ impl Operation {
             Operation::ServiceRestart { name } => one(name),
         }
     }
-}
-
-/// A confd value as `(kind, text)`: `bool` (`true`/`false`), `i64`, `u64`,
-/// `str`, `bytes` (lowercase hex).
-pub fn value_args(value: &Value) -> (&'static str, String) {
-    match value {
-        Value::Bool(flag) => ("bool", format!("{flag}")),
-        Value::I64(number) => ("i64", format!("{number}")),
-        Value::U64(number) => ("u64", format!("{number}")),
-        Value::Str(text) => ("str", text.clone()),
-        Value::Bytes(bytes) => ("bytes", hex(bytes)),
-    }
-}
-
-/// The inverse of [`value_args`].
-pub fn parse_value(kind: &str, text: &str) -> Result<Value, &'static str> {
-    let bad = "the value does not match its kind";
-    Ok(match kind {
-        "bool" => match text {
-            "true" => Value::Bool(true),
-            "false" => Value::Bool(false),
-            _ => return Err(bad),
-        },
-        "i64" => Value::I64(text.parse().map_err(|_| bad)?),
-        "u64" => Value::U64(text.parse().map_err(|_| bad)?),
-        "str" => Value::Str(text.to_string()),
-        "bytes" => Value::Bytes(unhex(text).ok_or(bad)?),
-        _ => return Err("the kind is bool, i64, u64, str or bytes"),
-    })
-}
-
-/// A value as the prompt shows it (bytes as a length only).
-fn value_text(value: &Value) -> String {
-    match value {
-        Value::Str(text) => format!("\"{text}\""),
-        Value::Bytes(bytes) => format!("{} bytes", bytes.len()),
-        other => value_args(other).1,
-    }
-}
-
-/// `unix` as `YYYY-MM-DD HH:MM UTC`.
-fn civil(unix: i64) -> String {
-    let days = unix.div_euclid(86_400);
-    let secs = unix.rem_euclid(86_400);
-    let (year, month, day) = timezone::civil::civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
-        secs / 3600,
-        secs % 3600 / 60
-    )
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2)
-        || !text
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-    {
-        return None;
-    }
-    (0..text.len())
-        .step_by(2)
-        .map(|at| u8::from_str_radix(&text[at..at + 2], 16).ok())
-        .collect()
-}
-
-/// A confd path (`confd::validate_path`).
-fn conf_path(path: &str) -> Result<String, &'static str> {
-    confd::validate_path(path).map_err(|_| "not a confd path")?;
-    Ok(path.to_string())
-}
-
-/// An absolute package path of sane shape (`pkgd` normalises and checks it
-/// again before reading).
-fn package_path(path: &str) -> Result<String, &'static str> {
-    let ok = path.starts_with('/')
-        && path.len() > 1
-        && !path.chars().any(char::is_control)
-        && path[1..]
-            .split('/')
-            .all(|part| !matches!(part, "" | "." | ".."));
-    ok.then(|| path.to_string())
-        .ok_or("not an absolute package path")
-}
-
-/// A package's reverse-DNS system name: dot-separated lowercase words.
-fn system_name(name: &str) -> bool {
-    name.len() <= 128
-        && name.contains('.')
-        && name.split('.').all(|part| {
-            !part.is_empty()
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-        })
-}
-
-/// An account name (`accountdb`'s rule, system accounts excluded).
-fn account(name: &str) -> Result<String, &'static str> {
-    if accountdb::valid_name(name) && !name.starts_with('_') {
-        Ok(name.to_string())
-    } else {
-        Err("not an account name")
-    }
-}
-
-/// A password `keyd` takes.
-fn secret(text: &str) -> Result<String, &'static str> {
-    if text.is_empty() || text.len() > MAX_SECRET || text.chars().any(char::is_control) {
-        return Err("a password is 1 to 64 characters, without control characters");
-    }
-    Ok(text.to_string())
-}
-
-/// `[a-z0-9_-]{1,32}`: a service name or a power policy key.
-fn word(text: &str) -> bool {
-    !text.is_empty()
-        && text.len() <= 32
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }

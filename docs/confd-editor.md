@@ -10,7 +10,7 @@ while Config knows nothing about any key and works from the tree `List` returns.
 
 | Concern | Mechanism |
 |---|---|
-| Scope | the user's own keys (`List("user/<uid>")`) until **Elevate** (docs/accounts-plan.md U2): `elevd` asks an administrator on the trusted prompt, then every key is listed, read and written through `elevd` (`conf.*` operations; the approval stands five minutes) |
+| Scope | the user's own keys (`List("user/<uid>")`) until **Elevate** (docs/accounts-plan.md U2): `elevd` asks an administrator on the trusted prompt, then every key is listed, read and written through `elevd` (`conf.*` operations: the elevated view's reads stand five minutes, every change prompts) |
 | Browse | `List(<scope>)` fills a folder tree; a leaf's value is `Get` lazily when selected |
 | Edit | kind picker (bool, i64, u64, string, bytes) + a value field; `Set` on Apply |
 | Create | path + kind + value, validated with `confd::validate_path` |

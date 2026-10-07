@@ -81,21 +81,21 @@ fn summaries_say_what_changes_and_never_the_password() {
 }
 
 #[test]
-fn only_conf_approvals_stand() {
-    for name in [
-        "conf.set",
-        "conf.delete",
-        "conf.list",
-        "conf.get",
-        "conf.elevate",
-    ] {
+fn only_the_elevated_view_stands_every_change_prompts() {
+    for name in ["conf.list", "conf.get", "conf.elevate"] {
         let items: &[&str] = match name {
             "conf.set" => &["sys/a", "bool", "true"],
             "conf.elevate" => &[],
             "conf.list" => &[""],
             _ => &["sys/a"],
         };
-        assert_eq!(parse(name, items).unwrap().class(), Class::Conf, "{name}");
+        assert_eq!(parse(name, items).unwrap().class(), Class::View, "{name}");
+    }
+    for (name, items) in [
+        ("conf.set", &["sys/a", "bool", "true"][..]),
+        ("conf.delete", &["sys/a"][..]),
+    ] {
+        assert_eq!(parse(name, items).unwrap().class(), Class::Once, "{name}");
     }
     let op = parse("account.admin", &["bob", "1"]).unwrap();
     assert_eq!(op.class(), Class::Once);
@@ -111,27 +111,27 @@ fn approvals_belong_to_one_caller_and_expire() {
     let mut approvals = Approvals::new();
     approvals.grant(caller, Class::Once, 0);
     assert!(
-        !approvals.covers(caller, Class::Conf, 1),
+        !approvals.covers(caller, Class::View, 1),
         "a one-shot approval stood"
     );
-    approvals.grant(caller, Class::Conf, 0);
-    assert!(approvals.covers(caller, Class::Conf, 1));
+    approvals.grant(caller, Class::View, 0);
+    assert!(approvals.covers(caller, Class::View, 1));
     assert!(!approvals.covers(caller, Class::Once, 1));
     // Another program of the same user, or the same in another session.
-    assert!(!approvals.covers(Caller { label: 8, ..caller }, Class::Conf, 1));
+    assert!(!approvals.covers(Caller { label: 8, ..caller }, Class::View, 1));
     assert!(!approvals.covers(
         Caller {
             session: 2,
             ..caller
         },
-        Class::Conf,
+        Class::View,
         1
     ));
-    assert!(!approvals.covers(caller, Class::Conf, APPROVAL_TICKS));
-    approvals.grant(caller, Class::Conf, 10);
+    assert!(!approvals.covers(caller, Class::View, APPROVAL_TICKS));
+    approvals.grant(caller, Class::View, 10);
     approvals.release(caller);
-    assert!(!approvals.covers(caller, Class::Conf, 11));
-    approvals.grant(caller, Class::Conf, 10);
+    assert!(!approvals.covers(caller, Class::View, 11));
+    approvals.grant(caller, Class::View, 10);
     approvals.end_session(1);
     assert_eq!(approvals.live(11), 0);
 }
@@ -145,7 +145,7 @@ fn the_table_is_bounded() {
             label: 0,
             session: 1,
         };
-        approvals.grant(caller, Class::Conf, 5);
+        approvals.grant(caller, Class::View, 5);
     }
     assert!(approvals.live(6) <= approvals::MAX_APPROVALS);
 }

@@ -1,6 +1,7 @@
-//! Standing approvals: an administrator's `conf.*` approval covers the same
-//! caller for [`APPROVAL_TICKS`](crate::APPROVAL_TICKS), so an elevated
-//! settings editor does not prompt for every key it reads or writes.
+//! Standing approvals: an administrator's approval of the elevated editor's
+//! view ([`Class::View`]) covers the same caller's reads for
+//! [`APPROVAL_TICKS`](crate::APPROVAL_TICKS), so it does not prompt for every
+//! key it lists. Changes never stand: each one prompts.
 //!
 //! An approval belongs to the exact kernel-stamped caller that asked: uid,
 //! label and session. Another program of the same user (a different label)
@@ -42,7 +43,7 @@ impl Approvals {
 
     /// Whether `caller` holds a live approval for an operation of `class`.
     pub fn covers(&self, caller: Caller, class: Class, now: u64) -> bool {
-        class == Class::Conf
+        class == Class::View
             && self
                 .entries
                 .iter()
@@ -50,9 +51,9 @@ impl Approvals {
     }
 
     /// Record an administrator's approval for `caller`, when its class
-    /// stands ([`Class::Conf`]); a renewed approval restarts the clock.
+    /// stands ([`Class::View`]); a renewed approval restarts the clock.
     pub fn grant(&mut self, caller: Caller, class: Class, now: u64) {
-        if class != Class::Conf {
+        if class != Class::View {
             return;
         }
         self.entries
