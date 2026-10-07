@@ -20,6 +20,10 @@
 //! reboot; native tasks do not see ABI writes. `/tmp` is one shared ramfs
 //! mounted in both tables, so scratch files are visible to both.
 //!
+//! The configured layout mounts the same volumes in both tables, each with
+//! its own metadata cache; every mutation helper below drops the other
+//! table's cache entries for what it changed ([`coherence`]).
+//!
 //! # Layouts
 //!
 //! [`mounts`] picks between two: the legacy one below (FAT at `/`, ext2 data
@@ -35,6 +39,7 @@
 
 mod abi_attr;
 pub mod bootcfg;
+mod coherence;
 pub mod ext2;
 pub mod fallible;
 pub mod fat;
@@ -58,6 +63,7 @@ use alloc::vec::Vec;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
+use coherence::{abi_changed, native_changed, Change};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
 pub(crate) use mounts::{mount_data_volume, select_root};
 #[cfg(lazyos_tests)]
@@ -202,7 +208,7 @@ pub fn vfs_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<us
 /// Write at an offset through the VFS (used by tests and future writers).
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
     let written = with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound));
-    native_changed(path);
+    native_changed(path, Change::Content);
     written
 }
 
@@ -210,20 +216,22 @@ pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, 
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     hidden::refuse_reserved(path)?;
     let created = with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound));
-    native_changed(path);
+    native_changed(path, Change::Name);
     created
 }
 
 /// Create a directory through the VFS.
 pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     hidden::refuse_reserved(path)?;
-    with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
+    let made = with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path, Change::Name);
+    made
 }
 
 /// Truncate or extend a regular file through the VFS.
 pub fn vfs_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
     let truncated = with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound));
-    native_changed(path);
+    native_changed(path, Change::Content);
     truncated
 }
 
@@ -234,13 +242,15 @@ pub fn vfs_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
 
 /// Remove an empty directory through the native VFS.
 pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound))
+    let removed = with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path, Change::Name);
+    removed
 }
 
 /// Remove a regular file through the VFS.
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
     let unlinked = with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
-    native_changed(path);
+    native_changed(path, Change::Name);
     unlinked
 }
 
@@ -248,18 +258,9 @@ pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
     let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
-    native_changed(from);
-    native_changed(to);
+    native_changed(from, Change::Name);
+    native_changed(to, Change::Name);
     renamed
-}
-
-/// A native mutation changed `path` behind the Linux ABI table's back (both
-/// tables mount the same volumes, each with its own metadata cache): drop the
-/// ABI table's cached metadata for it, so a Linux `stat` or read of a file a
-/// native service rewrote (`accountsd`'s `/system/etc/passwd` view, U1) sees
-/// the new size instead of the old one.
-fn native_changed(path: &str) {
-    abi_with(|vfs| vfs.invalidate(path));
 }
 
 /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
@@ -330,24 +331,33 @@ pub fn abi_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
 
 /// Write at an offset through the Linux ABI VFS.
 pub fn abi_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
-    abi_with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))
+    let written =
+        abi_with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(path, Change::Content);
+    written
 }
 
 /// Truncate a file through the Linux ABI VFS (`O_TRUNC`).
 pub fn abi_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
-    abi_with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound))
+    let truncated = abi_with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(path, Change::Content);
+    truncated
 }
 
 /// Create a regular file through the Linux ABI VFS.
 pub fn abi_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     hidden::refuse_reserved(path)?;
-    abi_with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
+    let created = abi_with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(path, Change::Name);
+    created
 }
 
 /// Create a directory through the Linux ABI VFS.
 pub fn abi_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     hidden::refuse_reserved(path)?;
-    abi_with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound))
+    let made = abi_with(|vfs| vfs.mkdir(id, path, mode)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(path, Change::Name);
+    made
 }
 
 /// Read up to `buf.len()` bytes at `offset` through the Linux ABI VFS.
@@ -368,7 +378,9 @@ pub fn abi_unlink(id: Id, path: &str) -> Result<(), FsError> {
 /// Delete a name outright, with no regard for open descriptors (the hidden
 /// entry of an unlinked file is deleted this way when its last one closes).
 fn abi_unlink_raw(id: Id, path: &str) -> Result<(), FsError> {
-    abi_with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
+    let unlinked = abi_with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(path, Change::Name);
+    unlinked
 }
 
 /// Flush the filesystem holding `path` (`fsync`/`fdatasync`/`syncfs`).
@@ -412,7 +424,9 @@ pub fn abi_read_through(path: &str) -> bool {
 /// Remove an empty directory through the Linux ABI VFS. Files unlinked while
 /// open and still parked in it do not count ([`openfile::rmdir`], #612).
 pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    openfile::rmdir(id, path)
+    let removed = openfile::rmdir(id, path);
+    abi_changed(path, Change::Name);
+    removed
 }
 
 /// Rename within one mount through the Linux ABI VFS. Open files follow their
@@ -442,7 +456,10 @@ pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 
 /// Rename a name with no regard for open descriptors.
 fn abi_rename_raw(id: Id, from: &str, to: &str) -> Result<(), FsError> {
-    abi_with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
+    let renamed = abi_with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
+    abi_changed(from, Change::Name);
+    abi_changed(to, Change::Name);
+    renamed
 }
 
 /// Set the ABI creation mask, returning the previous one (`umask(2)`).
