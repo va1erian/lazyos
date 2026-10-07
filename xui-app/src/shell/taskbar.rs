@@ -4,11 +4,7 @@
 //! A press acts at once (the compositor grabs the pointer to the panel until
 //! the release, and never moves window focus for a panel press): the start
 //! button toggles the menu, an entry activates or minimizes its window
-//! according to [`lazyshell::taskbar::Taskbar::click`]. The "Log out"
-//! button left of the clock (issue #623) takes two presses: the first turns it
-//! into "Log out?", the second asks `logind` to end the session; leaving the
-//! bar disarms it. Serial: `SHELL:LOGOUT:ARMED`, `SHELL:LOGOUT:REQUEST
-//! session=<id>` or `SHELL:LOGOUT:FAIL errno=<e>`.
+//! according to [`lazyshell::taskbar::Taskbar::click`].
 
 use std::rc::Rc;
 
@@ -185,9 +181,6 @@ impl BarApp {
         if START_BUTTON.contains(x, y) {
             return Some(BarHover::Start);
         }
-        if self.ctx.logout_rect().contains(x, y) {
-            return Some(BarHover::Logout);
-        }
         if let Some(hit) = tray::input::hit(&self.ctx, x, y) {
             return Some(hit);
         }
@@ -205,7 +198,6 @@ impl BarApp {
         match self.hover_at(x, y) {
             Some(BarHover::Start) => menu::toggle(&self.ctx, ui),
             Some(BarHover::Entry(index)) => self.click_entry(index),
-            Some(BarHover::Logout) => self.press_logout(ui),
             Some(BarHover::Tray(cell)) => tray::input::on_cell(&self.ctx, ui, cell, Input::Primary),
             // The overflow panel arrives with docs/tray-plan.md stage T5.
             Some(BarHover::Chevron) | None => {}
@@ -217,21 +209,6 @@ impl BarApp {
         if let Some(BarHover::Tray(cell)) = self.hover_at(x, y) {
             tray::input::on_cell(&self.ctx, ui, cell, input);
         }
-    }
-
-    /// The first press arms the button, the second logs out.
-    fn press_logout(&self, ui: &Ui<BarMsg>) {
-        if !self.ctx.logout_armed.replace(true) {
-            println!("SHELL:LOGOUT:ARMED");
-            ui.invalidate(self.root.id());
-            return;
-        }
-        self.ctx.logout_armed.set(false);
-        match super::services::logout() {
-            Ok(session) => println!("SHELL:LOGOUT:REQUEST session={session}"),
-            Err(code) => println!("SHELL:LOGOUT:FAIL errno={}", -code),
-        }
-        ui.invalidate(self.root.id());
     }
 
     fn click_entry(&self, index: usize) {
@@ -266,12 +243,7 @@ impl App for BarApp {
                 let (x, y) = self.ctx.to_design(x, y);
                 self.set_hover(ui, self.hover_at(x, y))
             }
-            BarMsg::Leave => {
-                if self.ctx.logout_armed.replace(false) {
-                    ui.invalidate(self.root.id());
-                }
-                self.set_hover(ui, None)
-            }
+            BarMsg::Leave => self.set_hover(ui, None),
             BarMsg::Press(x, y) => {
                 let (x, y) = self.ctx.to_design(x, y);
                 self.press(ui, x, y)
@@ -405,7 +377,6 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
         canvas.pop_clip();
     }
 
-    paint_logout(canvas, ctx, &palette, &deco, hover == Some(BarHover::Logout));
     let tray_hover = match hover {
         Some(BarHover::Tray(cell)) => Some(cell),
         _ => None,
@@ -414,27 +385,4 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx) {
 
     let clock = rect(ctx.clock_rect(), s);
     canvas.draw_text(&ctx.clock.borrow(), clock, &clock_style(ctx).centered());
-}
-
-/// The "Log out" button: an entry-like face, highlighted while hovered or
-/// armed (then it reads "Log out?").
-fn paint_logout(
-    canvas: &mut dyn Canvas,
-    ctx: &Ctx,
-    palette: &uitheme::Palette,
-    deco: &xui_core::Theme,
-    hovered: bool,
-) {
-    let s = ctx.scale();
-    let armed = ctx.logout_armed.get();
-    let fill = if armed || hovered {
-        palette.taskbar_entry_focus
-    } else {
-        palette.taskbar_entry
-    };
-    let area = rect(ctx.logout_rect(), s);
-    look::face(canvas, area, 3.0 * s as f32, color(fill), deco);
-    let text = if armed { "Log out?" } else { "Log out" };
-    let ink = color(uitheme::text_on(fill));
-    canvas.draw_text(text, area, &TextStyle::new(ink, TEXT).middle().centered());
 }

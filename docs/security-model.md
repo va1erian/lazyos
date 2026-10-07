@@ -162,7 +162,7 @@ approved rule set for: same uid, gid and session, never more capabilities
   `LAZYOS_AUTOLOGIN` account in through the same path. `init` launches
   LazyShell into the new session and then the session's autostart apps,
   all stamped with the user's uid and gid and no capability. `Logout` (the
-  taskbar's Log out button) publishes `system/events/login/end`; `init` then
+  LazyOS menu's "Log out..." row) publishes `system/events/login/end`; `init` then
   kills every task stamped with the session id and the login screen returns.
 - **Service accounts** never log in; they receive their profile at supervision
   time.

@@ -265,22 +265,6 @@ pub fn clock_rect(screen_w: i32, text_w: i32) -> Rect {
     Rect::new(screen_w - width, 0, width, BAR_H)
 }
 
-/// The "Log out" button's width (issue #623).
-pub const LOGOUT_W: i32 = 72;
-
-/// The "Log out" button, panel-local: just left of the clock (whose
-/// rectangle is `clock`), entry-sized, so the window entries keep starting at
-/// [`ENTRY_X`] and only the room they may grow into shrinks.
-pub fn logout_rect(clock: Rect) -> Rect {
-    Rect::new(clock.x - ENTRY_GAP - LOGOUT_W, ENTRY_Y, LOGOUT_W, ENTRY_H)
-}
-
-/// What the entries must leave free at the right of the bar: the clock, the
-/// "Log out" button and the gap between them ([`entry_rects`]'s `clock_w`).
-pub fn reserved_right(clock: Rect) -> i32 {
-    clock.w + ENTRY_GAP + LOGOUT_W
-}
-
 /// The panel-local rectangle of each of `count` entries on a bar `screen_w`
 /// wide whose right end reserves `right_reserved` pixels: the clock's width
 /// plus the tray's ([`crate::tray::layout::Layout::reserved`]). Entries are

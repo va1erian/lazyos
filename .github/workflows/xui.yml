@@ -435,7 +435,7 @@ jobs:
           python tools/services/evidence.py shots/shell/serial.log --desktop
 
       # Accounts U0 (#623): the login screen refuses a wrong password, logs
-      # `user` in (LazyShell as uid 1000), the taskbar's Log out ends the
+      # `user` in (LazyShell as uid 1000), the LazyOS menu's Log out ends the
       # session (init kills its tasks, xuid releases the display), and a
       # second login gets a fresh session.
       - name: Capture login and logout

@@ -42,7 +42,7 @@ fn nothing_hidden_keeps_every_row() {
 
 /// A pinned list (`sys/ui/menu`) of 13 apps, the root rows the menu showed
 /// before nothing was pinned by default.
-fn pinned() -> Vec<Entry> {
+pub(super) fn pinned() -> Vec<Entry> {
     [
         ("terminal", "Terminal"),
         ("os.lazy.sysmon", "System Monitor"),
@@ -73,7 +73,7 @@ fn by_default_the_root_is_the_categories_and_the_power_rows() {
     let menu = Menu::build(&installed, &deskmenu::defaults(), Shipped::Unknown, 720);
     assert_eq!(
         labels(&menu),
-        ["Accessories", "System", "Restart...", "Shut down..."]
+        ["Accessories", "System", "Log out...", "Restart...", "Shut down..."]
     );
     assert!(menu.rows().iter().all(|row| row.action != Action::Launch));
     assert_eq!(sub_ids(&menu, "system"), ["os.lazy.settings", "terminal"]);
@@ -111,7 +111,7 @@ fn labels(menu: &Menu) -> Vec<&str> {
     menu.rows().iter().map(|row| row.label.as_str()).collect()
 }
 
-const H: i32 = 768;
+pub(super) const H: i32 = 768;
 
 #[test]
 fn installed_apps_come_first_then_the_configured_entries() {
@@ -127,7 +127,7 @@ fn installed_apps_come_first_then_the_configured_entries() {
     assert!(menu.rows()[0].enabled, "a category row opens its submenu");
     assert_eq!(sub_ids(&menu, "accessories"), ["snake"]);
     assert_eq!(ids(&menu)[1], "terminal");
-    assert_eq!(menu.rows().len(), 16, "1 category, 13 configured, 2 power");
+    assert_eq!(menu.rows().len(), 17, "1 category, 13 configured, 3 session");
     assert!(menu.rows()[1].enabled, "terminal is shipped");
     let docs = menu.find("os.lazy.docs").unwrap();
     assert!(!menu.rows()[docs].enabled, "unshipped rows stay, disabled");
@@ -141,9 +141,9 @@ fn unknown_shipping_enables_every_row() {
 
 #[test]
 fn configured_rows_keep_the_contract_centres() {
-    // Default m = 13: Terminal (j = 0) at y = H-384, Devices (j = 12) at
-    // y = H-96, then the power rows at H-72 and H-48, x = 134; with or
-    // without installed rows above them.
+    // Default m = 13: Terminal (j = 0) at y = H-408, Devices (j = 12) at
+    // y = H-120, then the session rows at H-96 (Log out), H-72 (Restart) and
+    // H-48 (Shut down), x = 134; with or without installed rows above them.
     for installed in [
         vec![],
         vec![
@@ -158,13 +158,14 @@ fn configured_rows_keep_the_contract_centres() {
             let rect = menu.row_rect(menu.find(app).unwrap()).unwrap();
             (ox + rect.x + rect.w / 2, oy + rect.y + rect.h / 2)
         };
-        assert_eq!(centre("terminal"), (134, H - 384));
-        assert_eq!(centre("installer"), (134, H - 120));
-        assert_eq!(centre("devices"), (134, H - 96));
+        assert_eq!(centre("terminal"), (134, H - 408));
+        assert_eq!(centre("installer"), (134, H - 144));
+        assert_eq!(centre("devices"), (134, H - 120));
         let power = |action| {
             let rect = menu.row_rect(menu.find_action(action).unwrap()).unwrap();
             (ox + rect.x + rect.w / 2, oy + rect.y + rect.h / 2)
         };
+        assert_eq!(power(Action::Ask(Power::Logout)), (134, H - 96));
         assert_eq!(power(Action::Ask(Power::Reboot)), (134, H - 72));
         assert_eq!(power(Action::Ask(Power::PowerOff)), (134, H - 48));
     }
@@ -189,16 +190,16 @@ fn one_per_category() -> Vec<InstalledApp> {
 #[test]
 fn rows_that_do_not_fit_drop_category_rows_first() {
     let installed = one_per_category();
-    let menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 400);
-    // (400 - 32 - 8) / 24 = 15 rows: 13 configured + 2 power, no category.
-    assert_eq!(menu.rows().len(), 15);
+    let menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 424);
+    // (424 - 32 - 8) / 24 = 16 rows: 13 configured + 3 session, no category.
+    assert_eq!(menu.rows().len(), 16);
     assert_eq!(menu.rows()[0].app, "terminal");
-    assert!(menu.origin(400).1 >= 0);
-    let roomier = Menu::build(&installed, &pinned(), Shipped::Unknown, 448);
+    assert!(menu.origin(424).1 >= 0);
+    let roomier = Menu::build(&installed, &pinned(), Shipped::Unknown, 472);
     assert_eq!(
         roomier.rows()[2].app,
         "terminal",
-        "17 rows: 2 of the section"
+        "18 rows: 2 of the section"
     );
     let roomy = Menu::build(&installed, &[], Shipped::Unknown, 2000);
     assert_eq!(roomy.rows().len(), 8 + POWER_ROWS, "one row per category");
@@ -226,8 +227,8 @@ fn row_hit_testing_skips_the_banner_and_padding() {
     assert_eq!(menu.row_at(100, 1), None, "top padding");
     assert_eq!(menu.row_at(100, menu.height() - 2), None, "bottom padding");
     assert_eq!(menu.row_at(WIDTH, PAD + 5), None);
-    assert_eq!(menu.row_rect(14).map(|r| r.y), Some(PAD + 14 * ROW_H));
-    assert_eq!(menu.row_rect(15), None);
+    assert_eq!(menu.row_rect(15).map(|r| r.y), Some(PAD + 15 * ROW_H));
+    assert_eq!(menu.row_rect(16), None);
 }
 
 #[test]
@@ -256,53 +257,6 @@ fn installed_rows_come_from_the_registry_flag() {
     };
     let snake = in_category("snake", "Snake", "graphics");
     assert_eq!(rows, vec![snake, packaged], "chess is hidden");
-}
-
-#[test]
-fn the_power_rows_come_last_whatever_is_configured() {
-    for configured in [vec![], pinned()] {
-        let menu = Menu::build(&[], &configured, Shipped::Unknown, H);
-        let labels: Vec<&str> = menu.rows().iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(labels[labels.len() - 2..], ["Restart...", "Shut down..."]);
-        assert!(menu.rows()[labels.len() - 2..].iter().all(|r| r.enabled));
-        assert_eq!(menu.find(""), None, "a power row is never an app");
-    }
-}
-
-#[test]
-fn a_power_row_asks_for_confirmation_in_place() {
-    for (power, now) in [
-        (Power::Reboot, "Restart now"),
-        (Power::PowerOff, "Shut down now"),
-    ] {
-        let mut menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
-        let (count, height) = (menu.rows().len(), menu.height());
-        let ask = menu.find_action(Action::Ask(power)).unwrap();
-        assert!(!menu.confirming());
-        assert_eq!(menu.choose(ask, false), Choice::Confirming(power));
-        assert!(menu.confirming());
-        assert_eq!((menu.rows().len(), menu.height()), (count, height));
-        let labels: Vec<&str> = menu.rows()[count - 2..]
-            .iter()
-            .map(|r| r.label.as_str())
-            .collect();
-        assert_eq!(labels, [now, "Cancel"]);
-        assert_eq!(menu.rows()[0].app, "terminal", "the app rows stay");
-        // The second press of a double click never confirms.
-        assert_eq!(menu.choose(count - 2, true), Choice::Nothing);
-        assert_eq!(menu.choose(count - 2, false), Choice::Request(power));
-    }
-}
-
-#[test]
-fn cancel_restores_the_power_rows_and_closes() {
-    let mut menu = Menu::build(&[], &pinned(), Shipped::Unknown, H);
-    let fresh = menu.clone();
-    let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
-    assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
-    let cancel = menu.find_action(Action::Cancel).unwrap();
-    assert_eq!(menu.choose(cancel, false), Choice::Close);
-    assert_eq!(menu, fresh);
 }
 
 #[test]
@@ -358,8 +312,8 @@ fn installed_apps_group_by_category_in_menu_order() {
 #[test]
 fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
     let installed = one_per_category();
-    // (448 - 32 - 8) / 24 = 17 rows: 13 configured + 2 power leave 2.
-    let mut menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 448);
+    // (472 - 32 - 8) / 24 = 18 rows: 13 configured + 3 session leave 2.
+    let mut menu = Menu::build(&installed, &pinned(), Shipped::Unknown, 472);
     let scroll = menu.scroll().expect("8 rows do not fit in 2");
     assert_eq!((scroll.first, scroll.shown, scroll.total), (0, 2, 8));
     assert_eq!(menu.rows()[0].label, "Accessories");
@@ -383,7 +337,7 @@ fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
 
 #[test]
 fn scrolling_keeps_a_pending_power_confirmation() {
-    let mut menu = Menu::build(&one_per_category(), &pinned(), Shipped::Unknown, 448);
+    let mut menu = Menu::build(&one_per_category(), &pinned(), Shipped::Unknown, 472);
     let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
     assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
     assert!(menu.scroll_by(1));

@@ -37,7 +37,7 @@ BAD_TARGET = re.compile(r"shut|power|restart|reboot|halt|poweroff|suspend", re.I
 INTEREST = re.compile(r"setting|install|account|user|password|login|log ?in|log ?out|sign ?out|elev|"
                       r"admin|passwd|permission|grant|allow|deny|cancel|ok$|lock", re.I)
 # What `open` looks for in the start menu and its submenus, most wanted first.
-APPS = ["Settings", "Package Installer", "Log out", "Logout", "Sign out", "Accounts", "Users"]
+APPS = ["Settings", "Package Installer", "Log out...", "Log out now", "Accounts", "Users"]
 FOCUS = ["elevd:password", "login:password", "dialog:password"]
 
 # Share of each kind in the account profile; "base" is the plain monkey's own
@@ -197,7 +197,7 @@ class AccountMonkey:
         if kind == "open":
             return {"a": "open", "app": r.choice(APPS)}
         if kind == "logout":
-            return {"a": "open", "app": r.choice(["Log out", "Logout", "Sign out"])}
+            return {"a": "open", "app": r.choice(["Log out...", "Log out now"])}
         if kind == "goto":
             self.pump()
             cands = goto_candidates(self.probe)
