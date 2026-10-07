@@ -17,3 +17,4 @@ accounts/display_read.rhai | GPL-3.0-or-later | desktop | LazyOS original: Read 
 accounts/auth_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: an Authenticate flood, judged by rate
 accounts/elev_wait.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request that shows the trusted prompt
 accounts/open_window.rhai | GPL-3.0-or-later | desktop | LazyOS original: open a window while the prompt is up
+accounts/keyd_verify.rhai | GPL-3.0-or-later | desktop | LazyOS original: check a password at keyd directly, around accountsd's brake (only accountsd may)

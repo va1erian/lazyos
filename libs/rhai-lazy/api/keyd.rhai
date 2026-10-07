@@ -29,8 +29,9 @@ fn connect() {
 /// `Verify(user: String, secret: String) -> (ok: Bool)`
 ///
 /// Check a username/password pair against the stored Argon2id verifier.
-/// The plaintext `secret` crosses the channel; the kernel stamps the
-/// sender so `keyd` can audit who asked.
+/// Accepted only from the accounts service (the `_accounts` system uid,
+/// unlabelled), which slows password guessing (`Authenticate`); anyone
+/// else gets `EPERM`. The plaintext `secret` crosses the channel.
 fn verify(user, secret) {
     msg::connect("os.lazy.keyd.v1").invoke("Verify", [user, secret])
 }

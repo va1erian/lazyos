@@ -8798,8 +8798,9 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_FORGET: u32 = 1849666444;
 
     /// Check a username/password pair against the stored Argon2id verifier.
-    /// The plaintext `secret` crosses the channel; the kernel stamps the
-    /// sender so `keyd` can audit who asked.
+    /// Accepted only from the accounts service (the `_accounts` system uid,
+    /// unlabelled), which slows password guessing (`Authenticate`); anyone
+    /// else gets `EPERM`. The plaintext `secret` crosses the channel.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct VerifyArgs {
         pub user: alloc::string::String,

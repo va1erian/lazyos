@@ -78,6 +78,8 @@ EXPECTATIONS: dict[str, Expect] = {
     "keyd_forget": Expect("blocked", U1),
     # Review of #659 (H1): confd's raw store is unreadable to a session.
     "read_conf_store": Expect("blocked", U1),
+    # H2: keyd's Verify is accountsd's alone (no way around the brake).
+    "keyd_verify": Expect("blocked", U1),
     "auth_flood": Expect("blocked", U1),
     "direct_time": Expect("blocked", U2),
     "direct_restart": Expect("blocked", U2),

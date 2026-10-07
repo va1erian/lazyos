@@ -72,7 +72,8 @@ SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",
     # U1 (#624): accounts change only through elevd; Authenticate is slowed.
-    "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "auth_flood",
+    "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
+    "auth_flood",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
     "direct_time", "direct_restart", "prompt_spoof", "input_focus", "display_read")}
 #: A step that only prepares a scenario prints this marker instead.

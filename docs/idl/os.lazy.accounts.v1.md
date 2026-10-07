@@ -4,7 +4,7 @@ Interface id: `0x2cbf60abbc1951bc`
 
 The account database service (issues #101, #624; docs/accounts-plan.md
 U1). `accountsd` runs as the `_accounts` system uid and owns
-`/conf/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
+`/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
 of it. Lookups and `ListUsers` are open to any caller; `Authenticate` is
 open but slowed per account name and per caller (`EAGAIN` while a brake
 holds). Creating, deleting and promoting accounts, and setting another

@@ -12,8 +12,9 @@
 /// parameters today, so nothing here needs `Buffer`/`Handle` yet.
 interface os.lazy.keyd.v1 {
     /// Check a username/password pair against the stored Argon2id verifier.
-    /// The plaintext `secret` crosses the channel; the kernel stamps the
-    /// sender so `keyd` can audit who asked.
+    /// Accepted only from the accounts service (the `_accounts` system uid,
+    /// unlabelled), which slows password guessing (`Authenticate`); anyone
+    /// else gets `EPERM`. The plaintext `secret` crosses the channel.
     method Verify(user: String = 1, secret: String = 2) -> (ok: Bool = 1);
     /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
     method Sign(key: U64 = 1, digest: Bytes = 2) -> (tag: Bytes = 1);

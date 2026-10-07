@@ -65,8 +65,7 @@ What is enforced today, honestly:
   Every request is audited (`system/events/elevd/request`, journalled to
   `/logs/elevd.log`), and wrong passwords lock the asker out for a growing
   delay.
-- **Privileged calls need a capability, not a uid.** `keyd` `Provision`,
-  `confd` `sys/**` writes (and other users' `user/<uid>/**`), `pkgd`'s
+- **Privileged calls need a capability, not a uid.** `pkgd`'s
   unrestricted install source, `mimed` `Unregister`, `xuid`'s privileged
   subscriptions and shell-only calls, and `init`'s launch-anywhere, `Stop`
   and `Shutdown` rules ask for `CAP_SETUID`, which `init` keeps for the
@@ -180,9 +179,10 @@ approved rule set for: same uid, gid and session, never more capabilities
   print them (issue #447). `keyd` loads the verifiers at boot, all or nothing
   (`KEYD:SHADOW:PASS rows=<n>` / `KEYD:SHADOW:FAIL`); `accountsd` only relays
   `Authenticate` to `keyd`'s `Verify` and refuses every login when `keyd`
-  cannot answer. `keyd` `Provision` (derive a new verifier, which it returns
-  for the database) and `Forget` are accepted from `accountsd`'s identity
-  alone.
+  cannot answer. `keyd`'s account methods, `Verify` (a direct check would
+  get around the brake), `Provision` (derive a new verifier, which it
+  returns for the database) and `Forget`, are accepted from `accountsd`'s
+  identity alone.
 - **Session environment.** A console login starts the passwd shell in the
   account's home with `HOME`, `USER` and `PATH=/system/bin`. Every app `init`
   launches into a session, installed (labelled) apps included, gets the same

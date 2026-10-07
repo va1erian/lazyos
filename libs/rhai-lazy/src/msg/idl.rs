@@ -11,7 +11,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.accounts.v1",
         id: 0x2cbf60abbc1951bc,
-        doc: "The account database service (issues #101, #624; docs/accounts-plan.md\nU1). `accountsd` runs as the `_accounts` system uid and owns\n`/conf/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views\nof it. Lookups and `ListUsers` are open to any caller; `Authenticate` is\nopen but slowed per account name and per caller (`EAGAIN` while a brake\nholds). Creating, deleting and promoting accounts, and setting another\nuser's password, are accepted from `elevd` alone (after an administrator\napproved them on the trusted prompt, U2), never from a uid or a\ncapability; the login screen may create the machine's first account during\nthe first-boot setup. Failures are a structured error field (errno-style\ncode, friendly text).",
+        doc: "The account database service (issues #101, #624; docs/accounts-plan.md\nU1). `accountsd` runs as the `_accounts` system uid and owns\n`/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views\nof it. Lookups and `ListUsers` are open to any caller; `Authenticate` is\nopen but slowed per account name and per caller (`EAGAIN` while a brake\nholds). Creating, deleting and promoting accounts, and setting another\nuser's password, are accepted from `elevd` alone (after an administrator\napproved them on the trusted prompt, U2), never from a uid or a\ncapability; the login screen may create the machine's first account during\nthe first-boot setup. Failures are a structured error field (errno-style\ncode, friendly text).",
         methods: &[
             Method {
                 name: "Lookup",
@@ -1631,7 +1631,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Verify",
                 id: 761007172,
                 oneway: false,
-                doc: "Check a username/password pair against the stored Argon2id verifier.\nThe plaintext `secret` crosses the channel; the kernel stamps the\nsender so `keyd` can audit who asked.",
+                doc: "Check a username/password pair against the stored Argon2id verifier.\nAccepted only from the accounts service (the `_accounts` system uid,\nunlabelled), which slows password guessing (`Authenticate`); anyone\nelse gets `EPERM`. The plaintext `secret` crosses the channel.",
                 params: &[Field { name: "user", id: 1, ty: Ty::String }, Field { name: "secret", id: 2, ty: Ty::String }],
                 returns: &[Field { name: "ok", id: 1, ty: Ty::Bool }],
                 transfers: &[],

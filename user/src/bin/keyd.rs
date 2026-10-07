@@ -38,16 +38,20 @@
 //! `/accounts/db` (docs/accounts-plan.md U1; the image build seeds it),
 //! all or nothing: without it every login fails closed. `accountsd` asks
 //! `Verify` for each login and `keyd`'s verdict is final; there is no
-//! plaintext anywhere and no demo account. `Provision` (install or replace a
-//! verifier, returning it for the database) and `Forget` are account
-//! management and are accepted from `accountsd`'s own identity alone (the
-//! `_accounts` system uid, unlabelled): whoever may plant a verifier may
-//! become that user, and no capability or uid 0 is enough. Every verifier is
-//! Argon2id under [`kdf::Params::INTERACTIVE`].
+//! plaintext anywhere and no demo account. Every account method is accepted
+//! from `accountsd`'s own identity alone (the `_accounts` system uid,
+//! unlabelled; no capability or uid 0 is enough): `Verify`, because
+//! `accountsd` slows password guessing and a direct check would get around
+//! that brake; `Provision` (install or replace a verifier, returning it for
+//! the database) and `Forget`, because whoever may plant a verifier may
+//! become that user. Every verifier is Argon2id under
+//! [`kdf::Params::INTERACTIVE`].
 //!
-//! Keys are scoped to the uid that generated them (taken from the sender's
-//! kernel-stamped credentials): `Sign`, `Wrap`, `Unwrap` and `List` only see the
-//! caller's own keys.
+//! The key methods are open to every caller and scoped to the uid that
+//! generated the key (taken from the sender's kernel-stamped credentials):
+//! `Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys, and
+//! `Generate` makes one owned by the caller. `Random` and `Ping` hold no
+//! secret of anyone's.
 //!
 //! # Known follow-ups (out of this change's scope)
 //!
@@ -176,6 +180,12 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
     let parse = Error::Parcel;
     match message.method() {
         api::METHOD_VERIFY => {
+            // A password check is `accountsd`'s alone: it slows guessers
+            // (`Authenticate`'s brake), and an open `Verify` would be a way
+            // around that brake for any session (review of #659, H2).
+            if !from_accountsd(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
             let args = api::decode_verify_args(body).map_err(parse)?;
             let user = bounded_text(args.user)?;
             let secret = bounded_text(args.secret)?;
