@@ -206,6 +206,22 @@ fn forget(name: &str) {
     }
 }
 
+/// At start: make sure every account's home is its own (`init.Home`
+/// `create`, review of #659 H6). A missing home is made from the skeleton
+/// (an account made while another home volume was mounted); a home owned by
+/// root is handed over whole, which migrates the volumes made before U1,
+/// where `admin` was uid 0 (the OS volume's `/home/admin`, and the home
+/// volume's); a home another uid owns is archived and made afresh. One
+/// that is already right costs one helper run and changes nothing. A
+/// failure is logged; the account still logs in.
+pub(crate) fn ensure_homes(db: &Db) {
+    for user in &db.users {
+        if user.home == fhs::home_of(&user.name) {
+            let _ = home("create", &user.name, user.uid, user.gid);
+        }
+    }
+}
+
 /// Ask `init` to apply `op` to the home of `name`.
 fn home(op: &str, name: &str, uid: u32, gid: u32) -> Result<(), Refusal> {
     let result = services::resolve_service(services::INIT_NAME).and_then(|init| {

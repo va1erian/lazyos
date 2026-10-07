@@ -34,7 +34,10 @@
 //! for the database); this service never sees a password beyond passing it
 //! on, and there is no fallback when `keyd` cannot answer. Homes are made
 //! (0700, from `/system/etc/skel`), archived or removed by `init`, which runs
-//! the change as root on this service's request alone.
+//! the change as root on this service's request alone. At every start each
+//! account's home is checked the same way (`manage::ensure_homes`): made if
+//! missing, handed over if root owns it (a volume from before U1, when
+//! `admin` was uid 0), archived and made afresh if another uid owns it.
 
 #![no_std]
 #![no_main]
@@ -103,6 +106,7 @@ fn run() -> messenger::Result<()> {
                 fhs::state::ACCOUNTS_DB
             ));
             store::write_views(db);
+            manage::ensure_homes(db);
             if db.needs_setup() {
                 sys::write_str("ACCOUNTS:SETUP:NEEDED no account yet\n");
             }

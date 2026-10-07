@@ -14,8 +14,10 @@ for the login screen.
 "First-boot setup") builds a desktop with no account at all: its login screen
 asks for the owner, who becomes an administrator. The account database is a
 seed an update never replaces, so the setup recreates the OS volume
-(`LAZYOS_RESET_OS=1`); an autologin image skips the setup, so the two
-exclude each other here.
+(`LAZYOS_RESET_OS=1`), and it formats the attached home volume afresh with no
+home at all (`--reset-home`): the owner may pick a name whose home an earlier
+machine's account left there (review of #659, H6). An autologin image skips
+the setup, so the two exclude each other here.
 """
 
 from __future__ import annotations
@@ -70,7 +72,8 @@ def add_login_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--setup", action="store_true",
                         help="start with no account: the login screen asks for the owner, "
                              "an administrator (first-boot setup, LAZYOS_SETUP=1; recreates "
-                             "the OS volume like --reset-os; docs/accounts-plan.md U1)")
+                             "the OS volume like --reset-os and formats the home volume "
+                             "with no home, like --reset-home; docs/accounts-plan.md U1)")
 
 
 def build_login(args: argparse.Namespace) -> dict[str, str]:
@@ -87,6 +90,10 @@ def build_login(args: argparse.Namespace) -> dict[str, str]:
         if name and name != NONE:
             raise ValueError("--setup asks for the owner at the login screen; it excludes --autologin")
         # The account database is a seed: only a new OS volume starts empty.
+        # Its homes go too: a home volume made for other accounts would hand
+        # their homes to whoever the owner's name matches (#659 H6).
         args.reset_os = True
+        if not getattr(args, "no_home_disk", False):
+            args.reset_home = True
         return {"LAZYOS_AUTOLOGIN": NONE, "LAZYOS_SETUP": "1"}
     return {"LAZYOS_AUTOLOGIN": name or NONE}

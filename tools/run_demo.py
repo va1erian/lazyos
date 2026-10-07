@@ -45,7 +45,8 @@ for the demo accounts (owned by them) and nothing else, so log in as ``user``
 The desktop starts at its login screen and runs everything as the account that
 logged in (issue #623); ``--autologin NAME`` logs that account straight in, and
 ``--setup`` starts a new OS volume with no account, whose login screen asks for
-the owner, an administrator (docs/accounts-plan.md U1). ``admin`` is an ordinary
+the owner, an administrator (docs/accounts-plan.md U1), and formats the home
+volume afresh with no home on it (it implies ``--reset-home``). ``admin`` is an ordinary
 uid in the ``admin`` group: privileged changes are approved on the trusted
 prompt (``elevd``, U2), and nobody is root.
 
@@ -122,10 +123,12 @@ def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
                           mkdisk.DEFAULT_LABEL)
 
 
-def prepare_home_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
-    """Make sure the home volume exists, resetting it only when asked to."""
-    return prepare_volume("home disk", path, reset, assume_yes, mkdisk.home_volume,
-                          mkdisk.HOME_LABEL)
+def prepare_home_disk(path: Path, reset: bool, assume_yes: bool, empty: bool = False) -> bool:
+    """Make sure the home volume exists, resetting it only when asked to.
+    `empty` (the first-boot setup): a volume with no home, since the machine
+    has no account yet and the owner's home is made when it is created."""
+    plan = (lambda: mkdisk.home_volume(accounts=[])) if empty else mkdisk.home_volume
+    return prepare_volume("home disk", path, reset, assume_yes, plan, mkdisk.HOME_LABEL)
 
 
 def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
@@ -316,7 +319,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     home_disk = None if args.no_home_disk else Path(args.home_disk)
-    if home_disk and not prepare_home_disk(home_disk, args.reset_home, args.yes):
+    if home_disk and not prepare_home_disk(home_disk, args.reset_home, args.yes,
+                                           empty=getattr(args, "setup", False)):
         return 1
     data_disk = None
     if not args.no_data_disk and (args.data_disk or args.reset_data):

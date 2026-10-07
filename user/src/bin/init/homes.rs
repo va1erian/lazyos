@@ -20,18 +20,40 @@ use user::sys::{self, Cred as SysCred};
 use super::service::{Phase, Service};
 
 /// What one home operation does. The arguments are `$1` op, `$2` home, `$3`
-/// `uid:gid`, `$4` skeleton, `$5` archive directory, `$6` archived name. A
-/// home that already exists is kept (`create`), one that is missing is not an
-/// error (`archive`, `remove`).
+/// `uid:gid`, `$4` skeleton, `$5` archive directory, `$6` archived name.
+///
+/// `create` makes sure the home is the account's (review of #659, H6): one
+/// it already owns is kept; one owned by root is a home made before the
+/// account had its own uid (`admin` was uid 0 before U1) and is handed over
+/// whole (`chown -hR`, never following a link); one owned by any other uid
+/// belongs to an earlier account of the same name and is set aside in the
+/// archive as `<name>-<that uid>`, never reused, before a fresh home is made.
+/// `archive` and `remove` of a missing home are not errors. A path that is
+/// not a plain directory (a link, a file) is refused.
 const SCRIPT: &str = "set -u; op=$1; home=$2; owner=$3; skel=$4; archive=$5; kept=$6
+want=${owner%%:*}
 case $op in
 create)
-  [ -d \"$home\" ] && exit 0
+  [ -L \"$home\" ] && exit 3
+  if [ -d \"$home\" ]; then
+    have=$(stat -c %u \"$home\") || exit 1
+    [ \"$have\" = \"$want\" ] && exit 0
+    if [ \"$have\" = 0 ]; then
+      chown -hR \"$owner\" \"$home\" && chmod 700 \"$home\"
+      exit
+    fi
+    aside=\"$archive/${home##*/}-$have\"
+    [ -e \"$aside\" ] && exit 3
+    mkdir -p -m 700 \"$archive\" && mv \"$home\" \"$aside\" || exit 1
+  elif [ -e \"$home\" ]; then
+    exit 3
+  fi
   mkdir -m 700 \"$home\" || exit 1
   if [ -d \"$skel\" ]; then cp -a \"$skel/.\" \"$home/\" || exit 1; fi
-  chown -R \"$owner\" \"$home\" && chmod 700 \"$home\" ;;
+  chown -hR \"$owner\" \"$home\" && chmod 700 \"$home\" ;;
 archive)
   [ -d \"$home\" ] || exit 0
+  [ -e \"$archive/$kept\" ] && exit 3
   mkdir -p -m 700 \"$archive\" && mv \"$home\" \"$archive/$kept\" ;;
 remove)
   [ -d \"$home\" ] || exit 0
