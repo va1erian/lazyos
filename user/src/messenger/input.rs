@@ -104,6 +104,9 @@ pub struct PointerState {
     pub buttons: u32,
     pub wheel: i32,
     pub wheel_h: i32,
+    /// The newest raw record's sequence number, echoed in
+    /// [`ShellLink::note_input_done`].
+    pub seq: u64,
 }
 
 /// Decode one shell event; `None` for anything unknown or malformed.
@@ -139,6 +142,7 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
                 buttons: args.buttons,
                 wheel: args.wheel,
                 wheel_h: args.wheel_h,
+                seq: args.seq,
             })
         }
         _ => return None,
@@ -213,6 +217,15 @@ impl ShellLink {
     fn shell_note(&self, method: u32, body: Vec<u8>) -> Result<()> {
         self.input
             .send(&request(SHELL_INTERFACE, method, body, Vec::new()))
+    }
+
+    /// One-way: every pointer event up to `seq` is handled, and the focus it
+    /// led to was noted before this (`NoteInputDone`; keys typed after a
+    /// click are held by `inputd` until it arrives).
+    pub fn note_input_done(&self, seq: u64) -> Result<()> {
+        let body = shell_wire::encode_note_input_done_args(&shell_wire::NoteInputDoneArgs { seq })
+            .map_err(Error::Parcel)?;
+        self.shell_note(shell_wire::METHOD_NOTEINPUTDONE, body)
     }
 
     /// One-way [`ShellLink::register_surface`].

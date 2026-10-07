@@ -119,7 +119,14 @@ Owns everything that was hard-coded in `layout.rs` and `keyboard.rs`.
   else, so a grabbing app can never trap the user.
 - **Seats and focus:** `inputd` tracks the focused consumer (from `xuid`'s
   `FocusChanged`, and the login console when no session exists) and routes to
-  exactly that consumer. Nobody else receives keys.
+  exactly that consumer. Nobody else receives keys. A click can move focus,
+  but which window it focuses is `xuid`'s decision, made after `inputd` has
+  forwarded the press: so after a press `inputd` holds the key content that
+  follows, in order, until `xuid` sends `NoteInputDone` (it has handled that
+  pointer event and noted the focus it led to), at most 250 ms
+  (`libs/inputmap/src/barrier.rs`, `user/src/bin/inputd/settle.rs`). Without
+  it a key typed right after a click went to the window the click left.
+  Session: `tools/screenshot/examples/focus_click_type.json`.
 - **Topics** for observers that must not see content: `os.lazy.input.state`
   (layout changed, device added/removed, lock LEDs) declared in MIDL topics
   (`idl/topics.midl`). No keystroke content is ever published on a topic.

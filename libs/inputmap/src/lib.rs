@@ -15,6 +15,7 @@ extern crate alloc;
 #[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
+pub mod barrier;
 mod engine;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
@@ -29,6 +30,7 @@ pub mod router;
 #[cfg(test)]
 mod tests;
 
+pub use barrier::Barrier;
 pub use engine::{Engine, KeyOut, KeyState, Output, RawKey, ESCAPE_CODE, ESCAPE_MODS};
 pub use grab::Grabs;
 pub use keymap::Layout;

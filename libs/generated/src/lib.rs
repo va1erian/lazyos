@@ -7495,6 +7495,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_NOTESURFACE: u32 = 11;
     /// `ForgetSurface` method id.
     pub const METHOD_FORGETSURFACE: u32 = 12;
+    /// `NoteInputDone` method id.
+    pub const METHOD_NOTEINPUTDONE: u32 = 13;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -7896,6 +7898,35 @@ pub mod os_lazy_input_shell_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.surface = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way: the compositor has handled every `PointerEvent` up to `seq`
+    /// and already noted the focus they led to. A click can move focus, so
+    /// after forwarding a button press `inputd` holds the key content that
+    /// follows (in order, briefly: a compositor that never answers costs a
+    /// fraction of a second, not the keys) until this note covers the press;
+    /// otherwise a key typed right after a click would reach the window the
+    /// click left.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteInputDoneArgs {
+        pub seq: u64,
+    }
+
+    pub fn encode_note_input_done_args(value: &NoteInputDoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_input_done_args(body: &[u8]) -> Result<NoteInputDoneArgs, Error> {
+        let mut out = NoteInputDoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.seq = field.as_u64()?;
             }
         }
         Ok(out)

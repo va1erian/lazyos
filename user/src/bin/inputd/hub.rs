@@ -10,7 +10,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use inputmap::router::Error as RouteError;
-use inputmap::{Engine, Grabs, KeyOut, KeyState, Layout, Output, Router};
+use inputmap::{Barrier, Engine, Grabs, KeyOut, KeyState, Layout, Output, Router};
 use user::messenger::input::{self as api, shell_wire, wire};
 use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
 use user::sys;
@@ -47,6 +47,9 @@ pub(super) struct Hub {
     pub(super) grabs: Grabs,
     /// The key-state pages sessions attached (`keypages.rs`).
     pub(super) key_pages: KeyPages,
+    /// Key content held until the compositor has handled a press
+    /// (`settle.rs`).
+    pub(super) barrier: Barrier,
 }
 
 impl Hub {
@@ -59,6 +62,7 @@ impl Hub {
             pointer: Cursor::new(),
             grabs: Grabs::new(),
             key_pages: KeyPages::default(),
+            barrier: Barrier::new(),
         }
     }
 
@@ -114,6 +118,11 @@ impl Hub {
             shell_wire::METHOD_SETFOCUS | shell_wire::METHOD_NOTEFOCUS => {
                 let args = shell_wire::decode_set_focus_args(body).map_err(Error::Parcel)?;
                 self.set_focus(args.surface);
+                Ok(Vec::new())
+            }
+            shell_wire::METHOD_NOTEINPUTDONE => {
+                let args = shell_wire::decode_note_input_done_args(body).map_err(Error::Parcel)?;
+                self.input_done(args.seq);
                 Ok(Vec::new())
             }
             shell_wire::METHOD_REGISTERSURFACE | shell_wire::METHOD_NOTESURFACE => {
@@ -352,6 +361,7 @@ impl Hub {
                 self.drop_shell();
                 let change = self.router.set_compositor(false);
                 self.apply(change);
+                self.release_keys();
             }
         }
     }

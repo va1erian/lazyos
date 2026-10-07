@@ -148,6 +148,14 @@ interface os.lazy.input.shell.v1 {
     method NoteSurface(surface: U64 = 1, owner: U64 = 2) -> () = 11 oneway;
     /// One-way `UnregisterSurface` (see `NoteFocus`).
     method ForgetSurface(surface: U64 = 1) -> () = 12 oneway;
+    /// One-way: the compositor has handled every `PointerEvent` up to `seq`
+    /// and already noted the focus they led to. A click can move focus, so
+    /// after forwarding a button press `inputd` holds the key content that
+    /// follows (in order, briefly: a compositor that never answers costs a
+    /// fraction of a second, not the keys) until this note covers the press;
+    /// otherwise a key typed right after a click would reach the window the
+    /// click left.
+    method NoteInputDone(seq: U64 = 1) -> () = 13 oneway;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
     /// Shell event: the client owning `surface` asked for a grab of `kind`
