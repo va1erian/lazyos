@@ -380,7 +380,9 @@ and the Rhai bindings.
   `liveness.rs`.
 - Input: left click per the item's `activate` (`Event` -> `Activate`,
   `Menu` -> open the menu, `DefaultItem` -> the default row); right click
-  opens the menu (or `SecondaryActivate` for an item without one); wheel ->
+  always opens the menu, since every menu ends with the shell's Quit row
+  and an app must not hide it by giving no rows (an item without rows of
+  its own also gets `SecondaryActivate`); wheel ->
   `Scroll`; hover 500 ms -> tooltip panel headed by the verified app name.
 - Every menu ends with a shell-added **Quit <App>** row (`init.Stop`), which
   the app cannot remove or relabel.

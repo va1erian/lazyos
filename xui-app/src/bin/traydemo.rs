@@ -4,13 +4,15 @@
 //!
 //! Keys (and the buttons) switch the item's picture: `L` a Lucide outline,
 //! `P` full-colour pixels at 1x and 2x, `B` a Lucide name that does not exist
-//! (the shell falls back to the package icon), `A` toggles `Attention`; `Q`
-//! quits.
+//! (the shell falls back to the package icon), `A` toggles `Attention`, `N`
+//! toggles giving the menu no rows at all (the shell still shows its Quit
+//! row); `Q` quits.
 //!
 //! Serial evidence: `TRAYDEMO:UP:PASS` after the first frame,
 //! `TRAYDEMO:TRAY:SET:PASS` / `FAIL err=<n>`, `TRAYDEMO:ICON:<kind>`,
 //! `TRAYDEMO:ACTIVATE:PASS n=<clicks>`, `TRAYDEMO:SECONDARY:PASS`,
-//! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>` and
+//! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>`,
+//! `TRAYDEMO:MENU:BARE:<bool>` and
 //! `TRAYDEMO:QUIT:PASS`.
 
 use trayclient::{item, lucide, menu_row, pixels, wire, Event};
@@ -32,6 +34,7 @@ enum Msg {
     Tick,
     Icon(Kind),
     Attention,
+    Bare,
     Quit,
 }
 
@@ -50,6 +53,8 @@ struct Traydemo {
     attention: bool,
     /// The menu's check row.
     notify: bool,
+    /// The menu has no rows of its own (`N`).
+    bare: bool,
     icon: Kind,
 }
 
@@ -73,6 +78,9 @@ impl Traydemo {
     /// The item's menu: a default row, a check, a separator and a submenu
     /// of radios that picks the icon (the shell adds Quit).
     fn menu(&self) -> Vec<wire::MenuItem> {
+        if self.bare {
+            return Vec::new();
+        }
         let mut show = menu_row(ROW_SHOW, "Show window", wire::MENU_KIND_NORMAL);
         show.is_default = true;
         let mut notify = menu_row(ROW_NOTIFY, "Notifications", wire::MENU_KIND_CHECK);
@@ -182,6 +190,11 @@ impl App for Traydemo {
                 let _ = self.tray.update(patch);
                 println!("TRAYDEMO:ATTENTION:{}", self.attention);
             }
+            Msg::Bare => {
+                self.bare = !self.bare;
+                self.update_menu();
+                println!("TRAYDEMO:MENU:BARE:{}", self.bare);
+            }
             Msg::Quit => {
                 let _ = self.tray.clear();
                 println!("TRAYDEMO:QUIT:PASS");
@@ -223,6 +236,7 @@ fn main() {
             clicks: 0,
             attention: false,
             notify: false,
+            bare: false,
             icon: Kind::Lucide,
         };
         let mut item = item(lucide(OUTLINE), "Clicked 0 time(s)");
@@ -250,6 +264,7 @@ fn main() {
             Key::P => Some(Msg::Icon(Kind::Pixels)),
             Key::B => Some(Msg::Icon(Kind::Bad)),
             Key::A => Some(Msg::Attention),
+            Key::N => Some(Msg::Bare),
             Key::Q => Some(Msg::Quit),
             _ => None,
         });
