@@ -71,9 +71,12 @@ jobs:
         run: cargo build
 
       # The verdict is the guest: UEFI boot from usb-storage alone, the RAM
-      # root, USB input bound and the desktop drawn (docs/usb-stick.md).
+      # root, USB input bound and the login screen drawn (docs/usb-stick.md).
+      # The shipped image has no autologin (docs/accounts-plan.md U0), so it
+      # boots to the greeter, not the desktop `tools/boot/run.py` builds for
+      # its own runs with `LAZYOS_AUTOLOGIN=user`.
       - name: Boot and judge (OVMF, USB only)
-        run: python tools/boot/run.py --no-build --out shots/release
+        run: python tools/boot/run.py --no-build --ready GREETER:UP:PASS --out shots/release
 
       - name: Compress and checksum
         shell: bash
