@@ -52,8 +52,10 @@ pub fn hovered(ctx: &Ctx, hover: Option<BarHover>) {
 
 /// `input` on the cell at layout index `cell`: a primary click does what the
 /// item's `activate` says (send `Activate`, open the menu, run the default
-/// row); a secondary click opens the menu of an item that has one and sends
-/// `SecondaryActivate` otherwise; the wheel sends `Scroll`.
+/// row); a secondary click always opens the shell menu, because every item's
+/// menu ends with the shell's Quit row and an app must not hide it by giving
+/// no rows (an item without rows of its own also gets `SecondaryActivate`);
+/// the wheel sends `Scroll`.
 pub fn on_cell<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, cell: usize, input: Input) {
     let app = ctx
         .tray
@@ -88,7 +90,15 @@ pub fn on_cell<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, cell: usize, input: Input)
     match (input, activation) {
         (Input::Primary, Activation::Menu) => super::menu::open(ctx, ui, &app),
         (Input::Primary, Activation::DefaultItem) => super::menu::run_default(ctx, &app),
-        (Input::Secondary, _) if has_menu => super::menu::open(ctx, ui, &app),
+        (Input::Secondary, _) => {
+            if !has_menu {
+                deliver(ctx, &app, input);
+            }
+            // The delivery may have found the app gone and dropped its item.
+            if ctx.tray.model.borrow().get(&app).is_some() {
+                super::menu::open(ctx, ui, &app);
+            }
+        }
         _ => deliver(ctx, &app, input),
     }
 }

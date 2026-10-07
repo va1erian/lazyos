@@ -44,6 +44,8 @@ pub struct Demo {
     pub clicks: u32,
     pub attention: bool,
     pub notify: bool,
+    /// The menu has no rows of its own (`N`): the shell still shows Quit.
+    pub bare: bool,
     pub icon: Kind,
     /// The text the window shows under the title.
     pub status: String,
@@ -64,6 +66,9 @@ impl Demo {
     /// The item's menu: a default row, a check, a separator and a submenu
     /// of radios that picks the icon (the shell adds Quit).
     pub fn menu(&self) -> Vec<wire::MenuItem> {
+        if self.bare {
+            return Vec::new();
+        }
         let mut show = menu_row(ROW_SHOW, "Show window", wire::MENU_KIND_NORMAL);
         show.is_default = true;
         let mut notify = menu_row(ROW_NOTIFY, "Notifications", wire::MENU_KIND_CHECK);
@@ -93,6 +98,16 @@ impl Demo {
             Ok(()) => println!("TRAYDEMO:TRAY:SET:PASS"),
             Err(code) => println!("TRAYDEMO:TRAY:SET:FAIL err={}", -code),
         }
+    }
+
+    /// Give the menu no rows at all, or its rows back (`N`).
+    pub fn toggle_bare(&mut self) {
+        self.bare = !self.bare;
+        let _ = self.update(wire::UpdateArgs {
+            menu: Some(wire::Menu { rows: self.menu() }),
+            ..wire::UpdateArgs::default()
+        });
+        println!("TRAYDEMO:MENU:BARE:{}", self.bare);
     }
 
     /// Take the item off: a resident app then shows its default item.

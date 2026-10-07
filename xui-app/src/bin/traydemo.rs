@@ -7,8 +7,10 @@
 //! Keys (and the buttons) in its window: `L`, `P`, `B` switch the item's
 //! picture (a Lucide outline, full-colour pixels at 1x and 2x, a Lucide name
 //! that does not exist, which falls back to the package icon), `A` toggles
-//! `Attention`, `C` clears the item (the tray then shows the default item of
-//! a resident app), `Q` quits. Closing the window keeps the app in the tray.
+//! `Attention`, `N` toggles giving the menu no rows at all (the shell still
+//! shows its Quit row), `C` clears the item (the tray then shows the default
+//! item of a resident app), `Q` quits. Closing the window keeps the app in
+//! the tray.
 //!
 //! Test hooks for the lifecycle harness, read at start: the number of
 //! milliseconds in `/tmp/traydemo-delay` delays its `Watch` (a slow start),
@@ -19,7 +21,7 @@
 //! `TRAYDEMO:WATCH:PASS`, `TRAYDEMO:TRAY:SET:PASS`, `TRAYDEMO:ICON:<kind>`,
 //! `TRAYDEMO:ACTIVATE:PASS n=<clicks>`, `TRAYDEMO:SECONDARY:PASS`,
 //! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>`,
-//! `TRAYDEMO:CLOSED:TRAY`, `TRAYDEMO:REOPEN:PASS via=<reopen|activate>`,
+//! `TRAYDEMO:MENU:BARE:<bool>`, `TRAYDEMO:CLOSED:TRAY`, `TRAYDEMO:REOPEN:PASS via=<reopen|activate>`,
 //! `TRAYDEMO:CLEAR:PASS`, `TRAYDEMO:QUIT:IGNORED` and `TRAYDEMO:QUIT:PASS`.
 
 #[path = "traydemo/demo.rs"]
@@ -47,6 +49,7 @@ enum Msg {
     Tick,
     Icon(Kind),
     Attention,
+    Bare,
     Clear,
     /// The window's close button: back to the tray.
     Close,
@@ -87,6 +90,7 @@ impl App for Window {
             }
             Msg::Icon(kind) => self.demo.borrow_mut().set_icon(kind),
             Msg::Attention => self.demo.borrow_mut().toggle_attention(),
+            Msg::Bare => self.demo.borrow_mut().toggle_bare(),
             Msg::Clear => self.demo.borrow_mut().clear_item(),
             Msg::Close => {
                 println!("TRAYDEMO:CLOSED:TRAY");
@@ -127,6 +131,7 @@ fn build(demo: Shared, ui: &mut Ui<Msg>) -> xui_core::backend::Result<Window> {
         Key::P => Some(Msg::Icon(Kind::Pixels)),
         Key::B => Some(Msg::Icon(Kind::Bad)),
         Key::A => Some(Msg::Attention),
+        Key::N => Some(Msg::Bare),
         Key::C => Some(Msg::Clear),
         Key::Q => Some(Msg::Quit),
         _ => None,
@@ -188,6 +193,7 @@ fn main() {
         clicks: 0,
         attention: false,
         notify: false,
+        bare: false,
         icon: Kind::Lucide,
         status: String::from("Click the icon in the taskbar tray."),
         ignore_quit: std::path::Path::new(IGNORE_QUIT_FILE).exists(),
