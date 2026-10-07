@@ -118,3 +118,32 @@ pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
     0,
     0,
 );
+
+/// Every system uid a service runs as or is trusted by. Services authorize
+/// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
+/// `_greeter` and `_elev`), so two services sharing one would let either
+/// pass for the other: the build fails instead.
+const SYSTEM_UIDS: [u32; 10] = [
+    sndpolicy::SND_UID,
+    netpolicy::NET_UID,
+    netpolicy::NETD_UID,
+    usbpolicy::USB_UID,
+    sndpolicy::AUDIO_UID,
+    devmatch::DEVD_UID,
+    user::messenger::logind::GREETER_UID,
+    accountdb::ACCOUNTS_UID,
+    accountdb::ELEVD_UID,
+    mounttable::MOUNTD_UID,
+];
+
+const _: () = {
+    let mut i = 0;
+    while i < SYSTEM_UIDS.len() {
+        let mut j = i + 1;
+        while j < SYSTEM_UIDS.len() {
+            assert!(SYSTEM_UIDS[i] != SYSTEM_UIDS[j], "two system services share a uid");
+            j += 1;
+        }
+        i += 1;
+    }
+};
