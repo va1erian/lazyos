@@ -138,8 +138,9 @@ def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
-    # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile.
-    if cfg.get("desktop") or cfg.get("lazyweb"):
+    # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
+    # so does the first-boot setup, which is the desktop login screen's.
+    if cfg.get("desktop") or cfg.get("lazyweb") or cfg.get("setup"):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"

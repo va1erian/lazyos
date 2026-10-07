@@ -16,8 +16,11 @@ asks for the owner, who becomes an administrator. The account database is a
 seed an update never replaces, so the setup recreates the OS volume
 (`LAZYOS_RESET_OS=1`), and it formats the attached home volume afresh with no
 home at all (`--reset-home`): the owner may pick a name whose home an earlier
-machine's account left there (review of #659, H6). An autologin image skips
-the setup, so the two exclude each other here.
+machine's account left there (review of #659, H6). A setup image never logs
+anyone in, so the two exclude each other here; the setup is the desktop
+login screen's, so it brings the desktop profile (`run_demo.py --setup` implies
+`--desktop`, the Advanced tab's checkbox sets `LAZYOS_DESKTOP=1`), and the image
+build drops any autologin from a setup image, with a warning (`user/build.rs`).
 """
 
 from __future__ import annotations
@@ -71,7 +74,8 @@ def add_login_option(parser: argparse.ArgumentParser) -> None:
                              "default: the login screen; docs/accounts-plan.md U0)")
     parser.add_argument("--setup", action="store_true",
                         help="start with no account: the login screen asks for the owner, "
-                             "an administrator (first-boot setup, LAZYOS_SETUP=1; recreates "
+                             "an administrator (first-boot setup, LAZYOS_SETUP=1; implies "
+                             "--desktop and never logs anyone in; recreates "
                              "the OS volume like --reset-os and formats the home volume "
                              "with no home, like --reset-home; docs/accounts-plan.md U1)")
 

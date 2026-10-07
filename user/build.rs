@@ -56,8 +56,31 @@ fn generate_typefaces(manifest: &str) {
 /// a login; any other image shows the login screen. The name must be a login
 /// name (`[a-z_][a-z0-9_-]*`); `logind` still looks it up in the account file
 /// and logs nobody in when it is not there.
+///
+/// A first-boot setup image (`LAZYOS_SETUP=1`) never logs anyone in: it has
+/// no account until the owner is created on the login screen, so a name
+/// would log nobody in and hide the setup. A name it would have used is
+/// ignored with a warning (`build_support/accounts_seed.rs` ignores it too).
 fn autologin(xui_autostart: &str) -> String {
     println!("cargo:rerun-if-env-changed=LAZYOS_AUTOLOGIN");
+    println!("cargo:rerun-if-env-changed=LAZYOS_SETUP");
+    let setup = env::var("LAZYOS_SETUP").is_ok_and(|value| value.trim() == "1");
+    let name = implied_autologin(xui_autostart, !setup);
+    if setup {
+        if !name.is_empty() {
+            println!(
+                "cargo:warning=LAZYOS_SETUP=1: this image shows the first-boot setup and \
+                 logs nobody in (ignoring the autologin of `{name}`)"
+            );
+        }
+        return String::new();
+    }
+    name
+}
+
+/// The account [`autologin`] names before the setup rule; `announce` says so
+/// when only `LAZYOS_XUI_AUTOSTART` implies it.
+fn implied_autologin(xui_autostart: &str, announce: bool) -> String {
     let name = match env::var("LAZYOS_AUTOLOGIN") {
         Ok(value) => value.trim().to_string(),
         Err(_) => {
@@ -65,7 +88,7 @@ fn autologin(xui_autostart: &str) -> String {
                 .split(',')
                 .map(str::trim)
                 .any(|item| !item.is_empty() && item != "none");
-            if opens_apps {
+            if opens_apps && announce {
                 // Implicit, so say so: an image that skips its login screen
                 // should never be a surprise.
                 println!(
@@ -73,6 +96,8 @@ fn autologin(xui_autostart: &str) -> String {
                      opens apps: this image logs in `user` without a password \
                      (LAZYOS_AUTOLOGIN=none shows the login screen)"
                 );
+            }
+            if opens_apps {
                 String::from("user")
             } else {
                 String::new()
