@@ -193,9 +193,11 @@ What exists, and the decisions taken on the way:
   button on the prompt yet.
 - **Services that trust `elevd`** (by kernel-stamped identity): `accountsd`
   (create, delete, promote, any password), `confd` (`sys/**`, any user's
-  keys), `pkgd` (any source path; replacing a core app is now refused from a
-  session: `core_replace` is blocked), `timed` (`SetTime`), `init`
-  (`RestartService`). `keyd` takes `Provision`/`Forget` from `accountsd`
+  keys), `pkgd` (any source path; `InstallApproved`, the only install that
+  replaces a core app for `elevd`, and only for `pkg.update-core`;
+  replacing a core app is refused from a session: `core_replace` is
+  blocked), `timed` (`SetTime`), `init` (`RestartService`, the services in
+  `elevpolicy::RESTARTABLE` only). `keyd` takes `Provision`/`Forget` from `accountsd`
   alone.
 - **Apps:** Settings has an Accounts page (list, add, remove, make admin,
   change your password) and writes `sys/**` and the clock through `elevd`;
@@ -265,6 +267,82 @@ during a prompt (`input_flood`) and raises prompts back to back
   leading `_`, not `root`), the rule `Create`, `init.Home` and the greeter
   share; a `SetPassword` whose database write fails puts `keyd`'s old
   verifier back (`keyd.Restore`).
+
+### 3.3 Review fixes (PR #659, what the prompt shows and the audit says)
+
+- **A package prompt shows a package, and that package is what gets
+  installed.** For `pkg.install` and `pkg.update-core`, `elevd` first has
+  `pkgd` inspect the file (`Inspect`, the validation an install runs) and
+  looks up the app it would replace (`Installed`, origin `core`); the prompt
+  names the app, its system name and version, the core app replaced and
+  from which version, the author marked *unverified* (packages are not
+  signed), and the permissions grouped by risk: up to three high-risk ones
+  by name, medium and low ones counted (`elevpolicy::package`,
+  `user/src/bin/elevd/package.rs`). **Decision: a content hash, not a
+  copy.** `pkgd` reported the archive's SHA-256 with the inspection; after
+  the approval `elevd` calls the new `pkgd.InstallApproved(path, digest,
+  core)` (accepted from `elevd` alone), and `pkgd` installs only bytes that
+  hash to that digest: it reads the whole file into one buffer, hashes it
+  and installs from that buffer, so the check and the use are the same
+  bytes and a file swapped after the approval is refused ("the package
+  changed after an administrator approved it"). A private copy would have
+  needed storage `elevd` does not have and proved nothing more. `elevd`
+  reads as a system service, so it first applies the asker's own source
+  rule (`pkgstore::access::source_allowed`: `/transient`, `/system/share`
+  or the asker's home): a request cannot make it inspect, and report on, a
+  file the asker could not read.
+- **Only `pkg.update-core` replaces a core app.** `InstallApproved` carries
+  the intent: `core = false` (`pkg.install`) refuses a package whose system
+  name is a core app's, `core = true` refuses one that is not; plain
+  `Install` never replaces a core app for a session or for `elevd` (a
+  `CAP_SETUID` service still may). `elevd` refuses both mismatches before
+  any prompt (`EPERM` / `EINVAL`), and `pkgd` checks again
+  (`user/src/bin/pkgd/approval.rs`). Gate: `core_claim`.
+- **Text an asker chose is never misleading or cut out of sight**
+  (`elevpolicy::text`, `summary`). **Decision, per field:** values that are
+  stored as typed (a `conf.set` `str` value, a power policy value, a
+  `conf.list` prefix, a package path) **refuse** control characters,
+  Unicode format characters (bidi embeddings and overrides U+202A-202E,
+  isolates U+2066-2069, marks U+200E/F, zero-width characters, U+FEFF, line
+  and paragraph separators) and every space but U+0020 (`EINVAL`), except
+  that a `conf.set` `str` value may hold rows and columns (`\n`, `\t`:
+  `sys/ui/menu` is `app<TAB>label` lines), shown and audited escaped; text
+  from elsewhere (a package's name, author, version, permissions) is shown
+  **escaped** (`\u{202e}`, `\n`), as is anything the prompt's font cannot
+  draw (it has ASCII and Latin-1), and `\` and `"`, so a quoted value ends
+  where it seems to. Long paths lose their middle (`sys/ui/.../demo`), a
+  long text value keeps its head and tail and names its length, a run of
+  more than three spaces shows as `\[N spaces]`, and every summary is at
+  most `MAX_SUMMARY` (300) characters. The prompt has room for six summary
+  lines (the panel grew to 480x324), breaks a word wider than a line, and
+  if text still does not fit it ends the last line with a visible `...`.
+- **The audit trail cannot be forged.** The serial `ELEVD:REQUEST` line and
+  `logd`'s `/logs/elevd.log` line are both rendered by
+  `elevpolicy::audit::Line`: every field but the summary is one token
+  (`[A-Za-z0-9._()-]`, anything else `_`), and the summary is the last
+  field, quoted, with `\`, `"` and everything else escaped:
+  `... outcome=granted summary="Set the setting sys/ui/demo to \"light\""`.
+  Gate: `audit_forge` (a `conf.set` value carrying `\r\n` and a whole
+  forged `ELEVD:REQUEST ... outcome=granted` line is refused, and the judge
+  fails the run if such a line ever starts a log line).
+- **The `admin` field names an account or nothing.** On a refused prompt the
+  audit keeps the name typed only when it is an existing account's, so a
+  password typed into the name field never reaches `/logs/elevd.log`.
+- **`service.restart` has an allowlist** (`elevpolicy::RESTARTABLE`):
+  `inputd`, `audiod`, `sndd`, `netd`, `netdrv`, `usbd`, `devd`, `mountd`,
+  `printd`, `clipboardd`, `mimed`, `healthd`, `sysmond`: drivers and
+  services that hold no security state and come back as they were.
+  **Never:** `elevd`, `logind`, `accountsd`, `keyd` (identity and
+  approvals), `xuid` (the prompt), `init`, `messengerd`, `confd`, `logd`
+  (the audit trail), `pkgd` and `timed`. `elevd` refuses any other name
+  before a prompt (`EPERM`, `Operation::permitted`), and `init`'s
+  `RestartService` checks the same list. Gates: `restart_elevd`,
+  `restart_xuid`.
+- Visual: `tools/screenshot/examples/pkg_elevate.json` (an image built with
+  `LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_AUTOLOGIN=user
+  LAZYOS_UI_PROBE=1 LAZYOS_RESET_OS=1`) installs a package through the
+  prompt, shows the refusals before it, the core Counter's
+  `pkg.update-core` prompt and a long setting elided in the middle.
 
 ### U3-U5 (outline, issues later)
 

@@ -168,6 +168,16 @@ pub(super) fn restart_service(
     }
     let args = services::init::wire::decode_restart_service_args(&message.parcel.body)
         .map_err(Error::Parcel)?;
+    // `elevd` checks the same list before it prompts; this is the second
+    // lock (review of #659): never the services identity, approvals, the
+    // audit trail or the prompt depend on.
+    if !elevpolicy::restartable(&args.name) {
+        sys::write_str(&format!(
+            "INIT:RESTART:DENIED service={} by=elevd\n",
+            elevpolicy::audit::token(&args.name)
+        ));
+        return Err(Error::Errno(-errno::EPERM));
+    }
     let row = services
         .iter()
         .find(|row| !row.launched && row.name == args.name)

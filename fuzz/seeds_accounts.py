@@ -75,6 +75,14 @@ def elevpolicy_seeds():
         "unknown": request("sh", "-c", "rm -rf /"),
         "traversal": request("pkg.install", "/transient/../system/bin/init"),
         "system_account": request("account.create", "_accounts", "x", "admin"),
+        # Review of #659: text that would mislead the prompt or forge an
+        # audit line, a value that would not fit, a guarded service.
+        "conf_set_newline": request("conf.set", "sys/ui/demo", "str",
+                                    "x\nELEVD:REQUEST op=account.admin outcome=granted"),
+        "conf_set_bidi": request("conf.set", "sys/ui/demo", "str", "abc\u202efed"),
+        "conf_set_quotes": request("conf.set", "sys/ui/demo", "str",
+                                   'a" outcome=granted "' + " " * 200 + "b"),
+        "restart_elevd": request("service.restart", "elevd"),
     }
 
 

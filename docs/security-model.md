@@ -440,10 +440,26 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   2 minutes), every asker waits a short pause, and a caller has one request
   in hand at a time, so no program can keep the person at the screen from
   the desktop and Log out.
+- The prompt shows what is approved, all of it (review of #659): a
+  package request shows the package `pkgd` inspected (name, system name,
+  version, the core app replaced and from which version, the author marked
+  unverified, the permissions by risk), and the install that follows takes
+  only the bytes with the inspected SHA-256 (`pkgd.InstallApproved`); only
+  `pkg.update-core` may replace a core app. Values stored as typed refuse
+  control, bidi and other format characters; text from a package is shown
+  escaped; long paths and values lose their middle, never their end, and a
+  summary that still does not fit ends in a visible `...`.
+- Some operations are refused before any prompt: `service.restart` of
+  anything outside a short allowlist of stateless services and drivers
+  (never `elevd`, `xuid`, `logind`, `accountsd`, `keyd`, `confd`, `logd`,
+  `init`; `init` checks it too), a package with problems, and a package
+  request whose kind does not match the package.
 - Every request is audited (granted, refused, cancelled, timed out, locked,
   failed, held, busy, nokeys) on `system/events/elevd/request`, which `logd`
-  journals to `/logs/elevd.log`; wrong passwords lock the asker out for a
-  growing delay.
+  journals to `/logs/elevd.log`, in lines no value can forge (single-token
+  fields, the summary last, quoted and escaped); the `admin` field names an
+  account or nothing, so a password typed as a name is never logged; wrong
+  passwords lock the asker out for a growing delay.
 - `CAP_SYS_ADMIN` is never granted to ordinary sessions; system administration
   happens through scoped operations rather than a superuser shell, with every
   call logged.

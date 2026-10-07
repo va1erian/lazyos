@@ -401,6 +401,8 @@ jobs:
           LAZYOS_XUI_AUTOSTART: term,counter
         run: |
           set -euo pipefail
+          python tools/rhai/build.py
+          test -f target/rhai/rhai.elf
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pointer_restart \
             --timeout 300 --script tools/screenshot/examples/xuid_pointer_restart.json \

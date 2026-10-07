@@ -28,8 +28,14 @@
 //! `elevpolicy::backoff`, `elevpolicy::queue`). So no program can keep the
 //! prompt up until the person at the screen cannot reach Log out.
 //!
+//! A package install shows the package, not its path, and installs the
+//! bytes that were shown (`package.rs`); a service restart is limited to
+//! `elevpolicy::RESTARTABLE`. Both are refused before any prompt when they
+//! do not qualify.
+//!
 //! Serial: `ELEVD:UP:PASS`, then one `ELEVD:REQUEST op=<op> uid=<uid>
-//! label=<id> admin=<name> outcome=<outcome>` per request.
+//! label=<id> session=<id> admin=<name> outcome=<outcome> summary="<text>"`
+//! per request (`elevpolicy::audit`: no value can forge a line or a field).
 
 #![no_std]
 #![no_main]
@@ -42,6 +48,8 @@ mod approve;
 mod audit;
 #[path = "elevd/intake.rs"]
 mod intake;
+#[path = "elevd/package.rs"]
+mod package;
 #[path = "elevd/perform.rs"]
 mod perform;
 #[path = "elevd/sessions.rs"]
@@ -248,6 +256,24 @@ fn request(
         || alloc::format!("uid {}", caller.uid),
         |user| user.name.clone(),
     );
+    // What no administrator may be asked to approve (a guarded service's
+    // restart), and a package's facts in place of its path: refused or
+    // settled before any prompt.
+    if let Err(why) = op.permitted() {
+        state.audit.log(&record, "refused");
+        return Err(Refusal::new(errno::EPERM, why));
+    }
+    let package = match package::prepare(&op, caller, asker.as_ref()) {
+        Some(Ok(approved)) => {
+            record.summary = approved.summary.clone();
+            Some(approved)
+        }
+        Some(Err(refusal)) => {
+            state.audit.log(&record, "refused");
+            return Err(refusal);
+        }
+        None => None,
+    };
     follow_sessions(state);
     let now = sys::clock();
     if state.approvals.covers(caller, op.class(), now) {
@@ -278,7 +304,7 @@ fn request(
             }
         }
     }
-    match perform::perform(&op) {
+    match perform::perform(&op, package.as_ref()) {
         Ok(result) => {
             state.audit.log(&record, "granted");
             Ok(result)

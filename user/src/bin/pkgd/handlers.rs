@@ -139,6 +139,12 @@ impl Pkgd {
                 let app = self.install(caller, &args.path)?;
                 wire::encode_install_reply(&wire::InstallReply { app }).map_err(malformed)
             }
+            wire::METHOD_INSTALLAPPROVED => {
+                let args = wire::decode_install_approved_args(body).map_err(malformed)?;
+                let app = self.install_approved(caller, &args.path, &args.digest, args.core)?;
+                wire::encode_install_approved_reply(&wire::InstallApprovedReply { app })
+                    .map_err(malformed)
+            }
             wire::METHOD_REMOVE => {
                 let args = wire::decode_remove_args(body).map_err(malformed)?;
                 self.remove(caller, &args.system_name)?;
@@ -159,6 +165,13 @@ impl Pkgd {
                     .registry
                     .get(&args.system_name)
                     .map_err(registry_down)?;
+                // The origin installs go by (the shipped set), not the row's,
+                // which provisioning may not have promoted or demoted yet:
+                // elevd's core check must agree with `InstallApproved`'s.
+                let app = app.map(|mut row| {
+                    row.origin = self.origin_of(&row.system_name);
+                    row
+                });
                 wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
             }
             wire::METHOD_DEVELOP => {
@@ -219,7 +232,8 @@ impl Pkgd {
 
 /// The kernel-stamped identity of the sender (issue #446). A system service
 /// holds `CAP_SETUID`; `elevd` (docs/accounts-plan.md U2) is one too, by its
-/// identity: it asks only for what an administrator approved.
+/// identity: it asks only for what an administrator approved, and installs
+/// through `InstallApproved` alone ([`is_elevd`]).
 fn caller_of(message: &Message) -> Option<Caller> {
     let cred = message.caller();
     let elevd = elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session);
@@ -229,6 +243,11 @@ fn caller_of(message: &Message) -> Option<Caller> {
         label_id: cred.label_id,
         system: cred.caps & user::sys::CAP_SETUID != 0 || elevd,
     })
+}
+
+/// Whether `caller` is `elevd` (its system uid, unlabelled, no session).
+pub(crate) fn is_elevd(caller: &Caller) -> bool {
+    elevpolicy::is_elevd(caller.uid, caller.label_id, caller.session)
 }
 
 /// A package file that could not be read.

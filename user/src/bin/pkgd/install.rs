@@ -25,8 +25,9 @@ use pkgstore::{layout, provision, tree};
 use user::messenger::pkgd::{Failure, Installed, PkgEvent};
 use user::sys;
 
+use super::approval::Approval;
 use super::handlers::{
-    fail, read_failure, registry_down, Pkgd, EAGAIN, EEXIST, EINVAL, EIO, ENODEV, EPERM,
+    fail, is_elevd, read_failure, registry_down, Pkgd, EAGAIN, EEXIST, EINVAL, EIO, ENODEV, EPERM,
     PROVISIONING,
 };
 use super::inspect::assess;
@@ -100,6 +101,33 @@ impl Pkgd {
 
     /// `Install(path)`.
     pub(crate) fn install(&mut self, caller: &Caller, path: &str) -> Result<Installed, Failure> {
+        let replace_core = caller.system && !is_elevd(caller);
+        self.install_from(caller, path, Approval::Plain { replace_core })
+    }
+
+    /// `InstallApproved(path, digest, core)`: `elevd`'s alone.
+    pub(crate) fn install_approved(
+        &mut self,
+        caller: &Caller,
+        path: &str,
+        digest: &str,
+        core: bool,
+    ) -> Result<Installed, Failure> {
+        if !is_elevd(caller) {
+            let why = "only elevd installs what an administrator approved";
+            let uid = u64::from(caller.uid);
+            return Err(self.refuse(&Subject::none(), uid, "INSTALL", fail(EPERM, why)));
+        }
+        self.install_from(caller, path, Approval::Approved { digest, core })
+    }
+
+    /// Read the package at `path` for `caller` and install it.
+    fn install_from(
+        &mut self,
+        caller: &Caller,
+        path: &str,
+        approval: Approval<'_>,
+    ) -> Result<Installed, Failure> {
         let uid = u64::from(caller.uid);
         let nobody = Subject::none();
         if let Err(why) = pkgstore::access::may_manage(caller) {
@@ -121,19 +149,20 @@ impl Pkgd {
             return Err(self.refuse(&nobody, uid, "INSTALL", read_failure(code)));
         }
         let bytes = core::mem::take(&mut self.buffer);
-        let outcome = self.install_bytes(&bytes, uid, caller.system);
+        let outcome = self.install_bytes(&bytes, uid, approval);
         self.buffer = bytes;
         outcome
     }
 
     /// Install `bytes` for `uid`. Replacing a core app is a system change
-    /// (docs/accounts-plan.md U2): only a system service (`elevd`, after an
-    /// administrator approved it) may.
+    /// (docs/accounts-plan.md U2): only `elevd`'s `pkg.update-core`, after
+    /// an administrator approved it, or a `CAP_SETUID` service may
+    /// ([`Approval`]).
     fn install_bytes(
         &mut self,
         bytes: &[u8],
         uid: u64,
-        system: bool,
+        approval: Approval<'_>,
     ) -> Result<Installed, Failure> {
         let assessed = match assess(bytes) {
             Ok(assessed) => assessed,
@@ -155,14 +184,10 @@ impl Pkgd {
         }
         let package = &assessed.package;
         let system_name = &info.system_name;
+        if let Err(failure) = self.approved(info, approval) {
+            return Err(self.refuse(&subject, uid, "INSTALL", failure));
+        }
         if let Some(shipped) = self.core_version(system_name) {
-            if !system {
-                let why = format!(
-                    "{} is a core app: replacing it needs an administrator (elevd pkg.update-core)",
-                    info.name
-                );
-                return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
-            }
             if let Err(why) = provision::downgrade(&info.name, &shipped, &info.version) {
                 return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
             }
