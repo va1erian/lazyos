@@ -54,17 +54,21 @@ pub(super) fn arm(hc: &mut Hc, endpoint: Option<Endpoint>) {
     let Some(endpoint) = endpoint else {
         return;
     };
-    if dev::irq_enable(hc.handle).is_err() {
+    let Ok(mode) = dev::irq_enable(hc.handle) else {
         sys::write_str(&format!("USBD:IRQ hc={} polled (no line)\n", hc.index));
         return;
-    }
-    if let Ok(command) = dev::cfg_read(hc.handle, PCI_COMMAND, 2) {
-        let command = u64::from(command) & !PCI_INTX_DISABLE;
-        let _ = dev::cfg_write(hc.handle, PCI_COMMAND, 2, command);
+    };
+    // On MSI or MSI-X the kernel programmed the message; INTx needs the
+    // function let assert its line. Interrupter 0 signals either way.
+    if mode == dev::IrqMode::Intx {
+        if let Ok(command) = dev::cfg_read(hc.handle, PCI_COMMAND, 2) {
+            let command = u64::from(command) & !PCI_INTX_DISABLE;
+            let _ = dev::cfg_write(hc.handle, PCI_COMMAND, 2, command);
+        }
     }
     hc.enable_interrupter(IMOD);
     hc.irq = Some(endpoint);
-    sys::write_str(&format!("USBD:IRQ hc={} armed\n", hc.index));
+    sys::write_str(&format!("USBD:IRQ hc={} armed {mode:?}\n", hc.index));
 }
 
 /// Take and acknowledge every interrupt message already queued, without

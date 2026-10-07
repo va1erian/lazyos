@@ -26,8 +26,14 @@ pub(super) fn log_irq_routes() {
             Some(irq) if irq::routable(irq.line) => (irq.line, "routable"),
             Some(irq) => (irq.line, "polling"),
         };
+        let messages = match (info.resources.msi(), info.resources.msix()) {
+            (Some(_), Some(_)) => ", msi+msix",
+            (Some(_), None) => ", msi",
+            (None, Some(_)) => ", msix",
+            (None, None) => "",
+        };
         serial_println!(
-            "dev: irq route {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x} pin {} line {} ({})",
+            "dev: irq route {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x} pin {} line {} ({}{messages})",
             address.bus,
             address.device,
             address.function,
@@ -80,7 +86,9 @@ fn check_dma() {
 
 fn check_irq() {
     let missing = (0..u64::from(LINES))
-        .filter(|line| !vector_present(PIC_VECTOR_BASE + line))
+        .map(|line| PIC_VECTOR_BASE + line)
+        .chain((0..super::msi::VECTORS).map(|index| u64::from(super::msi::vector(index))))
+        .filter(|&vector| !vector_present(vector))
         .count();
     let (mut wired, mut routed) = (0usize, 0usize);
     for info in table().lock().iter() {
@@ -90,12 +98,19 @@ fn check_irq() {
             routed += usize::from(irq::routable(line.line));
         }
     }
+    let capable = table()
+        .lock()
+        .iter()
+        .filter(|info| info.resources.message_capable())
+        .count();
     if missing == 0 {
         serial_println!(
-            "DEV:IRQ:PASS:{LINES} vectors installed, {routed}/{wired} INTx-wired PCI functions on routable lines"
+            "DEV:IRQ:PASS:{LINES} vectors installed, {routed}/{wired} INTx-wired PCI functions on routable lines; {} MSI vectors ({}), {capable} message-capable functions",
+            super::msi::VECTORS,
+            if super::msi::enabled() { "on" } else { "off" }
         );
     } else {
-        serial_println!("DEV:IRQ:FAIL:{missing} PIC vectors have no handler");
+        serial_println!("DEV:IRQ:FAIL:{missing} line or MSI vectors have no handler");
     }
 }
 

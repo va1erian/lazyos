@@ -79,7 +79,7 @@ class Launcher:
             "sound": self.v["sound"].get(),
             "sound_card": self.v["sound_card"].get(),
             "nic": self.v["nic"].get(),
-            "devd": self.v["devd"].get(),
+            **{key: self.v[key].get() for key in ("devd", "irqchip", "msi")},
             "abi_build": self.v["abi_build"].get(),
             "desktop": self.v["desktop"].get(),
             "services": self.v["services"].get(),
@@ -188,7 +188,7 @@ class Launcher:
                                                     "lazyweb")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
-                               *(self.v[k] for k in ("sound_card", "nic", "devd")))
+                               *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

@@ -33,8 +33,9 @@ const _: () = assert!(
 /// like [`MAX_BARS`], keeps the claim `Copy` and heap-free.
 pub const MAX_DMA_BUFFERS: usize = 16;
 
-/// Legacy PIC interrupt lines.
-pub const LINES: usize = 16;
+/// Delivery sources a round can run on: the legacy lines, then the MSI
+/// vectors (`dev::msi`).
+pub const SOURCES: usize = super::irq::SOURCES as usize;
 
 /// One BAR mapped into a claimant's address space.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -90,8 +91,11 @@ pub struct Claim {
     pub rights: u32,
     /// The `Device` handle number in the owner's table.
     pub handle: u64,
-    /// The PIC line the device's interrupt can be delivered on, if routable.
+    /// The legacy line the device's INTx can be delivered on, if routable.
     pub line: Option<u8>,
+    /// The MSI vector (index into `dev::msi`) `irq_enable` routed the claim
+    /// to; while set it replaces `line` as the claim's delivery source.
+    pub msi: Option<u8>,
     pub irq: Option<IrqBinding>,
     /// `irq_enable` was called: the claim takes part in delivery rounds.
     pub armed: bool,
@@ -107,6 +111,14 @@ pub struct Claim {
 }
 
 impl Claim {
+    /// Where the claim's interrupts arrive: its MSI vector's source once it
+    /// has one, else its INTx line.
+    pub fn source(&self) -> Option<u8> {
+        self.msi
+            .map(|index| super::msi::SOURCE_BASE + index)
+            .or(self.line)
+    }
+
     /// Record a freshly allocated DMA buffer. Returns false (and changes
     /// nothing) when the per-claim bound is reached.
     pub fn record_dma(&mut self, record: DmaRecord) -> bool {
@@ -150,7 +162,7 @@ pub enum InstallError {
 /// All live claims plus the per-line delivery rounds.
 pub struct Claims {
     pub(super) slots: [Option<Claim>; MAX_DEVICES],
-    pub(super) rounds: [Round; LINES],
+    pub(super) rounds: [Round; SOURCES],
 }
 
 impl Claims {
@@ -160,7 +172,7 @@ impl Claims {
             rounds: [Round {
                 waiting: 0,
                 deadline: 0,
-            }; LINES],
+            }; SOURCES],
         }
     }
 

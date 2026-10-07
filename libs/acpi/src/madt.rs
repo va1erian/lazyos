@@ -1,7 +1,8 @@
 //! The Multiple APIC Description Table (signature `APIC`; ACPI 6.5, 5.2.12).
 //!
-//! The kernel uses the local APIC address now; the I/O APICs and interrupt
-//! source overrides are recorded for the IOAPIC fallback and SMP (S8). An
+//! The kernel uses the local APIC address, the I/O APICs and the interrupt
+//! source overrides (issue #616: ISA lines on the I/O APIC, with the trigger
+//! and polarity [`inti`] decodes from an override's flags). An
 //! entry list that does not add up (a zero or short entry length, an entry
 //! running past the table) refuses the whole MADT: a table that lies about
 //! its own layout cannot be trusted about addresses either.
@@ -182,6 +183,16 @@ impl Madt {
         self.flags & PCAT_COMPAT != 0
     }
 
+    /// The I/O APIC whose inputs include `gsi`, given each one's input count
+    /// (`pins`, read from the chip's version register: the MADT does not say).
+    pub fn ioapic_for(&self, gsi: u32, pins: impl Fn(&IoApic) -> u32) -> Option<IoApic> {
+        self.ioapics
+            .as_slice()
+            .iter()
+            .find(|io| gsi >= io.gsi_base && gsi - io.gsi_base < pins(io))
+            .copied()
+    }
+
     /// The GSI and INTI flags of ISA line `irq` (identity when no override).
     pub fn isa_gsi(&self, irq: u8) -> (u32, u16) {
         self.overrides
@@ -190,4 +201,43 @@ impl Madt {
             .find(|o| o.bus == 0 && o.source == irq)
             .map_or((u32::from(irq), 0), |o| (o.gsi, o.flags))
     }
+}
+
+/// How an interrupt input is signalled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Signal {
+    /// Level-triggered (else edge).
+    pub level: bool,
+    /// Asserted low (else high).
+    pub active_low: bool,
+}
+
+impl Signal {
+    /// ISA interrupts: edge-triggered, active high.
+    pub const ISA: Signal = Signal {
+        level: false,
+        active_low: false,
+    };
+    /// PCI INTx: level-triggered, active low.
+    pub const PCI: Signal = Signal {
+        level: true,
+        active_low: true,
+    };
+}
+
+/// Decode MPS INTI `flags` (polarity in bits 0-1, trigger in bits 2-3; 0
+/// "conforms to the bus", 1 high/edge, 3 low/level) over the bus default.
+/// The reserved value 2 keeps the bus default rather than guessing.
+pub fn inti(flags: u16, bus: Signal) -> Signal {
+    let active_low = match flags & 0b11 {
+        0b01 => false,
+        0b11 => true,
+        _ => bus.active_low,
+    };
+    let level = match (flags >> 2) & 0b11 {
+        0b01 => false,
+        0b11 => true,
+        _ => bus.level,
+    };
+    Signal { level, active_low }
 }

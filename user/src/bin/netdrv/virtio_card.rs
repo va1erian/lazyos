@@ -46,6 +46,12 @@ impl Doorbell for Bell<'_> {
 }
 
 impl Virtio {
+    /// Signal every queue and link change through MSI-X table entry 0: the
+    /// kernel switched the card to MSI-X at `irq_enable`.
+    pub(super) fn use_msix(&self) -> Result<(), Error> {
+        self.transport.use_msix(0).map_err(Error::Virtio)
+    }
+
     pub(super) fn bell(&self) -> Bell<'_> {
         Bell { virtio: self }
     }

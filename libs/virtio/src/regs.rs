@@ -17,6 +17,7 @@ pub mod common {
     pub const DEVICE_FEATURE: usize = 0x04;
     pub const DRIVER_FEATURE_SELECT: usize = 0x08;
     pub const DRIVER_FEATURE: usize = 0x0C;
+    pub const MSIX_CONFIG: usize = 0x10;
     pub const NUM_QUEUES: usize = 0x12;
     pub const DEVICE_STATUS: usize = 0x14;
     pub const CONFIG_GENERATION: usize = 0x15;

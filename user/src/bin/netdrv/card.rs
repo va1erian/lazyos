@@ -91,6 +91,13 @@ impl Card {
             }
         };
         device::arm(&mut claimed)?;
+        if let (Some(user::dev::IrqMode::MsiX), Backend::Virtio(virtio)) = (claimed.mode, &backend)
+        {
+            virtio.use_msix()?;
+        }
+        if let Some(mode) = claimed.mode {
+            sys::write_str(&alloc::format!("NETDRV:IRQ:{mode:?}\n"));
+        }
         let engine = Box::new(Engine::new(
             brought.rings,
             brought.mac,

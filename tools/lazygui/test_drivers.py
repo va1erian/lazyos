@@ -54,6 +54,19 @@ class DriverChoiceTests(unittest.TestCase):
         self.assertIn("--no-devd", demo_argv(devd=False))
         self.assertEqual(catalog.build_env(advanced(devd=False)).get("LAZYOS_DEVD"), "0")
 
+    def test_interrupt_routing_reaches_the_run_and_the_build(self) -> None:
+        # Issue #616: the defaults (I/O APIC, MSI) add no flag but are set.
+        env = catalog.build_env(advanced())
+        self.assertEqual((env.get("LAZYOS_IRQCHIP"), env.get("LAZYOS_MSI")), ("ioapic", "1"))
+        for flag in ("--irqchip", "--no-msi"):
+            self.assertNotIn(flag, demo_argv())
+        argv = demo_argv(irqchip="pic", msi=False)
+        self.assertEqual(argv[argv.index("--irqchip") + 1], "pic")
+        self.assertIn("--no-msi", argv)
+        env = catalog.build_env(advanced(irqchip="pic", msi=False))
+        self.assertEqual((env.get("LAZYOS_IRQCHIP"), env.get("LAZYOS_MSI")), ("pic", "0"))
+        self.assertEqual(drivers.IRQCHIPS, demo_qemu.IRQCHIPS)
+
     def test_the_choices_are_run_demos(self) -> None:
         self.assertEqual(sorted(drivers.SOUND_CARDS), sorted(demo_qemu.SOUND_CARDS))
         self.assertEqual(sorted(drivers.NICS), sorted(demo_qemu.NICS))

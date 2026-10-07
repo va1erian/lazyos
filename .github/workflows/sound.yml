@@ -98,6 +98,12 @@ jobs:
           # q35 has no IDE controller the kernel drives: virtio-blk boot disk.
           - name: q35
             args: "--machine q35 --virtio-disk"
+          # The 8259 and INTx only (issue #616); the other legs judge the
+          # I/O APIC and MSI/MSI-X (`tools/irqpath.py`).
+          - name: pic
+            args: "--irq-path pic"
+          - name: hda-pic
+            args: "--card hda --irq-path pic"
           # No sound card: the driver must say so and exit cleanly.
           - name: no-device
             args: "--no-device"

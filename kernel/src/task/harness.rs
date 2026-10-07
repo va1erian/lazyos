@@ -104,6 +104,10 @@ pub fn reset() {
     for slot in 1..super::MAX_TASKS {
         crate::process::forget_task_args(slot);
     }
+    // A reschedule a removed task's wake asked for has nobody to run: left
+    // set, the next interrupt a test takes would switch to a slot that no
+    // longer has a stack.
+    super::preempt::clear();
 }
 
 /// Mark `index` finished, as if it had called `exit` (re-parenting its

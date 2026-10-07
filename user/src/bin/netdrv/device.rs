@@ -66,6 +66,8 @@ pub(super) struct Claimed {
     pub(super) row: Row,
     with_irq: bool,
     pub(super) irq: bool,
+    /// How interrupts arrive once [`arm`] succeeded.
+    pub(super) mode: Option<dev::IrqMode>,
 }
 
 /// Claim `row`. `server` is the driver's own service endpoint: the kernel
@@ -98,6 +100,7 @@ pub(super) fn claim(row: Row, server: &Endpoint, allow_irq: bool) -> Result<Clai
         row,
         with_irq,
         irq: false,
+        mode: None,
     })
 }
 
@@ -111,12 +114,18 @@ pub(super) fn map(claimed: &Claimed, bar: usize, min: u64) -> Result<*mut u8, Er
 }
 
 /// Arm the line last, once the card is fully set up: an unroutable line
-/// answers `ENOSYS` and the driver polls. The kernel keeps INTx disabled until
-/// the claim is armed, so the command register is written again to let the
-/// card assert it.
+/// answers `ENOSYS` and the driver polls. On INTx the kernel keeps INTx
+/// disabled until the claim is armed, so the command register is written
+/// again to let the card assert it; on MSI or MSI-X the kernel has already
+/// programmed the card's message interrupt.
 pub(super) fn arm(claimed: &mut Claimed) -> Result<(), Error> {
-    claimed.irq = claimed.with_irq && dev::irq_enable(claimed.handle).is_ok();
-    if claimed.irq {
+    claimed.mode = if claimed.with_irq {
+        dev::irq_enable(claimed.handle).ok()
+    } else {
+        None
+    };
+    claimed.irq = claimed.mode.is_some();
+    if claimed.mode == Some(dev::IrqMode::Intx) {
         let command = dev::cfg_read(claimed.handle, COMMAND, 2).map_err(Error::Dev)?;
         dev::cfg_write(
             claimed.handle,

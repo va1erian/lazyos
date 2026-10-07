@@ -11,7 +11,7 @@
 
 use super::*;
 use crate::arch::io::{inb, outb};
-use crate::arch::pic;
+use crate::arch::irqchip;
 use crate::dev::irq;
 
 const COM1: u16 = 0x3F8;
@@ -64,13 +64,13 @@ extern "C" fn waiter() -> ! {
 
 /// Run `body` with only the timer, the cascade and `LINE` unmasked.
 fn with_lines<T>(body: impl FnOnce() -> T) -> T {
-    let saved: [bool; 16] = core::array::from_fn(|line| pic::is_masked(line as u8));
+    let saved: [bool; 16] = core::array::from_fn(|line| irqchip::is_masked(line as u8));
     for line in 0..16u8 {
-        pic::set_masked(line, !matches!(line, 0 | 2));
+        irqchip::set_masked(line, !matches!(line, 0 | 2));
     }
     let out = body();
     for (line, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(line as u8, masked);
+        irqchip::set_masked(line as u8, masked);
     }
     out
 }

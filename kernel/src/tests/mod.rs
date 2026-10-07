@@ -300,6 +300,8 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::IRQ,
     dev_suite::IRQ_SHARED,
     dev_suite::IRQ_EDGE,
+    dev_suite::IRQ_IOAPIC,
+    dev_suite::IRQ_MSI,
     dev_suite::IRQ_REAL,
     dev_suite::IRQ_PROMPT,
     dev_suite::SYSCALL,

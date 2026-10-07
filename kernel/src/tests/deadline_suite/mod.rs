@@ -42,16 +42,16 @@ fn kernel_only() {
 /// Run `body` with interrupts on and only the tick's PIC line unmasked,
 /// restoring every mask and `IF=0` afterwards.
 fn with_tick<T>(body: impl FnOnce() -> T) -> T {
-    use crate::arch::pic;
-    let saved: [bool; 16] = core::array::from_fn(|l| pic::is_masked(l as u8));
+    use crate::arch::irqchip;
+    let saved: [bool; 16] = core::array::from_fn(|l| irqchip::is_masked(l as u8));
     for line in 0..16u8 {
-        pic::set_masked(line, line != 0);
+        irqchip::set_masked(line, line != 0);
     }
     x86_64::instructions::interrupts::enable();
     let result = body();
     x86_64::instructions::interrupts::disable();
     for (line, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(line as u8, masked);
+        irqchip::set_masked(line as u8, masked);
     }
     result
 }

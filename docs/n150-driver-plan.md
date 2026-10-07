@@ -75,6 +75,12 @@ PC), [usb-stick.md](usb-stick.md), [networking-plan.md](networking-plan.md),
 
 ### P0 — Platform
 
+> **Built (issue #616):** MSI and MSI-X for userspace drivers and the I/O
+> APIC for the legacy lines, [architecture/interrupts.md](architecture/interrupts.md).
+> MSI-X came with it because virtio has nothing else; the I/O APIC is the
+> default controller, PCI INTx on it follows the firmware's ISA routing
+> (no `_PRT`). The paragraphs below are the plan as written.
+
 **MSI through the local APIC.** Today every interrupt arrives through the 8259
 in virtual-wire mode, and a PCI function whose Interrupt Line is unroutable
 falls back to polling (driver-plan §3.3). Under UEFI-only firmware the

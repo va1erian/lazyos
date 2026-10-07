@@ -9,7 +9,7 @@
 
 use super::*;
 use crate::arch::timer_cal::{self, PitVerdict};
-use crate::arch::{lapic, pic, timer};
+use crate::arch::{irqchip, lapic, timer};
 
 mod delivery;
 mod rtc;
@@ -49,17 +49,17 @@ fn kernel_only() {
 /// (line 0 is the tick, whatever its source), restoring every mask and
 /// `IF=0` afterwards.
 fn with_lines<T>(lines: &[u8], body: impl FnOnce() -> T) -> T {
-    let saved: [bool; 16] = core::array::from_fn(|l| pic::is_masked(l as u8));
+    let saved: [bool; 16] = core::array::from_fn(|l| irqchip::is_masked(l as u8));
     for line in 0..16u8 {
         // The cascade must stay open for a slave line to reach the CPU.
         let open = lines.contains(&line) || (line == 2 && lines.iter().any(|&l| l >= 8));
-        pic::set_masked(line, !open);
+        irqchip::set_masked(line, !open);
     }
     x86_64::instructions::interrupts::enable();
     let result = body();
     x86_64::instructions::interrupts::disable();
     for (line, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(line as u8, masked);
+        irqchip::set_masked(line as u8, masked);
     }
     result
 }

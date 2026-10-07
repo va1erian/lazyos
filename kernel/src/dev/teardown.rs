@@ -3,9 +3,10 @@
 //! One routine serves both, so a task that exits without calling `release`
 //! leaves exactly what an orderly release leaves: the interrupt masked and the
 //! claimant out of every delivery round, the function's decode and bus-master
-//! enables cleared (a dead driver must not keep DMAing or decoding), its MMIO
-//! unmapped and its quota returned, the device unowned with a bumped
-//! generation so any old handle fails closed, and one audit record.
+//! enables cleared (a dead driver must not keep DMAing or decoding), its MSI
+//! vector freed, its MMIO unmapped and its quota returned, the device unowned
+//! with a bumped generation so any old handle fails closed, and one audit
+//! record.
 //!
 //! A task that has *died* but not been reaped is a zombie: its address space
 //! (and so its MMIO mappings) lives on until the parent reaps it, so the claim
@@ -40,6 +41,10 @@ pub fn release_claim(id: DeviceId, actor: usize, why: u32, live_table: u64) {
     let info = table().lock().get(id);
     if let Some(info) = &info {
         quiesce(info);
+    }
+    // Bus mastering is off, so no message is on its way: free the vector.
+    if let Some(index) = claim.msi {
+        super::msi::unroute(index, id);
     }
     // Bus mastering is off, so the device can no longer write these frames.
     // Close the owner's reference to each DMA buffer *by object id* (a
@@ -137,7 +142,10 @@ fn silence_exited_locked() {
             if let Some(info) = &info {
                 quiesce(info);
             }
-            CLAIMS.lock().silence(*id);
+            let vector = CLAIMS.lock().silence(*id);
+            if let Some(index) = vector {
+                super::msi::unroute(index, *id);
+            }
         }
     }
 }

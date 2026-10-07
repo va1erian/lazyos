@@ -79,6 +79,16 @@ fn main() {
     // (`arch::event_timer`, P2.2): deadlines expire at 100 Hz ticks only.
     println!("cargo:rerun-if-env-changed=LAZYOS_EVENT_TIMER");
     println!("cargo:rerun-if-env-changed=LAZYOS_X2APIC");
+    // Interrupt routing (issue #616): `LAZYOS_IRQCHIP=pic` keeps the 8259 for
+    // the legacy lines (unset or `ioapic`: the I/O APIC when the MADT has
+    // one), `LAZYOS_MSI=0` keeps every claim on INTx. `arch::irqchip` and
+    // `dev::msi` read them with `option_env!`.
+    println!("cargo:rerun-if-env-changed=LAZYOS_IRQCHIP");
+    match env::var("LAZYOS_IRQCHIP").as_deref() {
+        Ok("pic") | Ok("ioapic") | Ok("") | Err(_) => {}
+        Ok(other) => println!("cargo:warning=LAZYOS_IRQCHIP={other} is not pic or ioapic; ignored"),
+    }
+    println!("cargo:rerun-if-env-changed=LAZYOS_MSI");
     println!("cargo:rustc-check-cfg=cfg(lazyos_x2apic)");
     if env::var_os("LAZYOS_X2APIC").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_x2apic");

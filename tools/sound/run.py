@@ -41,6 +41,8 @@ import analyze_wav  # noqa: E402
 sys.path.insert(0, str(ROOT / "tools" / "net"))
 from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
 import mixcheck  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools"))
+import irqpath  # noqa: E402
 
 #: What a sound boot plays: `sndd demo=1`'s own self-test tone straight
 #: through the card, then `audiod demo=1`'s first client, `beep`
@@ -137,8 +139,9 @@ STARVE_FAIL_MARKERS = FAIL_MARKERS + ("BEEP:STARVE:FAIL",)
 
 
 def build_image(services: bool, modplay: bool = False, mix: bool = False,
-                starve: bool = False) -> Path:
+                starve: bool = False, irq_path: str = irqpath.PATHS[0]) -> Path:
     env = dict(os.environ, LAZYOS_SOUND="1")
+    env.update(irqpath.build_env(irq_path))
     switches = {"LAZYOS_SERVICES": services, "LAZYOS_SOUND_MODPLAY": modplay,
                 "LAZYOS_SOUND_MIX": mix, "LAZYOS_SOUND_STARVE": starve}
     for name, on in switches.items():
@@ -146,7 +149,8 @@ def build_image(services: bool, modplay: bool = False, mix: bool = False,
             env[name] = "1"
         else:
             env.pop(name, None)
-    label = "LAZYOS_SOUND=1" + "".join(f" {name}=1" for name, on in switches.items() if on)
+    label = ("LAZYOS_SOUND=1" + "".join(f" {name}=1" for name, on in switches.items() if on)
+             + f" {irqpath.label(irq_path)}")
     print(f"building: {label} cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
@@ -246,6 +250,7 @@ def main() -> int:
                         help="the sound card: virtio-sound, or QEMU's Intel HDA with a line-out codec")
     parser.add_argument("--freqs", help="expected tone frequencies in order (Hz, comma separated)")
     parser.add_argument("--min-ms", type=float, help="minimum duration of each tone")
+    irqpath.add_option(parser)
     args = parser.parse_args()
     if sum((args.modplay, args.mix, args.starve)) > 1:
         sys.exit("--modplay, --mix and --starve are separate runs")
@@ -278,7 +283,7 @@ def main() -> int:
         stale.unlink(missing_ok=True)
 
     image = (Path(args.image) if args.no_build
-             else build_image(args.services, args.modplay, args.mix, args.starve))
+             else build_image(args.services, args.modplay, args.mix, args.starve, args.irq_path))
     if not image.is_file():
         sys.exit(f"image not found: {image}")
 
@@ -347,6 +352,12 @@ def main() -> int:
         return 1
     else:
         print("SOUND:IRQ:PASS")
+    # Both QEMU cards have a message capability (virtio-sound MSI-X, HDA MSI).
+    why = irqpath.judge(text, args.irq_path, "SNDD:IRQ:", message_capable=True)
+    if why:
+        print(f"SOUND:HARNESS:FAIL {args.irq_path} path: {why}")
+        return 1
+    print(f"SOUND:IRQPATH:PASS {args.irq_path} ({irqpath.driver_mode(text, 'SNDD:IRQ:')})")
     if args.services and "SNDD:CRED uid=901 caps=0x100" not in text:
         print("SOUND:HARNESS:FAIL sndd did not run as _snd (uid 901) with only CAP_DEV_CLAIM")
         return 1
