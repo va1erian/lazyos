@@ -886,8 +886,9 @@ jobs:
           python tools/screenshot/pngstats.py shots/accounts_setup/shot_*.png shots/accounts_setup_reboot/shot_*.png --min-nonblack 0.01
 
       # The Config app (docs/confd-editor.md): the user's own keys, Elevate
-      # through the trusted prompt, a sys/** write prompting again, release.
-      - name: Capture Config (own keys, elevate, release)
+      # through the trusted prompt, a sys/** write prompting again, release;
+      # then Settings writing the menu and the default theme through elevd.
+      - name: Capture Config and Settings' machine settings
         if: ${{ !cancelled() && matrix.shard == 'accounts' && steps.app.outputs.term != '' && steps.app.outputs.shell != '' }}
         shell: bash
         env:
@@ -903,6 +904,13 @@ jobs:
           for marker in CONFDED:UP:PASS CONFDED:ELEVATE:PASS "ELEVD:RELEASE"; do
             grep -q "$marker" shots/confd/serial.log
           done
+          # Settings on the same image: the menu edits saved in one request, the
+          # user's theme made the machine default (one approval per key).
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/settings_machine \
+            --timeout 900 --script tools/screenshot/examples/xui_settings_machine.json \
+            --fail-on "SETTINGS:BUILD:FAIL"
+          test "$(grep -c "ELEVD:REQUEST op=conf.set .*summary=Set the setting sys/ui/menu" shots/settings_machine/serial.log)" -eq 1
+          grep -q "SETTINGS:THEME:DEFAULT:PASS keys=1" shots/settings_machine/serial.log
 
       # Each shard checks its own captures (the globs of the other shards
       # match nothing here). A shard whose apps this build skipped (Docs
@@ -913,7 +921,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png shots/accounts_setup/*.png shots/accounts_setup_reboot/*.png shots/confd/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png shots/accounts_setup/*.png shots/accounts_setup_reboot/*.png shots/confd/*.png shots/settings_machine/*.png)
           # A QEMU without PNG screendump falls back to PPM (qemu_qmp.py),
           # which pngstats cannot judge: that is a broken run, not an empty shard.
           ppms=(shots/*/*.ppm)
@@ -949,7 +957,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit shots/accounts_setup shots/accounts_setup_reboot shots/confd shots/accounts/warm shots/accounts/attack shots/accounts/verify shots/accounts/verify-kill; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit shots/accounts_setup shots/accounts_setup_reboot shots/confd shots/settings_machine shots/accounts/warm shots/accounts/attack shots/accounts/verify shots/accounts/verify-kill; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -1061,6 +1069,9 @@ jobs:
             shots/confd/*.png
             shots/confd/serial.log
             shots/confd/summary.json
+            shots/settings_machine/*.png
+            shots/settings_machine/serial.log
+            shots/settings_machine/summary.json
             shots/accounts/*/*.png
             shots/accounts/*/serial.log
             shots/accounts/*/summary.json
@@ -1107,7 +1118,7 @@ jobs:
           prefix="runs/${GITHUB_RUN_ID}/xui"
           mkdir -p "$work/$prefix"
           shopt -s nullglob
-          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd; do
+          for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd settings_machine; do
             for png in shots/$group/*.png; do
               cp "$png" "$work/$prefix/$group-$(basename "$png")"
             done
@@ -1150,7 +1161,7 @@ jobs:
             echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
             echo
             shopt -s nullglob
-            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd; do
+            for group in m0 m1 m2 sysmon fabmon client sysclient desktop shell login editor paint files files_s51 docs docs_open writer writer_light archiver accounts_setup accounts_setup_reboot confd settings_machine; do
               for png in shots/$group/*.png; do
                 name="$group-$(basename "$png")"
                 echo "<details><summary>${name}</summary>"

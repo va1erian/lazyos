@@ -19,6 +19,9 @@ const NAME: &str = "os.lazy.timed";
 use messenger_generated::errors::ERROR_FIELD;
 /// PIT ticks per second.
 const HZ: u64 = 100;
+/// How often, and how far apart, a zone change is checked for: two seconds.
+const ZONE_POLLS: u32 = 40;
+const ZONE_POLL_MS: u64 = 50;
 
 /// The live system.
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,6 +30,18 @@ pub struct OsSystem;
 impl OsSystem {
     pub const fn new() -> OsSystem {
         OsSystem
+    }
+
+    /// Wait (briefly, bounded) until `timed` reports `zone`: it follows the
+    /// confd key `elevd` wrote on its own change notification, so the page
+    /// that re-reads the time right after would otherwise show the old zone.
+    fn await_zone(&self, zone: &str) {
+        for _ in 0..ZONE_POLLS {
+            if self.now().is_some_and(|now| now.zone == zone) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(ZONE_POLL_MS));
+        }
     }
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
@@ -146,8 +161,9 @@ impl System for OsSystem {
             // administrator, and `timed` follows the confd key `elevd` writes.
             Err(code) if -code == errno::EPERM => {
                 super::elevd::request("conf.set", &[timezone::ZONE_KEY, "str", zone])
-                    .map(|_| ())
-                    .map_err(|error| super::elevd::describe(&error))
+                    .map_err(|error| super::elevd::describe(&error))?;
+                self.await_zone(zone);
+                Ok(())
             }
             Err(code) => Err(describe(code)),
         }
