@@ -109,6 +109,8 @@ mod residents;
 mod selftest;
 #[path = "init/service.rs"]
 mod service;
+#[path = "init/service_creds.rs"]
+mod service_creds;
 #[path = "init/sessions.rs"]
 mod sessions;
 #[path = "init/shutdown.rs"]

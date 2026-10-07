@@ -117,7 +117,7 @@ or `/system`. The attack harness is `python tools/accounts/run.py`; the
 session `tools/screenshot/examples/login_logout.json` (an image built with
 `LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
 logs out from the LazyOS menu ("Log out...", then "Log out now") and logs in again;
-`accounts_setup.json` (an image built with `LAZYOS_SETUP=1
+`accounts_setup.json` (an image built with `LAZYOS_DESKTOP=1 LAZYOS_SETUP=1
 LAZYOS_AUTOLOGIN=none LAZYOS_XUI_AUTOSTART=term,settings LAZYOS_UI_PROBE=1`)
 creates the owner, adds an account in Settings through the prompt, cancels
 another prompt, changes a password and logs in as the new account, and
