@@ -54,7 +54,12 @@ pub extern "C" fn _start() -> ! {
 
 fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
-    registry::register(api::NAME, &published, &[api::INTERFACE, lifecycle::INTERFACE], 0)?;
+    registry::register(
+        api::NAME,
+        &published,
+        &[api::INTERFACE, lifecycle::INTERFACE],
+        0,
+    )?;
     sys::write_str(&format!("MOUNTD:READY interface={:#x}\n", api::INTERFACE));
     services::init::notify_ready();
 

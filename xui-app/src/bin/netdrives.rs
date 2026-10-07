@@ -76,16 +76,31 @@ impl Widgets {
     fn layout(&self) -> Layout<Msg> {
         let server = column().gap(8).children((
             row().gap(16).children((
-                field("Server", edit().placeholder("ftp.example.org").bind(&self.host), 220),
+                field(
+                    "Server",
+                    edit().placeholder("ftp.example.org").bind(&self.host),
+                    220,
+                ),
                 field("Port", edit().placeholder("21").bind(&self.port), 80),
             )),
             row().gap(16).children((
-                field("User", edit().placeholder("anonymous").bind(&self.user), 220),
+                field(
+                    "User",
+                    edit().placeholder("anonymous").bind(&self.user),
+                    220,
+                ),
                 field("Password", edit().password().bind(&self.password), 160),
             )),
             row().gap(16).children((
-                field("Name", edit().placeholder(drives::DEFAULT_NAME).bind(&self.name), 220),
-                button("Mount").on_click(Msg::Mount).bind(&self.mount).width(100),
+                field(
+                    "Name",
+                    edit().placeholder(drives::DEFAULT_NAME).bind(&self.name),
+                    220,
+                ),
+                button("Mount")
+                    .on_click(Msg::Mount)
+                    .bind(&self.mount)
+                    .width(100),
             )),
         ));
         column()
@@ -105,8 +120,14 @@ impl Widgets {
                             .bind(&self.mounts)
                             .fill(1),
                         row().gap(8).children((
-                            button("Open in Files").on_click(Msg::Open).bind(&self.open).width(120),
-                            button("Unmount").on_click(Msg::Unmount).bind(&self.unmount).width(100),
+                            button("Open in Files")
+                                .on_click(Msg::Open)
+                                .bind(&self.open)
+                                .width(120),
+                            button("Unmount")
+                                .on_click(Msg::Unmount)
+                                .bind(&self.unmount)
+                                .width(100),
                         )),
                     )),
                 )
@@ -139,7 +160,14 @@ impl Widgets {
             ("unmount_button", ui.bounds(self.unmount.get().id())),
         ];
         for (name, r) in rects {
-            probe::widget(TITLE, name, r.left, r.top, r.right - r.left, r.bottom - r.top);
+            probe::widget(
+                TITLE,
+                name,
+                r.left,
+                r.top,
+                r.right - r.left,
+                r.bottom - r.top,
+            );
         }
     }
 
@@ -224,11 +252,16 @@ impl Netdrives {
         match info.state.as_str() {
             "mounted" => {
                 println!("NETDRIVES:MOUNT:PASS name={} path={}", info.name, info.path);
-                self.w.say(&format!("{} is mounted at {}.", info.name, info.path));
+                self.w
+                    .say(&format!("{} is mounted at {}.", info.name, info.path));
             }
             "failed" => {
-                println!("NETDRIVES:MOUNT:FAIL name={} reason={}", info.name, info.detail);
-                self.w.say(&format!("{} failed: {}.", info.name, info.detail));
+                println!(
+                    "NETDRIVES:MOUNT:FAIL name={} reason={}",
+                    info.name, info.detail
+                );
+                self.w
+                    .say(&format!("{} failed: {}.", info.name, info.detail));
             }
             _ => {}
         }
@@ -254,7 +287,10 @@ impl Netdrives {
         };
         match mounts::mount(&request) {
             Ok(path) => {
-                println!("NETDRIVES:MOUNT:REQUESTED name={} path={path}", request.name);
+                println!(
+                    "NETDRIVES:MOUNT:REQUESTED name={} path={path}",
+                    request.name
+                );
                 // The password lives on only in the daemon `mountd` started.
                 self.w.password.get().set_text("");
                 self.reported.remove(&request.name);
@@ -277,7 +313,11 @@ impl Netdrives {
             return;
         };
         if info.state != "mounted" {
-            let text = format!("{} is not mounted ({}).", info.name, drives::state_text(info));
+            let text = format!(
+                "{} is not mounted ({}).",
+                info.name,
+                drives::state_text(info)
+            );
             self.w.say(&text);
             return;
         }
@@ -286,7 +326,8 @@ impl Netdrives {
             Ok(()) => println!("NETDRIVES:OPEN:PASS path={path}"),
             Err(error) => {
                 println!("NETDRIVES:OPEN:FAIL path={path}");
-                self.w.say(&format!("Could not open Files: {}", error.describe()));
+                self.w
+                    .say(&format!("Could not open Files: {}", error.describe()));
             }
         }
     }

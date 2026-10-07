@@ -32,8 +32,14 @@ pub fn check(form: &Form) -> Result<Request, String> {
         "" => DEFAULT_NAME,
         name => name,
     };
-    mounttable::validate(name, form.host.trim(), port, form.user.trim(), &form.password)
-        .map_err(sentence)
+    mounttable::validate(
+        name,
+        form.host.trim(),
+        port,
+        form.user.trim(),
+        &form.password,
+    )
+    .map_err(sentence)
 }
 
 /// `reason` with a capital and a full stop.

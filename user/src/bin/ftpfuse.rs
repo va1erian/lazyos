@@ -56,7 +56,8 @@ const ADDRESS_TICKS: u64 = 1500;
 const KEEPALIVE_TICKS: u64 = 6000;
 
 /// The exit status of a daemon that stopped, by the step that failed. The
-/// numbers are `mountd`'s contract (`mountd/child.rs`); 1 is a panic.
+/// numbers are `mountd`'s contract (`libs/mounttable` `exit_reason`); 1 is a
+/// panic.
 #[derive(Clone, Copy)]
 enum Failure {
     Usage = 2,
@@ -80,7 +81,8 @@ struct Options {
 }
 
 fn usage() -> Failed {
-    let text = "usage: ftpfuse [-v] <host>[:port] [user=NAME] [pass=SECRET] [name=NAME] [owner=UID:GID]";
+    let text =
+        "usage: ftpfuse [-v] <host>[:port] [user=NAME] [pass=SECRET] [name=NAME] [owner=UID:GID]";
     (Failure::Usage, String::from(text))
 }
 
@@ -145,8 +147,8 @@ fn connect() -> Result<(Rc<Client>, Stack), Failed> {
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();
     }
-    let sockets = Client::connect()
-        .map_err(|e| (Failure::Network, format!("sockets: {}", describe(&e))))?;
+    let sockets =
+        Client::connect().map_err(|e| (Failure::Network, format!("sockets: {}", describe(&e))))?;
     Ok((Rc::new(sockets), stack))
 }
 

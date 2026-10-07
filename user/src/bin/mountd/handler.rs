@@ -41,26 +41,40 @@ pub(super) fn dispatch(table: &mut Table, message: &Message) -> Result<Parcel> {
 /// it as connecting. The owner is the kernel-stamped caller, never a field
 /// of the request.
 fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result<String> {
-    let request = validate(&args.name, &args.host, args.port, &args.user, &args.password)
-        .map_err(|reason| {
-            sys::write_str(&format!("MOUNTD:REFUSED {reason}\n"));
-            Error::Errno(-errno::EINVAL)
-        })?;
+    let request = validate(
+        &args.name,
+        &args.host,
+        args.port,
+        &args.user,
+        &args.password,
+    )
+    .map_err(|reason| {
+        sys::write_str(&format!("MOUNTD:REFUSED {reason}\n"));
+        Error::Errno(-errno::EINVAL)
+    })?;
     table.admit(&request).map_err(table_error)?;
     let caller = message.caller();
     let argv = daemon_args(fhs::bin::FTPFUSE, &request, caller.uid, caller.gid);
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
     // Inherit: the daemon gets this service's identity, `CAP_FS_PROVIDER`
     // and nothing more, whoever asked.
-    let pid = sys::spawnv(fhs::bin::FTPFUSE, &argv, &[], Personality::Native, SpawnCred::Inherit)
-        .map_err(Error::Errno)?;
+    let pid = sys::spawnv(
+        fhs::bin::FTPFUSE,
+        &argv,
+        &[],
+        Personality::Native,
+        SpawnCred::Inherit,
+    )
+    .map_err(Error::Errno)?;
     table.add(&request, caller.uid, pid, sys::clock());
     sys::write_str(&format!("MOUNTD:START {} pid={pid}\n", request.name));
     Ok(crate::mount_point(&request.name))
 }
 
 fn unmount(table: &mut Table, message: &Message, name: &str) -> Result<()> {
-    let daemon = table.remove(name, message.caller().uid).map_err(table_error)?;
+    let daemon = table
+        .remove(name, message.caller().uid)
+        .map_err(table_error)?;
     if let Some(pid) = daemon {
         // Its exit is reaped later and matches no mount any more.
         let _ = sys::kill(pid, sys::SIG_TERM);

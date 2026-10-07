@@ -21,7 +21,9 @@ pub const TIMED_OUT: &str = "the server did not answer in time";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     /// The daemon is logging in; it was started at this tick.
-    Connecting { since: u64 },
+    Connecting {
+        since: u64,
+    },
     Mounted,
     Failed(String),
 }

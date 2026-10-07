@@ -16,7 +16,15 @@ fn a_well_formed_request_passes() {
 
 #[test]
 fn names_that_are_not_one_directory_are_refused() {
-    for name in ["", "UPPER", "a/b", "..", "a b", "dot.name", &"n".repeat(NAME_MAX + 1)] {
+    for name in [
+        "",
+        "UPPER",
+        "a/b",
+        "..",
+        "a b",
+        "dot.name",
+        &"n".repeat(NAME_MAX + 1),
+    ] {
         assert!(validate(name, "h", 21, "", "").is_err(), "{name:?}");
     }
     assert!(validate(&"n".repeat(NAME_MAX), "h", 21, "", "").is_ok());
@@ -24,7 +32,15 @@ fn names_that_are_not_one_directory_are_refused() {
 
 #[test]
 fn hosts_that_would_be_options_or_carry_a_port_are_refused() {
-    for host in ["", "-v", "a=b", "h:21", "a b", "h\n", &"h".repeat(HOST_MAX + 1)] {
+    for host in [
+        "",
+        "-v",
+        "a=b",
+        "h:21",
+        "a b",
+        "h\n",
+        &"h".repeat(HOST_MAX + 1),
+    ] {
         assert!(validate("n", host, 21, "", "").is_err(), "{host:?}");
     }
 }
@@ -108,7 +124,10 @@ fn a_slow_daemon_expires_and_is_stopped() {
     table.add(&request("a"), 0, 7, 0);
     table.add(&request("b"), 0, 8, 1000);
     assert!(table.expire(MOUNT_TICKS - 1).is_empty());
-    assert_eq!(table.expire(MOUNT_TICKS), [(alloc::string::String::from("a"), 7)]);
+    assert_eq!(
+        table.expire(MOUNT_TICKS),
+        [(alloc::string::String::from("a"), 7)]
+    );
     assert_eq!(table.entries()[0].state.detail(), TIMED_OUT);
     // Its exit after the kill finds no pid and keeps the timeout reason.
     assert!(table.exited(7, 137).is_none());

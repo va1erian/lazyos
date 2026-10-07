@@ -48,23 +48,33 @@ impl Error {
     }
 }
 
-/// One call on `service`; a restarted service (`EPIPE`, the cached endpoint
-/// is dead) is retried once.
+/// One call on `service`, never resent: `Mount` and `Launch` are not
+/// idempotent, and a request whose reply was lost may already have started
+/// a daemon or a window. A dead cached endpoint (`EPIPE`, the service
+/// restarted) is evicted by the failure, so the next call resolves afresh.
 fn call(
     service: &'static str,
     interface: u64,
     method: u32,
     body: Vec<u8>,
 ) -> Result<Vec<u8>, Error> {
-    let once = |body: Vec<u8>| {
-        let endpoint = Service::try_connect(service).ok_or(Error::NotRunning)?;
-        endpoint
-            .call_within(interface, method, ERROR_FIELD, body, CALL_TICKS)
-            .map(|reply| reply.body)
-            .map_err(Error::Code)
-    };
-    match once(body.clone()) {
-        Err(Error::Code(code)) if -code == EPIPE => once(body),
+    let endpoint = Service::try_connect(service).ok_or(Error::NotRunning)?;
+    endpoint
+        .call_within(interface, method, ERROR_FIELD, body, CALL_TICKS)
+        .map(|reply| reply.body)
+        .map_err(Error::Code)
+}
+
+/// [`call`] for a read-only request, which is safe to resend once after
+/// `EPIPE`, so the list survives a restart of `mountd` without a gap.
+fn call_idempotent(
+    service: &'static str,
+    interface: u64,
+    method: u32,
+    body: Vec<u8>,
+) -> Result<Vec<u8>, Error> {
+    match call(service, interface, method, body.clone()) {
+        Err(Error::Code(code)) if -code == EPIPE => call(service, interface, method, body),
         other => other,
     }
 }
@@ -75,7 +85,7 @@ fn decoded<T, E>(result: Result<T, E>) -> Result<T, Error> {
 
 /// Every mount `mountd` knows about.
 pub fn list() -> Result<Vec<MountInfo>, Error> {
-    let body = call(NAME, wire::INTERFACE_ID, wire::METHOD_LIST, Vec::new())?;
+    let body = call_idempotent(NAME, wire::INTERFACE_ID, wire::METHOD_LIST, Vec::new())?;
     Ok(decoded(wire::decode_list_reply(&body))?.mounts)
 }
 
@@ -107,5 +117,11 @@ pub fn open_in_files(path: &str) -> Result<(), Error> {
         args: path.to_owned(),
         session: 0,
     }))?;
-    call(INIT, init_wire::INTERFACE_ID, init_wire::METHOD_LAUNCH, body).map(drop)
+    call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_LAUNCH,
+        body,
+    )
+    .map(drop)
 }

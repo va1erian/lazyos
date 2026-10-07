@@ -10005,9 +10005,10 @@ pub mod os_lazy_mount_v1 {
     /// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
     /// with `password` (an empty `user` is the anonymous login). `name` is 1
     /// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
-    /// `.`, `-` and `:`; `port` 1 to 65535 (0 means 21); `user` and
-    /// `password` at most 128 bytes with no control character. `path` is the
-    /// mount point the daemon will serve.
+    /// `.` and `-`, not starting with `-` and with no `:` (the port goes in
+    /// `port`, 1 to 65535, 0 meaning 21); `user` and `password` at most 128
+    /// bytes with no control character, and a `password` only with a `user`.
+    /// `path` is the mount point the daemon will serve.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MountArgs {
         pub name: alloc::string::String,
