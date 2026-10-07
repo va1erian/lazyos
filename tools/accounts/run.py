@@ -19,8 +19,11 @@ is never booted):
 The verdict: every scenario meets its expectation (`attack_judge`: `blocked`,
 or `xfail` for what a later phase closes, which passes while it SUCCEEDS), the
 machine comes back, and no file outside `audit.ALLOWED` changed (except what an
-open attack is declared to touch). Today the desktop runs as root (U0, #623),
-so every attack is `xfail`; the entries flip to `blocked` as phases land.
+open attack is declared to touch, or a scenario changes by allowed means). Since
+U0 (#623) the desktop session is `user` (the image logs it straight in,
+`LAZYOS_AUTOLOGIN`): its scenarios are `blocked`; the quota ones stay `xfail`
+for U3. `autostart_root` is judged from the verify boot: the package the attack
+session installed must open at that login as `user`.
 
     python tools/accounts/run.py              # build, boot four times, judge
     python tools/accounts/run.py --no-build   # reuse target/lazyos.img (built with this script's assets)
@@ -51,17 +54,22 @@ sys.path.insert(0, str(ROOT / "tools"))
 import attack_judge  # noqa: E402
 import audit  # noqa: E402
 import boot_judge  # noqa: E402
+import probe_packages  # noqa: E402
 
 IMAGE = ROOT / "target/lazyos.img"
 BUSYBOX = ROOT / "target/abi/busybox/busybox"
 ASSETS = HERE / "assets"
+#: The probe packages' asset tree, generated at build time (probe_packages.py).
+GENERATED = ROOT / "target" / "accounts-assets"
 #: Where the guest scripts land (`assets/manifest.txt`: /system/share/<path>).
 GUEST = "/system/share/accounts"
 
-#: scenario -> the command that runs it (typed into the Terminal).
+#: The attack session's commands, in order (attack.sh or a rhai script each).
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_home_admin",
-                 "signal_service", "fork_bomb", "disk_fill"]
+                 "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {"confd_sys": "confd_sys.rhai", "keyd_provision": "keyd_provision.rhai"}
+#: A step that only prepares a scenario prints this marker instead.
+SETUP_MARKERS = {"autostart_pkg": "TERM:OUT:ACCT:INSTALL:autostart_pkg:"}
 
 
 def command_for(name: str) -> str:
@@ -76,10 +84,17 @@ def build() -> bool:
         return False
     import demo_builds
     demo_builds.build_rhai()
+    # The session logs `user` straight in (LAZYOS_AUTOLOGIN, issue #623);
+    # the verify boot clicks the Terminal by name (LAZYOS_UI_PROBE).
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
-               LAZYOS_RESET_OS="1", LAZYOS_ASSETS=str(ASSETS))
-    steps = [[sys.executable, "tools/xui/build.py"], ["cargo", "build"]]
-    return all(subprocess.run(step, cwd=ROOT, env=env).returncode == 0 for step in steps)
+               LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
+               LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
+    if subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT, env=env).returncode:
+        return False
+    problems = probe_packages.build_all(GENERATED)
+    for problem in problems:
+        print(f"probe packages: {problem}")
+    return not problems and subprocess.run(["cargo", "build"], cwd=ROOT, env=env).returncode == 0
 
 
 # ---- session scripts -------------------------------------------------------
@@ -123,13 +138,26 @@ def warm_session() -> list[dict]:
 def attack_session(names: list[str]) -> list[dict]:
     steps = focus_terminal()
     for name in names:
-        steps += command(command_for(name), f"TERM:OUT:ACCT:ATTACK:{name}:", timeout=180)
+        until = SETUP_MARKERS.get(name, f"TERM:OUT:ACCT:ATTACK:{name}:")
+        steps += command(command_for(name), until, timeout=180)
     return [*steps, *power_off()]
 
 
 def verify_session() -> list[dict]:
-    """Up and answering, then the session ends with the machine running."""
-    return [*focus_terminal(), {"at": 2.0, "shot": "up"}]
+    """Up and answering, then the session ends with the machine running. The
+    package `autostart_root` installed opens at this login (as `user`) and,
+    whichever opened first, may cover part of the Terminal: raise the Terminal
+    by name (`LAZYOS_UI_PROBE`) at the bottom right of its content, which the
+    smaller window never reaches, then type without clicking again."""
+    raise_terminal = [{"wait_for": f"INIT:AUTOSTART:PASS app={attack_judge.AUTOPROBE}",
+                       "timeout": 420},
+                      {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 60},
+                      {"wait_for": "TERM:UP:PASS", "timeout": 240},
+                      {"at": 1.0, "click_at": {"window": "Terminal", "offset": [250, 150]},
+                       "timeout": 60}]
+    typing = [step for step in focus_terminal()
+              if "mouse_move" not in step and "mouse_click" not in step]
+    return [*raise_terminal, *typing, {"at": 2.0, "shot": "up"}]
 
 
 def boot(name: str, steps: list[dict], out: Path, image: Path, accel: str,
@@ -179,7 +207,7 @@ def main() -> int:
     work.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(IMAGE, work)  # the built image is never booted
     failures: list[str] = []
-    names = list(attack_judge.EXPECTATIONS)
+    names = SHELL_ATTACKS + list(RHAI_ATTACKS)
 
     ok, log = boot("warm", warm_session(), args.out, work, args.accel, args.memory)
     failures += [] if ok else ["warm session did not complete"]
@@ -188,18 +216,21 @@ def main() -> int:
     if not baseline:
         failures.append("audit: could not read the baseline volume with osread")
 
-    ok, log = boot("attack", attack_session(names), args.out, work, args.accel, args.memory)
+    ok, attack_log = boot("attack", attack_session(names), args.out, work, args.accel,
+                          args.memory)
     failures += [] if ok else ["attack session did not complete"]
-    failures += boot_judge.judge_stop(log)
-    verdict = attack_judge.judge(log)
-    failures += verdict.failures
+    failures += boot_judge.judge_stop(attack_log)
     after = snapshot(work, args.out, "after_attacks")
-    excused = [path for name in verdict.open_attacks
-               for path in attack_judge.EXPECTATIONS[name].touches]
 
     ok, log = boot("verify", verify_session(), args.out, work, args.accel, args.memory)
     failures += [] if ok else ["verify session did not complete"]
     failures += boot_judge.judge_boot(log, "verify")
+    # The package the attack session installed opened at this login: as whom?
+    verdict = attack_judge.judge(attack_log + "\n" + attack_judge.autostart_marker(attack_log, log))
+    failures += verdict.failures
+    excused = [path for name in verdict.open_attacks
+               for path in attack_judge.EXPECTATIONS[name].touches]
+    excused += attack_judge.side_effects()
     if not args.quick:
         ok, log = boot("verify-kill", verify_session(), args.out, work, args.accel, args.memory)
         failures += [] if ok else ["verify-kill session did not complete"]

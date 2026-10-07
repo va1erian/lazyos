@@ -201,8 +201,9 @@ impl Pkgd {
     /// Whether `pkgd` will read `path` for `caller` (see `pkgstore::access`),
     /// and the normalised path to read.
     pub(crate) fn check_source(&mut self, caller: &Caller, path: &str) -> Result<String, Failure> {
-        // Root may read anywhere; anyone else may also use their own home.
-        let home = if caller.uid == 0 {
+        // A system service may read anywhere; anyone else may also use their
+        // own home.
+        let home = if caller.system {
             None
         } else {
             self.home_of(caller.uid)
@@ -227,6 +228,7 @@ fn caller_of(message: &Message) -> Option<Caller> {
         uid: cred.uid,
         session: cred.session,
         label_id: cred.label_id,
+        system: cred.caps & user::sys::CAP_SETUID != 0,
     })
 }
 

@@ -69,8 +69,9 @@ pub(crate) fn dispatch(
         }
         wire::METHOD_UNREGISTER => {
             let args = wire::decode_unregister_args(body).map_err(parse)?;
-            // Only the package manager (root) may withdraw a registration.
-            if !caller_is_root(message) {
+            // Only the package manager (a system service) may withdraw a
+            // registration.
+            if !caller_is_system(message) {
                 return Err(Error::Errno(-errno::EPERM));
             }
             if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
@@ -83,10 +84,12 @@ pub(crate) fn dispatch(
     }
 }
 
-/// Whether the sender is uid 0 and unlabelled (kernel-stamped).
-fn caller_is_root(message: &Message) -> bool {
+/// Whether the sender is an unlabelled system service: it holds
+/// `CAP_SETUID` (kernel-stamped). A uid is not enough (issue #623): a root
+/// login session holds no capability.
+fn caller_is_system(message: &Message) -> bool {
     let cred = message.caller();
-    cred.uid == 0 && cred.label_id == 0
+    cred.caps & user::sys::CAP_SETUID != 0 && cred.label_id == 0
 }
 
 /// Frame an encoded reply body as a parcel of `method`.

@@ -7,7 +7,7 @@ use confd::{persist, Caller, Store, Value, STORE_FILE};
 
 use super::confd_store::{boot, fail, value, volume, VfsStore};
 
-const ROOT: Caller = Caller { uid: 0 };
+const ROOT: Caller = Caller::system(0);
 const LEGACY: &str = confd::dir::LEGACY_SEED;
 
 /// Writes an F3-era store with `entries` in `/data/confd`, as an updated image

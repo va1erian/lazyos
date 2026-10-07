@@ -13,9 +13,9 @@ use alloc::vec::Vec;
 use confd::{Caller, ChangeSink, Confd, ServiceError, StoreFs, Value};
 
 /// Callers used throughout (mirrors the store crate's own test constants).
-pub(super) const ROOT: Caller = Caller { uid: 0 };
-pub(super) const ALICE: Caller = Caller { uid: 1000 };
-const BOB: Caller = Caller { uid: 1001 };
+pub(super) const ROOT: Caller = Caller::system(0);
+pub(super) const ALICE: Caller = Caller::user(1000);
+const BOB: Caller = Caller::user(1001);
 
 /// An in-memory [`StoreFs`] with an injectable write failure.
 #[derive(Clone, Default)]

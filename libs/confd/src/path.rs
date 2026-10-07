@@ -1,9 +1,10 @@
 //! Path grammar and the uid access rules built on top of it.
 //!
 //! v1 has exactly two subtrees, so path checking and authorisation are
-//! deliberately a pure function of the string and the caller's uid — no ACL
-//! table, no ambient state.
+//! deliberately a pure function of the string and the caller (its uid and
+//! whether it is a system service) — no ACL table, no ambient state.
 
+use crate::store::Caller;
 use crate::{Error, MAX_PATH_LEN};
 
 /// Checks `path` against the v1 grammar.
@@ -72,22 +73,25 @@ pub(crate) fn scope(path: &str) -> Scope {
     }
 }
 
-/// Whether `uid` may read `path` (which must be valid: `sys/**` is public,
-/// `user/<uid>/**` is owner-or-root, everything else is denied).
-pub(crate) fn can_read(path: &str, uid: u32) -> bool {
+/// Whether `caller` may read `path` (which must be valid: `sys/**` is
+/// public, `user/<uid>/**` is its owner's or a system service's, everything
+/// else is denied).
+pub(crate) fn can_read(path: &str, caller: Caller) -> bool {
     match scope(path) {
         Scope::System => true,
-        Scope::User(owner) => uid == owner || uid == 0,
+        Scope::User(owner) => caller.uid == owner || caller.system,
         Scope::Unclaimed => false,
     }
 }
 
-/// Whether `uid` may write `path` (`sys/**` is root-only,
-/// `user/<uid>/**` is owner-or-root, everything else is denied).
-pub(crate) fn can_write(path: &str, uid: u32) -> bool {
+/// Whether `caller` may write `path` (`sys/**` is the system services'
+/// alone, `user/<uid>/**` its owner's or a system service's, everything else
+/// is denied). A uid never grants it (issue #623): a root login session holds
+/// no capability and writes only `user/0/**`.
+pub(crate) fn can_write(path: &str, caller: Caller) -> bool {
     match scope(path) {
-        Scope::System => uid == 0,
-        Scope::User(owner) => uid == owner || uid == 0,
+        Scope::System => caller.system,
+        Scope::User(owner) => caller.uid == owner || caller.system,
         Scope::Unclaimed => false,
     }
 }
@@ -112,20 +116,26 @@ mod tests {
 
     #[test]
     fn access_matrix() {
-        assert!(can_read("sys/a", 1234));
-        assert!(!can_write("sys/a", 1234));
-        assert!(can_write("sys/a", 0));
+        let user = Caller::user;
+        let system = Caller::system(0);
+        assert!(can_read("sys/a", user(1234)));
+        assert!(!can_write("sys/a", user(1234)));
+        assert!(can_write("sys/a", system));
+        // A root login session is no system service.
+        assert!(!can_write("sys/a", user(0)));
+        assert!(!can_read("user/7/a", user(0)));
 
-        assert!(can_read("user/7/a", 7));
-        assert!(can_read("user/7/a", 0));
-        assert!(!can_read("user/7/a", 8));
-        assert!(can_write("user/7/a", 7));
-        assert!(can_write("user/7/a", 0));
-        assert!(!can_write("user/7/a", 8));
+        assert!(can_read("user/7/a", user(7)));
+        assert!(can_read("user/7/a", system));
+        assert!(!can_read("user/7/a", user(8)));
+        assert!(can_write("user/7/a", user(7)));
+        assert!(can_write("user/7/a", system));
+        assert!(!can_write("user/7/a", user(8)));
+        assert!(can_write("user/0/a", user(0)));
 
-        assert!(!can_read("user", 0));
-        assert!(!can_write("user", 0));
-        assert!(!can_read("user/alice", 0));
-        assert!(!can_write("user/alice", 0));
+        assert!(!can_read("user", system));
+        assert!(!can_write("user", system));
+        assert!(!can_read("user/alice", system));
+        assert!(!can_write("user/alice", system));
     }
 }

@@ -40,7 +40,9 @@ probe() {
     [ -e "$f" ] && existed=1
     out=$(sh -C -c "$2" sh "$f" 2>&1)
     rc=$?
-    [ "$existed" = 0 ] && rm -f "$f"
+    # 2>/dev/null: an unreadable directory makes rm complain on the Terminal,
+    # which would replace this attack's marker as the reported output.
+    [ "$existed" = 0 ] && rm -f "$f" 2>/dev/null
     res $rc "$out"
 }
 
@@ -50,7 +52,9 @@ uid)
     if [ "$u" = 0 ]; then echo "ACCT:ATTACK:uid:SUCCEEDED:root"; else echo "ACCT:ATTACK:uid:BLOCKED:uid=$u"; fi
     ;;
 rm_system)
-    out=$(rm "$SHARE/canary" 2>&1)
+    # -f: a write-protected file must not make rm ask (and eat the next
+    # command typed into the Terminal as its answer).
+    out=$(rm -f "$SHARE/canary" 2>&1)
     res $? "$out"
     ;;
 overwrite_init)
@@ -96,6 +100,25 @@ disk_fill)
     # already existed.
     f=${HOME:-/tmp}/acct-fill.$$
     probe "$f" ': > "$1" && dd if=/dev/zero of="$1" bs=1M count=32'
+    ;;
+autostart_pkg)
+    # Install a user package that opens at login (org.acct.autoprobe, built by
+    # probe_packages.py). Installing is allowed; the attack is what init does
+    # with it at the next login, which run.py judges from the verify boot
+    # (`autostart_root`): it must run as the session's user, never as root.
+    # Only the install is reported here, as ACCT:INSTALL.
+    if pkgctl install $SHARE/autoprobe.lzp > /dev/null 2>&1; then
+        echo "ACCT:INSTALL:autostart_pkg:OK"
+    else
+        echo "ACCT:INSTALL:autostart_pkg:FAIL"
+    fi
+    ;;
+core_replace)
+    # Replace a core app with a higher-versioned package of the same name
+    # (os.lazy.counter 99.0.0, the Counter's own program): only an admin
+    # should be able to (U3). Left installed, so the later boots run with it.
+    out=$(pkgctl install $SHARE/corereplace.lzp 2>&1)
+    res $? "$out"
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"

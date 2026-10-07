@@ -3,7 +3,7 @@
 //! script clicks `{"click_at": {"menu": "Accessories"}}` instead of replaying
 //! measured relative moves. Printed only in a `LAZYOS_UI_PROBE=1` image.
 //!
-//! Names: `taskbar:start`, and `menu:<label>` for each visible row of the
+//! Names: `taskbar:start`, `taskbar:logout`, and `menu:<label>` for each visible row of the
 //! menu (categories, configured rows, power rows) and of the open submenu
 //! (its apps). Coordinates are physical screen pixels.
 
@@ -26,10 +26,12 @@ fn print(ctx: &Ctx, name: &str, origin: (i32, i32), rect: ShellRect) {
     );
 }
 
-/// The start button, once the taskbar is placed.
+/// The start button and the "Log out" button (issue #623), once the taskbar
+/// is placed (the clock, which Log out sits left of, is measured by then).
 pub fn start_button(ctx: &Ctx) {
     if probe::enabled() {
         print(ctx, "taskbar:start", (0, ctx.bar_y()), START_BUTTON);
+        print(ctx, "taskbar:logout", (0, ctx.bar_y()), ctx.logout_rect());
     }
 }
 

@@ -75,15 +75,18 @@ impl LaunchSelftest {
 }
 
 /// The launch-policy self-test: a synthetic session owner may launch into its
-/// own session, a foreign non-root caller may not, and root may go anywhere.
-/// Prints `INIT:LAUNCH:DENIED:PASS` when the denial holds.
+/// own session, a foreign caller may not, not even a root login session
+/// (issue #623: uid 0 without a capability is just another session), and a
+/// `CAP_SETUID` holder (`logind`) may go anywhere. Prints
+/// `INIT:LAUNCH:DENIED:PASS` when the policy holds.
 pub(super) fn selftest_launch_policy() {
     let owner = SysCred::new(1000, 1000, 0, 0, 7);
     let foreign = SysCred::new(1000, 1000, 0, 0, 8);
-    let root = SysCred::new(0, 0, 0, 0, 3);
-    let denied = authorize(&foreign, 7).is_err();
+    let root_session = SysCred::new(0, 0, 0, 0, 3);
+    let system = SysCred::new(0, 0, CAP_SETUID, 0, 0);
+    let denied = authorize(&foreign, 7).is_err() && authorize(&root_session, 8).is_err();
     let owner_ok = authorize(&owner, 7).is_ok();
-    let root_ok = authorize(&root, 8).is_ok();
+    let root_ok = authorize(&system, 8).is_ok();
     if denied && owner_ok && root_ok {
         sys::write_str("INIT:LAUNCH:DENIED:PASS\n");
     } else {

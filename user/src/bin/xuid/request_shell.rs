@@ -13,7 +13,7 @@ use super::protocol::{
     color_u32, drop_rejected_transfers, empty_reply, error_reply, privileged, typed_reply,
 };
 use super::shell::ShellSub;
-use super::shellcalls::shell_allowed;
+use super::shellcalls::{shell_allowed, ShellClaim};
 use super::surface::Surface;
 use super::theme::{accent, border_color, mode, taskbar_bg, title_bg, title_bg_focus, title_text};
 use super::window::surface_by_id;
@@ -59,12 +59,13 @@ impl Compositor {
 
     /// `Subscribe`: register the shell, or a privileged observer.
     ///
-    /// The `shell` role is accepted from a privileged identity, or from a
-    /// task of the session that owns the display (the first non-zero
-    /// session accepted as the shell), so the graphical session's
-    /// LazyShell needs no capability and a restarted one replaces its
-    /// predecessor. Any other role is an observer: it needs privilege and
-    /// can never displace the shell (issue #447).
+    /// The `shell` role is accepted from a privileged identity, or from an
+    /// unlabelled task of the session that owns the display (the first
+    /// non-zero session accepted as the shell, until it logs out) once the
+    /// previous shell is gone, so the graphical session's LazyShell needs no
+    /// capability and a restarted one replaces its predecessor; a live shell
+    /// is never displaced (issue #623). Any other role is an observer: it
+    /// needs privilege and can never displace the shell (issue #447).
     pub(super) fn subscribe(&mut self, message: &Message, body: &[u8]) -> Parcel {
         let role = wire::decode_subscribe_args(body)
             .unwrap_or_default()
@@ -94,7 +95,7 @@ impl Compositor {
             }
             return empty_reply(message.method());
         }
-        let Some(cred) = Some(cred).filter(|cred| self.may_be_shell(cred)) else {
+        let Some(cred) = Some(cred).filter(|cred| self.may_be_shell(cred, message.sender)) else {
             // Every window title, geometry and focus change is the shell's
             // (issue #175): anyone else's claim is refused outright.
             drop_rejected_transfers(message);
@@ -111,11 +112,17 @@ impl Compositor {
         empty_reply(message.method())
     }
 
-    /// Whether `cred` may hold the shell role (see [`Compositor::subscribe`]
-    /// and [`shell_allowed`]).
-    fn may_be_shell(&self, cred: &Cred) -> bool {
-        let live = self.shell.as_ref().is_some_and(|shell| !shell.dead);
-        shell_allowed(privileged(cred), cred.session, self.display_session, live)
+    /// Whether task `sender`, stamped `cred`, may hold the shell role (see
+    /// [`Compositor::subscribe`] and [`shell_allowed`]).
+    fn may_be_shell(&self, cred: &Cred, sender: u64) -> bool {
+        let live = self.shell.as_ref().filter(|shell| !shell.dead);
+        let claim = ShellClaim {
+            privileged: privileged(cred),
+            labelled: cred.label_id != 0,
+            session: cred.session,
+            current: live.is_some_and(|shell| shell.task == sender),
+        };
+        shell_allowed(claim, self.display_session, live.is_some())
     }
 
     /// `ListSurfaces` (shell-only): one row per surface, bottom first: the

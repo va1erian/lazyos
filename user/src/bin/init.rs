@@ -91,6 +91,8 @@ mod installed;
 mod launch;
 #[path = "init/lifecycle.rs"]
 mod lifecycle;
+#[path = "init/logout.rs"]
+mod logout;
 #[path = "init/notice.rs"]
 mod notice;
 #[path = "init/protocol.rs"]

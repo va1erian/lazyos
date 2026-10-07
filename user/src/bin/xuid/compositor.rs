@@ -11,6 +11,7 @@ use super::cursor::CursorOverlay;
 use super::drag::DragSession;
 use super::held::HeldInput;
 use super::inputlink::InputLink;
+use super::loginfeed::LoginFeed;
 use super::opening::Opening;
 use super::origin::OpenHint;
 use super::powerfeed::PowerFeed;
@@ -66,7 +67,8 @@ pub(super) struct Compositor {
     pub(super) observer: Option<ShellSub>,
     /// The session that owns the display: the first non-zero session whose
     /// task was accepted as the shell. Only it may claim the shell again
-    /// without privilege (a restarted LazyShell).
+    /// without privilege (a restarted LazyShell), until `logind` reports it
+    /// ended (`loginfeed`, issue #623).
     pub(super) display_session: Option<u64>,
     /// The rectangle windows may occupy, as the shell set it; `None` is the
     /// whole screen.
@@ -83,6 +85,8 @@ pub(super) struct Compositor {
     pub(super) themefeed: ThemeFeed,
     /// `init`'s shutdown progress (the shutting-down overlay).
     pub(super) powerfeed: PowerFeed,
+    /// `logind`'s logouts (who owns the display next).
+    pub(super) loginfeed: LoginFeed,
     /// The compositor's side of `inputd` (`docs/input-plan.md`).
     pub(super) input: InputLink,
     /// Input read during an animation, waiting for the main loop.
@@ -127,6 +131,7 @@ impl Compositor {
             scratch: Vec::with_capacity(64),
             themefeed,
             powerfeed: PowerFeed::new(),
+            loginfeed: LoginFeed::new(),
             input: InputLink::new(),
             held: HeldInput::new(),
             hints: Vec::new(),
@@ -158,6 +163,14 @@ impl Compositor {
     pub(super) fn tick_power(&mut self) {
         if self.powerfeed.poll() {
             self.repaint_full();
+        }
+        // A logout ends the display owner's session: the next login's shell
+        // may claim the role (issue #623).
+        for session in self.loginfeed.poll() {
+            if self.display_session == Some(session) {
+                user::sys::write_str(&alloc::format!("XUID:LOGOUT session={session}\n"));
+                self.display_session = None;
+            }
         }
     }
 

@@ -110,7 +110,9 @@ def input_args() -> list[str]:
 
 
 def build(env_extra: dict[str, str]) -> None:
-    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_USB="1", LAZYOS_USB_IMAGE="1", **env_extra)
+    # The stick boots straight into the desktop session (`user`, issue #623).
+    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_USB="1", LAZYOS_USB_IMAGE="1",
+               LAZYOS_AUTOLOGIN="user", **env_extra)
     print("build: LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo build", flush=True)
     subprocess.run(["cargo", "build"], cwd=ROOT, env=env, check=True)
 

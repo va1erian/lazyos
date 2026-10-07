@@ -15,7 +15,10 @@ python tools/accounts/attack_judge.py shots/accounts/attack/serial.log   # re-ju
 
 Needs BusyBox (`python tools/abi/busybox.py`), the xui apps and `rhai`
 (`run.py` builds them). QEMU on `PATH` as for the other harnesses. Output:
-`shots/accounts/` (session scripts, serial logs, `audit_*.txt`).
+`shots/accounts/` (session scripts, serial logs, `audit_*.txt`). The image logs
+`user` straight in (`LAZYOS_AUTOLOGIN=user`, issue #623) through the same path
+as the login screen, and carries the probe packages `probe_packages.py` builds
+into `target/accounts-assets/`.
 
 ## What it does
 
@@ -25,8 +28,9 @@ All boots use a **copy** of `target/lazyos.img` (`shots/accounts/work/`).
    read from the host (`osread tree /`) as the audit baseline.
 2. `attack`: runs every scenario once in the desktop Terminal, then powers
    off. The stop is judged (`INIT:SHUTDOWN:*`, `power: filesystems synced`).
-3. `verify`: boots again and must run a command (`TERM:OUT:ACCT:BOOT:OK`),
-   then the session ends with the machine running: a hard kill.
+3. `verify`: boots again and must log in (`LOGIN:OK:PASS`) and run a command
+   (`TERM:OUT:ACCT:BOOT:OK`), then the session ends with the machine running:
+   a hard kill. This login is also where `autostart_root` is judged.
 4. `verify-kill`: boots after the hard kill and must answer again.
 
 The volume is audited after step 2 and after step 4 against the baseline
@@ -54,13 +58,14 @@ delete a canary file, and remove whatever they created.
 | `keyd_provision` | rhai `sys::keyd::provision(...)` |
 | `read_home_admin` | `ls /home/admin` |
 | `signal_service` | `kill -CONT` the `logd` service |
+| `autostart_root` | install `org.acct.autoprobe` (a package with `autostart`, as `user`); at the next login it must open in the session as `user`, never as root (judged from the verify boot's `INIT:AUTOSTART:*` lines) |
+| `core_replace` | install `os.lazy.counter` 99.0.0 over the core app |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
 
-Not yet scripted (needs a build switch or a test package; the issue lists
-them): claim xuid's shell role, install a package with `autostart` and check
-the next boot, install a higher-versioned core app, plus the U1/U2 sets and
-`LAZYOS_AUTOLOGIN`, which does not exist before U0.
+Not yet scripted: claiming `xuid`'s shell role from the session (no shipped
+program a session can run subscribes to `xuid`; the rule is boot-tested by
+`xuid`'s `XUID:SHELLCALLS` self-test) and the U1/U2 sets.
 
 ## Expectations: how it passes today and gates later
 
@@ -71,11 +76,12 @@ the next boot, install a higher-versioned core app, plus the U1/U2 sets and
   noted. If it prints `BLOCKED` the judge notes `XPASS ... flip the expectation`
   (not a failure): change the entry to `blocked` and it is a gate.
 
-The desktop runs as root until U0 (#623) lands, so all entries are `xfail` and
-the harness passes while every attack succeeds. When U0 lands, flip the U0
-rows; when quotas land (U3) flip `fork_bomb` and `disk_fill`. Each row's
+U0 (#623) landed: the U0 rows are `blocked`. `core_replace`, `fork_bomb` and
+`disk_fill` stay `xfail` until U3 (protected core apps, quotas). Each row's
 `touches` lists the image paths the attack changes when it succeeds; the audit
-excuses only those, and only while the row is `xfail`.
+excuses only those, and only while the row is `xfail`. `side_effects` are
+paths a scenario changes by allowed means whatever its state (installing a
+package writes `/apps`, `/docs/apps` and `/conf`).
 
 Always a failure, whatever the state: no marker, `ERROR`, `BLOCKED:ENOENT` (the
 target was missing, so nothing was attacked), a scenario missing from the table.

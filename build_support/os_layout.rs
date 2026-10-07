@@ -134,10 +134,14 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
 }
 
 /// The mode of a file the build places, from where it goes: 0755 for anything
-/// under `/system/bin` (the programs), 0644 for everything else. Both are
-/// root-owned. A name never decides it, so a data file cannot become
-/// executable by being called `*.ELF`.
+/// under `/system/bin` (the programs), 0600 for the shadow file, 0644 for
+/// everything else. All are root-owned. A name never decides it, so a data
+/// file cannot become executable by being called `*.ELF`.
 pub fn file_mode(path: &str) -> u16 {
+    // The password verifiers: root only (issue #447).
+    if path == fhs::etc::SHADOW {
+        return 0o600;
+    }
     let in_bin = path
         .trim_start_matches('/')
         .strip_prefix(fhs::SYSTEM_BIN.trim_start_matches('/'))

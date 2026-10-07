@@ -36,12 +36,20 @@ fn the_shipped_file_has_admin_and_user() {
             ("user", 1000, 1000, "/home/user", "sh"),
         ]
     );
-    assert!(entries.iter().all(|e| !e.secret.is_empty()));
+}
+
+#[test]
+fn a_secret_in_the_passwd_file_is_refused() {
+    // Only `x` is accepted: a plaintext password never ships world-readable.
+    assert_eq!(
+        reason(b"admin:0:0:nimda:/home/admin:sh\n"),
+        "bad-row line=1 field=secret"
+    );
 }
 
 #[test]
 fn comments_blank_lines_and_crlf_are_tolerated() {
-    let text = b"# accounts\n\nadmin:0:0:s:/home/admin:sh\r\n\n";
+    let text = b"# accounts\n\nadmin:0:0:x:/home/admin:sh\r\n\n";
     assert_eq!(parse(text).unwrap().len(), 1);
 }
 
@@ -66,7 +74,7 @@ fn a_file_with_only_garbage_has_no_account() {
 #[test]
 fn one_bad_row_rejects_the_whole_file() {
     // A good first row does not survive a corrupt second one.
-    let text = b"admin:0:0:s:/home/admin:sh\nuser:x:1000:s:/home/user:sh\n";
+    let text = b"admin:0:0:x:/home/admin:sh\nuser:x:1000:x:/home/user:sh\n";
     assert_eq!(reason(text), "bad-row line=2 field=uid");
 }
 
@@ -76,14 +84,14 @@ fn an_oversize_file_is_refused() {
     while text.len() <= PASSWD_MAX {
         text.extend_from_slice(b"# padding padding padding padding\n");
     }
-    text.extend_from_slice(b"admin:0:0:s:/home/admin:sh\n");
+    text.extend_from_slice(b"admin:0:0:x:/home/admin:sh\n");
     assert_eq!(parse(&text), Err(LoadError::Oversize(text.len())));
     assert!(reason(&text).starts_with("oversize bytes="));
 }
 
 #[test]
 fn a_duplicate_uid_is_refused() {
-    let text = b"admin:0:0:s:/home/admin:sh\nevil:0:0:s:/home/evil:sh\n";
+    let text = b"admin:0:0:x:/home/admin:sh\nevil:0:0:x:/home/evil:sh\n";
     assert_eq!(
         parse(text),
         Err(LoadError::DuplicateUid { line: 2, uid: 0 })
@@ -93,14 +101,14 @@ fn a_duplicate_uid_is_refused() {
 
 #[test]
 fn a_duplicate_name_is_refused() {
-    let text = b"user:1000:1000:s:/home/user:sh\nuser:1001:1001:t:/home/user:sh\n";
+    let text = b"user:1000:1000:x:/home/user:sh\nuser:1001:1001:x:/home/user:sh\n";
     assert_eq!(parse(text), Err(LoadError::DuplicateName { line: 2 }));
 }
 
 #[test]
 fn a_uid_outside_u32_is_refused() {
     for uid in ["4294967296", "99999999999999999999", "-1", "+5", " 5", ""] {
-        let text = format!("user:{uid}:1000:s:/home/user:sh\n");
+        let text = format!("user:{uid}:1000:x:/home/user:sh\n");
         assert_eq!(
             parse(text.as_bytes()),
             Err(LoadError::BadRow {
@@ -110,27 +118,28 @@ fn a_uid_outside_u32_is_refused() {
             "{uid:?}"
         );
     }
-    let max = b"user:4294967295:4294967295:s:/home/user:sh\n";
+    let max = b"user:4294967295:4294967295:x:/home/user:sh\n";
     assert_eq!(parse(max).unwrap()[0].uid, u32::MAX);
 }
 
 #[test]
 fn every_field_is_checked() {
     let cases: &[(&str, &str)] = &[
-        ("admin:0:0:s:/home/admin", "count"),
-        ("admin:0:0:s:/home/admin:sh:extra", "count"),
-        (":0:0:s:/home/x:sh", "name"),
-        ("Admin:0:0:s:/home/x:sh", "name"),
-        ("../x:0:0:s:/home/x:sh", "name"),
-        ("a b:0:0:s:/home/x:sh", "name"),
-        ("abcdefghijklmnopqrstuvwxyzabcdefg:0:0:s:/home/x:sh", "name"),
-        ("admin:0:g:s:/home/admin:sh", "gid"),
+        ("admin:0:0:x:/home/admin", "count"),
+        ("admin:0:0:x:/home/admin:sh:extra", "count"),
+        (":0:0:x:/home/x:sh", "name"),
+        ("Admin:0:0:x:/home/x:sh", "name"),
+        ("../x:0:0:x:/home/x:sh", "name"),
+        ("a b:0:0:x:/home/x:sh", "name"),
+        ("abcdefghijklmnopqrstuvwxyzabcdefg:0:0:x:/home/x:sh", "name"),
+        ("admin:0:g:x:/home/admin:sh", "gid"),
         ("admin:0:0::/home/admin:sh", "secret"),
-        ("admin:0:0:s:home/admin:sh", "home"),
-        ("admin:0:0:s:/home/../etc:sh", "home"),
-        ("admin:0:0:s:/home//admin:sh", "home"),
-        ("admin:0:0:s:/home/admin:", "shell"),
-        ("admin:0:0:s:/home/admin:s h", "shell"),
+        ("admin:0:0:secret:/home/admin:sh", "secret"),
+        ("admin:0:0:x:home/admin:sh", "home"),
+        ("admin:0:0:x:/home/../etc:sh", "home"),
+        ("admin:0:0:x:/home//admin:sh", "home"),
+        ("admin:0:0:x:/home/admin:", "shell"),
+        ("admin:0:0:x:/home/admin:s h", "shell"),
     ];
     for (row, field) in cases {
         let text = format!("{row}\n");
@@ -145,7 +154,7 @@ fn every_field_is_checked() {
 #[test]
 fn non_utf8_is_refused() {
     assert_eq!(
-        parse(b"admin:0:0:\xff:/home/admin:sh\n"),
+        parse(b"admin:0:0:x:/home/\xff:sh\n"),
         Err(LoadError::NotText)
     );
 }

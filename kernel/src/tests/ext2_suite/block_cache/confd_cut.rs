@@ -6,7 +6,7 @@
 use super::*;
 use confd::{Caller, Confd, Value};
 
-const ROOT: Caller = Caller { uid: 0 };
+const ROOT: Caller = Caller::system(0);
 
 /// Start `confd` on a cached mount of `disk`, as a boot would.
 fn boot(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Service), String> {

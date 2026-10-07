@@ -63,6 +63,8 @@ pub mod errno {
     pub const EAGAIN: i64 = 11;
     /// Permission denied.
     pub const EACCES: i64 = 13;
+    /// Busy (a login while a session is already open).
+    pub const EBUSY: i64 = 16;
     /// The name is already registered.
     pub const EEXIST: i64 = 17;
     /// Invalid argument.

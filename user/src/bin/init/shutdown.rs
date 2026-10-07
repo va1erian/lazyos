@@ -130,10 +130,13 @@ pub(super) fn request(
     Ok(phase)
 }
 
-/// Who may stop the machine: root, or any caller in a login session. An
-/// installed (labelled) app never may, whatever its uid.
+/// Who may stop the machine: a system service (`CAP_SETUID`), or any caller
+/// in a login session. An installed (labelled) app never may, whatever its
+/// uid, and neither may a sessionless task without the capability (a driver,
+/// the login screen).
 fn authorize(caller: &SysCred) -> messenger::Result<()> {
-    if caller.label_id == 0 && (caller.uid == 0 || caller.session != 0) {
+    if caller.label_id == 0 && (caller.caps & super::state::CAP_SETUID != 0 || caller.session != 0)
+    {
         Ok(())
     } else {
         Err(messenger::Error::Errno(-messenger::errno::EPERM))

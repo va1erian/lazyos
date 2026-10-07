@@ -41,7 +41,8 @@ RE_ENTRY = re.compile(r"(\S+)#(\d+)=(\d+)/(\d+)")
 
 
 def build_image() -> Path:
-    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_PERF="1")
+    # The desktop session logged straight in, as before there was a login (#623).
+    env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_PERF="1", LAZYOS_AUTOLOGIN="user")
     print("building xui apps: python tools/xui/build.py", flush=True)
     subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT, check=True)
     print("building: LAZYOS_DESKTOP=1 LAZYOS_PERF=1 cargo build", flush=True)

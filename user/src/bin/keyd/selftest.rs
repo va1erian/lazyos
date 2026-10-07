@@ -53,14 +53,17 @@ pub(crate) fn self_test(keyd: &mut Keyd) -> Result<(), String> {
         return Err(String::from("a non-owner used or listed a key"));
     }
 
-    // Argon2id password verification, both directions.
-    if !keyd.verify("lazyos", "lazyos") {
-        return Err(String::from("demo account rejected"));
+    // Argon2id password verification, both directions: a provisioned
+    // account verifies, a wrong password and an unknown name do not, and
+    // re-provisioning replaces the secret.
+    keyd.provision("selftest-user", "first")
+        .map_err(|error| error.message())?;
+    if !keyd.verify("selftest-user", "first") {
+        return Err(String::from("provisioned account rejected"));
     }
-    if keyd.verify("lazyos", "not-lazyos") {
+    if keyd.verify("selftest-user", "not-first") || keyd.verify("selftest-nobody", "first") {
         return Err(String::from("wrong password accepted"));
     }
-    // A provisioned account verifies, and re-provisioning replaces the secret.
     keyd.provision("selftest-user", "first")
         .map_err(|error| error.message())?;
     keyd.provision("selftest-user", "second")

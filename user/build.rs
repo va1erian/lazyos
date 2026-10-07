@@ -46,6 +46,54 @@ fn generate_typefaces(manifest: &str) {
     fs::write(Path::new(&out_dir).join("typeface_data.rs"), src).expect("write typeface data");
 }
 
+/// The account a desktop image logs straight in (issue #623), for `logind`
+/// (`LAZYOS_AUTOLOGIN_NAME`; empty: the login screen).
+///
+/// `LAZYOS_AUTOLOGIN=<name>` names it, and `none` (or empty) turns it off.
+/// Unset, an image that opens apps at login (`LAZYOS_XUI_AUTOSTART` names
+/// any: the screenshot and harness images) logs in `user`, so its session
+/// scripts find the desktop and the apps they type into, as before there was
+/// a login; any other image shows the login screen. The name must be a login
+/// name (`[a-z_][a-z0-9_-]*`); `logind` still looks it up in the account file
+/// and logs nobody in when it is not there.
+fn autologin(xui_autostart: &str) -> String {
+    println!("cargo:rerun-if-env-changed=LAZYOS_AUTOLOGIN");
+    let name = match env::var("LAZYOS_AUTOLOGIN") {
+        Ok(value) => value.trim().to_string(),
+        Err(_) => {
+            let opens_apps = xui_autostart
+                .split(',')
+                .map(str::trim)
+                .any(|item| !item.is_empty() && item != "none");
+            if opens_apps {
+                // Implicit, so say so: an image that skips its login screen
+                // should never be a surprise.
+                println!(
+                    "cargo:warning=LAZYOS_AUTOLOGIN is unset and LAZYOS_XUI_AUTOSTART \
+                     opens apps: this image logs in `user` without a password \
+                     (LAZYOS_AUTOLOGIN=none shows the login screen)"
+                );
+                String::from("user")
+            } else {
+                String::new()
+            }
+        }
+    };
+    if name.is_empty() || name == "none" {
+        return String::new();
+    }
+    let mut bytes = name.bytes();
+    let valid = name.len() <= 32
+        && bytes
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase() || first == b'_')
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+    if !valid {
+        panic!("LAZYOS_AUTOLOGIN={name:?} is not a login name ([a-z_][a-z0-9_-]*)");
+    }
+    name
+}
+
 fn main() {
     let manifest = env::var("CARGO_MANIFEST_DIR").expect("manifest dir");
     // Link the program as a static (non-PIE) ELF64 at a fixed base with our own
@@ -94,6 +142,7 @@ fn main() {
         "cargo:rustc-env=LAZYOS_BUILTIN_AUTOSTART={}",
         builtins.join(",")
     );
+    println!("cargo:rustc-env=LAZYOS_AUTOLOGIN_NAME={}", autologin(&list));
 
     // virtio-sound driver (docs/driver-plan.md D6): `LAZYOS_SOUND=1` adds the
     // `sndd` row to `init`'s manifest (the ELF itself is embedded by the root

@@ -3,7 +3,11 @@
 //! `pkgd` installs into `/apps`, and [`super::installed`] is the source of
 //! desktop apps; what stays here is what must not be a package:
 //!
-//! * LazyShell, the desktop itself (started by `logind`, `Restart::Always`);
+//! * LazyShell, the desktop itself (started by `logind` into each desktop
+//!   session, `Restart::Always`);
+//! * the login screen (`greeter`, issue #623), which `logind` asks for while
+//!   no desktop session is open; it runs under its own system identity
+//!   ([`AppSpec::system_uid`]), so only `CAP_SETUID` holders may start it;
 //! * the Installer, `pkgd`'s trusted UI, which a labelled app may never be
 //!   (`pkgstore::access` refuses every labelled caller);
 //! * the Terminal: its shell and every command typed in it are its children,
@@ -64,6 +68,11 @@ pub struct AppSpec {
     /// The start-menu group (`lazypkg::Category` spelling) of a desktop
     /// program; empty for a console one, which the menu leaves out.
     pub category: &'static str,
+    /// A system program that runs as this uid (gid alike, no capability, no
+    /// session) whoever asks for it, instead of in the caller's session; only
+    /// a `CAP_SETUID` holder may launch it (`launch.rs`). `None` for every
+    /// session program.
+    pub system_uid: Option<u32>,
 }
 
 /// An xui program that is not a package: Linux ABI, `xuid` client.
@@ -83,6 +92,7 @@ const fn xui_app(
         args: &["--client"],
         listed: true,
         category: "system",
+        system_uid: None,
     }
 }
 
@@ -104,11 +114,14 @@ const fn native_app(
         args: &[],
         listed: true,
         category: "",
+        system_uid: None,
     }
 }
 
 /// The desktop shell's registry id (`Launch("lazyshell", ...)`).
 pub const SHELL_APP_ID: &str = "lazyshell";
+/// The login screen's registry id (`logind` launches it, issue #623).
+pub const GREETER_APP_ID: &str = "greeter";
 /// The Installer started for the `develop` verb (issue #529).
 pub const DEVELOP_APP_ID: &str = "installer-develop";
 
@@ -117,12 +130,22 @@ pub const DEVELOP_APP_ID: &str = "installer-develop";
 /// A `static`, not a `const`: [`is_available`] identifies a row by address, so
 /// the table must have one stable storage location.
 pub static APPS: &[AppSpec] = &[
-    // First: autostart opens it before the apps, so their windows land on its
-    // taskbar from the start. A graphical login asks for it by id (`logind`).
+    // First: a graphical login asks for it by id (`logind`), and the
+    // session's autostart apps open after it, so their windows land on its
+    // taskbar from the start.
     AppSpec {
         restart: Restart::Always,
         listed: false,
         ..xui_app(SHELL_APP_ID, "LazyShell", fhs::bin::LAZYSHELL, &[])
+    },
+    // The login screen (issue #623): `logind` asks for it while no desktop
+    // session is open and stops it once one is. As `_greeter`, never as
+    // whoever asked, and never offered in a menu.
+    AppSpec {
+        restart: Restart::Always,
+        listed: false,
+        system_uid: Some(user::messenger::logind::GREETER_UID),
+        ..xui_app(GREETER_APP_ID, "Login", fhs::bin::GREETER, &[])
     },
     // The package installer (docs/packages.md section 8); `mimed` routes
     // `application/x-lazyos-package` to it, so opening a `.lzp` shows consent.
@@ -206,19 +229,19 @@ pub fn is_available(app: &AppSpec) -> bool {
 /// Terminal by default, Devices on request.
 const BUILTIN_AUTOSTART: &str = env!("LAZYOS_BUILTIN_AUTOSTART");
 
-/// The built-in rows that open at boot: the desktop shell first, then those
-/// the build asked for, each when the image ships it. The other apps that
-/// autostart are packages ([`super::installed`]).
+/// The built-in rows that open with a desktop session (issue #623): those
+/// the build asked for, each when the image ships it. The desktop shell is
+/// not one: `logind` opens it, and its launch is what opens the session's
+/// autostart ([`super::autostart`]). The other apps that autostart are
+/// packages ([`super::installed`]).
 pub fn autostart_ids() -> Vec<&'static str> {
-    let wanted = |id: &str| BUILTIN_AUTOSTART.split(',').any(|want| want == id);
-    let shell = APPS.iter().filter(|app| app.id == SHELL_APP_ID);
-    let others = BUILTIN_AUTOSTART.split(',').filter_map(|id| {
-        APPS.iter()
-            .find(|app| app.id == id && app.id != SHELL_APP_ID)
-    });
-    shell
-        .chain(others)
-        .filter(|app| is_available(app) && (app.id == SHELL_APP_ID || wanted(app.id)))
+    BUILTIN_AUTOSTART
+        .split(',')
+        .filter_map(|id| {
+            APPS.iter()
+                .find(|app| app.id == id && app.system_uid.is_none() && app.id != SHELL_APP_ID)
+        })
+        .filter(|app| is_available(app))
         .map(|app| app.id)
         .collect()
 }
@@ -294,7 +317,14 @@ pub fn selftest_builtins() -> bool {
         && APPS
             .iter()
             .skip(1)
-            .all(|app| app.listed || app.id == DEVELOP_APP_ID);
+            .all(|app| app.listed || app.id == DEVELOP_APP_ID || app.id == GREETER_APP_ID);
+    // The login screen is the one system program: never listed, never in a
+    // session, never root.
+    let greeter_ok = find_app(GREETER_APP_ID).is_some_and(|app| {
+        !app.listed && app.system_uid.is_some_and(|uid| uid != 0) && app.restart == Restart::Always
+    }) && APPS
+        .iter()
+        .all(|app| app.id == GREETER_APP_ID || app.system_uid.is_none());
     // The desktop apps are packages now; a row for one would shadow it.
     let no_packaged = ["editor", "files", "paint", "settings", "sysmon"]
         .iter()
@@ -302,7 +332,7 @@ pub fn selftest_builtins() -> bool {
     let has_top = APPS
         .iter()
         .any(|app| app.id == "top" && app.path == fhs::bin::TOP);
-    rows_ok && clients_ok && shell_ok && no_packaged && has_top
+    rows_ok && clients_ok && shell_ok && greeter_ok && no_packaged && has_top
 }
 
 /// How many built-in rows this image can launch.

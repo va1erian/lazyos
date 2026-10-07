@@ -243,7 +243,7 @@ impl<F: StoreFs, S: ChangeSink> Confd<F, S> {
     /// Announce every announceable path whose value differs from `old`
     /// (best effort).
     fn announce_differences(&mut self, old: &Store) {
-        let root = Caller { uid: 0 };
+        let root = Caller::system(0);
         let changed: Vec<&str> = self
             .store
             .iter_raw()

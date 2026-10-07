@@ -32,7 +32,7 @@ pub(super) struct Stopped {
 
 /// Stop every running instance of the launched app `app`.
 ///
-/// Root and a holder of `CAP_SETUID` (the package manager) may stop any
+/// A holder of `CAP_SETUID` (the package manager, `logind`) may stop any
 /// instance; anyone else may stop instances in their own session only, and a
 /// request that would touch another session's instance is refused whole
 /// (`-EPERM`) rather than done halfway. An app with nothing running is not an
@@ -43,7 +43,7 @@ pub(super) fn stop_app(
     app: &str,
     caller: &SysCred,
 ) -> messenger::Result<Stopped> {
-    let privileged = caller.uid == 0 || caller.caps & CAP_SETUID != 0;
+    let privileged = caller.caps & CAP_SETUID != 0;
     let targets: Vec<usize> = services
         .iter()
         .enumerate()
