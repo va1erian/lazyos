@@ -79,7 +79,7 @@ def elevpolicy_seeds():
         # audit line, a value that would not fit, a guarded service.
         "conf_set_newline": request("conf.set", "sys/ui/demo", "str",
                                     "x\nELEVD:REQUEST op=account.admin outcome=granted"),
-        "conf_set_bidi": request("conf.set", "sys/ui/demo", "str", "abc‮fed"),
+        "conf_set_bidi": request("conf.set", "sys/ui/demo", "str", "abc\u202efed"),
         "conf_set_quotes": request("conf.set", "sys/ui/demo", "str",
                                    'a" outcome=granted "' + " " * 200 + "b"),
         "restart_elevd": request("service.restart", "elevd"),
