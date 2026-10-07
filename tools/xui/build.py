@@ -323,6 +323,10 @@ def main() -> int:
 
     release = APP / "target" / TARGET / profile
     for name, disk_name in BINS.items():
+        if args.no_lazyweb and name == WEB_PACKAGE:
+            # Not built this time: a copy from an earlier run must not ship.
+            (OUT_DIR / disk_name).unlink(missing_ok=True)
+            continue
         source = release / name
         if not source.is_file():
             continue

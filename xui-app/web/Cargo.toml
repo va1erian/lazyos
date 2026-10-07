@@ -42,6 +42,9 @@ xui-blitz = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049
 # pure-Rust RustCrypto crates). Pinned with `nettls` so the two agree.
 rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
 nettls-crypto = { path = "../../nettls/crypto" }
+# The public suffix list (embedded, MIT/Apache-2.0): a cookie may not name one
+# as its Domain (`fetch/cookies.rs`).
+psl = "2"
 # PEM parsing for the CA bundle.
 rustls-pki-types = { version = "1.15", features = ["std"] }
 # Blocking HTTP/1.1 without its own TLS, roots or gzip: `fetch::tls` is the

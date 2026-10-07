@@ -137,7 +137,9 @@ RFC 6265 without scripts): the `Set-Cookie` of every response, a redirect's
 included, goes into an in-memory jar (a session: nothing is written to disk)
 and matching cookies ride on later requests (`Domain`, `Path`, `Secure`,
 `Max-Age` and `Expires` are honoured; at most 3000 cookies and 50 per host).
-There is no `SameSite` handling: the fetcher cannot tell a picture on a page
+A `Domain` naming a public suffix (`com`, `co.uk`, `github.io`, by the embedded
+public suffix list, the `psl` crate) is refused, unless it is the host itself,
+which then keeps the cookie to itself. There is no `SameSite` handling: the fetcher cannot tell a picture on a page
 from the page, so a third-party image carries its own site's cookies.
 
 ## Rendering notes

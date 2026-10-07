@@ -367,6 +367,7 @@ name = "devinspect"
 version = "0.1.0"
 dependencies = [
  "devmatch",
+ "mounttable",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
@@ -1065,6 +1066,10 @@ dependencies = [
 
 [[package]]
 name = "modplay"
+version = "0.1.0"
+
+[[package]]
+name = "mounttable"
 version = "0.1.0"
 
 [[package]]
@@ -2163,6 +2168,7 @@ dependencies = [
  "libc",
  "libmessenger",
  "messenger-generated",
+ "mounttable",
  "netstack",
  "printd",
  "surfbuf",

@@ -140,15 +140,23 @@ impl Jar {
         let (domain, host_only) = match domain.filter(|d| !d.is_empty()) {
             None => (target.host.clone(), true),
             Some(domain) => {
-                // The host must be inside the domain it names, and the domain
-                // must be more than a bare top-level name ("com").
+                // The host must be inside the domain it names.
                 if !domain_matches(&target.host, &domain, false)
-                    || !domain.contains('.')
                     || is_ip(&target.host) && domain != target.host
                 {
                     return None;
                 }
-                (domain, false)
+                if is_ip(&domain) || psl::domain_str(&domain).is_none() {
+                    // An address, or a public suffix ("com", "co.uk",
+                    // "github.io"): a cookie for it would reach every site
+                    // under it. Only that very host may set it, for itself.
+                    if domain != target.host {
+                        return None;
+                    }
+                    (target.host.clone(), true)
+                } else {
+                    (domain, false)
+                }
             }
         };
         let path = match path {
@@ -357,6 +365,26 @@ mod tests {
         jar.store("http://a.example.com/", "k=v; Domain=other.com", NOW);
         jar.store("http://a.example.com/", "k=v; Domain=com", NOW);
         assert!(jar.is_empty());
+    }
+
+    #[test]
+    fn a_public_suffix_is_never_a_cookie_domain() {
+        let mut jar = Jar::default();
+        for (url, domain) in [
+            ("http://a.example.co.uk/", "co.uk"),
+            ("https://user.github.io/", "github.io"),
+            ("https://a.example.com/", "com"),
+        ] {
+            jar.store(url, &format!("k=v; Domain={domain}"), NOW);
+        }
+        assert!(jar.is_empty());
+        // A real registrable domain under a multi-label suffix is fine.
+        jar.store("http://www.example.co.uk/", "k=v; Domain=example.co.uk", NOW);
+        assert_eq!(sent(&jar, "http://api.example.co.uk/"), "k=v");
+        // A host that is itself a suffix keeps the cookie to itself.
+        jar.store("http://localhost/", "l=1; Domain=localhost", NOW);
+        assert_eq!(sent(&jar, "http://localhost/"), "l=1");
+        assert_eq!(sent(&jar, "http://x.localhost/"), "");
     }
 
     #[test]

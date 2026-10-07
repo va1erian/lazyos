@@ -28,7 +28,9 @@ file (or welcome.md) --pulldown-cmark--> HTML --Blitz (engine thread)--> RGBA fr
   itself on LazyOS (no fontconfig), so the `webfonts` crate registers the
   Liberation fonts a desktop image installs (Sans, Serif, Mono, all four
   styles) with `xui_blitz::register_font` at start; without that a page shows
-  no text. The window's own text (the toolbar) stays in Droid Sans.
+  no text. The page stylesheet therefore names Liberation Sans and Mono with
+  `sans-serif`/`monospace` as the fallback: Blitz draws nothing for a family it
+  lacks and no generic to fall back on. The window's own text (the toolbar) stays in Droid Sans.
 * **Scrolling.** Blitz draws overlay scrollbars on the page (they fade after a
   scroll and can be dragged). The wheel needs the whole input chain; see
   *Mouse wheel* in [`architecture/display.md`](architecture/display.md).
