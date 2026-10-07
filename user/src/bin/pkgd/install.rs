@@ -399,6 +399,7 @@ pub(crate) fn row_of(
         category: String::from(manifest.app.category().as_str()),
         autostart: manifest.entry.autostart,
         verbs,
+        resident: manifest.entry.resident,
     }
 }
 

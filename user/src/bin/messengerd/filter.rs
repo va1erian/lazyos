@@ -107,11 +107,13 @@ fn is_nic_link(topic: &str) -> bool {
 
 /// Whether a task of `uid` may publish `topic` under `system/`. Everything
 /// there is root's but what a dedicated system uid owns (issue #497): the
-/// device manager its devices, the NIC driver its link, `elevd` its audit
-/// trail (docs/accounts-plan.md U2).
+/// device manager its devices, the NIC driver its link, the stack its
+/// address and the network-up event (`netpolicy::is_stack_topic`), `elevd`
+/// its audit trail (docs/accounts-plan.md U2).
 pub(super) fn may_publish_system(topic: &str, uid: u32) -> bool {
     uid == 0
         || (uid == devmatch::DEVD_UID && topic.starts_with("system/devices/"))
         || (uid == elevpolicy::ELEVD_UID && topic.starts_with("system/events/elevd/"))
         || (uid == netpolicy::NET_UID && is_nic_link(topic))
+        || (uid == netpolicy::NETD_UID && netpolicy::is_stack_topic(topic))
 }

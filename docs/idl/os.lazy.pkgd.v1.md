@@ -86,6 +86,7 @@ typed reply; a package that fails validation reports every problem in
 - `category: String`
 - `autostart: Bool`
 - `verbs: Array<String>`
+- `resident: Bool`
 
 ## struct `PkgEvent`
 

@@ -1,4 +1,4 @@
-//! The page as a layout entry. [`NetSurfView`] exposes no node of its own to
+//! The page as a layout entry. [`BlitzView`] exposes no node of its own to
 //! place, so the window layout places a container and the view fills it.
 
 use xui_core::app::Ui;
@@ -6,14 +6,14 @@ use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_netsurf::NetSurfView;
+use xui_blitz::BlitzView;
 
 use crate::app::Msg;
 
-/// The NetSurf view in a frame the window layout places.
+/// The Blitz view in a frame the window layout places.
 pub struct Page {
     frame: Control<Msg>,
-    view: NetSurfView<Msg>,
+    view: BlitzView<Msg>,
 }
 
 impl Page {
@@ -23,12 +23,15 @@ impl Page {
         // The engine starts laying the page out at the view's first size, so
         // start near the final one (the client width) rather than 1x1.
         let start = Rect::from_size(ui.client_rect().size());
-        let view = NetSurfView::new(&ui.with_parent(frame.id()), start, url, || Msg::Frame)?;
+        let view = BlitzView::builder(|| Msg::Frame, |event| Some(Msg::View(event)))
+            .url(url)
+            .follow_links(true)
+            .build(&ui.with_parent(frame.id()), start)?;
         Ok(Page { frame, view })
     }
 
     /// The view.
-    pub fn view(&self) -> &NetSurfView<Msg> {
+    pub fn view(&self) -> &BlitzView<Msg> {
         &self.view
     }
 }

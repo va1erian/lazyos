@@ -74,6 +74,8 @@ usbhid = { path = "../libs/usbhid" }
 usbmsc = { path = "../libs/usbmsc" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
+# `mountd`'s mount table and argument checks (docs/smb-plan.md).
+mounttable = { path = "../libs/mounttable" }
 usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
 # init's restart/backoff/notice decisions (issue #549), host-tested there.
@@ -484,6 +486,14 @@ bench = false
 [[bin]]
 name = "ftpfuse"
 path = "src/bin/ftpfuse.rs"
+test = false
+bench = false
+
+# `mountd` (docs/smb-plan.md): the network mount service, starting one
+# `ftpfuse` per mount for the Network Drives app (`os.lazy.mount.v1`).
+[[bin]]
+name = "mountd"
+path = "src/bin/mountd.rs"
 test = false
 bench = false
 

@@ -1,7 +1,7 @@
 //! LazyWeb, the web browser (docs/lazyweb.md), in the disk image.
 //!
-//! LazyWeb is a desktop xui app on the NetSurf engine (`xui-app/web`, built
-//! with zig by `tools/xui/build.py` into `target/xui/xui-lazyweb.elf`). Like
+//! LazyWeb is a desktop xui app on the Blitz engine (`xui-app/web`, built
+//! by `tools/xui/build.py` into `target/xui/xui-lazyweb.elf`). Like
 //! every desktop app it ships as a core package, `os.lazy.lazyweb`
 //! (`xui-app/packages/lazyweb`, packed by `tools/xui/core_packages.py`), which
 //! `xui_embed::embed_xui_apps` embeds in `/system/packages` when [`enabled`]

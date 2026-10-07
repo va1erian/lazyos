@@ -69,9 +69,9 @@
  {
   "mouse_move": [
    90,
-   -200
+   -224
   ],
-  "note": "start menu: the Accessories row (134,504)"
+  "note": "start menu: the Accessories row (134,480)"
  },
  {
   "wait_for": "SHELL:SUBMENU:OPEN category=accessories",

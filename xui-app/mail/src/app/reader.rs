@@ -15,7 +15,7 @@ use xui_core::geometry::Size;
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Color, Rect};
-use xui_litehtml::{HtmlView, HtmlViewEvent};
+use xui_blitz::{BlitzView, BlitzViewEvent};
 
 use super::Msg;
 
@@ -23,7 +23,7 @@ use super::Msg;
 /// its own to place (as LazyWeb's page).
 pub struct Reader {
     frame: Control<Msg>,
-    view: HtmlView<Msg>,
+    view: BlitzView<Msg>,
     appearance: Appearance,
     /// Whether the current page is a message whose first paint has not been
     /// reported yet (the session marker).
@@ -43,20 +43,18 @@ impl Reader {
         };
         let frame = Control::new(ui, &NodeSpec::new(NodeKind::Container, Rect::default()))?;
         let html = reading::notice("Select a message to read it.", None, &palette);
-        // litehtml lays the page out at the view's first size, so start near
-        // the final one rather than at nothing.
+        // The engine lays the page out at the view's first size, so start
+        // near the final one rather than at nothing.
         let start = Rect::from_size(ui.client_rect().size());
-        let view = HtmlView::new(
-            &ui.with_parent(frame.id()),
-            start,
-            html,
-            || Msg::Frame,
-            |event| match event {
-                HtmlViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
-                HtmlViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
-            },
-        )?;
-        view.set_background(Color::hex(palette.background));
+        // Links and `mailto:` come back as `LinkClicked`: the app decides.
+        let view = BlitzView::builder(|| Msg::Frame, |event| match event {
+            BlitzViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
+            BlitzViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
+            _ => None,
+        })
+        .html(html)
+        .background(Color::hex(palette.background))
+        .build(&ui.with_parent(frame.id()), start)?;
         Ok(Reader {
             frame,
             view,
@@ -65,8 +63,11 @@ impl Reader {
         })
     }
 
-    /// Shows a fetched message. Remote images are never fetched: the view has
-    /// no image fetcher, so only inline (`cid:`/`data:`) pictures appear.
+    /// Shows a fetched message. Remote content (images, style sheets, fonts)
+    /// is never fetched: Mail installs no `xui_blitz` fetcher, so `http(s)`
+    /// loads fail and only inline (`cid:` rewritten to `data:`) pictures
+    /// appear. A remote-content toggle would install a fetcher that fails
+    /// `http(s)` unless allowed and call `load_html` again.
     pub fn show_message(&self, header: &MailHeader, body: &str, attachments: &[Attachment]) {
         // As esMail on Windows: the palette's colours unless the message
         // brings its own backgrounds, which then sit on white.
@@ -87,12 +88,12 @@ impl Reader {
 
     fn load(&self, background: u32, html: String) {
         self.view.set_background(Color::hex(background));
-        self.view.load(html);
+        self.view.load_html(html, "about:blank");
     }
 
-    /// A layout pass finished: repaint it.
+    /// The engine drew a frame: show it.
     pub fn frame(&self) {
-        self.view.invalidate();
+        self.view.update();
     }
 
     /// Whether the message on show has just been painted for the first time.
@@ -120,6 +121,5 @@ impl Placeable<Msg> for Reader {
     /// The view fills the frame.
     fn placed(&self, _ui: &Ui<Msg>, rect: Rect) {
         self.view.set_bounds(Rect::from_size(rect.size()));
-        self.view.invalidate();
     }
 }

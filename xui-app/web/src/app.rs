@@ -23,7 +23,7 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::icon::Lucide;
 use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
-use xui_netsurf::NetSurfViewEvent;
+use xui_blitz::BlitzViewEvent;
 
 use crate::chrome::{self, Command, Widgets};
 use crate::handoff;
@@ -39,8 +39,10 @@ const APP_NAME: &str = "LazyWeb";
 /// Everything the window reacts to.
 #[derive(Clone)]
 pub enum Msg {
-    /// The engine has news for the view.
+    /// The engine drew a new frame.
     Frame,
+    /// The view reports something (built on the engine's thread).
+    View(BlitzViewEvent),
     Menu(Command),
     /// The toolbar's Reload button, which is Stop while a page loads.
     ReloadOrStop,
@@ -257,9 +259,9 @@ impl Browser {
     }
 
     /// Applies what the view reported.
-    fn on_view_event(&mut self, ui: &Ui<Msg>, event: NetSurfViewEvent) {
+    fn on_view_event(&mut self, ui: &Ui<Msg>, event: BlitzViewEvent) {
         match event {
-            NetSurfViewEvent::TitleChanged(title) => {
+            BlitzViewEvent::TitleChanged(title) => {
                 self.title = title;
                 let window = if self.title.trim().is_empty() {
                     APP_NAME
@@ -268,38 +270,42 @@ impl Browser {
                 };
                 ui.set_window_title(window);
             }
-            NetSurfViewEvent::UrlChanged(url) => {
+            BlitzViewEvent::UrlChanged(url) => {
                 let shown = self.internal.shown(&url).to_string();
                 self.history.on_url(&shown);
                 self.show_url(&url);
             }
-            NetSurfViewEvent::LoadingChanged(true) => {
+            BlitzViewEvent::LoadingChanged(true) => {
                 self.failed = false;
                 self.set_loading(true);
             }
-            NetSurfViewEvent::LoadingChanged(false) => self.load_ended(),
-            NetSurfViewEvent::StatusChanged(text) => {
+            BlitzViewEvent::LoadingChanged(false) => self.load_ended(),
+            BlitzViewEvent::StatusChanged(text) => {
                 if !text.is_empty() && !self.failed {
                     self.set_status(&text);
                 }
             }
-            NetSurfViewEvent::LaunchUrl { url, by_user } => self.launch(&url, by_user),
-            NetSurfViewEvent::Failed(why) => self.fail(&why),
-            NetSurfViewEvent::FetchFailed { url, message } => {
+            BlitzViewEvent::LaunchUrl { url, by_user } => self.launch(&url, by_user),
+            BlitzViewEvent::Failed(why) => self.fail(&why),
+            BlitzViewEvent::FetchFailed { url, message } => {
                 let shown = self.internal.shown(&url).to_string();
                 self.fail(&format!("{shown}: {message}"));
             }
-            NetSurfViewEvent::DownloadStarted(info) => {
+            // The view only reports Ctrl+C; the app owns the clipboard.
+            BlitzViewEvent::CopyRequested(text) => ui.set_clipboard_text(&text),
+            // The view follows links itself (`follow_links(true)`).
+            BlitzViewEvent::LinkClicked(_) => {}
+            BlitzViewEvent::DownloadStarted(info) => {
                 self.not_a_page(&info.url);
                 let status = self.transfers.started(info);
                 self.set_status(&status);
                 self.downloads_changed(ui);
             }
-            NetSurfViewEvent::DownloadProgress { id, received } => {
+            BlitzViewEvent::DownloadProgress { id, received } => {
                 self.transfers.progress(id, received);
                 self.update_downloads(ui);
             }
-            NetSurfViewEvent::DownloadFinished { id, error } => {
+            BlitzViewEvent::DownloadFinished { id, error } => {
                 if let Some(status) = self.transfers.finished(id, error) {
                     self.set_status(&status);
                 }
@@ -340,6 +346,9 @@ impl Browser {
         if self.failed {
             return;
         }
+        // "Opening <url>" must not outlive the load; hovering a link shows its
+        // address again.
+        self.set_status("");
         let shown = self.internal.shown(&self.url).to_string();
         println!("WEB:TIME:{}ms:done", trace::now_ms());
         println!("WEB:LOAD:{}", marker_text(&shown));
@@ -358,7 +367,7 @@ impl Browser {
         self.set_status(&format!("Failed: {why}"));
     }
 
-    /// A link NetSurf cannot follow: one of our pages' commands, or a URL
+    /// A link the view cannot follow: one of our pages' commands, or a URL
     /// for the app registered for its scheme (`mailto:` opens Mail).
     fn launch(&mut self, url: &str, by_user: bool) {
         if let Some(command) = PageCommand::parse(url) {
@@ -463,11 +472,8 @@ impl App for Browser {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Frame => {
-                for event in self.page.view().update() {
-                    self.on_view_event(ui, event);
-                }
-            }
+            Msg::Frame => self.page.view().update(),
+            Msg::View(event) => self.on_view_event(ui, event),
             Msg::Menu(command) => self.command(command, ui),
             Msg::ReloadOrStop => {
                 let command = if self.loading {

@@ -180,6 +180,9 @@ impl MenuApp {
             }
             Choice::Confirming(_) => {
                 super::power::confirming();
+                // The session rows changed labels ("Log out now", "Cancel"):
+                // name them for the sessions that click by name.
+                super::probe::menu(&self.ctx);
                 true
             }
             Choice::Request(power) => {

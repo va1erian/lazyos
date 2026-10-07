@@ -1,6 +1,6 @@
 //! The Back/Forward list, kept by the app.
 //!
-//! NetSurf keeps a history of its own, but the view does not expose it, so
+//! The engine keeps a history of its own, but the view does not expose it, so
 //! the list is built from the URLs the view reports: each load the user
 //! starts (a typed address or a followed link) adds an entry, a redirect
 //! within that load replaces it, and Back, Forward and Reload move along the

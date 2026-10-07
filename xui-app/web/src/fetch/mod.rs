@@ -1,17 +1,20 @@
-//! LazyWeb's HTTP and HTTPS fetcher: what NetSurf calls to load every
+//! LazyWeb's HTTP and HTTPS fetcher: what Blitz calls to load every
 //! `http:` and `https:` URL (`file:`, `data:` and `about:` it reads itself).
 //!
-//! The contract NetSurf expects, and why:
+//! The contract `xui-blitz` expects, and why:
 //!
-//! - **No redirects.** A 3xx comes back as is, with its `Location`: NetSurf
-//!   follows it itself, so the address bar, history and the new page's base
-//!   URL all see the hop.
+//! - **No redirects.** A 3xx comes back as is, with its `Location`: the view
+//!   follows it itself (up to 10 hops), so the address bar, history and the
+//!   new page's base URL all see the hop.
 //! - **Decoded bodies.** We ask for `gzip, deflate` and decode here
 //!   ([`decode`]), dropping `Content-Encoding` (and the now-wrong
-//!   `Content-Length`): NetSurf's own decoding lived in its curl fetcher.
-//! - **Off the engine thread.** NetSurf's engine thread must keep laying out
-//!   and drawing while pages load; `xui-netsurf` already calls the fetcher
-//!   on a new thread per request, which blocks there, at most
+//!   `Content-Length`): the engine expects bodies as the server meant them.
+//! - **Cookies.** The engine keeps none, so the fetcher does ([`cookies`]):
+//!   `Set-Cookie` of every response, redirects included, goes into a jar and
+//!   matching cookies ride on later requests.
+//! - **Off the engine thread.** The engine thread must keep laying out and
+//!   drawing while pages load; `xui-blitz` already calls the fetcher on a
+//!   thread per request, which blocks there, at most
 //!   [`Options::max_concurrent`] at once ([`pool`]).
 //! - **Bounded.** Bodies are capped at [`Options::max_body`] decoded bytes and
 //!   every network step has a timeout; an aborted fetch stops at the next
@@ -23,12 +26,13 @@
 //! thread has its own descriptor table, so a socket one fetch thread opened
 //! is meaningless to the next.
 //!
-//! The fetcher talks to its caller through [`Sink`], which the NetSurf glue
-//! ([`netsurf`]) implements for
-//! `xui_netsurf::FetchResponder`, and the tests implement with a recorder.
+//! The fetcher talks to its caller through [`Sink`], which the Blitz glue
+//! ([`blitz`]) implements for
+//! `xui_blitz::FetchResponder`, and the tests implement with a recorder.
 
+pub mod blitz;
+pub mod cookies;
 mod decode;
-pub mod netsurf;
 mod pool;
 mod resolve;
 pub mod roots;
@@ -50,14 +54,14 @@ pub enum Method {
     Post,
 }
 
-/// One request, as NetSurf hands it over.
+/// One request, as the view hands it over.
 #[derive(Debug, Clone)]
 pub struct Request {
     /// An absolute `http:` or `https:` URL.
     pub url: String,
     pub method: Method,
-    /// Headers NetSurf wants sent (`Accept`, `Referer`, `Cookie`,
-    /// `Content-Type`, ...). Hop-by-hop headers and `Accept-Encoding` are the
+    /// Headers the view wants sent (`Accept`, `Referer`, `Content-Type`,
+    /// ...). Hop-by-hop headers and `Accept-Encoding` are the
     /// fetcher's own and are dropped.
     pub headers: Vec<(String, String)>,
     /// The POST body.
@@ -121,10 +125,9 @@ pub struct Options {
 /// exhaust a LazyOS machine's memory.
 pub const MAX_BODY: u64 = 32 * 1024 * 1024;
 
-/// The browser's identity: NetSurf's own format, so sites that sniff for it
-/// serve the simple pages it handles.
+/// The browser's identity.
 pub const USER_AGENT: &str = concat!(
-    "Mozilla/5.0 (LazyOS) NetSurf/3.11 LazyWeb/",
+    "Mozilla/5.0 (LazyOS) Blitz LazyWeb/",
     env!("CARGO_PKG_VERSION")
 );
 

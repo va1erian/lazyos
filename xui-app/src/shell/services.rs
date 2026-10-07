@@ -150,8 +150,9 @@ pub fn stop(app: &str) -> Result<u64, i64> {
 }
 
 /// `init.Launch(app, arg, 0)`: start `app` in the shell's own session, with
-/// `arg` (one absolute path, or `""`); the new task's pid.
-pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {
+/// `arg` (one absolute path, or `""`); the task's pid, and whether it is a
+/// resident app's running instance that got the launch as `Reopen`.
+pub fn launch(app: &str, arg: &str) -> Result<(u64, bool), i64> {
     let body = init_wire::encode_launch_args(&init_wire::LaunchArgs {
         app: app.to_owned(),
         args: arg.to_owned(),
@@ -166,7 +167,7 @@ pub fn launch(app: &str, arg: &str) -> Result<u64, i64> {
         LAUNCH_TICKS,
     )?;
     init_wire::decode_launch_reply(&reply.body)
-        .map(|reply| reply.pid)
+        .map(|reply| (reply.pid, reply.existing))
         .map_err(|_| -errno::EINVAL)
 }
 

@@ -96,6 +96,8 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // `ftpfuse`, the same server mounted as a directory under `/mnt`
         // (docs/smb-plan.md: a network filesystem on the FUSE mechanism).
         add(sink, fhs::bin::FTPFUSE, "ftpfuse");
+        // `mountd`, which starts `ftpfuse` for the Network Drives app.
+        add(sink, fhs::bin::MOUNTD, "mountd");
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.

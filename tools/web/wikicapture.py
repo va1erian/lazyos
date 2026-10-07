@@ -3,8 +3,8 @@
 
 The sandbox and CI cannot reach Wikipedia, so `run.py` serves copies of two
 English Wikipedia pages from the host, the way it serves example.com: the Main
-Page and the article "1762", as LazyWeb asks for them (`?useskin=vector`, the
-2010 Vector skin; `xui-app/web/src/sites.rs`), with the style sheets and
+Page and the article "1762", as LazyWeb asks for them (the default skin, Vector
+2022: Blitz lays it out, so there is no skin rewrite), with the style sheets and
 pictures they reference, so the browser lays the copy out exactly as it would
 the live page. This script fetches them into `fixtures/wikipedia/`:
 
@@ -12,7 +12,7 @@ the live page. This script fetches them into `fixtures/wikipedia/`:
     manifest.json                 {"<url>": {"file": ..., "type": ...}, ...}
 
 URLs are the absolute ones the page names (`&amp;` decoded); `wiki.py`
-matches a request to them with percent-encoding undone, since NetSurf may
+matches a request to them with percent-encoding undone, since a browser may
 escape characters (`|` in `load.php`'s module lists) the page left bare.
 
 The copies are Wikipedia content under CC BY-SA 4.0, and the pictures under
@@ -37,13 +37,13 @@ from urllib.parse import urljoin, urlsplit
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "fixtures" / "wikipedia"
 #: The pages, as LazyWeb fetches them.
-PAGES = ["https://en.wikipedia.org/wiki/Main_Page?useskin=vector",
-         "https://en.wikipedia.org/wiki/1762?useskin=vector"]
+PAGES = ["https://en.wikipedia.org/wiki/Main_Page",
+         "https://en.wikipedia.org/wiki/1762"]
 #: Hosts whose resources are copied; anything else the page names is left out.
 HOSTS = ("en.wikipedia.org", "upload.wikimedia.org", "thumb.wikimedia.org")
 #: LazyWeb's user agent (`xui-app/web/src/fetch/mod.rs`): Wikipedia serves
 #: by user agent in places, so ask as the browser does.
-USER_AGENT = "Mozilla/5.0 (LazyOS) NetSurf/3.11 LazyWeb/0.1.0 (harness fixture capture)"
+USER_AGENT = "Mozilla/5.0 (LazyOS) Blitz LazyWeb/0.1.0 (harness fixture capture)"
 EXTENSIONS = {"text/html": ".html", "text/css": ".css", "image/png": ".png",
               "image/jpeg": ".jpg", "image/gif": ".gif", "image/svg+xml": ".svg",
               "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico"}
@@ -57,6 +57,9 @@ class Refs(HTMLParser):
         super().__init__()
         self.styles: list[str] = []
         self.pictures: list[str] = []
+        # The `<link rel=icon>` hrefs, also in `pictures` (the capture saves
+        # them): a browser that draws no tab icon never fetches them.
+        self.icons: list[str] = []
 
     def handle_starttag(self, tag, attrs) -> None:
         values = dict(attrs)
@@ -65,6 +68,7 @@ class Refs(HTMLParser):
             self.styles.append(values["href"])
         elif tag == "link" and "icon" in rel and values.get("href"):
             self.pictures.append(values["href"])
+            self.icons.append(values["href"])
         elif tag == "img" and values.get("src"):
             self.pictures.append(values["src"])
 
@@ -96,8 +100,11 @@ def fetch(url: str) -> tuple[bytes, str]:
 
 
 def wanted(url: str) -> bool:
+    """Whether the harness copies `url`: HTTPS on the copied hosts, except the
+    Main Page's tracking pixel, which redirects to another host (auth.wikimedia.org)."""
     parts = urlsplit(url)
-    return parts.scheme == "https" and parts.hostname in HOSTS
+    return (parts.scheme == "https" and parts.hostname in HOSTS
+            and "/wiki/Special:CentralAutoLogin" not in parts.path)
 
 
 def save(url: str, manifest: dict, store: Path) -> bytes | None:

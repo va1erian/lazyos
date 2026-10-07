@@ -182,23 +182,3 @@ fn the_start_button_and_clock_sit_where_the_contract_says() {
     assert_eq!(clock, Rect::new(1024 - 174, 0, 174, BAR_H));
     assert_eq!(clock_rect(100, 500).w, 100, "clamped to the bar");
 }
-
-#[test]
-fn the_logout_button_sits_left_of_the_clock_and_entries_avoid_it() {
-    let clock = clock_rect(1024, 150);
-    let logout = logout_rect(clock);
-    assert_eq!(logout.x + logout.w + ENTRY_GAP, clock.x);
-    assert_eq!((logout.y, logout.h), (ENTRY_Y, ENTRY_H));
-    let rects = entry_rects(40, 1024, reserved_right(clock));
-    for rect in rects.iter().flatten() {
-        assert!(
-            rect.x + rect.w + ENTRY_GAP <= logout.x,
-            "{rect:?} under the button"
-        );
-    }
-    // A short list keeps its usual places.
-    assert_eq!(
-        entry_rects(2, 1024, reserved_right(clock)),
-        entry_rects(2, 1024, clock.w)
-    );
-}

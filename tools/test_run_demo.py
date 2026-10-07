@@ -420,7 +420,7 @@ class NetTests(unittest.TestCase):
                 mock.patch.object(run_demo.demo_builds, "build_xui_apps", return_value=True), \
                 redirect_stderr(io.StringIO()) as err:
             self.assertFalse(run_demo.demo_builds.build_lazyweb())
-        self.assertIn("zig", err.getvalue())
+        self.assertIn("xui/build.py", err.getvalue())
         missing.write_bytes(b"\x7fELF")
         with mock.patch.object(run_demo.demo_builds, "LAZYWEB_ELF", missing), \
                 mock.patch.object(run_demo.demo_builds, "build_xui_apps") as rebuilt:

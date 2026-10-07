@@ -15,6 +15,8 @@ use alloc::vec::Vec;
 use lazypkg::Manifest;
 use messenger_generated::os_lazy_pkgd_v1::Permission;
 
+use crate::resident;
+
 /// A risk word (`low`, `medium`, `high`) and the sentence shown for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Explained {
@@ -156,14 +158,15 @@ fn permission(kind: &str, value: &str, explained: Explained) -> Permission {
 
 /// Every permission of `manifest` as the consent screen lists it: interfaces,
 /// then topics, files and network, each in manifest order, one entry per
-/// request, then `develop` when asked for.
+/// request, then `develop` and `resident` when asked for. The interfaces and
+/// topics `resident` implies follow the manifest's own ([`resident`]).
 pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
     let requested = &manifest.permissions;
     let mut out = Vec::new();
-    for name in &requested.interfaces {
+    for name in resident::interfaces(manifest) {
         out.push(permission("interface", name, interface(name)));
     }
-    for entry in &requested.topics {
+    for entry in resident::topics(manifest) {
         out.push(permission("topic", entry, topic(entry)));
     }
     for entry in &requested.files {
@@ -179,6 +182,13 @@ pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
             text: String::from(DEVELOP),
         };
         out.push(permission("develop", "true", explained));
+    }
+    if manifest.entry.resident {
+        let explained = Explained {
+            risk: LOW,
+            text: String::from(resident::RESIDENT),
+        };
+        out.push(permission("resident", "true", explained));
     }
     out
 }
@@ -326,10 +336,97 @@ mod tests {
                 ("develop", "high"),
             ]
         );
+        assert!(listed.iter().all(|p| p.kind != "resident"));
         assert_eq!(listed[0].value, "os.lazy.clipboard.v1");
         assert_eq!(
             listed[0].explanation,
             "Read and change what you copy and paste"
         );
+    }
+
+    fn rows(manifest: &str) -> Vec<(String, String, String, String)> {
+        let text = alloc::format!(
+            "[app]\nname = \"Demo\"\nsystem_name = \"org.lazy.demo\"\nauthor = \"A\"\nversion = \"1.0.0\"\n\
+             [entry]\nbinary = \"bin/app.elf\"\n{manifest}"
+        );
+        let manifest = lazypkg::parse_manifest(&text).expect("valid");
+        permissions(&manifest)
+            .into_iter()
+            .map(|p| (p.kind, p.value, p.risk, p.explanation))
+            .collect()
+    }
+
+    #[test]
+    fn resident_lists_its_implied_permissions_and_its_own_line() {
+        let row = |kind: &str, value: &str, explained: Explained| {
+            (
+                kind.into(),
+                value.into(),
+                explained.risk.into(),
+                explained.text,
+            )
+        };
+        let listed = rows("resident = true\n[permissions]\ninterfaces = [\"os.lazy.audio.v1\"]\n");
+        assert_eq!(
+            listed,
+            [
+                row(
+                    "interface",
+                    "os.lazy.audio.v1",
+                    interface("os.lazy.audio.v1")
+                ),
+                row(
+                    "interface",
+                    "os.lazy.shell.tray.v1",
+                    interface("os.lazy.shell.tray.v1")
+                ),
+                row(
+                    "interface",
+                    "os.lazy.init.app.v1",
+                    interface("os.lazy.init.app.v1")
+                ),
+                row(
+                    "topic",
+                    "subscribe:session/+/shell/tray",
+                    topic("subscribe:session/+/shell/tray")
+                ),
+                (
+                    "resident".into(),
+                    "true".into(),
+                    LOW.into(),
+                    "Keeps running in the background and shows an icon in the taskbar".into()
+                ),
+            ]
+        );
+        // The implied interfaces have their own rows in the table.
+        assert_eq!(
+            listed[1].3,
+            "Show an icon in the taskbar, with a tooltip and a menu"
+        );
+    }
+
+    #[test]
+    fn resident_does_not_repeat_what_the_manifest_lists() {
+        let listed = rows(
+            "resident = true\n[permissions]\ninterfaces = [\"os.lazy.shell.tray.v1\"]\n\
+             topics = [\"subscribe:session/+/shell/tray\"]\n",
+        );
+        let values: Vec<&str> = listed.iter().map(|row| row.1.as_str()).collect();
+        assert_eq!(
+            values,
+            [
+                "os.lazy.shell.tray.v1",
+                "os.lazy.init.app.v1",
+                "subscribe:session/+/shell/tray",
+                "true"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_non_resident_manifest_lists_only_its_own_entries() {
+        let listed = rows("resident = false\n[permissions]\ninterfaces = [\"os.lazy.audio.v1\"]\n");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].1, "os.lazy.audio.v1");
     }
 }

@@ -22,13 +22,14 @@ The GUI launcher has it as *Mail* on the Simple tab (Desktop extras) and
 | Trust roots | `/etc/ssl/certs/ca-certificates.crt`, the bundle `LAZYOS_TLS=1` ships (`rustls-native-certs` finds it) |
 | Passwords | `secrets.rs`: an in-memory `keyring` backend, so a password is asked once per session and never written to disk, argv, the environment or the serial log (docs/tls-plan.md §6.3) |
 | Files | `~/.config/esmail/config.toml` (accounts, no secrets) and `~/.local/share/esmail/` (the cache), under the user's home or `/transient` |
-| Window | `xui-app/mail/src/app/`: folder pane, message list, reading pane (litehtml `HtmlView`), compose and account pages |
+| Window | `xui-app/mail/src/app/`: folder pane, message list, reading pane (a Blitz `BlitzView`), compose and account pages |
 
 esMail's Windows build is unchanged: its `native-tls` and `os-keyring` features
 stay the defaults, and LazyOS builds it with `--no-default-features --features rustls`.
 
-Mail is built like the Docs app, with zig (`tools/xui/build.py --mail`), since
-SQLite and litehtml are C and C++. SQLite runs with its default rollback
+Mail is built with zig (`tools/xui/build.py --mail`), since SQLite is C (the
+reading pane, Blitz, is pure Rust; the other apps need no zig).
+ SQLite runs with its default rollback
 journal: WAL needs shared file mappings, which LazyOS does not have yet.
 
 ## What works, what does not yet
@@ -36,7 +37,10 @@ journal: WAL needs shared file mappings, which LazyOS does not have yet.
 - Accounts with a password over implicit TLS (IMAPS 993, SMTPS 465) or
   STARTTLS. OAuth sign-in (Gmail, Outlook) needs a browser and is not offered.
 - Folders, paged headers, reading, reply and new messages, Get mail.
-- Remote images are not loaded. A clicked link is handed to `mimed`
+- Remote content (images, style sheets, fonts) is not loaded: Mail installs no
+  `xui_blitz` fetcher, so `http(s)` loads fail and only inline `cid:` pictures
+  (rewritten to `data:`) show. A remote-content toggle would install a fetcher
+  that fails `http(s)` unless allowed and reload the message. A clicked link is handed to `mimed`
   (`MAIL:LINK:OPEN`), so `http:` and `https:` links open in LazyWeb; a
   `mailto:` link opens a new message here.
 - Mail registers `x-scheme-handler/mailto`, so a `mailto:` link in LazyWeb,
@@ -45,9 +49,9 @@ journal: WAL needs shared file mappings, which LazyOS does not have yet.
   body filled in.
 - The password field is masked (xui's `Edit::password`) and its text cannot
   be copied or cut.
-- The reading pane is litehtml for now; NetSurf (`xui-netsurf`) is the planned
-  replacement once the licence question (esMail is GPL-3.0-only, NetSurf
-  GPL-2.0-only) is settled.
+- The reading pane is a Blitz view (issue #649); the theme's light or dark is
+  the page's `prefers-color-scheme`, so mail with dark-mode media queries
+  switches with the app.
 
 ## Verification
 

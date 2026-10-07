@@ -45,7 +45,7 @@ impl Internal {
     }
 
     /// The page's name for a URL the view reported, if it is one of ours.
-    /// NetSurf normalizes the URL (it escapes `<`, `>`, `"` and spaces that
+    /// The engine may normalize the URL (it can escape `<`, `>`, `"` and spaces that
     /// ours leaves bare), so the two are compared once fully unescaped.
     pub fn name_for(&self, url: &str) -> Option<&'static str> {
         if !url.starts_with("data:") {

@@ -75,9 +75,9 @@
   "at": 0.5,
   "mouse_move": [
    90,
-   -104
+   -128
   ],
-  "note": "start menu: the System row (134,600)"
+  "note": "start menu: the System row (134,576)"
  },
  {
   "wait_for": "SHELL:SUBMENU:OPEN category=system",
@@ -88,7 +88,7 @@
    204,
    72
   ],
-  "note": "System submenu: Terminal (338,672)"
+  "note": "System submenu: Terminal (338,648)"
  },
  {
   "at": 1.0,

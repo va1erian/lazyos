@@ -1,9 +1,9 @@
-//! `xui-docs`: renders Markdown files with litehtml.
+//! `xui-docs`: renders Markdown files on a Blitz view.
 //!
 //! A `xuid` desktop client (or the display owner in a headless session). With no
 //! path argument it shows a built-in welcome page; a document is opened with the
-//! toolbar's Open button or `Ctrl+O`. litehtml lays the page out on a worker
-//! thread; `app.rs` is the window, this file the LazyOS platform start-up.
+//! toolbar's Open button or `Ctrl+O`. Blitz lays the page out on its own
+//! engine thread; `app.rs` is the window, this file the LazyOS platform start-up.
 //!
 //! Serial evidence: `DOCS:UP:PASS` after the first frame, plus the markers
 //! documented in `app.rs`; `DOCS:BIND:FAIL:<code>` when the display cannot be
@@ -30,6 +30,7 @@ const WELCOME: &str = include_str!("welcome.md");
 
 fn main() -> std::process::ExitCode {
     xui_app::font::register_docs();
+    webfonts::register();
     let path = xui_app::platform::argv::file_arg(std::env::args_os());
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),

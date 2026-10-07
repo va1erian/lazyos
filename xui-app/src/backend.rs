@@ -46,7 +46,7 @@ mod zorder;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use xui_canvas::{OffscreenBackend, Surface};
@@ -299,6 +299,13 @@ impl LazyOSBackend {
             shaper: OffscreenBackend::new(),
             dnd: dnd::Dnd::default(),
         }
+    }
+
+    /// Clear the quit flag an app's last window left set, so the same
+    /// backend can run another window: a resident app (`crate::resident`)
+    /// closes its window to the tray and opens a new one later.
+    pub fn rearm(&self) {
+        self.quit.store(false, Ordering::Relaxed);
     }
 
     /// Whether this backend is a compositor client.

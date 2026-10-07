@@ -1,6 +1,6 @@
 //! Markdown to a styled HTML page: the pure, host-testable half of the Docs app.
 //!
-//! The page goes to litehtml, which has no scripting: the only untrusted-input
+//! The page goes to Blitz, which has no scripting: the only untrusted-input
 //! concern is markup smuggled through the Markdown, so raw HTML in the source
 //! is rendered as literal text and never reaches the layout engine as markup.
 
@@ -25,10 +25,12 @@ pub fn read_bounded(reader: impl Read) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The page stylesheet: Droid Sans body, JetBrains Mono code, light theme
-/// ([`DARK_CSS`] overrides its colours in dark mode).
+/// The page stylesheet: Liberation Sans body, Liberation Mono code (the fonts
+/// `webfonts` registers with Blitz, which has no others on LazyOS; the generic
+/// family is the fallback, since a named family it lacks draws no text), light
+/// theme ([`DARK_CSS`] overrides its colours in dark mode).
 const CSS: &str = "\
-body { font-family: 'Droid Sans'; font-size: 15px; line-height: 1.5; color: #1f2328;
+body { font-family: 'Liberation Sans', sans-serif; font-size: 15px; line-height: 1.5; color: #1f2328;
        background: #ffffff; margin: 24px 32px; }
 h1, h2, h3, h4 { font-weight: bold; margin: 18px 0 8px 0; }
 h1 { font-size: 28px; border-bottom: 1px solid #d0d7de; padding-bottom: 6px; }
@@ -36,8 +38,8 @@ h2 { font-size: 22px; border-bottom: 1px solid #d0d7de; padding-bottom: 4px; }
 h3 { font-size: 18px; } h4 { font-size: 15px; }
 p { margin: 8px 0; }
 a { color: #0969da; text-decoration: underline; }
-code { font-family: 'JetBrains Mono'; font-size: 13px; background: #eff1f3; }
-pre { font-family: 'JetBrains Mono'; font-size: 13px; background: #f6f8fa; border: 1px solid #d0d7de;
+code { font-family: 'Liberation Mono', monospace; font-size: 13px; background: #eff1f3; }
+pre { font-family: 'Liberation Mono', monospace; font-size: 13px; background: #f6f8fa; border: 1px solid #d0d7de;
       padding: 10px 12px; margin: 10px 0; }
 pre code { background: #f6f8fa; }
 blockquote { border-left: 4px solid #d0d7de; color: #57606a; margin: 8px 0; padding: 0 14px; }
@@ -72,8 +74,8 @@ pub fn themed(html: String, dark: bool) -> String {
 /// complete HTML page.
 pub fn page(markdown: &str) -> String {
     let (markdown, cut) = truncate(markdown);
-    // No task lists: they render as `<input>` checkboxes, which litehtml does
-    // not draw.
+    // No task lists: they render as `<input>` checkboxes, which litehtml (the
+    // engine before Blitz) did not draw.
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     // Raw HTML becomes text: `push_html` escapes a `Text` event.
     let events = Parser::new_ext(markdown, options).map(|event| match event {

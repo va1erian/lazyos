@@ -319,6 +319,7 @@ name = "devinspect"
 version = "0.1.0"
 dependencies = [
  "devmatch",
+ "mounttable",
  "netpolicy",
  "sndpolicy",
  "usbpolicy",
@@ -786,6 +787,10 @@ version = "0.1.0"
 dependencies = [
  "fuzzkit",
 ]
+
+[[package]]
+name = "mounttable"
+version = "0.1.0"
 
 [[package]]
 name = "netpolicy"
@@ -1328,6 +1333,7 @@ dependencies = [
  "logstore",
  "messenger-generated",
  "modplay",
+ "mounttable",
  "netpolicy",
  "netstack",
  "nicdrv",

@@ -98,7 +98,7 @@ SCRIPTS = [
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -226,7 +226,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_JOURNAL"] = "1"
     if cfg.get("lazyweb"):
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
-        # with zig); with the desktop, the stack and HTTPS set above.
+        # with the other apps); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)

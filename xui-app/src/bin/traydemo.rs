@@ -1,33 +1,48 @@
 //! `traydemo` (`os.lazy.traydemo`): the tray sample app (docs/tray-plan.md
-//! stage T1). It puts one item on LazyShell's tray through `xui_app::tray`
-//! and reports what the shell sends it.
+//! stages T1-T3). A resident app (`xui_app::resident`): it puts one item on
+//! LazyShell's tray, keeps running with no window, closes its window to the
+//! tray, opens it again from the icon or a second launch, and quits when
+//! `init` asks.
 //!
-//! Keys (and the buttons) switch the item's picture: `L` a Lucide outline,
-//! `P` full-colour pixels at 1x and 2x, `B` a Lucide name that does not exist
-//! (the shell falls back to the package icon), `A` toggles `Attention`, `N`
-//! toggles giving the menu no rows at all (the shell still shows its Quit
-//! row); `Q` quits.
+//! Keys (and the buttons) in its window: `L`, `P`, `B` switch the item's
+//! picture (a Lucide outline, full-colour pixels at 1x and 2x, a Lucide name
+//! that does not exist, which falls back to the package icon), `A` toggles
+//! `Attention`, `N` toggles giving the menu no rows at all (the shell still
+//! shows its Quit row), `C` clears the item (the tray then shows the default
+//! item of a resident app), `Q` quits. Closing the window keeps the app in
+//! the tray.
+//!
+//! Test hooks for the lifecycle harness, read at start: the number of
+//! milliseconds in `/tmp/traydemo-delay` delays its `Watch` (a slow start),
+//! and `/tmp/traydemo-ignore-quit` makes it ignore `Quit` (so `init` kills
+//! it when the grace ends).
 //!
 //! Serial evidence: `TRAYDEMO:UP:PASS` after the first frame,
-//! `TRAYDEMO:TRAY:SET:PASS` / `FAIL err=<n>`, `TRAYDEMO:ICON:<kind>`,
+//! `TRAYDEMO:WATCH:PASS`, `TRAYDEMO:TRAY:SET:PASS`, `TRAYDEMO:ICON:<kind>`,
 //! `TRAYDEMO:ACTIVATE:PASS n=<clicks>`, `TRAYDEMO:SECONDARY:PASS`,
 //! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>`,
-//! `TRAYDEMO:MENU:BARE:<bool>` and
-//! `TRAYDEMO:QUIT:PASS`.
+//! `TRAYDEMO:MENU:BARE:<bool>`, `TRAYDEMO:CLOSED:TRAY`, `TRAYDEMO:REOPEN:PASS via=<reopen|activate>`,
+//! `TRAYDEMO:CLEAR:PASS`, `TRAYDEMO:QUIT:IGNORED` and `TRAYDEMO:QUIT:PASS`.
 
-use trayclient::{item, lucide, menu_row, pixels, wire, Event};
-use xui_app::launch;
-use xui_app::tray::TrayIcon;
+#[path = "traydemo/demo.rs"]
+mod demo;
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use demo::{Demo, Flow, Kind, Shared};
+use xui_app::resident::Resident;
 use xui_core::prelude::*;
 
 /// The window size when a compositor lays the app out.
-const WINDOW: (i32, i32) = (420, 220);
-/// How often the tray channel is polled (milliseconds).
+const WINDOW: (i32, i32) = (460, 220);
+/// How often the window polls the tray and lifecycle channels (ms).
 const POLL_MILLIS: u32 = 50;
-/// The outline the demo shows by default.
-const OUTLINE: &str = "zap";
-/// A name `lazyicons` does not have: the shell falls back.
-const BAD_OUTLINE: &str = "no-such-icon";
+/// The harness's hooks.
+const DELAY_FILE: &str = fhs::state::TRAYDEMO_DELAY;
+const IGNORE_QUIT_FILE: &str = fhs::state::TRAYDEMO_IGNORE_QUIT;
+/// The longest start-up delay the hook may ask for (ms).
+const MAX_DELAY_MS: u64 = 10_000;
 
 #[derive(Clone, Copy)]
 enum Msg {
@@ -35,242 +50,183 @@ enum Msg {
     Icon(Kind),
     Attention,
     Bare,
+    Clear,
+    /// The window's close button: back to the tray.
+    Close,
     Quit,
 }
 
-/// Which picture the item shows.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Lucide,
-    Pixels,
-    Bad,
-}
-
-struct Traydemo {
-    tray: TrayIcon,
+/// The window's app: a view of the shared [`Demo`].
+struct Window {
+    demo: Shared,
     status: Handle<Label<Msg>>,
-    clicks: u32,
-    attention: bool,
-    /// The menu's check row.
-    notify: bool,
-    /// The menu has no rows of its own (`N`).
-    bare: bool,
-    icon: Kind,
+    shown: String,
 }
 
-/// The menu rows' ids.
-const ROW_SHOW: u32 = 1;
-const ROW_NOTIFY: u32 = 2;
-const ROW_ICON: u32 = 4;
-const ROW_LUCIDE: u32 = 5;
-const ROW_PIXELS: u32 = 6;
-const ROW_BAD: u32 = 7;
-
-impl Traydemo {
-    fn tooltip(&self) -> String {
-        format!("Clicked {} time(s)", self.clicks)
-    }
-
-    fn show(&mut self, text: &str) {
-        self.status.get().set_text(text);
-    }
-
-    /// The item's menu: a default row, a check, a separator and a submenu
-    /// of radios that picks the icon (the shell adds Quit).
-    fn menu(&self) -> Vec<wire::MenuItem> {
-        if self.bare {
-            return Vec::new();
-        }
-        let mut show = menu_row(ROW_SHOW, "Show window", wire::MENU_KIND_NORMAL);
-        show.is_default = true;
-        let mut notify = menu_row(ROW_NOTIFY, "Notifications", wire::MENU_KIND_CHECK);
-        notify.checked = self.notify;
-        let radio = |id, label, kind| {
-            let mut row = menu_row(id, label, wire::MENU_KIND_RADIO);
-            row.parent = ROW_ICON;
-            row.checked = self.icon == kind;
-            row
-        };
-        vec![
-            show,
-            notify,
-            menu_row(3, "", wire::MENU_KIND_SEPARATOR),
-            menu_row(ROW_ICON, "Icon", wire::MENU_KIND_SUBMENU),
-            radio(ROW_LUCIDE, "Lucide", Kind::Lucide),
-            radio(ROW_PIXELS, "Pixels", Kind::Pixels),
-            radio(ROW_BAD, "Bad icon", Kind::Bad),
-        ]
-    }
-
-    fn update_menu(&mut self) {
-        let patch = wire::UpdateArgs {
-            menu: Some(wire::Menu { rows: self.menu() }),
-            ..wire::UpdateArgs::default()
-        };
-        let _ = self.tray.update(patch);
-    }
-
-    fn menu_item(&mut self, id: u32, checked: bool) {
-        println!("TRAYDEMO:MENU:{id}:{checked}");
-        match id {
-            ROW_SHOW => self.show("Shown from the tray menu"),
-            ROW_NOTIFY => {
-                self.notify = checked;
-                self.update_menu();
-            }
-            ROW_LUCIDE => self.set_icon(Kind::Lucide),
-            ROW_PIXELS => self.set_icon(Kind::Pixels),
-            ROW_BAD => self.set_icon(Kind::Bad),
-            _ => {}
-        }
-    }
-
-    fn set_icon(&mut self, kind: Kind) {
-        self.icon = kind;
-        let (icon, name) = match kind {
-            Kind::Lucide => (lucide(OUTLINE), "lucide"),
-            Kind::Pixels => (pixels(vec![disc(16), disc(32)]), "pixels"),
-            Kind::Bad => (lucide(BAD_OUTLINE), "bad"),
-        };
-        let patch = wire::UpdateArgs {
-            icon: Some(icon),
-            menu: Some(wire::Menu { rows: self.menu() }),
-            ..wire::UpdateArgs::default()
-        };
-        match self.tray.update(patch) {
-            Ok(()) => println!("TRAYDEMO:ICON:{name}"),
-            Err(code) => println!("TRAYDEMO:ICON:FAIL err={}", -code),
-        }
-        self.show(&format!("Icon: {name}"));
-    }
-
-    fn event(&mut self, event: Event) {
-        match event {
-            Event::Activate { .. } => {
-                self.clicks += 1;
-                println!("TRAYDEMO:ACTIVATE:PASS n={}", self.clicks);
-                let patch = wire::UpdateArgs {
-                    tooltip: Some(self.tooltip()),
-                    badge: Some(self.clicks.min(99).to_string()),
-                    ..wire::UpdateArgs::default()
-                };
-                let _ = self.tray.update(patch);
-                self.show(&self.tooltip());
-            }
-            Event::SecondaryActivate { .. } => println!("TRAYDEMO:SECONDARY:PASS"),
-            Event::Scroll { delta } => println!("TRAYDEMO:SCROLL:{delta}"),
-            Event::MenuItem { id, checked } => self.menu_item(id, checked),
-            Event::Ping => {}
+impl Window {
+    fn refresh(&mut self) {
+        let text = self.demo.borrow().status.clone();
+        if text != self.shown {
+            self.status.get().set_text(&text);
+            self.shown = text;
         }
     }
 }
 
-impl App for Traydemo {
+impl App for Window {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Tick => {
-                for event in self.tray.poll() {
-                    self.event(event);
+                let wakes = self.demo.borrow().res.poll();
+                for wake in wakes {
+                    if self.demo.borrow_mut().wake(wake, true) == Flow::Quit {
+                        self.demo.borrow_mut().quitting = true;
+                        ui.quit();
+                        return;
+                    }
                 }
             }
-            Msg::Icon(kind) => self.set_icon(kind),
-            Msg::Attention => {
-                self.attention = !self.attention;
-                let status = if self.attention {
-                    wire::STATUS_ATTENTION
-                } else {
-                    wire::STATUS_ACTIVE
-                };
-                let patch = wire::UpdateArgs {
-                    status: Some(status),
-                    ..wire::UpdateArgs::default()
-                };
-                let _ = self.tray.update(patch);
-                println!("TRAYDEMO:ATTENTION:{}", self.attention);
-            }
-            Msg::Bare => {
-                self.bare = !self.bare;
-                self.update_menu();
-                println!("TRAYDEMO:MENU:BARE:{}", self.bare);
+            Msg::Icon(kind) => self.demo.borrow_mut().set_icon(kind),
+            Msg::Attention => self.demo.borrow_mut().toggle_attention(),
+            Msg::Bare => self.demo.borrow_mut().toggle_bare(),
+            Msg::Clear => self.demo.borrow_mut().clear_item(),
+            Msg::Close => {
+                println!("TRAYDEMO:CLOSED:TRAY");
+                ui.quit();
+                return;
             }
             Msg::Quit => {
-                let _ = self.tray.clear();
-                println!("TRAYDEMO:QUIT:PASS");
+                self.demo.borrow_mut().quitting = true;
                 ui.quit();
+                return;
             }
         }
+        self.refresh();
     }
 }
 
-/// A `side` x `side` orange disc with a light centre, straight RGBA8: the
-/// full-colour picture a pixels icon carries.
-fn disc(side: u32) -> (u32, u32, Vec<u8>) {
-    let centre = side as f32 / 2.0;
-    let mut data = Vec::with_capacity((side * side * 4) as usize);
-    for y in 0..side {
-        for x in 0..side {
-            let dx = x as f32 + 0.5 - centre;
-            let dy = y as f32 + 0.5 - centre;
-            let distance = (dx * dx + dy * dy).sqrt() / centre;
-            let pixel = if distance < 0.35 {
-                [0xFF, 0xF2, 0xD0, 0xFF]
-            } else if distance < 0.95 {
-                [0xF0, 0x7A, 0x1A, 0xFF]
-            } else {
-                [0, 0, 0, 0]
-            };
-            data.extend_from_slice(&pixel);
+/// Build the window's view of `demo`.
+fn build(demo: Shared, ui: &mut Ui<Msg>) -> xui_core::backend::Result<Window> {
+    let shown = demo.borrow().status.clone();
+    let app = Window {
+        status: Handle::default(),
+        shown,
+        demo,
+    };
+    ui.root(column().padding(16).gap(8).children((
+        label("Tray Demo").title(),
+        label(&app.shown).bind(&app.status).fill(1),
+        row().gap(8).children((
+            button("Lucide (L)").on_click(Msg::Icon(Kind::Lucide)),
+            button("Pixels (P)").on_click(Msg::Icon(Kind::Pixels)),
+            button("Bad icon (B)").on_click(Msg::Icon(Kind::Bad)),
+            button("Attention (A)").on_click(Msg::Attention),
+            button("Clear (C)").on_click(Msg::Clear),
+        )),
+    )))?;
+    ui.on_key(|key, _| match key {
+        Key::L => Some(Msg::Icon(Kind::Lucide)),
+        Key::P => Some(Msg::Icon(Kind::Pixels)),
+        Key::B => Some(Msg::Icon(Kind::Bad)),
+        Key::A => Some(Msg::Attention),
+        Key::N => Some(Msg::Bare),
+        Key::C => Some(Msg::Clear),
+        Key::Q => Some(Msg::Quit),
+        _ => None,
+    });
+    ui.on_close(|| Some(Msg::Close));
+    ui.on_timer(|_| Some(Msg::Tick));
+    ui.set_timer(POLL_MILLIS);
+    Ok(app)
+}
+
+/// The start-up delay the harness asked for, if any.
+fn start_delay() -> u64 {
+    std::fs::read_to_string(DELAY_FILE)
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .map_or(0, |ms| ms.min(MAX_DELAY_MS))
+}
+
+/// Run the window until it closes (to the tray) or the app quits; `true`
+/// when the app should quit.
+fn show_window(demo: &Shared, first: bool) -> bool {
+    let res = Rc::clone(&demo.borrow().res);
+    let shared = Rc::clone(demo);
+    let outcome = res.window("Tray Demo", WINDOW, move |ui| {
+        if first {
+            res_first_frame(&shared);
         }
+        build(shared, ui)
+    });
+    if let Err(error) = outcome {
+        println!("TRAYDEMO:RUN:FAIL:{error}");
+        return true;
     }
-    (side, side, data)
+    demo.borrow().quitting
+}
+
+/// `TRAYDEMO:UP:PASS` once the first window has a frame.
+fn res_first_frame(demo: &Shared) {
+    if let Some(backend) = demo.borrow().res.backend.as_ref() {
+        backend.on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
+    }
 }
 
 fn main() {
-    launch::run("TRAYDEMO", "Tray Demo", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
-        let mut app = Traydemo {
-            tray: TrayIcon::new(),
-            status: Handle::default(),
-            clicks: 0,
-            attention: false,
-            notify: false,
-            bare: false,
-            icon: Kind::Lucide,
-        };
-        let mut item = item(lucide(OUTLINE), "Clicked 0 time(s)");
-        item.menu = app.menu();
-        match app.tray.set(item) {
-            Ok(()) => println!("TRAYDEMO:TRAY:SET:PASS"),
-            Err(code) => println!("TRAYDEMO:TRAY:SET:FAIL err={}", -code),
+    let delay = start_delay();
+    if delay > 0 {
+        println!("TRAYDEMO:DELAY ms={delay}");
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+    }
+    let res = match Resident::connect("TRAYDEMO") {
+        Ok(res) => res,
+        Err(code) => {
+            println!("TRAYDEMO:BIND:FAIL:{code}");
+            std::process::exit(1);
         }
-        ui.root(
-            column().padding(16).gap(8).children((
-                label("Tray Demo").title(),
-                label("Click the icon in the taskbar tray.")
-                    .bind(&app.status)
-                    .fill(1),
-                row().gap(8).children((
-                    button("Lucide (L)").on_click(Msg::Icon(Kind::Lucide)),
-                    button("Pixels (P)").on_click(Msg::Icon(Kind::Pixels)),
-                    button("Bad icon (B)").on_click(Msg::Icon(Kind::Bad)),
-                    button("Attention (A)").on_click(Msg::Attention),
-                )),
-            )),
-        )?;
-        ui.on_key(|key, _| match key {
-            Key::L => Some(Msg::Icon(Kind::Lucide)),
-            Key::P => Some(Msg::Icon(Kind::Pixels)),
-            Key::B => Some(Msg::Icon(Kind::Bad)),
-            Key::A => Some(Msg::Attention),
-            Key::N => Some(Msg::Bare),
-            Key::Q => Some(Msg::Quit),
-            _ => None,
-        });
-        ui.on_close(|| Some(Msg::Quit));
-        ui.on_timer(|_| Some(Msg::Tick));
-        ui.set_timer(POLL_MILLIS);
-        Ok(app)
-    })
+    };
+    let demo: Shared = Rc::new(RefCell::new(Demo {
+        res,
+        clicks: 0,
+        attention: false,
+        notify: false,
+        bare: false,
+        icon: Kind::Lucide,
+        status: String::from("Click the icon in the taskbar tray."),
+        ignore_quit: std::path::Path::new(IGNORE_QUIT_FILE).exists(),
+        quitting: false,
+    }));
+    demo.borrow_mut().set_item();
+    let mut quit = show_window(&demo, true);
+    while !quit {
+        // Handle the whole batch before opening the window: a `Quit` after a
+        // `Reopen` in the same batch must still be heard (else `init` kills
+        // the app at the end of the grace), and it wins over any `Show`.
+        let mut show = false;
+        // Bound first: a borrow in the loop header would last the whole loop
+        // and the `borrow_mut` below would panic.
+        let wakes = demo.borrow().res.idle(500);
+        for wake in wakes {
+            match demo.borrow_mut().wake(wake, false) {
+                Flow::Quit => {
+                    quit = true;
+                    break;
+                }
+                Flow::Show => show = true,
+                Flow::Stay => {}
+            }
+        }
+        if !quit && show {
+            quit = show_window(&demo, false);
+        }
+    }
+    let _ = demo.borrow().res.tray.borrow_mut().clear();
+    println!("TRAYDEMO:QUIT:PASS");
+    if let Some(backend) = demo.borrow().res.backend.as_ref() {
+        backend.unbind();
+    }
+    std::process::exit(0);
 }

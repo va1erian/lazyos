@@ -1,7 +1,7 @@
 //! LazyWeb's own pages: `about:history`, `about:downloads` and `about:lazyweb`,
-//! built as HTML and shown as `data:` URLs (NetSurf reads those itself).
+//! built as HTML and shown as `data:` URLs (the view reads those itself).
 //!
-//! Their buttons are links to `x-lazyweb:` commands. NetSurf cannot fetch that
+//! Their buttons are links to `x-lazyweb:` commands. The view cannot open that
 //! scheme, so it hands the link back to the window ([`Command::parse`]),
 //! which obeys it only while one of these pages is on show: a web page
 //! linking to `x-lazyweb:clear-history` gets nothing.
@@ -138,9 +138,9 @@ pub fn downloads(rows: &[DownloadRow], folder: &str) -> String {
 pub fn about(version: &str) -> String {
     let body = format!(
         "<p>Version {}. A web browser for LazyOS on the \
-<a href=\"https://www.netsurf-browser.org/\">NetSurf</a> browser core, \
-with HTTPS through rustls.</p><p class=\"note\">NetSurf is free software \
-under the GNU General Public License, version 2; so is LazyWeb.</p>",
+<a href=\"https://github.com/DioxusLabs/blitz\">Blitz</a> engine, \
+with HTTPS through rustls.</p><p class=\"note\">Blitz is free software under \
+the MIT and Apache 2.0 licences (Stylo: MPL 2.0); fonts: Liberation (SIL OFL 1.1).</p>",
         escape(version)
     );
     page("About LazyWeb", &body)

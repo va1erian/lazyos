@@ -47,7 +47,7 @@ fn has_prefix(text: &str, prefixes: &[&str]) -> bool {
     })
 }
 
-/// `data:` URL of an HTML page, percent-encoded (NetSurf reads `data:`
+/// `data:` URL of an HTML page, percent-encoded (the view reads `data:`
 /// itself, so the start page needs no file on disk).
 pub fn html_data_url(html: &str) -> String {
     let mut url = String::from("data:text/html;charset=utf-8,");

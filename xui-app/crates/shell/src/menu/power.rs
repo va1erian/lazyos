@@ -1,15 +1,19 @@
-//! The start menu's power rows (docs/shutdown.md): "Restart..." and
-//! "Shut down..." at the bottom, after the configured entries. Choosing one
-//! swaps the two rows for a confirmation in place ("Restart now" /
-//! "Shut down now", then "Cancel"), so the panel keeps its size; only the
-//! confirmation row asks `init` to stop the machine.
+//! The start menu's session rows (docs/shutdown.md, issue #623): "Log out...",
+//! "Restart..." and "Shut down..." at the bottom, after the configured
+//! entries. Choosing one swaps the three rows for a confirmation in place (the
+//! question, disabled, then "Log out now" / "Restart now" / "Shut down now",
+//! then "Cancel"), so the panel keeps its size and the action rows keep their
+//! positions; only the confirmation row acts (`logind` ends the session,
+//! `init` stops the machine).
 
 use super::{Menu, Row};
 
-/// What the machine does once `init` has stopped everything (`init`'s
-/// `PowerMode`; the shell maps it to the generated constant).
+/// What a session row does once confirmed: end the desktop session
+/// (`logind`'s `Logout`) or stop the machine (`init`'s `PowerMode`; the shell
+/// maps those to the generated constants).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Power {
+    Logout,
     PowerOff,
     Reboot,
 }
@@ -18,14 +22,25 @@ impl Power {
     /// The first step's label.
     fn ask_label(self) -> &'static str {
         match self {
+            Power::Logout => "Log out...",
             Power::Reboot => "Restart...",
             Power::PowerOff => "Shut down...",
+        }
+    }
+
+    /// The question shown above the confirmation.
+    fn question(self) -> &'static str {
+        match self {
+            Power::Logout => "End this session?",
+            Power::Reboot => "Restart the computer?",
+            Power::PowerOff => "Turn the computer off?",
         }
     }
 
     /// The confirmation's label.
     fn confirm_label(self) -> &'static str {
         match self {
+            Power::Logout => "Log out now",
             Power::Reboot => "Restart now",
             Power::PowerOff => "Shut down now",
         }
@@ -37,12 +52,14 @@ impl Power {
 pub enum Action {
     /// Launch the registry app [`Row::app`].
     Launch,
-    /// A power row: show the confirmation.
+    /// A session row: show the confirmation.
     Ask(Power),
-    /// The confirmation: ask `init` to stop the machine.
+    /// The confirmation: end the session or stop the machine.
     Confirm(Power),
     /// Leave the confirmation.
     Cancel,
+    /// The confirmation's question: a caption (disabled), never chosen.
+    Question,
     /// A category row: opens the submenu of category `n`
     /// ([`Menu::submenu`]).
     Submenu(usize),
@@ -57,7 +74,7 @@ pub enum Choice {
     Launch(String),
     /// The confirmation is now showing; the menu stays open.
     Confirming(Power),
-    /// Close the menu and ask `init` for this stop.
+    /// Close the menu and act on this (the rows are back to their first step).
     Request(Power),
     /// Close the menu (the confirmation was cancelled).
     Close,
@@ -65,8 +82,8 @@ pub enum Choice {
     Submenu(usize),
 }
 
-/// How many rows the power section always takes.
-pub const POWER_ROWS: usize = 2;
+/// How many rows the session section always takes.
+pub const POWER_ROWS: usize = 3;
 
 fn row(label: &str, action: Action) -> Row {
     Row {
@@ -77,14 +94,23 @@ fn row(label: &str, action: Action) -> Row {
     }
 }
 
-/// The two rows in their first step.
+/// The three rows in their first step. "Log out..." goes on top so the power
+/// rows keep the places they had before it existed.
 pub(super) fn ask_rows() -> [Row; POWER_ROWS] {
-    [Power::Reboot, Power::PowerOff].map(|power| row(power.ask_label(), Action::Ask(power)))
+    [Power::Logout, Power::Reboot, Power::PowerOff]
+        .map(|power| row(power.ask_label(), Action::Ask(power)))
 }
 
-/// The two rows while `power` waits for confirmation.
+/// The three rows while `power` waits for confirmation: the question (a
+/// caption, never chosen), the confirmation where "Restart..." was (so a
+/// second click in place confirms a restart, as before), and "Cancel".
 fn confirm_rows(power: Power) -> [Row; POWER_ROWS] {
+    let question = Row {
+        enabled: false,
+        ..row(power.question(), Action::Question)
+    };
     [
+        question,
         row(power.confirm_label(), Action::Confirm(power)),
         row("Cancel", Action::Cancel),
     ]
@@ -105,12 +131,18 @@ impl Menu {
                 Choice::Confirming(power)
             }
             Action::Confirm(_) if repeat => Choice::Nothing,
-            Action::Confirm(power) => Choice::Request(power),
+            Action::Confirm(power) => {
+                // A refused logout leaves the desktop running: the next open
+                // must show the first step again, not a stale confirmation.
+                self.set_power_rows(ask_rows());
+                Choice::Request(power)
+            }
             Action::Cancel => {
                 self.set_power_rows(ask_rows());
                 Choice::Close
             }
             Action::Submenu(_) => Choice::Submenu(index),
+            Action::Question => Choice::Nothing,
         }
     }
 
@@ -121,7 +153,7 @@ impl Menu {
             .any(|row| matches!(row.action, Action::Confirm(_)))
     }
 
-    /// Replace the last [`POWER_ROWS`] rows (always the power section).
+    /// Replace the last [`POWER_ROWS`] rows (always the session section).
     fn set_power_rows(&mut self, rows: [Row; POWER_ROWS]) {
         let start = self.rows.len().saturating_sub(POWER_ROWS);
         self.rows.truncate(start);

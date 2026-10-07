@@ -168,3 +168,13 @@ fn the_panel_opens_above_the_bar_and_stays_on_screen() {
     assert_eq!(TrayMenu::origin(left, 100, screen, 688), (0, 588));
     assert_eq!(TrayMenu::origin(cell, 900, screen, 688), (1124 - WIDTH, 0));
 }
+
+#[test]
+fn a_default_item_offers_open_and_quit() {
+    let menu = TrayMenu::default_item("Volume");
+    let kinds: Vec<&Kind> = menu.rows().iter().map(|row| &row.kind).collect();
+    assert_eq!(kinds, [&Kind::Open, &Kind::Separator, &Kind::Quit]);
+    assert_eq!(menu.pick(0), Some(Pick::Open));
+    assert_eq!(menu.pick(2), Some(Pick::Quit));
+    assert_eq!(menu.rows()[2].label, "Quit Volume");
+}

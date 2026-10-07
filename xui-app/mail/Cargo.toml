@@ -1,7 +1,7 @@
-# Mail: esMail (va1erian/esmail) on LazyOS. A package of its own, like the Docs
-# app, because it links C and C++ (SQLite for the mail cache, litehtml for the
-# reading pane), which `tools/xui/build.py` builds with the zig toolchain; the
-# other apps keep the plain Rust toolchain. See docs/mail.md.
+# Mail: esMail (va1erian/esmail) on LazyOS. A package of its own because it
+# links C (SQLite for the mail cache), which `tools/xui/build.py` builds with
+# the zig toolchain; the reading pane is a Blitz view (pure Rust). See
+# docs/mail.md.
 [package]
 name = "xui-mail"
 version = "0.1.0"
@@ -14,15 +14,16 @@ name = "xui-mail"
 path = "src/main.rs"
 
 [build-dependencies]
-# litehtml-sys and SQLite compile through cc-rs; build their files in parallel.
+# SQLite compiles through cc-rs; build its files in parallel.
 cc = { version = "1", features = ["parallel"] }
 
 [dependencies]
 xui-app = { path = ".." }
 fhs = { path = "../../libs/fhs" }
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
-xui-litehtml = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e" }
+webfonts = { path = "../crates/webfonts" }
+xui-blitz = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e", default-features = false }
 # The mail core and its frontend-independent glue, with the `rustls` backend:
 # no OpenSSL, ring or D-Bus, and the crypto provider is the one installed below.
 esmail = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
@@ -39,4 +40,4 @@ secrecy = "0.10"
 
 [dev-dependencies]
 # Offscreen renders of the window (`app/window_tests.rs`).
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "112b411c0e0889e1757da9e09481c8e9c5acca98", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e", default-features = false }

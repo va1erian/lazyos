@@ -104,6 +104,9 @@ members = [
     # by the kernel's `fs/fuse` backend and the daemons. Pure `no_std` + alloc.
     "libs/fused",
     "libs/netpolicy",
+    # mountd's mount table and argument checks (docs/smb-plan.md §3.4):
+    # pure `no_std` + `alloc`, host-tested.
+    "libs/mounttable",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

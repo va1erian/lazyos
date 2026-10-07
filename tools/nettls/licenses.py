@@ -35,9 +35,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFESTS = [ROOT / "nettls" / "Cargo.toml", ROOT / "tools" / "abi" / "fixtures" / "tlsfix" / "Cargo.toml"]
-#: LazyWeb links the TLS stack into a GPL-2.0-only program (NetSurf), so its
-#: whole tree must be GPLv2-compatible too. Opt-in (``--lazyweb``) until the
-#: tree passes: `unicode-linebreak` (Apache-2.0, through xui-canvas's
+#: LazyWeb links the TLS stack into a program still declared GPL-2.0-only (the
+#: licence NetSurf required; relicensing is open, issue #649), so its whole
+#: tree must be GPLv2-compatible too. Opt-in (``--lazyweb``) until the tree
+#: passes: `unicode-linebreak` (Apache-2.0, through xui-canvas's
 #: cosmic-text) does not yet. Its manifest is a member of the `xui-app`
 #: workspace; `cargo tree` reports just this package's graph.
 LAZYWEB = ROOT / "xui-app" / "web" / "Cargo.toml"
@@ -50,6 +51,9 @@ ACCEPTABLE = {
     "Unicode-3.0", "Unicode-DFS-2016", "Unlicense", "CC0-1.0", "BSL-1.0",
     "GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later", "GPL-2.0+",
     "LGPL-2.1", "LGPL-2.1-only", "LGPL-2.1-or-later",
+    # MPL-2.0 section 3.3 lets it combine with GPL code as a Secondary License
+    # (Stylo, Blitz's style system).
+    "MPL-2.0",
     # LLVM's exception exists precisely to make Apache-2.0 GPLv2-compatible.
     "Apache-2.0 WITH LLVM-exception",
 }
@@ -180,6 +184,7 @@ def self_test() -> None:
     assert acceptable("(MIT OR Apache-2.0) AND Unicode-3.0")
     assert acceptable("Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT")
     assert acceptable("BSD-3-Clause")
+    assert acceptable("MPL-2.0")
     assert not acceptable("Apache-2.0")
     assert not acceptable("Apache-2.0 AND ISC")
     assert not acceptable("MIT AND Apache-2.0")

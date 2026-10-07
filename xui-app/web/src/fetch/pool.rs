@@ -11,6 +11,7 @@ use std::thread;
 
 use ureq::Agent;
 
+use super::cookies::Jar;
 use super::{transfer, Options, Request, Sink};
 
 /// Stack for a fetch thread: a TLS handshake and an inflater, nothing deep.
@@ -26,6 +27,8 @@ struct Shared {
     agent: Agent,
     options: Options,
     slots: Slots,
+    /// The cookies of every fetch this fetcher makes.
+    jar: Mutex<Jar>,
 }
 
 impl HttpFetcher {
@@ -34,6 +37,7 @@ impl HttpFetcher {
             shared: Arc::new(Shared {
                 agent: transfer::agent(&options),
                 slots: Slots::new(options.max_concurrent.max(1)),
+                jar: Mutex::new(Jar::default()),
                 options,
             }),
         }
@@ -71,7 +75,7 @@ impl HttpFetcher {
 impl Shared {
     fn fetch<S: Sink>(&self, request: Request, sink: S) {
         let _slot = self.slots.acquire();
-        transfer::run(&self.agent, &self.options, request, sink);
+        transfer::run(&self.agent, &self.options, &self.jar, request, sink);
     }
 }
 

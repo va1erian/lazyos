@@ -91,6 +91,8 @@ mod homes;
 mod installed;
 #[path = "init/launch.rs"]
 mod launch;
+#[path = "init/lifecycle.rs"]
+mod lifecycle;
 #[path = "init/logout.rs"]
 mod logout;
 #[path = "init/notice.rs"]
@@ -101,6 +103,8 @@ mod protocol;
 mod provisioning;
 #[path = "init/ready.rs"]
 mod ready;
+#[path = "init/residents.rs"]
+mod residents;
 #[path = "init/selftest.rs"]
 mod selftest;
 #[path = "init/service.rs"]
@@ -126,7 +130,7 @@ use user::sys;
 
 use autostart::Autostart;
 use installed::InstalledApps;
-use protocol::{serve_pending, StatusCache, Supervisor};
+use protocol::{serve_app_pending, serve_pending, StatusCache, Supervisor};
 use selftest::{
     selftest_launch_args, selftest_launch_cap, selftest_launch_policy, selftest_shell_supervision,
     LaunchSelftest,
@@ -156,6 +160,15 @@ fn run() -> messenger::Result<()> {
         services::INIT_NAME,
         &published,
         &[services::INIT_INTERFACE, router::INTERFACE],
+        0,
+    )?;
+    // A launched app's own line (`os.lazy.init.app.v1`, docs/tray-plan.md):
+    // a name of its own, so an app can be granted it alone.
+    let (app_published, app_server) = messenger::create_pair()?;
+    registry::register(
+        lifecycle::APP_NAME,
+        &app_published,
+        &[lifecycle::APP_INTERFACE],
         0,
     )?;
     let mut broker = router::TopicBroker::new("os.lazy.events.sink");
@@ -192,8 +205,12 @@ fn run() -> messenger::Result<()> {
     let mut installed = InstalledApps::new();
     // `accountsd`'s home changes in flight (`homes.rs`, U1).
     let mut homes = homes::HomeJobs::default();
-    // The desktop's app-failure notices go out on the central broker.
+    // The desktop's app-failure notices go out on the central broker, and
+    // so does each session's list of running resident apps.
     let mut notices = notice::Notices::new();
+    let mut residents = residents::Residents::new();
+    // The `Stop`s answered once their targets have exited.
+    let mut stops = lifecycle::Stops::new(server);
     // Set by a `Shutdown` request; from then on nothing starts or restarts and
     // the loop steps the shutdown instead (docs/shutdown.md).
     let mut shutdown: Option<shutdown::Shutdown> = None;
@@ -203,6 +220,8 @@ fn run() -> messenger::Result<()> {
     loop {
         let now = sys::clock();
         if shutdown.is_none() {
+            // A quitting app whose grace ended is killed.
+            lifecycle::sweep(&mut services, now);
             // A restart whose backoff elapsed.
             for index in 0..services.len() {
                 if services[index].phase == Phase::Restarting && services[index].next_start <= now {
@@ -248,7 +267,7 @@ fn run() -> messenger::Result<()> {
             Some(_) => Some(messenger::EXPIRED_DEADLINE),
             None => next_wake(&services, &selftest, &autostart, now),
         };
-        let ready = match wait::wait_any(&[server], wait::WAIT_CHILD, deadline) {
+        let ready = match wait::wait_any(&[server, app_server], wait::WAIT_CHILD, deadline) {
             Ok(ready) => ready,
             Err(messenger::Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
@@ -264,10 +283,12 @@ fn run() -> messenger::Result<()> {
                 cache: &mut cache,
                 shutdown: &mut shutdown,
                 homes: &mut homes,
+                stops: &mut stops,
             },
             &server,
             &mut buffer,
         )?;
+        serve_app_pending(&mut services, &app_server, &mut buffer)?;
         // Reap one exit; the bell stays ready while more are waiting.
         if ready & wait::CHILD_READY != 0 {
             if let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
@@ -278,6 +299,8 @@ fn run() -> messenger::Result<()> {
                 {
                     notices.publish(&failure);
                 }
+                // A `Stop` waiting for this exit may answer now.
+                stops.reaped(pid);
                 // The exit may unblock dependents (only a stop can; still cheap).
                 if shutdown.is_none() {
                     start_ready(&mut services, &mut broker);
@@ -288,6 +311,7 @@ fn run() -> messenger::Result<()> {
             running.step(&mut services, &mut broker);
             stepped = true;
         }
+        residents.sync(&services);
     }
 }
 
@@ -307,10 +331,18 @@ fn next_wake(
     let autostart = home::ready().then(|| autostart.next_due()).flatten();
     let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
     let late = ready::next_deadline(services);
-    [wake_deadline(services), home, autostart, selftest, late]
-        .into_iter()
-        .flatten()
-        .min()
+    let quit = lifecycle::next_deadline(services);
+    [
+        wake_deadline(services),
+        home,
+        autostart,
+        selftest,
+        late,
+        quit,
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 #[panic_handler]

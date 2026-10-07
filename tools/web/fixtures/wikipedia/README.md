@@ -3,7 +3,7 @@
 Copies of two English Wikipedia pages, the
 [Main Page](https://en.wikipedia.org/wiki/Main_Page) and
 [1762](https://en.wikipedia.org/wiki/1762), as LazyWeb asks for them
-(`?useskin=vector`), with the style sheets and pictures they reference.
+(the default skin, Vector 2022), with the style sheets and pictures they reference.
 `tools/web/run.py` serves them from the host in place of the real sites
 (`tools/web/wiki.py`), since the sandbox and CI cannot reach Wikipedia.
 `python tools/web/wikicapture.py` fetches them again; `manifest.json` maps each

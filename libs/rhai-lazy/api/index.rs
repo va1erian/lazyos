@@ -139,6 +139,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[ApiTopic { helper: "open", pattern: "system/events/open/+" }],
     },
     ApiModule {
+        alias: "mount",
+        interface: "os.lazy.mount.v1",
+        source: include_str!("mount.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "net_nic",
         interface: "os.lazy.net.nic.v1",
         source: include_str!("net_nic.rhai"),

@@ -106,7 +106,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                                   "(builds them; turns networking on)",
                         variable=tls_var).pack(anchor="w", padx=8, pady=4)
     if lazyweb_var is not None:
-        ttk.Checkbutton(net, text="LazyWeb browser (Desktop; builds it with zig; turns "
+        ttk.Checkbutton(net, text="LazyWeb browser (Desktop; turns "
                                   "networking and HTTPS on)",
                         variable=lazyweb_var).pack(anchor="w", padx=8, pady=4)
 

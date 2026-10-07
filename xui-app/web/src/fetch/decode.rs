@@ -1,8 +1,8 @@
 //! `Content-Encoding` decoding (`gzip`, `deflate`), streamed.
 //!
-//! NetSurf expects bodies as the server meant them, so the fetcher asks for
+//! The engine expects bodies as the server meant them, so the fetcher asks for
 //! compressed responses (smaller over a slow emulated link) and inflates them
-//! here, chunk by chunk, before NetSurf sees a byte.
+//! here, chunk by chunk, before the engine sees a byte.
 
 use std::io::{self, BufRead, BufReader, Read};
 

@@ -71,7 +71,7 @@ def checks(live: bool = False) -> list[tuple[str, str]]:
         ("png", f"curl -s 'https://theoldnet.com/images/logo.png{tag}' | ok PNG png"),
         ("jpeg", f"curl -s 'https://theoldnet.com/images/photo.jpg{tag}' | ok JFIF jpeg"),
         ("gif", f"curl -s 'https://theoldnet.com/images/construction.gif{tag}' | ok GIF89a gif"),
-        ("wiki", f"curl -s '{_tagged(wiki.ARTICLE_URL + '?useskin=vector')}' "
+        ("wiki", f"curl -s '{_tagged(wiki.ARTICLE_URL)}' "
                  "| ok '<title>1762' wiki"),
         ("thumb", f"curl -s '{_tagged(wiki.wiki_picture())}' | wc -c "
                   f"| ok '^ *{len(wiki.picture_bytes(wiki.wiki_picture()))}$' thumb"),

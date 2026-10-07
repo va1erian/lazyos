@@ -1,0 +1,11 @@
+[package]
+name = "mounttable"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "mountd's rules: the network mount table, its argument checks and the ftpfuse daemons it starts"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "mounttable"
+path = "src/lib.rs"

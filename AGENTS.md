@@ -100,7 +100,7 @@ group) are the development accounts, kept with their Argon2id hashes in the
 account database `/conf/accounts/db` (owned by `accountsd`'s `_accounts`;
 `/system/etc/passwd` and `group` are views). Nobody is root. LazyShell, the
 Terminal and every app run as the logged-in user with no capability, and the
-taskbar's Log out button ends the session (docs/accounts-plan.md U0, #623).
+LazyOS menu's "Log out..." row ends the session (docs/accounts-plan.md U0, #623).
 `LAZYOS_SETUP=1` (`run_demo.py --setup`) builds a desktop with no account:
 the login screen creates the owner (U1, #624). A privileged change (an
 account, a `sys/**` setting, the clock, a core app, restarting a service)
@@ -116,7 +116,7 @@ the example sessions run unchanged. Services authorize privileged calls by
 or `/system`. The attack harness is `python tools/accounts/run.py`; the
 session `tools/screenshot/examples/login_logout.json` (an image built with
 `LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
-logs out with the taskbar button (`taskbar:logout` probe) and logs in again;
+logs out from the LazyOS menu ("Log out...", then "Log out now") and logs in again;
 `accounts_setup.json` (an image built with `LAZYOS_SETUP=1
 LAZYOS_AUTOLOGIN=none LAZYOS_XUI_AUTOSTART=term,settings LAZYOS_UI_PROBE=1`)
 creates the owner, adds an account in Settings through the prompt, cancels
@@ -208,13 +208,16 @@ python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expe
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 ```
 
-## Docs app and the C++ toolchain
+## Docs app and the zig toolchain
 
-`xui-docs` renders Markdown with litehtml, which is C++, so it is built with zig
-(`pip install ziglang==0.16.0`, then `python tools/xui/build.py`; see
-[`docs/xui-docs.md`](docs/xui-docs.md)). Without zig the script skips it with a
-warning and every other app still builds. `python tools/xui/test_zig.py` tests
-the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
+`xui-docs` renders Markdown on a Blitz view (`xui-blitz`, pure Rust), so
+`python tools/xui/build.py` builds it with the other apps and no zig (see
+[`docs/xui-docs.md`](docs/xui-docs.md)). zig (`pip install ziglang==0.16.0`) is
+now needed only for Mail's SQLite (`--mail`); without it the script skips Mail
+with a warning and every other app still builds. Blitz draws its own glyphs
+from font files, so an app with a `BlitzView` calls `webfonts::register()`
+(`xui-app/crates/webfonts`) at start or its pages show no text.
+`python tools/xui/test_zig.py` tests the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
 ## LazyWriter (word processor)
@@ -331,8 +334,8 @@ trusts that proxy's CA too.
 
 `xui-mail` (`os.lazy.mail`, `xui-app/mail/`) is va1erian/esmail's IMAP/SMTP
 core (a pinned git dependency, built with its `rustls` feature over
-`nettls-crypto`) behind a xui window; zig builds it like the Docs app
-(`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
+`nettls-crypto`) behind a xui window, its reading pane a Blitz view; zig builds
+it for SQLite (`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
 See [`docs/mail.md`](docs/mail.md).
 
 ```bash
@@ -345,15 +348,19 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-mail
 ## LazyWeb browser (`LAZYOS_LAZYWEB=1`)
 
 LazyWeb (`os.lazy.lazyweb`, crate `lazyweb` in `xui-app/web`) is the web
-browser: NetSurf, compiled with zig by `tools/xui/build.py` into
-`target/xui/xui-lazyweb.elf`, over the HTTPS stack above; a core package
+browser: Blitz (`xui-blitz`, pure Rust), built with the other apps by
+`tools/xui/build.py` into `target/xui/xui-lazyweb.elf`, over the HTTPS stack
+above (the fetcher keeps the cookie jar; `webfonts` registers the Liberation
+fonts);  a core package
 (`xui-app/packages/lazyweb`) that only `LAZYOS_LAZYWEB=1` images ship, which
 needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` (the build refuses it otherwise).
-NetSurf is GPL-2.0-only, so LazyWeb is too: link only GPLv2-compatible crates
-into it (no GPL-3.0, no Apache-2.0-only). See [`docs/lazyweb.md`](docs/lazyweb.md).
+LazyWeb is still declared GPL-2.0-only (the licence NetSurf required; whether
+to relicense now that Blitz is MIT/Apache-2.0 is open, issue #649), so until
+that is decided link only GPLv2-compatible crates into it (no GPL-3.0, no
+Apache-2.0-only). See [`docs/lazyweb.md`](docs/lazyweb.md).
 
 ```bash
-python tools/run_demo.py --lazyweb        # desktop + networking + HTTPS + the browser (needs zig)
+python tools/run_demo.py --lazyweb        # desktop + networking + HTTPS + the browser
 python tools/web/run.py                   # build, browse example.com then theoldnet.com, judge
 python tools/web/run.py --precheck-only   # the harness alone (console image, curl), no browser needed
 python tools/web/run.py --live            # the real sites (manual, needs internet)
@@ -458,6 +465,29 @@ the client libraries `xui_app::tray` (Rust xui apps) or `libs/trayclient`. The
 sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 (`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
 `SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
+
+A package with `[entry] resident = true` is a *resident app*: it runs once
+per session, may live with no window (`xui_app::resident`: a windowless loop,
+windows opened on demand and closed to the tray), always has a tray icon (the
+shell gives a running resident app a default item with Open and Quit from
+`init`'s retained `session/<s>/apps/resident`), and gets its lifecycle from
+`init` over `os.lazy.init.app.v1`: `Reopen` on a second launch (queued until
+it watches), `Quit` on a `Stop` with a hard 3 s grace from the `Stop` (then a
+kill, `INIT:APP:QUIT:TIMEOUT`); `Stop` answers once every target is reaped
+(`INIT:STOP:DONE`). The tray applets Volume (`os.lazy.volume`, every desktop:
+the wheel sets the mixer's master volume) and Network Status
+(`os.lazy.netstatus`, `LAZYOS_NETD=1` images) open with every session. The
+lifecycle session needs `rhai` (`python tools/rhai/build.py`); the applets
+session records the sound card and is judged by ear:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray_resident --script tools/screenshot/examples/tray_resident.json
+LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/tray_applets --script tools/screenshot/examples/tray_applets.json --extra-arg=-audiodev --extra-arg=wav,id=a0,path=shots/tray_applets/volume.wav --extra-arg=-device --extra-arg=virtio-sound-pci,audiodev=a0
+python tools/tray/volume_check.py shots/tray_applets/volume.wav    # TRAY:VOLUME:PASS: the 660 Hz tone at half the 440 Hz one
+python tools/tray/test_volume_check.py
+cargo test -p lazypkg -p pkgstore -p svcpolicy -p netpolicy
+```
 
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 cargo build
@@ -725,6 +755,24 @@ LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_apps     --script tools/screenshot/examples/net_apps.json      # ping, lookup, a fetch through the host forward
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_config     --script tools/screenshot/examples/net_config.json    # Manual, back to DHCP, Renew
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
+```
+
+## Network Drives (FTP mounts from the desktop)
+
+`ftpfuse` serves an FTP server at `/mnt/<name>` through the FUSE mechanism
+(syscall 35, `CAP_FS_PROVIDER`). Apps hold no capabilities, so the desktop
+asks `mountd` (`os.lazy.mount.v1`, `idl/mount.midl`; uid 907 with only
+`CAP_FS_PROVIDER`), which starts one `ftpfuse` per mount with the caller's
+ownership (`owner=`) and reports `connecting`/`mounted`/`failed`. The rules are
+`libs/mounttable` (host-tested); the front end is the core package **Network
+Drives** (`os.lazy.netdrives`, `xui-app/src/bin/netdrives.rs`), shipped in
+every `--net` desktop. See [`docs/smb-plan.md`](docs/smb-plan.md) §3.4.
+
+```bash
+python tools/run_demo.py --desktop --net  # then Internet -> Network Drives, server 10.0.2.2
+cargo test -p mounttable
+python tools/fuse/ui_run.py               # build, mount from the app against a host FTP server, judge
+python tools/fuse/test_ui_judge.py        # the judge fails when it should
 ```
 
 ## Network tooling

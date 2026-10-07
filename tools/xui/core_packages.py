@@ -92,13 +92,15 @@ CORE_APPS: dict[str, CoreApp] = {
     # fails that build when they are missing), so others need not build them.
     "network": xui_app("xui-network.elf", "network", optional=True),
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
-    # C++ (litehtml), built only where zig is installed.
+    # Network Drives: FTP servers as folders under /mnt, through `mountd`.
+    "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
+    # Blitz (pure Rust), built with the other apps.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
-    # The web browser (NetSurf, C, compiled with zig; docs/lazyweb.md). Only a
+    # The web browser (Blitz, pure Rust; docs/lazyweb.md). Only a
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
-    # esMail (docs/mail.md): C and C++ too, and built only on request
+    # esMail (docs/mail.md): links SQLite's C (zig), built only on request
     # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
     "mail": xui_app("xui-mail.elf", "mail", optional=True),
     # The IDE and its player, built by `tools/lazyrad/build.py`.
@@ -116,6 +118,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_TRAYDEMO=1` images ship it, so a desktop build without its ELF
     # skips it here; such an image fails on it in `build_support/xui_embed.rs`.
     "traydemo": xui_app("xui-traydemo.elf", "traydemo", optional=True),
+    # Volume, the tray applet over the mixer (docs/tray-plan.md T3).
+    "volume": xui_app("xui-volume.elf", "volume"),
+    # Network Status, the tray applet over `netd` (docs/tray-plan.md T3):
+    # shipped with the other network apps (`LAZYOS_NETD=1`).
+    "netstatus": xui_app("xui-netstatus.elf", "netstatus", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
@@ -187,7 +194,7 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
                         lazyrad_dir: Path | None = None) -> list[Path]:
     """Build every core package whose programs exist; returns the archives.
 
-    A missing optional program (Docs without zig, LazyRAD not built) is skipped
+    A missing optional program (Docs not built, LazyRAD not built) is skipped
     with a note; a missing mandatory one is an error. Stale archives are
     removed first, so an app dropped from the set leaves the image at the next
     build.

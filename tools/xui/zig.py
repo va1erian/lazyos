@@ -1,12 +1,12 @@
-"""Zig as the C/C++ toolchain for the Docs app (`xui-docs`).
+"""Zig as the C toolchain for Mail (`xui-mail`).
 
-litehtml, the HTML engine behind Docs, is C++. The other xui apps are pure Rust
-and link with the toolchain's bundled lld, but a static
-``x86_64-unknown-linux-musl`` binary that contains C++ needs a musl C++
-compiler, a C++ standard library and a linker for that target. Windows has none
-of them and a stock Linux runner only has glibc ones. ``zig c++`` is a clang
-driver that ships all three (musl, libc++, libunwind), so the same recipe
-builds the app on a Windows host and on a Linux CI runner without a sysroot.
+Mail links SQLite, which is C. The other xui apps are pure Rust (LazyWeb and
+Docs render with Blitz) and link with the toolchain's bundled lld, but a
+static ``x86_64-unknown-linux-musl`` binary that contains C needs a musl C
+compiler and a linker for that target. Windows has none of them and a stock
+Linux runner only has glibc ones. ``zig cc`` is a clang driver that ships them
+(musl, libc++, libunwind), so the same recipe builds the app on a Windows host
+and on a Linux CI runner without a sysroot.
 
 Rust still compiles every Rust crate; zig only compiles the C/C++ objects
 (``cc-rs``) and performs the final link. This module finds zig, writes the tiny

@@ -138,6 +138,18 @@ const ACCOUNTS_CRED: SysCred =
 /// privileged requests by this identity alone.
 const ELEVD_CRED: SysCred = SysCred::new(accountdb::ELEVD_UID, accountdb::ELEVD_UID, 0, 0, 0);
 
+/// The network mount service's identity (docs/smb-plan.md §3.4): its own
+/// system uid holding only `CAP_FS_PROVIDER`, which the `ftpfuse` daemons it
+/// starts inherit: they may serve `/mnt/<name>` and nothing more.
+#[cfg(lazyos_netd)]
+const MOUNTD_CRED: SysCred = SysCred::new(
+    mounttable::MOUNTD_UID,
+    mounttable::MOUNTD_UID,
+    user::sys::fuse::CAP_FS_PROVIDER,
+    0,
+    0,
+);
+
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
@@ -166,6 +178,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_netd)]
     if name == "netd" {
         return Some(NETD_CRED);
+    }
+    #[cfg(lazyos_netd)]
+    if name == "mountd" {
+        return Some(MOUNTD_CRED);
     }
     #[cfg(lazyos_devd)]
     if name == "devd" {
@@ -409,6 +425,16 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: NETD_ARGS,
         restart: Restart::Always,
         deps: &[],
+    },
+    // The network mount service (docs/smb-plan.md §3.4): starts `ftpfuse`
+    // for the Network Drives app. The daemons wait for `netd` themselves.
+    #[cfg(lazyos_netd)]
+    ServiceSpec {
+        name: "mountd",
+        path: fhs::bin::MOUNTD,
+        args: "",
+        restart: Restart::Always,
+        deps: &["netd"],
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained
