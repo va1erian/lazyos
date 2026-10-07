@@ -6,7 +6,8 @@
 //! `libs/accountwire` fuzzes): an operation name and its arguments, separated
 //! by NUL bytes. Whatever they are, [`Operation::parse`] must not panic; what
 //! it accepts must name a table row, re-parse from its own arguments to the
-//! same operation, and have a prompt summary that never carries a password.
+//! same operation, and have a prompt summary that never carries a password,
+//! fits the prompt, holds no misleading character and makes one audit line.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -27,6 +28,15 @@ pub fn run(input: &[u8]) {
     assert_eq!(Operation::parse(op.name(), &op.args()), Ok(op.clone()));
     let summary = op.summary();
     assert!(!summary.is_empty());
+    // The prompt shows all of it, as it is (review of #659).
+    assert!(summary.chars().count() <= crate::MAX_SUMMARY, "{summary}");
+    assert!(crate::text::plain(&summary), "{summary}");
+    let line = crate::audit::Line {
+        operation: name,
+        summary: &summary,
+        ..crate::audit::Line::default()
+    };
+    assert!(!line.serial().contains('\n'));
     // The password never shapes the prompt text: the same operation with
     // another password reads the same.
     let mut other = op.clone();

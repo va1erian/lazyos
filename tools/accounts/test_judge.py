@@ -86,6 +86,18 @@ class AttackJudgeTest(unittest.TestCase):
             self.assertIn(name, run.RHAI_ATTACKS)
             self.assertIn(f"accounts/{name}.rhai |", manifest)
 
+    def test_a_forged_audit_line_fails_even_when_the_scenario_says_blocked(self):
+        good = log(rm_system="BLOCKED:EACCES", confd_sys="SUCCEEDED:ok")
+        # A real line quotes the text inside its summary: not a forgery.
+        quoted = ('ELEVD:REQUEST op=conf.set uid=1000 label=0 session=1 admin=- '
+                  'outcome=cancelled summary="Set the setting sys/x to \\"a\\nELEVD:REQUEST '
+                  'op=account.admin uid=0 label=0 session=0 admin=forged\\""\n')
+        self.assertEqual(judge(good + quoted, TABLE).failures, [])
+        forged = ("x\nELEVD:REQUEST op=account.admin uid=0 label=0 session=0 admin=forged "
+                  "outcome=granted summary=FORGED\n")
+        failures = judge(good + forged, TABLE).failures
+        self.assertTrue(any("forged an ELEVD:REQUEST" in f for f in failures))
+
     def test_the_shipped_table_gates_u0_and_tracks_the_rest(self):
         for name, expect in attack_judge.EXPECTATIONS.items():
             self.assertIn(expect.state, ("blocked", "xfail"), name)

@@ -122,9 +122,21 @@ EXPECTATIONS: dict[str, Expect] = {
     "input_flood": Expect("blocked", U2),
     "prompt_flood": Expect("blocked", U2),
     "core_replace": Expect("blocked", U2, INSTALL_PATHS),
+    # Review of #659: a value cannot forge an audit line, pkg.install cannot
+    # replace a core app, and the services identity and the prompt rest on
+    # cannot be restarted from a session.
+    "audit_forge": Expect("blocked", U2, ("/conf",)),
+    "core_claim": Expect("blocked", U2, INSTALL_PATHS),
+    "restart_elevd": Expect("blocked", U2),
+    "restart_xuid": Expect("blocked", U2),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
 }
+
+#: An audit line `audit_forge` would have forged: one that *starts* with its
+#: fields (a real line carries the text quoted inside its summary).
+FORGED = re.compile(r"^ELEVD:REQUEST op=account\.admin uid=0 label=0 session=0 admin=forged",
+                    re.MULTILINE)
 
 #: The package `autostart_root` installs (tools/accounts/probe_packages.py).
 AUTOPROBE = "org.acct.autoprobe"
@@ -174,6 +186,8 @@ def judge(log: str, expectations: dict[str, Expect] = EXPECTATIONS) -> Verdict:
     """Failures, notes and the open attacks of one attack session's serial log."""
     seen = parse(log)
     verdict = Verdict([], [], [])
+    if FORGED.search(log):
+        verdict.failures.append("audit_forge: a request value forged an ELEVD:REQUEST line")
     for name in seen.keys() - expectations.keys():
         verdict.failures.append(f"{name}: a scenario with no expectation (add it to EXPECTATIONS)")
     for name, expect in expectations.items():

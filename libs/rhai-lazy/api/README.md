@@ -646,6 +646,7 @@ The application package manager (`docs/packages.md`, phase 3 of the
 | `provisioned()` | `Provisioned() -> (state: ProvisionState)` | Whether this start's core package provisioning is finished, and what |
 | `develop(path, confirm)` | `Develop(path: String, confirm: Bool) -> (label: String, approved: Bool)` | Approve a development run of the package at `path` (the same source |
 | `develop_declined(path)` | `DevelopDeclined(path: String) -> ()` | The user declined the development consent for the package at `path` |
+| `install_approved(path, digest, core)` | `InstallApproved(path: String, digest: String, core: Bool) -> (app: Installed)` | `elevd`'s install of a package an administrator approved on the |
 | `new_provision_state()` | struct `ProvisionState` | a `ProvisionState` at its zero value |
 | `new_package_info()` | struct `PackageInfo` | a `PackageInfo` at its zero value |
 | `new_mime_handler()` | struct `MimeHandler` | a `MimeHandler` at its zero value |

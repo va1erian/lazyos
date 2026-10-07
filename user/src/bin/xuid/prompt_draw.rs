@@ -3,6 +3,12 @@
 //! password fields, and Cancel (the default) and Approve. The layout is one
 //! function ([`layout`]) shared by the painter and the pointer's hit test,
 //! so a click lands where the button is drawn.
+//!
+//! The summary is what the administrator approves, so it is never cut out
+//! of sight: it has room for [`SUMMARY_LINES`] lines (an `elevd` summary is
+//! at most `elevpolicy::MAX_SUMMARY` characters and fits), a word wider than
+//! a line is broken rather than clipped, and text that still does not fit
+//! ends in a visible `...` (`elevpolicy::text::wrap`).
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -13,7 +19,14 @@ use super::theme::{accent, overlay_bg, overlay_border, overlay_selected, overlay
 
 /// The panel's design size.
 const PANEL_W: i32 = 480;
-const PANEL_H: i32 = 240;
+const PANEL_H: i32 = 324;
+/// Lines the asker and the summary may take.
+const ASKER_LINES: usize = 2;
+const SUMMARY_LINES: usize = 6;
+/// Where the text starts, and the fields below it (design pixels).
+const TEXT_Y: i32 = 36;
+const NAME_Y: i32 = 214;
+const PASSWORD_Y: i32 = 246;
 /// Width of the field captions.
 const CAPTION_W: i32 = 112;
 /// A button's design size.
@@ -61,8 +74,8 @@ fn layout(dims: (i32, i32)) -> Layout {
     );
     Layout {
         panel,
-        name: row(130),
-        password: row(162),
+        name: row(NAME_Y),
+        password: row(PASSWORD_Y),
         cancel,
         approve,
     }
@@ -117,20 +130,21 @@ pub(super) fn draw(screen: &mut Canvas, prompt: &Prompt, clip: Rect) {
     );
     let width = panel.w - px(32);
     let mut lines: Vec<(String, Color)> = Vec::new();
-    for line in wrap(&prompt.asker, width, 2) {
+    for line in wrap(&prompt.asker, width, ASKER_LINES) {
         lines.push((line, ink));
     }
-    for line in wrap(&alloc::format!("asks to: {}", prompt.summary), width, 2) {
+    let summary = alloc::format!("asks to: {}", prompt.summary);
+    for line in wrap(&summary, width, SUMMARY_LINES) {
         lines.push((line, ink));
     }
-    if !prompt.error.is_empty() {
-        lines.push((prompt.error.clone(), Color::rgb(230, 80, 70)));
+    for line in wrap(&prompt.error, width, 1) {
+        lines.push((line, Color::rgb(230, 80, 70)));
     }
     let line_h = Face::Sans.height() + px(3);
-    for (index, (text, color)) in lines.iter().take(5).enumerate() {
+    for (index, (text, color)) in lines.iter().enumerate() {
         screen.text_face(
             panel.x + px(16),
-            panel.y + px(36) + index as i32 * line_h,
+            panel.y + px(TEXT_Y) + index as i32 * line_h,
             text,
             Face::Sans,
             *color,
@@ -271,25 +285,8 @@ fn frame(screen: &mut Canvas, rect: Rect, color: Color, t: i32, clip: Rect) {
     );
 }
 
-/// `text` broken into at most `max` lines of `width` pixels at spaces; the
-/// last line keeps whatever is left (clipped when painted).
+/// `text` broken into at most `max` lines of `width` pixels; a cut ends in
+/// a visible `...` (`elevpolicy::text::wrap`).
 fn wrap(text: &str, width: i32, max: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    let mut line = String::new();
-    for word in text.split(' ') {
-        let candidate = if line.is_empty() {
-            String::from(word)
-        } else {
-            alloc::format!("{line} {word}")
-        };
-        if Face::Sans.width(&candidate) <= width || line.is_empty() || lines.len() + 1 >= max {
-            line = candidate;
-        } else {
-            lines.push(core::mem::replace(&mut line, String::from(word)));
-        }
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    lines
+    elevpolicy::text::wrap(text, max, |line| Face::Sans.width(line) <= width)
 }

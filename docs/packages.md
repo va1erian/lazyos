@@ -734,6 +734,19 @@ the menu in Settings", audited as `denied`. Installing a version of a core app
 older than the shipped one is refused the same way; a newer one installs over it
 and stays core.
 
+**Replacing a core app** is a system change (docs/accounts-plan.md U2, 3.3).
+`Install` refuses it from a session and from `elevd` ("<name> is a core app:
+replacing it needs an administrator (elevd pkg.update-core)"); the Installer
+then asks `elevd` for `pkg.update-core`. `elevd` has `pkgd` inspect the file,
+shows the app, both versions, the author (unverified) and the permissions by
+risk on the trusted prompt, and once an administrator approved calls
+`InstallApproved(path, digest, core)`, which `pkgd` takes from `elevd` alone:
+it installs only bytes whose SHA-256 is the inspected `digest` (a file
+swapped after the approval is refused), replaces a core app only with `core`
+(`pkg.update-core`) and refuses `core` for a package that is not one
+(`user/src/bin/pkgd/approval.rs`). A `CAP_SETUID` service may still replace
+a core app with `Install`.
+
 ### Sample package and end-to-end check
 
 `tools/pkg/samples/counter/` is the Counter demo as a package
