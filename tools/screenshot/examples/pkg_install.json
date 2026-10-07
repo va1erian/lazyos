@@ -283,7 +283,7 @@
  },
  {
   "at": 1.0,
-  "mouse_move": [90, -200], "note": "start menu: the Accessories row (134,504)"
+  "mouse_move": [90, -224], "note": "start menu: the Accessories row (134,480)"
  },
  {
   "wait_for": "SHELL:SUBMENU:OPEN category=accessories",

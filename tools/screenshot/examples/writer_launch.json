@@ -20,7 +20,7 @@
   {"wait_for": "TERM:OUT:/home/user", "timeout": 180},
   {"at": 1.0, "mouse_move": [-356, 646], "note": "taskbar: Start (44,704)"},
   {"at": 1.0, "mouse_click": "left", "until": "SHELL:MENU:OPEN", "timeout": 30, "retries": 2},
-  {"at": 1.0, "mouse_move": [90, -128], "note": "start menu: the Office row (134,576)"},
+  {"at": 1.0, "mouse_move": [90, -152], "note": "start menu: the Office row (134,552)"},
   {"wait_for": "SHELL:SUBMENU:OPEN category=office", "timeout": 30},
   {"at": 1.0, "mouse_move": [166, 24], "note": "Office submenu: LazyWriter (300,600), under Docs"},
   {"at": 3.0, "shot": "02_menu_office"},
