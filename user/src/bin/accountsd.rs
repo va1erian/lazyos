@@ -2,7 +2,7 @@
 //! (issues #101, #508, #624; docs/accounts-plan.md U1).
 //!
 //! It runs as the `_accounts` system uid with no capability and owns the
-//! account database, `/conf/accounts/db` (`libs/accountdb`): every account,
+//! account database, `/accounts/db` (`libs/accountdb`): every account,
 //! group and password verifier. It serves `os.lazy.accounts.v1`:
 //!
 //! * `Lookup`, `ListUsers`: the public fields (name, uid, gid, home, shell,

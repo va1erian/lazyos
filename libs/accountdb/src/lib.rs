@@ -1,4 +1,4 @@
-//! The account database, `/conf/accounts/db` (docs/accounts-plan.md U1,
+//! The account database, `/accounts/db` (docs/accounts-plan.md U1,
 //! issue #624).
 //!
 //! One file holds every account and group, owned by the `_accounts` service

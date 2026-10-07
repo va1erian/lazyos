@@ -66,7 +66,8 @@ GENERATED = ROOT / "target" / "accounts-assets"
 GUEST = "/system/share/accounts"
 
 #: The attack session's commands, in order (attack.sh or a rhai script each).
-SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_home_admin",
+SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_store",
+                 "read_home_admin",
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",

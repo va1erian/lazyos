@@ -11,6 +11,18 @@ use user::sys;
 
 /// `ENOENT`, spelled out because `files` reports raw errnos.
 const ENOENT: i64 = 2;
+/// The store directory's mode and its files': nobody but `confd` (root) may
+/// read another user's settings or the `sys/**` keys from the raw store.
+const DIR_MODE: u16 = 0o700;
+const FILE_MODE: u16 = 0o600;
+/// Every file `confd` may have left in its directory, made private again at
+/// start ([`make_private`]): an image or an older `confd` wrote them 0644.
+const STORE_NAMES: [&str; 4] = [
+    confd::fs::STORE_FILE,
+    confd::fs::TMP_FILE,
+    confd::fs::CORRUPT_FILE,
+    confd::fs::MIGRATED_FILE,
+];
 
 /// A [`StoreFs`] binding the store files to one VFS directory.
 ///
@@ -49,8 +61,13 @@ impl StoreFs for VfsStoreFs {
 
     fn write_file(&mut self, name: &str, data: &[u8]) -> Result<(), i64> {
         // `write_file` creates-or-replaces, which is all `persist` needs; it
-        // only ever points this at `store.tmp`.
-        files::write_file(&self.path(name), data)
+        // only ever points this at `store.tmp`. It creates files 0644: the
+        // store holds every user's settings, so it is made private before
+        // anything is renamed over the store (the directory is root's
+        // alone too, [`make_private`]).
+        let path = self.path(name);
+        files::write_file(&path, data)?;
+        files::chmod(&path, FILE_MODE)
     }
 
     fn fsync(&mut self, name: &str) -> Result<(), i64> {
@@ -150,6 +167,27 @@ pub fn try_upgrade<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>) -> bool {
             ));
             false
         }
+    }
+}
+
+/// Make the store directory `dir` and every store file in it private
+/// ([`DIR_MODE`], [`FILE_MODE`]): an older `confd` created them 0644 and the
+/// fallback directory 0755. A missing file is fine; any other failure is
+/// reported, and the next start tries again.
+pub fn make_private(dir: &str) {
+    let report = |path: &str, mode: u16| match files::chmod(path, mode) {
+        Ok(()) => {}
+        Err(errno) if errno == ENOENT => {}
+        Err(errno) => sys::write_str(&format!(
+            "confd: warning: cannot make {path} private (errno {errno})\n"
+        )),
+    };
+    report(dir, DIR_MODE);
+    for name in STORE_NAMES {
+        report(&format!("{dir}/{name}"), FILE_MODE);
+    }
+    if dir == fhs::state::CONF_ROOT {
+        report(fhs::state::CONF_SEEDED_MARKER, FILE_MODE);
     }
 }
 

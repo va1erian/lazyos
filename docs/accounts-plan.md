@@ -96,7 +96,7 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 ### U1: real accounts
 
 - accountsd implements `Create`, `Delete`, `SetPassword`, `SetAdmin` over a
-  persistent account database owned by `_accounts` in `/conf/accounts`;
+  persistent account database owned by `_accounts` in `/accounts`;
   `/system/etc/passwd` becomes a generated view. Groups exist: `admin`.
 - Creating an account creates its 0700 home (on the home volume when mounted)
   from a skeleton; deleting one archives or removes it on request.
@@ -123,12 +123,13 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 
 What exists, and the decisions taken on the way:
 
-- **The account database** is `/conf/accounts/db` (`libs/accountdb`: parser,
+- **The account database** is `/accounts/db` (`libs/accountdb`: parser,
   views, operations, who may, the brake; host-tested, seeded fuzz entry
   `accountdb::fuzz::run`, cargo-fuzz target `fuzz/fuzz_targets/accountdb.rs`).
   One file holds accounts, groups and verifiers; `accountsd` runs as
-  `_accounts` (uid 908, no capability), owns `/conf/accounts` (0700; `/conf`
-  became 0711 so it can be reached) and writes the database atomically
+  `_accounts` (uid 908, no capability), owns `/accounts` (0700, a
+  top-level directory so `/conf` stays root's alone: see "Review fixes"
+  below) and writes the database atomically
   (`db.new`, fsync, rename). `/system/etc/passwd` and `/system/etc/group`
   are generated views owned by `_accounts`. **Decision:** there is no
   `/system/etc/shadow` view any more: `keyd` reads the verifiers from the

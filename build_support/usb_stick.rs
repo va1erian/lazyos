@@ -108,11 +108,13 @@ pub fn home_dirs(accounts: &[Account]) -> Vec<DirSpec> {
     accounts
         .iter()
         .filter(|account| account.home == fhs::home_of(&account.name))
-        .map(|account| DirSpec {
-            path: format!("/{}", account.name),
-            mode: PRIVATE,
-            uid: account.uid,
-            gid: account.gid,
+        .map(|account| {
+            DirSpec::new(
+                &format!("/{}", account.name),
+                PRIVATE,
+                account.uid,
+                account.gid,
+            )
         })
         .collect()
 }

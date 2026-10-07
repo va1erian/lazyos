@@ -97,7 +97,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 A desktop image boots to a login screen (`greeter`, run as the `_greeter`
 uid); `user`/`lazy` (uid 1000) and `admin`/`nimda` (uid 1001, in the `admin`
 group) are the development accounts, kept with their Argon2id hashes in the
-account database `/conf/accounts/db` (owned by `accountsd`'s `_accounts`;
+account database `/accounts/db` (owned by `accountsd`'s `_accounts`;
 `/system/etc/passwd` and `group` are views). Nobody is root. LazyShell, the
 Terminal and every app run as the logged-in user with no capability, and the
 LazyOS menu's "Log out..." row ends the session (docs/accounts-plan.md U0, #623).

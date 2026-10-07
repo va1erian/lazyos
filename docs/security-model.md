@@ -21,7 +21,7 @@ after the table says what is actually enforced today.
 | Mechanism implemented | Specified only |
 |---|---|
 | Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; the kernel gives the programs it starts root credentials and their descendants inherit them (which is why `init`-started services run as uid 0 unless they drop privilege); audited `CAP_SETUID` transitions that can never widen privilege (section 2); service accounts with no capability for the drivers, `accountsd` (`_accounts`) and `elevd` (`_elev`) | Service accounts for the other core services (section 4.1 "system services do not run as root" is the goal, not the state) |
-| Console login and the desktop's graphical login through `logind` + `accountsd` (a login screen run as the `_greeter` uid, or the build's `LAZYOS_AUTOLOGIN`), logout ending every task of the session; the account database `/conf/accounts/db` (accounts, the `admin` group, Argon2id verifiers; `_accounts`, 0600) with `/system/etc/passwd` and `/system/etc/group` generated views; account management (create, delete, passwords, admins) and the first-boot setup; `Authenticate` slowed per name and per caller; no plaintext anywhere (section 3, issues #447, #623, #624) | Key/2FA, per-user sealing of secrets, TLS in `keyd` |
+| Console login and the desktop's graphical login through `logind` + `accountsd` (a login screen run as the `_greeter` uid, or the build's `LAZYOS_AUTOLOGIN`), logout ending every task of the session; the account database `/accounts/db` (accounts, the `admin` group, Argon2id verifiers; `_accounts`, 0600) with `/system/etc/passwd` and `/system/etc/group` generated views; account management (create, delete, passwords, admins) and the first-boot setup; `Authenticate` slowed per name and per caller; no plaintext anywhere (section 3, issues #447, #623, #624) | Key/2FA, per-user sealing of secrets, TLS in `keyd` |
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
 | Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals), `CAP_DEV_CLAIM` (device claims through syscall 23, 4.2); `CAP_SYS_ADMIN` gates the display grant (4.2); per-driver device-class rules installed at boot (#481) | Dropping capabilities on `execve` |
 | Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy; app labels with label-keyed rules compiled from a package manifest and loaded by `pkgd`, reserved `os.lazy.*`/`app.<id>.*` namespaces (4.3, 6) | A uid policy loader, the policy language/compiler, hot reload, revocation of live handles (5.2, 6) |
@@ -75,7 +75,7 @@ What is enforced today, honestly:
   task of the session that owns the display, never displacing a live shell.
 - **No plaintext passwords.** `/system/etc/passwd` carries `x`; the
   verifiers are Argon2id hashes in the account database
-  (`/conf/accounts/db`, `_accounts`, 0600 in a 0700 directory) that the
+  (`/accounts/db`, `_accounts`, 0600 in a 0700 directory) that the
   image build seeds and `keyd` derives for new passwords; only `keyd`
   (which loads them) and `accountsd` (which stores what `keyd` returns) read
   them. Without `keyd` (or the database) every login fails closed.
@@ -135,7 +135,7 @@ approved rule set for: same uid, gid and session, never more capabilities
   Password hashes are **Argon2id**, and only `keyd` can
   verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
 - **The account database** (issue #624, docs/accounts-plan.md U1) is
-  `/conf/accounts/db` (`libs/accountdb`): every account, the groups (`admin`
+  `/accounts/db` (`libs/accountdb`): every account, the groups (`admin`
   makes administrators) and the Argon2id verifiers, owned by the `_accounts`
   service account (uid 908) that `accountsd` runs as, 0600 in a 0700
   directory. `/system/etc/passwd` (`name:uid:gid:x:home:shell`) and

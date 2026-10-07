@@ -1,7 +1,7 @@
 """The demo accounts, read from the one file that defines them.
 
 ``build_support/passwd`` is the single account file (issue #508): the image
-build seeds the account database ``/conf/accounts/db`` from it
+build seeds the account database ``/accounts/db`` from it
 (``build_support/accounts_seed.rs``, docs/accounts-plan.md U1), and
 ``/system/etc/passwd`` is a view of that database. The home-volume seed reads
 the same file here, so the homes it creates always match the accounts the

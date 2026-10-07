@@ -54,6 +54,7 @@ delete a canary file, and remove whatever they created.
 | `rm_system` | `rm` a file under `/system` |
 | `overwrite_init` | open `/system/bin/init` for writing |
 | `write_conf` | create a file in `/conf` |
+| `read_conf_store` | `cat /conf/store`: confd's raw store (`sys/**`, every user's keys) is root's alone (review of #659, H1) |
 | `confd_sys` | rhai `sys::confd::set("sys/...")` |
 | `keyd_provision` | rhai `sys::keyd::provision(...)` |
 | `read_home_admin` | `ls /home/admin` |

@@ -1,5 +1,5 @@
 //! The accounts an image starts with (docs/accounts-plan.md U1, issue #624):
-//! the account database `/conf/accounts/db` and its views.
+//! the account database `/accounts/db` and its views.
 //!
 //! The seed comes from three files beside this one: `passwd` (the accounts,
 //! `name:uid:gid:x:home:shell`), `groups` (`name:gid:members`; `admin` makes

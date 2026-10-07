@@ -63,6 +63,8 @@ mod recover_tests;
 #[cfg(test)]
 mod samples_tests;
 #[cfg(test)]
+mod state_tests;
+#[cfg(test)]
 mod tls_files_tests;
 #[cfg(test)]
 mod usb_tests;

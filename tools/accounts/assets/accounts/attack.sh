@@ -68,6 +68,12 @@ write_conf)
     f=/conf/acct-probe.$$
     probe "$f" 'echo x > "$1"'
     ;;
+read_conf_store)
+    # confd's raw store holds sys/** and every user's keys: root's alone
+    # (/conf 0700, the store 0600). The content never reaches the Terminal.
+    out=$(cat /conf/store 2>&1 > /dev/null)
+    res $? "$out"
+    ;;
 read_home_admin)
     out=$(ls /home/admin 2>&1)
     res $? "$out"

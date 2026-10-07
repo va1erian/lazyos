@@ -76,6 +76,8 @@ EXPECTATIONS: dict[str, Expect] = {
     "acct_promote": Expect("blocked", U1, ("/conf",)),
     "acct_password": Expect("blocked", U1, ("/conf",)),
     "keyd_forget": Expect("blocked", U1),
+    # Review of #659 (H1): confd's raw store is unreadable to a session.
+    "read_conf_store": Expect("blocked", U1),
     "auth_flood": Expect("blocked", U1),
     "direct_time": Expect("blocked", U2),
     "direct_restart": Expect("blocked", U2),

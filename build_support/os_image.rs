@@ -25,6 +25,8 @@ pub mod display_cfg;
 pub mod limits_cfg;
 #[path = "os_compose.rs"]
 mod os_compose;
+#[path = "os_state.rs"]
+mod os_state;
 
 use os_compose::{create, update};
 
@@ -346,7 +348,9 @@ pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> 
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
 /// does not (files are unlinked, directories removed only when empty, so
-/// anything a user keeps there survives), then write every file of `files`
+/// anything a user keeps there survives), apply the directory table (seed
+/// directories only while the account database is seeded, `os_state.rs`),
+/// then write every file of `files`
 /// (replace = truncate + write), and finally the manifest, then flush. A path
 /// that is in neither manifest is never touched.
 pub fn write_volume(
@@ -370,7 +374,7 @@ pub fn write_volume(
             Err(error) => return Err(volume_error(&format!("remove {path}"), error)),
         }
     }
-    for dir in dirs {
+    for dir in dirs.iter().filter(|dir| !dir.seed) {
         volume
             .mkdir_p(&dir.path, dir.mode, dir.uid, dir.gid)
             .map_err(|e| volume_error(&format!("mkdir {}", dir.path), e))?;
@@ -386,6 +390,11 @@ pub fn write_volume(
             .setattr(&dir.path, &change)
             .map_err(|e| volume_error(&format!("chmod {}", dir.path), e))?;
     }
+    // What the running system owns: see `os_state.rs`.
+    os_state::move_legacy_accounts(volume)?;
+    os_state::private_conf_files(volume)?;
+    let seeding = os_state::seeding_accounts(volume);
+    os_state::seed_dirs(volume, dirs, seeding)?;
     for file in files {
         // A seed the system already has is the system's now.
         if file.placement.seed && volume.lookup(&file.path).is_ok() {

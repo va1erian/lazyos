@@ -134,7 +134,7 @@ fn a_missing_image_is_created_with_three_mbr_entries_and_a_clean_volume() {
     assert_eq!((meta.mode & 0o7777, meta.uid, meta.gid), (0o755, 0, 0));
     for (path, mode, owner) in [
         ("/home/user", 0o700, 1000),
-        ("/conf", 0o711, 0),
+        ("/conf", 0o700, 0),
         ("/logs", 0o750, 0),
         ("/apps", 0o755, 0),
         ("/docs/apps", 0o755, 0),

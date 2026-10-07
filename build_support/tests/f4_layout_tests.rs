@@ -86,7 +86,7 @@ fn an_update_keeps_non_empty_data_dirs_and_drops_empty_ones() {
     assert!(volume.lookup("/data").is_ok());
 
     // The services' directories converge to the F4 table.
-    assert_eq!(mode_owner(&volume, "/conf"), (0o711, 0, 0));
+    assert_eq!(mode_owner(&volume, "/conf"), (0o700, 0, 0));
     assert_eq!(mode_owner(&volume, "/conf/svc"), (0o700, 0, 0));
     assert_eq!(mode_owner(&volume, "/logs"), (0o750, 0, 0));
     assert_eq!(mode_owner(&volume, "/apps"), (0o755, 0, 0));

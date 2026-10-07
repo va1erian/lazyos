@@ -35,7 +35,7 @@
 //! # Provisioning
 //!
 //! At boot `keyd` loads the accounts' verifiers from the account database,
-//! `/conf/accounts/db` (docs/accounts-plan.md U1; the image build seeds it),
+//! `/accounts/db` (docs/accounts-plan.md U1; the image build seeds it),
 //! all or nothing: without it every login fails closed. `accountsd` asks
 //! `Verify` for each login and `keyd`'s verdict is final; there is no
 //! plaintext anywhere and no demo account. `Provision` (install or replace a

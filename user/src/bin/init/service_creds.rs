@@ -95,7 +95,7 @@ pub(super) const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
 pub(super) const NETD_UID: u32 = netpolicy::NETD_UID;
 
 /// The account database service's identity (docs/accounts-plan.md U1): the
-/// `_accounts` system uid, owner of `/conf/accounts`, and **no capability**.
+/// `_accounts` system uid, owner of `/accounts`, and **no capability**.
 /// Whatever it needs done as root (a home) it asks this supervisor for, and
 /// `keyd` takes verifiers from this identity alone.
 pub(super) const ACCOUNTS_CRED: SysCred =

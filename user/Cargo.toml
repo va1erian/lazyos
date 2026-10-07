@@ -31,7 +31,7 @@ logstore = { path = "../libs/logstore" }
 # The account file `/system/etc/passwd`, parsed strictly by `accountsd`
 # (issue #508): the same parser the image build checks the file with.
 passwd = { path = "../libs/passwd" }
-# The account database `/conf/accounts/db` (docs/accounts-plan.md U1): owned
+# The account database `/accounts/db` (docs/accounts-plan.md U1): owned
 # by `accountsd`, its verifiers read by `keyd`.
 accountdb = { path = "../libs/accountdb" }
 # elevd's operation table and the identity every privileged service path

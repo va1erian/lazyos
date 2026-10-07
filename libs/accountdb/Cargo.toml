@@ -3,7 +3,7 @@ name = "accountdb"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The account database /conf/accounts/db: strict parsing, the generated passwd and group views, account operations, who may perform them and the Authenticate rate limit, shared by accountsd, keyd and the image build (docs/accounts-plan.md U1, issue #624)"
+description = "The account database /accounts/db: strict parsing, the generated passwd and group views, account operations, who may perform them and the Authenticate rate limit, shared by accountsd, keyd and the image build (docs/accounts-plan.md U1, issue #624)"
 license = "GPL-3.0-or-later"
 
 [lib]
