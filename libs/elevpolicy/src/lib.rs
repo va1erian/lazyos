@@ -10,8 +10,8 @@
 //!
 //! | operation | arguments | performed by |
 //! |---|---|---|
-//! | `pkg.install` | path | `pkgd` `Install`, as a system service |
-//! | `pkg.update-core` | path | `pkgd` `Install` replacing a core app |
+//! | `pkg.install` | path | `pkgd` `InstallApproved`, never over a core app |
+//! | `pkg.update-core` | path | `pkgd` `InstallApproved` replacing a core app |
 //! | `pkg.remove` | system name | `pkgd` `Remove` |
 //! | `conf.set` | path, kind, value | `confd` `Set` (`sys/**`, any user's keys) |
 //! | `conf.delete` | path | `confd` `Delete` |
@@ -24,7 +24,7 @@
 //! | `account.admin` | name, `1`/`0` | `accountsd` `SetAdmin` |
 //! | `account.password` | name, password | `accountsd` `SetPassword` |
 //! | `power.policy` | key, value | `confd` `Set` of `sys/power/<key>` |
-//! | `service.restart` | service name | `init` `RestartService` |
+//! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -38,6 +38,12 @@
 //! prompts were cancelled or timed out, [`queue`] gives each caller one
 //! request in hand at a time, and [`sessions`] ends what a session held when
 //! `logind` reports it over.
+//!
+//! What the prompt and the audit trail say is built here too, so it can be
+//! tested on the host: [`Operation::summary`] and [`package::summary`] are
+//! escaped and bounded to [`MAX_SUMMARY`] ([`text`]), and [`audit`] writes
+//! lines no value can forge. A request [`Operation::parse`] accepts can
+//! still be refused by policy before any prompt ([`Operation::permitted`]).
 
 #![no_std]
 
@@ -50,20 +56,29 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 pub use accountdb::{ACCOUNTS_UID, ELEVD_UID};
+pub use allow::{restartable, RESTARTABLE};
 pub use confd::Value;
+pub use summary::MAX_SUMMARY;
 use values::*;
 pub use values::{parse_value, value_args};
 
+mod allow;
 pub mod approvals;
+pub mod audit;
 pub mod backoff;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod package;
 pub mod queue;
 pub mod sessions;
+mod summary;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_flood;
+pub mod text;
+#[cfg(test)]
+mod text_tests;
 mod values;
 
 /// How long the elevated editor's view stands (PIT ticks, 100 Hz): 5
@@ -230,6 +245,11 @@ impl Operation {
                 want(3)?;
                 let path = conf_path(arg(0).unwrap_or(""))?;
                 let value = parse_value(arg(1).unwrap_or(""), arg(2).unwrap_or(""))?;
+                // A text value is shown and stored as it is: nothing in it
+                // may make it read other than it is (`text::misleading`).
+                if matches!(&value, Value::Str(text) if !text::plain(text)) {
+                    return Err("a text value may not hold control or formatting characters");
+                }
                 Operation::ConfSet { path, value }
             }
             "conf.delete" => {
@@ -247,7 +267,7 @@ impl Operation {
             "conf.list" => {
                 want(1)?;
                 let prefix = arg(0).unwrap_or("");
-                if prefix.len() > 256 || prefix.chars().any(char::is_control) {
+                if prefix.len() > 256 || !text::plain(prefix) {
                     return Err("not a confd prefix");
                 }
                 Operation::ConfList {
@@ -318,7 +338,7 @@ impl Operation {
                 if !word(key) {
                     return Err("not a power policy key");
                 }
-                if value.is_empty() || value.len() > 64 || value.chars().any(char::is_control) {
+                if value.is_empty() || value.len() > 64 || !text::plain(value) {
                     return Err("not a power policy value");
                 }
                 Operation::PowerPolicy {
@@ -373,47 +393,6 @@ impl Operation {
                 Class::View
             }
             _ => Class::Once,
-        }
-    }
-
-    /// What the operation would do, for the prompt and the audit record. It
-    /// never carries a password.
-    pub fn summary(&self) -> String {
-        match self {
-            Operation::PkgInstall { path } => format!("Install {path} for all users"),
-            Operation::PkgUpdateCore { path } => format!("Replace a core app with {path}"),
-            Operation::PkgRemove { system_name } => format!("Remove the app {system_name}"),
-            Operation::ConfSet { path, value } => {
-                format!("Set the setting {path} to {}", value_text(value))
-            }
-            Operation::ConfDelete { path } => format!("Delete the setting {path}"),
-            Operation::ConfList { .. } | Operation::ConfGet { .. } | Operation::ConfElevate => {
-                String::from("Read and change every setting, system settings included")
-            }
-            Operation::TimeSet { unix } => format!("Set the clock to {}", civil(*unix)),
-            Operation::AccountCreate { name, admin, .. } => {
-                let kind = if *admin { "an administrator" } else { "a user" };
-                format!("Create the account '{name}' ({kind})")
-            }
-            Operation::AccountDelete { name, home } => {
-                let home = match home {
-                    HomeFate::Keep => "its home is kept",
-                    HomeFate::Archive => "its home is archived",
-                    HomeFate::Remove => "its home is removed",
-                };
-                format!("Delete the account '{name}' ({home})")
-            }
-            Operation::AccountAdmin { name, admin: true } => {
-                format!("Make '{name}' an administrator")
-            }
-            Operation::AccountAdmin { name, admin: false } => {
-                format!("Take administrator rights from '{name}'")
-            }
-            Operation::AccountPassword { name, .. } => format!("Set the password of '{name}'"),
-            Operation::PowerPolicy { key, value } => {
-                format!("Set the power policy {key} to {value}")
-            }
-            Operation::ServiceRestart { name } => format!("Restart the system service '{name}'"),
         }
     }
 
