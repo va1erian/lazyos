@@ -80,7 +80,9 @@ bytes). The clamping is `libs/virtio-net/src/settings.rs`; see
 [networking-plan.md](networking-plan.md) section 13.
 
 Ownership is uniform: **administrators (uid 0 via `confctl`, installers) write,
-services only read.** Drivers and `devd` write nothing to `confd`. `<drv>` is the
+services only read.** (Since accounts U2, #625, an administrator writes
+`sys/**` through `elevd`'s `conf.set` on the trusted prompt; no session is
+uid 0 and only a `CAP_SETUID` service or `elevd` may write it.) Drivers and `devd` write nothing to `confd`. `<drv>` is the
 driver's program stem (`virtio-net`, `virtio-snd`, `e1000`).
 
 ## 3. The permission problem

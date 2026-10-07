@@ -96,6 +96,14 @@ with `--accel none`. Other useful flags: `--no-build`, `--headless`, `--release`
 and `-- --cpu max` to pass extra arguments to QEMU. In the demo, **Tab** moves
 window focus and typed input goes to the focused program.
 
+`--desktop` boots to a login screen. The development accounts are `user`
+(password `lazy`) and `admin` (`nimda`, in the `admin` group); nobody logs in
+as root, and the desktop and its apps run as the account that logged in. A
+privileged change (an account, a machine setting, the clock, a core app)
+asks an administrator for their name and password on a trusted prompt
+(`elevd`). `--autologin user` skips the login screen; `--setup` starts with no
+account and creates the owner. See [`docs/accounts-plan.md`](docs/accounts-plan.md).
+
 ### On a real PC (USB stick)
 
 `LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo build` also writes

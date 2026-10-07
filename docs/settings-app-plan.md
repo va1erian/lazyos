@@ -17,7 +17,10 @@ onto the ext2 data volume.
 ## Architecture
 
 **confd is the single source of truth.** Keys live under `sys/` (world-readable,
-uid-0 writable, emits `system/confd/changed/{path...}`).
+written only by a system service or `elevd`, emits
+`system/confd/changed/{path...}`). Settings runs as the logged-in user, so
+every `sys/**` write, the clock and the zone go through `elevd` and its
+trusted prompt (docs/accounts-plan.md U2), one approval per write.
 
 | Key | Type |
 |---|---|
@@ -31,12 +34,12 @@ uid-0 writable, emits `system/confd/changed/{path...}`).
 
 Missing key means the compiled-in default.
 
-**Persistence.** confd store directory order: `/system/confd`, `/data/confd`,
-`/tmp/confd`. Falling back to `/tmp` keeps the service `degraded` and the app
+**Persistence.** confd stores in `/conf` (0700 root; an F3 image's
+`/data/confd` is merged in once), with `/transient/conf` as the degraded
+fallback. Falling back keeps the service `degraded` and the app
 shows a "settings will not survive reboot" banner.
 
-**Per-user theme.** Every account (any uid but 0, which no session runs
-as) may shadow each `sys/ui/<name>` with `user/<uid>/ui/<name>` (phase 7);
+**Per-user theme.** Every account, administrators included, may shadow each `sys/ui/<name>` with `user/<uid>/ui/<name>` (phase 7);
 the machine default changes through Appearance's "Make this the default for
 everyone", which asks an administrator (docs/accounts-plan.md).
 
@@ -76,8 +79,9 @@ was `user/src/bin/xuid/menu.rs`).
 4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.
 5. **Sections** (done): Appearance, Windows (full `ColorPanel`), Keyboard, Menu, Hidden apps, Time & Date, About. Hidden apps (issue #509) writes `user/<uid>/menu/hidden/<id>` per app over the machine default `sys/menu/hidden/<id>` (`libs/deskmenu/src/hidden.rs`); LazyShell leaves those apps out of the start menu, and they still launch and open files.
 6. **Polish** (done): animations toggle (`sys/ui/anim` gates `xuid`'s zoom), 12/24-hour and seconds, title contrast.
-7. **Per-user theme** (done, issue #407): for every account (uid 0 aside), every theme key `sys/ui/<name>` (the desktop picture included) may be shadowed by `user/<uid>/ui/<name>` (`uitheme::user_key`); the user key wins when present. Settings edits the user's copy (`settings::user_theme::UserTheme`; Reset deletes the user's keys, and "Make this the default for everyone", `user_theme::make_default`, writes the keys that differ to `sys/ui/*` through `elevd`, one approval each, then drops the user's copy). `xuid` paints the chrome for the uid that runs the shell (`ThemeFeed::follow_user`, from the shell's `Subscribe`) and follows `user/<uid>/confd/changed/ui/#`; LazyShell overlays the same keys. confd announces `user/<uid>/` changes in the kernel's per-uid topic namespace (`kernel/src/ipc/topics/private.rs`: only that uid and root may subscribe).
-8. **Open**: the system-stat dashboards (sysmon, fabricmon) and the Terminal still paint a fixed light palette.
+7. **Per-user theme** (done, issue #407): for every account, administrators included, every theme key `sys/ui/<name>` (the desktop picture included) may be shadowed by `user/<uid>/ui/<name>` (`uitheme::user_key`); the user key wins when present. Settings edits the user's copy (`settings::user_theme::UserTheme`; Reset deletes the user's keys, and "Make this the default for everyone", `user_theme::make_default`, writes the keys that differ to `sys/ui/*` through `elevd`, one approval each, then drops the user's copy). `xuid` paints the chrome for the uid that runs the shell (`ThemeFeed::follow_user`, from the shell's `Subscribe`) and follows `user/<uid>/confd/changed/ui/#`; LazyShell overlays the same keys. confd announces `user/<uid>/` changes in the kernel's per-uid topic namespace (`kernel/src/ipc/topics/private.rs`: only that uid and root may subscribe).
+8. **Accounts and elevation** (done, issues #624, #625, docs/accounts-plan.md 3.1): an Accounts page (`accounts_page.rs`, rules in `accounts_ops.rs`: list, add, remove, make admin, set another account's password, change your own), and every machine setting written through `elevd` on an explicit action (**Use this layout**, the menu's **Save**, **Use this zone**); a cancelled or refused prompt shows the stored value again.
+9. **Open**: the system-stat dashboards (sysmon, fabricmon) and the Terminal still paint a fixed light palette.
 
 Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
 
@@ -95,4 +99,4 @@ Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTI
 
 - xui toolkit is pinned to an external rev; use `Custom` painters instead of bumping it.
 - The UI scale (`sys/ui/scale`) stays machine-wide: the compositor fixes it at start-up.
-- No manifest enforcement yet; the app will later need `CAP_SYS_TIME`, `CAP_SYS_ADMIN`, confd write.
+- The app holds no capability: the clock, the zone and `sys/**` are written through `elevd` (above), never by `CAP_SYS_TIME` or `CAP_SYS_ADMIN`.

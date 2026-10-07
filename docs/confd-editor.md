@@ -101,9 +101,10 @@ screenshot sessions click by coordinate keep their positions.
 - The create pane is a single path field; it does not pre-fill from the current
   selection, and there is no inline validation feedback beyond the status line.
 - `user/<uid>/**` paths are only editable by their owner (or a system
-  service), and `sys/**` only by a system service (`CAP_SETUID`, issue #623).
-  The app runs in the user's desktop session, so it edits that user's keys and
-  shows the rest as read-only (`DENIED`).
+  service), and `sys/**` only by a system service (`CAP_SETUID`, issue #623)
+  or `elevd`. The app runs in the user's desktop session, so it edits that
+  user's keys and shows the rest only after **Elevate**, every change then
+  going through `elevd` (one prompt each).
 - The tree draws no icons and has no keyboard navigation; it relies on the
   `ListView`'s own selection and scrolling.
 - The window is fixed at 720×500; long paths are ellipsised by the label.

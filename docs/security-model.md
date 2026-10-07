@@ -28,7 +28,7 @@ after the table says what is actually enforced today.
 | Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth, device claims and DMA memory (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy beyond the label rules (5.4), fd/CPU quota enforcement |
 | Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
 | 128-entry hash-chained kernel audit ring, denials always recorded (9) | `auditd`, on-disk audit log, `CAP_AUDIT_READ` query interface, "why was this denied" UI |
-| Install consent in the Installer: requested permissions grouped by risk with `pkgd`'s explanations (6, 12); the elevation service `elevd` and the trusted prompt in `xuid` (10, issue #625) | Signed bundles and updates (11), first-use prompts, the red-team CI suite (13) |
+| Install consent in the Installer: requested permissions grouped by risk with `pkgd`'s explanations (6, 12); the elevation service `elevd` and the trusted prompt in `xuid` (10, issue #625); the account attack harness (`tools/accounts/run.py`, CI's `accounts` shard), whose U0-U2 scenarios must all be refused (13) | Signed bundles and updates (11), first-use prompts, the rest of the red-team CI suite (jail escape, clipboard exfiltration, sockets; 13) |
 
 What is enforced today, honestly:
 
@@ -72,8 +72,7 @@ What is enforced today, honestly:
   unrestricted install source, `mimed` `Unregister`, `xuid`'s privileged
   subscriptions and shell-only calls, and `init`'s launch-anywhere, `Stop`
   and `Shutdown` rules ask for `CAP_SETUID`, which `init` keeps for the
-  services and never stamps on a login session. A root login session is a
-  user like any other to them. `xuid` gives the shell role to an unlabelled
+  services and never stamps on a login session, whatever its uid. `xuid` gives the shell role to an unlabelled
   task of the session that owns the display, never displacing a live shell.
 - **No plaintext passwords.** `/system/etc/passwd` carries `x`; the
   verifiers are Argon2id hashes in the account database

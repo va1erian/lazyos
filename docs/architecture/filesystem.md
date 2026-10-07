@@ -430,14 +430,15 @@ applies each directory's mode and owner again so an older image converges to it:
 | `/boot`, `/home`, `/transient` | 0755 root | mount points |
 | `/system` (`bin`, `etc`, `share`, `packages`) | 0755 root | the build's files; `packages` empty until F5 |
 | `/conf` | 0700 root | `confd`'s store (`fhs::state::CONF_ROOT`); only `confd` reads it |
+| `/accounts` | 0700 `_accounts` (908) | the account database `/accounts/db` (`fhs::state::ACCOUNTS_DIR`, `libs/accountdb`); only `accountsd` reads it ([accounts-plan.md](../accounts-plan.md) U1) |
 | `/conf/svc` | 0700 root | non-key/value service state, `<service>/` each, made by its owner |
 | `/logs` | 0750 root | `logd`'s journals (`libs/logstore`) and `pkgd`'s `pkg.log`: everyone's activity, so not world-readable |
 | `/apps`, `/docs/apps` | 0755 root | installed apps and their documentation, written only by `pkgd` |
-| `/home/<name>` | 0700, the account's uid:gid | one per account of the embedded `/system/etc/passwd` whose home is `/home/<name>` (`fhs::home_of`); a mounted home volume hides them |
+| `/home/<name>` | 0700, the account's uid:gid | one per account of the seeded account database whose home is `/home/<name>` (`fhs::home_of`, `accounts_seed::homes`), a seed directory an update never re-creates or re-chowns; accounts made at runtime get theirs from `init.Home`; a mounted home volume hides them |
 | `/data` | 0755 root | transitional: nothing new is written there (`lazyrad` writes the user's home since F4); F7 removes it |
 
-All those services run as uid 0 today; when #446/#447 give each its own uid,
-the owners follow. F4 stopped seeding `/data/home/<user>` and `/data/tmp`: an
+Apart from `accountsd` (`_accounts`), those services run as uid 0 today; when
+#446/#447 give each its own uid, the owners follow. F4 stopped seeding `/data/home/<user>` and `/data/tmp`: an
 update removes them only when empty, so a user's files there survive until F7
 (`build_support/tests/f4_layout_tests.rs`). Since F3
 every file sits below one of these directories: programs in `/system/bin`

@@ -1,7 +1,13 @@
 # Security hardening plan: from model to reality
 
 Status: **planned** (2026-10-01). Phase 0 is tracked by #446 (kernel) and
-#447 (userspace and storage), which can be worked in parallel.
+#447 (userspace and storage), which can be worked in parallel. Phase 3 and
+the account parts of phases 0 and 1 have since landed through
+[`accounts-plan.md`](accounts-plan.md) U0-U2 (PRs #645, #659, #660, #661):
+graphical login, the session as the user with no capability, the account
+database `/accounts/db`, and `elevd` instead of `uid == 0` checks. Section 1
+is the survey as of 2026-10-01; [security-model.md](security-model.md)
+section 0 has today's state.
 
 Scope: make the [security model](security-model.md) true at runtime with the
 smallest set of changes. Concretely: no program runs as root without a reason,
@@ -53,7 +59,11 @@ label ACL engine. What makes the result pretend is how they are wired:
    `/system/etc/passwd`, the only account source (accountsd fails closed
    without it), and each home is the account's own `/home/<name>`, 0700, on
    the home volume or the OS volume. A login starts in it with `HOME`, `USER`
-   and `PATH` set. The passwords are still plaintext.)*
+   and `PATH` set. The passwords are still plaintext.)* *(Since accounts U0
+   and U1, #623 and #624: `admin` is uid 1001 in the `admin` group, nobody
+   logs in as uid 0, and accounts, groups and Argon2id verifiers live in the
+   account database `/accounts/db`, with `/system/etc/passwd` and `group` as
+   generated views.)*
 6. **Callers are identified by task slot.** Reading a sender's credentials
    needs `CAP_SETUID` (hence every service holds it), and slots are reused
    without a generation.
@@ -99,9 +109,10 @@ Split into two parallel issues over disjoint files.
   account whose home is `/home/<name>` (0700, the account's uid/gid), and
   `tools/mkdisk --home-volume` seeds the home volume the same way (done in
   filesystem F4, #508; the `/data/home` tree is no longer seeded).
-- No plaintext passwords: Argon2id hashes at build time, keyd verifiers
-  persisted in `/conf/svc/keyd` (0700 root, filesystem F4), no byte-compare
-  fallback without keyd, no keyd demo account.
+- No plaintext passwords: Argon2id hashes at build time, no byte-compare
+  fallback without keyd, no keyd demo account. (Landed: the verifiers live
+  in the account database `/accounts/db`, `_accounts`, 0600, which `keyd`
+  reads; accounts-plan U1.)
 - One credential table in init (the two `manifest_cred` functions merge), and
   `xuid` moves from the kernel launch path into init's manifest.
 - Kernel-started XAPP and console-shell profiles drop `CAP_INPUT_RAW`.
@@ -148,6 +159,12 @@ Split into two parallel issues over disjoint files.
   Services also stop being able to signal each other, which is the point.
 
 ## 6. Phase 3: real login and a real desktop session
+
+Landed as [`accounts-plan.md`](accounts-plan.md) U0 and U2 (#623, #625), with
+two changes from the list below: autostart stays in `init`, which runs it in
+the user's session as the user, and `elevd` never spawns an elevated child:
+it performs a fixed table of operations itself after an administrator types
+their name and password on `xuid`'s trusted prompt.
 
 1. Boot brings up `xuid` (as `_xui`) and a login screen; a console prompt is
    fine at first.

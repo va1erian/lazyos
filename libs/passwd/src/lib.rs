@@ -1,9 +1,11 @@
 //! The account file, `/system/etc/passwd` (issue #508, docs/filesystem-plan.md
 //! F4 section 3).
 //!
-//! One account per line, `name:uid:gid:x:home:shell`. The file is the
-//! **only** account source: `accountsd` has no built-in table, so this parser
-//! decides whether the machine has accounts at all. It is strict on purpose and
+//! One account per line, `name:uid:gid:x:home:shell`. Since accounts U1
+//! (docs/accounts-plan.md) the accounts live in the account database
+//! `/accounts/db` (`libs/accountdb`) and `/system/etc/passwd` is a view
+//! generated from it; this parser reads the build's seed
+//! (`build_support/passwd`) and checks the view. It is strict on purpose and
 //! fails closed: a file that is empty, too large, not text, has a malformed row
 //! or reuses a name or a uid yields a [`LoadError`] and no account, rather than
 //! the rows that happened to parse. A half-read account file is how a
@@ -11,12 +13,10 @@
 //!
 //! Blank lines and `#` comments are allowed; a trailing `\r` is ignored. The
 //! fourth field must be exactly `x`: the passwords are Argon2id verifiers in
-//! the root-only `/system/etc/shadow` ([`shadow`], issue #447), and a row that
-//! carries anything else (a plaintext secret, say) is refused like any other
-//! malformed row, so no secret can come back into the world-readable file.
-//!
-//! The image build parses its own copy with the same function, so a passwd
-//! that `accountsd` would refuse never reaches an image.
+//! the account database (in the [`shadow`] row format, issue #447), and a row
+//! that carries anything else (a plaintext secret, say) is refused like any
+//! other malformed row, so no secret can come back into the world-readable
+//! file.
 #![no_std]
 
 extern crate alloc;

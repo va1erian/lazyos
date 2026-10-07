@@ -64,7 +64,7 @@ The broker used to let only uid 0 publish under `system/` (`logd` treats that
 namespace as authentic), which also silently dropped `netdrv`'s
 `system/net/<nic>/link`. A dedicated system uid may now publish its own
 subtree and nothing else (`messengerd/filter.rs`: `_devd` `system/devices/`,
-`_net` `system/net/`).
+`_net` `system/net/`; also `_elev` `system/events/elevd/`, its audit trail).
 
 **Switch.** With a sound or network driver in the image, `init` starts `devd`
 instead of the static rows; `LAZYOS_DEVD=0` (`run_demo.py --no-devd`, the

@@ -11,9 +11,10 @@ same copy, so what the boot itself writes (``pkgd`` installing the core
 packages into ``/apps``, ``confd`` settling) is not blamed on the input.
 
 A change is a finding unless it is under ``/home/<user>``, ``/transient``,
-``/tmp`` or ``/logs`` (``DEFAULT_ALLOWED``). The desktop still runs as root,
-so findings are expected until the accounts work (#623) lands:
-``--accounts-expect-root`` reports them without failing the run.
+``/tmp`` or ``/logs`` (``DEFAULT_ALLOWED``). The session has run as ``user``
+since U0 (#623), so a finding fails the run; ``--accounts-expect-root`` (the
+known-open mode kept from when the desktop ran as root) reports them without
+failing it.
 """
 
 from __future__ import annotations

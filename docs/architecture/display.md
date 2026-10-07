@@ -468,18 +468,27 @@ older peers, and the no-shell sessions above are unchanged.
   to it until every button is released. A press on a panel never changes
   window focus; any other press sends the shell `Dismiss`, so it closes its
   popups.
-- **Authorization** (issues #157, #447). `Subscribe("shell")` is accepted
-  from uid 0 or `CAP_SETUID`, or from a task whose kernel-stamped
+- **Authorization** (issues #157, #447, #623). `Subscribe("shell")` is accepted
+  from a system service holding `CAP_SETUID` (never by uid), or from a task whose kernel-stamped
   `cred.session` is non-zero and is the session that owns the display: the
   first one accepted as the shell, recorded then. Before any session owns it,
   an unprivileged claim is only taken while no live shell holds the role. A
   shell from the owning session replaces the previous one (a restarted
   LazyShell). Any other role is a separate observer slot (same events) that
-  needs uid 0 or `CAP_SETUID` and never displaces the shell. Desktop and panel
+  needs `CAP_SETUID` and never displaces the shell. Desktop and panel
   `CreateSurface`, `ListSurfaces` and methods 37-41 are shell-only (the task
   holding the subscription, or a privileged one); anyone else gets `-EACCES`
   (a transferred handle is closed). The pure rules are boot-tested
   (`XUID:SHELLCALLS:PASS`).
+- **The trusted prompt** (issue #625, [accounts-plan.md](../accounts-plan.md)
+  U2 and section 3.1; `user/src/bin/xuid/prompt*.rs`). `xuid` serves
+  `os.lazy.display.prompt.v1` to `elevd` alone: a panel drawn on a dimmed
+  overlay above every client, which no client can draw over, read or
+  capture, asking an administrator's name and password for one `elevd`
+  request. Its keys come from `inputd` to a surface of the compositor's own;
+  the prompt opens only once `inputd` has confirmed that surface has the
+  keyboard (otherwise `EAGAIN`, `XUID:PROMPT:REFUSED`), so no window can
+  read the password.
 - **When the shell goes away.** The shell and observer endpoints are pinged
   with the surfaces about once a second; a dead (`EPIPE`) or replaced-by-another
   task shell is dropped, the work area returns to the whole screen and
