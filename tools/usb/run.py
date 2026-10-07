@@ -346,8 +346,12 @@ def main() -> int:
     if args.controllers > 1:
         judge += ["--controllers", str(args.controllers)]
     verdicts.append(subprocess.run(judge).returncode == 0)
-    # qemu-xhci has MSI and MSI-X (issue #616).
-    why = irqpath.judge(log.read_text(errors="replace"), args.irq_path, " armed ", True)
+    # qemu-xhci has MSI and MSI-X (issue #616), so usbd must arm on either
+    # path: a polled run says nothing about the interrupt path it was built for.
+    text = log.read_text(errors="replace")
+    why = irqpath.judge(text, args.irq_path, " armed ", True)
+    if why is None and irqpath.driver_mode(text, " armed ") is None:
+        why = "usbd never armed an interrupt (polled run)"
     print(f"USB:IRQPATH:{'FAIL' if why else 'PASS'} {args.irq_path}" + (f": {why}" if why else ""))
     verdicts.append(why is None)
     ok = all(verdicts)

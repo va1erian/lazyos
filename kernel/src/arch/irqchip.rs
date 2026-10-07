@@ -102,13 +102,17 @@ fn switch_to_ioapic() -> Result<(u32, u8), &'static str> {
     lapic::init(Some(madt.lapic_address))?;
     let dest = u8::try_from(lapic::id()).map_err(|_| "APIC ID above 255")?;
     let pins = ioapic::init(chip)?;
+    // The cascade carries no device of its own, and its GSI is the PIT's on
+    // every PC that overrides IRQ 0 to GSI 2.
+    let routed = (0..LINES).filter(|&line| line != 2);
+    // Every line must reach this chip before the 8259 is given up: a line
+    // left behind would be dead on both. `ioapic::init` left every input
+    // masked, so refusing here leaves the 8259 in charge as it was.
+    if routed.clone().any(|line| madt.isa_gsi(line).0 >= pins) {
+        return Err("a legacy line's GSI is past the I/O APIC at GSI 0");
+    }
     let pci = crate::dev::pci_intx_lines();
-    for line in 0..LINES {
-        // The cascade carries no device of its own, and its GSI is the PIT's
-        // on every PC that overrides IRQ 0 to GSI 2.
-        if line == 2 {
-            continue;
-        }
+    for line in routed {
         let (gsi, flags) = madt.isa_gsi(line);
         let bus = if pci & (1 << line) != 0 {
             Signal::PCI
