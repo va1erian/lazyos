@@ -35,13 +35,15 @@ impl OsSystem {
     /// Wait (briefly, bounded) until `timed` reports `zone`: it follows the
     /// confd key `elevd` wrote on its own change notification, so the page
     /// that re-reads the time right after would otherwise show the old zone.
-    fn await_zone(&self, zone: &str) {
+    /// False when `timed` has not switched within the bound.
+    fn await_zone(&self, zone: &str) -> bool {
         for _ in 0..ZONE_POLLS {
             if self.now().is_some_and(|now| now.zone == zone) {
-                return;
+                return true;
             }
             std::thread::sleep(std::time::Duration::from_millis(ZONE_POLL_MS));
         }
+        false
     }
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
@@ -162,8 +164,13 @@ impl System for OsSystem {
             Err(code) if -code == errno::EPERM => {
                 super::elevd::request("conf.set", &[timezone::ZONE_KEY, "str", zone])
                     .map_err(|error| super::elevd::describe(&error))?;
-                self.await_zone(zone);
-                Ok(())
+                if self.await_zone(zone) {
+                    Ok(())
+                } else {
+                    Err(String::from(
+                        "approved, but the time service has not switched to it yet",
+                    ))
+                }
             }
             Err(code) => Err(describe(code)),
         }

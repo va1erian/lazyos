@@ -2930,7 +2930,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "SetTime",
                 id: 670376986,
                 oneway: false,
-                doc: "Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped\ncredentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.",
+                doc: "Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped\ncredentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once\nan administrator approved `time.set`); anyone else gets `EPERM`.",
                 params: &[Field { name: "unix_secs", id: 1, ty: Ty::I64 }],
                 returns: &[],
                 transfers: &[],

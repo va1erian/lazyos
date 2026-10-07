@@ -10,7 +10,7 @@ use super::{abi_with, with};
 /// Change an attribute of `path` as `id` (search needed on every ancestor).
 pub fn abi_setattr(id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsError> {
     let changed = abi_with(|vfs| vfs.setattr(id, path, request)).unwrap_or(Err(FsError::NotFound));
-    abi_changed(path, Change::Content);
+    abi_changed(path, Change::Content, &changed);
     changed
 }
 
@@ -20,7 +20,7 @@ pub fn abi_setattr(id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsE
 pub fn abi_setattr_open(id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsError> {
     let changed =
         abi_with(|vfs| vfs.setattr_open(id, path, request)).unwrap_or(Err(FsError::NotFound));
-    abi_changed(path, Change::Content);
+    abi_changed(path, Change::Content, &changed);
     changed
 }
 
@@ -29,6 +29,6 @@ pub fn abi_setattr_open(id: Id, path: &str, request: AttrRequest) -> Result<Meta
 /// family gets (owner or root, read-only mounts refused first).
 pub fn vfs_setattr(id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsError> {
     let changed = with(|vfs| vfs.setattr(id, path, request)).unwrap_or(Err(FsError::NotFound));
-    native_changed(path, Change::Content);
+    native_changed(path, Change::Content, &changed);
     changed
 }

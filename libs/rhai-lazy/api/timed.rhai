@@ -51,7 +51,8 @@ fn set_zone(name) {
 /// `SetTime(unix_secs: I64) -> ()`
 ///
 /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
-/// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
+/// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+/// an administrator approved `time.set`); anyone else gets `EPERM`.
 fn set_time(unix_secs) {
     msg::connect("os.lazy.timed.v1").invoke("SetTime", [unix_secs])
 }

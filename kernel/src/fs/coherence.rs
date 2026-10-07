@@ -12,7 +12,7 @@
 //! layout the ABI root is an overlay over a different filesystem; dropping
 //! cache entries that did not change there costs one re-read and nothing else.
 
-use super::vfs::{Path, Vfs};
+use super::vfs::{FsError, Path, Vfs};
 use super::{abi_with, with};
 
 /// What a mutation changed about its path.
@@ -27,16 +27,43 @@ pub(super) enum Change {
     Name,
 }
 
-/// A native mutation changed `path`: drop the Linux ABI table's cache for it
-/// (`accountsd`'s `/system/etc/passwd` view, U1, is rewritten natively and
-/// read by Linux programs).
-pub(super) fn native_changed(path: &str, change: Change) {
-    abi_with(|vfs| apply(vfs, path, change));
+/// A native mutation of `path` ended with `result`: drop the Linux ABI
+/// table's cache for it (`accountsd`'s `/system/etc/passwd` view, U1, is
+/// rewritten natively and read by Linux programs), unless it was refused
+/// before it changed anything.
+pub(super) fn native_changed<T>(path: &str, change: Change, result: &Result<T, FsError>) {
+    if may_have_changed(result) {
+        abi_with(|vfs| apply(vfs, path, change));
+    }
 }
 
-/// A Linux ABI mutation changed `path`: drop the native table's cache for it.
-pub(super) fn abi_changed(path: &str, change: Change) {
-    with(|vfs| apply(vfs, path, change));
+/// A Linux ABI mutation of `path` ended with `result`: drop the native
+/// table's cache for it, unless it was refused before it changed anything.
+pub(super) fn abi_changed<T>(path: &str, change: Change, result: &Result<T, FsError>) {
+    if may_have_changed(result) {
+        with(|vfs| apply(vfs, path, change));
+    }
+}
+
+/// Whether a mutation that ended with `result` may have changed the volume.
+/// The refusals below are decided before anything is written (a lookup, a
+/// permission or a shape check), so a repeated failing `rmdir` of a full
+/// directory does not drop the other table's cache of everything below it;
+/// anything else (success, `NoSpace` or `Io` partway, an unexpected error)
+/// is treated as a change.
+fn may_have_changed<T>(result: &Result<T, FsError>) -> bool {
+    !matches!(
+        result,
+        Err(FsError::NotFound
+            | FsError::Exists
+            | FsError::NotDir
+            | FsError::IsDir
+            | FsError::NotEmpty
+            | FsError::Access
+            | FsError::NotPermitted
+            | FsError::ReadOnly
+            | FsError::NameTooLong)
+    )
 }
 
 fn apply(vfs: &mut Vfs, path: &str, change: Change) {

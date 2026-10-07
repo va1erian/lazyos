@@ -15924,7 +15924,8 @@ pub mod os_lazy_timed_v1 {
     }
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
-    /// credentials must hold `CAP_SYS_TIME`; anyone else gets `EPERM`.
+    /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+    /// an administrator approved `time.set`); anyone else gets `EPERM`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetTimeArgs {
         pub unix_secs: i64,

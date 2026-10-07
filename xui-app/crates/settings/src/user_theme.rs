@@ -6,8 +6,8 @@
 //! knowing it: a write lands on `user/<uid>/ui/<name>`, a read shows the
 //! user's value when it has one and the machine's otherwise, and "Reset to
 //! defaults" deletes the user's keys, which brings the machine theme back.
-//! Every account has a personal theme, administrators included
-//! ([`uitheme::personal`]: only uid 0, which no session runs as, edits the
+//! Every account but uid 0 has a personal theme, administrators included
+//! ([`uitheme::personal`]; uid 0, which no session runs as, edits the
 //! machine keys directly). The machine default (`sys/ui/*`, what the login
 //! screen and every account without its own value show) changes only
 //! through [`make_default`], whose writes go to `elevd` and so ask an

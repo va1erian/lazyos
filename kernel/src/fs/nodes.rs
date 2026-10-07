@@ -19,5 +19,9 @@ pub fn vfs_open_node(id: Id, path: &str, mask: u8) -> Result<Option<Node>, FsErr
 /// in the Linux ABI table's caches.
 pub fn abi_refresh(path: &str, meta: Meta) {
     super::abi_with(|vfs| vfs.refresh(path, meta));
-    super::coherence::abi_changed(path, super::coherence::Change::Content);
+    super::coherence::abi_changed(
+        path,
+        super::coherence::Change::Content,
+        &Ok::<(), FsError>(()),
+    );
 }

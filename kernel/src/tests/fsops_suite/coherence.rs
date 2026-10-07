@@ -203,8 +203,9 @@ pub(super) fn soak_cross_table_coherence() -> Result<(), String> {
         } else {
             (native_readable(), "native")
         };
+        let expected = if tight { Err(FsError::Access) } else { Ok(()) };
         check!(
-            seen.is_err() == tight,
+            seen == expected,
             "round {round}: the {other} table answered {seen:?} for mode {mode:o}"
         );
         if round % 5 == 0 {
