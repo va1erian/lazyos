@@ -134,6 +134,10 @@ mod powerfeed;
 mod present;
 #[path = "xuid/probe.rs"]
 mod probe;
+#[path = "xuid/prompt.rs"]
+mod prompt;
+#[path = "xuid/prompt_draw.rs"]
+mod prompt_draw;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[cfg(lazyos_desktop)]
@@ -229,7 +233,13 @@ fn run() -> ! {
         Ok(pair) => pair,
         Err(error) => fail("create_pair", errno_code(error)),
     };
-    if let Err(error) = registry::register(display::NAME, &published, &[display::INTERFACE], 0) {
+    // The display protocol and the trusted prompt (`prompt.rs`), which only
+    // `elevd` may open.
+    let interfaces = [
+        display::INTERFACE,
+        messenger_generated::os_lazy_display_prompt_v1::INTERFACE_ID,
+    ];
+    if let Err(error) = registry::register(display::NAME, &published, &interfaces, 0) {
         fail("register", errno_code(error));
     }
     sys::write_str("xuid: display bound, os.lazy.display.v1 published\n");
@@ -278,6 +288,7 @@ fn run() -> ! {
         held::selftest_held,
         cursor::selftest_cursor,
         shellcalls::selftest_shell_calls,
+        prompt::selftest_prompt,
     ] {
         sys::write_str(selftest());
     }
@@ -308,6 +319,7 @@ fn run() -> ! {
         comp.tick_power();
         comp.tick_opening();
         comp.tick_spinner();
+        comp.tick_prompt();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Park until a request, a shell event from `inputd` (pointer
@@ -340,6 +352,9 @@ fn run() -> ! {
                 Err(_) => 1,
             };
         if ready & 1 == 0 {
+            if let Some((txn, reply)) = comp.take_prompt_reply() {
+                let _ = server.reply(txn, &reply);
+            }
             comp.reap_dead_shell();
             continue;
         }
@@ -348,7 +363,13 @@ fn run() -> ! {
         let deadline = Some(now + FALLBACK_TICKS);
         match server.recv_with(&mut request_buf, deadline) {
             Ok(message) => {
-                if let Some(txn) = message.txn {
+                if Compositor::is_prompt_request(&message) {
+                    // Answered once the person at the screen does
+                    // (`take_prompt_reply` below), or refused now.
+                    if let (Some(reply), Some(txn)) = (comp.open_prompt(&message), message.txn) {
+                        let _ = server.reply(txn, &reply);
+                    }
+                } else if let Some(txn) = message.txn {
                     let reply = comp.handle_request(&message);
                     let _ = server.reply(txn, &reply);
                 } else if !protocol::carries_declared(&message) {
@@ -369,6 +390,9 @@ fn run() -> ! {
                 // The client end went away; keep compositing for the others.
             }
             Err(_) => {}
+        }
+        if let Some((txn, reply)) = comp.take_prompt_reply() {
+            let _ = server.reply(txn, &reply);
         }
         comp.reap_dead_shell();
     }

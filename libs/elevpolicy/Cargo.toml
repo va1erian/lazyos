@@ -1,0 +1,27 @@
+[package]
+name = "elevpolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "elevd's operation table: the privileged operations an administrator may approve, their argument checks and prompt text, the standing approvals and the identities the services trust (docs/accounts-plan.md U2, issue #625)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "elevpolicy"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/elevpolicy.rs`).
+fuzz = []
+
+[dependencies]
+# Account names, elevd's and accountsd's system uids.
+accountdb = { path = "../accountdb" }
+# The confd path rule and value type a `conf.*` operation carries.
+confd = { path = "../confd" }
+# The civil date a `time.set` prompt shows.
+timezone = { path = "../timed" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

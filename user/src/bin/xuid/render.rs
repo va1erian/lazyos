@@ -160,6 +160,11 @@ impl Compositor {
         if let Some(drag) = self.resize {
             super::anim::outline(screen, drag.outline, damage);
         }
+        // The trusted prompt (`prompt.rs`) over everything a client or the
+        // shell drew: nothing above it but the cursor and the power screen.
+        if let Some(prompt) = self.prompt.as_ref() {
+            super::prompt_draw::draw(screen, prompt, damage);
+        }
         // The shutting-down screen covers everything (the cursor overlay
         // stays hidden meanwhile, `Compositor::cursor_target`).
         if super::powerfeed::active() {

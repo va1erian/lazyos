@@ -9,8 +9,9 @@
 use alloc::format;
 use alloc::string::String;
 use messenger_generated::{
-    os_lazy_clipboard_v1 as clipboard, os_lazy_healthd_v1 as healthd, os_lazy_init_v1 as init,
-    os_lazy_logind_v1 as logind, os_lazy_mimed_v1 as mimed, os_lazy_pkgd_v1 as pkgd, topics,
+    os_lazy_clipboard_v1 as clipboard, os_lazy_elevd_v1 as elevd, os_lazy_healthd_v1 as healthd,
+    os_lazy_init_v1 as init, os_lazy_logind_v1 as logind, os_lazy_mimed_v1 as mimed,
+    os_lazy_pkgd_v1 as pkgd, topics,
 };
 
 /// Render one event payload for the log: the declared payload decoded to its
@@ -101,6 +102,20 @@ fn declared(topic: &str, payload: &[u8]) -> Option<String> {
         return Some(format!(
             "op={} app={} version={} ok={} uid={} detail={}",
             event.op, event.system_name, event.version, event.ok, event.actor_uid, event.detail
+        ));
+    }
+    // `elevd`'s audit trail (docs/accounts-plan.md U2): `/logs/elevd.log`.
+    if topics::matches(elevd::TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, topic) {
+        let record = elevd::decode_system_events_elevd_request(payload).ok()?;
+        return Some(format!(
+            "op={} outcome={} uid={} user={} label={} admin={} summary={}",
+            record.operation,
+            record.outcome,
+            record.uid,
+            record.user,
+            record.label,
+            record.admin,
+            record.summary
         ));
     }
     None

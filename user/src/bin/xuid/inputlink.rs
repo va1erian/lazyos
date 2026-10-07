@@ -268,9 +268,12 @@ impl Compositor {
                 None => return false,
             }
         }
-        if self.input.told_focus != Some(self.focused) {
-            match sent(link.note_focus(self.focused)) {
-                Some(true) => self.input.told_focus = Some(self.focused),
+        // While the trusted prompt is up no window has the keyboard
+        // (`prompt.rs`), which also ends any keyboard grab.
+        let focus = self.input_focus();
+        if self.input.told_focus != Some(focus) {
+            match sent(link.note_focus(focus)) {
+                Some(true) => self.input.told_focus = Some(focus),
                 Some(false) => {}
                 None => return false,
             }

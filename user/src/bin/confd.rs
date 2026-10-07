@@ -325,9 +325,14 @@ fn dispatch(
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
+    // A system service holds `CAP_SETUID`; `elevd` is one by its identity
+    // (docs/accounts-plan.md U2): it writes `sys/**` only for what an
+    // administrator approved on the trusted prompt. A session never is.
+    let cred = message.caller();
     let caller = confd::Caller {
         uid: caller_uid(message)?,
-        system: message.caller().caps & user::sys::CAP_SETUID != 0,
+        system: cred.caps & user::sys::CAP_SETUID != 0
+            || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
     };
     let method = message.method();
     match method {

@@ -121,12 +121,20 @@ impl Pkgd {
             return Err(self.refuse(&nobody, uid, "INSTALL", read_failure(code)));
         }
         let bytes = core::mem::take(&mut self.buffer);
-        let outcome = self.install_bytes(&bytes, uid);
+        let outcome = self.install_bytes(&bytes, uid, caller.system);
         self.buffer = bytes;
         outcome
     }
 
-    fn install_bytes(&mut self, bytes: &[u8], uid: u64) -> Result<Installed, Failure> {
+    /// Install `bytes` for `uid`. Replacing a core app is a system change
+    /// (docs/accounts-plan.md U2): only a system service (`elevd`, after an
+    /// administrator approved it) may.
+    fn install_bytes(
+        &mut self,
+        bytes: &[u8],
+        uid: u64,
+        system: bool,
+    ) -> Result<Installed, Failure> {
         let assessed = match assess(bytes) {
             Ok(assessed) => assessed,
             Err(info) => {
@@ -148,6 +156,13 @@ impl Pkgd {
         let package = &assessed.package;
         let system_name = &info.system_name;
         if let Some(shipped) = self.core_version(system_name) {
+            if !system {
+                let why = format!(
+                    "{} is a core app: replacing it needs an administrator (elevd pkg.update-core)",
+                    info.name
+                );
+                return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+            }
             if let Err(why) = provision::downgrade(&info.name, &shipped, &info.version) {
                 return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
             }

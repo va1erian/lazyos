@@ -61,12 +61,14 @@ pub fn errno_name(code: u64) -> Option<(&'static str, &'static str)> {
         13 => ("EACCES", "permission denied"),
         16 => ("EBUSY", "busy"),
         17 => ("EEXIST", "already exists"),
+        19 => ("ENODEV", "no such device"),
         22 => ("EINVAL", "invalid argument"),
         28 => ("ENOSPC", "no space left"),
         32 => ("EPIPE", "the service went away"),
         38 => ("ENOSYS", "not implemented"),
         110 => ("ETIMEDOUT", "timed out"),
         122 => ("EDQUOT", "quota exceeded"),
+        125 => ("ECANCELED", "cancelled"),
         _ => return None,
     })
 }

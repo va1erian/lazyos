@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use confd::Value;
 use xui_canvas::snapshot::{render_with, Snapshot};
-use xui_confd_editor::{ConfdEditorApp, MemStore, Msg, WINDOW};
+use xui_confd_editor::{ConfdEditorApp, MemStore, Msg, Scope, WINDOW};
 use xui_core::{Dip, Image, Theme};
 
 fn register_fonts() {
@@ -54,7 +54,7 @@ fn render(theme: Theme, messages: Vec<Msg>) -> Image {
             store.seed("sys/ui/mode", Value::Str("dark".into()));
             store.seed("sys/ui/anim", Value::Bool(true));
             store.seed("sys/time/hour24", Value::Bool(false));
-            ConfdEditorApp::build(ui, Rc::new(store))
+            ConfdEditorApp::build(ui, Rc::new(store), Scope::everything())
         },
         move |stage| {
             for msg in messages {
@@ -81,5 +81,41 @@ fn a_selected_key_and_the_create_form_render_in_both_themes() {
             let create = vec![Msg::NewToggle, Msg::NewPath("sys/ui/demo".into())];
             save(&render(theme, create), &format!("confd-new-key-{tag}.png"));
         }
+    });
+}
+
+/// An elevation that grants a store over every key (a test double of
+/// `elevd` after an administrator approved).
+struct Granting(Rc<MemStore>);
+
+impl xui_confd_editor::Elevation for Granting {
+    fn elevate(&self) -> Result<Rc<dyn xui_confd_editor::ConfStore>, String> {
+        Ok(self.0.clone())
+    }
+}
+
+#[test]
+fn the_own_scope_then_elevated_render() {
+    watchdog(|| {
+        let render_scope = |messages: Vec<Msg>| {
+            render_with(
+                Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)).theme(Theme::dark()),
+                |ui| {
+                    let store = Rc::new(MemStore::new());
+                    store.seed("sys/ui/mode", Value::Str("dark".into()));
+                    store.seed("user/1000/ui/accent", Value::U64(7));
+                    let scope = Scope::own(1000, Rc::new(Granting(store.clone())));
+                    ConfdEditorApp::build(ui, store, scope)
+                },
+                move |stage| {
+                    for msg in messages {
+                        stage.emit(msg);
+                    }
+                },
+            )
+            .expect("the headless render")
+        };
+        save(&render_scope(Vec::new()), "confd-own.png");
+        save(&render_scope(vec![Msg::Elevate]), "confd-elevated.png");
     });
 }

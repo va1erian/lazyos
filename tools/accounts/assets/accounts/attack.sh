@@ -15,6 +15,8 @@ res() {
     case "$2" in
     *denied*) e=EACCES ;;
     *permitted*) e=EPERM ;;
+    # pkgd refusing to replace a core app for a non-administrator (U2).
+    *"needs an administrator"*) e=EPERM ;;
     *"No such"*) e=ENOENT ;;
     *"Read-only"*) e=EROFS ;;
     *[Qq]uota*) e=EDQUOT ;;
@@ -115,10 +117,21 @@ autostart_pkg)
     ;;
 core_replace)
     # Replace a core app with a higher-versioned package of the same name
-    # (os.lazy.counter 99.0.0, the Counter's own program): only an admin
-    # should be able to (U3). Left installed, so the later boots run with it.
+    # (os.lazy.counter 99.0.0, the Counter's own program): only an admin,
+    # through elevd's pkg.update-core, may (U2). Left installed when it
+    # succeeds, so the later boots run with it.
     out=$(pkgctl install $SHARE/corereplace.lzp 2>&1)
     res $? "$out"
+    ;;
+prompt_over)
+    # The trusted prompt (U2): elevd asks for an administrator, and a window
+    # opens 5 s later while the prompt is up. The harness screenshots both,
+    # types into the prompt and cancels it; prompt_judge.py judges
+    # (prompt_over, prompt_keys). This prints the request's outcome last.
+    rhai $SHARE/elev_wait.rhai &
+    sleep 5
+    rhai $SHARE/open_window.rhai > /dev/null
+    wait
     ;;
 *)
     echo "ACCT:ATTACK:$name:ERROR:unknown"

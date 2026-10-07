@@ -5,6 +5,7 @@
 //! repaint" live in one place per method rather than at every call site.
 
 use alloc::vec::Vec;
+use libmessenger::Parcel;
 use user::messenger::display::{Canvas, Rect};
 
 use super::cursor::CursorOverlay;
@@ -15,6 +16,7 @@ use super::loginfeed::LoginFeed;
 use super::opening::Opening;
 use super::origin::OpenHint;
 use super::powerfeed::PowerFeed;
+use super::prompt::Prompt;
 use super::resize::ResizeDrag;
 use super::shell::{AltTab, Modifiers, ShellSub};
 use super::surface::{Drag, Surface};
@@ -97,6 +99,10 @@ pub(super) struct Compositor {
     pub(super) launch_hint: Option<OpenHint>,
     /// PIT tick at which the next client liveness probe is due.
     pub(super) next_probe: u64,
+    /// The trusted prompt `elevd` opened, while it is up (`prompt.rs`).
+    pub(super) prompt: Option<Prompt>,
+    /// The answered prompt's reply, for the main loop to send.
+    pub(super) prompt_reply: Option<(u64, Parcel)>,
 }
 
 impl Compositor {
@@ -137,6 +143,8 @@ impl Compositor {
             hints: Vec::new(),
             launch_hint: None,
             next_probe: 0,
+            prompt: None,
+            prompt_reply: None,
         }
     }
 

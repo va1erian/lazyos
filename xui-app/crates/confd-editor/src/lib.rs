@@ -19,6 +19,6 @@ mod view;
 
 pub use app::{ConfdEditorApp, Msg, WINDOW};
 pub use sections::{CreateOutcome, KeyEditor, NewKeyEditor};
-pub use store::{ConfStore, MemStore, StoreError, StoreInfo};
+pub use store::{ConfStore, Elevation, MemStore, Scope, StoreError, StoreInfo};
 pub use tree::{Row, Tree};
 pub use value_edit::Kind;

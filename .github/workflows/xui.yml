@@ -376,27 +376,27 @@ jobs:
           # every pointing device, kept by `inputd`.
           grep -q "xuid: pointer from inputd" shots/desktop/serial.log
 
-      # docs/usb-hid-plan.md, P2: kill `inputd` from the Terminal. `xuid`
-      # releases what it held and falls back to the kernel pointer stream,
-      # `init` restarts `inputd`, and `xuid` re-attaches and takes the
-      # pointer from it again; a click on the taskbar then restores the
-      # Counter (screenshot `02_taskbar_click_after_restart`).
+      # docs/usb-hid-plan.md, P2: restart `inputd` from the Terminal. A
+      # session cannot signal a service (#623), so it asks `elevd`
+      # (`service.restart`) and an administrator approves on the trusted
+      # prompt (docs/accounts-plan.md U2). `xuid` releases what it held and
+      # falls back to the kernel pointer stream, `init` restarts `inputd`,
+      # and `xuid` re-attaches and takes the pointer from it again; a click
+      # on the taskbar then restores the Counter (screenshot
+      # `02_taskbar_click_after_restart`).
       - name: Capture inputd restart (pointer handover)
         if: ${{ !cancelled() && matrix.shard == 'desktop' && steps.app.outputs.term != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
           LAZYOS_XUI_AUTOSTART: term,counter
-          # Killing a system service needs its uid since the session stopped
-          # being root (#623): `admin` is still uid 0 (with no capability)
-          # until accounts U1 (#624); then this step needs elevd (#625).
-          LAZYOS_AUTOLOGIN: admin
         run: |
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pointer_restart \
             --timeout 300 --script tools/screenshot/examples/xuid_pointer_restart.json \
             --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          grep -q "ELEVD:REQUEST op=service.restart .*admin=admin outcome=granted" shots/pointer_restart/serial.log
           grep -q "xuid: pointer back on the kernel stream" shots/pointer_restart/serial.log
           grep -qE "init: started inputd \\(pid [0-9]+, attempt 2\\)" shots/pointer_restart/serial.log
           test "$(grep -c "xuid: pointer from inputd" shots/pointer_restart/serial.log)" -ge 2

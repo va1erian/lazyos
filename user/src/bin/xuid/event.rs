@@ -24,6 +24,12 @@ impl Compositor {
         if super::powerfeed::active() {
             return;
         }
+        // The trusted prompt takes every key and press while it is up
+        // (`prompt.rs`): no client hears any of it.
+        if self.prompt.is_some() {
+            self.prompt_event(event);
+            return;
+        }
         match event.kind {
             EventKind::PointerMove => self.pointer_move((event.a as i32, event.b as i32)),
             EventKind::PointerDown => self.pointer_down(event.a as u32),

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attack_judge  # noqa: E402
 import audit  # noqa: E402
 import boot_judge  # noqa: E402
+import prompt_judge  # noqa: E402
 from attack_judge import Expect, judge  # noqa: E402
 
 TABLE = {
@@ -111,6 +112,74 @@ class BootJudgeTest(unittest.TestCase):
     def test_a_stop_without_the_sync_fails(self):
         self.assertTrue(boot_judge.judge_stop(self.STOP.replace("power: filesystems synced", "")))
         self.assertTrue(boot_judge.judge_stop(""))
+
+
+def png(path: Path, width: int, height: int, paint) -> None:
+    """Write an RGB PNG whose pixel (x, y) is `paint(x, y)`."""
+    import struct
+    import zlib
+    rows = b"".join(b"\0" + b"".join(bytes(paint(x, y)) for x in range(width))
+                    for y in range(height))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+                     + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+class PromptJudgeTest(unittest.TestCase):
+    """The trusted prompt (U2): the panel must survive a window opening over
+    it, and the typing must reach the prompt alone."""
+
+    UP = "XUID:PROMPT:UP uid=1000 label=0\n"
+    WINDOW = "XUIAPP:COUNTER:PASS\n"
+    DONE = ("XUID:PROMPT:DONE outcome=cancelled keys=7\n"
+            "ELEVD:REQUEST op=time.set uid=1000 label=0 session=1 admin=- outcome=cancelled\n"
+            "TERM:OUT:ACCT:PROMPT:CANCELLED\n")
+
+    def shots(self, covered: bool) -> Path:
+        import tempfile
+        out = Path(tempfile.mkdtemp())
+        x, y, w, h = prompt_judge.panel_rect(600, 300)
+        inside = lambda px, py: x <= px < x + w and y <= py < y + h  # noqa: E731
+        png(out / "shot_prompt_up.png", 600, 300,
+            lambda px, py: (40, 110, 70) if inside(px, py) else (0, 0, 0))
+        png(out / "shot_prompt_window.png", 600, 300,
+            lambda px, py: (200, 200, 200) if covered and inside(px, py) and px < x + w // 2
+            else ((40, 110, 70) if inside(px, py) else (9, 9, 9)))
+        return out
+
+    def test_an_intact_prompt_and_its_keys_are_blocked(self):
+        log = self.UP + self.WINDOW + self.DONE
+        markers = prompt_judge.markers(log, self.shots(covered=False))
+        self.assertIn("prompt_over:BLOCKED:panel_same=1.000", markers)
+        self.assertIn("prompt_keys:BLOCKED:keys=7", markers)
+        verdict = judge(markers, {"prompt_over": Expect("blocked"), "prompt_keys": Expect("blocked")})
+        self.assertEqual(verdict.failures, [])
+
+    def test_a_window_drawn_over_the_panel_succeeds(self):
+        log = self.UP + self.WINDOW + self.DONE
+        self.assertIn(":SUCCEEDED:", prompt_judge.over_marker(log, self.shots(covered=True)))
+
+    def test_a_window_that_never_opened_during_the_prompt_is_inconclusive(self):
+        shots = self.shots(covered=False)
+        self.assertIn(":ERROR:nowindow", prompt_judge.over_marker(self.UP + self.DONE, shots))
+        late = self.UP + self.DONE + self.WINDOW
+        self.assertIn(":ERROR:nowindow", prompt_judge.over_marker(late, shots))
+        self.assertIn(":ERROR:noprompt", prompt_judge.over_marker("", shots))
+
+    def test_keys_that_reached_a_client_succeed(self):
+        leaked = self.UP + self.DONE + "TERM:CMD:inject\n"
+        self.assertIn(":SUCCEEDED:", prompt_judge.keys_marker(leaked))
+        few = self.DONE.replace("keys=7", "keys=1")
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(few))
+        approved = self.DONE.replace("outcome=cancelled", "outcome=approved")
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(approved))
+        unheard = self.DONE.replace("ACCT:PROMPT:CANCELLED", "ACCT:PROMPT:OTHER:timeout")
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(unheard))
 
 
 NODE = "f 644 0 0 10 100 00000000000000aa {}"

@@ -7,6 +7,10 @@
 //! onto them. A `Refresh` re-lists the tree and re-reads the selected key
 //! (never clobbering a dirty buffer); live change-topic subscription is not
 //! wired, see `docs/confd-editor.md`.
+//!
+//! It lists the user's own keys (`user/<uid>/**`) until **Elevate** asks an
+//! administrator through `elevd` (docs/accounts-plan.md U2, [`Scope`]); then
+//! it lists every key, and every read and write goes through `elevd`.
 
 use std::rc::Rc;
 
@@ -17,7 +21,7 @@ use xui_core::layout::Insets;
 use xui_core::{Dip, HasText};
 
 use crate::sections::{self, CreateOutcome, KeyEditor, NewKeyEditor};
-use crate::store::ConfStore;
+use crate::store::{ConfStore, Elevation, Scope};
 use crate::tree::{Row, Tree};
 use crate::value_edit::{self, Kind};
 use crate::view::Widgets;
@@ -62,6 +66,8 @@ pub enum Msg {
     NewValue(String),
     /// Create the new key (two clicks when it exists).
     Create,
+    /// Ask an administrator for every key (`elevd`).
+    Elevate,
     /// The compositor asked the window to close.
     Close,
 }
@@ -69,6 +75,10 @@ pub enum Msg {
 /// The Config app.
 pub struct ConfdEditorApp {
     store: Rc<dyn ConfStore>,
+    /// The prefix listed: the user's own keys, or every key once elevated.
+    prefix: String,
+    /// How to elevate, until it was done.
+    elevation: Option<Rc<dyn Elevation>>,
     tree: Tree,
     visible: Vec<Row>,
     /// The labels last pushed to the `ListView`, so an unrelated update does
@@ -92,8 +102,12 @@ fn set_text(widget: &impl HasText, text: &str) {
 }
 
 impl ConfdEditorApp {
-    /// Builds the window's widgets over `store`.
-    pub fn build(ui: &mut Ui<Msg>, store: Rc<dyn ConfStore>) -> Result<ConfdEditorApp> {
+    /// Builds the window's widgets over `store`, listing `scope`.
+    pub fn build(
+        ui: &mut Ui<Msg>,
+        store: Rc<dyn ConfStore>,
+        scope: Scope,
+    ) -> Result<ConfdEditorApp> {
         ui.on_close(|| Some(Msg::Close));
         let widgets = Widgets::default();
         ui.root(
@@ -113,6 +127,8 @@ impl ConfdEditorApp {
 
         let mut app = ConfdEditorApp {
             store,
+            prefix: scope.prefix,
+            elevation: scope.elevation,
             tree: Tree::default(),
             visible: Vec::new(),
             rendered: Vec::new(),
@@ -141,12 +157,51 @@ impl ConfdEditorApp {
     /// Re-lists the tree, keeping the previous one on a list error, and
     /// re-reads the selected key without clobbering a dirty buffer.
     fn reload_tree(&mut self) {
-        match sections::reload_tree(&mut self.tree, &self.filter, self.store.as_ref()) {
+        let listed = sections::reload_tree(
+            &mut self.tree,
+            &self.filter,
+            self.store.as_ref(),
+            &self.prefix,
+        );
+        match listed {
             Ok(rows) => {
                 self.visible = rows;
                 self.editor.refresh(self.store.as_ref());
             }
             Err(error) => self.set_status(error.message()),
+        }
+    }
+
+    /// Elevate: an administrator approves on the trusted prompt, then every
+    /// key is listed and read and written through `elevd`.
+    fn on_elevate(&mut self) {
+        let Some(elevation) = self.elevation.clone() else {
+            return;
+        };
+        self.set_status("Waiting for an administrator to approve...".into());
+        match elevation.elevate() {
+            Ok(store) => {
+                println!("CONFDED:ELEVATE:PASS");
+                self.store = store;
+                self.prefix = String::new();
+                self.elevation = None;
+                self.editor = KeyEditor::default();
+                self.set_status("Elevated: every setting is shown.".into());
+                self.reload_tree();
+            }
+            Err(error) => {
+                println!("CONFDED:ELEVATE:FAIL");
+                self.set_status(format!("Not elevated: {error}"));
+            }
+        }
+    }
+
+    /// What the tree lists, for the scope line.
+    fn scope_text(&self) -> String {
+        if self.prefix.is_empty() {
+            "Every setting".into()
+        } else {
+            format!("Your settings ({})", self.prefix)
         }
     }
 
@@ -286,6 +341,8 @@ impl ConfdEditorApp {
             ui.set_visible(id, show_new);
         }
 
+        w.scope.get().set_text(&self.scope_text());
+        ui.set_enabled(w.elevate.get().id(), self.elevation.is_some());
         w.banner.get().set_text(&self.banner_text);
         w.status.get().set_text(&self.status_text);
         // The buttons' labels change their natural widths.
@@ -339,6 +396,7 @@ impl App for ConfdEditorApp {
             Msg::NewKind(index) => self.new_key.kind = Kind::from_index(index),
             Msg::NewValue(text) => self.new_key.text = text,
             Msg::Create => self.on_create(),
+            Msg::Elevate => self.on_elevate(),
         }
         self.sync(ui);
     }

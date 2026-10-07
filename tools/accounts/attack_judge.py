@@ -50,12 +50,17 @@ class Expect:
 
 
 U0 = "#623"
+U1 = "#624"
+U2 = "#625"
 U3 = "U3 (brick-proofing, no issue yet)"
 #: What an installed package writes: its tree, its docs, confd's record.
 INSTALL_PATHS = ("/apps", "/docs/apps", "/conf")
 
 #: Flip an entry to "blocked" when its phase lands. U0 (#623) landed: the
-#: desktop session runs as `user` with no capability.
+#: desktop session runs as `user` with no capability. U1 (#624): accounts
+#: change only through elevd, Authenticate is slowed. U2 (#625): the
+#: privileged service paths answer elevd alone, the trusted prompt holds,
+#: and a core app is replaced only through elevd.
 EXPECTATIONS: dict[str, Expect] = {
     "uid": Expect("blocked", U0),
     "rm_system": Expect("blocked", U0, ("/system/share/accounts",)),
@@ -66,7 +71,20 @@ EXPECTATIONS: dict[str, Expect] = {
     "read_home_admin": Expect("blocked", U0),
     "signal_service": Expect("blocked", U0),
     "autostart_root": Expect("blocked", U0, side_effects=INSTALL_PATHS),
-    "core_replace": Expect("xfail", U3, INSTALL_PATHS),
+    "acct_create": Expect("blocked", U1, ("/conf", "/home")),
+    "acct_delete": Expect("blocked", U1, ("/conf", "/home")),
+    "acct_promote": Expect("blocked", U1, ("/conf",)),
+    "acct_password": Expect("blocked", U1, ("/conf",)),
+    "keyd_forget": Expect("blocked", U1),
+    "auth_flood": Expect("blocked", U1),
+    "direct_time": Expect("blocked", U2),
+    "direct_restart": Expect("blocked", U2),
+    "prompt_spoof": Expect("blocked", U2),
+    "input_focus": Expect("blocked", U2),
+    "display_read": Expect("blocked", U2),
+    "prompt_over": Expect("blocked", U2),
+    "prompt_keys": Expect("blocked", U2),
+    "core_replace": Expect("blocked", U2, INSTALL_PATHS),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
 }

@@ -55,6 +55,7 @@ import attack_judge  # noqa: E402
 import audit  # noqa: E402
 import boot_judge  # noqa: E402
 import probe_packages  # noqa: E402
+import prompt_judge  # noqa: E402
 
 IMAGE = ROOT / "target/lazyos.img"
 BUSYBOX = ROOT / "target/abi/busybox/busybox"
@@ -67,7 +68,12 @@ GUEST = "/system/share/accounts"
 #: The attack session's commands, in order (attack.sh or a rhai script each).
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_home_admin",
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
-RHAI_ATTACKS = {"confd_sys": "confd_sys.rhai", "keyd_provision": "keyd_provision.rhai"}
+RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
+    "confd_sys", "keyd_provision",
+    # U1 (#624): accounts change only through elevd; Authenticate is slowed.
+    "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "auth_flood",
+    # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
+    "direct_time", "direct_restart", "prompt_spoof", "input_focus", "display_read")}
 #: A step that only prepares a scenario prints this marker instead.
 SETUP_MARKERS = {"autostart_pkg": "TERM:OUT:ACCT:INSTALL:autostart_pkg:"}
 
@@ -135,12 +141,33 @@ def warm_session() -> list[dict]:
     return [*focus_terminal(), *power_off()]
 
 
+def prompt_steps() -> list[dict]:
+    """The trusted prompt (U2): elevd asks, a window opens over the prompt,
+    the session types into it and cancels; screenshots before and after the
+    window for `prompt_judge`. The Counter then has the focus: click the
+    Terminal again by name (`LAZYOS_UI_PROBE`) before the next command."""
+    return [
+        {"at": 1.0, "type": f"sh {GUEST}/attack.sh prompt_over"},
+        {"at": 0.5, "key": "enter", "until": "XUID:PROMPT:UP", "timeout": 120, "retries": 1},
+        {"at": 1.0, "shot": "prompt_up"},
+        {"wait_for": "XUIAPP:COUNTER:PASS", "timeout": 120},
+        {"at": 3.0, "shot": "prompt_window"},
+        {"at": 0.5, "type": prompt_judge.TYPED},
+        {"at": 0.5, "key": "esc", "until": "XUID:PROMPT:DONE", "timeout": 60, "retries": 1},
+        {"wait_for": "TERM:OUT:ACCT:PROMPT:", "timeout": 120},
+        {"at": 2.0, "click_at": {"window": "Terminal", "offset": [250, 150]}, "timeout": 60},
+        # The first key after clicking back into the Terminal from another
+        # window is lost (with or without the prompt): spend it on End.
+        {"at": 1.0, "key": "end"},
+    ]
+
+
 def attack_session(names: list[str]) -> list[dict]:
     steps = focus_terminal()
     for name in names:
         until = SETUP_MARKERS.get(name, f"TERM:OUT:ACCT:ATTACK:{name}:")
         steps += command(command_for(name), until, timeout=180)
-    return [*steps, *power_off()]
+    return [*steps, *prompt_steps(), *power_off()]
 
 
 def verify_session() -> list[dict]:
@@ -226,7 +253,8 @@ def main() -> int:
     failures += [] if ok else ["verify session did not complete"]
     failures += boot_judge.judge_boot(log, "verify")
     # The package the attack session installed opened at this login: as whom?
-    verdict = attack_judge.judge(attack_log + "\n" + attack_judge.autostart_marker(attack_log, log))
+    verdict = attack_judge.judge(attack_log + "\n" + attack_judge.autostart_marker(attack_log, log)
+                                 + "\n" + prompt_judge.markers(attack_log, args.out / "attack"))
     failures += verdict.failures
     excused = [path for name in verdict.open_attacks
                for path in attack_judge.EXPECTATIONS[name].touches]

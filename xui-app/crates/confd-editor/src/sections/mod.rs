@@ -20,8 +20,9 @@ pub fn reload_tree(
     tree: &mut Tree,
     filter: &str,
     store: &dyn ConfStore,
+    prefix: &str,
 ) -> Result<Vec<Row>, StoreError> {
-    let paths = store.list("")?;
+    let paths = store.list(prefix)?;
     tree.refresh(paths);
     Ok(tree.rows(filter))
 }

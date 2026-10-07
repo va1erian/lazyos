@@ -47,7 +47,11 @@ impl Compositor {
             .surfaces
             .iter()
             .any(|s| s.id == surface && s.is_window() && !s.minimized);
-        let allow = kind == wire::GRANT_KIND_KEYBOARD && self.focused == Some(surface) && on_screen;
+        // Never while the trusted prompt has the keyboard (`prompt.rs`).
+        let allow = kind == wire::GRANT_KIND_KEYBOARD
+            && self.focused == Some(surface)
+            && on_screen
+            && self.prompt.is_none();
         sys::write_str(&format!(
             "XUID:GRAB:ASK surface={surface} allow={}\n",
             u8::from(allow)

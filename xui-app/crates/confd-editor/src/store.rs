@@ -7,6 +7,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 pub use confd::Value;
 
@@ -101,6 +102,43 @@ pub trait ConfStore {
     fn delete(&self, path: &str) -> Result<(), StoreError>;
     /// The store directory and whether it is persistent.
     fn info(&self) -> Result<StoreInfo, StoreError>;
+}
+
+/// Access beyond the user's own keys (docs/accounts-plan.md U2): every key,
+/// `sys/**` writes included, once an administrator approved it on the
+/// trusted prompt (`elevd`). Nothing is handed to the app: the returned store
+/// asks `elevd`, which performs each read and write itself.
+pub trait Elevation {
+    /// The store over every key, or the refusal to show.
+    fn elevate(&self) -> Result<Rc<dyn ConfStore>, String>;
+}
+
+/// What the editor lists, and whether it may ask for more.
+#[derive(Clone)]
+pub struct Scope {
+    /// The prefix listed (`user/<uid>` by default; empty: every key).
+    pub prefix: String,
+    /// How to ask for every key, when it can.
+    pub elevation: Option<Rc<dyn Elevation>>,
+}
+
+impl Scope {
+    /// Every key the store lets the caller see, with no way to elevate
+    /// (tests, previews).
+    pub fn everything() -> Scope {
+        Scope {
+            prefix: String::new(),
+            elevation: None,
+        }
+    }
+
+    /// `uid`'s own keys, elevating through `elevation`.
+    pub fn own(uid: u32, elevation: Rc<dyn Elevation>) -> Scope {
+        Scope {
+            prefix: format!("user/{uid}"),
+            elevation: Some(elevation),
+        }
+    }
 }
 
 /// An in-memory store for tests and previews, with the service's own rules.

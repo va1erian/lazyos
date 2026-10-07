@@ -10,7 +10,8 @@ while Config knows nothing about any key and works from the tree `List` returns.
 
 | Concern | Mechanism |
 |---|---|
-| Browse | `List("")` fills a folder tree; a leaf's value is `Get` lazily when selected |
+| Scope | the user's own keys (`List("user/<uid>")`) until **Elevate** (docs/accounts-plan.md U2): `elevd` asks an administrator on the trusted prompt, then every key is listed, read and written through `elevd` (`conf.*` operations; the approval stands five minutes) |
+| Browse | `List(<scope>)` fills a folder tree; a leaf's value is `Get` lazily when selected |
 | Edit | kind picker (bool, i64, u64, string, bytes) + a value field; `Set` on Apply |
 | Create | path + kind + value, validated with `confd::validate_path` |
 | Delete | `Delete`, behind a two-click confirmation |
@@ -79,20 +80,18 @@ screenshot sessions click by coordinate keep their positions.
   apply/delete failure atomicity, read-only `DENIED`, external change vs dirty,
   new-key validation/clobber, delete cancel, list-error tree retention).
 - Kernel/confd: `cargo test -p confd` is unaffected (no `libs/confd` change).
-- Visual: `tools/screenshot/examples/xui_confd.json` — opens Config from the
-  desktop menu, creates `sys/ui/demo` (a scratch key that sorts before the seeded `sys/ui/menu`, so the session never edits a real setting), filters the tree down to it, selects the key, edits
-  the value to `light` and applies it, then closes. Serial markers:
-  `CONFDED:UP:PASS`, `CONFDED:MSG:<Msg>`, `CONFDED:CLOSE:PASS` (plus the
-  `confd` service's own `CONFD:READY`). The write is to a scratch key, so the session leaves the desktop theme alone.
-
-  The session gates on `XUID:UP:PASS` and `PKGD:PROVISION:DONE` (Config is a
-  core package, greyed in the menu until `pkgd` installs it), not
-  `TERM:UP:PASS`, and its in-app
-  pointer coordinates assume Config is the only open window, so it takes the
-  first tiling cell; run it against a desktop built with
-  no app at boot (the default: `LAZYOS_XUI_AUTOSTART` unset or `none`). It was
-  verified headless on Windows/QEMU with `shots/confd/*.png` read and
-  `pngstats.py` reporting every shot non-blank.
+- Visual: `tools/screenshot/examples/xui_confd.json` (an image built with
+  `LAZYOS_DESKTOP=1 LAZYOS_AUTOLOGIN=user LAZYOS_UI_PROBE=1` and no app at
+  boot) — opens Config from the desktop menu (by name, `UI:RECT` probes),
+  which lists only `user/1000/**`; creates the user key `user/1000/demo`;
+  clicks **Elevate**, types `admin`/`nimda` on the trusted prompt
+  (`CONFDED:ELEVATE:PASS`); creates `sys/ui/demo` (a scratch key that sorts
+  before the seeded `sys/ui/menu`, so the session never edits a real
+  setting) through `elevd`; filters the tree down to it, selects the key,
+  edits the value to `light` and applies it, then closes. Serial markers:
+  `CONFDED:UP:PASS`, `CONFDED:MSG:<Msg>`, `CONFDED:ELEVATE:PASS`,
+  `CONFDED:CLOSE:PASS`, `ELEVD:REQUEST op=conf.* ... outcome=granted`. Its
+  window offsets assume Config is the only open window.
 - CI: clippy `-D warnings`, `cargo fmt`.
 
 ## Open risks

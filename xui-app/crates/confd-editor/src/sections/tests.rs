@@ -22,7 +22,7 @@ fn a_list_error_leaves_the_previous_tree() {
     let mut tree = Tree::new(vec!["sys/old".to_string()]);
     let before = tree.paths().to_vec();
     *store.fail_lists.borrow_mut() = Some(StoreError::Io);
-    assert!(reload_tree(&mut tree, "", &store).is_err());
+    assert!(reload_tree(&mut tree, "", &store, "").is_err());
     assert_eq!(tree.paths(), before.as_slice());
 }
 
@@ -277,4 +277,17 @@ fn dirty_tracks_kind_change() {
     editor.apply(&store).unwrap();
     assert!(!editor.dirty());
     assert_eq!(store.get("sys/a"), Ok(Some(Value::U64(1))));
+}
+
+#[test]
+fn the_own_scope_lists_only_the_users_keys() {
+    let store = store();
+    store.seed("sys/ui/mode", Value::Str("dark".into()));
+    store.seed("user/1000/ui/accent", Value::U64(7));
+    store.seed("user/1001/ui/accent", Value::U64(9));
+    let mut tree = Tree::default();
+    reload_tree(&mut tree, "", &store, "user/1000").unwrap();
+    assert_eq!(tree.paths(), ["user/1000/ui/accent".to_string()]);
+    reload_tree(&mut tree, "", &store, "").unwrap();
+    assert_eq!(tree.paths().len(), 3);
 }
