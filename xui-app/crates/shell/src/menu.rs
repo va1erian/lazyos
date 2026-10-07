@@ -10,24 +10,26 @@
 //! (installed ones and the built-in desktop programs, everything `ListApps`
 //! gives a category), each opening a [`submenu`] of that category's apps
 //! ([`groups`]); then the apps the user pinned (`sys/ui/menu`, none by
-//! default: every app is in its category), then the two power rows
-//! ([`power`]). A submenu lists every app of its category, pinned or not, at
+//! default: every app is in its category), then the three session rows
+//! ([`power`]: "Log out...", "Restart...", "Shut down..."). A submenu lists every app of its category, pinned or not, at
 //! most [`groups::MAX_PER_CATEGORY`]. The category section scrolls with the
 //! wheel ([`Menu::scroll_by`]) when it is taller than the room above the
 //! pinned rows.
 //!
 //! The panel's bottom sits on the taskbar, so rows are placed from the
-//! bottom (the screenshot sessions click them by coordinate): the power rows'
-//! centres are `H - 72` ("Restart...") and `H - 48` ("Shut down..."), and with
-//! nothing pinned the last category row is at `H - 96`, the one above it at
-//! `H - 120`, and so on, at `x = 134`. On a 720-pixel desktop without
-//! networking that is Utilities at `y = 624`, System at 600, Office at 576,
-//! Graphics at 552, Development at 528 and Accessories at 504. A submenu too
+//! bottom (the screenshot sessions click them by coordinate): the session
+//! rows' centres are `H - 96` ("Log out..."), `H - 72` ("Restart...") and
+//! `H - 48` ("Shut down..."), and with nothing pinned the last category row
+//! is at `H - 120`, the one above it at `H - 144`, and so on, at `x = 134`.
+//! On a 720-pixel desktop without networking that is Utilities at `y = 600`,
+//! System at 576, Office at 552, Graphics at 528, Development at 504 and
+//! Accessories at 480. Prefer clicking rows by name (`{"click_at": {"menu":
+//! "System"}}`, issue #538). A submenu too
 //! tall for its row slides up onto the taskbar, so its last rows are fixed
 //! too: in System, Terminal is at `(338, 672)`, System Monitor at 648 and
 //! Settings at 624. A pinned entry the image does not ship stays in the
 //! list, greyed and disabled, so pinned row `j` of `m` is centred at
-//! `y = H - 48 - (m + 1 - j) * 24` however the image was built. Hiding a
+//! `y = H - 48 - (m + 2 - j) * 24` however the image was built. Hiding a
 //! pinned app removes its row, which moves the rows above it down by one.
 //!
 //! The panel is [`WIDTH`] wide, sits at `x = 0` with its bottom edge on the
@@ -319,3 +321,5 @@ fn installed_entry(id: &str, name: &str) -> Option<Entry> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod power_tests;

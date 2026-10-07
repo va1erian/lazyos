@@ -112,9 +112,8 @@ impl TrayState {
         }
     }
 
-    /// Lay the cells out left of `clock_x`, the left edge of what sits right
-    /// of the tray (the Log out button, then the clock); the width the window
-    /// entries must leave free on top of those.
+    /// Lay the cells out left of the clock at `clock_x`; the width the
+    /// window entries must leave free.
     pub fn relayout(&self, clock_x: i32) -> i32 {
         let next = layout::layout(&self.model.borrow(), clock_x);
         let reserved = next.reserved;

@@ -1,5 +1,6 @@
-//! The start menu's power rows, acted on (docs/shutdown.md): a confirmed
-//! "Restart now" / "Shut down now" asks `init` for an orderly stop.
+//! The start menu's session rows, acted on (docs/shutdown.md): a confirmed
+//! "Restart now" / "Shut down now" asks `init` for an orderly stop, and a
+//! confirmed "Log out now" asks `logind` to end the session (issue #623).
 //!
 //! The shell raises nothing itself: `init` publishes its first
 //! `system/power/state` phase before stopping anything, and the compositor
@@ -14,7 +15,8 @@
 //!
 //! Serial markers: `SHELL:POWER:CONFIRM`, `SHELL:POWER:REQUEST mode=<m>
 //! phase=<p>`, `SHELL:POWER:REQUEST:FAIL mode=<m> errno=<e>` (`m` is the
-//! `PowerMode` value: 0 power off, 1 reboot).
+//! `PowerMode` value: 0 power off, 1 reboot); for a logout
+//! `SHELL:LOGOUT:REQUEST session=<id>` or `SHELL:LOGOUT:FAIL errno=<e>`.
 
 use lazyshell::menu::Power;
 use messenger_generated::os_lazy_init_v1 as init_wire;
@@ -29,14 +31,24 @@ pub fn confirming() {
     println!("SHELL:POWER:CONFIRM");
 }
 
-/// Ask `init` to stop the machine with `power`.
+/// End the session (`logind`) or stop the machine (`init`) for `power`.
 pub fn request(power: Power) {
     let mode = match power {
+        Power::Logout => return logout(),
         Power::PowerOff => init_wire::POWER_MODE_POWER_OFF,
         Power::Reboot => init_wire::POWER_MODE_REBOOT,
     };
     match services::shutdown(mode, REASON) {
         Ok(phase) => println!("SHELL:POWER:REQUEST mode={mode} phase={phase}"),
         Err(code) => println!("SHELL:POWER:REQUEST:FAIL mode={mode} errno={}", -code),
+    }
+}
+
+/// Ask `logind` to end this desktop session: `init` then stops its tasks
+/// (this shell included) and the login screen comes back.
+fn logout() {
+    match services::logout() {
+        Ok(session) => println!("SHELL:LOGOUT:REQUEST session={session}"),
+        Err(code) => println!("SHELL:LOGOUT:FAIL errno={}", -code),
     }
 }

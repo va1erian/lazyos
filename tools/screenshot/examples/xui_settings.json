@@ -238,9 +238,9 @@
  {
   "mouse_move": [
    90,
-   -104
+   -128
   ],
-  "note": "start menu: the System row (134,600)"
+  "note": "start menu: the System row (134,576)"
  },
  {
   "wait_for": "SHELL:SUBMENU:OPEN category=system",
@@ -249,7 +249,7 @@
  {
   "mouse_move": [
    204,
-   0
+   24
   ],
   "note": "System submenu: Settings (338,600)"
  },

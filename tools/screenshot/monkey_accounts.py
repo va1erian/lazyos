@@ -37,7 +37,7 @@ BAD_TARGET = re.compile(r"shut|power|restart|reboot|halt|poweroff|suspend", re.I
 INTEREST = re.compile(r"setting|install|account|user|password|login|log ?in|log ?out|sign ?out|elev|"
                       r"admin|passwd|permission|grant|allow|deny|cancel|ok$|lock", re.I)
 # What `open` looks for in the start menu and its submenus, most wanted first.
-APPS = ["Settings", "Package Installer", "Log out", "Logout", "Sign out", "Accounts", "Users"]
+APPS = ["Settings", "Package Installer", "Accounts", "Users"]
 FOCUS = ["elevd:password", "login:password", "dialog:password"]
 
 # Share of each kind in the account profile; "base" is the plain monkey's own
@@ -70,7 +70,7 @@ def random_password(rng) -> str:
     return "".join(rng.choice(pool) for _ in range(rng.randint(1, 24)))
 
 
-ACTIONS = ("open", "goto", "acct_shell", "password")
+ACTIONS = ("open", "goto", "acct_shell", "password", "logout")
 
 
 def uses_accounts(replay: list[dict] | None) -> bool:
@@ -197,7 +197,7 @@ class AccountMonkey:
         if kind == "open":
             return {"a": "open", "app": r.choice(APPS)}
         if kind == "logout":
-            return {"a": "open", "app": r.choice(["Log out", "Logout", "Sign out"])}
+            return {"a": "logout"}
         if kind == "goto":
             self.pump()
             cands = goto_candidates(self.probe)
@@ -220,6 +220,8 @@ class AccountMonkey:
             self._open(act["app"])
         elif kind == "goto":
             self._count(kind, act.get("t") and self._click(act["t"]), json.dumps(act.get("t")))
+        elif kind == "logout":
+            self._logout()
         elif kind == "acct_shell":
             self._count(kind, True)
             self._click({"window": "Terminal"})  # focus it when it is there; typing goes on regardless
@@ -277,6 +279,17 @@ class AccountMonkey:
         else:
             self.skipped[f"open:{app}"] += 1
             self.qmp.press_key("esc")  # close what we opened
+
+
+    def _logout(self) -> None:
+        """LazyOS menu -> "Log out...", then its confirmation "Log out now"
+        (it only appears once the first row is chosen; #653)."""
+        self._open("Log out...")
+        if self._wait_rect("menu:Log out now", 1.5) and self._click("menu:Log out now"):
+            self.done["logout"] += 1
+        else:
+            self.skipped["logout:no confirmation row"] += 1
+            self.qmp.press_key("esc")
 
 
 def add_arguments(p) -> None:
