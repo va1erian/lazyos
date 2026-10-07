@@ -6,7 +6,9 @@ use alloc::vec::Vec;
 
 use crate::audit::{token, Line};
 use crate::package::{self, Facts, Permission};
-use crate::text::{elide, elide_path, misleading, plain, quoted, shown, wrap, ELLIPSIS};
+use crate::text::{
+    elide, elide_path, misleading, plain, plain_rows, quoted, shown, wrap, ELLIPSIS,
+};
 use crate::*;
 
 fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
@@ -32,6 +34,34 @@ fn misleading_characters_are_recognised() {
     }
     assert!(plain("Café au lait"));
     assert!(!plain("abc\u{202e}fed"));
+    assert!(plain_rows("editor\tEditor\nfiles\tFiles\n"));
+    assert!(!plain_rows("a\r\nb"));
+    assert!(!plain_rows("a\n\u{2028}b"));
+}
+
+#[test]
+fn a_set_value_may_hold_rows_but_never_a_raw_line_in_the_audit() {
+    let menu = "editor\tEditor\nfiles\tFiles\n";
+    let summary = parse("conf.set", &["sys/ui/menu", "str", menu])
+        .unwrap()
+        .summary();
+    assert!(
+        !summary.contains('\n') && !summary.contains('\t'),
+        "{summary}"
+    );
+    assert!(summary.contains("\\t"), "{summary}");
+    let forged = "x\nELEVD:REQUEST op=account.admin uid=0 admin=forged outcome=granted";
+    let summary = parse("conf.set", &["sys/ui/demo", "str", forged])
+        .unwrap()
+        .summary();
+    let line = Line {
+        operation: "conf.set",
+        outcome: "granted",
+        summary: &summary,
+        ..Line::default()
+    };
+    assert!(!line.serial().contains('\n'), "{}", line.serial());
+    assert!(parse("conf.set", &["sys/ui/demo", "str", "x\r\nELEVD:REQUEST"]).is_err());
 }
 
 #[test]
@@ -107,16 +137,19 @@ fn wrap_marks_a_cut_with_an_ellipsis() {
 #[test]
 fn text_values_with_control_or_bidi_characters_are_refused() {
     for value in [
-        "a\nb",
+        "a\r\nb",
         "x\u{202e}y",
-        "tab\there",
         "\u{2066}iso\u{2069}",
         "nb\u{a0}sp",
+        "line\u{2028}sep",
     ] {
         assert!(
             parse("conf.set", &["sys/ui/demo", "str", value]).is_err(),
             "{value:?}"
         );
+    }
+    // Only a stored text value may hold rows; a policy word may not.
+    for value in ["a\nb", "tab\there", "x\u{202e}y", "nb\u{a0}sp"] {
         assert!(
             parse("power.policy", &["button", value]).is_err(),
             "{value:?}"

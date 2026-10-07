@@ -64,6 +64,16 @@ pub fn plain(text: &str) -> bool {
     !text.chars().any(misleading)
 }
 
+/// `text` holds no [`misleading`] character but line breaks and tabs: a
+/// stored value with rows and columns (`sys/ui/menu` is `app\tlabel\n`
+/// rows). Both are shown and audited escaped (`\n`, `\t`), so neither can
+/// end a prompt line or an audit line; a carriage return stays refused.
+pub fn plain_rows(text: &str) -> bool {
+    !text
+        .chars()
+        .any(|c| c != '\n' && c != '\t' && misleading(c))
+}
+
 /// A character the prompt's font draws as itself: printable ASCII and
 /// Latin-1 (U+00A0, a space that is not one, and the soft hyphen excluded).
 fn drawable(c: char) -> bool {

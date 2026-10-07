@@ -304,7 +304,9 @@ during a prompt (`input_flood`) and raises prompts back to back
   `conf.list` prefix, a package path) **refuse** control characters,
   Unicode format characters (bidi embeddings and overrides U+202A-202E,
   isolates U+2066-2069, marks U+200E/F, zero-width characters, U+FEFF, line
-  and paragraph separators) and every space but U+0020 (`EINVAL`); text
+  and paragraph separators) and every space but U+0020 (`EINVAL`), except
+  that a `conf.set` `str` value may hold rows and columns (`\n`, `\t`:
+  `sys/ui/menu` is `app<TAB>label` lines), shown and audited escaped; text
   from elsewhere (a package's name, author, version, permissions) is shown
   **escaped** (`\u{202e}`, `\n`), as is anything the prompt's font cannot
   draw (it has ASCII and Latin-1), and `\` and `"`, so a quoted value ends
@@ -320,7 +322,7 @@ during a prompt (`input_flood`) and raises prompts back to back
   (`[A-Za-z0-9._()-]`, anything else `_`), and the summary is the last
   field, quoted, with `\`, `"` and everything else escaped:
   `... outcome=granted summary="Set the setting sys/ui/demo to \"light\""`.
-  Gate: `audit_forge` (a `conf.set` value carrying a line break and a whole
+  Gate: `audit_forge` (a `conf.set` value carrying `\r\n` and a whole
   forged `ELEVD:REQUEST ... outcome=granted` line is refused, and the judge
   fails the run if such a line ever starts a log line).
 - **The `admin` field names an account or nothing.** On a refused prompt the
