@@ -156,9 +156,34 @@ pub const SOCKET_CLIENT_RULES: &[RuleSpec] = &[
     deny(ANY_ACTOR, SOCKET_INTERFACE, ANY_METHOD),
 ];
 
+/// Whether `topic` is one the stack (`netd`, [`NETD_UID`]) publishes under
+/// the reserved `system/` root: an interface's retained address
+/// (`system/net/<if>/addr`) and the network-up event
+/// (`system/events/network/up`), both declared in `idl/net.midl`. Nothing
+/// else under `system/` is the stack's (a NIC's link is its driver's).
+pub fn is_stack_topic(topic: &str) -> bool {
+    let addr = topic
+        .strip_prefix("system/net/")
+        .and_then(|rest| rest.strip_suffix("/addr"))
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'));
+    addr || topic == "system/events/network/up"
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
+
+    #[test]
+    fn the_stack_publishes_its_address_and_the_up_event_only() {
+        use super::is_stack_topic;
+        assert!(is_stack_topic("system/net/eth0/addr"));
+        assert!(is_stack_topic("system/events/network/up"));
+        assert!(!is_stack_topic("system/net/eth0/link"));
+        assert!(!is_stack_topic("system/net//addr"));
+        assert!(!is_stack_topic("system/net/a/b/addr"));
+        assert!(!is_stack_topic("system/events/network/down"));
+        assert!(!is_stack_topic("system/power/state"));
+    }
 
     use super::*;
 

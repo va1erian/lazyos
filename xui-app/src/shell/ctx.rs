@@ -255,10 +255,12 @@ impl Ctx {
         }
         let result = services::launch(app, arg);
         match result {
-            Ok(pid) => println!("SHELL:LAUNCH:PASS app={app} pid={pid}"),
+            Ok((pid, existing)) => {
+                println!("SHELL:LAUNCH:PASS app={app} pid={pid} existing={existing}")
+            }
             Err(code) => println!("SHELL:LAUNCH:FAIL app={app} err={}", -code),
         }
-        result
+        result.map(|(pid, _)| pid)
     }
 
     /// Re-read the start menu: `sys/ui/menu` plus `init`'s installed apps,

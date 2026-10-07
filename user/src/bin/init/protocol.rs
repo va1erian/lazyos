@@ -15,6 +15,7 @@ use user::sys;
 use super::apps::app_infos;
 use super::installed::InstalledApps;
 use super::launch::{actor, launch};
+use super::lifecycle::{self, Stops};
 use super::sessions;
 use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
@@ -65,6 +66,8 @@ pub(super) struct Supervisor<'a> {
     pub(super) installed: &'a mut InstalledApps,
     pub(super) cache: &'a mut StatusCache,
     pub(super) shutdown: &'a mut Option<Shutdown>,
+    /// The `Stop`s waiting for their targets' exits.
+    pub(super) stops: &'a mut Stops,
 }
 
 /// Serve queued subscriptions and control calls without blocking.
@@ -77,7 +80,9 @@ pub(super) fn serve_pending(
         let interface = message.interface_id();
         let method = message.method();
         let reply = match dispatch(state, &message) {
-            Ok(parcel) => parcel,
+            // A `Stop` answered later, from the reap of its last target.
+            Ok(None) => continue,
+            Ok(Some(parcel)) => parcel,
             // A malformed request still gets an answer, or its caller would
             // wait forever. A structured error is the useful one on the
             // control interface; the topic router keeps an empty reply.
@@ -93,15 +98,63 @@ pub(super) fn serve_pending(
     Ok(())
 }
 
+/// Serve queued `os.lazy.init.app.v1` calls (`Watch`) on its own endpoint.
+pub(super) fn serve_app_pending(
+    services: &mut [Service],
+    server: &Endpoint,
+    buffer: &mut [u8],
+) -> messenger::Result<()> {
+    while let Some(message) = server.poll_recv_with(buffer)? {
+        let reply = if message.interface_id() == lifecycle::APP_INTERFACE {
+            lifecycle::watch(services, &message)
+        } else {
+            Err(messenger::Error::Errno(-messenger::errno::EINVAL))
+        };
+        let reply =
+            reply.unwrap_or_else(|error| services::init_error_reply(message.method(), error));
+        if let Some(txn) = message.txn {
+            // An app's line must never take the supervisor down: a reply
+            // that cannot be delivered is that caller's loss alone.
+            if let Err(error) = server.reply_or_drop(txn, &reply) {
+                sys::write_str(&format!(
+                    "INIT:APP:REPLY:FAIL err={}\n",
+                    error.errno().unwrap_or(0)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Dispatch one inbound message to the broker, the supervision table, the
-/// app registry / launch path, or the shutdown.
-fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parcel> {
+/// app registry / launch path, or the shutdown. `None` defers the reply (a
+/// `Stop` waiting for its targets to exit).
+fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Option<Parcel>> {
+    let is_stop = message.interface_id() == services::INIT_INTERFACE
+        && message.method() == services::init::METHOD_STOP;
+    if is_stop {
+        let request = services::decode_stop_request(&message.parcel)?;
+        let caller = actor(message)?;
+        let stopped = stop_app(state.services, state.broker, &request.app, &caller)?;
+        let Some(txn) = message.txn else {
+            return Ok(None);
+        };
+        state
+            .stops
+            .hold(txn, &request.app, stopped.pids, stopped.count);
+        return Ok(None);
+    }
+    dispatch_now(state, message).map(Some)
+}
+
+fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<Parcel> {
     let Supervisor {
         services,
         broker,
         installed,
         cache,
         shutdown,
+        ..
     } = state;
     match message.interface_id() {
         router::INTERFACE => {
@@ -124,12 +177,6 @@ fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Parc
                 let caller = actor(message)?;
                 let apps = installed.infos(app_infos(), caller.uid);
                 services::list_apps_reply(&apps)
-            }
-            services::init::METHOD_STOP => {
-                let request = services::decode_stop_request(&message.parcel)?;
-                let caller = actor(message)?;
-                let stopped = stop_app(services, broker, &request.app, &caller)?;
-                services::stop_reply(stopped)
             }
             // A service says it serves: what waited for it may start.
             services::init::METHOD_READY => {

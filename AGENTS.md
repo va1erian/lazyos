@@ -445,6 +445,29 @@ sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 (`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
 `SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
 
+A package with `[entry] resident = true` is a *resident app*: it runs once
+per session, may live with no window (`xui_app::resident`: a windowless loop,
+windows opened on demand and closed to the tray), always has a tray icon (the
+shell gives a running resident app a default item with Open and Quit from
+`init`'s retained `session/<s>/apps/resident`), and gets its lifecycle from
+`init` over `os.lazy.init.app.v1`: `Reopen` on a second launch (queued until
+it watches), `Quit` on a `Stop` with a hard 3 s grace from the `Stop` (then a
+kill, `INIT:APP:QUIT:TIMEOUT`); `Stop` answers once every target is reaped
+(`INIT:STOP:DONE`). The tray applets Volume (`os.lazy.volume`, every desktop:
+the wheel sets the mixer's master volume) and Network Status
+(`os.lazy.netstatus`, `LAZYOS_NETD=1` images) open with every session. The
+lifecycle session needs `rhai` (`python tools/rhai/build.py`); the applets
+session records the sound card and is judged by ear:
+
+```bash
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray_resident --script tools/screenshot/examples/tray_resident.json
+LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_RESET_OS=1 cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/tray_applets --script tools/screenshot/examples/tray_applets.json --extra-arg=-audiodev --extra-arg=wav,id=a0,path=shots/tray_applets/volume.wav --extra-arg=-device --extra-arg=virtio-sound-pci,audiodev=a0
+python tools/tray/volume_check.py shots/tray_applets/volume.wav    # TRAY:VOLUME:PASS: the 660 Hz tone at half the 440 Hz one
+python tools/tray/test_volume_check.py
+cargo test -p lazypkg -p pkgstore -p svcpolicy -p netpolicy
+```
+
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/tray --script tools/screenshot/examples/tray.json

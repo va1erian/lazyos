@@ -247,3 +247,11 @@ path = "src/bin/pdf.rs"
 [[bin]]
 name = "xui-traydemo"
 path = "src/bin/traydemo.rs"
+
+[[bin]]
+name = "xui-volume"
+path = "src/bin/volume.rs"
+
+[[bin]]
+name = "xui-netstatus"
+path = "src/bin/netstatus.rs"

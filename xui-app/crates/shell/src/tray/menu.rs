@@ -32,6 +32,9 @@ pub enum Kind {
         id: u32,
     },
     Separator,
+    /// A default item's row: launch the app again through `init`, which
+    /// reaches the running instance as `Reopen`.
+    Open,
     /// The shell's own row: stop the app through `init`.
     Quit,
 }
@@ -52,6 +55,8 @@ pub enum Pick {
     Item { id: u32, checked: bool },
     /// Open the submenu of row `id`.
     Submenu { id: u32 },
+    /// Open the app (`init.Launch`).
+    Open,
     /// Stop the app.
     Quit,
 }
@@ -76,6 +81,20 @@ impl TrayMenu {
             kind: Kind::Quit,
         });
         TrayMenu { rows: shown }
+    }
+
+    /// A resident app's default item (it set no item of its own): **Open**,
+    /// then the Quit row (docs/tray-plan.md section 6.2).
+    pub fn default_item(name: &str) -> TrayMenu {
+        let open = Shown {
+            label: String::from("Open"),
+            enabled: true,
+            kind: Kind::Open,
+        };
+        let mut menu = TrayMenu::top(&[], name);
+        menu.rows.insert(0, separator());
+        menu.rows.insert(0, open);
+        menu
     }
 
     /// The rows of the `Submenu` row `id` (no Quit row: it is on the top
@@ -121,6 +140,7 @@ impl TrayMenu {
             }),
             Kind::Submenu { id } => Some(Pick::Submenu { id }),
             Kind::Separator => None,
+            Kind::Open => Some(Pick::Open),
             Kind::Quit => Some(Pick::Quit),
         }
     }

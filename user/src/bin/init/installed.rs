@@ -67,6 +67,9 @@ pub(super) struct InstalledApp {
     pub(super) autostart: bool,
     /// The manifest's MIME verbs.
     pub(super) verbs: Vec<String>,
+    /// Whether it is a resident app (`entry.resident`): no window needed,
+    /// one instance per session, always in the tray.
+    pub(super) resident: bool,
     /// Its 32-pixel icon (`fhs::icon_path`), for the desktop launchers.
     pub(super) icon: String,
 }
@@ -129,8 +132,7 @@ impl InstalledApps {
             hidden: hidden.hides(app.id),
             autostart: app.autostart,
             icon: app.icon.clone(),
-            // `entry.resident` arrives with the resident-app stage (T3).
-            resident: false,
+            resident: app.resident,
         });
         builtin.extend(installed);
         builtin
@@ -225,6 +227,7 @@ impl InstalledApps {
             category: row.category,
             autostart: row.autostart,
             verbs: row.verbs,
+            resident: row.resident,
             icon: fhs::icon_path(&row.install_dir),
         }
     }

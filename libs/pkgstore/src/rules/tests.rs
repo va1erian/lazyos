@@ -3,11 +3,81 @@
 use super::*;
 
 fn manifest(permissions: &str) -> Manifest {
+    manifest_with("", permissions)
+}
+
+/// A manifest with `resident = true` and `permissions`.
+fn resident(permissions: &str) -> Manifest {
+    manifest_with("resident = true\n", permissions)
+}
+
+fn manifest_with(entry: &str, permissions: &str) -> Manifest {
     let text = format!(
         "[app]\nname = \"Demo\"\nsystem_name = \"org.lazy.demo\"\nauthor = \"A\"\nversion = \"1.0.0\"\n\
-         [entry]\nbinary = \"bin/app.elf\"\n[permissions]\n{permissions}"
+         [entry]\nbinary = \"bin/app.elf\"\n{entry}[permissions]\n{permissions}"
     );
     lazypkg::parse_manifest(&text).expect("valid")
+}
+
+#[test]
+fn resident_compiles_the_tray_init_app_and_tray_topic_rules() {
+    let rules = compile(&resident("")).unwrap();
+    let resolve = |name: &str| allow(resolve_scope::INTERFACE_ID, fnv1a32(name));
+    let sub = |segment: &str| allow(subscribe_scope::INTERFACE_ID, fnv1a32(segment));
+    let topics_id = topics::INTERFACE_ID;
+    let expected = [
+        allow(fnv1a64("os.lazy.shell.tray.v1"), ANY_METHOD),
+        resolve("os.lazy.shell.tray.v1"),
+        resolve("os.lazy.shell.tray"),
+        allow(fnv1a64("os.lazy.init.app.v1"), ANY_METHOD),
+        resolve("os.lazy.init.app.v1"),
+        resolve("os.lazy.init.app"),
+        sub("session"),
+        sub("+"),
+        sub("shell"),
+        sub("tray"),
+        allow(topics_id, topics::METHOD_SUBSCRIBE),
+        allow(topics_id, topics::METHOD_UNSUBSCRIBE),
+        allow(topics_id, topics::METHOD_NEXTEVENT),
+        allow(topics_id, topics::METHOD_ACK),
+        allow(topics_id, topics::METHOD_STATS),
+        resolve("os.lazy.messenger.topics.v1"),
+        resolve("os.lazy.messenger.topics"),
+    ];
+    assert_eq!(rules, expected);
+    // `installed` loads them too, from the manifest and nowhere else.
+    assert!(installed(&resident("")).unwrap().starts_with(&expected));
+    assert!(!installed(&manifest(""))
+        .unwrap()
+        .contains(&allow(fnv1a64("os.lazy.shell.tray.v1"), ANY_METHOD)));
+}
+
+#[test]
+fn resident_adds_no_duplicate_of_what_the_manifest_lists() {
+    let listed = "interfaces = [\"os.lazy.init.app.v1\", \"os.lazy.shell.tray.v1\"]\n\
+                  topics = [\"subscribe:session/+/shell/tray\"]\n";
+    // The same rules as the resident app that lists nothing, in its order.
+    let both = compile(&resident(listed)).unwrap();
+    for (index, rule) in both.iter().enumerate() {
+        assert!(!both[..index].contains(rule), "duplicate {rule:?}");
+    }
+    assert_eq!(both, compile(&manifest(listed)).unwrap());
+    let mut sorted = both.clone();
+    let mut implied = compile(&resident("")).unwrap();
+    sorted.sort_by_key(|rule| (rule.interface_id, rule.method));
+    implied.sort_by_key(|rule| (rule.interface_id, rule.method));
+    assert_eq!(sorted, implied);
+}
+
+#[test]
+fn a_non_resident_manifest_compiles_as_before() {
+    let text = "interfaces = [\"os.lazy.display.v1\"]\n";
+    let plain = compile(&manifest(text)).unwrap();
+    assert_eq!(
+        compile(&manifest_with("resident = false\n", text)).unwrap(),
+        plain
+    );
+    assert_eq!(plain.len(), 3);
 }
 
 fn allow(interface_id: u64, method: u32) -> LabelRule {
@@ -226,6 +296,15 @@ fn service_names_strip_the_version() {
             "os.lazy.net.socket.v1",
             "os.lazy.net.socket",
             "os.lazy.net.stack"
+        ]
+    );
+    // The mixer's control interface is reached on the mixer's name.
+    assert_eq!(
+        service_names("os.lazy.audio.mixer.v1"),
+        [
+            "os.lazy.audio.mixer.v1",
+            "os.lazy.audio.mixer",
+            "os.lazy.audio"
         ]
     );
 }

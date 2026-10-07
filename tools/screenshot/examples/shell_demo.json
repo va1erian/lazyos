@@ -25,7 +25,7 @@
   {"wait": 0.3},
   {"mouse_move": [134, 600], "note": "start menu: the System row (134,600)"},
   {"wait_for": "SHELL:SUBMENU:OPEN category=system", "timeout": 30},
-  {"mouse_move": [204, 48], "note": "System submenu: System Monitor (338,648)"},
+  {"mouse_move": [204, 24], "note": "System submenu: System Monitor (338,624)"},
   {"wait": 0.8},
   {"shot": "03_menu_hover_sysmon"},
   {"wait": 0.3},

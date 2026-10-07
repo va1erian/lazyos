@@ -27,6 +27,7 @@ mod liveness;
 pub mod menu;
 mod menu_paint;
 pub mod paint;
+mod resident;
 mod service;
 pub mod tooltip;
 
@@ -78,6 +79,7 @@ pub struct TrayState {
     known: RefCell<Vec<Known>>,
     service: RefCell<service::TrayService>,
     generation: RefCell<generation::Generation>,
+    resident: RefCell<resident::ResidentFeed>,
     beat: Cell<u64>,
     /// The cell under the pointer and since when (PIT ticks).
     /// The app whose cell the pointer rests on, and since when (PIT ticks):
@@ -100,6 +102,7 @@ impl TrayState {
             known: RefCell::new(Vec::new()),
             service: RefCell::new(service::TrayService::default()),
             generation: RefCell::new(generation::Generation::new(session)),
+            resident: RefCell::new(resident::ResidentFeed::new(session)),
             beat: Cell::new(0),
             hover: RefCell::new(None),
             tooltip: RefCell::new(None),
@@ -199,7 +202,7 @@ impl TrayState {
 pub fn pump<M: 'static>(ctx: &std::rc::Rc<Ctx>, ui: &xui_core::app::Ui<M>) {
     let tray = &ctx.tray;
     let changed = tray.service.borrow_mut().pump(ctx);
-    let dropped = liveness::pump(ctx);
+    let dropped = liveness::pump(ctx) | resident::pump(ctx);
     if changed || dropped {
         tray.pictures
             .borrow_mut()

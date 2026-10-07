@@ -6281,8 +6281,12 @@ pub mod os_lazy_init_v1 {
     }
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
-    /// takes it): each is killed and its supervision row retired without a
-    /// restart. `stopped` is how many were running. Only root, a holder of
+    /// takes it), retiring its supervision row without a restart: an
+    /// instance that watches its lifecycle (`os.lazy.init.app.v1`), or a
+    /// resident app that may still come to watch, is sent `Quit` and killed
+    /// if it still runs 3 s after this call (docs/tray-plan.md section 5);
+    /// any other is killed at once. The reply comes once every instance has
+    /// exited. `stopped` is how many were running. Only root, a holder of
     /// `CAP_SETUID` (the package manager) or the session owner may stop; an
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
@@ -12408,7 +12412,8 @@ pub mod os_lazy_pkgd_v1 {
 
     /// Whether the package ships icons for this type.
     /// One requested permission with the friendly explanation the installer
-    /// shows. `kind` is `interface`, `topic`, `file`, `network` or `develop`; `risk` is
+    /// shows. `kind` is `interface`, `topic`, `file`, `network`, `develop` or
+    /// `resident` (`entry.resident`, value `true`); `risk` is
     /// `low`, `medium` or `high`. `explanation` comes from `pkgd`'s table
     /// keyed by MIDL interface name, so every client shows the same words.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -12467,6 +12472,7 @@ pub mod os_lazy_pkgd_v1 {
         pub category: alloc::string::String,
         pub autostart: bool,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
+        pub resident: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -12492,6 +12498,7 @@ pub mod os_lazy_pkgd_v1 {
             nested.string(1, item)?;
         }
         target.array(13, &nested)?;
+        target.bool(14, value.resident)?;
         Ok(target.finish())
     }
 
@@ -12545,6 +12552,9 @@ pub mod os_lazy_pkgd_v1 {
                         out.verbs.push(item.as_str()?.into());
                     }
                 }
+                14 => {
+                    out.resident = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -12562,6 +12572,8 @@ pub mod os_lazy_pkgd_v1 {
     /// The menu group (`lazypkg::Category`).
     /// Whether the app starts when a session opens (`entry.autostart`).
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
+    /// Whether the app is resident (`entry.resident`): it may run with no
+    /// window, once per session, with an icon in the taskbar.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),

@@ -32,11 +32,23 @@ pub fn noise(len: usize, seed: u64) -> Vec<u8> {
 /// A core-style package: manifest, a program of `program_len` bytes made
 /// from `seed`, the three icons and one page of documentation.
 pub fn package(system_name: &str, version: &str, program_len: usize, seed: u64) -> Vec<u8> {
+    package_with(system_name, version, program_len, seed, "")
+}
+
+/// [`package`] with `extra` appended to the manifest right after `[entry]`'s
+/// fields (more `[entry]` keys, then any further tables).
+pub fn package_with(
+    system_name: &str,
+    version: &str,
+    program_len: usize,
+    seed: u64,
+    extra: &str,
+) -> Vec<u8> {
     let short = system_name.rsplit('.').next().unwrap();
     let manifest = format!(
         "[app]\nname = \"{short}\"\nsystem_name = \"{system_name}\"\nauthor = \"LazyOS\"\n\
          version = \"{version}\"\ncategory = \"utilities\"\n\n[entry]\nbinary = \"bin/{short}.elf\"\n\
-         args = [\"--client\"]\nabi = \"linux\"\n"
+         args = [\"--client\"]\nabi = \"linux\"\n{extra}"
     );
     let members: Vec<(String, Vec<u8>, bool)> = vec![
         ("manifest.toml".into(), manifest.into_bytes(), true),
