@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "accountdb"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "fuzzkit",
+ "passwd",
+]
+
+[[package]]
 name = "accountwire"
 version = "0.1.0"
 dependencies = [
@@ -178,6 +187,7 @@ checksum = "49f4c2ef60a76c1858ef43c30b6b95c2f5ee4d7c4f9bc47409c3a8dc8910adb9"
 name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "ext2fs",
  "fatfs",
  "fhs",
@@ -341,6 +351,16 @@ dependencies = [
  "framering",
  "fuzzkit",
  "nicdrv",
+]
+
+[[package]]
+name = "elevpolicy"
+version = "0.1.0"
+dependencies = [
+ "accountdb",
+ "confd",
+ "fuzzkit",
+ "timezone",
 ]
 
 [[package]]
@@ -622,6 +642,7 @@ dependencies = [
 name = "lazyos"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "bootloader",
  "ext2fs",
  "fatfs",
@@ -1290,6 +1311,7 @@ version = "0.1.0"
 name = "user"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "audioclient",
  "audiomix",
  "confd",
@@ -1297,6 +1319,7 @@ dependencies = [
  "devinspect",
  "devmatch",
  "e1000",
+ "elevpolicy",
  "fhs",
  "font-atlas",
  "framering",

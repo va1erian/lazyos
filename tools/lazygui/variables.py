@@ -32,6 +32,9 @@ def make_vars() -> dict:
         # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
         # the image's default (the login screen on the desktop).
         "autologin": s(value=""),
+        # LAZYOS_SETUP (run_demo --setup): no account, the owner is created at
+        # the login screen (docs/accounts-plan.md U1).
+        "setup": b(value=False),
         "times": s(value="10,14,18"),
         "timeout": s(value="180"),
         "abi_time": s(value="8"),
@@ -101,6 +104,7 @@ def make_vars() -> dict:
         "traydemo": b(value=False),
         "simple_traydemo": b(value=False),
         "simple_autologin": b(value=False),
+        "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),

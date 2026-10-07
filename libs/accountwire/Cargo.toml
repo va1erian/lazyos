@@ -3,7 +3,7 @@ name = "accountwire"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Fuzz entry point for the Messenger wire decoding of the account and key services (accountsd, keyd): untrusted request bytes in, no panic out (issue #626)"
+description = "Fuzz entry point for the Messenger wire decoding of the account, key and elevation services (accountsd, keyd, elevd and the trusted prompt): untrusted request bytes in, no panic out (issue #626)"
 license = "GPL-3.0-or-later"
 
 [lib]

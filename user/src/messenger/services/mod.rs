@@ -56,7 +56,7 @@ pub const SYSMOND_INTERFACE: u64 = sysmond::INTERFACE;
 pub(super) use messenger_generated::errors::ERROR_FIELD;
 
 /// A header for a service parcel of `method` on `interface_id`.
-pub(super) fn header(interface_id: u64, method: u32) -> Header {
+pub fn header(interface_id: u64, method: u32) -> Header {
     Header {
         version: VERSION,
         flags: 0,

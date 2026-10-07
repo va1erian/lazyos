@@ -95,10 +95,19 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
 ### Login and the session user
 
 A desktop image boots to a login screen (`greeter`, run as the `_greeter`
-uid); `user`/`lazy` and `admin`/`nimda` are the development accounts
-(Argon2id hashes in the root-only `/system/etc/shadow`). LazyShell, the
+uid); `user`/`lazy` (uid 1000) and `admin`/`nimda` (uid 1001, in the `admin`
+group) are the development accounts, kept with their Argon2id hashes in the
+account database `/accounts/db` (owned by `accountsd`'s `_accounts`;
+`/system/etc/passwd` and `group` are views). Nobody is root. LazyShell, the
 Terminal and every app run as the logged-in user with no capability, and the
 LazyOS menu's "Log out..." row ends the session (docs/accounts-plan.md U0, #623).
+`LAZYOS_SETUP=1` (`run_demo.py --setup`) builds a desktop with no account:
+the login screen creates the owner (U1, #624). A privileged change (an
+account, a `sys/**` setting, the clock, a core app, restarting a service)
+goes through `elevd`: `xuid` shows the trusted prompt and an administrator
+types their name and password (U2, #625; in a session script, type `admin`,
+Tab, `nimda`, Enter, or Escape to cancel; from the Terminal,
+`rhai -e 'sys::elevd::request("service.restart",["inputd"])'`).
 `LAZYOS_AUTOLOGIN=<name>` (`run_demo.py --autologin NAME`, the GUI's
 "Log in automatically") logs straight in; unset, an image that opens apps at
 login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
@@ -107,9 +116,16 @@ the example sessions run unchanged. Services authorize privileged calls by
 or `/system`. The attack harness is `python tools/accounts/run.py`; the
 session `tools/screenshot/examples/login_logout.json` (an image built with
 `LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
-logs out from the LazyOS menu ("Log out...", then "Log out now") and logs in again.
+logs out from the LazyOS menu ("Log out...", then "Log out now") and logs in again;
+`accounts_setup.json` (an image built with `LAZYOS_DESKTOP=1 LAZYOS_SETUP=1
+LAZYOS_AUTOLOGIN=none LAZYOS_XUI_AUTOSTART=term,settings LAZYOS_UI_PROBE=1`)
+creates the owner, adds an account in Settings through the prompt, cancels
+another prompt, changes a password and logs in as the new account, and
+`accounts_setup_reboot.json` boots that image again (old password refused).
 Session scripts work as `user` (`/home/user`, `user/1000/**` confd keys); a
-step that must touch a system service logs in `admin` (still uid 0 until U1).
+step that must touch a system service asks `elevd` and approves the prompt as
+`admin` (uid 1001, like any account; `xuid_pointer_restart.json` restarts
+`inputd` with `service.restart`).
 
 ### The disk image
 

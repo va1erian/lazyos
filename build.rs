@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+#[path = "build_support/accounts_seed.rs"]
+mod accounts_seed;
 #[path = "build_support/assets_embed.rs"]
 mod assets_embed;
 #[path = "build_support/busybox_embed.rs"]
@@ -49,8 +51,6 @@ mod os_recover;
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
-#[path = "build_support/shadow.rs"]
-mod shadow;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
 #[path = "build_support/ui_probe_embed.rs"]
@@ -67,39 +67,6 @@ mod usb_stick;
 mod xui_embed;
 
 use os_image::Sink;
-
-/// The account file (issues #101, #508), `name:uid:gid:x:home:shell`,
-/// installed as `/system/etc/passwd`: the **only** account source. `accountsd`
-/// has no built-in table and fails closed without it. `build_support/passwd` is
-/// the single copy: the image layout takes the `/home/<name>` directories from
-/// it, and `tools/mkdisk/accounts.py` reads the same file for the home volume.
-/// `admin` (uid 0) is the administrator, `user` (uid 1000) the unprivileged
-/// demo login. The password field is `x`: the verifiers are Argon2id hashes in
-/// the root-only `/system/etc/shadow` ([`shadow`], issue #447). The shell is
-/// BusyBox `sh` (the `sh` applet alias the kernel's Linux loader resolves to
-/// `/system/bin/busybox`, issue #254).
-const PASSWD: &[u8] = include_bytes!("build_support/passwd");
-
-/// The account file and its shadow to install: [`PASSWD`], checked with the
-/// parser `accountsd` loads it with, so a file the daemon would refuse never
-/// ships, and the verifiers of `build_support/passwords`. `LAZYOS_OMIT_PASSWD=1`
-/// leaves both out, for the fail-closed check (an image on which `accountsd`
-/// reports `failed` and no login succeeds).
-fn account_files() -> Option<(&'static [u8], Vec<u8>)> {
-    println!("cargo:rerun-if-changed=build_support/passwd");
-    println!("cargo:rerun-if-changed=build_support/passwords");
-    println!("cargo:rerun-if-changed=build_support/shadow.rs");
-    println!("cargo:rerun-if-env-changed=LAZYOS_OMIT_PASSWD");
-    if let Err(error) = passwd::parse(PASSWD) {
-        panic!("build_support/passwd: accountsd would refuse it: {error}");
-    }
-    let omit = std::env::var_os("LAZYOS_OMIT_PASSWD").as_deref() == Some(std::ffi::OsStr::new("1"));
-    if omit {
-        println!("cargo:warning=LAZYOS_OMIT_PASSWD=1: no account file; no login will succeed");
-        return None;
-    }
-    Some((PASSWD, shadow::build(PASSWD)))
-}
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -209,6 +176,13 @@ fn main() {
         || std::env::var_os("LAZYOS_SERVICES").as_deref() == Some(std::ffi::OsStr::new("1"));
     let xuid =
         desktop || std::env::var_os("LAZYOS_XUID").as_deref() == Some(std::ffi::OsStr::new("1"));
+    // The account database a services image seeds (`accounts_seed`): the
+    // default accounts, none (first-boot setup) or, for the fail-closed
+    // check, no database at all.
+    let account_db = match services.then(accounts_seed::from_env) {
+        Some(accounts_seed::Seed::Omit) | None => None,
+        Some(seed) => Some(accounts_seed::database(seed)),
+    };
 
     // System services (issue #93). `init` is the supervisor the kernel boots
     // with `LAZYOS_SERVICES=1`; it starts the rest from its manifest. The ABI
@@ -244,6 +218,10 @@ fn main() {
         let accountsd = std::env::var_os("CARGO_BIN_FILE_USER_accountsd")
             .expect("user accountsd artifact not found");
         files.add_file(fhs::bin::ACCOUNTSD, PathBuf::from(accountsd));
+        // Administrator-approved operations (docs/accounts-plan.md U2).
+        let elevd =
+            std::env::var_os("CARGO_BIN_FILE_USER_elevd").expect("user elevd artifact not found");
+        files.add_file(fhs::bin::ELEVD, PathBuf::from(elevd));
         let logind =
             std::env::var_os("CARGO_BIN_FILE_USER_logind").expect("user logind artifact not found");
         files.add_file(fhs::bin::LOGIND, PathBuf::from(logind));
@@ -306,11 +284,10 @@ fn main() {
                 .to_vec(),
         );
 
-        // The account database `accountsd` reads and the verifiers only
-        // `keyd` reads (see [`PASSWD`]).
-        if let Some((passwd, shadow)) = account_files() {
-            files.add_bytes(fhs::etc::PASSWD, passwd.to_vec());
-            files.add_bytes(fhs::etc::SHADOW, shadow);
+        // The account database (`accountsd`'s, the verifiers `keyd` reads)
+        // and its passwd and group views (docs/accounts-plan.md U1).
+        if let Some(db) = account_db.as_ref() {
+            accounts_seed::place(&mut files, db);
         }
 
         // The system monitor (issue #144). `init` starts `sysmond` from its
@@ -462,7 +439,10 @@ fn main() {
     // Compose the stable image tooling uses (CI screenshots, scripts): the BIOS
     // part plus the OS volume, created or updated in place per `plan`.
     let bios = std::fs::read(&bios_image).expect("read the BIOS image");
-    let accounts = os_layout::parse_passwd(&String::from_utf8_lossy(PASSWD));
+    let accounts = match account_db.as_ref() {
+        Some(db) => accounts_seed::homes(db),
+        None => os_layout::parse_passwd(&String::from_utf8_lossy(accounts_seed::PASSWD)),
+    };
     let dirs = os_layout::dirs(&accounts);
     // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md): the same
     // files on a RAM root, booted under UEFI or BIOS, plus a home partition.

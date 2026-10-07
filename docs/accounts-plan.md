@@ -1,6 +1,7 @@
 # User accounts and app permissions plan
 
-Status: planned 2026-10-06. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
+Status: U0 done (#623, PR #645); U1 (#624) and U2 (#625) implemented
+2026-10-07 (section 3.1); U3-U5 planned. Builds on [`security-hardening-plan.md`](security-hardening-plan.md)
 (phases 0-3, #446, #447) and [`security-model.md`](security-model.md); where
 the two overlap, this plan says *what the user gets*, the hardening plan says
 *how the plumbing is closed*.
@@ -95,7 +96,7 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 ### U1: real accounts
 
 - accountsd implements `Create`, `Delete`, `SetPassword`, `SetAdmin` over a
-  persistent account database owned by `_accounts` in `/conf/accounts`;
+  persistent account database owned by `_accounts` in `/accounts`;
   `/system/etc/passwd` becomes a generated view. Groups exist: `admin`.
 - Creating an account creates its 0700 home (on the home volume when mounted)
   from a skeleton; deleting one archives or removes it on request.
@@ -117,6 +118,153 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 - Every request (granted, refused, cancelled) is logged to `/logs`.
 - Protocol in `idl/elevd.midl`; services accept the privileged path only from
   `elevd` (by label), which replaces their `uid == 0` checks.
+
+### 3.1 Where U1 and U2 landed (2026-10-07)
+
+What exists, and the decisions taken on the way:
+
+- **The account database** is `/accounts/db` (`libs/accountdb`: parser,
+  views, operations, who may, the brake; host-tested, seeded fuzz entry
+  `accountdb::fuzz::run`, cargo-fuzz target `fuzz/fuzz_targets/accountdb.rs`).
+  One file holds accounts, groups and verifiers; `accountsd` runs as
+  `_accounts` (uid 908, no capability), owns `/accounts` (0700, a
+  top-level directory so `/conf` stays root's alone: see "Review fixes"
+  below) and writes the database atomically
+  (`db.new`, fsync, rename). `/system/etc/passwd` and `/system/etc/group`
+  are generated views owned by `_accounts`. **Decision:** there is no
+  `/system/etc/shadow` view any more: `keyd` reads the verifiers from the
+  database itself, and a second copy of them had no reader. The image build
+  seeds the database once (`build_support/accounts_seed.rs`, a seed an
+  update never replaces) from `passwd`, `groups` and `passwords`.
+- **uids:** accounts get the next never-used uid from 1000 (a `next:` record
+  keeps a deleted account's uid from being handed out again); `admin` is now
+  uid 1001 in the `admin` group (gid 10); nobody logs in as uid 0 (the
+  parser refuses a uid 0 account). `elevd` is `_elev` (909).
+- **Homes:** only root can give a directory to another uid, so `accountsd`
+  asks `init` (`init.Home`, accepted from `_accounts` alone), which copies
+  `/system/etc/skel` into a 0700 home with a BusyBox helper, or archives
+  (`/home/.archived/<name>-<uid>`) or removes it, and answers when done.
+- **First-boot setup:** an image built with `LAZYOS_SETUP=1`
+  (`run_demo.py --setup`, the GUI's "First-boot setup") has no account; the
+  login screen asks for the owner, the one `Create` `accountsd` takes from
+  the `_greeter` identity while the database is empty, an administrator.
+  **Decision:** default images keep the development accounts (`admin`,
+  `user`), which every session script and CI job uses; an autologin image
+  skips the setup.
+- **The brake:** three free failures, then 1 s doubling to 60 s, refused
+  at once with `EAGAIN`. An attempt is refused while its account name or
+  (for an ordinary caller) its uid is locked, but a failure counts against
+  the name only when `logind` or `elevd` asked (they mediate for a person
+  at the keyboard and slow their own askers), and against the caller's uid
+  only otherwise: a session flooding `Authenticate("admin", ...)` locks
+  itself, never `admin` out of logging in or approving. A success clears
+  the authenticated name alone, never a caller's lock, and a full table
+  never evicts a locked slot (it refuses the newcomer instead);
+  `accountdb::ratelimit::Attempt` (review of #659, H5).
+- **`elevd`** (`idl/elevd.midl`, `libs/elevpolicy`, `user/src/bin/elevd`): the
+  operation table, the prompt (`xuid`, `os.lazy.display.prompt.v1`, opened
+  by `elevd` alone), admin check through `accountsd` (`Lookup.admin`,
+  `Authenticate`), up to three tries per request, lockout per asker and
+  per name, the audit topic `system/events/elevd/request`
+  (`/logs/elevd.log`). **Decision (2026-10-07):** every change prompts:
+  each `conf.set`/`conf.delete`, account, package, clock, power or service
+  operation opens the prompt every time. Only the elevated Config editor's
+  *view* stands: once `conf.elevate` is approved, the same uid, label and
+  session may list and read every key (`conf.list`, `conf.get`) for five
+  minutes without a prompt per row; a read changes nothing. The view ends
+  early when the session ends (`elevd` follows `logind`'s session records,
+  and a session id reused after a `logind` restart starts empty) or when
+  Config closes (`Release`). **Decision (review of #659):** an unlabelled
+  caller (label 0: everything started from a shell or a script) gets no
+  standing view, since they all share that label; each read prompts. Binding
+  the view to the requesting endpoint was rejected: clients share the one
+  endpoint name resolution gives them, so it would not tell them apart.
+- **Prompt floods (review of #659, H4):** a prompt takes every key and
+  click, so it must cost the asker something. After a prompt was cancelled
+  or timed out, `elevd` refuses that caller (uid, label, session) without a
+  prompt (`EAGAIN`, audited `held`) for 5 s, doubling up to 2 minutes; an
+  approval or ten quiet minutes reset it. Every caller waits a 3 s pause
+  after any unanswered prompt, so two programs taking turns still leave the
+  desktop (and Log out) reachable. `elevd` keeps reading while a prompt is
+  up: a caller has one request in hand at a time and at most eight wait;
+  the rest are refused at once (`EBUSY`, audited `busy`). Policy in
+  `libs/elevpolicy` (`backoff`, `queue`, `sessions`, host-tested), service
+  side in `user/src/bin/elevd/intake.rs`. **Decision:** no "deny this app"
+  button on the prompt yet.
+- **Services that trust `elevd`** (by kernel-stamped identity): `accountsd`
+  (create, delete, promote, any password), `confd` (`sys/**`, any user's
+  keys), `pkgd` (any source path; replacing a core app is now refused from a
+  session: `core_replace` is blocked), `timed` (`SetTime`), `init`
+  (`RestartService`). `keyd` takes `Provision`/`Forget` from `accountsd`
+  alone.
+- **Apps:** Settings has an Accounts page (list, add, remove, make admin,
+  change your password) and writes `sys/**` and the clock through `elevd`;
+  Config shows only `user/<uid>/**` until **Elevate**; the Installer replaces
+  a core app through `pkg.update-core`.
+- **Kernel:** a native `write_file` replaces a file its caller owns in a
+  directory it cannot write (the views); native writes now drop the Linux
+  ABI table's cached metadata of the same path (a Linux `stat` saw the old
+  size); `/etc/group` lists the group view.
+
+The prompt's keys come from `inputd`, like any window's: `xuid` gives the
+focus to a surface of its own while the prompt is up and reads that
+session (`user/src/bin/xuid/prompt_keys.rs`), so every keyboard (PS/2 or
+USB) types into it under the active layout (`sys/input/layout`, e.g. `fr`).
+No client can read those keys: only a surface's owner opens its session,
+and this surface is the compositor's.
+
+**The prompt fails closed (review of #659, H3).** It opens only once
+`inputd` has confirmed, with a two-way `SetFocus` (retried for up to 1 s),
+that its surface has the keyboard, so no client window does; otherwise
+`xuid` refuses it (`EAGAIN`, `XUID:PROMPT:REFUSED`) and `elevd` refuses the
+request (audited `nokeys`). The focus used to travel as a one-way note on
+`inputd`'s shared endpoint, which any client can fill: a full queue only
+postponed it, and a failed registration fell back to the kernel stream while
+`inputd` still fed the previous window, so an app could have read the
+password. Now the compositor makes every call after `Attach` on the channel
+it handed `inputd`, which no client holds and which `inputd` serves first
+(`user/src/bin/inputd/shellchan.rs`). Only when `inputd` is not running at
+all does the prompt read the kernel's PS/2 key stream (US layout): then no
+client gets keys from `inputd` either. The attack harness floods `inputd`
+during a prompt (`input_flood`) and raises prompts back to back
+(`prompt_flood`).
+
+### 3.2 Review fixes (PR #659, services and apps)
+
+- **The database left `/conf` (H1).** `/conf` had become 0711 so
+  `_accounts` could reach `/conf/accounts`, which let any user read confd's
+  0644 store by name. **Decision:** the database lives in its own top-level
+  directory, `/accounts` (`fhs::state::ACCOUNTS_DIR`, 0700 `_accounts`), and
+  `/conf` is 0700 root again. The next in-place update moves a database
+  from `/conf/accounts` (`build_support/os_state.rs`) and makes every file
+  in `/conf` 0600; confd creates its files 0600 and repairs its directory
+  and files at every start. Gate: `read_conf_store` in the attack harness.
+- **`keyd.Verify` is `accountsd`'s alone (H2)**, like `Provision`,
+  `Forget` and the new `Restore`: a direct `Verify` went around the brake.
+  Gate: `keyd_verify`.
+- **No session can lock an account out (H5).** See "The brake" above
+  (`ratelimit::Attempt`). **Decision:** `Authenticate` stays open (a user's
+  own password change needs it); only the counting changed. Gate:
+  `admin_lockout` (a session floods `Authenticate("admin")` while admin's
+  right password approves an `elevd` request).
+- **Homes belong to their accounts (H6).** Homes are seed directories of
+  the image: made with the database, never re-created or re-chowned by an
+  update. `init.Home` `create` keeps a home its account owns, hands over a
+  root-owned one (`chown -hR`), and archives one another uid owns
+  (`/home/.archived/<name>-<uid>`) before making it afresh. **Decision:**
+  the migration of pre-U1 volumes (admin moved from uid 0 to 1001) runs at
+  boot: `accountsd` asks `create` for every account at start, which covers
+  the OS volume and the home volume alike (the build never sees the home
+  volume, and `tools/mkdisk` only formats new ones). `run_demo.py --setup`
+  (and the GUI's setup) formats the home volume with no home on it.
+- **The setup screen never traps (H7):** after the owner is created the
+  greeter switches to the login form; it waits for `accountsd` (asking
+  every second) instead of guessing the login form.
+- Also: the database parser requires an account's uid and primary gid in
+  1000..=59999 and a name `accountdb::valid_account_name` accepts (no
+  leading `_`, not `root`), the rule `Create`, `init.Home` and the greeter
+  share; a `SetPassword` whose database write fails puts `keyd`'s old
+  verifier back (`keyd.Restore`).
 
 ### U3-U5 (outline, issues later)
 

@@ -4,3 +4,21 @@ accounts/confd_sys.rhai | GPL-3.0-or-later | desktop | LazyOS original: a confd 
 accounts/keyd_provision.rhai | GPL-3.0-or-later | desktop | LazyOS original: a keyd Provision call
 accounts/svc_pid.rhai | GPL-3.0-or-later | desktop | LazyOS original: the pid of a service, from init
 accounts/canary| GPL-3.0-or-later | desktop | LazyOS original: a file under /system for rm to attack
+accounts/acct_create.rhai | GPL-3.0-or-later | desktop | LazyOS original: Create an administrator account directly at accountsd, as the session user (U1)
+accounts/acct_delete.rhai | GPL-3.0-or-later | desktop | LazyOS original: Delete the admin account directly at accountsd (U1)
+accounts/acct_promote.rhai | GPL-3.0-or-later | desktop | LazyOS original: Make the session user an administrator directly at accountsd (U1)
+accounts/acct_password.rhai | GPL-3.0-or-later | desktop | LazyOS original: Set another user's password (admin's) without being an administrator (U1)
+accounts/direct_time.rhai | GPL-3.0-or-later | desktop | LazyOS original: Step the clock at timed directly instead of through elevd (U2)
+accounts/direct_restart.rhai | GPL-3.0-or-later | desktop | LazyOS original: Restart a system service at init directly instead of through elevd (U2)
+accounts/keyd_forget.rhai | GPL-3.0-or-later | desktop | LazyOS original: Drop admin's password verifier at keyd (only accountsd may, U1)
+accounts/prompt_spoof.rhai | GPL-3.0-or-later | desktop | LazyOS original: Open the trusted administrator prompt itself (only elevd may, U2)
+accounts/input_focus.rhai | GPL-3.0-or-later | desktop | LazyOS original: Move the keyboard focus the way the compositor does (inputd's shell link), to take keys meant for a prompt (U2)
+accounts/display_read.rhai | GPL-3.0-or-later | desktop | LazyOS original: Read the screen's window list, the only screen-wide read of the display protocol; no method returns pixels (U2)
+accounts/auth_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: an Authenticate flood, judged by rate
+accounts/elev_wait.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request that shows the trusted prompt
+accounts/open_window.rhai | GPL-3.0-or-later | desktop | LazyOS original: open a window while the prompt is up
+accounts/keyd_verify.rhai | GPL-3.0-or-later | desktop | LazyOS original: check a password at keyd directly, around accountsd's brake (only accountsd may)
+accounts/auth_hammer.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep failing Authenticate for admin from the session for two minutes
+accounts/admin_lockout.rhai | GPL-3.0-or-later | desktop | LazyOS original: an elevd request approved while the session floods Authenticate for admin
+accounts/prompt_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: raise the administrator prompt again right after it was cancelled (review of #659, H4)
+accounts/input_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep inputd's shared endpoint full while the prompt is up (review of #659, H3)

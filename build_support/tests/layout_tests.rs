@@ -35,7 +35,19 @@ fn layout_has_the_mount_points_and_each_service_s_place() {
     }
     // A home per passwd account living in /home, private to its owner.
     let admin = spec(&all, "/home/admin");
-    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 0, 0));
+    assert_eq!((admin.mode, admin.uid, admin.gid), (0o700, 1001, 1001));
+    // Homes are seeds: made with the database, never re-applied (H6).
+    assert!(admin.seed);
+    // The account database's directory is `_accounts`' alone (U1), outside
+    // confd's private `/conf` (#659 H1).
+    let accounts = spec(&all, "/accounts");
+    assert_eq!(
+        (accounts.mode, accounts.uid, accounts.seed),
+        (0o700, accountdb::ACCOUNTS_UID, false)
+    );
+    assert!(all
+        .iter()
+        .all(|dir| !dir.path.starts_with("/conf/accounts")));
     let user = spec(&all, "/home/user");
     assert_eq!((user.mode, user.uid, user.gid), (0o700, 1000, 1000));
     // Exactly the two accounts' homes; nothing is seeded under /data any more.
@@ -69,12 +81,7 @@ fn homes_follow_the_passwd_table() {
 /// `/apps`, `/conf` and `/logs` 0755, and the transitional `/data` tree with
 /// `/data/home/user` (1000:1000, 0755) and `/data/tmp` (1777).
 pub fn pre_f4_layout() -> Vec<DirSpec> {
-    let dir = |path: &str, mode: u16, owner: u32| DirSpec {
-        path: path.into(),
-        mode,
-        uid: owner,
-        gid: owner,
-    };
+    let dir = |path: &str, mode: u16, owner: u32| DirSpec::new(path, mode, owner, owner);
     let mut out: Vec<DirSpec> = [
         "/boot",
         "/home",
@@ -199,18 +206,14 @@ fn file(path: &str) -> OsFile {
         path: path.into(),
         source: Source::Bytes(Vec::new()),
         mode: 0o644,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 
 fn manifest(dir_paths: &[&str], files: &[&str]) -> Manifest {
     let dirs: Vec<DirSpec> = dir_paths
         .iter()
-        .map(|path| DirSpec {
-            path: (*path).into(),
-            mode: 0o755,
-            uid: 0,
-            gid: 0,
-        })
+        .map(|path| DirSpec::new(path, 0o755, 0, 0))
         .collect();
     let files: Vec<OsFile> = files.iter().map(|path| file(path)).collect();
     Manifest::of(&dirs, &files).unwrap()
@@ -235,12 +238,7 @@ fn the_manifest_lists_files_dirs_and_implied_parents() {
 
 #[test]
 fn a_path_cannot_be_both_file_and_directory() {
-    let dirs = [DirSpec {
-        path: "/docs".into(),
-        mode: 0o755,
-        uid: 0,
-        gid: 0,
-    }];
+    let dirs = [DirSpec::new("/docs", 0o755, 0, 0)];
     assert!(Manifest::of(&dirs, &[file("/docs")]).is_err());
 }
 

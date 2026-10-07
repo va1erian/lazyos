@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "accountdb"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "passwd",
+]
+
+[[package]]
 name = "accountwire"
 version = "0.1.0"
 dependencies = [
@@ -93,6 +101,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "confd"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -166,6 +181,15 @@ dependencies = [
  "block-buffer",
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "elevpolicy"
+version = "0.1.0"
+dependencies = [
+ "accountdb",
+ "confd",
+ "timezone",
 ]
 
 [[package]]
@@ -279,8 +303,10 @@ dependencies = [
 name = "lazyos-fuzz"
 version = "0.0.0"
 dependencies = [
+ "accountdb",
  "accountwire",
  "acpi",
+ "elevpolicy",
  "ext2fs",
  "framering",
  "inputmap",
@@ -585,6 +611,10 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
+
+[[package]]
+name = "timezone"
+version = "0.1.0"
 
 [[package]]
 name = "toml"

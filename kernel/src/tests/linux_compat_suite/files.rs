@@ -103,10 +103,18 @@ pub fn etc_files() -> Result<(), String> {
         !passwd.contains("nimda") && !passwd.contains("lazy:"),
         "a secret leaked"
     );
-    let group = process::linux::render_group_for_test(source);
+    let group = process::linux::render_group_for_test(source, "");
     check!(
         group == "admin:x:0:admin\nuser:x:1000:user\n",
         "group rendered as {group:?}"
+    );
+    // The group view adds the `admin` group (U1) and wins a clash: a primary
+    // group of the same name or gid yields, a malformed line is skipped.
+    let view = "admin:10:admin,user\nbad line\nstaff:1000:x\n";
+    let group = process::linux::render_group_for_test(source, view);
+    check!(
+        group == "admin:x:10:admin,user\nstaff:x:1000:x\n",
+        "group with the view rendered as {group:?}"
     );
     // `/etc/resolv.conf` and the CA bundle exist only with their backing
     // files (`etcmap`); the host table always has `localhost`.

@@ -294,9 +294,18 @@ impl Desktop {
                 return Err((errno::EACCES, "refused"));
             }
         };
-        if !accounts::authenticate(endpoint, &args.user, &args.secret).unwrap_or(false) {
-            super::deny(&mut self.bus, &args.user, "bad-secret");
-            return Err((errno::EACCES, "refused"));
+        match accounts::authenticate(endpoint, &args.user, &args.secret) {
+            Ok(true) => {}
+            // `accountsd`'s brake holds for this name (U1): say so, and do
+            // not count it as one more wrong password.
+            Err(messenger::Error::Errno(code)) if code == -errno::EAGAIN => {
+                super::deny(&mut self.bus, &args.user, "slowed");
+                return Err((errno::EAGAIN, "too many failed attempts"));
+            }
+            Ok(false) | Err(_) => {
+                super::deny(&mut self.bus, &args.user, "bad-secret");
+                return Err((errno::EACCES, "refused"));
+            }
         }
         self.open(&account).map_err(|_| {
             super::deny(&mut self.bus, &args.user, "spawn-failed");

@@ -114,10 +114,23 @@ impl System for OsSystem {
         })
     }
 
+    /// Setting the clock is a system change (docs/accounts-plan.md U2): a
+    /// session never holds `CAP_SYS_TIME`, so a refusal is asked again
+    /// through `elevd`, where an administrator approves.
     fn set_time(&self, unix: i64) -> Result<(), String> {
         let body = wire::encode_set_time_args(&wire::SetTimeArgs { unix_secs: unix })
             .map_err(|_| String::from("bad time"))?;
-        self.call(wire::METHOD_SETTIME, body).map(|_| ())
+        let service =
+            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
+        match service.call(wire::INTERFACE_ID, wire::METHOD_SETTIME, ERROR_FIELD, body) {
+            Ok(_) => Ok(()),
+            Err(code) if -code == errno::EPERM => {
+                super::elevd::request("time.set", &[&unix.to_string()])
+                    .map(|_| ())
+                    .map_err(|error| super::elevd::describe(&error))
+            }
+            Err(code) => Err(describe(code)),
+        }
     }
 
     fn set_zone(&self, zone: &str) -> Result<(), String> {

@@ -12,8 +12,9 @@
 /// parameters today, so nothing here needs `Buffer`/`Handle` yet.
 interface os.lazy.keyd.v1 {
     /// Check a username/password pair against the stored Argon2id verifier.
-    /// The plaintext `secret` crosses the channel; the kernel stamps the
-    /// sender so `keyd` can audit who asked.
+    /// Accepted only from the accounts service (the `_accounts` system uid,
+    /// unlabelled), which slows password guessing (`Authenticate`); anyone
+    /// else gets `EPERM`. The plaintext `secret` crosses the channel.
     method Verify(user: String = 1, secret: String = 2) -> (ok: Bool = 1);
     /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
     method Sign(key: U64 = 1, digest: Bytes = 2) -> (tag: Bytes = 1);
@@ -31,11 +32,23 @@ interface os.lazy.keyd.v1 {
     method List() -> (keys: Array<KeyInfo> = 1);
     /// Round-trip probe.
     method Ping() -> ();
-    /// Install or replace an account's password verifier. Root only: the
-    /// accounts service pushes its database here so `Verify` can answer for
-    /// every account. `keyd` derives and stores the Argon2id verifier and the
-    /// secret does not outlive the call.
-    method Provision(user: String = 1, secret: String = 2) -> ();
+    /// Install or replace an account's password verifier (docs/accounts-plan.md
+    /// U1). Accepted only from the accounts service (the `_accounts` system
+    /// uid, unlabelled): whoever may plant a verifier may become that user.
+    /// `keyd` derives the Argon2id verifier over a fresh salt, starts
+    /// answering `Verify` with it, and returns it as the account database
+    /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+    /// survives a reboot; the secret does not outlive the call.
+    method Provision(user: String = 1, secret: String = 2) -> (verifier: String = 1);
+    /// Drop an account's verifier: it can no longer log in. Accepted only
+    /// from the accounts service, like `Provision`.
+    method Forget(user: String = 1) -> ();
+    /// Put back a verifier the account database holds
+    /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+    /// for `user`: `accountsd` undoes a `Provision` whose database write
+    /// failed, so `keyd` never answers for a password the database lost.
+    /// Accepted only from the accounts service, like `Provision`.
+    method Restore(user: String = 1, verifier: String = 2) -> ();
 
     /// One row of the key list: identity and counters only, never material.
     struct KeyInfo {

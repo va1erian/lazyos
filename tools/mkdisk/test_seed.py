@@ -226,16 +226,16 @@ class DemoAccountsTests(unittest.TestCase):
     """The seed reads the one account file the build installs (issue #508)."""
 
     def test_the_build_installs_the_same_file(self) -> None:
-        # No second copy: build.rs embeds this very file as /system/etc/passwd.
+        # No second copy: the build seeds the account database from this file.
         build = accounts.BUILD_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('include_bytes!("build_support/passwd")', build)
+        self.assertIn('include_bytes!("passwd")', build)
         self.assertNotIn("BUILTIN", (accounts.ROOT / "user" / "src" / "bin" / "accountsd.rs")
                          .read_text(encoding="utf-8"))
 
     def test_demo_accounts_are_admin_and_user(self) -> None:
         self.assertEqual(
             [(a.name, a.uid, a.gid, a.home) for a in accounts.demo_accounts()],
-            [("admin", 0, 0, "/home/admin"), ("user", 1000, 1000, "/home/user")])
+            [("admin", 1001, 1001, "/home/admin"), ("user", 1000, 1000, "/home/user")])
 
     def test_home_volume_owners_match_passwd(self) -> None:
         # #447: the home volume's owners are the account file's, nothing else.
@@ -286,7 +286,7 @@ class CommandLineTests(unittest.TestCase):
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertIn("/home/user (mode 0700, uid 1000, gid 1000)", out)
-        self.assertIn("/home/admin (mode 0700, uid 0, gid 0)", out)
+        self.assertIn("/home/admin (mode 0700, uid 1001, gid 1001)", out)
         v = Volume(self.path.read_bytes())
         self.assertEqual(v.inode(geometry.ROOT_INO)["mode"], 0o040755)
         self.assertIn("/tmp", walk(v))
@@ -304,7 +304,7 @@ class CommandLineTests(unittest.TestCase):
         code, out, _ = self.run_main("--home-volume")
         self.assertEqual(code, 0)
         self.assertIn("label 'lazyhome'", out)
-        self.assertIn("/admin (mode 0700, uid 0, gid 0)", out)
+        self.assertIn("/admin (mode 0700, uid 1001, gid 1001)", out)
         self.assertIn("/user (mode 0700, uid 1000, gid 1000)", out)
         image = self.path.read_bytes()
         self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")  # s_volume_name

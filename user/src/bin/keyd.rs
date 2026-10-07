@@ -34,18 +34,25 @@
 //!
 //! # Provisioning
 //!
-//! At boot `keyd` loads the accounts' verifiers from the root-only
-//! `/system/etc/shadow` (issue #447; the image build hashes them), all or
-//! nothing: without the file every login fails closed. `accountsd` asks
+//! At boot `keyd` loads the accounts' verifiers from the account database,
+//! `/accounts/db` (docs/accounts-plan.md U1; the image build seeds it),
+//! all or nothing: without it every login fails closed. `accountsd` asks
 //! `Verify` for each login and `keyd`'s verdict is final; there is no
-//! plaintext anywhere and no demo account. `Provision` (install or replace a
-//! verifier) is for account management (U1) and needs `CAP_SETUID`: whoever
-//! may plant a verifier may become that user. Every verifier is Argon2id under
+//! plaintext anywhere and no demo account. Every account method is accepted
+//! from `accountsd`'s own identity alone (the `_accounts` system uid,
+//! unlabelled; no capability or uid 0 is enough): `Verify`, because
+//! `accountsd` slows password guessing and a direct check would get around
+//! that brake; `Provision` (install or replace a verifier, returning it for
+//! the database), `Restore` (put back the database's verifier when that
+//! write failed) and `Forget`, because whoever may plant a verifier may
+//! become that user. Every verifier is Argon2id under
 //! [`kdf::Params::INTERACTIVE`].
 //!
-//! Keys are scoped to the uid that generated them (taken from the sender's
-//! kernel-stamped credentials): `Sign`, `Wrap`, `Unwrap` and `List` only see the
-//! caller's own keys.
+//! The key methods are open to every caller and scoped to the uid that
+//! generated the key (taken from the sender's kernel-stamped credentials):
+//! `Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys, and
+//! `Generate` makes one owned by the caller. `Random` and `Ping` hold no
+//! secret of anyone's.
 //!
 //! # Known follow-ups (out of this change's scope)
 //!
@@ -100,7 +107,7 @@ fn run() -> messenger::Result<()> {
         sys::write_str("KEYD:SELFTEST:FAIL:no entropy source\n");
         sys::exit(1);
     }
-    load_shadow(&mut keyd);
+    load_db(&mut keyd);
     match self_test(&mut keyd) {
         Ok(()) => sys::write_str("KEYD:SELFTEST:PASS\n"),
         // Keep serving: some operations may still be usable, and `init` would
@@ -138,24 +145,31 @@ fn run() -> messenger::Result<()> {
     }
 }
 
-/// Load the account verifiers from `/system/etc/shadow` (issue #447), which
-/// only root can read. Without it (or with a damaged one) `keyd` serves on
-/// with no account, so every login fails closed: there is no plaintext or
-/// built-in fallback. Prints `KEYD:SHADOW:PASS rows=<n>` or
+/// Load the account verifiers from the account database (U1), which only
+/// `_accounts` (and root) can read. Without it (or with a damaged one) `keyd`
+/// serves on with no account, so every login fails closed: there is no
+/// plaintext or built-in fallback. Prints `KEYD:SHADOW:PASS rows=<n>` or
 /// `KEYD:SHADOW:FAIL reason=<...>`.
-fn load_shadow(keyd: &mut Keyd) {
-    let loaded = match user::files::read_up_to(fhs::etc::SHADOW, passwd::shadow::SHADOW_MAX) {
-        Ok(bytes) => keyd.load_shadow(&bytes),
+fn load_db(keyd: &mut Keyd) {
+    let path = fhs::state::ACCOUNTS_DB;
+    let loaded = match user::files::read_up_to(path, accountdb::DB_MAX) {
+        Ok(bytes) => keyd.load_db(&bytes),
         Err(2) => Err(String::from("missing")),
         Err(code) => Err(format!("unreadable errno={code}")),
     };
     match loaded {
-        Ok(rows) => sys::write_str(&format!("KEYD:SHADOW:PASS rows={rows}\n")),
+        Ok(rows) => sys::write_str(&format!("KEYD:SHADOW:PASS rows={rows} file={path}\n")),
         Err(reason) => sys::write_str(&format!(
-            "KEYD:SHADOW:FAIL reason={reason} file={}; no account can log in\n",
-            fhs::etc::SHADOW
+            "KEYD:SHADOW:FAIL reason={reason} file={path}; no account can log in\n"
         )),
     }
+}
+
+/// Whether `message` comes from the accounts service: its system uid,
+/// unlabelled and outside any session (kernel-stamped, so unforgeable).
+fn from_accountsd(message: &Message) -> bool {
+    let caller = message.caller();
+    caller.uid == accountdb::ACCOUNTS_UID && caller.label_id == 0 && caller.session == 0
 }
 
 /// Dispatch one request; errors become error replies at the call site.
@@ -167,6 +181,12 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
     let parse = Error::Parcel;
     match message.method() {
         api::METHOD_VERIFY => {
+            // A password check is `accountsd`'s alone: it slows guessers
+            // (`Authenticate`'s brake), and an open `Verify` would be a way
+            // around that brake for any session (review of #659, H2).
+            if !from_accountsd(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
             let args = api::decode_verify_args(body).map_err(parse)?;
             let user = bounded_text(args.user)?;
             let secret = bounded_text(args.secret)?;
@@ -215,18 +235,37 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
             )
         }
         api::METHOD_PROVISION => {
-            // Whoever can plant a verifier can log in as that account, which
-            // is the authority to take on another identity: `CAP_SETUID`
-            // (the accounts and login services), never a uid. A root login
-            // session holds no capability and is refused like any other.
-            if message.caller().caps & sys::CAP_SETUID == 0 {
+            // Whoever can plant a verifier can log in as that account: the
+            // accounts service alone, by its identity (U1). No capability or
+            // uid is enough on its own.
+            if !from_accountsd(message) {
                 return Err(Error::Errno(-errno::EPERM));
             }
             let args = api::decode_provision_args(body).map_err(parse)?;
             let user = bounded_text(args.user)?;
             let secret = bounded_text(args.secret)?;
-            keyd.provision(&user, &secret)?;
-            Ok(wire::ok_reply(api::METHOD_PROVISION))
+            let verifier = keyd.provision(&user, &secret)?;
+            reply(
+                api::METHOD_PROVISION,
+                api::encode_provision_reply(&api::ProvisionReply { verifier }),
+            )
+        }
+        api::METHOD_FORGET => {
+            if !from_accountsd(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
+            let args = api::decode_forget_args(body).map_err(parse)?;
+            keyd.forget_account(&bounded_text(args.user)?);
+            Ok(wire::ok_reply(api::METHOD_FORGET))
+        }
+        api::METHOD_RESTORE => {
+            if !from_accountsd(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
+            let args = api::decode_restore_args(body).map_err(parse)?;
+            let user = bounded_text(args.user)?;
+            keyd.restore(&user, &args.verifier)?;
+            Ok(wire::ok_reply(api::METHOD_RESTORE))
         }
         api::METHOD_GENERATE => {
             let owner = caller_uid(message)?;

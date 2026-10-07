@@ -27,7 +27,9 @@
 //! (existing `/conf` values win; the ramfs store is renamed `store.migrated`).
 //! A store left on the ramfs by an earlier run is merged in at startup the
 //! same way. A persistent `/conf` is reported **ok** with
-//! `CONFD:READY dir=/conf persistent=true`.
+//! `CONFD:READY dir=/conf persistent=true`. The directory is 0700 and every
+//! store file 0600 (`storage::make_private`, repaired at each start): the raw
+//! store holds `sys/**` and every user's keys, so only `confd` may read it.
 //!
 //! The F0 to F3 store, `/data/confd` (`fhs::state::LEGACY_DATA_CONFD`), is a
 //! **seed**: the first start on `/conf` merges it in without overwriting
@@ -75,7 +77,7 @@ use user::messenger::services::lifecycle;
 use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
 use user::sys;
 
-use storage::{pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
+use storage::{make_private, pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
 
 /// How long the serve loop waits before re-probing `/conf` while the
 /// store sits on a lower-ranked location (PIT ticks).
@@ -167,6 +169,8 @@ pub extern "C" fn _start() -> ! {
 /// Choose the store directory, load the store, register, then serve forever.
 fn run() -> messenger::Result<()> {
     let (mut dir, mut persistent) = pick_dir();
+    // The raw store is root's alone, whatever an older image left (#659).
+    make_private(&dir);
     let fs = VfsStoreFs::new(&dir);
     let mut service = Service::load(fs, TopicSink::new()).map_err(|_| Error::Errno(-errno::EIO))?;
     // Settings written while a better store was unreachable (an earlier run on
@@ -260,6 +264,7 @@ fn run() -> messenger::Result<()> {
             next_upgrade = sys::clock().saturating_add(UPGRADE_TICKS);
             if try_upgrade(&mut service) {
                 dir = String::from(dir::PREFERRED_DIR);
+                make_private(&dir);
                 persistent = true;
                 seed_from_lower(&mut service, &dir);
                 service
@@ -325,9 +330,14 @@ fn dispatch(
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
+    // A system service holds `CAP_SETUID`; `elevd` is one by its identity
+    // (docs/accounts-plan.md U2): it writes `sys/**` only for what an
+    // administrator approved on the trusted prompt. A session never is.
+    let cred = message.caller();
     let caller = confd::Caller {
         uid: caller_uid(message)?,
-        system: message.caller().caps & user::sys::CAP_SETUID != 0,
+        system: cred.caps & user::sys::CAP_SETUID != 0
+            || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
     };
     let method = message.method();
     match method {

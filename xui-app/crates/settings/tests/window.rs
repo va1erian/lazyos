@@ -67,7 +67,14 @@ fn store(mode: Mode) -> MemStore {
 fn render(mode: Mode, section: Section) -> Image {
     render_with(
         Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
-        move |ui| SettingsApp::build(ui, Rc::new(store(mode)), Rc::new(MemSystem::default())),
+        move |ui| {
+            SettingsApp::build(
+                ui,
+                Rc::new(store(mode)),
+                Rc::new(MemSystem::default()),
+                Rc::new(xui_settings::MemAccounts::default()),
+            )
+        },
         move |stage| stage.emit(Msg::Section(section.index())),
     )
     .expect("the headless render")

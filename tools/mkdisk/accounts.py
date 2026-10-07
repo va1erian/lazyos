@@ -1,10 +1,11 @@
 """The demo accounts, read from the one file that defines them.
 
-``build_support/passwd`` is the single account file (issue #508): ``build.rs``
-installs it byte for byte as the OS volume's ``/system/etc/passwd``, the only
-account source ``accountsd`` reads (it has no built-in table and fails closed
-without the file). The home-volume seed reads the same file here, so the homes
-it creates always match the accounts the system boots with.
+``build_support/passwd`` is the single account file (issue #508): the image
+build seeds the account database ``/accounts/db`` from it
+(``build_support/accounts_seed.rs``, docs/accounts-plan.md U1), and
+``/system/etc/passwd`` is a view of that database. The home-volume seed reads
+the same file here, so the homes it creates always match the accounts the
+system boots with.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PASSWD_FILE = ROOT / "build_support" / "passwd"
-BUILD_SCRIPT = ROOT / "build.rs"
+BUILD_SCRIPT = ROOT / "build_support" / "accounts_seed.rs"
 _FIELDS = 6  # name:uid:gid:secret:home:shell
 
 

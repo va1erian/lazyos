@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attack_judge  # noqa: E402
 import audit  # noqa: E402
 import boot_judge  # noqa: E402
+import prompt_judge  # noqa: E402
 from attack_judge import Expect, judge  # noqa: E402
 
 TABLE = {
@@ -111,6 +112,127 @@ class BootJudgeTest(unittest.TestCase):
     def test_a_stop_without_the_sync_fails(self):
         self.assertTrue(boot_judge.judge_stop(self.STOP.replace("power: filesystems synced", "")))
         self.assertTrue(boot_judge.judge_stop(""))
+
+
+def png(path: Path, width: int, height: int, paint) -> None:
+    """Write an RGB PNG whose pixel (x, y) is `paint(x, y)`."""
+    import struct
+    import zlib
+    rows = b"".join(b"\0" + b"".join(bytes(paint(x, y)) for x in range(width))
+                    for y in range(height))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+                     + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+class PromptJudgeTest(unittest.TestCase):
+    """The trusted prompt (U2): the panel must survive a window opening over
+    it, the typing must reach the prompt alone (an inputd flood included),
+    and each scenario is judged from its own part of the log."""
+
+    CMD = "TERM:CMD:sh /system/share/accounts/attack.sh {}\n"
+    UP = "XUID:PROMPT:KEYS source=inputd\nXUID:PROMPT:UP uid=1000 label=0\n"
+    #: The Counter's content rectangle, over the middle of a 600x300 screen.
+    RECT = "UI:RECT x=100 y=60 w=300 h=160 name=window:xui counter\n"
+    WINDOW = "XUIAPP:COUNTER:PASS\n"
+
+    @staticmethod
+    def done(tag: str, keys: int = 8) -> str:
+        return (f"XUID:PROMPT:DONE outcome=cancelled keys={keys}\n"
+                "ELEVD:REQUEST op=time.set uid=1000 label=0 session=1 admin=- "
+                "outcome=cancelled\n"
+                f"TERM:OUT:ACCT:PROMPT:{tag}:CANCELLED\n")
+
+    def over(self, rect: str | None = None) -> str:
+        return (self.CMD.format("prompt_over") + self.UP + (rect or self.RECT) + self.WINDOW
+                + self.done("over", 1))
+
+    def keys(self, extra: str = "", keys: int = 8) -> str:
+        return self.CMD.format("prompt_keys") + self.UP + extra + self.done("keys", keys)
+
+    def flood(self, body: str | None = None, full: int = 37) -> str:
+        body = self.UP + self.done("flood", 9) if body is None else body
+        report = "TERM:OUT:ACCT:PROMPT:flood:CANCELLED"
+        return self.CMD.format("input_flood") + body.replace(report, f"{report}:full={full}")
+
+    def shots(self, covered: bool) -> Path:
+        import tempfile
+        out = Path(tempfile.mkdtemp())
+        x, y, w, h = prompt_judge.panel_rect(600, 300)
+        inside = lambda px, py: x <= px < x + w and y <= py < y + h  # noqa: E731
+        png(out / "shot_prompt_up.png", 600, 300,
+            lambda px, py: (40, 110, 70) if inside(px, py) else (0, 0, 0))
+        png(out / "shot_prompt_window.png", 600, 300,
+            lambda px, py: (200, 200, 200) if covered and inside(px, py) and px < x + w // 2
+            else ((40, 110, 70) if inside(px, py) else (9, 9, 9)))
+        return out
+
+    def test_every_scenario_blocked(self):
+        log = self.over() + self.keys() + self.flood()
+        markers = prompt_judge.markers(log, self.shots(covered=False))
+        self.assertIn("prompt_over:BLOCKED:panel_same=1.000", markers)
+        self.assertIn("prompt_keys:BLOCKED:keys=8", markers)
+        self.assertIn("input_flood:BLOCKED:keys=9_full=37", markers)
+        names = ("prompt_over", "prompt_keys", "input_flood")
+        verdict = judge(markers, {name: Expect("blocked") for name in names})
+        self.assertEqual(verdict.failures, [])
+
+    def test_a_window_drawn_over_the_panel_succeeds(self):
+        self.assertIn(":SUCCEEDED:", prompt_judge.over_marker(self.over(), self.shots(True)))
+
+    def test_a_window_away_from_the_panel_proves_nothing(self):
+        far = "UI:RECT x=0 y=0 w=60 h=40 name=window:xui counter\n"
+        marker = prompt_judge.over_marker(self.over(far), self.shots(covered=False))
+        self.assertIn(":ERROR:nooverlap", marker)
+        other = self.RECT.replace("xui counter", "Terminal")
+        marker = prompt_judge.over_marker(self.over(other), self.shots(covered=False))
+        self.assertIn(":ERROR:norect", marker)
+
+    def test_a_window_that_never_opened_during_the_prompt_is_inconclusive(self):
+        shots = self.shots(covered=False)
+        no_window = self.over().replace(self.WINDOW, "")
+        self.assertIn(":ERROR:nowindow", prompt_judge.over_marker(no_window, shots))
+        late = no_window + self.WINDOW
+        self.assertIn(":ERROR:nowindow", prompt_judge.over_marker(late, shots))
+        self.assertIn(":ERROR:noprompt", prompt_judge.over_marker("", shots))
+
+    def test_keys_that_reached_a_client_succeed(self):
+        self.assertIn(":SUCCEEDED:", prompt_judge.keys_marker(self.keys("TERM:CMD:inject\n")))
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(self.keys(keys=7)))
+        approved = self.keys().replace("outcome=cancelled keys", "outcome=approved keys")
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(approved))
+        unheard = self.keys().replace("ACCT:PROMPT:keys:CANCELLED", "ACCT:PROMPT:keys:OTHER:x")
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(unheard))
+        kernel = self.keys().replace("source=inputd", "source=kernel")
+        self.assertIn(":ERROR:source=kernel", prompt_judge.keys_marker(kernel))
+
+    def test_scenarios_never_borrow_each_others_lines(self):
+        # Only prompt_over ran: prompt_keys has no prompt of its own.
+        self.assertIn(":ERROR:", prompt_judge.keys_marker(self.over()))
+        # A leak in the keys scenario is not the flood scenario's.
+        log = self.keys("TERM:CMD:inject\n") + self.flood()
+        self.assertIn("input_flood:BLOCKED", prompt_judge.flood_marker(log))
+
+    def test_the_flood_must_be_real_and_keys_must_not_leak(self):
+        self.assertIn(":ERROR:noflood", prompt_judge.flood_marker(self.flood(full=0)))
+        self.assertIn(":ERROR:noreport", prompt_judge.flood_marker(self.CMD.format("input_flood")))
+        leaked = self.flood(self.UP + "TERM:CMD:flooded\n" + self.done("flood", 9))
+        self.assertIn(":SUCCEEDED:", prompt_judge.flood_marker(leaked))
+
+    def test_a_refused_prompt_under_the_flood_is_blocked(self):
+        refused = ("XUID:PROMPT:REFUSED reason=focus:Some(-11)\n"
+                   "ELEVD:REQUEST op=time.set uid=1000 label=0 session=1 admin=- outcome=nokeys\n"
+                   "TERM:CMD:flooded\nTERM:OUT:ACCT:PROMPT:flood:NOKEYS:full=12\n")
+        marker = prompt_judge.flood_marker(self.CMD.format("input_flood") + refused)
+        self.assertIn(":BLOCKED:refused", marker)
+        unreported = refused.replace("outcome=nokeys", "outcome=refused")
+        marker = prompt_judge.flood_marker(self.CMD.format("input_flood") + unreported)
+        self.assertIn(":ERROR:", marker)
 
 
 NODE = "f 644 0 0 10 100 00000000000000aa {}"

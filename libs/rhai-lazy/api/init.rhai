@@ -125,6 +125,30 @@ fn report_failure(reason) {
     msg::connect("os.lazy.init.v1").invoke("ReportFailure", [reason])
 }
 
+/// `Home(op: String, name: String, uid: U32, gid: U32) -> ()`
+///
+/// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
+/// from the accounts service alone (the `_accounts` system uid,
+/// unlabelled): `init` runs the change as root. `op` is `create` (a 0700
+/// `/home/<name>` owned by `uid`/`gid`, filled from the skeleton; an
+/// existing home is kept), `archive` (moved to
+/// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
+/// human account's (1000 or more) and `name` a login name. The reply
+/// comes once the change is done; a failed change is `EIO`.
+fn home(op, name, uid, gid) {
+    msg::connect("os.lazy.init.v1").invoke("Home", [op, name, uid, gid])
+}
+
+/// `RestartService(name: String) -> (pid: U64)`
+///
+/// Restart the system service `name` (docs/accounts-plan.md U2): its
+/// running task is killed and the supervisor starts it again as after a
+/// crash. Accepted from `elevd` alone, after an administrator approved
+/// it; an app or an unknown row is `ENOENT`, a row not running `EAGAIN`.
+fn restart_service(name) {
+    msg::connect("os.lazy.init.v1").invoke("RestartService", [name])
+}
+
 /// A `PowerState` with every field at its zero value.
 ///
 /// The shutdown's progress: the payload of `system/power/state`.

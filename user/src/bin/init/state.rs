@@ -10,6 +10,9 @@ use user::sys::Cred as SysCred;
 // `svcpolicy` crate (issue #549); re-exported so the supervisor keeps one
 // import path.
 pub(super) use svcpolicy::{Restart, MAX_RESTARTS};
+
+#[allow(unused_imports)] // which constants exist depends on the image's cfgs
+use super::service_creds::*;
 /// Capabilities a launched session child receives. Empty today, matching
 /// `logind`'s session set: least privilege is the default and the S5.2
 /// session grants arrive through the credential gate.
@@ -39,108 +42,15 @@ pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 pub(super) const LAUNCH_CAP_PER_SESSION: usize = 256;
 
-/// The `sndd` driver's identity (docs/driver-plan.md D3): a dedicated system
-/// uid holding only `CAP_DEV_CLAIM`, so a compromised driver has the device it
-/// claimed and nothing else: no `CAP_SETUID`, no path to uid 0.
-#[cfg(lazyos_sound)]
-const SND_CRED: SysCred = SysCred::new(SND_UID, SND_UID, user::dev::CAP_DEV_CLAIM, 0, 0);
-/// The `_snd` system user.
-#[cfg(lazyos_sound)]
-const SND_UID: u32 = sndpolicy::SND_UID;
-
-/// The mixer's identity (docs/audio-plan.md): its own system uid and **no
-/// capabilities at all**. It maps the rings clients hand it and owns the
-/// card's stream; it has no device, no DMA and no authority over anyone.
-#[cfg(lazyos_sound)]
-const AUDIO_CRED: SysCred = SysCred::new(sndpolicy::AUDIO_UID, sndpolicy::AUDIO_UID, 0, 0, 0);
-
-/// `usbd`'s arguments. `trace=1` echoes every report and key edge on serial,
-/// which would put typed passwords on the console, so only the USB harness's
-/// test images (`LAZYOS_USB_TRACE=1`, `tools/usb/run.py`) turn it on.
-#[cfg(lazyos_usb)]
-const USBD_ARGS: &str = if cfg!(lazyos_usb_trace) {
-    "trace=1"
-} else {
-    ""
-};
-
-/// The `usbd` driver's identity (docs/usb-hid-plan.md U2): a dedicated system
-/// uid holding only `CAP_DEV_CLAIM` (the controller), `CAP_INPUT_SOURCE`
-/// (publishing its devices' input) and `CAP_BLOCK_PROVIDER` (serving a USB
-/// stick to the kernel, docs/architecture/usb-storage.md). It cannot read the
-/// input bus, and the kernel stamps its records with device ids of their own.
-#[cfg(lazyos_usb)]
-const USB_CRED: SysCred = SysCred::new(
-    USB_UID,
-    USB_UID,
-    user::dev::CAP_DEV_CLAIM | user::sys::CAP_INPUT_SOURCE | user::sys::CAP_BLOCK_PROVIDER,
-    0,
-    0,
-);
-/// The `_usb` system user (901 `_snd`, 902 `_net`, 903 `_netd`).
-#[cfg(lazyos_usb)]
-const USB_UID: u32 = usbpolicy::USB_UID;
-
-/// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
-/// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
-#[cfg(lazyos_net)]
-const NET_CRED: SysCred = SysCred::new(NET_UID, NET_UID, user::dev::CAP_DEV_CLAIM, 0, 0);
-/// The `_net` system user.
-#[cfg(lazyos_net)]
-const NET_UID: u32 = netpolicy::NET_UID;
-
-/// The device manager's identity (issue #497): its own system uid and **no
-/// capabilities**. It reads the kernel's read-only inventory and asks this
-/// supervisor to start drivers; it never claims a device.
-#[cfg(lazyos_devd)]
-const DEVD_CRED: SysCred = SysCred::new(devmatch::DEVD_UID, devmatch::DEVD_UID, 0, 0, 0);
-
-/// The argument string of the `netdrv` row: `demo=1` runs the self-test and the
-/// evidence clients; `LAZYOS_NET_ARGS` overrides it at build time (the network
-/// harness's `--poll` passes `demo=1 irq=poll`).
-#[cfg(lazyos_net)]
-const NET_ARGS: &str = match option_env!("LAZYOS_NET_ARGS") {
-    Some(args) => args,
-    // With `netd` present the driver runs only its ARP self-test: the evidence
-    // clients attach to the NIC, and `netd` holds the one attachment.
-    None if cfg!(lazyos_netd) => "selftest=1",
-    None => "demo=1",
-};
-
-/// The argument string of the `netd` row: `demo=1` runs the evidence clients
-/// the network harness judges (they talk to its host servers);
-/// `LAZYOS_NETD_ARGS` overrides it at build time (`run_demo.py --net` passes
-/// `demo=0`, so an interactive desktop runs the stack alone).
-#[cfg(lazyos_netd)]
-const NETD_ARGS: &str = match option_env!("LAZYOS_NETD_ARGS") {
-    Some(args) => args,
-    None => "demo=1",
-};
-
-/// The `netd` stack service's identity (docs/networking-plan.md N2): its own
-/// system uid and **no capabilities at all**: it holds no device authority, no
-/// DMA, nothing it could misuse if a parser bug handed an attacker the process.
-#[cfg(lazyos_netd)]
-const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
-/// The `_netd` system user.
-#[cfg(lazyos_netd)]
-const NETD_UID: u32 = netpolicy::NETD_UID;
-
-/// The network mount service's identity (docs/smb-plan.md §3.4): its own
-/// system uid holding only `CAP_FS_PROVIDER`, which the `ftpfuse` daemons it
-/// starts inherit: they may serve `/mnt/<name>` and nothing more.
-#[cfg(lazyos_netd)]
-const MOUNTD_CRED: SysCred = SysCred::new(
-    mounttable::MOUNTD_UID,
-    mounttable::MOUNTD_UID,
-    user::sys::fuse::CAP_FS_PROVIDER,
-    0,
-    0,
-);
-
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
+    if name == "accountsd" {
+        return Some(ACCOUNTS_CRED);
+    }
+    if name == "elevd" {
+        return Some(ELEVD_CRED);
+    }
     #[cfg(lazyos_sound)]
     if name == "sndd" {
         return Some(SND_CRED);
@@ -273,6 +183,15 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &[],
+    },
+    // Administrator-approved operations (docs/accounts-plan.md U2): it
+    // checks passwords through `accountsd` and audits on the broker.
+    ServiceSpec {
+        name: "elevd",
+        path: fhs::bin::ELEVD,
+        args: "",
+        restart: Restart::Always,
+        deps: &["accountsd", "messengerd"],
     },
     // The login prompt reads its keys through `inputd`'s console session
     // (issue #396), so it starts once `inputd` serves; it reads the login

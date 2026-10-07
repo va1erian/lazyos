@@ -39,6 +39,9 @@ programs! {
     INPUTD = "inputd";
     /// `accountsd`, the accounts service.
     ACCOUNTSD = "accountsd";
+    /// `elevd`, the elevation service: privileged operations an admin
+    /// approved on the trusted prompt (docs/accounts-plan.md U2).
+    ELEVD = "elevd";
     /// `logind`, the login service.
     LOGIND = "logind";
     /// `logd`, the log service.

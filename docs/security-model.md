@@ -10,7 +10,7 @@ identity, and explained if denied.**
 
 ## 0. Implementation status
 
-This document is the target model. As of 2026-10-06 the kernel and services
+This document is the target model. As of 2026-10-07 the kernel and services
 have the mechanisms in the left column; everything in the right column, and
 everything below not listed here, is specification
 ([`architecture/ipc-security.md`](architecture/ipc-security.md) has the detail;
@@ -20,15 +20,15 @@ after the table says what is actually enforced today.
 
 | Mechanism implemented | Specified only |
 |---|---|
-| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; the kernel gives the programs it starts root credentials and their descendants inherit them (which is why `init`-started services run as uid 0 unless they drop privilege); audited `CAP_SETUID` transitions that can never widen privilege (section 2) | Service accounts for the core services (section 4.1 "system services do not run as root" is the goal, not the state) |
-| Console login and the desktop's graphical login through `logind` + `accountsd` (a login screen run as the `_greeter` uid, or the build's `LAZYOS_AUTOLOGIN`), logout ending every task of the session; Argon2id verifiers loaded by `keyd` from the root-only `/system/etc/shadow` (0600), no plaintext anywhere; failed logins delayed and audited (section 3, issues #447, #623) | Per-name rate limiting, key/2FA, per-user sealing of secrets, TLS in `keyd`, account management (U1) and elevation (U2, docs/accounts-plan.md) |
+| Kernel-stamped credentials (`uid/gid/caps/label/session`) on every task and message; the kernel gives the programs it starts root credentials and their descendants inherit them (which is why `init`-started services run as uid 0 unless they drop privilege); audited `CAP_SETUID` transitions that can never widen privilege (section 2); service accounts with no capability for the drivers, `accountsd` (`_accounts`) and `elevd` (`_elev`) | Service accounts for the other core services (section 4.1 "system services do not run as root" is the goal, not the state) |
+| Console login and the desktop's graphical login through `logind` + `accountsd` (a login screen run as the `_greeter` uid, or the build's `LAZYOS_AUTOLOGIN`), logout ending every task of the session; the account database `/accounts/db` (accounts, the `admin` group, Argon2id verifiers; `_accounts`, 0600) with `/system/etc/passwd` and `/system/etc/group` generated views; account management (create, delete, passwords, admins) and the first-boot setup; `Authenticate` slowed per name and per caller; no plaintext anywhere (section 3, issues #447, #623, #624) | Key/2FA, per-user sealing of secrets, TLS in `keyd` |
 | VFS `rwx`/`umask`/sticky checks against kernel credentials, root bypass (4.1) | POSIX ACLs, mount namespaces / filesystem jails (5.3) |
 | Capability bits `CAP_NET_*`, `CAP_SYS_ADMIN`, `CAP_SYS_TIME`, `CAP_AUDIT_READ`, `CAP_IPC_CONTROL`, `CAP_SETUID`, `CAP_KILL` (cross-uid signals), `CAP_DEV_CLAIM` (device claims through syscall 23, 4.2); `CAP_SYS_ADMIN` gates the display grant (4.2); per-driver device-class rules installed at boot (#481) | Dropping capabilities on `execve` |
 | Handles with rights as the primary Messenger right; default-deny ordered ACL at the kernel call boundary; per-segment topic policy; app labels with label-keyed rules compiled from a package manifest and loaded by `pkgd`, reserved `os.lazy.*`/`app.<id>.*` namespaces (4.3, 6) | A uid policy loader, the policy language/compiler, hot reload, revocation of live handles (5.2, 6) |
 | Per-uid quotas on kernel memory, user memory, handles, queue bytes/depth, device claims and DMA memory (5.5); friendly `ERR_QUOTA` | Syscall allowlists (5.1), network policy beyond the label rules (5.4), fd/CPU quota enforcement |
 | Validated user pointers on every native and Linux syscall, NX on user pages, length-checked parcels fuzzed in CI, every `unsafe` documented and gated by clippy (7) | W^X enforcement, SMEP/SMAP, stack canaries, signed kernel, crash dumps, watchdog |
 | 128-entry hash-chained kernel audit ring, denials always recorded (9) | `auditd`, on-disk audit log, `CAP_AUDIT_READ` query interface, "why was this denied" UI |
-| Install consent in the Installer: requested permissions grouped by risk with `pkgd`'s explanations (6, 12) | Elevation service (10), signed bundles and updates (11), first-use prompts, the red-team CI suite (13) |
+| Install consent in the Installer: requested permissions grouped by risk with `pkgd`'s explanations (6, 12); the elevation service `elevd` and the trusted prompt in `xuid` (10, issue #625) | Signed bundles and updates (11), first-use prompts, the red-team CI suite (13) |
 
 What is enforced today, honestly:
 
@@ -49,10 +49,23 @@ What is enforced today, honestly:
   logged-in user with no capability, so the VFS mode bits apply to them
   (`rm /system/bin/init` is `EACCES`) and they cannot signal services. The
   services still run as uid 0 except the drivers and their stacks (`sndd`,
-  `audiod`, `usbd`, `netdrv`, `netd`), and `xuid` is still started by the
-  kernel; the `admin` account is still uid 0 (U1 makes it a group).
-- **Privileged calls need a capability, not a uid.** `keyd` `Provision`,
-  `confd` `sys/**` writes (and other users' `user/<uid>/**`), `pkgd`'s
+  `audiod`, `usbd`, `netdrv`, `netd`), `accountsd` and `elevd`, and `xuid`
+  is still started by the kernel. Nobody logs in as root: `admin` is uid
+  1001, an ordinary account in the `admin` group (U1, issue #624).
+- **Privileged changes go through `elevd`** (U2, issue #625). A session asks
+  `elevd` for one operation of a fixed table (system installs and core app
+  updates, `sys/**` settings, the clock, accounts, the power policy, a
+  service restart); `xuid` shows the trusted prompt over a dimmed screen,
+  above every client, naming the asker from its kernel label and uid; an
+  administrator types their name and password (a non-admin can hand the
+  machine to one); `elevd` then performs the operation itself. Nobody is
+  handed root or a capability. `accountsd`, `confd`, `pkgd`, `timed` and
+  `init` accept these privileged paths from `elevd`'s kernel-stamped
+  identity (its uid, unlabelled, outside any session), never from a session.
+  Every request is audited (`system/events/elevd/request`, journalled to
+  `/logs/elevd.log`), and wrong passwords lock the asker out for a growing
+  delay.
+- **Privileged calls need a capability, not a uid.** `pkgd`'s
   unrestricted install source, `mimed` `Unregister`, `xuid`'s privileged
   subscriptions and shell-only calls, and `init`'s launch-anywhere, `Stop`
   and `Shutdown` rules ask for `CAP_SETUID`, which `init` keeps for the
@@ -60,9 +73,11 @@ What is enforced today, honestly:
   user like any other to them. `xuid` gives the shell role to an unlabelled
   task of the session that owns the display, never displacing a live shell.
 - **No plaintext passwords.** `/system/etc/passwd` carries `x`; the
-  verifiers are Argon2id hashes in `/system/etc/shadow` (root, 0600) that the
-  image build derives and only `keyd` reads. Without `keyd` (or the shadow)
-  every login fails closed.
+  verifiers are Argon2id hashes in the account database
+  (`/accounts/db`, `_accounts`, 0600 in a 0700 directory) that the
+  image build seeds and `keyd` derives for new passwords; only `keyd`
+  (which loads them) and `accountsd` (which stores what `keyd` returns) read
+  them. Without `keyd` (or the database) every login fails closed.
 
 ---
 
@@ -117,35 +132,63 @@ approved rule set for: same uid, gid and session, never more capabilities
   account: a directory of the optional home volume, or of the OS volume
   without one (the image build makes one per passwd account, filesystem F4).
   Password hashes are **Argon2id**, and only `keyd` can
-  verify them; the hash never leaves `keyd`'s `SHARE_ONLY` memory.
-- **The account file** (issue #508) is `/system/etc/passwd`
-  (`name:uid:gid:x:home:shell`), written by the image build from
-  `build_support/passwd`, the only copy. It is the **only** account source:
-  `accountsd` has no built-in table and parses it strictly (`libs/passwd`). It
-  **fails closed**: a missing, unreadable, oversize (over 1 KiB) or malformed
-  file, a duplicate name or uid, or one without any row gives
-  `ACCOUNTS:LOAD:FAIL reason=<...>`, health `failed`, and an error for every
-  request; `logind` then refuses every login ("Login unavailable: the account
-  database did not load", denial reason `no-accounts`). That is a recovery
-  situation, never a machine with a default password. A good load prints
-  `ACCOUNTS:LOAD:PASS rows=<n>`. `Create` answers `ENOSYS`: accounts change only
-  with the image until account management exists.
+  verify them. `keyd` derives a verifier and returns it to `accountsd`, which
+  stores it in the account database (`/accounts/db`, 0600 `_accounts`); `keyd`
+  loads them at boot and checks passwords in its own memory, and no other
+  service or client ever receives one.
+- **The account database** (issue #624, docs/accounts-plan.md U1) is
+  `/accounts/db` (`libs/accountdb`): every account, the groups (`admin`
+  makes administrators) and the Argon2id verifiers, owned by the `_accounts`
+  service account (uid 908) that `accountsd` runs as, 0600 in a 0700
+  directory. `/system/etc/passwd` (`name:uid:gid:x:home:shell`) and
+  `/system/etc/group` are views of it, regenerated by `accountsd`; the Linux
+  `/etc/passwd` and `/etc/group` come from them. The image build seeds the
+  database once from `build_support/passwd`, `groups` and `passwords` (an
+  update never replaces it, so accounts made at runtime survive). It is
+  parsed strictly and **fails closed**: a missing, unreadable, oversize or
+  malformed file, a duplicate name, uid or gid, an undeclared group or a uid
+  0 account gives `ACCOUNTS:LOAD:FAIL reason=<...>`, health `failed`, and an
+  error for every request; `logind` then refuses every login ("Login
+  unavailable: the account database did not load", denial reason
+  `no-accounts`). That is a recovery situation, never a machine with a default
+  password. A good load prints `ACCOUNTS:LOAD:PASS rows=<n>`.
+- **Account management** (`idl/accounts.midl`): `Create`, `Delete`,
+  `SetAdmin` and setting another user's password are accepted from `elevd`
+  alone (an administrator approved them on the trusted prompt), never from
+  a uid or a capability; a user changes their own password with the old one.
+  `Create` gives the next never-used uid (from 1000) and a 0700 home copied
+  from `/system/etc/skel`, which `init` makes as root on `accountsd`'s request
+  alone (`init.Home`); `Delete` archives or removes it. The last administrator
+  can be neither deleted nor demoted. A machine with no account (an image
+  built with `LAZYOS_SETUP=1`) runs the first-boot setup: the login screen
+  asks for the owner, the one `Create` it may make, an administrator.
+- **Guessing is slowed.** `Authenticate` (and `SetPassword`'s old password)
+  may fail three times in a row per key; each further failure locks that
+  key for a delay doubling from 1 s to 60 s, during which attempts are
+  refused at once (`EAGAIN`) without reaching `keyd` (`accountdb::ratelimit`).
+  `logind` and `elevd`, which check passwords for a person at the keyboard,
+  count failures against the account name and slow their own askers; any
+  other caller counts against its own uid only, so it cannot lock another
+  account out. A success clears only the name that authenticated, and a
+  locked key is never evicted from the bounded table.
 - **Default accounts.** The image ships two:
 
   | Name | uid:gid | Home | Password |
   |---|---|---|---|
-  | `admin` | `0:0` | `/home/admin` | `nimda` |
+  | `admin` | `1001:1001`, group `admin` | `/home/admin` | `nimda` |
   | `user` | `1000:1000` | `/home/user` | `lazy` |
 
   These are development passwords (`build_support/passwords`). The image
   build hashes them with Argon2id (keyd's own cost, a salt derived from name
-  and password) into `/system/etc/shadow`, mode 0600 and owned by root, and
-  writes `x` in the passwd field: no plaintext reaches the volume, and the
-  login prompt and screen never print them (issue #447). `keyd` loads the
-  shadow at boot, all or nothing (`KEYD:SHADOW:PASS rows=<n>` /
-  `KEYD:SHADOW:FAIL`); `accountsd` only relays `Authenticate` to `keyd`'s
-  `Verify` and refuses every login when `keyd` cannot answer. `keyd`
-  `Provision` (U1's account management) needs `CAP_SETUID`.
+  and password) into the account database and writes `x` in the passwd view:
+  no plaintext reaches the volume, and the login prompt and screen never
+  print them (issue #447). `keyd` loads the verifiers at boot, all or nothing
+  (`KEYD:SHADOW:PASS rows=<n>` / `KEYD:SHADOW:FAIL`); `accountsd` only relays
+  `Authenticate` to `keyd`'s `Verify` and refuses every login when `keyd`
+  cannot answer. `keyd`'s account methods, `Verify` (a direct check would
+  get around the brake), `Provision` (derive a new verifier, which it
+  returns for the database) and `Forget`, are accepted from `accountsd`'s
+  identity alone.
 - **Session environment.** A console login starts the passwd shell in the
   account's home with `HOME`, `USER` and `PATH=/system/bin`. Every app `init`
   launches into a session, installed (labelled) apps included, gets the same
@@ -166,7 +209,7 @@ approved rule set for: same uid, gid and session, never more capabilities
   kills every task stamped with the session id and the login screen returns.
 - **Service accounts** never log in; they receive their profile at supervision
   time.
-- Failed logins are rate-limited and audited (source, user, attempt).
+- Failed logins are rate-limited (above) and audited (source, user, attempt).
 
 ---
 
@@ -369,14 +412,41 @@ capabilities = []
 
 ## 10. Privilege elevation
 
-- `sudo`-like elevation is a service call, not a setuid bit: the elevation
-  service authenticates the user (password/policy), then grants a **time-boxed
-  capability set** to a spawned child (never to the caller in place).
-- Elevation always prompts (GUI or console), always audits, and can be policy-
-  limited per command (`sudo lazyosctl service restart netd`).
+Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
+`idl/elevd.midl`, `libs/elevpolicy`):
+
+- Elevation is a service call, not a setuid bit, and **nothing is granted**:
+  no root, no capability, not even to a child. A program asks `elevd` for one
+  **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
+  `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
+  `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
+  no capability) performs it itself once an administrator approved, and the
+  services accept that path from its kernel-stamped identity alone.
+- Elevation always prompts: `xuid` draws the prompt over a dimmed screen,
+  above every client and the shell; while it is up no client gets a key or a
+  pointer event, no keyboard grab holds, and no window rises above it; the
+  display protocol has no way to read the screen. It names the asker from its
+  kernel label and uid, Cancel is the default, Escape cancels and it gives up
+  after 90 s. Only `elevd` may open it. Every change asks each time; only the
+  elevated Config editor's view (`conf.elevate`, then reads) stands, for five
+  minutes, for the same uid, label and session, never for an unlabelled
+  caller, and it ends with the session or when Config closes.
+- The prompt fails closed: it opens only once `inputd` confirmed, on a
+  channel no client shares, that no client window has the keyboard;
+  otherwise the request is refused. Only without any `inputd` does it read
+  the kernel's key stream.
+- A prompt is not free to raise: after one was cancelled or timed out, the
+  asker is refused without a prompt for a growing hold (5 s doubling to
+  2 minutes), every asker waits a short pause, and a caller has one request
+  in hand at a time, so no program can keep the person at the screen from
+  the desktop and Log out.
+- Every request is audited (granted, refused, cancelled, timed out, locked,
+  failed, held, busy, nokeys) on `system/events/elevd/request`, which `logd`
+  journals to `/logs/elevd.log`; wrong passwords lock the asker out for a
+  growing delay.
 - `CAP_SYS_ADMIN` is never granted to ordinary sessions; system administration
-  happens through scoped control interfaces (`os.lazy.system.admin.v1`) rather
-  than a superuser shell, with every call logged.
+  happens through scoped operations rather than a superuser shell, with every
+  call logged.
 
 ---
 

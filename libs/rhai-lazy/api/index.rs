@@ -55,6 +55,18 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "elevd",
+        interface: "os.lazy.elevd.v1",
+        source: include_str!("elevd.rhai"),
+        topics: &[ApiTopic { helper: "request", pattern: "system/events/elevd/request" }],
+    },
+    ApiModule {
+        alias: "display_prompt",
+        interface: "os.lazy.display.prompt.v1",
+        source: include_str!("display_prompt.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "files",
         interface: "os.lazy.files.v1",
         source: include_str!("files.rhai"),

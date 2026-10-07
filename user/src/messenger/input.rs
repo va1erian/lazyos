@@ -6,6 +6,9 @@
 //! names. Ordinary clients (the static-musl xui apps carry their own copy of
 //! the client half) `Open` a session for a surface they own; the compositor
 //! ([`ShellLink`]) declares surfaces and focus and receives [`ShellEvent`]s.
+//! After `Attach` the compositor sends every shell call on the channel it
+//! handed `inputd`, which no client shares, so a client filling the shared
+//! endpoint's queue cannot delay a focus change (docs/accounts-plan.md U2).
 
 use alloc::vec::Vec;
 
@@ -177,7 +180,9 @@ impl ShellLink {
             Vec::new(),
             handles,
         );
-        if let Err(error) = link.call(&parcel) {
+        // `Attach` is the one call on the shared endpoint: the private
+        // channel only exists once `inputd` has adopted its end.
+        if let Err(error) = call_on(&link.input, &parcel) {
             // The peer may or may not have moved; closing a stale handle only
             // fails harmlessly.
             let _ = peer.close();
@@ -196,27 +201,28 @@ impl ShellLink {
         let _ = self.events.close();
     }
 
-    fn call(&self, parcel: &Parcel) -> Result<Parcel> {
-        let mut buffer = alloc::vec![0u8; 256];
-        let reply = self
-            .input
-            .call_with(parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))?;
-        match error_field(&reply)? {
-            Some(code) => Err(Error::Errno(-code)),
-            None => Ok(reply),
-        }
-    }
-
+    /// A shell call, on the private channel: no client can fill its queue.
     fn shell_call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        self.call(&request(SHELL_INTERFACE, method, body, Vec::new()))
+        call_on(
+            &self.events,
+            &request(SHELL_INTERFACE, method, body, Vec::new()),
+        )
     }
 
-    /// Send a one-way shell request: never waits on `inputd`
-    /// (docs/performance-plan.md P3.6). `Err` only when it could not be
-    /// queued (a full queue is retried later; a dead peer drops the link).
+    /// Send a one-way shell request on the private channel: never waits on
+    /// `inputd` (docs/performance-plan.md P3.6). `Err` only when it could not
+    /// be queued (a full queue is retried later; a dead peer drops the link).
     fn shell_note(&self, method: u32, body: Vec<u8>) -> Result<()> {
-        self.input
+        self.events
             .send(&request(SHELL_INTERFACE, method, body, Vec::new()))
+    }
+
+    /// Open a key session for `surface` (one of the compositor's own,
+    /// registered with owner 0) over the private channel, so a client
+    /// flooding the shared endpoint cannot refuse it: the trusted prompt's
+    /// keyboard (docs/accounts-plan.md U2).
+    pub fn open_keys(&self, surface: u64) -> Result<KeySession> {
+        KeySession::open_on(self.events, surface, false)
     }
 
     /// One-way: every pointer event up to `seq` is handled, and the focus it
@@ -343,5 +349,140 @@ impl ShellLink {
                 return Ok(Some(event));
             }
         }
+    }
+}
+
+/// What a client session delivers that its reader acts on ([`KeySession::poll`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyInput {
+    /// A key went down or repeats: its HID usage and the modifiers held.
+    Down { code: u32, mods: u32 },
+    /// The text a key produced under the active layout (composed).
+    Text(alloc::string::String),
+}
+
+/// A client session on `inputd` for one surface, for a native (`no_std`)
+/// reader: layout-aware keys and composed text from every keyboard, PS/2 or
+/// USB, while that surface has the focus. The compositor's trusted prompt
+/// reads its keys this way (docs/accounts-plan.md U2); xui apps carry their
+/// own client.
+pub struct KeySession {
+    service: Endpoint,
+    /// Whether `service` came from name resolution (released on close);
+    /// otherwise it is the [`ShellLink`]'s private channel, which stays.
+    resolved: bool,
+    session: u64,
+    /// This task's end of the session's event channel.
+    events: Endpoint,
+    buffer: Vec<u8>,
+}
+
+impl KeySession {
+    /// Open a session for `surface`, which `inputd` must know as this task's.
+    pub fn open(surface: u64) -> Result<KeySession> {
+        let service = registry::resolve(NAME)?;
+        let opened = Self::open_on(service, surface, true);
+        if opened.is_err() {
+            // A resolved handle: released, never closed (see `ShellLink::close`).
+            let _ = service.release();
+        }
+        opened
+    }
+
+    fn open_on(service: Endpoint, surface: u64, resolved: bool) -> Result<KeySession> {
+        let (events, peer) = create_pair()?;
+        let body = wire::encode_open_args(&wire::OpenArgs {
+            surface: Some(surface),
+        })
+        .map_err(Error::Parcel);
+        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers {
+            events: peer.handle(),
+        });
+        let reply = body.and_then(|body| {
+            call_on(
+                &service,
+                &request(INTERFACE, wire::METHOD_OPEN, body, handles),
+            )
+        });
+        match reply.and_then(|reply| wire::decode_open_reply(&reply.body).map_err(Error::Parcel)) {
+            // Session ids start at 1; zero is a missing field.
+            Ok(reply) if reply.session != 0 => Ok(KeySession {
+                service,
+                resolved,
+                session: reply.session,
+                events,
+                buffer: alloc::vec![0u8; DEFAULT_BUFFER],
+            }),
+            other => {
+                // The peer may or may not have moved; closing a stale handle
+                // only fails harmlessly.
+                let _ = peer.close();
+                let _ = events.close();
+                Err(other.err().unwrap_or(Error::Errno(-super::errno::EINVAL)))
+            }
+        }
+    }
+
+    /// This task's end of the event channel, to park on.
+    pub fn events_endpoint(&self) -> Endpoint {
+        self.events
+    }
+
+    /// The next key or text, without blocking. `Err`: `inputd` went away.
+    /// Key releases and anything else the session carries are skipped.
+    pub fn poll(&mut self) -> Result<Option<KeyInput>> {
+        loop {
+            let Some(message) = self.events.poll_recv_with(&mut self.buffer)? else {
+                return Ok(None);
+            };
+            if message.interface_id() != INTERFACE {
+                continue;
+            }
+            let body = &message.parcel.body;
+            match message.method() {
+                wire::METHOD_KEYEVENT => match wire::decode_key_event_args(body) {
+                    Ok(key) if key.state != wire::KEY_STATE_UP => {
+                        return Ok(Some(KeyInput::Down {
+                            code: key.code,
+                            mods: key.mods,
+                        }))
+                    }
+                    _ => {}
+                },
+                wire::METHOD_TEXTINPUT => {
+                    if let Ok(text) = wire::decode_text_input_args(body) {
+                        return Ok(Some(KeyInput::Text(text.utf8)));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// End the session and release both endpoints (best effort: `inputd`
+    /// also ends a session whose surface is unregistered).
+    pub fn close(self) {
+        if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
+            session: self.session,
+        }) {
+            let _ = call_on(
+                &self.service,
+                &request(INTERFACE, wire::METHOD_CLOSE, body, Vec::new()),
+            );
+        }
+        if self.resolved {
+            let _ = self.service.release();
+        }
+        let _ = self.events.close();
+    }
+}
+
+/// One bounded call to `inputd`; a structured error reply becomes its errno.
+fn call_on(service: &Endpoint, parcel: &Parcel) -> Result<Parcel> {
+    let mut buffer = alloc::vec![0u8; 256];
+    let reply = service.call_with(parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))?;
+    match error_field(&reply)? {
+        Some(code) => Err(Error::Errno(-code)),
+        None => Ok(reply),
     }
 }

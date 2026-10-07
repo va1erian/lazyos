@@ -140,6 +140,18 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.home.read_bytes()[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
 
+    def test_setup_formats_the_home_volume_with_no_home(self) -> None:
+        # The first-boot setup has no account: a home volume made for other
+        # accounts would hand their homes to the new owner (#659 H6).
+        self.home.write_bytes(b"precious")
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _ = self.run_main("--desktop", "--setup", "--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_SETUP"), "1")
+        image = self.home.read_bytes()
+        self.assertEqual(image[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
+        self.assertNotIn(b"admin", image)
+
     def test_reset_os_sets_the_build_variable(self) -> None:
         code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)

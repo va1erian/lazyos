@@ -56,8 +56,13 @@ pub(crate) fn self_test(keyd: &mut Keyd) -> Result<(), String> {
     // Argon2id password verification, both directions: a provisioned
     // account verifies, a wrong password and an unknown name do not, and
     // re-provisioning replaces the secret.
-    keyd.provision("selftest-user", "first")
+    let stored = keyd
+        .provision("selftest-user", "first")
         .map_err(|error| error.message())?;
+    // What `accountsd` would persist reads back as a verifier.
+    if accountdb::Verifier::parse(&stored).is_none() {
+        return Err(String::from("provisioned verifier does not parse"));
+    }
     if !keyd.verify("selftest-user", "first") {
         return Err(String::from("provisioned account rejected"));
     }
@@ -72,6 +77,18 @@ pub(crate) fn self_test(keyd: &mut Keyd) -> Result<(), String> {
         return Err(String::from(
             "provisioned secret did not replace the old one",
         ));
+    }
+    // `Restore` puts back what the database holds (an undone `Provision`).
+    keyd.restore("selftest-user", &stored)
+        .map_err(|error| error.message())?;
+    if !keyd.verify("selftest-user", "first") || keyd.verify("selftest-user", "second") {
+        return Err(String::from("restored verifier not in force"));
+    }
+    if keyd
+        .restore("selftest-user", "argon2id:1:1:1:00:00")
+        .is_ok()
+    {
+        return Err(String::from("a malformed verifier was restored"));
     }
 
     // A signing key produces a tag and counts its use.

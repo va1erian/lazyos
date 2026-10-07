@@ -129,15 +129,39 @@ impl Client {
             .ok)
     }
 
-    /// Install (or replace) `user`'s password verifier inside `keyd`.
-    /// Refused with `-EPERM` unless the caller is uid 0.
-    pub fn provision(&self, user: &str, secret: &str) -> Result<()> {
+    /// Install (or replace) `user`'s password verifier inside `keyd`; returns
+    /// the verifier as the account database stores it. Refused with `-EPERM`
+    /// unless the caller is the accounts service.
+    pub fn provision(&self, user: &str, secret: &str) -> Result<String> {
         let body = wire::encode_provision_args(&wire::ProvisionArgs {
             user: String::from(user),
             secret: String::from(secret),
         })
         .map_err(Error::Parcel)?;
-        self.call(wire::METHOD_PROVISION, body).map(|_| ())
+        let reply = self.call(wire::METHOD_PROVISION, body)?;
+        Ok(wire::decode_provision_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .verifier)
+    }
+
+    /// Drop `user`'s verifier inside `keyd` (the accounts service only).
+    pub fn forget(&self, user: &str) -> Result<()> {
+        let body = wire::encode_forget_args(&wire::ForgetArgs {
+            user: String::from(user),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_FORGET, body).map(|_| ())
+    }
+
+    /// Put back `user`'s database verifier inside `keyd` (the accounts
+    /// service only), undoing a `provision` that could not be persisted.
+    pub fn restore(&self, user: &str, verifier: &str) -> Result<()> {
+        let body = wire::encode_restore_args(&wire::RestoreArgs {
+            user: String::from(user),
+            verifier: String::from(verifier),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_RESTORE, body).map(|_| ())
     }
 
     /// HMAC-SHA256 `digest` under the stored key; returns the tag.

@@ -24,6 +24,60 @@ def passwd_seeds():
     }
 
 
+# ---- accountdb ------------------------------------------------------------------
+
+_VERIFIER = "argon2id:19456:2:1:" + "ab" * 16 + ":" + "5a" * 32
+
+
+def accountdb_seeds():
+    # The image's seed database (docs/accounts-plan.md U1), the setup state,
+    # then each way a record goes wrong.
+    seed = ("# seed\nnext:1002\ngroup:admin:10\n"
+            f"user:user:1000:1000:/home/user:sh::{_VERIFIER}\n"
+            f"user:admin:1001:1001:/home/admin:sh:admin:{_VERIFIER}\n")
+    return {
+        "seed": seed.encode(),
+        "setup": b"group:admin:10\n",
+        "empty": b"",
+        "locked": b"user:bob:1002:1002:/home/bob:sh::!\r\n",
+        "uid_zero": b"user:root:0:0:/root:sh::!\n",
+        "unknown_group": b"user:bob:1002:1002:/home/bob:sh:wheel:!\n",
+        "dup_gid": b"group:admin:10\ngroup:wheel:10\n",
+        "bad_secret": b"user:bob:1002:1002:/home/bob:sh::argon2id:1:1:1:ab:cd\n",
+        "bad_next": b"next:12\n",
+        "plaintext": b"user:admin:1001:1001:/home/admin:sh:admin:nimda\n",
+    }
+
+
+# ---- elevpolicy ------------------------------------------------------------------
+
+
+def elevpolicy_seeds():
+    # One request per row of elevd's operation table (docs/accounts-plan.md
+    # U2), NUL-separated, then the hostile shapes.
+    def request(*parts):
+        return "\0".join(parts).encode()
+    return {
+        "pkg_install": request("pkg.install", "/transient/demo.lzp"),
+        "pkg_update_core": request("pkg.update-core", "/home/user/counter.lzp"),
+        "pkg_remove": request("pkg.remove", "org.lazy.demo"),
+        "conf_set": request("conf.set", "sys/ui/demo", "str", "hello"),
+        "conf_set_bytes": request("conf.set", "sys/ui/demo", "bytes", "00ff"),
+        "conf_list": request("conf.list", ""),
+        "conf_elevate": request("conf.elevate"),
+        "time_set": request("time.set", "1767225600"),
+        "account_create": request("account.create", "bob", "s3cret", "admin"),
+        "account_delete": request("account.delete", "bob", "archive"),
+        "account_admin": request("account.admin", "user", "1"),
+        "account_password": request("account.password", "admin", "nimda"),
+        "power_policy": request("power.policy", "button", "shutdown"),
+        "service_restart": request("service.restart", "inputd"),
+        "unknown": request("sh", "-c", "rm -rf /"),
+        "traversal": request("pkg.install", "/transient/../system/bin/init"),
+        "system_account": request("account.create", "_accounts", "x", "admin"),
+    }
+
+
 # ---- accountwire ----------------------------------------------------------------
 
 BOOL, U32, STRING, STRUCT, OPTION = 1, 4, 7, 10, 12

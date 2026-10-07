@@ -48,6 +48,7 @@ fn file(path: &str, bytes: Vec<u8>) -> OsFile {
         path: path.into(),
         source: Source::Bytes(bytes),
         mode: 0o644,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 

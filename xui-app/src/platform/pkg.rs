@@ -56,15 +56,48 @@ pub fn inspect(path: &str) -> Result<Package, String> {
 }
 
 /// Install the package at `path`, returning the recorded app on success.
+///
+/// Replacing a core app is a system change (docs/accounts-plan.md U2):
+/// `pkgd` refuses it from a session, so the install is asked again through
+/// `elevd` (`pkg.update-core`), where an administrator approves on the
+/// trusted prompt and `elevd` installs it.
 pub fn install(path: &str) -> Result<Installed, String> {
     let body = wire::encode_install_args(&wire::InstallArgs {
         path: path.to_owned(),
     })
     .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
-    let reply = call(wire::METHOD_INSTALL, body)?;
+    let service = Service::connect(NAME)
+        .map_err(|code| format!("The package service (pkgd) is unavailable (errno {code})."))?;
+    let reply =
+        match service.call_detailed(wire::INTERFACE_ID, wire::METHOD_INSTALL, ERROR_FIELD, body) {
+            Ok(reply) => reply,
+            Err(error)
+                if -error.code == crate::sys::errno::EPERM
+                    && error.message.contains("core app") =>
+            {
+                return install_as_admin(path);
+            }
+            Err(error) if error.message.is_empty() => {
+                return Err(format!(
+                    "The package service refused the request (errno {}).",
+                    error.code
+                ))
+            }
+            Err(error) => return Err(error.message),
+        };
     let decoded = wire::decode_install_reply(&reply.body)
         .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
     Ok(installed_from_wire(decoded.app))
+}
+
+/// A core app's replacement, through `elevd` once an administrator approved.
+fn install_as_admin(path: &str) -> Result<Installed, String> {
+    println!("INSTALLER:ELEVATE pkg.update-core");
+    super::elevd::request("pkg.update-core", &[path])
+        .map_err(|error| format!("Not installed: {}", super::elevd::describe(&error)))?;
+    let package = inspect(path)?;
+    installed(&package.system_name)?
+        .ok_or_else(|| String::from("The package was installed, but pkgd does not list it."))
 }
 
 /// `Develop(path, confirm)` (issue #529): approve a development run of the

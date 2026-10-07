@@ -1,0 +1,5 @@
+# The default groups (docs/accounts-plan.md U1), `name:gid:members`: the
+# members of `admin` approve elevd's privileged operations. With
+# build_support/passwd and build_support/passwords it seeds the account
+# database (build_support/accounts_seed.rs).
+admin:10:admin

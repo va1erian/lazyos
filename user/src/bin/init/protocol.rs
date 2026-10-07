@@ -66,6 +66,8 @@ pub(super) struct Supervisor<'a> {
     pub(super) installed: &'a mut InstalledApps,
     pub(super) cache: &'a mut StatusCache,
     pub(super) shutdown: &'a mut Option<Shutdown>,
+    /// `accountsd`'s home changes in flight (their replies are deferred).
+    pub(super) homes: &'a mut super::homes::HomeJobs,
     /// The `Stop`s waiting for their targets' exits.
     pub(super) stops: &'a mut Stops,
 }
@@ -79,17 +81,29 @@ pub(super) fn serve_pending(
     while let Some(message) = server.poll_recv_with(buffer)? {
         let interface = message.interface_id();
         let method = message.method();
-        let reply = match dispatch(state, &message) {
-            // A `Stop` answered later, from the reap of its last target.
-            Ok(None) => continue,
-            Ok(Some(parcel)) => parcel,
-            // A malformed request still gets an answer, or its caller would
-            // wait forever. A structured error is the useful one on the
-            // control interface; the topic router keeps an empty reply.
-            Err(error) if interface == services::INIT_INTERFACE => {
-                services::init_error_reply(method, error)
-            }
-            Err(_) => Parcel::default(),
+        // `Home` answers once its helper exits (`homes.rs`).
+        let home =
+            interface == services::INIT_INTERFACE && method == services::init::wire::METHOD_HOME;
+        let started = if home {
+            Some(state.homes.start(&message))
+        } else {
+            None
+        };
+        let reply = match started {
+            Some(Ok(())) => continue,
+            Some(Err(error)) => services::init_error_reply(method, error),
+            None => match dispatch(state, &message) {
+                // A `Stop` answered later, from the reap of its last target.
+                Ok(None) => continue,
+                Ok(Some(parcel)) => parcel,
+                // A malformed request still gets an answer, or its caller would
+                // wait forever. A structured error is the useful one on the
+                // control interface; the topic router keeps an empty reply.
+                Err(error) if interface == services::INIT_INTERFACE => {
+                    services::init_error_reply(method, error)
+                }
+                Err(_) => Parcel::default(),
+            },
         };
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
@@ -196,6 +210,10 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
                 let caller = actor(message)?;
                 let phase = shutdown::request(shutdown, services, broker, &request, &caller)?;
                 services::shutdown_reply(true, &phase)
+            }
+            // `elevd` restarts a service an administrator approved (U2).
+            services::init::wire::METHOD_RESTARTSERVICE => {
+                super::homes::restart_service(services, message)
             }
             // `devd` asks for a driver row for the device it matched.
             services::init::wire::METHOD_STARTDRIVER => {

@@ -63,10 +63,13 @@ fn set_zone(state: &mut State, name: &str) -> Result<()> {
 }
 
 /// Step the wall clock. The check is on the requester's kernel-stamped
-/// capabilities, never on anything in the request body; a missing credential
-/// block is refused rather than guessed.
+/// identity, never on anything in the request body: `CAP_SYS_TIME`, or
+/// `elevd` (docs/accounts-plan.md U2), which asks only once an administrator
+/// approved the change on the trusted prompt.
 fn set_time(state: &mut State, message: &Message, unix_secs: i64) -> Result<()> {
-    if message.caller().caps & sys::CAP_SYS_TIME == 0 {
+    let cred = message.caller();
+    let elevd = elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session);
+    if cred.caps & sys::CAP_SYS_TIME == 0 && !elevd {
         return Err(Error::Errno(-errno::EPERM));
     }
     if !(0..MAX_SET_SECS).contains(&unix_secs) {

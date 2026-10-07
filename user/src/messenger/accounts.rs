@@ -13,9 +13,6 @@ pub use messenger_generated::os_lazy_accounts_v1 as wire;
 /// One account record, as a lookup reply carries it.
 pub use wire::User as UserRecord;
 
-/// A `Create` request's full payload (the initial secret included).
-pub use wire::NewUser;
-
 /// The accounts service's registered name.
 pub const NAME: &str = "os.lazy.accountsd";
 
@@ -72,13 +69,6 @@ pub fn authenticate_request(name: &str, secret: &str) -> Result<Parcel> {
     Ok(parcel(wire::METHOD_AUTHENTICATE, body))
 }
 
-/// A `Create` request (an admin's tool would send this).
-pub fn create_request(user: &NewUser) -> Result<Parcel> {
-    let body = wire::encode_create_args(&wire::CreateArgs { user: user.clone() })
-        .map_err(Error::Parcel)?;
-    Ok(parcel(wire::METHOD_CREATE, body))
-}
-
 /// Encode a `Lookup` reply: `found`, then the record when found.
 pub fn user_reply(user: Option<&UserRecord>) -> Result<Parcel> {
     let body = wire::encode_lookup_reply(&wire::LookupReply {
@@ -96,14 +86,10 @@ pub fn auth_reply(matched: bool) -> Result<Parcel> {
     Ok(parcel(wire::METHOD_AUTHENTICATE, body))
 }
 
-/// Encode a `Create` reply with the daemon's detail text.
-pub fn create_reply(ok: bool, detail: &str) -> Result<Parcel> {
-    let body = wire::encode_create_reply(&wire::CreateReply {
-        ok,
-        detail: String::from(detail),
-    })
-    .map_err(Error::Parcel)?;
-    Ok(parcel(wire::METHOD_CREATE, body))
+/// A reply of `method` carrying an already-encoded `body` (the daemon's
+/// answers to the account-management methods).
+pub fn reply(method: u32, body: alloc::vec::Vec<u8>) -> Parcel {
+    parcel(method, body)
 }
 
 /// Decode a `Lookup` request into `(name, uid)`; exactly one is expected.
@@ -116,12 +102,6 @@ pub fn decode_lookup(parcel: &Parcel) -> Result<(Option<String>, Option<u32>)> {
 pub fn decode_authenticate(parcel: &Parcel) -> Result<(String, String)> {
     let args = wire::decode_authenticate_args(&parcel.body).map_err(Error::Parcel)?;
     Ok((args.name, args.secret))
-}
-
-/// Decode a `Create` request.
-pub fn decode_create(parcel: &Parcel) -> Result<NewUser> {
-    let args = wire::decode_create_args(&parcel.body).map_err(Error::Parcel)?;
-    Ok(args.user)
 }
 
 /// Decode a `Lookup` reply into the record, or `None` when not found.
@@ -191,6 +171,79 @@ pub fn authenticate(endpoint: &Endpoint, name: &str, secret: &str) -> Result<boo
     Ok(wire::decode_authenticate_reply(&reply.body)
         .map_err(Error::Parcel)?
         .ok)
+}
+
+/// Call the account-management `method` with an encoded `body`, waiting
+/// until `deadline`; a refusal is `Err(Errno(-code))`.
+fn manage(
+    endpoint: &Endpoint,
+    method: u32,
+    body: alloc::vec::Vec<u8>,
+    deadline: Option<u64>,
+) -> Result<Parcel> {
+    call(endpoint, &parcel(method, body), deadline)
+}
+
+/// `Create`: the new account's record.
+pub fn create(
+    endpoint: &Endpoint,
+    name: &str,
+    secret: &str,
+    admin: bool,
+    deadline: Option<u64>,
+) -> Result<UserRecord> {
+    let body = wire::encode_create_args(&wire::CreateArgs {
+        name: String::from(name),
+        secret: String::from(secret),
+        admin,
+    })
+    .map_err(Error::Parcel)?;
+    let reply = manage(endpoint, wire::METHOD_CREATE, body, deadline)?;
+    Ok(wire::decode_create_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .user)
+}
+
+/// `Delete`, with what happens to the home (`keep`, `archive`, `remove`).
+pub fn delete(endpoint: &Endpoint, name: &str, home: &str, deadline: Option<u64>) -> Result<()> {
+    let body = wire::encode_delete_args(&wire::DeleteArgs {
+        name: String::from(name),
+        home: String::from(home),
+    })
+    .map_err(Error::Parcel)?;
+    manage(endpoint, wire::METHOD_DELETE, body, deadline).map(|_| ())
+}
+
+/// `SetPassword`; `old` is the current one (a user changing their own).
+pub fn set_password(
+    endpoint: &Endpoint,
+    name: &str,
+    old: Option<&str>,
+    secret: &str,
+    deadline: Option<u64>,
+) -> Result<()> {
+    let body = wire::encode_set_password_args(&wire::SetPasswordArgs {
+        name: String::from(name),
+        old: old.map(String::from),
+        secret: String::from(secret),
+    })
+    .map_err(Error::Parcel)?;
+    manage(endpoint, wire::METHOD_SETPASSWORD, body, deadline).map(|_| ())
+}
+
+/// `SetAdmin`.
+pub fn set_admin(
+    endpoint: &Endpoint,
+    name: &str,
+    admin: bool,
+    deadline: Option<u64>,
+) -> Result<()> {
+    let body = wire::encode_set_admin_args(&wire::SetAdminArgs {
+        name: String::from(name),
+        admin,
+    })
+    .map_err(Error::Parcel)?;
+    manage(endpoint, wire::METHOD_SETADMIN, body, deadline).map(|_| ())
 }
 
 /// The environment of a session's programs (issue #508): `HOME` and `USER`

@@ -26,6 +26,13 @@ members = [
     # The account file /system/etc/passwd (issue #508): strict, fail-closed
     # parsing shared by `accountsd` and the image build, host-tested.
     "libs/passwd",
+    # The account database /accounts/db (docs/accounts-plan.md U1): its
+    # parser, views, operations, policy and the Authenticate rate limit,
+    # shared by `accountsd`, `keyd` and the image build, host-tested.
+    "libs/accountdb",
+    # elevd's operation table, standing approvals and trusted identity
+    # (docs/accounts-plan.md U2), host-tested and fuzzed.
+    "libs/elevpolicy",
     # Fuzz entry point for the accounts/keyd wire decoders (issue #626).
     "libs/accountwire",
     # Buffer-slot state machines for the pipelined display present (#361).
@@ -160,6 +167,9 @@ fhs = { path = "libs/fhs", features = ["alloc"] }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }
+# The account database `/accounts/db` is seeded with the code `accountsd`
+# and `keyd` read it with (docs/accounts-plan.md U1).
+accountdb = { path = "libs/accountdb" }
 # `/system/etc/shadow`'s Argon2id verifiers are derived at build time with the
 # code and cost `keyd` verifies them with (issue #447).
 lazyos-crypto = { path = "libs/crypto" }

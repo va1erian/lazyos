@@ -8,11 +8,13 @@
 //! Everything here is behind a small, testable seam so the apps stay portable
 //! and the OS specifics live in one place.
 
+pub mod accounts;
 pub mod argv;
 pub mod audio;
 pub mod clipboard;
 pub mod confd_store;
 pub mod dirs;
+pub mod elevd;
 pub mod launcher;
 pub mod messenger;
 pub mod pkg;

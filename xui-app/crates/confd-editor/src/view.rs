@@ -34,6 +34,9 @@ pub struct Widgets {
     pub create: Handle<Button<Msg>>,
     pub banner: Handle<Label<Msg>>,
     pub status: Handle<Label<Msg>>,
+    /// What the tree lists (the user's own keys, or every key).
+    pub scope: Handle<Label<Msg>>,
+    pub elevate: Handle<Button<Msg>>,
 }
 
 /// A kind radio group raising `msg` with the picked index, bound to `handle`.
@@ -50,6 +53,10 @@ impl Widgets {
     /// The tree pane: the filter and the key list.
     pub fn tree_pane(&self) -> Layout<Msg> {
         column().padding(10).gap(8).children((
+            row().gap(6).children((
+                label("").bind(&self.scope).fill(1),
+                button("Elevate").on_click(Msg::Elevate).bind(&self.elevate),
+            )),
             row().gap(6).children((
                 edit()
                     .placeholder("filter paths")

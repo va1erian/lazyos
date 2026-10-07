@@ -145,7 +145,7 @@ fn parse_row(row: &str) -> Result<Entry, &'static str> {
     if !valid_home(home) {
         return Err("home");
     }
-    if shell.is_empty() || shell.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if !valid_shell(shell) {
         return Err("shell");
     }
     Ok(Entry {
@@ -169,8 +169,13 @@ pub fn valid_name(name: &str) -> bool {
         && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
+/// A login shell field: not empty, no whitespace or control character.
+pub fn valid_shell(shell: &str) -> bool {
+    !shell.is_empty() && !shell.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 /// A decimal id that fits `u32`: digits only (no sign, no spaces).
-fn parse_id(text: &str) -> Option<u32> {
+pub fn parse_id(text: &str) -> Option<u32> {
     if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -178,7 +183,7 @@ fn parse_id(text: &str) -> Option<u32> {
 }
 
 /// An absolute, normalised home path: no empty, `.` or `..` component.
-fn valid_home(home: &str) -> bool {
+pub fn valid_home(home: &str) -> bool {
     let Some(rest) = home.strip_prefix('/') else {
         return false;
     };

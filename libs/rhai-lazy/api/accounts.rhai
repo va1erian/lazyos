@@ -4,8 +4,18 @@
 //
 // `sys::accounts`: the Messenger interface `os.lazy.accounts.v1`.
 //
-// The account database service. Lookups are open to any caller; creating a
-// user is restricted to uid 0 by the kernel-stamped sender identity.
+// The account database service (issues #101, #624; docs/accounts-plan.md
+// U1). `accountsd` runs as the `_accounts` system uid and owns
+// `/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
+// of it. Lookups and `ListUsers` are open to any caller; `Authenticate` is
+// open but slowed (`EAGAIN` while a brake holds): a caller's failures count
+// against its own uid, and against the account name only when `logind` or
+// `elevd` asked, so no session can lock another account out. Creating, deleting and promoting accounts, and setting another
+// user's password, are accepted from `elevd` alone (after an administrator
+// approved them on the trusted prompt, U2), never from a uid or a
+// capability; the login screen may create the machine's first account during
+// the first-boot setup. Failures are a structured error field (errno-style
+// code, friendly text).
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.accounts.v1";
@@ -26,33 +36,61 @@ fn lookup(name, uid) {
 
 /// `Authenticate(name: String, secret: String) -> (ok: Bool)`
 ///
-/// Verify `secret` against the stored verifier of `name`.
+/// Verify `secret` against the stored verifier of `name`. After three
+/// failures in a row for a name or from a caller, further attempts are
+/// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
 fn authenticate(name, secret) {
     msg::connect("os.lazy.accounts.v1").invoke("Authenticate", [name, secret])
 }
 
-/// `Create(user: NewUser) -> (ok: Bool, detail: String)`
+/// `Create(name: String, secret: String, admin: Bool) -> (user: User)`
 ///
-/// Create a user (admin only). `detail` explains a refusal.
-fn create(user) {
-    msg::connect("os.lazy.accounts.v1").invoke("Create", [user])
+/// Create the account `name` with the password `secret` (an
+/// administrator when `admin`): the next free uid, a 0700 home made from
+/// the skeleton. From `elevd`, or from the login screen while the machine
+/// has no account (the owner, who must be an admin). `EEXIST` for a taken
+/// name, `EINVAL` for a bad one, `EPERM` for any other caller.
+fn create(name, secret, admin) {
+    msg::connect("os.lazy.accounts.v1").invoke("Create", [name, secret, admin])
+}
+
+/// `Delete(name: String, home: String) -> ()`
+///
+/// Delete the account `name` (from `elevd` only). `home` says what
+/// happens to its home: `keep`, `archive` (moved aside, root-only) or
+/// `remove`. The last administrator cannot be deleted (`EBUSY`).
+fn delete(name, home) {
+    msg::connect("os.lazy.accounts.v1").invoke("Delete", [name, home])
+}
+
+/// `SetPassword(name: String, old: Option<String>, secret: String) -> ()`
+///
+/// Set `name`'s password to `secret`. A user may change their own with
+/// the current one in `old` (checked and slowed like `Authenticate`,
+/// `EACCES` when wrong); `elevd` may set anyone's without it.
+fn set_password(name, old, secret) {
+    msg::connect("os.lazy.accounts.v1").invoke("SetPassword", [name, old, secret])
+}
+
+/// `SetAdmin(name: String, admin: Bool) -> ()`
+///
+/// Make `name` an administrator or not (from `elevd` only). Taking it
+/// from the last administrator is `EBUSY`.
+fn set_admin(name, admin) {
+    msg::connect("os.lazy.accounts.v1").invoke("SetAdmin", [name, admin])
+}
+
+/// `ListUsers() -> (users: Array<User>, setup: Bool)`
+///
+/// Every account, in database order. `setup` is true while the machine
+/// has no account (the login screen then asks for its owner).
+fn list_users() {
+    msg::connect("os.lazy.accounts.v1").invoke("ListUsers", [])
 }
 
 /// A `User` with every field at its zero value.
 ///
 /// One account record as a lookup returns it (never the secret).
 fn new_user() {
-    #{ name: "", uid: 0, gid: 0, home: "", shell: "" }
-}
-
-/// A `NewUser` with every field at its zero value.
-///
-/// Account name.
-/// Numeric user id (`0` = root).
-/// Primary group id.
-/// Home directory.
-/// Login shell path.
-/// A create request's full payload, including the initial secret.
-fn new_new_user() {
-    #{ name: "", uid: 0, gid: 0, secret: "", home: "", shell: "" }
+    #{ name: "", uid: 0, gid: 0, home: "", shell: "", admin: false }
 }

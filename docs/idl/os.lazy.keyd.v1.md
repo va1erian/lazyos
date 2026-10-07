@@ -27,7 +27,9 @@ parameters today, so nothing here needs `Buffer`/`Handle` yet.
 | Generate | 1196778162 | sync | `(kind: String) -> (id: U64)` |
 | List | 220805025 | sync | `() -> (keys: Array<KeyInfo>)` |
 | Ping | 2142761129 | sync | `() -> ()` |
-| Provision | 1596114784 | sync | `(user: String, secret: String) -> ()` |
+| Provision | 1596114784 | sync | `(user: String, secret: String) -> (verifier: String)` |
+| Forget | 1849666444 | sync | `(user: String) -> ()` |
+| Restore | 267943793 | sync | `(user: String, verifier: String) -> ()` |
 
 ## struct `KeyInfo`
 

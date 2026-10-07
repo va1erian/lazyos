@@ -27,6 +27,8 @@ use xui_core::widget::{Control, IconSize, Label, ListView, Panel, Placeable};
 use xui_core::{Color, Dip, HasText, Point, Rect, Rgba};
 
 use crate::about_page::AboutPage;
+use crate::accounts::Accounts;
+use crate::accounts_page::{AccountsMsg, AccountsPage};
 use crate::appearance_page::AppearancePage;
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard;
@@ -34,10 +36,10 @@ use crate::keyboard_page::KeyboardPage;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
-use crate::user_theme::UserTheme;
 use crate::system::System;
 use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
+use crate::user_theme::UserTheme;
 use crate::wallpaper_ops;
 use crate::windows_page::WindowsPage;
 
@@ -81,6 +83,7 @@ pub enum Msg {
     Menu(MenuMsg),
     Hidden(HiddenMsg),
     Time(TimeMsg),
+    Accounts(AccountsMsg),
     AboutRefresh,
     /// The compositor asked the window to close.
     Close,
@@ -100,12 +103,14 @@ struct Pages {
     hidden: HiddenPage,
     time: TimePage,
     about: AboutPage,
+    accounts: AccountsPage,
 }
 
 /// The Settings app.
 pub struct SettingsApp {
     store: Rc<dyn ConfigStore>,
     system: Rc<dyn System>,
+    accounts: Rc<dyn Accounts>,
     /// The page title: the selected section's name.
     title: Rc<Label<Msg>>,
     /// One container per section, in [`Section::ALL`] order.
@@ -120,11 +125,12 @@ pub struct SettingsApp {
 }
 
 impl SettingsApp {
-    /// Builds the window's widgets over `store` and `system`.
+    /// Builds the window's widgets over `store`, `system` and `accounts`.
     pub fn build(
         ui: &mut Ui<Msg>,
         store: Rc<dyn ConfigStore>,
         system: Rc<dyn System>,
+        accounts: Rc<dyn Accounts>,
     ) -> Result<SettingsApp> {
         ui.on_close(|| Some(Msg::Close));
         let (sidebar, title, status) = (Handle::new(), Handle::new(), Handle::new());
@@ -188,6 +194,7 @@ impl SettingsApp {
             hidden: HiddenPage::build(ui, page(Section::Hidden))?,
             time: TimePage::build(ui, page(Section::Time))?,
             about: AboutPage::build(ui, page(Section::About))?,
+            accounts: AccountsPage::build(ui, page(Section::Accounts))?,
         };
 
         let mut app = SettingsApp {
@@ -195,6 +202,7 @@ impl SettingsApp {
             // machine default (issue #407).
             store: UserTheme::scoped(store),
             system,
+            accounts,
             title: title.get(),
             frames,
             pages,
@@ -226,6 +234,9 @@ impl SettingsApp {
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
             Section::Hidden => p.hidden.load(self.store.as_ref()),
+            Section::Accounts => self
+                .status
+                .set_text(&p.accounts.load(self.accounts.as_ref())),
             _ => {}
         }
     }
@@ -383,6 +394,12 @@ impl App for SettingsApp {
                 }
             }
             Msg::AboutRefresh => self.pages.about.load(self.system.as_ref()),
+            Msg::Accounts(msg) => {
+                let text = self.pages.accounts.update(msg, self.accounts.as_ref());
+                if !text.is_empty() {
+                    self.status.set_text(&text);
+                }
+            }
             Msg::Menu(msg) => {
                 let text = self.pages.menu.update(msg, store);
                 if !text.is_empty() {

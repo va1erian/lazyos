@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lazygui import catalog, login  # noqa: E402
+from lazygui import catalog, datavol, login  # noqa: E402
 from lazygui.testplan import demo_argv, demo_config  # noqa: E402
 
 
@@ -61,6 +61,44 @@ class AutologinTests(unittest.TestCase):
             catalog.build_plan(demo_config(skip_build=False, autologin="Not A Name"))
         with self.assertRaises(ValueError):
             login.login_env({"autologin": "Not A Name"})
+
+    def test_setup_asks_for_the_owner_on_a_new_volume(self) -> None:
+        # Simple tab: the setup wins over autologin and recreates the volume.
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", autologin=True, setup=True)
+        self.assertTrue(cfg["setup"])
+        self.assertEqual(cfg["autologin"], "")
+        env = catalog.build_env(cfg)
+        self.assertEqual((env["LAZYOS_SETUP"], env["LAZYOS_AUTOLOGIN"]), ("1", "none"))
+        self.assertEqual(env["LAZYOS_RESET_OS"], "1")
+        argv = catalog.build_plan(cfg)[-1]["argv"]
+        self.assertIn("--setup", argv)
+        self.assertIn("--reset-os", argv)
+        self.assertNotIn("--autologin", argv)
+        # Not on the CLI, and nothing with "Skip build".
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", setup=True)["setup"])
+        self.assertNotIn("--setup", demo_argv(skip_build=True, setup=True))
+        # run_demo: the flag builds with LAZYOS_SETUP=1 and recreates the volume.
+        args = parse(["--setup"])
+        args.reset_os = False
+        args.reset_home = False
+        self.assertEqual(login.build_login(args),
+                         {"LAZYOS_AUTOLOGIN": "none", "LAZYOS_SETUP": "1"})
+        self.assertTrue(args.reset_os)
+        # ...and the home volume (#659 H6), unless none is attached.
+        self.assertTrue(args.reset_home)
+        args = parse(["--setup"])
+        args.reset_home, args.no_home_disk = False, True
+        login.build_login(args)
+        self.assertFalse(args.reset_home)
+        # The GUI passes --yes with --setup (it asked first), and says the
+        # home volume goes too.
+        self.assertIn("--yes", argv)
+        self.assertIn("home volume", datavol.reset_os_question(cfg))
+        self.assertNotIn("home volume",
+                         datavol.reset_os_question(dict(cfg, home_disk=False)))
+        for argv in (["--setup", "--no-build"], ["--setup", "--autologin", "user"]):
+            with self.assertRaises(ValueError, msg=argv):
+                login.build_login(parse(argv))
 
     def test_run_demo_flag(self) -> None:
         self.assertEqual(login.build_login(parse(["--autologin", "user"])),

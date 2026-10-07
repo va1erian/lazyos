@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls",
-                 "lazyweb", "mail", "traydemo", "autologin")
+                 "lazyweb", "mail", "traydemo", "autologin", "setup")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -22,7 +22,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                      devices_var, doom_var, modplayer_var, net_var, on_start,
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
-                     autologin_var=None) -> None:
+                     autologin_var=None, setup_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -36,7 +36,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     (Desktop; with networking and HTTPS); ``mail_var`` the Mail app (Desktop,
     with HTTPS); ``traydemo_var`` the tray sample app (Desktop);
     ``autologin_var`` skips the Desktop's login screen (logs in ``user``,
-    issue #623); ``on_start`` runs the plan.
+    issue #623); ``setup_var`` starts it with no account, the login screen
+    asking for the owner (docs/accounts-plan.md U1); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -69,6 +70,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(apps, text="Log in automatically as user (skip the login screen; "
                                    "passwords: docs/security-model.md)",
                         variable=autologin_var).pack(anchor="w", padx=8, pady=4)
+    if setup_var is not None:
+        ttk.Checkbutton(apps, text="First-boot setup: no account yet, the login screen asks "
+                                   "for the owner (recreates the OS volume)",
+                        variable=setup_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="LazyRAD IDE (builds it; add it in Settings -> Menu)",
                     variable=lazyrad_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="Open the Devices app at boot (device owners and driver rules)",

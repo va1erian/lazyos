@@ -9,7 +9,7 @@ name = "Settings"
 system_name = "os.lazy.settings"
 author = "LazyOS"
 version = "0.1.0"
-description = "Appearance, windows, keyboard, menu, hidden apps and time"
+description = "Appearance, windows, keyboard, menu, hidden apps, time and accounts"
 category = "system"
 
 [entry]
@@ -29,4 +29,8 @@ interfaces = [
     "os.lazy.confd.v1",
     "os.lazy.init.v1",
     "os.lazy.timed.v1",
+    # The Accounts page (docs/accounts-plan.md U1) and the changes an
+    # administrator approves through elevd (U2).
+    "os.lazy.accounts.v1",
+    "os.lazy.elevd.v1",
 ]

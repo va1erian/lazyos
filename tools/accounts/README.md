@@ -41,7 +41,7 @@ attack is declared to touch.
 
 ## Scenarios
 
-`assets/accounts/attack.sh <name>` (and two rhai scripts) ship in the image
+`assets/accounts/attack.sh <name>` (and the rhai scripts beside it) ship in the image
 through `LAZYOS_ASSETS` (`assets/manifest.txt`) at `/system/share/accounts/`.
 Each prints one `ACCT:ATTACK:<name>:BLOCKED|SUCCEEDED:<detail>` line, which the
 Terminal reports as `TERM:OUT:...`. Attacks that would brick the image are
@@ -54,18 +54,41 @@ delete a canary file, and remove whatever they created.
 | `rm_system` | `rm` a file under `/system` |
 | `overwrite_init` | open `/system/bin/init` for writing |
 | `write_conf` | create a file in `/conf` |
+| `read_conf_store` | `cat /conf/store`: confd's raw store (`sys/**`, every user's keys) is root's alone (review of #659, H1) |
 | `confd_sys` | rhai `sys::confd::set("sys/...")` |
 | `keyd_provision` | rhai `sys::keyd::provision(...)` |
 | `read_home_admin` | `ls /home/admin` |
 | `signal_service` | `kill -CONT` the `logd` service |
 | `autostart_root` | install `org.acct.autoprobe` (a package with `autostart`, as `user`); at the next login it must open in the session as `user`, never as root (judged from the verify boot's `INIT:AUTOSTART:*` lines) |
-| `core_replace` | install `os.lazy.counter` 99.0.0 over the core app |
+| `core_replace` | install `os.lazy.counter` 99.0.0 over the core app (only `elevd`'s `pkg.update-core` may, U2) |
+| `acct_create` | rhai: `accountsd` `Create` of an admin, as the user (U1) |
+| `acct_delete` | rhai: `accountsd` `Delete("admin")` (U1) |
+| `acct_promote` | rhai: `accountsd` `SetAdmin("user", true)` (U1) |
+| `acct_password` | rhai: `accountsd` `SetPassword("admin", ...)`, someone else's (U1) |
+| `keyd_forget` | rhai: `keyd` `Forget("admin")`, `accountsd`'s alone (U1) |
+| `keyd_verify` | rhai: `keyd` `Verify("admin", ...)` directly, around `accountsd`'s brake; `accountsd`'s alone (review of #659, H2) |
+| `admin_lockout` | `attack.sh admin_lockout`: the session floods `Authenticate("admin", ...)` in the background (`auth_hammer.rhai`) while `elevd` asks for an administrator (`conf.elevate`); the harness types admin's right password and the request must be granted: a session's failures count against its own uid, never lock a name for `logind`/`elevd` (review of #659, H5) |
+| `auth_flood` | rhai: 40 wrong `Authenticate("admin", ...)` in a row; BLOCKED when at most 8 were checked and the rest slowed (`EAGAIN`) (U1) |
+| `direct_time` | rhai: `timed` `SetTime` directly, not through `elevd` (U2) |
+| `direct_restart` | rhai: `init` `RestartService("inputd")` directly (U2) |
+| `prompt_spoof` | rhai: open the trusted prompt itself (`os.lazy.display.prompt.v1`, `elevd`'s alone) (U2) |
+| `input_focus` | rhai: move the keyboard focus through `inputd`'s compositor link, to take a prompt's keys (U2) |
+| `display_read` | rhai: `ListSurfaces`, the display protocol's only screen-wide read (no method returns pixels) (U2) |
+| `prompt_over` | `attack.sh prompt_over`: `elevd` shows the prompt, a window (the Counter) opens over it 5 s later; judged from screenshots before and after (`prompt_judge.py`: the window's `UI:RECT` overlaps the panel, and the panel is unchanged) (U2) |
+| `prompt_keys` | the Terminal has the focus when the prompt opens; the session types `inject`, Enter and Escape: the prompt took the keys from `inputd` (`XUID:PROMPT:DONE ... keys=8`), `elevd` recorded the cancel, and the Terminal never saw a line (`TERM:CMD:inject`) (U2) |
+| `input_flood` | the same (typing `flooded`) while three programs keep `inputd`'s shared endpoint full (`input_flood.rhai`, refused sends counted: the flood must be real); BLOCKED when no client got the keys, or `xuid` refused a prompt it could not take the keyboard for (review of #659, H3) |
+| `prompt_flood` | cancel a prompt, then ask five more times at once: every request must be refused without a prompt (`EAGAIN`, `elevd`'s hold) (review of #659, H4) |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
 
 Not yet scripted: claiming `xuid`'s shell role from the session (no shipped
 program a session can run subscribes to `xuid`; the rule is boot-tested by
-`xuid`'s `XUID:SHELLCALLS` self-test) and the U1/U2 sets.
+`xuid`'s `XUID:SHELLCALLS` self-test). A client cannot inject keys at all (a
+raw input source needs `CAP_INPUT_SOURCE`), so `prompt_keys` judges the other
+half: the keys the person types go to the prompt and nowhere else. The
+prompt scenarios are judged from their own part of the log (from their
+`attack.sh` command to the next), and each request first waits out the hold
+the previous scenario's cancel left (`elev_wait.rhai`).
 
 ## Expectations: how it passes today and gates later
 
@@ -76,8 +99,9 @@ program a session can run subscribes to `xuid`; the rule is boot-tested by
   noted. If it prints `BLOCKED` the judge notes `XPASS ... flip the expectation`
   (not a failure): change the entry to `blocked` and it is a gate.
 
-U0 (#623) landed: the U0 rows are `blocked`. `core_replace`, `fork_bomb` and
-`disk_fill` stay `xfail` until U3 (protected core apps, quotas). Each row's
+U0 (#623), U1 (#624) and U2 (#625) landed: their rows are `blocked`
+(`core_replace` since U2: a core app is replaced only through `elevd`).
+`fork_bomb` and `disk_fill` stay `xfail` until U3 (quotas). Each row's
 `touches` lists the image paths the attack changes when it succeeds; the audit
 excuses only those, and only while the row is `xfail`. `side_effects` are
 paths a scenario changes by allowed means whatever its state (installing a

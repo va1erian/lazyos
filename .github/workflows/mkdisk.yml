@@ -57,7 +57,7 @@ jobs:
           e2fsck -fn /tmp/data.img
           debugfs -R "stat /tmp" /tmp/data.img | grep -E "Mode: +01777"
           debugfs -R "stat /home/user" /tmp/data.img | grep -E "User: +1000 "
-          debugfs -R "stat /home/admin" /tmp/data.img | grep -E "User: +0 "
+          debugfs -R "stat /home/admin" /tmp/data.img | grep -E "User: +1001 "
           python -m tools.mkdisk /tmp/root.img --root-mode 1777 --root-uid 1000 --root-gid 1000
           e2fsck -fn /tmp/root.img
           python -m tools.mkdisk /tmp/bare.img --no-seed --size 8M
@@ -77,7 +77,7 @@ jobs:
           dumpe2fs -h /tmp/home.img 2>/dev/null | grep -E "Filesystem volume name: +lazyhome"
           debugfs -R "stat /user" /tmp/home.img | grep -E "User: +1000 +Group: +1000"
           debugfs -R "stat /user" /tmp/home.img | grep -E "Mode: +0700"
-          debugfs -R "stat /admin" /tmp/home.img | grep -E "User: +0 +Group: +0"
+          debugfs -R "stat /admin" /tmp/home.img | grep -E "User: +1001 +Group: +1001"
           debugfs -R "stat /admin" /tmp/home.img | grep -E "Mode: +0700"
           debugfs -R "ls -p /" /tmp/home.img | tee /tmp/home.ls
           grep -q "/user/" /tmp/home.ls

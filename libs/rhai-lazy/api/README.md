@@ -39,6 +39,8 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
+| [`sys::elevd`](#syselevd) | `os.lazy.elevd.v1` |
+| [`sys::display_prompt`](#sysdisplay_prompt) | `os.lazy.display.prompt.v1` |
 | [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
 | [`sys::init`](#sysinit) | `os.lazy.init.v1` |
@@ -70,15 +72,18 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 
 Interface `os.lazy.accounts.v1`, source [`accounts.rhai`](accounts.rhai).
 
-The account database service. Lookups are open to any caller; creating a
+The account database service (issues #101, #624; docs/accounts-plan.md
 
 | Function | IDL | About |
 |---|---|---|
 | `lookup(name, uid)` | `Lookup(name: Option<String>, uid: Option<U32>) -> (found: Bool, user: Option<User>)` | Find a user by `name` or, when `name` is absent, by `uid`. |
-| `authenticate(name, secret)` | `Authenticate(name: String, secret: String) -> (ok: Bool)` | Verify `secret` against the stored verifier of `name`. |
-| `create(user)` | `Create(user: NewUser) -> (ok: Bool, detail: String)` | Create a user (admin only). `detail` explains a refusal. |
+| `authenticate(name, secret)` | `Authenticate(name: String, secret: String) -> (ok: Bool)` | Verify `secret` against the stored verifier of `name`. After three |
+| `create(name, secret, admin)` | `Create(name: String, secret: String, admin: Bool) -> (user: User)` | Create the account `name` with the password `secret` (an |
+| `delete(name, home)` | `Delete(name: String, home: String) -> ()` | Delete the account `name` (from `elevd` only). `home` says what |
+| `set_password(name, old, secret)` | `SetPassword(name: String, old: Option<String>, secret: String) -> ()` | Set `name`'s password to `secret`. A user may change their own with |
+| `set_admin(name, admin)` | `SetAdmin(name: String, admin: Bool) -> ()` | Make `name` an administrator or not (from `elevd` only). Taking it |
+| `list_users()` | `ListUsers() -> (users: Array<User>, setup: Bool)` | Every account, in database order. `setup` is true while the machine |
 | `new_user()` | struct `User` | a `User` at its zero value |
-| `new_new_user()` | struct `NewUser` | a `NewUser` at its zero value |
 
 ## `sys::audio`
 
@@ -261,6 +266,34 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 
 - `LEVEL` = the `Level` variants; `LEVEL_INFO`, `LEVEL_WARN`, `LEVEL_ERROR`
 
+## `sys::elevd`
+
+Interface `os.lazy.elevd.v1`, source [`elevd.rhai`](elevd.rhai).
+
+The elevation service (docs/accounts-plan.md U2, issue #625).
+
+| Function | IDL | About |
+|---|---|---|
+| `request(operation, args)` | `Request(operation: String, args: Array<String>) -> (detail: String, values: Array<String>)` | Perform `operation` (a row of the operation table, e.g. |
+| `release()` | `Release() -> ()` | End the caller's standing approvals now (an elevated editor closing). |
+| `new_record()` | struct `Record` | a `Record` at its zero value |
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `system/events/elevd/request` | `Record` | `on_request(handler)`, `subscribe_request()`, `publish_request(payload)` |
+
+## `sys::display_prompt`
+
+Interface `os.lazy.display.prompt.v1`, source [`display_prompt.rhai`](display_prompt.rhai).
+
+The trusted prompt (docs/accounts-plan.md U2), served by `xuid` on the
+
+| Function | IDL | About |
+|---|---|---|
+| `prompt(summary, uid, user, label_id, admin, error)` | `Prompt(summary: String, uid: U32, user: String, label_id: U32, admin: String, error: String) -> (outcome: U32, name: String, secret: String)` | Show the prompt for `summary` (what would change), asked by the task |
+
+- `PROMPT_OUTCOME` = the `PromptOutcome` variants; `PROMPT_OUTCOME_APPROVED`, `PROMPT_OUTCOME_CANCELLED`, `PROMPT_OUTCOME_TIMED_OUT`
+
 ## `sys::files`
 
 Interface `os.lazy.files.v1`, source [`files.rhai`](files.rhai).
@@ -308,6 +341,8 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `start_driver(driver, device)` | `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
 | `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `report_failure(reason)` | `ReportFailure(reason: String) -> () oneway` | A launched app says why it is about to fail (issue #549), so the |
+| `home(op, name, uid, gid)` | `Home(op: String, name: String, uid: U32, gid: U32) -> ()` | Make or retire an account's home (docs/accounts-plan.md U1). Accepted |
+| `restart_service(name)` | `RestartService(name: String) -> (pid: U64)` | Restart the system service `name` (docs/accounts-plan.md U2): its |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |
@@ -419,7 +454,9 @@ The secrets and crypto service (issue #102).
 | `generate(kind)` | `Generate(kind: String) -> (id: U64)` | Create a fresh random key of type `kind` (`hmac` or `wrap`); returns |
 | `list()` | `List() -> (keys: Array<KeyInfo>)` | The caller's key ids, types and use counters; never material. |
 | `ping()` | `Ping() -> ()` | Round-trip probe. |
-| `provision(user, secret)` | `Provision(user: String, secret: String) -> ()` | Install or replace an account's password verifier. Root only: the |
+| `provision(user, secret)` | `Provision(user: String, secret: String) -> (verifier: String)` | Install or replace an account's password verifier (docs/accounts-plan.md |
+| `forget(user)` | `Forget(user: String) -> ()` | Drop an account's verifier: it can no longer log in. Accepted only |
+| `restore(user, verifier)` | `Restore(user: String, verifier: String) -> ()` | Put back a verifier the account database holds |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
 
 ## `sys::lifecycle`

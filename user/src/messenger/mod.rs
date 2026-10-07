@@ -113,6 +113,7 @@ pub mod errno {
     pub const EFAULT: i64 = 14;
     pub const EBUSY: i64 = 16;
     pub const EEXIST: i64 = 17;
+    pub const ENODEV: i64 = 19;
     pub const EINVAL: i64 = 22;
     pub const EPIPE: i64 = 32;
     pub const EDEADLK: i64 = 35;

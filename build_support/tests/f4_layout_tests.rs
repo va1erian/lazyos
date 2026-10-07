@@ -32,6 +32,7 @@ fn files() -> Vec<OsFile> {
         path: fhs::etc::PASSWD.into(),
         source: Source::Bytes(PASSWD.as_bytes().to_vec()),
         mode: 0o644,
+        placement: crate::os_image::Placement::ROOT,
     }]
 }
 

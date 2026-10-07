@@ -127,8 +127,14 @@ impl Hub {
             }
             shell_wire::METHOD_REGISTERSURFACE | shell_wire::METHOD_NOTESURFACE => {
                 let args = shell_wire::decode_register_surface_args(body).map_err(Error::Parcel)?;
+                // Owner 0: the compositor's own surface (its trusted prompt).
+                let owner = if args.owner == 0 {
+                    message.sender
+                } else {
+                    args.owner
+                };
                 self.router
-                    .register_surface(args.surface, args.owner)
+                    .register_surface(args.surface, owner)
                     .map_err(route_error)?;
                 Ok(Vec::new())
             }
@@ -356,14 +362,25 @@ impl Hub {
         let parcel = api::event(api::SHELL_INTERFACE, method, body);
         if let Err(Error::Errno(code)) = shell.events.send(&parcel) {
             if code == -errno::EPIPE {
-                // The compositor is gone: no window is focused until it
-                // returns, and the console session takes the keys again.
-                self.drop_shell();
-                let change = self.router.set_compositor(false);
-                self.apply(change);
-                self.release_keys();
+                self.shell_lost();
             }
         }
+    }
+
+    /// The compositor is gone: no window is focused until it returns, and
+    /// the console session takes the keys again.
+    pub(super) fn shell_lost(&mut self) {
+        self.drop_shell();
+        let change = self.router.set_compositor(false);
+        self.apply(change);
+        self.release_keys();
+    }
+
+    /// `inputd`'s end of the attached compositor's channel: shell events go
+    /// out on it and the compositor's own calls come in on it
+    /// (`shellchan.rs`).
+    pub(super) fn shell_endpoint(&self) -> Option<Endpoint> {
+        self.shell.as_ref().map(|shell| shell.events)
     }
 
     /// Forget the attached compositor: close its event endpoint and remove

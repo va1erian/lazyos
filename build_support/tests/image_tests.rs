@@ -68,6 +68,7 @@ fn file(path: &str, bytes: &[u8], mode: u16) -> OsFile {
         path: path.into(),
         source: Source::Bytes(bytes.to_vec()),
         mode,
+        placement: crate::os_image::Placement::ROOT,
     }
 }
 
@@ -334,6 +335,7 @@ fn a_failed_create_leaves_no_temp_file_and_the_old_image_alone() {
         path: "/X.ELF".into(),
         source: Source::Path(dir.0.join("does-not-exist")),
         mode: 0o755,
+        placement: crate::os_image::Placement::ROOT,
     };
     let result = compose(
         &planned,

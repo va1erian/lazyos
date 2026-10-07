@@ -160,9 +160,16 @@ fn write_file(path_ptr: u64, data_ptr: u64, len: u64) -> Result<u64, u64> {
     }
     let data = user_data(data_ptr, len)?;
     let id = Id::current();
-    match fs::vfs_create(id, &path, FILE_MODE) {
-        Ok(_) | Err(FsError::Exists) => {}
-        Err(error) => return Err(failed(errno_of(error))),
+    // Replacing an existing file needs write permission on the file, not on
+    // its directory (`open(O_TRUNC)`): the account service rewrites the
+    // views it owns in root's `/system/etc` (docs/accounts-plan.md U1). Only
+    // a missing file is created, which needs the directory.
+    let exists = matches!(fs::vfs_stat(id, &path), Ok(meta) if meta.kind == FileKind::File);
+    if !exists {
+        match fs::vfs_create(id, &path, FILE_MODE) {
+            Ok(_) | Err(FsError::Exists) => {}
+            Err(error) => return Err(failed(errno_of(error))),
+        }
     }
     fs::vfs_truncate(id, &path, 0).map_err(|e| failed(errno_of(e)))?;
     let written = fs::vfs_write(id, &path, 0, &data).map_err(|e| failed(errno_of(e)))?;

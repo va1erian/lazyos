@@ -11,7 +11,10 @@
 //! are empty, so user files there survive until F7 migrates them.
 //!
 //! An update applies each directory's mode and owner again, so an image built
-//! before a change of this table converges to it.
+//! before a change of this table converges to it. The exception are the
+//! accounts' homes ([`DirSpec::seed`]): they belong to the accounts, so they
+//! are made only when the account database is seeded (a fresh volume) and an
+//! update never creates, chmods or chowns one (`os_state.rs`).
 
 /// One directory: where it lives and who may do what in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,15 +23,28 @@ pub struct DirSpec {
     pub mode: u16,
     pub uid: u32,
     pub gid: u32,
+    /// A seed directory (an account's home): created with this mode and
+    /// owner only while the account database is being seeded, never applied
+    /// to an existing directory, never re-created by an update.
+    pub seed: bool,
 }
 
 impl DirSpec {
-    fn new(path: &str, mode: u16, uid: u32, gid: u32) -> DirSpec {
+    pub fn new(path: &str, mode: u16, uid: u32, gid: u32) -> DirSpec {
         DirSpec {
             path: path.to_string(),
             mode,
             uid,
             gid,
+            seed: false,
+        }
+    }
+
+    /// A seed directory (see [`DirSpec::seed`]).
+    pub fn seed(path: &str, mode: u16, uid: u32, gid: u32) -> DirSpec {
+        DirSpec {
+            seed: true,
+            ..DirSpec::new(path, mode, uid, gid)
         }
     }
 }
@@ -85,9 +101,11 @@ pub fn parse_passwd(text: &str) -> Vec<Account> {
 ///   since F4, it stays the opt-in data disk's mount point and the `confd`
 ///   seed until F7 removes it);
 /// * a home for each account of the embedded passwd whose home is
-///   `/home/<name>`: 0700, owned by the account's uid and gid. These are the
-///   homes without a home volume; a mounted `/home` volume hides them.
-///   Accounts whose home lies elsewhere (a service account's, say) get none.
+///   `/home/<name>`: 0700, owned by the account's uid and gid, as a seed
+///   ([`DirSpec::seed`]): made with the database, then the account's. These
+///   are the homes without a home volume; a mounted `/home` volume hides
+///   them. Accounts whose home lies elsewhere (a service account's, say) get
+///   none.
 pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     let mut out: Vec<DirSpec> = [
         fhs::mount::BOOT,
@@ -99,6 +117,7 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
         fhs::SYSTEM_ETC,
         fhs::SYSTEM_SHARE,
         fhs::SYSTEM_PACKAGES,
+        fhs::etc::SKEL,
     ]
     .iter()
     .map(|path| DirSpec::new(path, 0o755, 0, 0))
@@ -108,7 +127,16 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     // uids, these owners change with them.
     out.extend([
         // Only `confd` reads the raw store; everyone else goes through it.
+        // Nobody else may even cross it (the account database lives in its
+        // own top-level directory for that reason).
         DirSpec::new(fhs::state::CONF_ROOT, PRIVATE, 0, 0),
+        // The account database, `accountsd`'s alone (docs/accounts-plan.md U1).
+        DirSpec::new(
+            fhs::state::ACCOUNTS_DIR,
+            PRIVATE,
+            accountdb::ACCOUNTS_UID,
+            accountdb::ACCOUNTS_UID,
+        ),
         // Per-service state dirs, each created by its owner.
         DirSpec::new(fhs::state::CONF_SVC, PRIVATE, 0, 0),
         // `logd`'s journals and `pkgd`'s audit log carry every user's
@@ -122,7 +150,7 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
     ]);
     for account in accounts {
         if account.home == fhs::home_of(&account.name) {
-            out.push(DirSpec::new(
+            out.push(DirSpec::seed(
                 &account.home,
                 PRIVATE,
                 account.uid,
@@ -134,14 +162,11 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
 }
 
 /// The mode of a file the build places, from where it goes: 0755 for anything
-/// under `/system/bin` (the programs), 0600 for the shadow file, 0644 for
-/// everything else. All are root-owned. A name never decides it, so a data
-/// file cannot become executable by being called `*.ELF`.
+/// under `/system/bin` (the programs), 0644 for everything else. A name never
+/// decides it, so a data file cannot become executable by being called
+/// `*.ELF`. (The account database is placed with its own mode and owner,
+/// `accounts_seed.rs`.)
 pub fn file_mode(path: &str) -> u16 {
-    // The password verifiers: root only (issue #447).
-    if path == fhs::etc::SHADOW {
-        return 0o600;
-    }
     let in_bin = path
         .trim_start_matches('/')
         .strip_prefix(fhs::SYSTEM_BIN.trim_start_matches('/'))

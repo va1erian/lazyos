@@ -1,41 +1,57 @@
-/// The account database service. Lookups are open to any caller; creating a
-/// user is restricted to uid 0 by the kernel-stamped sender identity.
+/// The account database service (issues #101, #624; docs/accounts-plan.md
+/// U1). `accountsd` runs as the `_accounts` system uid and owns
+/// `/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
+/// of it. Lookups and `ListUsers` are open to any caller; `Authenticate` is
+/// open but slowed (`EAGAIN` while a brake holds): a caller's failures count
+/// against its own uid, and against the account name only when `logind` or
+/// `elevd` asked, so no session can lock another account out. Creating, deleting and promoting accounts, and setting another
+/// user's password, are accepted from `elevd` alone (after an administrator
+/// approved them on the trusted prompt, U2), never from a uid or a
+/// capability; the login screen may create the machine's first account during
+/// the first-boot setup. Failures are a structured error field (errno-style
+/// code, friendly text).
 interface os.lazy.accounts.v1 {
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
     method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2);
-    /// Verify `secret` against the stored verifier of `name`.
+    /// Verify `secret` against the stored verifier of `name`. After three
+    /// failures in a row for a name or from a caller, further attempts are
+    /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
     method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1);
-    /// Create a user (admin only). `detail` explains a refusal.
-    method Create(user: NewUser = 1) -> (ok: Bool = 1, detail: String = 2);
+    /// Create the account `name` with the password `secret` (an
+    /// administrator when `admin`): the next free uid, a 0700 home made from
+    /// the skeleton. From `elevd`, or from the login screen while the machine
+    /// has no account (the owner, who must be an admin). `EEXIST` for a taken
+    /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
+    method Create(name: String = 1, secret: String = 2, admin: Bool = 3) -> (user: User = 1);
+    /// Delete the account `name` (from `elevd` only). `home` says what
+    /// happens to its home: `keep`, `archive` (moved aside, root-only) or
+    /// `remove`. The last administrator cannot be deleted (`EBUSY`).
+    method Delete(name: String = 1, home: String = 2) -> ();
+    /// Set `name`'s password to `secret`. A user may change their own with
+    /// the current one in `old` (checked and slowed like `Authenticate`,
+    /// `EACCES` when wrong); `elevd` may set anyone's without it.
+    method SetPassword(name: String = 1, old: Option<String> = 2, secret: String = 3) -> ();
+    /// Make `name` an administrator or not (from `elevd` only). Taking it
+    /// from the last administrator is `EBUSY`.
+    method SetAdmin(name: String = 1, admin: Bool = 2) -> ();
+    /// Every account, in database order. `setup` is true while the machine
+    /// has no account (the login screen then asks for its owner).
+    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2);
 
     /// One account record as a lookup returns it (never the secret).
     struct User {
         /// Account name.
         name: String = 1,
-        /// Numeric user id (`0` = root).
+        /// Numeric user id (never `0`: nobody logs in as root).
         uid: U32 = 2,
         /// Primary group id.
         gid: U32 = 3,
         /// Home directory.
         home: String = 4,
         /// Login shell path.
-        shell: String = 5
-    }
-
-    /// A create request's full payload, including the initial secret.
-    struct NewUser {
-        /// Account name.
-        name: String = 1,
-        /// Numeric user id.
-        uid: U32 = 2,
-        /// Primary group id.
-        gid: U32 = 3,
-        /// The new user's initial secret.
-        secret: String = 4,
-        /// Home directory.
-        home: String = 5,
-        /// Login shell path.
-        shell: String = 6
+        shell: String = 5,
+        /// A member of the `admin` group: approves `elevd`'s operations.
+        admin: Bool = 6
     }
 }

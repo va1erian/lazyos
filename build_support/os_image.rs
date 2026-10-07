@@ -25,6 +25,8 @@ pub mod display_cfg;
 pub mod limits_cfg;
 #[path = "os_compose.rs"]
 mod os_compose;
+#[path = "os_state.rs"]
+mod os_state;
 
 use os_compose::{create, update};
 
@@ -35,19 +37,65 @@ pub enum Source {
     Bytes(Vec<u8>),
 }
 
-/// One file of the OS volume: its absolute path, bytes and mode (root-owned).
+/// One file of the OS volume: its absolute path, bytes, mode and owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OsFile {
     pub path: String,
     pub source: Source,
     pub mode: u16,
+    /// Owner and how the build places it ([`Placement::ROOT`] for nearly
+    /// every file).
+    pub placement: Placement,
+}
+
+/// Who owns a placed file, and whether an update may replace it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub uid: u32,
+    pub gid: u32,
+    /// A seed: written only when the path does not exist yet, and never
+    /// listed in the manifest, so an update neither replaces nor deletes
+    /// it (the account database a running system keeps changing).
+    pub seed: bool,
+}
+
+impl Placement {
+    /// A root-owned file the build owns: replaced by every update.
+    pub const ROOT: Placement = Placement {
+        uid: 0,
+        gid: 0,
+        seed: false,
+    };
+
+    /// A file owned by `uid`/`gid`, replaced by every update.
+    pub const fn owned(uid: u32, gid: u32) -> Placement {
+        Placement {
+            uid,
+            gid,
+            seed: false,
+        }
+    }
+
+    /// A seed owned by `uid`/`gid`: written once, then the system's.
+    pub const fn seed(uid: u32, gid: u32) -> Placement {
+        Placement {
+            uid,
+            gid,
+            seed: true,
+        }
+    }
 }
 
 /// Where the embed modules put the files they select.
 pub trait Sink {
     /// Add `path` (relative to the volume root, or absolute) with `mode`. A
     /// later entry for the same path replaces the earlier one.
-    fn add(&mut self, path: &str, source: Source, mode: u16);
+    fn add(&mut self, path: &str, source: Source, mode: u16) {
+        self.add_placed(path, source, mode, Placement::ROOT);
+    }
+
+    /// [`Sink::add`] with an owner other than root, or as a seed.
+    fn add_placed(&mut self, path: &str, source: Source, mode: u16, placement: Placement);
 
     /// Add the file at `source`, with the mode its name implies.
     fn add_file(&mut self, path: &str, source: PathBuf) {
@@ -77,13 +125,14 @@ impl OsFiles {
 }
 
 impl Sink for OsFiles {
-    fn add(&mut self, path: &str, source: Source, mode: u16) {
+    fn add_placed(&mut self, path: &str, source: Source, mode: u16, placement: Placement) {
         match clean_path(path) {
             Some(path) => {
                 let file = OsFile {
                     path: path.clone(),
                     source,
                     mode,
+                    placement,
                 };
                 self.files.insert(path, file);
             }
@@ -299,7 +348,9 @@ pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> 
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
 /// does not (files are unlinked, directories removed only when empty, so
-/// anything a user keeps there survives), then write every file of `files`
+/// anything a user keeps there survives), apply the directory table (seed
+/// directories only while the account database is seeded, `os_state.rs`),
+/// then write every file of `files`
 /// (replace = truncate + write), and finally the manifest, then flush. A path
 /// that is in neither manifest is never touched.
 pub fn write_volume(
@@ -323,7 +374,7 @@ pub fn write_volume(
             Err(error) => return Err(volume_error(&format!("remove {path}"), error)),
         }
     }
-    for dir in dirs {
+    for dir in dirs.iter().filter(|dir| !dir.seed) {
         volume
             .mkdir_p(&dir.path, dir.mode, dir.uid, dir.gid)
             .map_err(|e| volume_error(&format!("mkdir {}", dir.path), e))?;
@@ -339,7 +390,16 @@ pub fn write_volume(
             .setattr(&dir.path, &change)
             .map_err(|e| volume_error(&format!("chmod {}", dir.path), e))?;
     }
+    // What the running system owns: see `os_state.rs`.
+    os_state::move_legacy_accounts(volume)?;
+    os_state::private_conf_files(volume)?;
+    let seeding = os_state::seeding_accounts(volume);
+    os_state::seed_dirs(volume, dirs, seeding)?;
     for file in files {
+        // A seed the system already has is the system's now.
+        if file.placement.seed && volume.lookup(&file.path).is_ok() {
+            continue;
+        }
         let parent = file.path.rsplit_once('/').map_or("/", |(parent, _)| parent);
         volume
             .mkdir_p(if parent.is_empty() { "/" } else { parent }, 0o755, 0, 0)
@@ -349,8 +409,9 @@ pub fn write_volume(
             Source::Path(path) => std::fs::read(path)
                 .map_err(|e| format!("read {} for {}: {e}", path.display(), file.path))?,
         };
+        let Placement { uid, gid, .. } = file.placement;
         volume
-            .write_file(&file.path, &bytes, file.mode, 0, 0, stamp)
+            .write_file(&file.path, &bytes, file.mode, uid, gid, stamp)
             .map_err(|e| volume_error(&format!("write {}", file.path), e))?;
     }
     // Everything else is on the disk before the manifest that lists it: the

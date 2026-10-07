@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-PREFIXES = ("/data", "/docs", "/home", "/conf", "/apps", "/logs",
+PREFIXES = ("/data", "/docs", "/home", "/conf", "/accounts", "/apps", "/logs",
             "/system", "/transient", "/etc")
 # The flat 8.3 names of the F2 image root: none may come back (F3).
 BOOT_NAME = re.compile(r"\b[A-Z0-9]{1,8}\.(ELF|LST|TYP|LZP)\b|\b(PASSWD|BUSYBOX)\b")

@@ -87,10 +87,18 @@ def confirm_reset_os(cfg: dict) -> bool:
     Mirrors the plan rule in ``catalog.build_plan``: the flag only takes effect
     in the interactive demo, and not with "Skip build".
     """
-    if not (cfg.get("reset_os") and not cfg.get("skip_build")
+    if not ((cfg.get("reset_os") or cfg.get("setup")) and not cfg.get("skip_build")
             and cfg.get("mode") == "Interactive demo"):
         return True
-    return messagebox.askyesno(
-        "Recreate the OS volume",
-        "Erase the OS volume in target/lazyos.img and rebuild it?\n\n"
-        "Installed apps, settings, logs and /data are lost. This cannot be undone.")
+    return messagebox.askyesno("Recreate the OS volume", reset_os_question(cfg))
+
+
+def reset_os_question(cfg: dict) -> str:
+    """What `confirm_reset_os` asks: the first-boot setup also formats the
+    attached home volume afresh, with no home on it (`run_demo.py --setup`)."""
+    question = ("Erase the OS volume in target/lazyos.img and rebuild it?\n\n"
+                "Installed apps, settings, logs and /data are lost.")
+    if cfg.get("setup") and cfg.get("home_disk", True):
+        question += (f" The home volume {cfg.get('home_path') or 'target/home.img'} is "
+                     "erased too: the new owner starts with no home but their own.")
+    return question + " This cannot be undone."

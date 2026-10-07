@@ -35,8 +35,8 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    /// The manifest of a build: the layout directories, the files, and the
-    /// parent directories the files need.
+    /// The manifest of a build: the layout directories, the files (seeds
+    /// excepted), and the parent directories the files need.
     pub fn of(dirs: &[DirSpec], files: &[OsFile]) -> Result<Manifest, String> {
         let mut entries = BTreeMap::new();
         let mut put = |path: &str, kind: Kind| match entries.insert(path.to_string(), kind) {
@@ -46,7 +46,8 @@ impl Manifest {
         for dir in dirs {
             put(&dir.path, Kind::Dir)?;
         }
-        for file in files {
+        // Seeds are the system's once written: an update never touches them.
+        for file in files.iter().filter(|file| !file.placement.seed) {
             let mut at = 0;
             while let Some(next) = file.path[at + 1..].find('/') {
                 at += 1 + next;

@@ -29,8 +29,9 @@ fn connect() {
 /// `Verify(user: String, secret: String) -> (ok: Bool)`
 ///
 /// Check a username/password pair against the stored Argon2id verifier.
-/// The plaintext `secret` crosses the channel; the kernel stamps the
-/// sender so `keyd` can audit who asked.
+/// Accepted only from the accounts service (the `_accounts` system uid,
+/// unlabelled), which slows password guessing (`Authenticate`); anyone
+/// else gets `EPERM`. The plaintext `secret` crosses the channel.
 fn verify(user, secret) {
     msg::connect("os.lazy.keyd.v1").invoke("Verify", [user, secret])
 }
@@ -86,14 +87,36 @@ fn ping() {
     msg::connect("os.lazy.keyd.v1").invoke("Ping", [])
 }
 
-/// `Provision(user: String, secret: String) -> ()`
+/// `Provision(user: String, secret: String) -> (verifier: String)`
 ///
-/// Install or replace an account's password verifier. Root only: the
-/// accounts service pushes its database here so `Verify` can answer for
-/// every account. `keyd` derives and stores the Argon2id verifier and the
-/// secret does not outlive the call.
+/// Install or replace an account's password verifier (docs/accounts-plan.md
+/// U1). Accepted only from the accounts service (the `_accounts` system
+/// uid, unlabelled): whoever may plant a verifier may become that user.
+/// `keyd` derives the Argon2id verifier over a fresh salt, starts
+/// answering `Verify` with it, and returns it as the account database
+/// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+/// survives a reboot; the secret does not outlive the call.
 fn provision(user, secret) {
     msg::connect("os.lazy.keyd.v1").invoke("Provision", [user, secret])
+}
+
+/// `Forget(user: String) -> ()`
+///
+/// Drop an account's verifier: it can no longer log in. Accepted only
+/// from the accounts service, like `Provision`.
+fn forget(user) {
+    msg::connect("os.lazy.keyd.v1").invoke("Forget", [user])
+}
+
+/// `Restore(user: String, verifier: String) -> ()`
+///
+/// Put back a verifier the account database holds
+/// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+/// for `user`: `accountsd` undoes a `Provision` whose database write
+/// failed, so `keyd` never answers for a password the database lost.
+/// Accepted only from the accounts service, like `Provision`.
+fn restore(user, verifier) {
+    msg::connect("os.lazy.keyd.v1").invoke("Restore", [user, verifier])
 }
 
 /// A `KeyInfo` with every field at its zero value.

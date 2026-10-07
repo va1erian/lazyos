@@ -17,6 +17,35 @@ pub const CONF_FALLBACK: &str = "/transient/conf";
 /// creates nothing there.
 pub const CONF_SVC: &str = "/conf/svc";
 
+/// The account database's directory (docs/accounts-plan.md U1), 0700 and
+/// owned by the `_accounts` service account. A top-level directory of its own
+/// so `accountsd` reaches it without crossing [`CONF_ROOT`], which stays
+/// root's alone (0700): confd's raw store must never be traversable.
+/// Written by `accountsd`.
+pub const ACCOUNTS_DIR: &str = "/accounts";
+
+/// The account database itself (`libs/accountdb`): every account, group and
+/// password verifier, 0600 `_accounts`. The image build seeds it once;
+/// `accountsd` writes it (a temporary file renamed over it) and `keyd` reads
+/// the verifiers. Written by `accountsd`.
+pub const ACCOUNTS_DB: &str = "/accounts/db";
+
+/// The temporary file `accountsd` writes before renaming it over
+/// [`ACCOUNTS_DB`]. Written by `accountsd`.
+pub const ACCOUNTS_DB_NEW: &str = "/accounts/db.new";
+
+/// Where images built before the database moved kept it, inside
+/// [`CONF_ROOT`] (which then had to be 0711). Read once by the image build,
+/// which moves the database to [`ACCOUNTS_DB`] and removes this directory.
+pub const LEGACY_ACCOUNTS_DIR: &str = "/conf/accounts";
+
+/// The database inside [`LEGACY_ACCOUNTS_DIR`]. Moved by the image build.
+pub const LEGACY_ACCOUNTS_DB: &str = "/conf/accounts/db";
+
+/// Where a deleted account's home goes when it is archived rather than
+/// removed: `<HOME_ARCHIVE>/<name>-<uid>`, 0700 root. Written by `init`.
+pub const HOME_ARCHIVE: &str = "/home/.archived";
+
 /// `printd`'s spool: one `<id>.job` record and `<id>.doc` document per print
 /// job until its printer has it, so a queued job survives a restart. Under
 /// [`CONF_SVC`], 0700 root. Written by `printd`.
@@ -119,7 +148,7 @@ mod tests {
 
     #[test]
     fn state_lives_in_the_target_tree() {
-        for dir in [CONF_ROOT, LOGS_ROOT, APPS_ROOT] {
+        for dir in [CONF_ROOT, LOGS_ROOT, APPS_ROOT, ACCOUNTS_DIR] {
             assert!(!dir.starts_with(DATA), "{dir}");
             assert_eq!(
                 dir.matches('/').count(),
@@ -130,6 +159,11 @@ mod tests {
         assert!(CONF_SVC.starts_with(CONF_ROOT));
         assert!(PRINT_SPOOL.starts_with(CONF_SVC));
         assert!(CONF_SEEDED_MARKER.starts_with(CONF_ROOT));
+        assert!(ACCOUNTS_DB.starts_with(ACCOUNTS_DIR));
+        assert!(ACCOUNTS_DB_NEW.starts_with(ACCOUNTS_DIR));
+        // The account database is never inside confd's private directory.
+        assert!(!ACCOUNTS_DIR.starts_with(CONF_ROOT));
+        assert!(LEGACY_ACCOUNTS_DB.starts_with(LEGACY_ACCOUNTS_DIR));
         assert!(PKG_LOG_FILE.starts_with(LOGS_ROOT));
         assert_eq!(HOME_ROOT, HOME);
         assert!(CONF_FALLBACK.starts_with(TRANSIENT));

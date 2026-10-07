@@ -18,6 +18,8 @@ fhs = { path = "../../libs/fhs", features = ["alloc"] }
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 # `/system/etc/shadow` (`shadow.rs`): the account file's parser and keyd's KDF.
 passwd = { path = "../../libs/passwd" }
+# The account database the image seeds (`accounts_seed.rs`).
+accountdb = { path = "../../libs/accountdb" }
 lazyos-crypto = { path = "../../libs/crypto" }
 
 [dev-dependencies]

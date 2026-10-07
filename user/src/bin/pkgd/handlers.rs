@@ -221,14 +221,17 @@ impl Pkgd {
     }
 }
 
-/// The kernel-stamped identity of the sender (issue #446).
+/// The kernel-stamped identity of the sender (issue #446). A system service
+/// holds `CAP_SETUID`; `elevd` (docs/accounts-plan.md U2) is one too, by its
+/// identity: it asks only for what an administrator approved.
 fn caller_of(message: &Message) -> Option<Caller> {
     let cred = message.caller();
+    let elevd = elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session);
     Some(Caller {
         uid: cred.uid,
         session: cred.session,
         label_id: cred.label_id,
-        system: cred.caps & user::sys::CAP_SETUID != 0,
+        system: cred.caps & user::sys::CAP_SETUID != 0 || elevd,
     })
 }
 

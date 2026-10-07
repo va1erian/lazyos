@@ -47,6 +47,8 @@ pub mod nodes;
 pub mod openfile;
 pub mod overlay;
 pub mod ramfs;
+#[cfg(lazyos_tests)]
+mod test_tables;
 pub mod vfs;
 
 use crate::task::relax::YieldMutex;
@@ -58,6 +60,8 @@ use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
 pub(crate) use mounts::{mount_data_volume, select_root};
+#[cfg(lazyos_tests)]
+pub use test_tables::*;
 #[cfg(lazyos_tests)]
 use vfs::Filesystem;
 use vfs::{DirEntry, FsError, Id, Meta, MountFlags, Vfs};
@@ -197,13 +201,17 @@ pub fn vfs_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<us
 
 /// Write at an offset through the VFS (used by tests and future writers).
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
-    with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound))
+    let written = with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path);
+    written
 }
 
 /// Create a regular file through the VFS.
 pub fn vfs_create(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
     hidden::refuse_reserved(path)?;
-    with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound))
+    let created = with(|vfs| vfs.create(id, path, mode)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path);
+    created
 }
 
 /// Create a directory through the VFS.
@@ -214,7 +222,9 @@ pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
 
 /// Truncate or extend a regular file through the VFS.
 pub fn vfs_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
-    with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound))
+    let truncated = with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path);
+    truncated
 }
 
 /// List a directory through the native VFS (permission-checked).
@@ -229,13 +239,27 @@ pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
 
 /// Remove a regular file through the VFS.
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
-    with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound))
+    let unlinked = with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
+    native_changed(path);
+    unlinked
 }
 
 /// Rename within one mount through the VFS.
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
-    with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound))
+    let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
+    native_changed(from);
+    native_changed(to);
+    renamed
+}
+
+/// A native mutation changed `path` behind the Linux ABI table's back (both
+/// tables mount the same volumes, each with its own metadata cache): drop the
+/// ABI table's cached metadata for it, so a Linux `stat` or read of a file a
+/// native service rewrote (`accountsd`'s `/system/etc/passwd` view, U1) sees
+/// the new size instead of the old one.
+fn native_changed(path: &str) {
+    abi_with(|vfs| vfs.invalidate(path));
 }
 
 /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
@@ -424,71 +448,4 @@ fn abi_rename_raw(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 /// Set the ABI creation mask, returning the previous one (`umask(2)`).
 pub fn abi_set_umask(mask: u16) -> u16 {
     abi_with(|vfs| vfs.set_umask(mask)).unwrap_or(0)
-}
-
-/// Install a fresh Linux ABI mount table backed entirely by ramfs (issue
-/// #229's leak test): the test suite boots without [`init`] having mounted a
-/// boot volume, so the ABI table would otherwise be `None` and no path could
-/// reach `execve`'s load path.
-#[cfg(lazyos_tests)]
-pub fn install_abi_ramfs_for_test() {
-    let mut abi = Vfs::new();
-    let _ = abi.mount(
-        fhs::mount::ROOT,
-        Arc::new(ramfs::RamFs::new()),
-        MountFlags::default(),
-    );
-    let _ = abi.mount(
-        fhs::mount::TMP,
-        Arc::new(ramfs::RamFs::new()),
-        MountFlags::default(),
-    );
-    *ABI_FS.lock() = Some(abi);
-}
-
-/// Swap in a Linux ABI table whose `/data` is `volume` (over a ramfs root and
-/// `/tmp`), returning the table it replaced so a test can put it back with
-/// [`restore_abi_for_test`]. This is what a boot with a data disk builds,
-/// without needing a second block device.
-#[cfg(lazyos_tests)]
-pub fn install_abi_data_for_test(volume: Arc<dyn Filesystem>) -> Option<Vfs> {
-    let mut abi = Vfs::new();
-    let _ = abi.mount(
-        fhs::mount::ROOT,
-        Arc::new(ramfs::RamFs::new()),
-        MountFlags::default(),
-    );
-    let _ = abi.mount(
-        fhs::mount::TMP,
-        Arc::new(ramfs::RamFs::new()),
-        MountFlags::default(),
-    );
-    let _ = abi.mount(mounts::DATA_MOUNT, volume, MountFlags::default());
-    ABI_FS.lock().replace(abi)
-}
-
-/// Swap in `table` as the Linux ABI mount table, returning the one it replaced.
-#[cfg(lazyos_tests)]
-pub fn install_abi_for_test(table: Vfs) -> Option<Vfs> {
-    ABI_FS.lock().replace(table)
-}
-
-/// Swap in `table` as the native mount table (reported as mounted), returning
-/// the one it replaced so a test can put it back with
-/// [`restore_native_for_test`].
-#[cfg(lazyos_tests)]
-pub fn install_native_for_test(table: Vfs) -> Option<(Vfs, bool)> {
-    FS.lock().replace((table, true))
-}
-
-/// Put back the table [`install_native_for_test`] returned.
-#[cfg(lazyos_tests)]
-pub fn restore_native_for_test(previous: Option<(Vfs, bool)>) {
-    *FS.lock() = previous;
-}
-
-/// Put back the table [`install_abi_data_for_test`] returned.
-#[cfg(lazyos_tests)]
-pub fn restore_abi_for_test(previous: Option<Vfs>) {
-    *ABI_FS.lock() = previous;
 }

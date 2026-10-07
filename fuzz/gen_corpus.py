@@ -19,7 +19,9 @@ import sys
 from pathlib import Path
 
 # The seed builders, one module per family of targets beside this script.
-from seeds_accounts import accountwire_seeds, passwd_seeds, pkgstore_rules_seeds
+from seeds_accounts import (
+    accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
+)
 from seeds_formats import ipp_seeds, lazypkg_seeds, pwgraster_seeds
 from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
 from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seeds, virtio_net_seeds
@@ -50,6 +52,8 @@ TARGETS = {
     "pwgraster": pwgraster_seeds,
     "nvme": nvme_seeds,
     "passwd": passwd_seeds,
+    "accountdb": accountdb_seeds,
+    "elevpolicy": elevpolicy_seeds,
     "accountwire": accountwire_seeds,
     "pkgstore_rules": pkgstore_rules_seeds,
 }

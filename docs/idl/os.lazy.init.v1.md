@@ -22,6 +22,8 @@ reply, so the error field is hand-written next to these stubs.
 | StartDriver | 1713728693 | sync | `(driver: String, device: U64) -> (started: Bool, pid: U64)` |
 | Ready | 197800596 | oneway | `() -> ()` |
 | ReportFailure | 425853579 | oneway | `(reason: String) -> ()` |
+| Home | 1391791790 | sync | `(op: String, name: String, uid: U32, gid: U32) -> ()` |
+| RestartService | 726211199 | sync | `(name: String) -> (pid: U64)` |
 
 ## Topics
 

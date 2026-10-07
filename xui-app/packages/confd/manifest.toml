@@ -27,4 +27,6 @@ interfaces = [
     "os.lazy.display.v1",
     "os.lazy.input.v1",
     "os.lazy.confd.v1",
+    # Elevate: every key, through elevd once an administrator approved (U2).
+    "os.lazy.elevd.v1",
 ]

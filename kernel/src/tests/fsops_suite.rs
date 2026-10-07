@@ -6,6 +6,7 @@ use crate::ipc::credentials::{self, Cred};
 use crate::process::power;
 
 mod append;
+mod owner;
 mod read_at;
 
 const ENOENT: i64 = 2;
@@ -417,6 +418,15 @@ pub fn soak_file_churn() -> Result<(), String> {
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("fsops_append_file_semantics", append::append_file_semantics),
+    (
+        "fsops_write_file_owner_replaces",
+        owner::owner_replaces_in_a_foreign_directory,
+    ),
+    ("fsops_soak_owner_rewrites", owner::soak_owner_rewrites),
+    (
+        "fsops_abi_sees_native_rewrites",
+        owner::abi_sees_native_rewrites,
+    ),
     ("fsops_soak_append_churn", append::soak_append_churn),
     ("fsops_read_at_semantics", read_at::read_at_semantics),
     ("fsops_soak_read_at_stream", read_at::soak_read_at_stream),
