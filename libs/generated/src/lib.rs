@@ -8154,7 +8154,9 @@ pub mod os_lazy_input_shell_v1 {
 
     /// Declare that `owner` (a task slot, as the compositor stamps in
     /// `Surface.owner`) created `surface`, so `inputd` can match that task's
-    /// `Open` to the window.
+    /// `Open` to the window. `owner` 0 (never a client's slot) names the
+    /// compositor itself: a surface of its own, such as the trusted prompt's
+    /// (docs/accounts-plan.md U2), whose session only the compositor opens.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterSurfaceArgs {
         pub surface: u64,

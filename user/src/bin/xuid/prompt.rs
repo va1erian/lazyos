@@ -11,8 +11,10 @@
 //! * while it is up, no client gets a key or a pointer event: `inputd` is
 //!   told no window has focus (which also ends any keyboard grab), grabs are
 //!   refused, and every input record goes to the prompt (`event.rs` hands
-//!   them over first). Its keys come from the kernel's own key stream, which
-//!   only the compositor reads;
+//!   them over first). Its keys come from `inputd`, through a session of
+//!   the compositor's own surface (`prompt_keys.rs`): every keyboard, under
+//!   the active layout. Without `inputd` they come from the kernel's own key
+//!   stream, which only the compositor reads;
 //! * no client can read the screen: the display protocol has no capture;
 //! * it names the asker from what the kernel stamped on `elevd`'s caller:
 //!   its uid and account, and its label, resolved here;
@@ -158,6 +160,7 @@ impl Compositor {
             "XUID:PROMPT:UP uid={} label={}\n",
             args.uid, args.label_id
         ));
+        self.open_prompt_keys();
         self.sync_input_now();
         self.repaint_full();
         None
@@ -179,12 +182,15 @@ impl Compositor {
         }
     }
 
-    /// The focus `inputd` must hear: nobody's while the prompt is up.
+    /// The focus `inputd` must hear: no window's while the prompt is up
+    /// (the prompt's own surface, when it reads its keys from `inputd`).
     pub(super) fn input_focus(&self) -> Option<u64> {
-        if self.prompt.is_some() {
-            None
-        } else {
+        if self.prompt.is_none() {
             self.focused
+        } else if self.prompt_keys_from_inputd() {
+            Some(super::prompt_keys::PROMPT_SURFACE)
+        } else {
+            None
         }
     }
 
@@ -198,7 +204,9 @@ impl Compositor {
             EventKind::PointerDown => self.prompt_click(),
             EventKind::KeyDown => {
                 let code = event.a as u32;
-                if !self.track_modifier(code, true) {
+                // `inputd` feeds the prompt (`prompt_keys.rs`): the kernel
+                // stream's copy of the same key is not typed twice.
+                if !self.track_modifier(code, true) && !self.prompt_keys_from_inputd() {
                     self.prompt_key(code);
                 }
             }
@@ -242,7 +250,7 @@ impl Compositor {
         self.repaint_prompt();
     }
 
-    fn prompt_key(&mut self, code: u32) {
+    pub(super) fn prompt_key(&mut self, code: u32) {
         let Some(prompt) = self.prompt.as_mut() else {
             return;
         };
@@ -273,11 +281,7 @@ impl Compositor {
                 };
             }
             code if (0x20..0x7f).contains(&code) && !self.mods.ctrl && !self.mods.alt => {
-                if let Some(field) = field_mut(prompt) {
-                    if field.len() < FIELD_MAX {
-                        field.push(code as u8 as char);
-                    }
-                }
+                push_char(prompt, code as u8 as char);
             }
             _ => return,
         }
@@ -302,6 +306,16 @@ impl Compositor {
             };
             self.repaint_prompt();
         }
+    }
+
+    /// A character `inputd` typed (`prompt_keys.rs`, any layout).
+    pub(super) fn prompt_char(&mut self, c: char) {
+        let Some(prompt) = self.prompt.as_mut() else {
+            return;
+        };
+        prompt.keys = prompt.keys.saturating_add(1);
+        push_char(prompt, c);
+        self.repaint_prompt();
     }
 
     /// Close the prompt with `outcome` and queue the reply.
@@ -339,6 +353,7 @@ impl Compositor {
             prompt.keys
         ));
         self.prompt_reply = Some((prompt.txn, parcel));
+        self.close_prompt_keys();
         self.sync_input_now();
         self.repaint_full();
     }
@@ -351,6 +366,15 @@ impl Compositor {
 }
 
 /// The text field the keyboard edits, if a field has the focus.
+/// Type `c` into the focused field (at most [`FIELD_MAX`] characters).
+fn push_char(prompt: &mut Prompt, c: char) {
+    if let Some(field) = field_mut(prompt) {
+        if field.chars().count() < FIELD_MAX {
+            field.push(c);
+        }
+    }
+}
+
 fn field_mut(prompt: &mut Prompt) -> Option<&mut String> {
     match prompt.focus {
         Focus::Name => Some(&mut prompt.name),

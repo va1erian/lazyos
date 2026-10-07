@@ -138,6 +138,8 @@ mod probe;
 mod prompt;
 #[path = "xuid/prompt_draw.rs"]
 mod prompt_draw;
+#[path = "xuid/prompt_keys.rs"]
+mod prompt_keys;
 #[path = "xuid/protocol.rs"]
 mod protocol;
 #[cfg(lazyos_desktop)]
@@ -320,19 +322,22 @@ fn run() -> ! {
         comp.tick_opening();
         comp.tick_spinner();
         comp.tick_prompt();
+        comp.pump_prompt_keys();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Park until a request, a shell event from `inputd` (pointer
         //    moves) or a key arrives, then serve one request if one came.
         let now = sys::clock();
-        let mut sources = [server, server];
-        let count = match comp.input_events() {
-            Some(events) => {
-                sources[1] = events;
-                2
-            }
-            None => 1,
-        };
+        let mut sources = [server, server, server];
+        let mut count = 1;
+        // The prompt's keys arrive on its own `inputd` session (`prompt_keys.rs`).
+        for events in [comp.input_events(), comp.prompt_key_events()]
+            .into_iter()
+            .flatten()
+        {
+            sources[count] = events;
+            count += 1;
+        }
         // No doorbell rings for a pointer move on the kernel's display queue
         // (the fallback when `inputd` does not own the pointer), so that
         // stream keeps the short poll.

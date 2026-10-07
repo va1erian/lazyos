@@ -33,7 +33,10 @@ fn the_audit_record_roundtrips_on_its_topic() {
     };
     let body = encode_record(&record).unwrap();
     assert_eq!(decode_record(&body).unwrap(), record);
-    assert_eq!(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, "system/events/elevd/request");
+    assert_eq!(
+        TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST,
+        "system/events/elevd/request"
+    );
 }
 
 #[test]
@@ -55,6 +58,12 @@ fn the_prompt_roundtrips_and_names_its_outcomes() {
     };
     let body = prompt::encode_prompt_reply(&reply).unwrap();
     assert_eq!(prompt::decode_prompt_reply(&body).unwrap(), reply);
-    assert_ne!(prompt::PROMPT_OUTCOME_CANCELLED, prompt::PROMPT_OUTCOME_APPROVED);
-    assert_ne!(prompt::PROMPT_OUTCOME_TIMED_OUT, prompt::PROMPT_OUTCOME_CANCELLED);
+    assert_ne!(
+        prompt::PROMPT_OUTCOME_CANCELLED,
+        prompt::PROMPT_OUTCOME_APPROVED
+    );
+    assert_ne!(
+        prompt::PROMPT_OUTCOME_TIMED_OUT,
+        prompt::PROMPT_OUTCOME_CANCELLED
+    );
 }

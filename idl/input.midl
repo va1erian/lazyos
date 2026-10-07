@@ -114,7 +114,9 @@ interface os.lazy.input.shell.v1 {
     method SetFocus(surface: Option<U64> = 1) -> () = 2;
     /// Declare that `owner` (a task slot, as the compositor stamps in
     /// `Surface.owner`) created `surface`, so `inputd` can match that task's
-    /// `Open` to the window.
+    /// `Open` to the window. `owner` 0 (never a client's slot) names the
+    /// compositor itself: a surface of its own, such as the trusted prompt's
+    /// (docs/accounts-plan.md U2), whose session only the compositor opens.
     method RegisterSurface(surface: U64 = 1, owner: U64 = 2) -> () = 3;
     /// Forget a destroyed surface; its sessions are closed.
     method UnregisterSurface(surface: U64 = 1) -> () = 4;

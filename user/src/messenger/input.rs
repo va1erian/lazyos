@@ -193,14 +193,7 @@ impl ShellLink {
     }
 
     fn call(&self, parcel: &Parcel) -> Result<Parcel> {
-        let mut buffer = alloc::vec![0u8; 256];
-        let reply = self
-            .input
-            .call_with(parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))?;
-        match error_field(&reply)? {
-            Some(code) => Err(Error::Errno(-code)),
-            None => Ok(reply),
-        }
+        call_on(&self.input, parcel)
     }
 
     fn shell_call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
@@ -330,5 +323,134 @@ impl ShellLink {
                 return Ok(Some(event));
             }
         }
+    }
+}
+
+/// What a client session delivers that its reader acts on ([`KeySession::poll`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyInput {
+    /// A key went down or repeats: its HID usage and the modifiers held.
+    Down { code: u32, mods: u32 },
+    /// The text a key produced under the active layout (composed).
+    Text(alloc::string::String),
+}
+
+/// A client session on `inputd` for one surface, for a native (`no_std`)
+/// reader: layout-aware keys and composed text from every keyboard, PS/2 or
+/// USB, while that surface has the focus. The compositor's trusted prompt
+/// reads its keys this way (docs/accounts-plan.md U2); xui apps carry their
+/// own client.
+pub struct KeySession {
+    service: Endpoint,
+    session: u64,
+    /// This task's end of the session's event channel.
+    events: Endpoint,
+    buffer: Vec<u8>,
+}
+
+impl KeySession {
+    /// Open a session for `surface`, which `inputd` must know as this task's.
+    pub fn open(surface: u64) -> Result<KeySession> {
+        let service = registry::resolve(NAME)?;
+        let opened = Self::open_on(service, surface);
+        if opened.is_err() {
+            // A resolved handle: released, never closed (see `ShellLink::close`).
+            let _ = service.release();
+        }
+        opened
+    }
+
+    fn open_on(service: Endpoint, surface: u64) -> Result<KeySession> {
+        let (events, peer) = create_pair()?;
+        let body = wire::encode_open_args(&wire::OpenArgs {
+            surface: Some(surface),
+        })
+        .map_err(Error::Parcel);
+        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers {
+            events: peer.handle(),
+        });
+        let reply = body.and_then(|body| {
+            call_on(
+                &service,
+                &request(INTERFACE, wire::METHOD_OPEN, body, handles),
+            )
+        });
+        match reply.and_then(|reply| wire::decode_open_reply(&reply.body).map_err(Error::Parcel)) {
+            // Session ids start at 1; zero is a missing field.
+            Ok(reply) if reply.session != 0 => Ok(KeySession {
+                service,
+                session: reply.session,
+                events,
+                buffer: alloc::vec![0u8; DEFAULT_BUFFER],
+            }),
+            other => {
+                // The peer may or may not have moved; closing a stale handle
+                // only fails harmlessly.
+                let _ = peer.close();
+                let _ = events.close();
+                Err(other.err().unwrap_or(Error::Errno(-super::errno::EINVAL)))
+            }
+        }
+    }
+
+    /// This task's end of the event channel, to park on.
+    pub fn events_endpoint(&self) -> Endpoint {
+        self.events
+    }
+
+    /// The next key or text, without blocking. `Err`: `inputd` went away.
+    /// Key releases and anything else the session carries are skipped.
+    pub fn poll(&mut self) -> Result<Option<KeyInput>> {
+        loop {
+            let Some(message) = self.events.poll_recv_with(&mut self.buffer)? else {
+                return Ok(None);
+            };
+            if message.interface_id() != INTERFACE {
+                continue;
+            }
+            let body = &message.parcel.body;
+            match message.method() {
+                wire::METHOD_KEYEVENT => match wire::decode_key_event_args(body) {
+                    Ok(key) if key.state != wire::KEY_STATE_UP => {
+                        return Ok(Some(KeyInput::Down {
+                            code: key.code,
+                            mods: key.mods,
+                        }))
+                    }
+                    _ => {}
+                },
+                wire::METHOD_TEXTINPUT => {
+                    if let Ok(text) = wire::decode_text_input_args(body) {
+                        return Ok(Some(KeyInput::Text(text.utf8)));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// End the session and release both endpoints (best effort: `inputd`
+    /// also ends a session whose surface is unregistered).
+    pub fn close(self) {
+        if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
+            session: self.session,
+        }) {
+            let _ = call_on(
+                &self.service,
+                &request(INTERFACE, wire::METHOD_CLOSE, body, Vec::new()),
+            );
+        }
+        let _ = self.service.release();
+        let _ = self.events.close();
+    }
+}
+
+/// One bounded call to `inputd`; a structured error reply becomes its errno.
+fn call_on(service: &Endpoint, parcel: &Parcel) -> Result<Parcel> {
+    let mut buffer = alloc::vec![0u8; 256];
+    let reply = service.call_with(parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))?;
+    match error_field(&reply)? {
+        Some(code) => Err(Error::Errno(-code)),
+        None => Ok(reply),
     }
 }

@@ -158,9 +158,12 @@ What exists, and the decisions taken on the way:
   by `elevd` alone), admin check through `accountsd` (`Lookup.admin`,
   `Authenticate`), up to three tries per request, lockout per asker and
   per name, the audit topic `system/events/elevd/request`
-  (`/logs/elevd.log`). **Decision:** `conf.*` approvals stand five minutes
-  for the same uid, label and session (the elevated Config editor and
-  Settings' machine settings), everything else asks every time.
+  (`/logs/elevd.log`). **Decision (2026-10-07):** every change prompts:
+  each `conf.set`/`conf.delete`, account, package, clock, power or service
+  operation opens the prompt every time. Only the elevated Config editor's
+  *view* stands: once `conf.elevate` is approved, the same uid, label and
+  session may list and read every key (`conf.list`, `conf.get`) for five
+  minutes without a prompt per row; a read changes nothing.
 - **Services that trust `elevd`** (by kernel-stamped identity): `accountsd`
   (create, delete, promote, any password), `confd` (`sys/**`, any user's
   keys), `pkgd` (any source path; replacing a core app is now refused from a
@@ -176,9 +179,13 @@ What exists, and the decisions taken on the way:
   ABI table's cached metadata of the same path (a Linux `stat` saw the old
   size); `/etc/group` lists the group view.
 
-Known limits: the prompt reads the kernel's PS/2 key stream (as `xuid`'s
-own chords do), so a USB-only keyboard cannot type into it yet, and its
-characters follow the kernel's US layout, not `sys/input/layout`.
+The prompt's keys come from `inputd`, like any window's: `xuid` gives the
+focus to a surface of its own while the prompt is up and reads that
+session (`user/src/bin/xuid/prompt_keys.rs`), so every keyboard (PS/2 or
+USB) types into it under the active layout (`sys/input/layout`, e.g. `fr`).
+No client can read those keys: only a surface's owner opens its session,
+and this surface is the compositor's. Without `inputd` the prompt falls back
+to the kernel's PS/2 key stream (US layout).
 
 ### U3-U5 (outline, issues later)
 

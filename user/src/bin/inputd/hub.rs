@@ -118,8 +118,14 @@ impl Hub {
             }
             shell_wire::METHOD_REGISTERSURFACE | shell_wire::METHOD_NOTESURFACE => {
                 let args = shell_wire::decode_register_surface_args(body).map_err(Error::Parcel)?;
+                // Owner 0: the compositor's own surface (its trusted prompt).
+                let owner = if args.owner == 0 {
+                    message.sender
+                } else {
+                    args.owner
+                };
                 self.router
-                    .register_surface(args.surface, args.owner)
+                    .register_surface(args.surface, owner)
                     .map_err(route_error)?;
                 Ok(Vec::new())
             }

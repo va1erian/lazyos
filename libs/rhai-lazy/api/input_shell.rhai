@@ -31,7 +31,9 @@ fn set_focus(surface) {
 ///
 /// Declare that `owner` (a task slot, as the compositor stamps in
 /// `Surface.owner`) created `surface`, so `inputd` can match that task's
-/// `Open` to the window.
+/// `Open` to the window. `owner` 0 (never a client's slot) names the
+/// compositor itself: a surface of its own, such as the trusted prompt's
+/// (docs/accounts-plan.md U2), whose session only the compositor opens.
 fn register_surface(surface, owner) {
     msg::connect("os.lazy.input.shell.v1").invoke("RegisterSurface", [surface, owner])
 }

@@ -1468,7 +1468,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "RegisterSurface",
                 id: 3,
                 oneway: false,
-                doc: "Declare that `owner` (a task slot, as the compositor stamps in\n`Surface.owner`) created `surface`, so `inputd` can match that task's\n`Open` to the window.",
+                doc: "Declare that `owner` (a task slot, as the compositor stamps in\n`Surface.owner`) created `surface`, so `inputd` can match that task's\n`Open` to the window. `owner` 0 (never a client's slot) names the\ncompositor itself: a surface of its own, such as the trusted prompt's\n(docs/accounts-plan.md U2), whose session only the compositor opens.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::U64 }, Field { name: "owner", id: 2, ty: Ty::U64 }],
                 returns: &[],
                 transfers: &[],

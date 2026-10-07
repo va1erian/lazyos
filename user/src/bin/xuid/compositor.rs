@@ -103,6 +103,10 @@ pub(super) struct Compositor {
     pub(super) prompt: Option<Prompt>,
     /// The answered prompt's reply, for the main loop to send.
     pub(super) prompt_reply: Option<(u64, Parcel)>,
+    /// The prompt's own `inputd` session, while the prompt is up and
+    /// `inputd` is reachable (`prompt_keys.rs`): layout-aware keys from
+    /// every keyboard. `None`: the kernel's key stream serves the prompt.
+    pub(super) prompt_keys: Option<user::messenger::input::KeySession>,
 }
 
 impl Compositor {
@@ -145,6 +149,7 @@ impl Compositor {
             next_probe: 0,
             prompt: None,
             prompt_reply: None,
+            prompt_keys: None,
         }
     }
 
