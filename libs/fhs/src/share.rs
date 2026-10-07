@@ -10,6 +10,12 @@ pub const MIME_TYPES: &str = "/system/share/mime.types";
 /// Written by the image build.
 pub const WALLPAPERS: &str = "/system/share/wallpapers";
 
+/// The Liberation fonts a desktop image ships (`Liberation{Sans,Serif,Mono}-
+/// {Regular,Bold,Italic,BoldItalic}.ttf`, SIL OFL 1.1; `assets/fonts/liberation`),
+/// metric-compatible with Arial, Times New Roman and Courier New: LazyWeb
+/// reads them at start for web pages. Written by the image build.
+pub const FONTS_LIBERATION: &str = "/system/share/fonts/liberation";
+
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
 /// `writer-sample.png`, `archiver-sample.zip`, `archiver-sample.7z`,
 /// `lazyos-sample.pdf`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is
@@ -74,6 +80,7 @@ mod tests {
         for path in [
             MIME_TYPES,
             WALLPAPERS,
+            FONTS_LIBERATION,
             SAMPLES,
             LAZYRAD_SAMPLES,
             LUCIDE_LICENSE,

@@ -9,9 +9,11 @@ so the servers listen on the real ports:
     http://example.com/        127.0.0.1:80   fixtures/example.com/index.html
     http://theoldnet.com/      127.0.0.1:80   301 to https://theoldnet.com/<path>
     https://theoldnet.com/     127.0.0.1:443  fixtures/theoldnet.com/ (and www.)
+    https://en.wikipedia.org/  127.0.0.1:443  fixtures/wikipedia/ (`wiki.py`; also
+                                              upload. and thumb.wikimedia.org)
 
-The HTTPS server presents a leaf for theoldnet.com and www.theoldnet.com
-issued by the run's throwaway test CA (`certs.py`), which the image trusts
+The HTTPS server presents a leaf for theoldnet.com, www.theoldnet.com and
+the Wikipedia hosts issued by the run's throwaway test CA (`certs.py`), which the image trusts
 through `LAZYOS_TLS_TEST_CA`. Every request is recorded with its scheme,
 Host header, path, User-Agent and the TLS connection's SNI: that record, not
 the guest's word, is the evidence the judge reads (`judge.py`).
@@ -29,6 +31,8 @@ import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import wiki
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
@@ -122,9 +126,14 @@ class Handler(BaseHTTPRequestHandler):
         if scheme == "http" and script and self.path.split("?")[0] == script[0]:
             # The harness's check script (`session.py`), for any Host.
             return 200, [("Content-Type", "text/plain")], script[1]
-        if scheme == "http" and host in OLDNET_HOSTS:
-            # Like the real site: plain HTTP only redirects to HTTPS.
+        if scheme == "http" and host in OLDNET_HOSTS + wiki.HOSTS:
+            # Like the real sites: plain HTTP only redirects to HTTPS.
             return 301, [("Location", f"https://{host}{self.path}")], b""
+        if scheme == "https" and host in wiki.HOSTS:
+            copy = wiki.lookup(host, self.path)
+            if copy is None:
+                return 404, [("Content-Type", "text/html")], b"<html><body>404</body></html>\n"
+            return 200, [("Content-Type", copy[0]), ("Cache-Control", "max-age=604800")], copy[1]
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == DOWNLOAD_PATH:
             return 200, [("Content-Type", "application/zip"),
                          ("Content-Disposition", f'attachment; filename="{DOWNLOAD_NAME}"')], \

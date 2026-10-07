@@ -8,6 +8,7 @@ All fonts here are redistributed unmodified under permissive licenses.
 | `DroidSans-Bold.ttf` | Droid Sans Bold | the Docs app (headings, emphasis); LazyWriter's bold | Apache-2.0 |
 | `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer"); LazyWriter's Serif family | Apache-2.0 |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono (monospace) | kernel framebuffer console; the xui Terminal | SIL OFL 1.1 |
+| `liberation/Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf` | Liberation Sans, Serif and Mono 2.1.5 | LazyWeb's web pages (installed to `/system/share/fonts/liberation` in desktop images) | SIL OFL 1.1 |
 
 ## Credits
 
@@ -20,6 +21,14 @@ All fonts here are redistributed unmodified under permissive licenses.
   (`LICENSE-Apache-2.0.txt`).
 - **JetBrains Mono** — Copyright 2020 The JetBrains Mono Project Authors
   (<https://github.com/JetBrains/JetBrainsMono>), SIL OFL 1.1 (`OFL.txt`).
+- **Liberation Sans, Serif and Mono** — Digitized data copyright (c) 2010
+  Google Corporation with Reserved Font Arimo, Tinos and Cousine; copyright
+  (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation. SIL OFL 1.1
+  (`liberation/LICENSE`, authors in `liberation/AUTHORS`). Release 2.1.5,
+  `liberation-fonts-ttf-2.1.5.tar.gz` from
+  <https://github.com/liberationfonts/liberation-fonts> (sha256
+  `7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0`),
+  unmodified.
 
 Droid Sans, Droid Sans Bold and Droid Serif were taken from the Android Open Source Project
 (`frameworks/base/data/fonts`, tag `android-4.4_r1`, mirrored at
@@ -41,5 +50,10 @@ Sans / Noto Serif (OFL); Droid remains the redistributable Apache-2.0 release.
   LazyWriter (`font::register_writer`) also registers Droid Sans Bold, Droid
   Serif and JetBrains Mono for its Sans, Serif and Mono families; with no
   italic face, its italic is slanted from the regular one by the shaper.
+- LazyWeb (`xui-app/web/src/fonts.rs`) reads the twelve Liberation faces from
+  `/system/share/fonts/liberation` at start and draws pages with them: they
+  are metric-compatible with Arial, Times New Roman and Courier New, and
+  have real bold and italic faces. Its window keeps Droid Sans. A family
+  whose regular face is missing falls back to the Droid one.
 - The 5x7 bitmap font in `display::font` remains for the small demo clients
   (`xdemo`, `dragdemo`, `shellprobe`).

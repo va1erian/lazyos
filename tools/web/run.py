@@ -10,7 +10,8 @@ the guest, the host's servers and the screen saw (docs/lazyweb.md).
 2. The host serves stand-ins for the two sites on their real ports
    (`sites.py`): http://example.com/ (a faithful copy of the real page) and
    https://theoldnet.com/ (a retro home page with PNG, JPEG, GIF, an animated
-   GIF and a style sheet; http:// redirects to it).
+   GIF and a style sheet; http:// redirects to it), and copies of two
+   Wikipedia pages with their style sheets and pictures (`wiki.py`).
 3. The session (`session.py`, also `tools/screenshot/examples/lazyweb.json`)
    runs the harness's own `curl` checks, starts LazyWeb at
    http://example.com/, then goes to https://theoldnet.com/ through the
@@ -48,6 +49,7 @@ import certs  # noqa: E402
 import judge  # noqa: E402
 import session  # noqa: E402
 import sites  # noqa: E402
+import wiki  # noqa: E402
 
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
@@ -193,7 +195,7 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
     names = [name for name, _ in items]
     ok = report("CHECKS", f"{len(names)} curl checks", judge.judge_prechecks(text, names)) and ok
     if not args.live:
-        ok = report("CHECKS-SEEN", f"{len(judge.PRECHECK_REQUESTS)} requests as sent",
+        ok = report("CHECKS-SEEN", f"{len(judge.precheck_requests())} requests as sent",
                     judge.judge_precheck_servers(record)) and ok
     if not args.precheck_only:
         title = None if args.live else judge.OLDNET_TITLE
@@ -207,6 +209,12 @@ def verdict(args, out: Path, session_ok: bool, text: str, record, items) -> int:
                         judge.judge_features(text, record)) and ok
         pictures = shots(out)
         ok = report("SHOTS", ", ".join(p.name for p in pictures), judge.judge_shots(pictures)) and ok
+        if not args.live:
+            ok = report("WIKIPEDIA", "both pages in the 2010 skin, with every style sheet and "
+                        "picture", wiki.judge_serial(text) + wiki.judge_servers(record)) and ok
+            wiki_shots = sorted(out.glob("shot_2*_wiki_*.png"))
+            ok = report("WIKI-SHOTS", ", ".join(p.name for p in wiki_shots),
+                        wiki.judge_shots(wiki_shots)) and ok
     print("LAZYWEB:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

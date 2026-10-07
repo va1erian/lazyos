@@ -41,7 +41,8 @@ impl Fetcher for HttpFetcher {
             FetchMethod::Post => Method::Post,
         };
         let request = Request {
-            url: request.url,
+            // A wiki page is asked for in the skin NetSurf lays out well.
+            url: crate::sites::fetch_url(&request.url).into_owned(),
             method,
             headers: request.headers,
             body: request.body,
