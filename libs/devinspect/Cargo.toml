@@ -16,3 +16,4 @@ netpolicy = { path = "../netpolicy" }
 usbpolicy = { path = "../usbpolicy" }
 sndpolicy = { path = "../sndpolicy" }
 devmatch = { path = "../devmatch" }
+mounttable = { path = "../mounttable" }

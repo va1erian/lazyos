@@ -119,6 +119,12 @@ BINS = {
     "xui-pdf": "xui-pdf.elf",
     # Tray Demo: Shows a taskbar tray icon and reacts to it.
     "xui-traydemo": "xui-traydemo.elf",
+    # Volume: Sound volume in the taskbar tray.
+    "xui-volume": "xui-volume.elf",
+    # Network Status: Network status in the taskbar tray.
+    "xui-netstatus": "xui-netstatus.elf",
+    # Network Drives: Mount FTP servers as folders under /mnt.
+    "xui-netdrives": "xui-netdrives.elf",
     # Docs (Markdown) and LazyWeb (the browser) on Blitz: members of the same
     # workspace, built in the same invocation (`web_packages`).
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",

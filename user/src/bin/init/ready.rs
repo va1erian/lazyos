@@ -36,6 +36,7 @@ const ANNOUNCES: &[&str] = &[
     "sysmond",
     "audiod",
     "devd",
+    "mountd",
 ];
 
 /// How long a listed row may take to announce itself (100 Hz): 5 s.

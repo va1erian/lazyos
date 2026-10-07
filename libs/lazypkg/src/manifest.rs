@@ -121,6 +121,12 @@ pub struct Entry {
     /// at consent and honoured only after it.
     #[serde(default)]
     pub autostart: bool,
+    /// The app may run with no window, runs once per session and always has
+    /// an icon in the taskbar (docs/tray-plan.md §5). It implies the
+    /// permissions a resident app needs (`pkgstore::resident`), which the
+    /// consent screen lists like any other.
+    #[serde(default)]
+    pub resident: bool,
 }
 
 impl Entry {
@@ -219,6 +225,10 @@ binary = \"bin/app.elf\"
         assert_eq!(manifest.app.category(), Category::Graphics);
         assert!(manifest.entry.autostart);
         assert!(parse(&format!("{MINIMAL}autostart = \"yes\"\n")).is_err());
+        assert!(!manifest.entry.resident);
+        let resident = parse(&format!("{MINIMAL}resident = true\n")).expect("valid");
+        assert!(resident.entry.resident);
+        assert!(parse(&format!("{MINIMAL}resident = 1\n")).is_err());
         for category in Category::ALL {
             assert_eq!(Category::parse(category.as_str()), Some(category));
         }

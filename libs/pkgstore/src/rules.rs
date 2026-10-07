@@ -28,6 +28,8 @@
 //!   any `dev:` label: the kernel scope `os.lazy.process.label.spawn.v1` with
 //!   the wildcard method. The kernel still refuses a label `pkgd` has not
 //!   loaded an approved rule set for ([`crate::develop`]).
+//! * **Resident** (`[entry] resident = true`) adds the interfaces and topic
+//!   [`crate::resident`] lists, compiled like the manifest's own entries.
 //!
 //! [`installed`] is what `pkgd` loads for an installed app: the manifest's
 //! rules plus the [`baseline`] every app gets without asking, telling `init`
@@ -48,6 +50,7 @@ use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_process_label_spawn_v1 as spawn_scope;
 
 use crate::hash::{fnv1a32, fnv1a64};
+use crate::resident;
 
 /// Most rules the kernel keeps per label (`ipc::acl::MAX_LABEL_RULES`).
 pub const MAX_RULES: usize = 256;
@@ -66,6 +69,9 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
     ("os.lazy.accounts.v1", "os.lazy.accountsd"),
     // `netd` serves the socket interface on the stack's name.
     ("os.lazy.net.socket.v1", "os.lazy.net.stack"),
+    // `audiod` serves its control interface on the mixer's own name (the
+    // Volume tray applet, docs/tray-plan.md T3).
+    ("os.lazy.audio.mixer.v1", "os.lazy.audio"),
 ];
 
 /// Why a manifest cannot be compiled.
@@ -186,15 +192,17 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     let requested = &manifest.permissions;
     let system_name = &manifest.app.system_name;
     let mut list = RuleList::default();
-    for interface in &requested.interfaces {
+    // The manifest's own entries, then those `resident` implies: the same
+    // lists the consent screen shows.
+    for interface in resident::interfaces(manifest) {
         list.allow_interface(interface, None);
-        let implied = IMPLIED_SCOPES.iter().filter(|(name, _)| name == interface);
+        let implied = IMPLIED_SCOPES.iter().filter(|(name, _)| *name == interface);
         for scope in implied.flat_map(|(_, scopes)| scopes.iter()) {
             list.allow(fnv1a64(scope), ANY_METHOD);
         }
     }
     let (mut publishes, mut subscribes) = (false, false);
-    for entry in &requested.topics {
+    for entry in resident::topics(manifest) {
         let Some((direction, pattern)) = split_topic(entry) else {
             continue;
         };

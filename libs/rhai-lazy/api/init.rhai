@@ -55,8 +55,12 @@ fn list_apps() {
 /// `Stop(app: String) -> (stopped: U64)`
 ///
 /// Stop every running instance of the app `app` (the app id, as `Launch`
-/// takes it): each is killed and its supervision row retired without a
-/// restart. `stopped` is how many were running. Only root, a holder of
+/// takes it), retiring its supervision row without a restart: an
+/// instance that watches its lifecycle (`os.lazy.init.app.v1`), or a
+/// resident app that may still come to watch, is sent `Quit` and killed
+/// if it still runs 3 s after this call (docs/tray-plan.md section 5);
+/// any other is killed at once. The reply comes once every instance has
+/// exited. `stopped` is how many were running. Only root, a holder of
 /// `CAP_SETUID` (the package manager) or the session owner may stop; an
 /// owner reaches only instances in their own session. Unknown or idle apps
 /// are not an error, `stopped` is just 0.

@@ -104,6 +104,7 @@ pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 pub mod errno {
     pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const EIO: i64 = 5;
     pub const E2BIG: i64 = 7;
     pub const EAGAIN: i64 = 11;
@@ -424,6 +425,10 @@ pub mod timed;
 /// The device manager `devd` (issue #497): the generated `os.lazy.devd.v1`
 /// stubs and a blocking [`devd::Client`].
 pub mod devd;
+
+/// The network mount service `mountd` (docs/smb-plan.md §3.4): the generated
+/// `os.lazy.mount.v1` stubs and its service name.
+pub mod mount;
 
 // ---------------------------------------------------------------------------
 // Audio (docs/driver-plan.md D6)

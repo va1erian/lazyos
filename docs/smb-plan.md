@@ -209,7 +209,7 @@ has no random-access write, so a write at the end of a file is an `APPE` (a
 sequential `cp` or `>>` costs one upload per 64 KiB request) and any other
 write fetches the file whole, patches it and `STOR`s it back (files up to
 32 MiB); reads fetch a file whole on first use. Listings (`MLSD`, or Unix
-`LIST`) are believed for 3 s. Known limits, acceptable for a PoC and not for
+`LIST`) are believed for 3 s. The desktop mounts it through `mountd` (§3.4). Known limits, acceptable for a PoC and not for
 SMB: a connection lost mid-`APPE` is retried once and could duplicate the
 chunk, and the VFS cache above it has the expiry gap of §3.1.
 
@@ -222,6 +222,33 @@ chunk, and the VFS cache above it has the expiry gap of §3.1.
 - No retries, reconnect, caching or case-insensitivity rules.
 - No per-filesystem code: adding 9p or an sshfs-style filesystem later is a new
   user-space daemon, not a kernel patch.
+
+### 3.4 Mounting from the desktop: `mountd` and Network Drives
+
+A daemon needs `CAP_FS_PROVIDER` and an installed app holds no capability, so
+the desktop cannot start `ftpfuse` itself. **`mountd`** (`user/src/bin/mountd.rs`,
+`LAZYOS_NETD=1` images) is the one place that may: a supervised service running
+as `_mountd` (uid 907) with `CAP_FS_PROVIDER` and nothing else, serving
+`os.lazy.mount.v1` (`idl/mount.midl`: `Mount`, `Unmount`, `List`). Each
+`Mount` starts one `ftpfuse`, which inherits that credential; a package reaches
+the service only through its manifest's `os.lazy.mount.v1` permission.
+
+| Rule | How |
+|---|---|
+| Hostile requests | `libs/mounttable` (host-tested) checks every field before anything starts: the name is one directory (`a-z0-9-_`, 32 bytes), the host cannot read as an option or carry a port, no control characters; at most 8 mounts |
+| Ownership | the files are reported as the **caller's** kernel-stamped uid and gid (`ftpfuse owner=`), not `_mountd`'s; only that uid or root may unmount |
+| Passwords | travel only in the daemon's `argv`; the table, `List` and the serial log never hold one |
+| State without a pipe | native programs have no pipe, so the mount point appearing makes a mount `mounted`, the daemon's exit code (`ftpfuse`'s `Failure`: network, resolve, login, mount, serve) makes it `failed` with a reason, and 45 s without either kills it |
+| Unmount | `SIGTERM` to the daemon; the kernel removes the dead mount at the next flusher pass or `REGISTER` of the name |
+| Shutdown | `mountd` serves `os.lazy.lifecycle.v1` and stops its daemons; a crash of `mountd` leaves them serving, unlisted |
+
+**Network Drives** (`os.lazy.netdrives`, `xui-app/src/bin/netdrives.rs`) is the
+front end, a core package in every `--net` desktop: a connect form (server,
+port, user, password, folder name) checked with `mounttable`'s rules, the mount
+list refreshed every second with each state and failure reason, **Open in
+Files** (`init.Launch` of `os.lazy.files` at `/mnt/<name>`) and **Unmount**.
+Scripts reach the same service as `sys::mount` (`rhai`). `tools/fuse/ui_run.py`
+drives the app against the host FTP server under `LAZYOS_LABEL_TRACE=1`.
 
 ## 4. SMB as a user-space filesystem
 
@@ -443,6 +470,7 @@ harness needs no host privilege; the live run uses the usual **445**.
 | Kernel | `fuse_suite`: the real path with `memfs` served by `serve_one`, both tables, nodes across renames, in-place open files, a 3000-entry directory, read-only mounts, unmount/remount epochs; hostile daemons (error statuses, silence, death mid-request, stale and oversized replies, faulting data, lying attributes and listings); the syscall gate and hostile buffers; a soak (1500 write/read rounds, 200 mount generations) | `LAZYOS_TEST_FILTER=fuse python tools/test/run.py --accel none` |
 | Mechanism e2e | `tools/fuse/run.py`: start `memfuse`, `cp` a file in and out and `cmp` it, rename, append, remove, `statfs`, kill the daemon and remount | built |
 | Network daemon PoC | `tools/fuse/ftp_run.py` (`--list` for servers without `MLSD`): `ftpfuse` against a host FTP server (`tools/fuse/ftpserver.py`, checked by `test_ftpserver.py` against `ftplib`); list, read, `md5sum`, `cp` in, `>>`, an in-place `dd` patch, `mkdir`/`mv`/`rm`/`rmdir`, judged from the server's directory | built |
+| Desktop mount (§3.4) | `cargo test -p mounttable`; `tools/fuse/ui_run.py`: Network Drives fills its form by widget name, a wrong password fails with the login reason, the right one mounts `/mnt/site` owned by the requester, the Terminal reads and writes through it, Files opens it, Unmount removes it; no `LABEL:DENY` | built |
 | SMB e2e | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share mounts; `ls` equals the server's directory; `cp` out hashes equal to the server's; `cp` in equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
 | Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes | in `run.py` |
 | Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned accepted only when signing is optional and not requested) | `tools/smb/` pcap judge + `test_judge.py` (the judge must fail when it should) |

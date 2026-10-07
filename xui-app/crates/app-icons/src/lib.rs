@@ -93,6 +93,21 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/traydemo",
         Art::Lucide(Lucide::Star, Tone::Amber),
     ),
+    // Volume: Lucide `volume-2` on a teal tile, the outline it shows in the tray.
+    (
+        "xui-app/packages/volume",
+        Art::Lucide(Lucide::Volume2, Tone::Teal),
+    ),
+    // Network Status: Lucide `link` on a cobalt tile, as in the tray.
+    (
+        "xui-app/packages/netstatus",
+        Art::Lucide(Lucide::Link, Tone::Cobalt),
+    ),
+    // Network Drives: a server's files, opened as a folder.
+    (
+        "xui-app/packages/netdrives",
+        Art::Lucide(Lucide::FolderOpen, Tone::Cobalt),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

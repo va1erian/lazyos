@@ -30,6 +30,8 @@
 //! * [`inspect`]: an archive turned into the `PackageInfo` the consent screen
 //!   shows, shared by `pkgd`'s `Inspect` and `Install` and by the LazyRAD IDE's
 //!   pre-check;
+//! * [`resident`]: the permissions `[entry] resident = true` implies, read by
+//!   both [`explain`] and [`rules`];
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
@@ -50,5 +52,6 @@ pub mod hash;
 pub mod inspect;
 pub mod layout;
 pub mod provision;
+pub mod resident;
 pub mod rules;
 pub mod tree;

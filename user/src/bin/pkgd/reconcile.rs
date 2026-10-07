@@ -79,9 +79,9 @@ impl Pkgd {
 }
 
 impl Pkgd {
-    /// Bring a row's manifest-derived fields (menu category, autostart, MIME
-    /// verbs) up to date with its stored manifest: a row recorded before they
-    /// existed gets them without a reinstall.
+    /// Bring a row's manifest-derived fields (menu category, autostart,
+    /// resident, MIME verbs) up to date with its stored manifest: a row
+    /// recorded before they existed gets them without a reinstall.
     fn refresh_row(&mut self, row: &Installed, manifest: &Manifest) {
         let fresh = row_of(
             manifest,

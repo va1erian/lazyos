@@ -51,6 +51,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::logd`](#syslogd) | `os.lazy.logd.v1` |
 | [`sys::logind`](#syslogind) | `os.lazy.logind.v1` |
 | [`sys::mimed`](#sysmimed) | `os.lazy.mimed.v1` |
+| [`sys::mount`](#sysmount) | `os.lazy.mount.v1` |
 | [`sys::net_nic`](#sysnet_nic) | `os.lazy.net.nic.v1` |
 | [`sys::net_stack`](#sysnet_stack) | `os.lazy.net.stack.v1` |
 | [`sys::net_socket`](#sysnet_socket) | `os.lazy.net.socket.v1` |
@@ -488,6 +489,19 @@ The MIME database and open-with registry (issues #116, #158).
 | Topic | Payload | Helpers |
 |---|---|---|
 | `system/events/open/{app}` | `OpenEvent` | `open_topic(app)`, `on_open(app, handler)`, `subscribe_open(app)`, `publish_open(app, payload)` |
+
+## `sys::mount`
+
+Interface `os.lazy.mount.v1`, source [`mount.rhai`](mount.rhai).
+
+The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
+
+| Function | IDL | About |
+|---|---|---|
+| `mount(name, host, port, user, password)` | `Mount(name: String, host: String, port: U32, user: String, password: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
+| `unmount(name)` | `Unmount(name: String) -> ()` | Stop the mount `name` and forget it (a failed one is just forgotten). |
+| `list()` | `List() -> (mounts: Array<MountInfo>)` | Every mount the service knows about, in the order they were asked for. |
+| `new_mount_info()` | struct `MountInfo` | a `MountInfo` at its zero value |
 
 ## `sys::net_nic`
 

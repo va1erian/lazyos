@@ -121,6 +121,7 @@ pub fn uid_name(uid: u32) -> Option<&'static str> {
         netpolicy::NETD_UID => Some("_netd"),
         usbpolicy::USB_UID => Some("_usb"),
         devmatch::DEVD_UID => Some("_devd"),
+        mounttable::MOUNTD_UID => Some("_mountd"),
         ANY_ACTOR => Some("*"),
         _ => None,
     }

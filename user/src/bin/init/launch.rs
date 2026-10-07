@@ -246,6 +246,11 @@ fn launch_installed(
     caller: &SysCred,
     autostart: bool,
 ) -> messenger::Result<services::LaunchResult> {
+    if app.resident {
+        if let Some(result) = reopen_existing(services, app.id, request, caller)? {
+            return Ok(result);
+        }
+    }
     let (path_arg, cred, session) = admit(services, request, caller, autostart)?;
     retire_stopped(services, app.id);
     let mut row = Service::from_installed(app, path_arg, cred);
@@ -253,6 +258,52 @@ fn launch_installed(
     let result = start_row(services, broker, row, &cred, session, autostart)?;
     report_label(result.pid, app.id);
     Ok(result)
+}
+
+/// A resident app runs once per session (docs/tray-plan.md section 5): a
+/// launch while an instance runs in the target session starts nothing, its
+/// argument reaches the instance as `Reopen` (queued until it watches), and
+/// the answer is that instance with `existing` set. A quitting instance
+/// (`Stopping`) does not count: the new launch starts a fresh one.
+fn reopen_existing(
+    services: &mut [Service],
+    id: &str,
+    request: &services::LaunchRequest,
+    caller: &SysCred,
+) -> messenger::Result<Option<services::LaunchResult>> {
+    let session = if request.session == 0 {
+        caller.session
+    } else {
+        request.session
+    };
+    authorize(caller, session)?;
+    let args = launch_argument(&request.args)?.unwrap_or_default();
+    // A row in restart backoff (or waiting to start) is the instance too:
+    // matching only `Running` would spawn a second copy beside the one the
+    // backoff is about to bring back. Its queued `Reopen` survives the
+    // respawn (`Lifecycle::respawn`) and reaches the new run at its `Watch`.
+    let Some(row) = services.iter_mut().find(|row| {
+        row.launched
+            && row.name == id
+            && matches!(
+                row.phase,
+                Phase::Running | Phase::Restarting | Phase::Pending
+            )
+            && row.cred.map(|cred| cred.session) == Some(session)
+    }) else {
+        return Ok(None);
+    };
+    super::lifecycle::reopen(row, &args);
+    let pid = row.pid;
+    sys::write_str(&format!(
+        "INIT:LAUNCH:EXISTING app={id} pid={pid} session={session}\n"
+    ));
+    Ok(Some(services::LaunchResult {
+        app: id.to_string(),
+        pid,
+        session,
+        existing: true,
+    }))
 }
 
 /// A stopped or failed launched row for the same app is superseded: the
