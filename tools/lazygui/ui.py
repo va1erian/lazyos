@@ -129,15 +129,13 @@ class Launcher:
         tab_adv = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_simple, text="Simple")
         self.notebook.add(tab_adv, text="Advanced")
-        build_simple_tab(scrollable(self.tab_simple), self.v["simple_build"],
-                         self.v["simple_iface"],
-                         self.v["simple_lazyrad"], self.v["simple_shell"],
-                         self.v["simple_devices"], self.v["simple_doom"],
-                         self.v["simple_modplayer"], self.v["simple_net"], self._run,
-                         self.v["simple_linuxapps"], self.v["simple_hidpi"],
-                         self.v["simple_tls"], self.v["simple_lazyweb"],
-                         self.v["simple_mail"], self.v["simple_traydemo"],
-                         self.v["simple_autologin"])
+        v = self.v
+        build_simple_tab(scrollable(self.tab_simple), v["simple_build"], v["simple_iface"],
+                         v["simple_lazyrad"], v["simple_shell"], v["simple_devices"],
+                         v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
+                         v["simple_linuxapps"], v["simple_hidpi"], v["simple_tls"],
+                         v["simple_lazyweb"], v["simple_mail"], v["simple_traydemo"],
+                         v["simple_autologin"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 

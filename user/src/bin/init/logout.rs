@@ -82,8 +82,7 @@ pub(super) fn end_session(
 /// Retire and kill the launched rows of `session`; returns how many.
 fn retire_rows(services: &mut [Service], broker: &mut router::TopicBroker, session: u64) -> usize {
     let mut retired = 0;
-    for index in 0..services.len() {
-        let row = &services[index];
+    for row in services.iter_mut() {
         let live = matches!(
             row.phase,
             Phase::Running | Phase::Restarting | Phase::Pending | Phase::Stopping
@@ -93,21 +92,13 @@ fn retire_rows(services: &mut [Service], broker: &mut router::TopicBroker, sessi
         }
         let pid = row.pid;
         // Retire first: the exit that follows is not a crash to restart.
-        services[index].phase = Phase::Stopped;
-        services[index].pid = 0;
-        services[index].last_status = None;
+        row.phase = Phase::Stopped;
+        row.pid = 0;
+        row.last_status = None;
         if pid != 0 {
             let _ = sys::kill(pid, sys::SIG_KILL);
         }
-        publish_state(
-            broker,
-            &services[index],
-            "stopped",
-            0,
-            0,
-            0,
-            "session ended",
-        );
+        publish_state(broker, row, "stopped", 0, 0, 0, "session ended");
         retired += 1;
     }
     retired

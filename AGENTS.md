@@ -104,7 +104,12 @@ taskbar's Log out button ends the session (docs/accounts-plan.md U0, #623).
 login (`LAZYOS_XUI_AUTOSTART`, every session-script image) logs `user` in, so
 the example sessions run unchanged. Services authorize privileged calls by
 `CAP_SETUID`, never by uid 0: a session cannot write `sys/**` keys, `/conf`
-or `/system`. The attack harness is `python tools/accounts/run.py`.
+or `/system`. The attack harness is `python tools/accounts/run.py`; the
+session `tools/screenshot/examples/login_logout.json` (an image built with
+`LAZYOS_AUTOLOGIN=none LAZYOS_UI_PROBE=1`) types a wrong and a right password,
+logs out with the taskbar button (`taskbar:logout` probe) and logs in again.
+Session scripts work as `user` (`/home/user`, `user/1000/**` confd keys); a
+step that must touch a system service logs in `admin` (still uid 0 until U1).
 
 ### The disk image
 

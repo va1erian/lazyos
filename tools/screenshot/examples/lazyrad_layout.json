@@ -37,23 +37,23 @@
  },
  {
   "at": 1.0,
-  "type": "mkdir -p /home/admin/app/bin /home/admin/app/resources"
+  "type": "mkdir -p /home/user/app/bin /home/user/app/resources"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:mkdir -p /home/admin/app/bin /home/admin/app/resources",
+  "until": "TERM:CMD:mkdir -p /home/user/app/bin /home/user/app/resources",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cp -r /system/share/lazyrad/hello /home/admin/app/resources/project"
+  "type": "cp -r /system/share/lazyrad/hello /home/user/app/resources/project"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp -r /system/share/lazyrad/hello /home/admin/app/resources/project",
+  "until": "TERM:CMD:cp -r /system/share/lazyrad/hello /home/user/app/resources/project",
   "timeout": 30,
   "retries": 2
  },
@@ -74,28 +74,28 @@
  },
  {
   "at": 1.0,
-  "type": "cp $P /home/admin/app/bin/lrplay.elf"
+  "type": "cp $P /home/user/app/bin/lrplay.elf"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cp $P /home/admin/app/bin/lrplay.elf",
+  "until": "TERM:CMD:cp $P /home/user/app/bin/lrplay.elf",
   "timeout": 30,
   "retries": 2
  },
  {
   "at": 1.0,
-  "type": "cd /home/admin/app && bin/lrplay.elf --project resources/project &"
+  "type": "cd /home/user/app && bin/lrplay.elf --project resources/project &"
  },
  {
   "at": 0.5,
   "key": "enter",
-  "until": "TERM:CMD:cd /home/admin/app && bin/lrplay.elf --project resources/project &",
+  "until": "TERM:CMD:cd /home/user/app && bin/lrplay.elf --project resources/project &",
   "timeout": 30,
   "retries": 2
  },
  {
-  "wait_for": "LRPLAY:PROJECT:PASS:/home/admin/app/resources/project",
+  "wait_for": "LRPLAY:PROJECT:PASS:/home/user/app/resources/project",
   "timeout": 60
  },
  {

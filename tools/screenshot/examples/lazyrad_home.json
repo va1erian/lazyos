@@ -118,7 +118,7 @@
   "retries": 2
  },
  {
-  "wait_for": "LRIDE:HOME:PASS:/home/admin",
+  "wait_for": "LRIDE:HOME:PASS:/home/user",
   "timeout": 180
  },
  {
@@ -310,7 +310,7 @@
   "timeout": 120
  },
  {
-  "wait_for": "LRPLAY:DATA:PASS:/home/admin/.apps/user.",
+  "wait_for": "LRPLAY:DATA:PASS:/home/user/.apps/user.",
   "timeout": 120
  },
  {

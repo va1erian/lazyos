@@ -141,7 +141,7 @@ fn hex(bytes: &[u8]) -> String {
 /// The bytes of a lowercase hex string; `None` for odd length or a stray
 /// character (uppercase included: there is one spelling per value).
 fn unhex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     let digit = |b: u8| match b {
