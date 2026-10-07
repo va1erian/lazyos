@@ -16,6 +16,12 @@ Whatever the expectation, a scenario that printed nothing, printed `ERROR`, or
 was `BLOCKED` only because its target did not exist (`ENOENT`: the attack never
 ran) is a failure, and so is a marker for a scenario the table does not know.
 
+A scenario with a `refusal` must be `BLOCKED` for exactly that reason: the
+accountsd, timed and init probes print `EPERM-policy` only when the refusal is
+`EPERM` *and* carries the service's policy text (`POLICY_TEXT`). An `EACCES`
+(a wrong old password, an ACL) or another `EPERM` is a different refusal and
+fails, so a regression cannot pass as BLOCKED.
+
 `autostart_root` has no guest command: `run.py` installs a package that opens
 at login during the attack session and writes its marker from the next boot's
 log ([`autostart_marker`]): the package must have opened in a login session as
@@ -47,6 +53,8 @@ class Expect:
     #: Image paths the scenario changes by allowed means whatever its state
     #: (a user installing a package); the audit excuses them always.
     side_effects: tuple[str, ...] = ()
+    #: The only BLOCKED detail that counts (empty: any refusal).
+    refusal: str = ""
 
 
 U0 = "#623"
@@ -55,6 +63,23 @@ U2 = "#625"
 U3 = "U3 (brick-proofing, no issue yet)"
 #: What an installed package writes: its tree, its docs, confd's record.
 INSTALL_PATHS = ("/apps", "/docs/apps", "/conf")
+#: The detail a probe prints for EPERM with the service's policy text.
+POLICY = "EPERM-policy"
+
+#: Each policy probe's script, the source file holding the service's refusal
+#: text and that text; `test_judge.py` checks the script and the source agree.
+POLICY_TEXT: dict[str, tuple[str, str]] = {
+    name: (source, text) for names, source, text in (
+        (("acct_create", "acct_delete", "acct_promote"), "libs/accountdb/src/policy.rs",
+         "only an administrator, through elevd, may create, delete or promote accounts"),
+        (("acct_password",), "libs/accountdb/src/policy.rs",
+         "only an administrator, through elevd, may change another user's password"),
+        (("direct_time", "direct_zone"), "user/src/bin/timed/handler.rs",
+         "only an administrator, through elevd, may change the clock or the time zone"),
+        (("direct_restart",), "user/src/bin/init/homes.rs",
+         "only elevd may restart a service, once an administrator approved"),
+    ) for name in names
+}
 
 #: Flip an entry to "blocked" when its phase lands. U0 (#623) landed: the
 #: desktop session runs as `user` with no capability. U1 (#624): accounts
@@ -71,10 +96,10 @@ EXPECTATIONS: dict[str, Expect] = {
     "read_home_admin": Expect("blocked", U0),
     "signal_service": Expect("blocked", U0),
     "autostart_root": Expect("blocked", U0, side_effects=INSTALL_PATHS),
-    "acct_create": Expect("blocked", U1, ("/conf", "/home")),
-    "acct_delete": Expect("blocked", U1, ("/conf", "/home")),
-    "acct_promote": Expect("blocked", U1, ("/conf",)),
-    "acct_password": Expect("blocked", U1, ("/conf",)),
+    "acct_create": Expect("blocked", U1, ("/conf", "/home"), refusal=POLICY),
+    "acct_delete": Expect("blocked", U1, ("/conf", "/home"), refusal=POLICY),
+    "acct_promote": Expect("blocked", U1, ("/conf",), refusal=POLICY),
+    "acct_password": Expect("blocked", U1, ("/conf",), refusal=POLICY),
     "keyd_forget": Expect("blocked", U1),
     # Review of #659 (H1): confd's raw store is unreadable to a session.
     "read_conf_store": Expect("blocked", U1),
@@ -83,8 +108,10 @@ EXPECTATIONS: dict[str, Expect] = {
     # H5: a session's Authenticate flood cannot lock admin out of elevd.
     "admin_lockout": Expect("blocked", U1),
     "auth_flood": Expect("blocked", U1),
-    "direct_time": Expect("blocked", U2),
-    "direct_restart": Expect("blocked", U2),
+    "direct_time": Expect("blocked", U2, refusal=POLICY),
+    # The zone is a machine setting like the clock (review of #659).
+    "direct_zone": Expect("blocked", U2, ("/conf",), refusal=POLICY),
+    "direct_restart": Expect("blocked", U2, refusal=POLICY),
     "prompt_spoof": Expect("blocked", U2),
     "input_focus": Expect("blocked", U2),
     "display_read": Expect("blocked", U2),
@@ -158,6 +185,10 @@ def judge(log: str, expectations: dict[str, Expect] = EXPECTATIONS) -> Verdict:
             verdict.failures.append(f"{name}: the scenario could not run ({detail})")
         elif outcome == "BLOCKED" and detail == "ENOENT":
             verdict.failures.append(f"{name}: BLOCKED only by ENOENT, the attack never ran")
+        elif outcome == "BLOCKED" and expect.refusal and detail != expect.refusal:
+            verdict.failures.append(
+                f"{name}: BLOCKED for another reason ({detail}), not the policy's "
+                f"{expect.refusal}")
         elif outcome == "SUCCEEDED" and expect.state == "blocked":
             verdict.failures.append(f"{name}: SUCCEEDED ({detail}) but must be BLOCKED")
         elif outcome == "SUCCEEDED":

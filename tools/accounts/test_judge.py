@@ -59,6 +59,33 @@ class AttackJudgeTest(unittest.TestCase):
                              mystery="BLOCKED:EPERM"), TABLE).failures
         self.assertTrue(any("mystery" in f for f in failures))
 
+    def test_a_policy_scenario_must_be_refused_by_the_policy(self):
+        table = {"acct_password": Expect("blocked", "", refusal=attack_judge.POLICY)}
+        ok = judge(log(acct_password="BLOCKED:EPERM-policy"), table)
+        self.assertEqual(ok.failures, [])
+        # A wrong old password, an ACL, or an EPERM without the policy's
+        # text is another refusal: never proof that the policy holds.
+        for other in ("EACCES", "EPERM-other", "EPERM"):
+            failures = judge(log(acct_password=f"BLOCKED:{other}"), table).failures
+            self.assertEqual(len(failures), 1, other)
+            self.assertIn("another reason", failures[0])
+
+    def test_policy_probes_match_their_services_text(self):
+        root = Path(__file__).resolve().parents[2]
+        scripts = root / "tools/accounts/assets/accounts"
+        manifest = (root / "tools/accounts/assets/manifest.txt").read_text(encoding="utf-8")
+        import run  # noqa: E402 (the harness's scenario list)
+        for name, (source, text) in attack_judge.POLICY_TEXT.items():
+            expect = attack_judge.EXPECTATIONS[name]
+            self.assertEqual(expect.refusal, attack_judge.POLICY, name)
+            script = (scripts / f"{name}.rhai").read_text(encoding="utf-8")
+            self.assertIn(f'let policy = "{text}";', script, name)
+            self.assertIn('"BLOCKED:EPERM-policy"', script, name)
+            self.assertIn(text, (root / source).read_text(encoding="utf-8"),
+                          f"{name}: the service no longer says this")
+            self.assertIn(name, run.RHAI_ATTACKS)
+            self.assertIn(f"accounts/{name}.rhai |", manifest)
+
     def test_the_shipped_table_gates_u0_and_tracks_the_rest(self):
         for name, expect in attack_judge.EXPECTATIONS.items():
             self.assertIn(expect.state, ("blocked", "xfail"), name)

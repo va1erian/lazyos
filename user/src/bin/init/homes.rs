@@ -157,6 +157,10 @@ impl HomeJobs {
     }
 }
 
+/// Why a `RestartService` from anyone but `elevd` is refused (`EPERM`): the
+/// attack harness (`tools/accounts`) matches this text.
+const RESTART_DENIED: &str = "only elevd may restart a service, once an administrator approved";
+
 /// `RestartService` from `elevd`: kill the running task of the manifest row
 /// `name`; the supervisor restarts it as after a crash. Returns that pid.
 pub(super) fn restart_service(
@@ -164,7 +168,12 @@ pub(super) fn restart_service(
     message: &Message,
 ) -> messenger::Result<Parcel> {
     if !is_service(&message.caller(), accountdb::ELEVD_UID) {
-        return Err(Error::Errno(-errno::EPERM));
+        return Ok(services::refusal(
+            services::init::INTERFACE,
+            services::init::wire::METHOD_RESTARTSERVICE,
+            errno::EPERM,
+            RESTART_DENIED,
+        ));
     }
     let args = services::init::wire::decode_restart_service_args(&message.parcel.body)
         .map_err(Error::Parcel)?;
