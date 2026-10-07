@@ -27,11 +27,13 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "screenshot"))
 import pngstats  # noqa: E402
 from sites import DOWNLOAD_NAME, DOWNLOAD_PATH, download_payload  # noqa: E402
+import wiki  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 EXAMPLE_URL = "http://example.com/"
@@ -184,16 +186,20 @@ def judge_shots(paths: list[Path], min_content: float = 0.02, min_colors: int = 
     return problems
 
 
-#: (scheme, Host, path, status) of every request the check script makes.
-PRECHECK_REQUESTS = [
-    ("http", "example.com", "/", 200),
-    ("https", "theoldnet.com", "/", 200),
-    ("http", "theoldnet.com", "/", 301),
-    ("https", "www.theoldnet.com", "/style.css", 200),
-    ("https", "theoldnet.com", "/images/logo.png", 200),
-    ("https", "theoldnet.com", "/images/photo.jpg", 200),
-    ("https", "theoldnet.com", "/images/construction.gif", 200),
-]
+def precheck_requests() -> list[tuple[str, str, str, int]]:
+    """(scheme, Host, path, status) of every request the check script makes.
+    A function, so importing the judge never reads the Wikipedia copies."""
+    return [
+        ("http", "example.com", "/", 200),
+        ("https", "theoldnet.com", "/", 200),
+        ("http", "theoldnet.com", "/", 301),
+        ("https", "www.theoldnet.com", "/style.css", 200),
+        ("https", "theoldnet.com", "/images/logo.png", 200),
+        ("https", "theoldnet.com", "/images/photo.jpg", 200),
+        ("https", "theoldnet.com", "/images/construction.gif", 200),
+        ("https", "en.wikipedia.org", urlsplit(wiki.ARTICLE_URL).path, 200),
+        ("https", "thumb.wikimedia.org", urlsplit(wiki.wiki_picture()).path, 200),
+    ]
 
 
 def judge_precheck_servers(record) -> list[str]:
@@ -201,7 +207,7 @@ def judge_precheck_servers(record) -> list[str]:
     request, under its own Host, with SNI naming that host on HTTPS."""
     problems = []
     tagged = [r for r in record.requests if PRECHECK_TAG in r.path]
-    for scheme, host, path, status in PRECHECK_REQUESTS:
+    for scheme, host, path, status in precheck_requests():
         if not [r for r in tagged if (r.scheme, r.host, r.path.split("?")[0], r.status)
                 == (scheme, host, path, status)]:
             problems.append(f"no {scheme}://{host}{path} answered {status} for the checks")

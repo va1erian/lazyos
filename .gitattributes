@@ -5,3 +5,6 @@ build_support/passwd text eol=lf
 # Fuzz seeds are byte-exact inputs written by fuzz/gen_corpus.py (some are
 # CRLF on purpose): never convert their line endings on any checkout.
 fuzz/seeds/** -text
+
+# Saved fuzz crashes replay byte for byte too.
+fuzz/regressions/** -text

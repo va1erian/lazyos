@@ -1,6 +1,7 @@
 """The LazyWeb harness's throwaway certificates (`tools/net/tlscerts.py`'s CA
 and leaf builders): a test CA the image trusts through `LAZYOS_TLS_TEST_CA`,
-and one leaf for theoldnet.com and www.theoldnet.com. They live only in the
+and one leaf for theoldnet.com, www.theoldnet.com and the Wikipedia hosts
+(`wiki.HOSTS`). They live only in the
 run's output directory; no key is ever committed.
 
 The hosts file maps the stand-in sites' names to the host as the guest sees
@@ -18,10 +19,14 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "net"))
 import tlscerts  # noqa: E402
 
+sys.path.insert(0, str(HERE))
+from wiki import HOSTS as WIKI_HOSTS  # noqa: E402
+
 #: The names the leaf covers; the first is the subject.
-LEAF_NAMES = ["theoldnet.com", "www.theoldnet.com"]
+LEAF_NAMES = ["theoldnet.com", "www.theoldnet.com", *WIKI_HOSTS]
 #: Every name the test image maps to the host.
-HOST_NAMES = ["example.com", "www.example.com", "theoldnet.com", "www.theoldnet.com"]
+HOST_NAMES = ["example.com", "www.example.com", "theoldnet.com", "www.theoldnet.com",
+              *WIKI_HOSTS]
 #: The host, from the guest on QEMU's user network.
 GATEWAY = "10.0.2.2"
 

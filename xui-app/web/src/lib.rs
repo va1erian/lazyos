@@ -6,12 +6,14 @@
 //! - [`visits`]: the browsing history kept per user.
 //! - [`downloads`]: saving downloads to the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
+//! - [`sites`]: per-site preferences (the Wikipedia skin).
 
 pub mod address;
 pub mod downloads;
 pub mod fetch;
 pub mod history;
 pub mod pages;
+pub mod sites;
 pub mod visits;
 
 /// `text` fit for one serial marker line: control characters (a title can

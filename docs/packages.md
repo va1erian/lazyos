@@ -478,6 +478,9 @@ the consent screen and the enforcement come from the same data:
   kernel yet, so they are recorded and shown but compile to nothing.
 
 A label carries at most 256 rules; a manifest that needs more is refused.
+The count includes the baseline every installed app gets (`init`'s
+`ReportFailure` and its names), so a manifest the consent screen accepts
+never fails to install because of the rule limit.
 
 ### Audit
 

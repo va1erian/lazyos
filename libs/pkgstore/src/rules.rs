@@ -186,7 +186,8 @@ fn own_namespace(pattern: &str, system_name: &str) -> bool {
 }
 
 /// The label rules for `manifest`, in a stable order: interfaces, topics (then
-/// the broker's methods), network. At most [`MAX_RULES`].
+/// the broker's methods), network. With the [`baseline`] rules it does not
+/// already hold, at most [`MAX_RULES`]: whatever compiles also installs.
 pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     let requested = &manifest.permissions;
     let system_name = &manifest.app.system_name;
@@ -244,10 +245,15 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     if requested.develop {
         list.allow(spawn_scope::INTERFACE_ID, ANY_METHOD);
     }
-    if list.rules.len() > MAX_RULES {
-        return Err(CompileError::TooManyRules {
-            rules: list.rules.len(),
-        });
+    // Count the baseline `installed` adds, so the consent screen never
+    // accepts a manifest that `pkgd` then fails to install.
+    let baseline = baseline()
+        .iter()
+        .filter(|rule| !list.rules.contains(rule))
+        .count();
+    let needed = list.rules.len() + baseline;
+    if needed > MAX_RULES {
+        return Err(CompileError::TooManyRules { rules: needed });
     }
     Ok(list.rules)
 }

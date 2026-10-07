@@ -10,7 +10,10 @@ use messenger_generated::os_lazy_shell_tray_events_v1 as events;
 use super::super::ctx::Ctx;
 use crate::sys::{self, errno};
 
-/// Ticks (100 Hz) between pings.
+/// Ticks (100 Hz) between pings: about once a second, the cadence `xuid`
+/// pings its windows at. A dead app's item lingers at most that long; pinging
+/// on every 30 ms desktop tick would cost ~33 sends per item per second to
+/// shave a second nobody notices.
 const PING_TICKS: u64 = 100;
 
 thread_local! {

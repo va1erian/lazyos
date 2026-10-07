@@ -1,3 +1,5 @@
+//! Tests of the manifest-to-rules compiler.
+
 use super::*;
 
 fn manifest(permissions: &str) -> Manifest {
@@ -77,6 +79,7 @@ fn a_non_resident_manifest_compiles_as_before() {
     );
     assert_eq!(plain.len(), 3);
 }
+
 
 fn allow(interface_id: u64, method: u32) -> LabelRule {
     LabelRule {
@@ -248,9 +251,37 @@ fn too_many_rules_is_refused() {
     let interfaces: Vec<String> = (0..120).map(|index| format!("\"x.y{index}.v1\"")).collect();
     let text = format!("interfaces = [{}]\n", interfaces.join(", "));
     match compile(&manifest(&text)) {
-        Err(CompileError::TooManyRules { rules }) => assert_eq!(rules, 360),
+        // 360 requested plus the 3 baseline rules.
+        Err(CompileError::TooManyRules { rules }) => assert_eq!(rules, 363),
         other => panic!("expected TooManyRules, got {other:?}"),
     }
+}
+
+#[test]
+fn what_compiles_also_installs_with_the_baseline() {
+    // 125 topics of two fresh segments each: 250 + 1 broker method + 2
+    // broker names = 253 rules, which leaves exactly room for the 3
+    // baseline rules (fuzz/regressions/pkgstore_rules).
+    let topics = |count: usize| {
+        let entries: Vec<String> = (0..count)
+            .map(|n| format!("\"publish:{n}/{}\"", n + 1000))
+            .collect();
+        manifest(&format!(
+            "topics = [{}]
+",
+            entries.join(", ")
+        ))
+    };
+    let fits = topics(125);
+    assert_eq!(compile(&fits).unwrap().len() + baseline().len(), MAX_RULES);
+    assert_eq!(installed(&fits).unwrap().len(), MAX_RULES);
+    // One more topic would fit `compile` alone, not the installed label.
+    let over = topics(126);
+    assert_eq!(
+        compile(&over),
+        Err(CompileError::TooManyRules { rules: 258 })
+    );
+    assert_eq!(installed(&over), compile(&over).map(|_| Vec::new()));
 }
 
 #[test]

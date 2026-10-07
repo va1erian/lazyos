@@ -15,6 +15,22 @@ fonts/JetBrainsMono-Regular.ttf | OFL-1.1 | none | https://github.com/JetBrains/
 fonts/LICENSE-Apache-2.0.txt | Apache-2.0 | none | The Apache License 2.0 text, https://www.apache.org/licenses/LICENSE-2.0
 fonts/OFL.txt | OFL-1.1 | none | The SIL Open Font License 1.1 text shipped with JetBrains Mono
 fonts/README.md | GPL-3.0-or-later | none | LazyOS original: the fonts' credits and uses
+fonts/liberation/LiberationMono-Bold.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationMono-BoldItalic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationMono-Italic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationMono-Regular.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSans-Bold.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSans-BoldItalic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSans-Italic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSans-Regular.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSerif-Bold.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSerif-BoldItalic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSerif-Italic.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/LiberationSerif-Regular.ttf | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified; LazyWeb's web fonts (fonts/README.md)
+fonts/liberation/AUTHORS | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified
+fonts/liberation/LICENSE | OFL-1.1 | desktop | https://github.com/liberationfonts/liberation-fonts release 2.1.5 (liberation-fonts-ttf-2.1.5.tar.gz), unmodified: the SIL Open Font License 1.1 with the Liberation copyright notices
+
+licenses/LICENSE-Lucide.txt | ISC | all | Verbatim copy of crates/xui-core/assets/lucide/LICENSE from va1erian/xui 112b411 (the pinned rev): Lucide's ISC notice and the MIT notice for its Feather-derived icons; Settings -> About points to it
 
 samples/archiver-sample.7z | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
 samples/archiver-sample.zip | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
