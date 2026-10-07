@@ -65,6 +65,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import irqpath  # noqa: E402
 KEYS_SCRIPT = ROOT / "tools/screenshot/examples/input_keys.json"
 
 #: Mouse steps after typing. The waits are generous: under TCG the guest can
@@ -155,13 +157,15 @@ def hotplug_steps(cycles: int, pace: float) -> list[dict]:
     return steps + [{"wait_for": r"INPUTD:KEY code=0x6 \S+ \S+ up", "regex": True, "timeout": 120}]
 
 
-def build(crash_test: bool = False) -> None:
+def build(crash_test: bool = False, irq_path: str = irqpath.PATHS[0]) -> None:
     # LAZYOS_USB_TRACE: usbd echoes key edges for the judge (test images only).
-    env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1", LAZYOS_USB_TRACE="1")
+    env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_USB="1", LAZYOS_USB_TRACE="1",
+               **irqpath.build_env(irq_path))
     # Always set, so a plain build after a --restart one drops the crash.
     env["LAZYOS_USB_CRASH_TEST"] = "1" if crash_test else "0"
     print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_USB_TRACE=1 "
-          f"LAZYOS_USB_CRASH_TEST={int(crash_test)} cargo build", flush=True)
+          f"LAZYOS_USB_CRASH_TEST={int(crash_test)} {irqpath.label(irq_path)} cargo build",
+          flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env)
     if result.returncode != 0:
         sys.exit("cargo build failed")
@@ -284,6 +288,7 @@ def main() -> int:
                         help="USB 1.1 (full-speed) keyboard and mouse on root ports (H3)")
     parser.add_argument("--controllers", type=int, default=1, metavar="N",
                         help="N qemu-xhci controllers; keyboard on the last, mouse on the first (H3)")
+    irqpath.add_option(parser)
     args = parser.parse_args()
     if args.hub and (args.hotplug or args.restart):
         parser.error("--hub runs the typing session; it does not combine with --hotplug or --restart")
@@ -292,7 +297,7 @@ def main() -> int:
     settle = args.settle if args.settle is not None else (120.0 if slow else 3.0)
     mouse = not args.no_mouse or args.hotplug > 0
     if not args.no_build:
-        build(crash_test=args.restart)
+        build(crash_test=args.restart, irq_path=args.irq_path)
     args.out.mkdir(parents=True, exist_ok=True)
     script = args.out / "session.json"
     script.write_text(json.dumps(session_script(mouse, pace, settle, slow, args.hotplug, args.tablet,
@@ -341,6 +346,14 @@ def main() -> int:
     if args.controllers > 1:
         judge += ["--controllers", str(args.controllers)]
     verdicts.append(subprocess.run(judge).returncode == 0)
+    # qemu-xhci has MSI and MSI-X (issue #616), so usbd must arm on either
+    # path: a polled run says nothing about the interrupt path it was built for.
+    text = log.read_text(errors="replace")
+    why = irqpath.judge(text, args.irq_path, " armed ", True)
+    if why is None and irqpath.driver_mode(text, " armed ") is None:
+        why = "usbd never armed an interrupt (polled run)"
+    print(f"USB:IRQPATH:{'FAIL' if why else 'PASS'} {args.irq_path}" + (f": {why}" if why else ""))
+    verdicts.append(why is None)
     ok = all(verdicts)
     print("usb harness: " + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

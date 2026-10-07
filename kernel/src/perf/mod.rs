@@ -86,7 +86,7 @@ pub fn line_raised(_line: u8) {
 
 /// The bottom half is about to post for the lines in `raised`.
 #[inline(always)]
-pub fn lines_posting(_raised: u16) {
+pub fn lines_posting(_raised: u64) {
     #[cfg(lazyos_perf)]
     imp::lines_posting(_raised);
 }

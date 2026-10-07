@@ -129,6 +129,21 @@ fn forget_surface(surface) {
     msg::connect("os.lazy.input.shell.v1").invoke("ForgetSurface", [surface])
 }
 
+/// `NoteInputDone(seq: U64) -> () oneway`
+///
+/// One-way: the compositor has handled every `PointerEvent` up to `seq`
+/// and already noted the focus they led to. A click can move focus, so
+/// after forwarding a button press `inputd` holds the key content that
+/// follows (in order, briefly: a compositor that never answers costs a
+/// fraction of a second, not the keys) until this note covers the press;
+/// otherwise a key typed right after a click would reach the window the
+/// click left.
+///
+/// One-way: returns `()` once the message is queued.
+fn note_input_done(seq) {
+    msg::connect("os.lazy.input.shell.v1").invoke("NoteInputDone", [seq])
+}
+
 /// `HotkeyFired(id: U64) -> () oneway`
 ///
 /// Shell event: a registered chord was pressed.

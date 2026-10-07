@@ -131,13 +131,13 @@ pub fn init() {
             if aux {
                 super::mouse::init();
             } else {
-                crate::arch::pic::set_masked(12, true);
+                crate::arch::irqchip::set_masked(12, true);
             }
         }
         Probe::Absent(reason) => {
             serial_println!("HW:I8042:ABSENT ({reason})");
-            crate::arch::pic::set_masked(1, true);
-            crate::arch::pic::set_masked(12, true);
+            crate::arch::irqchip::set_masked(1, true);
+            crate::arch::irqchip::set_masked(12, true);
         }
     }
 }

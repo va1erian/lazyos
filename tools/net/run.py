@@ -45,6 +45,8 @@ from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
 import hostpeers  # noqa: E402
 import pcap  # noqa: E402
 import sockets_pcap  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools"))
+import irqpath  # noqa: E402
 
 #: The soak's iteration count (`netdrv`'s `DEMO_CLIENTS`): one ARP exchange each.
 SOAK_ITERATIONS = 40
@@ -147,8 +149,9 @@ def build_netfix() -> bool:
     return result.returncode == 0 and NETFIX_ELF.is_file()
 
 
-def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
-    env = dict(os.environ, LAZYOS_NET="1")
+def build_image(services: bool, poll: bool, netd: bool = False,
+                irq_path: str = irqpath.PATHS[0]) -> Path:
+    env = dict(os.environ, LAZYOS_NET="1", **irqpath.build_env(irq_path))
     # The harness judges `netd demo=1`'s clients: an interactive override
     # (`run_demo.py --net` builds with `demo=0`) must not leak in.
     env.pop("LAZYOS_NETD_ARGS", None)
@@ -162,7 +165,7 @@ def build_image(services: bool, poll: bool, netd: bool = False) -> Path:
         env["LAZYOS_NET_ARGS"] = "demo=1 irq=poll"
     else:
         env.pop("LAZYOS_NET_ARGS", None)
-    label = "LAZYOS_NET=1" + (" LAZYOS_NETD=1" if netd else "") + (" LAZYOS_SERVICES=1" if services else "") + (" LAZYOS_NET_ARGS='demo=1 irq=poll'" if poll else "")
+    label = "LAZYOS_NET=1" + (" LAZYOS_NETD=1" if netd else "") + (" LAZYOS_SERVICES=1" if services else "") + (" LAZYOS_NET_ARGS='demo=1 irq=poll'" if poll else "") + f" {irqpath.label(irq_path)}"
     print(f"building: {label} cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
@@ -292,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-arp-pairs", type=int, default=None)
     parser.add_argument("--nic", choices=sorted(NICS), default="virtio",
                         help="the card: virtio-net, or QEMU's Intel 8254x (e1000, issue #497)")
+    irqpath.add_option(parser)
     args = parser.parse_args(argv)
 
     out_dir = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
@@ -303,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # The Linux fixture goes into the image, so it is built first.
     netfix = args.netd and not args.no_device and (NETFIX_ELF.is_file() if args.no_build else build_netfix())
-    image = Path(args.image) if args.no_build else build_image(args.services, args.poll, args.netd)
+    image = Path(args.image) if args.no_build else build_image(args.services, args.poll, args.netd, args.irq_path)
     if not image.is_file():
         sys.exit(f"image not found: {image}")
 
@@ -426,6 +430,11 @@ def main(argv: list[str] | None = None) -> int:
         # The marker can follow other serial output on its line (two writers
         # interleave), so cut the line at the marker rather than require it first.
         print(text[text.index("NET:IRQ:PASS"):].splitlines()[0])
+    # virtio-net has MSI-X; QEMU's e1000 has neither MSI nor MSI-X (issue #616).
+    why = irqpath.judge(text, args.irq_path, "NETDRV:IRQ:", message_capable=args.nic == "virtio")
+    if why:
+        print(f"NET:HARNESS:FAIL {args.irq_path} path: {why}")
+        return 1
     if args.services and "NETDRV:CRED uid=902 caps=0x100" not in text:
         print("NET:HARNESS:FAIL netdrv did not run as _net (uid 902) with only CAP_DEV_CLAIM")
         return 1

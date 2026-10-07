@@ -6,6 +6,9 @@
 //! descriptor with nothing but `pio`/`cfg_write`, and the test proves the
 //! interrupt travels PCI INTx -> PIC line named by the Interrupt Line register
 //! -> IDT stub -> `dispatch` -> bottom half -> one-way message -> `irq_ack`.
+//! With message interrupts on (issue #616) the same function takes MSI-X
+//! instead: the kernel programs its table, the test points the TX queue at
+//! entry 0, and the vector shows in the local APIC's request register.
 //! It is also the record of what each QEMU machine type programmed: the INFO
 //! lines name the function, its line and whether the PIC saw it asserted.
 //! Without such a function the test only logs the routing table and passes.
@@ -26,6 +29,8 @@ const QUEUE_SELECT: u64 = 14;
 const QUEUE_NOTIFY: u64 = 16;
 const STATUS: u64 = 18;
 const ISR: u64 = 19;
+/// Legacy queue MSI-X vector register (present while MSI-X is enabled).
+const QUEUE_VECTOR: u64 = 22;
 const TX_QUEUE: u64 = 1;
 /// Offset of the TX packet inside [`Region`].
 const PACKET_OFFSET: usize = 12288;
@@ -58,6 +63,37 @@ fn find_nic() -> Option<DeviceInfo> {
     found
 }
 
+/// Where the function's interrupt arrives.
+#[derive(Clone, Copy)]
+enum Route {
+    Line(u8),
+    Vector(u8),
+}
+
+impl Route {
+    /// The interrupt is pending at the controller (interrupts off).
+    fn requested(self) -> bool {
+        match self {
+            Route::Line(line) => irqchip::requested(line),
+            Route::Vector(index) => crate::arch::lapic::requested(crate::dev::msi::vector(index)),
+        }
+    }
+
+    fn masked(self) -> bool {
+        match self {
+            Route::Line(line) => masked(line),
+            Route::Vector(index) => crate::dev::msi::is_masked(index),
+        }
+    }
+
+    fn raised(self) -> u32 {
+        match self {
+            Route::Line(_) => irq::stats().raised,
+            Route::Vector(_) => crate::dev::msi::stats().raised,
+        }
+    }
+}
+
 /// Drive the claimed function until its interrupt reaches the driver's inbox.
 fn drive(
     fx: &Fixture,
@@ -74,12 +110,37 @@ fn drive(
         sys(OP_CFG_WRITE, handle, 0x04, 2, 0x0005),
         "enable I/O and bus master",
     )?;
-    expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
+    let mode = expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
+    let route = match mode {
+        0 => Route::Line(line),
+        2 => {
+            let index = crate::dev::claims::CLAIMS
+                .lock()
+                .get(dev)
+                .and_then(|claim| claim.msi)
+                .ok_or("MSI-X without a vector")?;
+            Route::Vector(index)
+        }
+        other => return Err(format!("virtio-net has no MSI, yet mode {other}")),
+    };
+    info(&format!(
+        "irq_enable mode {mode} ({})",
+        if mode == 0 { "INTx" } else { "MSI-X" }
+    ));
 
     expect_ok(io(STATUS, 1, true, 0), "reset")?;
     expect_ok(io(STATUS, 1, true, 3), "ack+driver")?;
     expect_ok(io(GUEST_FEATURES, 4, true, 0), "features")?;
     expect_ok(io(QUEUE_SELECT, 2, true, TX_QUEUE as u32), "select tx")?;
+    if let Route::Vector(_) = route {
+        // The reset dropped every vector: point the TX queue at entry 0.
+        expect_ok(io(QUEUE_VECTOR, 2, true, 0), "queue vector")?;
+        let vector = expect_ok(io(QUEUE_VECTOR, 2, false, 0), "read queue vector")?;
+        check!(
+            vector == 0,
+            "the device refused MSI-X entry 0 ({vector:#x})"
+        );
+    }
     let size = expect_ok(io(QUEUE_SIZE, 2, false, 0), "queue size")? as usize;
     check!((1..=256).contains(&size), "unexpected queue size {size}");
 
@@ -114,47 +175,44 @@ fn drive(
     fence(Ordering::Release);
     expect_ok(io(QUEUE_NOTIFY, 2, true, TX_QUEUE as u32), "kick")?;
 
-    // Interrupts are off, but the PIC latches the request: the Interrupt Line
-    // register is right if and only if the line lights up.
+    // Interrupts are off, but the controller latches the request: the route
+    // is right if and only if it lights up.
     let mut seen = false;
     for _ in 0..400_000 {
-        if pic::requested(line) {
+        if route.requested() {
             seen = true;
             break;
         }
     }
     info(&format!(
-        "line {line}: the PIC {} the function's interrupt",
+        "line {line}: the controller {} the function's interrupt",
         if seen { "SAW" } else { "did NOT see" }
     ));
     check!(
         seen,
-        "the device kicked but line {line} was never requested at the PIC"
+        "the device kicked but its interrupt was never requested"
     );
 
     // Let the real interrupt through, with everything else masked.
     let quiet = [0u8, 1, 12];
-    let saved = quiet.map(pic::is_masked);
+    let saved = quiet.map(irqchip::is_masked);
     for line in quiet {
-        pic::set_masked(line, true);
+        irqchip::set_masked(line, true);
     }
-    let before = irq::stats().raised;
+    let before = route.raised();
     x86_64::instructions::interrupts::enable();
     for _ in 0..1_000_000 {
-        if irq::stats().raised != before {
+        if route.raised() != before {
             break;
         }
         core::hint::spin_loop();
     }
     x86_64::instructions::interrupts::disable();
     for (line, was) in quiet.into_iter().zip(saved) {
-        pic::set_masked(line, was);
+        irqchip::set_masked(line, was);
     }
-    check!(
-        irq::stats().raised == before + 1,
-        "the ISR never ran for line {line}"
-    );
-    check!(masked(line), "the ISR did not mask the line");
+    check!(route.raised() == before + 1, "the ISR never ran");
+    check!(route.masked(), "the ISR did not mask the source");
 
     intx::service_at(50_000);
     check!(
@@ -172,12 +230,14 @@ fn drive(
         status & 1 != 0,
         "the device's queue interrupt bit is clear ({status:#x})"
     );
-    check!(
-        !pic::requested(line),
-        "reading the ISR did not deassert the line"
-    );
+    if let Route::Line(line) = route {
+        check!(
+            !irqchip::requested(line),
+            "reading the ISR did not deassert the line"
+        );
+    }
     expect_ok(sys(OP_IRQ_ACK, handle, 0, 0, 0), "irq_ack")?;
-    check!(!masked(line), "the ack did not unmask the line");
+    check!(!route.masked(), "the ack did not unmask the source");
     let _ = fx;
     Ok(())
 }
@@ -213,7 +273,7 @@ pub fn irq_real_device_end_to_end() -> Result<(), String> {
         claim_irq(nic.id, endpoint, false),
         "claim the real function",
     )?;
-    let outcome = if irq::routable(line) {
+    let outcome = if irq::routable(line) || crate::dev::msi::enabled() {
         drive(&fx, handle, endpoint, u64::from(bar), line, nic.id)
     } else {
         expect_errno(

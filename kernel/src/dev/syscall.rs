@@ -14,7 +14,7 @@
 //!                  a4 = width | write << 8 | value << 32 -> value read
 //!   CFG_READ(4)    a1 = handle, a2 = offset, a3 = width -> value
 //!   CFG_WRITE(5)   a1 = handle, a2 = offset, a3 = width, a4 = value
-//!   IRQ_ENABLE(6)  a1 = handle, a2 = 0
+//!   IRQ_ENABLE(6)  a1 = handle, a2 = 0    -> 0 INTx, 1 MSI, 2 MSI-X
 //!   IRQ_ACK(7)     a1 = handle, a2 = 0
 //!   RELEASE(8)     a1 = handle
 //!   DMA_ALLOC(9)   a1 = handle, a2 = length in bytes, a3 = flags
@@ -76,6 +76,10 @@ pub mod row_flag {
     pub const OWNED: u64 = 1 << 0;
     pub const PCI: u64 = 1 << 1;
     pub const IRQ_ROUTABLE: u64 = 1 << 2;
+    /// The function has an MSI capability (issue #616).
+    pub const MSI: u64 = 1 << 3;
+    /// The function has a usable MSI-X capability.
+    pub const MSIX: u64 = 1 << 4;
 }
 
 /// The syscall entry: run `op` for the current task and encode the result as
@@ -185,6 +189,12 @@ fn row(info: &DeviceInfo, owned: bool, generation: u32) -> [u64; ROW_WORDS] {
     }
     if irq::routable(line) {
         flags |= row_flag::IRQ_ROUTABLE;
+    }
+    if info.resources.msi().is_some() {
+        flags |= row_flag::MSI;
+    }
+    if info.resources.msix().is_some() {
+        flags |= row_flag::MSIX;
     }
     words[4] = flags | u64::from(line) << 8;
     words[5] = u64::from(generation);
@@ -365,6 +375,7 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         rights: granted,
         handle,
         line,
+        msi: None,
         irq: binding,
         armed: false,
         pending: false,
@@ -385,6 +396,9 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         channels::seal_endpoint(slot, endpoint);
     }
     quiesce(&info);
+    // A message interrupt left on (by firmware, or a driver of an earlier
+    // boot stage) must not reach a vector someone else owns.
+    super::msi::quiesce(&info);
     report::record(
         slot,
         &info,
@@ -413,18 +427,21 @@ pub(super) fn quiesce(info: &DeviceInfo) {
     }
 }
 
-/// `irq_enable(handle, 0)`: join interrupt delivery. Returns `ENOSYS` when the
-/// device's line cannot be routed through the PIC (the driver then polls).
+/// `irq_enable(handle, 0)`: join interrupt delivery. Returns how interrupts
+/// arrive (0 INTx, 1 MSI, 2 MSI-X: a virtio driver must then point its
+/// queues at MSI-X table entry 0), or `ENOSYS` when the function has neither
+/// a routable line nor a message capability (the driver then polls).
 fn irq_enable(r: &Resolved, index: u64) -> Result<u64, Errno> {
     if index != 0 {
         return Err(EINVAL);
     }
-    intx::arm(r.id)?;
-    // The claim now listens: let the device assert its line.
-    if let BusId::Pci(address) = r.info.bus {
+    let mode = intx::arm(r.id, &r.info)?;
+    // The claim now listens on its line: let the device assert it. On a
+    // vector, INTx stays disabled.
+    if let (super::msi::Mode::Intx, BusId::Pci(address)) = (mode, r.info.bus) {
         pci::clear_command(address, COMMAND_INTX_DISABLE);
     }
-    Ok(0)
+    Ok(mode as u64)
 }
 
 /// `irq_ack(handle, 0)`: acknowledge the interrupt message just serviced.

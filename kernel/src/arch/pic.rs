@@ -33,20 +33,25 @@ pub unsafe fn init() {
     outb(PIC2_DATA, 0xEF); // 1110_1111
 }
 
-/// Signal end-of-interrupt for `irq` (0-15).
-///
-/// # Safety
-/// Must be called from the corresponding IRQ handler, after servicing it,
-/// exactly once per interrupt; sending EOI out of order or spuriously can
-/// desynchronise the PIC's in-service state.
-pub unsafe fn end_of_interrupt(irq: u8) {
-    if irq >= 8 {
-        outb(PIC2_CMD, 0x20);
-    }
-    outb(PIC1_CMD, 0x20);
+/// Mask every line on both chips: the I/O APIC has taken over (issue #616).
+/// The 8259 stays initialised (remapped above the exceptions), so a request
+/// it latched can never arrive as a CPU exception, and masked it raises none.
+pub fn mask_all() {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        // SAFETY: the IMR ports are owned by this module; interrupts are off.
+        unsafe {
+            outb(PIC1_DATA, 0xFF);
+            outb(PIC2_DATA, 0xFF);
+        }
+    });
 }
 
 /// Program PIT channel 0 to fire IRQ0 at approximately `frequency` Hz.
+///
+/// Mode 2 (rate generator), not the square wave of mode 3: through the
+/// I/O APIC's edge input QEMU raised IRQ0 twice per mode-3 period (a 200 Hz
+/// tick, issue #616), while the 8259 latched one; mode 2 is one pulse per
+/// period on both, and what other systems use for a periodic PIT.
 ///
 /// # Safety
 /// Must run once, before the timer IRQ is unmasked, with `frequency` in the
@@ -55,7 +60,7 @@ pub unsafe fn end_of_interrupt(irq: u8) {
 /// protocol violation the caller must avoid).
 pub unsafe fn init_pit(frequency: u32) {
     let divisor = (1_193_182 / frequency) as u16;
-    outb(0x43, 0x36); // channel 0, lobyte/hibyte, mode 3 (square wave)
+    outb(0x43, 0x34); // channel 0, lobyte/hibyte, mode 2 (rate generator)
     outb(0x40, (divisor & 0xFF) as u8);
     outb(0x40, (divisor >> 8) as u8);
 }

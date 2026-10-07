@@ -316,6 +316,9 @@ fn run() -> ! {
             comp.handle_event(event);
         }
         comp.handle_held();
+        // Focus those events moved reaches `inputd` before it routes the
+        // next key, not a park later.
+        comp.push_input();
         comp.reap_dead_shell();
         comp.tick_theme();
         comp.tick_power();

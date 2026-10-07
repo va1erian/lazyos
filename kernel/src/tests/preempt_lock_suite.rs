@@ -16,8 +16,8 @@
 //! `task::poll_until`, which masks interrupts again after every nap.
 
 use super::*;
+use crate::arch::irqchip;
 use crate::arch::nmi::{self, Interrupted};
-use crate::arch::pic;
 use crate::task::harness;
 
 /// The PIT's PIC line.
@@ -39,15 +39,15 @@ fn kernel_task_only() {
 /// Run `f` with interrupts on and only `line` unmasked at the PIC (none when
 /// `line` is `None`), restoring every mask and `IF=0` afterwards.
 fn with_irqs_on(line: Option<u8>, f: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
-    let saved: [bool; 16] = core::array::from_fn(|l| pic::is_masked(l as u8));
+    let saved: [bool; 16] = core::array::from_fn(|l| irqchip::is_masked(l as u8));
     for l in 0..16u8 {
-        pic::set_masked(l, Some(l) != line);
+        irqchip::set_masked(l, Some(l) != line);
     }
     x86_64::instructions::interrupts::enable();
     let result = f();
     x86_64::instructions::interrupts::disable();
     for (l, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(l as u8, masked);
+        irqchip::set_masked(l as u8, masked);
     }
     result
 }
@@ -155,10 +155,10 @@ pub fn soak_ticks_never_preempt_lock_holders() -> Result<(), String> {
 /// Run `f` with the PIT line unmasked but `IF` left as the caller has it
 /// (off, like a syscall), restoring the mask afterwards.
 fn with_timer_unmasked<R>(f: impl FnOnce() -> R) -> R {
-    let saved = pic::is_masked(TIMER_LINE);
-    pic::set_masked(TIMER_LINE, false);
+    let saved = irqchip::is_masked(TIMER_LINE);
+    irqchip::set_masked(TIMER_LINE, false);
     let result = f();
-    pic::set_masked(TIMER_LINE, saved);
+    irqchip::set_masked(TIMER_LINE, saved);
     result
 }
 

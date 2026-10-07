@@ -56,7 +56,10 @@ pub(super) fn release_va(va: u64, pages: u64) {
 /// would expose registers of a neighbouring function), is larger than
 /// [`MAX_MAP_BYTES`], is unassigned, wraps the address space, lies past the
 /// CPU's physical address width, or overlaps RAM (a misprogrammed BAR must
-/// never hand a driver the kernel's memory). One mapping per BAR. The quota is
+/// never hand a driver the kernel's memory). One mapping per BAR. The pages
+/// of an MSI-X vector table are left out (a hole the driver cannot touch:
+/// the kernel alone writes interrupt addresses), and a BAR that is nothing
+/// but the table is refused. The quota is
 /// charged by uid, not through the per-address-space ledger, so a driver
 /// cannot dodge it by exiting its address space early.
 pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
@@ -97,6 +100,10 @@ pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
         return Err(EBUSY);
     }
     let pages = bar.len / PAGE;
+    let hole = msix_hole(r, index);
+    if hole.1 >= pages {
+        return Err(EPERM);
+    }
     let va = MMIO_VA.lock().alloc(bar.len);
     if va < MMIO_VA_BASE || va.checked_add(bar.len).is_none_or(|top| top > MMIO_VA_END) {
         release_va(va, pages);
@@ -108,7 +115,7 @@ pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
         return Err(EDQUOT);
     }
     let table = current_table();
-    if !mmio::map_mmio(table, va, bar.base, pages) {
+    if !map_around(table, va, bar.base, pages, hole) {
         quota::release(r.claim.uid, Resource::UserMemory, bar.len);
         release_va(va, pages);
         return Err(ENOMEM);
@@ -136,6 +143,36 @@ pub fn map_bar(r: &Resolved, index: u64) -> Result<u64, Errno> {
         return Err(EINVAL);
     }
     Ok(va)
+}
+
+/// The pages `(first, count)` of BAR `index` that hold the function's MSI-X
+/// vector table; `(0, 0)` when it has none there.
+fn msix_hole(r: &Resolved, index: u8) -> (u64, u64) {
+    match r.info.resources.msix() {
+        Some(msix) if msix.table_bar == index => {
+            let start = u64::from(msix.table_offset) / PAGE;
+            let end = (u64::from(msix.table_offset) + msix.table_len()).div_ceil(PAGE);
+            (start, end - start)
+        }
+        _ => (0, 0),
+    }
+}
+
+/// Map `pages` pages of `phys` at `va` except the `hole` (`(first, count)`).
+/// On failure nothing stays mapped.
+fn map_around(table: PhysAddr, va: u64, phys: u64, pages: u64, hole: (u64, u64)) -> bool {
+    let (first, count) = (hole.0.min(pages), hole.1);
+    let after = first + count;
+    if !mmio::map_mmio(table, va, phys, first) {
+        return false;
+    }
+    if after < pages
+        && !mmio::map_mmio(table, va + after * PAGE, phys + after * PAGE, pages - after)
+    {
+        mmio::unmap_mmio(table, va, phys, first);
+        return false;
+    }
+    true
 }
 
 /// Port-I/O windows a driver may never reach even through a device's own BAR:

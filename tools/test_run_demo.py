@@ -346,6 +346,15 @@ class MainTests(unittest.TestCase):
         self.assertIn("virtio-sound-pci,audiodev=snd0", launched)
         self.assertEqual(self.builds[-1].get("LAZYOS_DEVD"), "1")
 
+    def test_interrupt_routing_reaches_the_build(self) -> None:
+        # Issue #616: the I/O APIC and MSI by default, the 8259 and INTx on request.
+        self.run_main()
+        self.assertEqual(self.builds[-1].get("LAZYOS_IRQCHIP"), "ioapic")
+        self.assertEqual(self.builds[-1].get("LAZYOS_MSI"), "1")
+        self.run_main("--irqchip", "pic", "--no-msi")
+        self.assertEqual(self.builds[-1].get("LAZYOS_IRQCHIP"), "pic")
+        self.assertEqual(self.builds[-1].get("LAZYOS_MSI"), "0")
+
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")

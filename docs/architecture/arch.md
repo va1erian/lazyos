@@ -11,6 +11,8 @@
 | `kernel/src/arch/gdt.rs` | GDT, TSS, ring-3 selectors, kernel stack / IST |
 | `kernel/src/arch/idt.rs` | IDT, exception handlers, IRQs, page-fault dispatch, `TICKS` |
 | `kernel/src/arch/pic.rs` | 8259 remap (IRQ 0-15 -> vectors 32-47), PIT at 100 Hz; line 0 masks whichever source is the tick |
+| `kernel/src/arch/irqchip.rs`, `arch/ioapic.rs` | The legacy lines on the 8259 or, by default, the I/O APIC (issue #616): mask, EOI, spurious check ([interrupts.md](interrupts.md)) |
+| `kernel/src/arch/msi_stubs.rs` | IDT stubs for the MSI vectors `0x40..0x60` (`dev::msi`) |
 | `kernel/src/arch/timer.rs` | tick source choice: PIT unless it is frozen or its IRQ0 never arrives (or `LAZYOS_TIMER=lapic`), then the local APIC timer; prints `HW:TIMER:<pit\|lapic> <source> <hz>` |
 | `kernel/src/arch/event_timer.rs` | deadline timer (P2): with the PIT as the tick, the APIC timer one-shot on vector `0x31` at the next sub-tick task deadline (`task::timerq`); none when the APIC is the tick or `LAZYOS_EVENT_TIMER=0` |
 | `kernel/src/arch/timer_cal.rs` | pure decisions: PIT verdict, CPUID 0x15 crystal, APIC count |
@@ -49,7 +51,8 @@
 | 32 | `timer_isr` (naked, `task/switch.rs`) | preemption; bumps `TICKS` |
 | 33 | keyboard IRQ | pushes scancodes, `on_key` routing |
 | 44 | mouse IRQ | pushes bytes |
-| other PIC lines | device-core stubs (`irq_stubs.rs`) | delivered to claimed device lines (issue #240) |
+| other PIC lines | device-core stubs (`irq_stubs.rs`) | delivered to claimed device lines (issue #240); the same vectors on the I/O APIC |
+| `0x40..0x60` | MSI stubs (`msi_stubs.rs`) | one per MSI vector (issue #616); local APIC EOI |
 | `0x81` | `yield_isr` (naked, DPL 0, `task/switch.rs`) | voluntary reschedule from `WaitQueue::wait`: no tick, no EOI (issue #338) |
 | `0x30` | `timer_isr` again | the local APIC timer when it is the tick; `timer::end_of_tick` sends the APIC EOI instead of the 8259 one |
 | `0x80` | `syscall_isr` (DPL 3) | native syscalls; saves `rdi/rsi/rdx/r8/r9/r10/rax` |
@@ -138,7 +141,10 @@ per-task thread pointer, restored on every context switch.
   cache half that size: no stretch over 2 ms, no missed tick).
 
 **Status.** Working: preemptive demo boot, Linux `syscall` shim, native gate,
-page-fault COW/demand-zero/`SIGSEGV`. No SMP. Device interrupts go through
-the 8259 only; the local APIC is enabled (virtual wire) only when its timer is
-the tick, and the I/O APIC is recorded from the MADT but not used. The CMOS RTC
-(`arch/rtc.rs`) is read at boot for the wall clock.
+page-fault COW/demand-zero/`SIGSEGV`. No SMP. The legacy lines go through the
+I/O APIC when the MADT names one (the 8259 and the local APIC's LINT0 are then
+masked; `LAZYOS_IRQCHIP=pic` keeps the 8259 in virtual wire), and userspace
+drivers take MSI/MSI-X vectors ([interrupts.md](interrupts.md), issue #616).
+A PIT tick the local APIC accepted before line 0 was masked is ignored
+(`timer::stale_tick`), as for the APIC timer. The CMOS RTC (`arch/rtc.rs`) is
+read at boot for the wall clock.

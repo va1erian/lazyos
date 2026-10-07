@@ -195,7 +195,8 @@ userspace (no ambient authority).
   fails with `EBUSY`. In-kernel drivers only poll and disable their function's
   INTx, so they never assert a line a userspace claimant shares.
 - Kernel drivers register a plain `fn(line)` instead of a message.
-- APIC/IOAPIC and MSI are out of scope; the `Irq` resource kind and the
+- APIC/IOAPIC and MSI were out of scope here and landed with issue #616
+  ([`architecture/interrupts.md`](architecture/interrupts.md)); the `Irq` resource kind and the
   dispatch table are the seam. **Verified on QEMU** (see
   [`architecture/devices.md`](architecture/devices.md)): the firmware programs a
   PIC-routable Interrupt Line on both `pc` (i440fx) and `q35`, and a real

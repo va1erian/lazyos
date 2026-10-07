@@ -677,6 +677,24 @@ keeps the static rows. `netdrv` drives virtio-net or an Intel 8254x
 Drivers group for all three, and `devctl drivers` shows `devd`'s view. See
 [`docs/architecture/drivers.md`](docs/architecture/drivers.md).
 
+## Interrupt routing (I/O APIC, MSI)
+
+The legacy lines go through the I/O APIC when the MADT names one, and a
+userspace driver whose device has MSI or MSI-X gets a vector of its own
+(`irq_enable` returns 0 INTx, 1 MSI, 2 MSI-X; a virtio driver on MSI-X calls
+`Transport::use_msix(0)`). `LAZYOS_IRQCHIP=pic` and `LAZYOS_MSI=0`
+(`run_demo.py --irqchip pic --no-msi`, the launcher's Drivers group) restore
+the 8259 and INTx. The net, sound and USB harnesses take `--irq-path msi|pic`
+and judge it (`tools/irqpath.py`, `DEV:MSI:PASS`, `HW:IRQCHIP:`); see
+[`docs/architecture/interrupts.md`](docs/architecture/interrupts.md).
+
+```bash
+python tools/test_irqpath.py
+python tools/net/run.py --irq-path pic
+python tools/sound/run.py --card hda           # MSI
+python tools/usb/run.py                        # qemu-xhci on MSI-X
+```
+
 ## Sound harness
 
 The virtio-sound driver (`sndd`) and the system mixer (`audiod`,

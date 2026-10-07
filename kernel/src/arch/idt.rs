@@ -76,8 +76,10 @@ pub fn init() {
     idt[super::lapic::SPURIOUS_VECTOR].set_handler_fn(lapic_spurious_handler);
     idt[33].set_handler_fn(keyboard_handler);
     idt[44].set_handler_fn(mouse_handler);
-    // Every other PIC line reaches the device core (issue #240).
+    // Every other PIC line reaches the device core (issue #240), and so do
+    // the MSI vectors (issue #616).
     super::irq_stubs::install(&mut idt);
+    super::msi_stubs::install(&mut idt);
     // int 0x80: user-mode syscall gate (DPL 3).
     idt[0x80]
         .set_handler_fn(crate::process::syscall_gate())
@@ -98,6 +100,8 @@ pub fn init_hardware() {
     // The PIT stays the tick unless it is found not ticking (or the image
     // forces the local APIC timer); this also calibrates the TSC catch-up.
     super::timer::init();
+    // With the tick chosen, move the lines to the I/O APIC (issue #616).
+    super::irqchip::init();
     init();
 }
 
@@ -450,7 +454,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
         crate::input::ps2::on_irq();
     }
     // Safety: we are in the IRQ1 handler.
-    unsafe { pic::end_of_interrupt(1) };
+    unsafe { super::irqchip::eoi(1) };
     crate::perf::irq_exit();
     // A key may have woken a task that should run now (P1.1).
     crate::task::preempt_point();
@@ -467,7 +471,7 @@ extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
         crate::input::ps2::on_irq();
     }
     // Safety: we are in the IRQ12 handler.
-    unsafe { pic::end_of_interrupt(12) };
+    unsafe { super::irqchip::eoi(12) };
     crate::perf::irq_exit();
     crate::task::preempt_point();
 }

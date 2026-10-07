@@ -24,32 +24,34 @@
 //! A hung driver on a level-triggered line still re-asserts: the line is
 //! unmasked when a round ends and the next interrupt masks it again, so the cost
 //! is bounded by how often [`service`] runs, not by the interrupt rate.
+//!
+//! Rounds run per delivery *source*: the sixteen legacy lines, then one per
+//! MSI vector (`dev::msi`, issue #616). A vector belongs to one claim, so its
+//! rounds never wait on anyone else, and it is masked per vector; everything
+//! else (the one-outstanding limit, deadlines, late acks) is the same code.
 
-use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use libmessenger::{flags, Encoder, Header, Parcel, VERSION};
+use crate::arch::irqchip;
+use crate::ipc::channels::Error as ChannelError;
 
-use crate::arch::pic;
-use crate::ipc::channels::{self, Error as ChannelError};
-
-use super::claims::{Claim, ClaimMask, Claims, CLAIMS, LINES};
-use super::class::{method, DEV_INTERFACE};
+use super::claims::{Claim, ClaimMask, Claims, CLAIMS, SOURCES};
 use super::errno::{Errno, EBUSY, EINVAL, ENOSYS};
 use super::irq;
+use super::msi::{self, Mode};
 use super::table::MAX_DEVICES;
-use super::{report, DeviceId};
+use super::{notify, DeviceId, DeviceInfo};
 
 /// Ticks (100 Hz) a claimant has to ack before it is dropped from a round.
 pub const ACK_DEADLINE_TICKS: u64 = 100;
 
-/// Bit per line that has a delivery round in flight.
-static ACTIVE_ROUNDS: AtomicU16 = AtomicU16::new(0);
+/// Bit per source that has a delivery round in flight.
+static ACTIVE_ROUNDS: AtomicU64 = AtomicU64::new(0);
 /// A claim has an interrupt to (re)post without a new raise.
 static RETRY: AtomicBool = AtomicBool::new(false);
 
 static DELIVERED: AtomicU64 = AtomicU64::new(0);
-static TIMEOUTS: AtomicU64 = AtomicU64::new(0);
+pub(super) static TIMEOUTS: AtomicU64 = AtomicU64::new(0);
 
 /// Messages posted and ack deadlines missed since boot.
 pub fn counters() -> (u64, u64) {
@@ -68,6 +70,8 @@ struct Post {
     side: usize,
     /// The claiming task (latency accounting, `perf::irq_posted`).
     owner: usize,
+    /// The claim's MSI vector, if it is on one (`DEV:MSI:PASS`).
+    msi: Option<u8>,
 }
 
 /// Work collected under the lock and performed after it is dropped.
@@ -100,6 +104,7 @@ impl Batch {
                 channel: binding.channel,
                 side: binding.side,
                 owner: claim.owner,
+                msi: claim.msi,
             });
             self.post_count += 1;
         }
@@ -114,11 +119,11 @@ impl Batch {
 }
 
 impl Claims {
-    /// Bitmask of claims armed on `line`.
+    /// Bitmask of claims armed on `line` (a delivery source).
     fn armed_mask(&self, line: u8) -> ClaimMask {
         let mut mask = 0;
         for (id, claim) in self.slots.iter().enumerate() {
-            if claim.is_some_and(|claim| claim.armed && claim.line == Some(line)) {
+            if claim.is_some_and(|claim| claim.armed && claim.source() == Some(line)) {
                 mask |= 1 << id;
             }
         }
@@ -134,23 +139,23 @@ impl Claims {
         }
     }
 
-    /// Re-establish the line's PIC state after a change: with nobody armed it
+    /// Re-establish the source's mask after a change: with nobody armed it
     /// is masked and its round dropped; with a listener and nobody left to
     /// wait for it is unmasked (the round is over). A round still waiting on a
     /// claimant leaves the line masked.
     fn settle(&mut self, line: u8) {
         if self.armed_mask(line) == 0 {
             self.set_round(line, 0, 0);
-            pic::set_masked(line, true);
+            set_masked(line, true);
         } else if self.rounds[usize::from(line)].waiting == 0 {
             self.set_round(line, 0, 0);
-            pic::set_masked(line, false);
+            set_masked(line, false);
         }
     }
 
     /// Drop every claimant whose round deadline has passed, unmask its line.
     fn expire(&mut self, now: u64, batch: &mut Batch) {
-        for line in 0..LINES as u8 {
+        for line in 0..SOURCES as u8 {
             let round = self.rounds[usize::from(line)];
             if round.waiting == 0 || now < round.deadline {
                 continue;
@@ -171,7 +176,7 @@ impl Claims {
         let armed = self.armed_mask(line);
         if armed == 0 {
             irq::note_stray();
-            pic::set_masked(line, true);
+            set_masked(line, true);
             return;
         }
         let mut notified: ClaimMask = 0;
@@ -193,7 +198,7 @@ impl Claims {
             }
         }
         // The line must be masked while anyone owes us an ack.
-        pic::set_masked(line, true);
+        set_masked(line, true);
         let in_flight = self.rounds[usize::from(line)].waiting;
         if notified != 0 {
             self.set_round(
@@ -212,7 +217,7 @@ impl Claims {
             }
             // Everyone is a laggard: nobody can be waited for, so let the line
             // go; `missed` remembers the interrupt for their late acks.
-            pic::set_masked(line, false);
+            set_masked(line, false);
         }
     }
 
@@ -241,7 +246,7 @@ impl Claims {
             return;
         }
         claim.pending = false;
-        let line = claim.line;
+        let line = claim.source();
         if error == ChannelError::QueueFull {
             // The driver's inbox is full of client traffic: try again on the
             // next pass instead of losing the interrupt.
@@ -262,33 +267,44 @@ impl Claims {
 
     /// Take `id`'s claim out of interrupt delivery without removing it: it no
     /// longer listens, owes an ack, or holds a round open, and its line masks
-    /// if nobody else is armed on it.
-    pub(super) fn silence(&mut self, id: DeviceId) {
-        let Some(claim) = self.get_mut(id) else {
-            return;
-        };
+    /// if nobody else is armed on it. Returns the MSI vector the claim gives
+    /// up, for the caller to free once the lock is dropped.
+    pub(super) fn silence(&mut self, id: DeviceId) -> Option<u8> {
+        let claim = self.get_mut(id)?;
         claim.armed = false;
         claim.pending = false;
         claim.missed = false;
-        let line = claim.line;
+        let line = claim.source();
         if let Some(line) = line {
             let mut round = self.rounds[usize::from(line)];
             round.waiting &= !(1 << id.0);
             self.set_round(line, round.waiting, round.deadline);
             self.settle(line);
         }
+        self.get_mut(id)?.msi.take()
     }
 
-    /// Remove `id`'s claim, taking it out of interrupt delivery first.
+    /// Remove `id`'s claim, taking it out of interrupt delivery first. The
+    /// caller frees its MSI vector, if it had one, once the lock is dropped.
     pub(super) fn detach(&mut self, id: DeviceId) -> Option<Claim> {
         let claim = self.slots.get_mut(usize::from(id.0))?.take()?;
-        if let Some(line) = claim.line {
+        if let Some(line) = claim.source() {
             let mut round = self.rounds[usize::from(line)];
             round.waiting &= !(1 << id.0);
             self.set_round(line, round.waiting, round.deadline);
             self.settle(line);
         }
         Some(claim)
+    }
+}
+
+/// Mask or unmask a delivery source at its controller: a legacy line, or an
+/// MSI vector.
+fn set_masked(source: u8, masked: bool) {
+    if source < msi::SOURCE_BASE {
+        irqchip::set_masked(source, masked);
+    } else {
+        msi::set_masked(source - msi::SOURCE_BASE, masked);
     }
 }
 
@@ -299,28 +315,52 @@ pub fn line_in_use(line: u8) -> bool {
 }
 
 /// Arm the claim for `id` (generation already checked by the caller): it joins
-/// delivery rounds, and the line is unmasked unless a round is in flight.
-pub fn arm(id: DeviceId) -> Result<(), Errno> {
-    let mut claims = CLAIMS.lock();
-    let claim = claims.get(id).copied().ok_or(EINVAL)?;
+/// delivery rounds, and its source is unmasked unless a round is in flight.
+///
+/// A function with an MSI or MSI-X capability is given a vector of its own
+/// (`dev::msi`); otherwise, or when no vector is free, the claim takes its
+/// INTx line, and a function with neither answers `ENOSYS` (the driver
+/// polls). Returns how the interrupts will arrive.
+pub fn arm(id: DeviceId, info: &DeviceInfo) -> Result<Mode, Errno> {
+    let claim = CLAIMS.lock().get(id).copied().ok_or(EINVAL)?;
     if claim.irq.is_none() {
         return Err(EINVAL);
     }
-    let Some(line) = claim.line else {
-        // Not PIC-routable: the driver polls.
-        return Err(ENOSYS);
-    };
-    if irq::has_kernel_handler(line) {
-        return Err(EBUSY);
-    }
     if claim.armed {
-        return Ok(());
+        return Ok(claim.msi.map_or(Mode::Intx, msi::mode));
     }
-    if let Some(entry) = claims.get_mut(id) {
-        entry.armed = true;
+    // Routing programs config space and may map the MSI-X table: not under
+    // the claim lock.
+    let routed = msi::route(id, info).ok();
+    let armed = arm_locked(id, claim.generation, routed.map(|(index, _)| index));
+    if armed.is_err() {
+        if let Some((index, _)) = routed {
+            msi::unroute(index, id);
+        }
     }
-    if claims.rounds[usize::from(line)].waiting == 0 {
-        pic::set_masked(line, false);
+    armed.map(|()| routed.map_or(Mode::Intx, |(_, mode)| mode))
+}
+
+/// The locked half of [`arm`]: join delivery on vector `msi`, or on the INTx
+/// line without one.
+fn arm_locked(id: DeviceId, generation: u32, msi: Option<u8>) -> Result<(), Errno> {
+    let mut claims = CLAIMS.lock();
+    let entry = claims
+        .get_mut(id)
+        .filter(|claim| claim.generation == generation && !claim.armed)
+        .ok_or(EINVAL)?;
+    if msi.is_none() {
+        // Not routable: the driver polls.
+        let line = entry.line.ok_or(ENOSYS)?;
+        if irq::has_kernel_handler(line) {
+            return Err(EBUSY);
+        }
+    }
+    entry.armed = true;
+    entry.msi = msi;
+    let source = entry.source().ok_or(EINVAL)?;
+    if claims.rounds[usize::from(source)].waiting == 0 {
+        set_masked(source, false);
     }
     Ok(())
 }
@@ -339,7 +379,7 @@ pub fn ack(id: DeviceId) -> Result<(), Errno> {
             return Err(EINVAL);
         }
         claim.pending = false;
-        let (line, missed) = (claim.line, claim.missed);
+        let (line, missed) = (claim.source(), claim.missed);
         if let Some(line) = line {
             let mut round = claims.rounds[usize::from(line)];
             if round.waiting & (1 << id.0) != 0 {
@@ -352,6 +392,10 @@ pub fn ack(id: DeviceId) -> Result<(), Errno> {
     };
     if retry {
         RETRY.store(true, Ordering::Release);
+    }
+    // A missed interrupt, or a message an MSI vector latched while masked
+    // (unmasking raised it again), is delivered now, not at the next pass.
+    if retry || irq::raised_pending() {
         service();
     }
     Ok(())
@@ -392,28 +436,31 @@ fn service_with(now: u64, in_interrupt: bool) {
     x86_64::instructions::interrupts::without_interrupts(|| run(now, raised, in_interrupt));
 }
 
-fn run(now: u64, raised: u16, in_interrupt: bool) {
+fn run(now: u64, raised: u64, in_interrupt: bool) {
     let mut batch = Batch::new(in_interrupt);
     RETRY.store(false, Ordering::Release);
     {
         let mut claims = CLAIMS.lock();
         claims.expire(now, &mut batch);
-        for line in 0..LINES as u8 {
-            if raised & (1 << line) != 0 {
-                claims.raise(line, now, &mut batch);
+        for source in 0..SOURCES as u8 {
+            if raised & (1 << source) != 0 {
+                claims.raise(source, now, &mut batch);
             }
         }
         claims.collect_retries(&mut batch);
     }
     for entry in batch.expired.iter().take(batch.expired_count).flatten() {
-        record_timeout(entry.0, entry.1);
+        notify::record_timeout(entry.0, entry.1);
     }
     crate::perf::lines_posting(raised);
     for post in batch.posts.iter().take(batch.post_count).flatten() {
         crate::perf::irq_posted(post.owner);
-        match post_irq(post) {
+        match notify::post_irq(post.dev, post.generation, post.channel, post.side) {
             Ok(()) => {
                 DELIVERED.fetch_add(1, Ordering::Relaxed);
+                if let Some(index) = post.msi {
+                    msi::note_delivered(index, DeviceId(post.dev));
+                }
             }
             Err(error) => CLAIMS.lock().post_failed(post, error),
         }
@@ -421,54 +468,11 @@ fn run(now: u64, raised: u16, in_interrupt: bool) {
     crate::perf::lines_posted();
 }
 
-fn record_timeout(id: DeviceId, owner: usize) {
-    TIMEOUTS.fetch_add(1, Ordering::Relaxed);
-    let info = super::table().lock().get(id);
-    if let Some(info) = info {
-        report::record(
-            owner,
-            &info,
-            method::IRQ_TIMEOUT,
-            false,
-            report::reason::IRQ_TIMEOUT,
-        );
-    }
-}
-
-/// The wire form of an interrupt notification.
-fn encode_irq(dev: u16, generation: u32) -> Option<Vec<u8>> {
-    let mut body = Encoder::new();
-    body.u32(1, u32::from(dev)).ok()?;
-    body.u32(2, 0).ok()?;
-    body.u32(3, generation).ok()?;
-    let parcel = Parcel {
-        header: Header {
-            version: VERSION,
-            flags: flags::ONE_WAY,
-            interface_id: DEV_INTERFACE,
-            method: method::IRQ,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
-    };
-    let mut bytes = Vec::new();
-    parcel.encode(&mut bytes).ok()?;
-    Some(bytes)
-}
-
-fn post_irq(post: &Post) -> Result<(), ChannelError> {
-    let bytes = encode_irq(post.dev, post.generation).ok_or(ChannelError::BadParcel)?;
-    channels::post_from_kernel(post.channel, post.side, &bytes)
-}
-
 /// Test-only: forget every claim's delivery state and all rounds.
 #[cfg(lazyos_tests)]
 pub fn reset_for_test() {
     ACTIVE_ROUNDS.store(0, Ordering::Release);
     RETRY.store(false, Ordering::Release);
+    msi::reset_for_test();
     let _ = irq::take_raised();
 }

@@ -157,17 +157,17 @@ fn stop_driver(slot: usize) {
 /// Run `body` with only the timer and the cascade unmasked (the claim
 /// unmasks the UART line itself), and the UART's interrupt enables restored.
 fn isolated<T>(body: impl FnOnce() -> T) -> T {
-    let saved: [bool; 16] = core::array::from_fn(|line| pic::is_masked(line as u8));
+    let saved: [bool; 16] = core::array::from_fn(|line| irqchip::is_masked(line as u8));
     // SAFETY: reading COM1's IER has no side effect.
     let ier = unsafe { inb(IER) };
     for line in 0..16u8 {
-        pic::set_masked(line, !matches!(line, 0 | 2));
+        irqchip::set_masked(line, !matches!(line, 0 | 2));
     }
     let out = body();
     // SAFETY: restoring COM1's interrupt enables as they were.
     unsafe { outb(IER, ier) };
     for (line, masked) in saved.into_iter().enumerate() {
-        pic::set_masked(line as u8, masked);
+        irqchip::set_masked(line as u8, masked);
     }
     out
 }

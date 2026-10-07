@@ -10,7 +10,7 @@
 use super::*;
 // Re-exported so every device test module gets one consistent vocabulary from
 // `use super::fixture::*`.
-pub use crate::arch::pic;
+pub use crate::arch::irqchip;
 pub use crate::dev::syscall::NO_ENDPOINT;
 pub use crate::dev::{intx, irq, pci, Bar, BarKind, BusId, DeviceId, DeviceInfo, Resources};
 pub use crate::ipc::credentials::{Cred, CAP_DEV_CLAIM};
@@ -72,6 +72,8 @@ pub struct Spec {
     pub pci: bool,
     pub bars: Vec<Bar>,
     pub irq: Option<u8>,
+    /// An MSI capability (`irq_msi`); its config writes go to [`GHOST`].
+    pub msi: Option<crate::dev::Msi>,
 }
 
 impl Spec {
@@ -83,6 +85,7 @@ impl Spec {
             pci: true,
             bars: vec![mem_bar(0, 0xFED0_0000, 0x1000), io_bar(1, 0x0700, 8)],
             irq,
+            msi: None,
         }
     }
 
@@ -111,6 +114,9 @@ pub fn add_device(spec: Spec) -> Result<DeviceId, String> {
     }
     if let Some(line) = spec.irq {
         resources.set_irq(crate::dev::Irq { line });
+    }
+    if let Some(msi) = spec.msi {
+        resources.set_msi(msi);
     }
     let info = DeviceInfo {
         id: DeviceId(0),
@@ -161,10 +167,10 @@ impl Fixture {
         // Room for the many claims one test makes; individual tests lower it.
         quota::set_limit(DRIVER_UID, quota::Resource::DeviceClaims, 64);
         let base_len = crate::dev::table().lock().len();
-        let masks = [LINE_A, LINE_B, LINE_C].map(pic::is_masked);
+        let masks = [LINE_A, LINE_B, LINE_C].map(irqchip::is_masked);
         check!(
             masks.iter().all(|masked| *masked),
-            "test lines are not masked at the PIC to begin with: {masks:?}"
+            "test lines are not masked to begin with: {masks:?}"
         );
         Ok(Fixture {
             base_len,
@@ -192,7 +198,7 @@ impl Drop for Fixture {
         quota::reset();
         channels::reset();
         for (line, was_masked) in [LINE_A, LINE_B, LINE_C].into_iter().zip(self.masks) {
-            pic::set_masked(line, was_masked);
+            irqchip::set_masked(line, was_masked);
         }
     }
 }
@@ -325,9 +331,9 @@ pub fn fire(line: u8, now: u64) {
     intx::service_at(now);
 }
 
-/// Whether `line` is masked at the PIC right now.
+/// Whether `line` is masked at its controller right now.
 pub fn masked(line: u8) -> bool {
-    pic::is_masked(line)
+    irqchip::is_masked(line)
 }
 
 /// Device generation and owner straight from the table.

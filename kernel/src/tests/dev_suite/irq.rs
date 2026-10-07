@@ -228,14 +228,14 @@ pub fn irq_unclaimed_line_safe() -> Result<(), String> {
 
     // Timer, keyboard, cascade and mouse are not the device core's to mask.
     let lines = [0u8, 1, 2, 12];
-    let states = lines.map(pic::is_masked);
+    let states = lines.map(irqchip::is_masked);
     for line in lines {
         irq::dispatch(line);
     }
     irq::dispatch(16);
     irq::dispatch(255);
     check!(
-        lines.map(pic::is_masked) == states,
+        lines.map(irqchip::is_masked) == states,
         "a reserved line's mask changed"
     );
     check!(
@@ -250,7 +250,15 @@ pub fn irq_unclaimed_line_safe() -> Result<(), String> {
 /// handler must swallow them without masking, queueing or delivering.
 pub fn irq_spurious_7_and_15() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let masks = [7u8, 15].map(pic::is_masked);
+    if irqchip::chip() != irqchip::Chip::Pic {
+        // The 8259 is masked off; the I/O APIC's spurious interrupts use the
+        // local APIC's spurious vector, and MSI's are `dev_msi_spurious_vectors`.
+        serial_println!(
+            "TEST:dev_irq_spurious_7_and_15:INFO:lines 7 and 15 are ordinary on the I/O APIC"
+        );
+        return Ok(());
+    }
+    let masks = [7u8, 15].map(irqchip::is_masked);
     // A claimant armed on line 7 must not hear a spurious interrupt either.
     let r = rig(7, false, true)?;
     let before = irq::stats();
@@ -266,8 +274,11 @@ pub fn irq_spurious_7_and_15() -> Result<(), String> {
     check!(r.queued()? == 0, "a spurious interrupt was delivered");
     check!(!masked(7), "a spurious interrupt masked the armed line");
     drop(fx);
-    check!(pic::is_masked(7) == masks[0], "line 7 mask not restored");
-    check!(pic::is_masked(15) == masks[1], "line 15 mask changed");
+    check!(
+        irqchip::is_masked(7) == masks[0],
+        "line 7 mask not restored"
+    );
+    check!(irqchip::is_masked(15) == masks[1], "line 15 mask changed");
     Ok(())
 }
 

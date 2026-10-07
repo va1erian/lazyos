@@ -952,6 +952,11 @@
         "oneway": true
       },
       {
+        "name": "NoteInputDone",
+        "id": 13,
+        "oneway": true
+      },
+      {
         "name": "HotkeyFired",
         "id": 20,
         "oneway": true

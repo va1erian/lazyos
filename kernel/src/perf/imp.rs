@@ -34,7 +34,7 @@ static LAST_REPORT_END: AtomicU64 = AtomicU64::new(0);
 /// TSC of the interrupt whose consequences are running now (0: none).
 static CHAIN: AtomicU64 = AtomicU64::new(0);
 /// TSC of each device line's first unserviced raise.
-static LINE_TSC: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+static LINE_TSC: [AtomicU64; 64] = [const { AtomicU64::new(0) }; 64];
 /// The chain stamp a woken task carries until it runs.
 static WAKE_STAMP: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
 /// When each task was last woken by another one (0: not waiting to run).
@@ -73,7 +73,7 @@ pub fn line_raised(line: u8) {
     }
 }
 
-pub fn lines_posting(raised: u16) {
+pub fn lines_posting(raised: u64) {
     let mut oldest = 0u64;
     for (line, stamp) in LINE_TSC.iter().enumerate() {
         if raised & (1 << line) == 0 {

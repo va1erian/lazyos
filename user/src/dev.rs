@@ -62,6 +62,22 @@ pub mod row_flag {
     pub const PCI: u64 = 1 << 1;
     /// Its interrupt line can be delivered; otherwise poll.
     pub const IRQ_ROUTABLE: u64 = 1 << 2;
+    /// The function has an MSI capability (the kernel programs it).
+    pub const MSI: u64 = 1 << 3;
+    /// The function has a usable MSI-X capability.
+    pub const MSIX: u64 = 1 << 4;
+}
+
+/// How a claim's interrupts arrive, as [`irq_enable`] reports it. The
+/// messages and [`irq_ack`] are the same for all three; what differs is the
+/// device side: an INTx driver must deassert its line before the ack (the
+/// kernel unmasks it), and a virtio driver on MSI-X must point its queues at
+/// table entry 0 (`virtio::Transport::use_msix`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IrqMode {
+    Intx,
+    Msi,
+    MsiX,
 }
 
 /// Errno values the device syscall returns.
@@ -232,10 +248,14 @@ pub fn cfg_write(handle: u64, offset: u64, width: u64, data: u64) -> Result<(), 
     value(dev_syscall(op::CFG_WRITE, handle, offset, width, data)).map(|_| ())
 }
 
-/// Start receiving interrupt messages. `Err(ENOSYS)` means the line cannot be
-/// routed through the PIC: poll instead.
-pub fn irq_enable(handle: u64) -> Result<(), i64> {
-    value(dev_syscall(op::IRQ_ENABLE, handle, 0, 0, 0)).map(|_| ())
+/// Start receiving interrupt messages; returns how they arrive. `Err(ENOSYS)`
+/// means the function has neither a deliverable line nor MSI: poll instead.
+pub fn irq_enable(handle: u64) -> Result<IrqMode, i64> {
+    value(dev_syscall(op::IRQ_ENABLE, handle, 0, 0, 0)).map(|mode| match mode {
+        1 => IrqMode::Msi,
+        2 => IrqMode::MsiX,
+        _ => IrqMode::Intx,
+    })
 }
 
 /// Acknowledge the interrupt message just serviced.

@@ -42,6 +42,8 @@ mod hub;
 mod keypages;
 #[path = "inputd/pointer.rs"]
 mod pointer;
+#[path = "inputd/settle.rs"]
+mod settle;
 #[path = "inputd/shellchan.rs"]
 mod shellchan;
 #[path = "inputd/source.rs"]
@@ -127,8 +129,7 @@ fn run() -> Result<(), &'static str> {
         trace.outputs(&outputs);
         // Backlogs first, so this pass's keys queue behind older ones.
         hub.flush();
-        hub.deliver(&outputs);
-        outputs.clear();
+        hub.deliver_keys(&mut outputs, now);
         // The polled view follows the events just sent (I3).
         hub.publish_key_pages();
         // Evidence lines last, a bounded chunk at a time: the bus is never
@@ -143,7 +144,9 @@ fn run() -> Result<(), &'static str> {
         let wake = hub
             .engine
             .next_due()
-            .map_or(now + idle, |due| due.min(now + idle))
+            .into_iter()
+            .chain(hub.keys_due())
+            .fold(now + idle, u64::min)
             .max(now + 1);
         // Trace lines waiting: only look for work, never park (a `trace=1`
         // debug image), so they drain at the serial port's own pace.

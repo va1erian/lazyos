@@ -1555,6 +1555,15 @@ pub static INTERFACES: &[Interface] = &[
                 transfers: &[],
             },
             Method {
+                name: "NoteInputDone",
+                id: 13,
+                oneway: true,
+                doc: "One-way: the compositor has handled every `PointerEvent` up to `seq`\nand already noted the focus they led to. A click can move focus, so\nafter forwarding a button press `inputd` holds the key content that\nfollows (in order, briefly: a compositor that never answers costs a\nfraction of a second, not the keys) until this note covers the press;\notherwise a key typed right after a click would reach the window the\nclick left.",
+                params: &[Field { name: "seq", id: 1, ty: Ty::U64 }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
                 name: "HotkeyFired",
                 id: 20,
                 oneway: true,

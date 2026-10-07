@@ -9,6 +9,7 @@
 
 use user::dev::{self, Row};
 use user::messenger::{self, Endpoint};
+use user::sys;
 use virtio::regs::{pci_device_id, PCI_VENDOR};
 use virtio_snd::DEVICE_TYPE;
 
@@ -61,6 +62,8 @@ pub(super) struct Claimed {
     /// Where the kernel delivers this card's interrupt messages, when the line
     /// is routable and armed; `None` means the driver polls alone.
     pub(super) irq: Option<Endpoint>,
+    /// How interrupts arrive once [`arm`] succeeded.
+    pub(super) mode: Option<dev::IrqMode>,
 }
 
 /// Claim `row` and switch on memory decode and bus mastering. Interrupts
@@ -90,6 +93,7 @@ pub(super) fn claim(row: Row, shared: bool) -> Result<Claimed, Error> {
         row,
         pending,
         irq: None,
+        mode: None,
     })
 }
 
@@ -103,15 +107,19 @@ pub(super) fn map(claimed: &Claimed, bar: usize, min: u64) -> Result<*mut u8, Er
 }
 
 /// Arm the line once the card is described: an unroutable line answers
-/// `ENOSYS` and the driver polls. The kernel keeps INTx disabled until the
-/// claim is armed, so the command register is written again to let the card
-/// assert it.
+/// `ENOSYS` and the driver polls. On INTx the kernel keeps INTx disabled
+/// until the claim is armed, so the command register is written again to let
+/// the card assert it; on MSI or MSI-X the kernel programmed the message.
 pub(super) fn arm(claimed: &mut Claimed) -> Result<(), Error> {
-    claimed.irq = claimed
-        .pending
-        .take()
-        .filter(|_| dev::irq_enable(claimed.handle).is_ok());
-    if claimed.irq.is_some() {
+    let pending = claimed.pending.take();
+    claimed.mode = pending
+        .as_ref()
+        .and_then(|_| dev::irq_enable(claimed.handle).ok());
+    claimed.irq = pending.filter(|_| claimed.mode.is_some());
+    if let Some(mode) = claimed.mode {
+        sys::write_str(&alloc::format!("SNDD:IRQ:{mode:?}\n"));
+    }
+    if claimed.mode == Some(dev::IrqMode::Intx) {
         let command = dev::cfg_read(claimed.handle, COMMAND, 2).map_err(Error::Dev)?;
         dev::cfg_write(
             claimed.handle,

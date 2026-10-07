@@ -68,12 +68,15 @@ pub fn tick_matches_rtc() -> Result<(), String> {
     }
     kernel_only();
     const SECONDS: i64 = 4;
+    let missed = crate::arch::clock::missed_ticks();
     let (ticks, _) = with_lines(&[0], || measure(SECONDS))?;
     let expected = SECONDS as u64 * HZ;
+    // Caught-up periods tell a late or miscounted tick from a doubled one.
     serial_println!(
-        "TEST:timer_tick_matches_rtc:INFO:{} ticks in {SECONDS} RTC seconds ({})",
+        "TEST:timer_tick_matches_rtc:INFO:{} ticks in {SECONDS} RTC seconds ({}), {} caught up",
         ticks,
-        source()
+        source(),
+        crate::arch::clock::missed_ticks() - missed
     );
     check!(
         within(ticks, expected),

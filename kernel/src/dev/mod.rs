@@ -34,6 +34,9 @@ pub mod grant;
 pub mod inspect;
 pub mod intx;
 pub mod irq;
+pub mod msi;
+mod msi_hw;
+mod notify;
 pub mod ops;
 pub mod pci;
 pub mod policy;
@@ -47,7 +50,7 @@ mod teardown;
 pub use bus::{Bus, Enumerated, PciBus};
 pub(crate) use driver::attach_all;
 pub use driver::{probe, Driver, DRIVERS};
-pub use resources::{Bar, BarKind, Irq, Resource, Resources, MAX_BARS};
+pub use resources::{Bar, BarKind, Irq, Msi, MsiX, Resource, Resources, MAX_BARS};
 pub use selfcheck::selfcheck;
 pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
 pub use teardown::{
@@ -136,6 +139,21 @@ static INITED: AtomicBool = AtomicBool::new(false);
 /// The global device table, for callers that need to inspect or claim.
 pub fn table() -> &'static spin::Mutex<DeviceTable> {
     &TABLE
+}
+
+/// The legacy lines PCI functions name in their Interrupt Line register
+/// (bit per line): `arch::irqchip` programs them as PCI INTx (level) unless
+/// the MADT says otherwise.
+pub fn pci_intx_lines() -> u16 {
+    let mut lines = 0u16;
+    for info in TABLE.lock().iter() {
+        if let (BusId::Pci(_), Some(irq)) = (info.bus, info.resources.irq()) {
+            if irq.line < irq::LINES {
+                lines |= 1 << irq.line;
+            }
+        }
+    }
+    lines
 }
 
 /// Enumerate devices and attach in-kernel drivers. Idempotent; called at boot
