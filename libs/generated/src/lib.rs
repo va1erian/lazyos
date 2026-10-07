@@ -15825,7 +15825,11 @@ pub mod os_lazy_timed_v1 {
     }
 
     /// Switch to the built-in zone `name` and persist it to `confd`.
-    /// An unknown name fails with `EINVAL`.
+    /// An unknown name fails with `EINVAL`. A machine setting, like the
+    /// clock: the caller's kernel-stamped credentials must hold
+    /// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
+    /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
+    /// follows).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetZoneArgs {
         pub name: alloc::string::String,

@@ -5506,6 +5506,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "timezone",
  "trayclient",
  "uitheme",
  "xui-archiver",
@@ -5694,6 +5695,7 @@ dependencies = [
 name = "xui-settings"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "confd",
  "deskmenu",
  "fhs",

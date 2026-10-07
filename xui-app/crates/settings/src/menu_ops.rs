@@ -1,7 +1,9 @@
 //! Pure list operations behind the Menu page: the start menu's pinned apps
-//! are one confd value (`deskmenu::KEY`), and every edit here saves the whole
-//! new list before the caller's copy changes, so the page never shows a state
-//! the store refused.
+//! are one confd value (`deskmenu::KEY`), a machine setting whose every
+//! write asks an administrator. The edits here only change the page's draft;
+//! [`save`] writes the whole draft once, so a session of moves, renames and
+//! pins costs one prompt, and the page keeps showing what is stored until it
+//! succeeds.
 
 use deskmenu::{Entry, MAX_ENTRIES, MAX_LABEL};
 
@@ -15,71 +17,50 @@ pub fn load(store: &dyn ConfigStore) -> Vec<Entry> {
     deskmenu::from_value(store.get(deskmenu::KEY).as_ref(), &|_| true)
 }
 
-/// Write `entries`; `list` becomes `entries` only when the write succeeded.
-fn commit(
-    store: &dyn ConfigStore,
-    list: &mut Vec<Entry>,
-    entries: Vec<Entry>,
-) -> Result<(), StoreError> {
-    store.set(deskmenu::KEY, deskmenu::to_value(&entries))?;
-    *list = entries;
-    Ok(())
+/// Write `draft` as the menu, in one request: the defaults are stored by
+/// dropping the key, anything else as the whole list.
+pub fn save(store: &dyn ConfigStore, draft: &[Entry]) -> Result<(), StoreError> {
+    if draft == deskmenu::defaults().as_slice() {
+        if store.get(deskmenu::KEY).is_none() {
+            return Ok(());
+        }
+        return store.delete(deskmenu::KEY);
+    }
+    store.set(deskmenu::KEY, deskmenu::to_value(draft))
 }
 
-/// Drop the stored list and return to the built-in defaults (nothing
-/// pinned).
-pub fn reset(store: &dyn ConfigStore, list: &mut Vec<Entry>) -> Result<(), StoreError> {
-    store.delete(deskmenu::KEY)?;
+/// The built-in defaults (nothing pinned).
+pub fn reset(list: &mut Vec<Entry>) {
     *list = deskmenu::defaults();
-    Ok(())
 }
 
 /// Move entry `index` by `delta` rows, clamped to the ends. Returns its new
 /// index.
-pub fn move_by(
-    store: &dyn ConfigStore,
-    list: &mut Vec<Entry>,
-    index: usize,
-    delta: isize,
-) -> Result<usize, StoreError> {
+pub fn move_by(list: &mut Vec<Entry>, index: usize, delta: isize) -> Result<usize, StoreError> {
     if index >= list.len() {
         return Err("no entry selected".into());
     }
     let target = index.saturating_add_signed(delta).min(list.len() - 1);
-    if target == index {
-        return Ok(index);
+    if target != index {
+        let entry = list.remove(index);
+        list.insert(target, entry);
     }
-    let mut next = list.clone();
-    let entry = next.remove(index);
-    next.insert(target, entry);
-    commit(store, list, next)?;
     Ok(target)
 }
 
 /// Remove entry `index`. Returns the index to select (`0` once the list is
 /// empty).
-pub fn remove(
-    store: &dyn ConfigStore,
-    list: &mut Vec<Entry>,
-    index: usize,
-) -> Result<usize, StoreError> {
+pub fn remove(list: &mut Vec<Entry>, index: usize) -> Result<usize, StoreError> {
     if index >= list.len() {
         return Err("no entry selected".into());
     }
-    let mut next = list.clone();
-    next.remove(index);
-    commit(store, list, next)?;
+    list.remove(index);
     Ok(index.min(list.len().saturating_sub(1)))
 }
 
 /// Give entry `index` a new label. Control characters are stripped; a label
 /// that is then empty or longer than [`MAX_LABEL`] is refused.
-pub fn rename(
-    store: &dyn ConfigStore,
-    list: &mut Vec<Entry>,
-    index: usize,
-    label: &str,
-) -> Result<(), StoreError> {
+pub fn rename(list: &mut [Entry], index: usize, label: &str) -> Result<(), StoreError> {
     if index >= list.len() {
         return Err("no entry selected".into());
     }
@@ -91,17 +72,12 @@ pub fn rename(
     if clean.chars().count() > MAX_LABEL {
         return Err(format!("the label is limited to {MAX_LABEL} characters"));
     }
-    let mut next = list.clone();
-    next[index].label = clean.to_owned();
-    commit(store, list, next)
+    list[index].label = clean.to_owned();
+    Ok(())
 }
 
 /// Append `app` with its display name as label. Returns the new index.
-pub fn add(
-    store: &dyn ConfigStore,
-    list: &mut Vec<Entry>,
-    app: &AppChoice,
-) -> Result<usize, StoreError> {
+pub fn add(list: &mut Vec<Entry>, app: &AppChoice) -> Result<usize, StoreError> {
     if list.len() >= MAX_ENTRIES {
         return Err(format!("at most {MAX_ENTRIES} apps can be pinned"));
     }
@@ -109,9 +85,7 @@ pub fn add(
         return Err("that app is already pinned".into());
     }
     let entry = Entry::new(&app.id, &app.name).ok_or("not a launchable app id")?;
-    let mut next = list.clone();
-    next.push(entry);
-    commit(store, list, next)?;
+    list.push(entry);
     Ok(list.len() - 1)
 }
 
@@ -163,94 +137,118 @@ mod tests {
         list.iter().map(|e| e.app.as_str()).collect()
     }
 
+    /// A store that counts its writes (each one is a prompt on LazyOS).
+    #[derive(Default)]
+    struct Counting {
+        inner: MemStore,
+        writes: std::cell::Cell<usize>,
+    }
+
+    impl ConfigStore for Counting {
+        fn get(&self, key: &str) -> Option<crate::store::Value> {
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, value: crate::store::Value) -> Result<(), StoreError> {
+            self.writes.set(self.writes.get() + 1);
+            self.inner.set(key, value)
+        }
+        fn delete(&self, key: &str) -> Result<(), StoreError> {
+            self.writes.set(self.writes.get() + 1);
+            self.inner.delete(key)
+        }
+    }
+
     #[test]
     fn empty_store_loads_defaults_and_keeps_unshipped_apps() {
         let store = MemStore::new();
         assert_eq!(load(&store), deskmenu::defaults());
-        let mut list = pinned();
-        let same = list.clone();
-        commit(&store, &mut list, same).unwrap();
+        save(&store, &pinned()).unwrap();
         // An app the registry does not list (not shipped) survives a reload.
         assert!(ids(&load(&store)).contains(&"os.lazy.docs"));
     }
 
     #[test]
-    fn move_round_trips_through_the_store() {
-        let store = MemStore::new();
-        let mut list = pinned();
-        assert_eq!(move_by(&store, &mut list, 1, -1), Ok(0));
-        assert_eq!(list[0].app, "os.lazy.sysmon");
-        assert_eq!(load(&store), list);
+    fn a_session_of_edits_is_one_write() {
+        let store = Counting::default();
+        let mut draft = pinned();
+        assert_eq!(move_by(&mut draft, 1, -1), Ok(0));
+        assert_eq!(move_by(&mut draft, 0, 2), Ok(2));
+        rename(&mut draft, 0, "Shell").unwrap();
+        remove(&mut draft, 4).unwrap();
+        add(&mut draft, &choice("os.lazy.files")).unwrap();
+        assert_eq!(store.writes.get(), 0, "an edit wrote");
+        save(&store, &draft).unwrap();
+        assert_eq!(store.writes.get(), 1);
+        assert_eq!(load(&store), draft);
     }
 
     #[test]
-    fn move_past_the_ends_clamps_without_writing() {
-        let store = MemStore::new();
+    fn saving_the_defaults_drops_the_key_and_only_when_stored() {
+        let store = Counting::default();
+        save(&store, &deskmenu::defaults()).unwrap();
+        assert_eq!(store.writes.get(), 0, "nothing stored, nothing to drop");
+        save(&store, &pinned()).unwrap();
+        let mut draft = load(&store);
+        reset(&mut draft);
+        save(&store, &draft).unwrap();
+        assert_eq!(store.writes.get(), 2);
+        assert!(store.inner.is_empty());
+        assert_eq!(load(&store), deskmenu::defaults());
+    }
+
+    #[test]
+    fn move_past_the_ends_clamps() {
         let mut list = pinned();
-        assert_eq!(move_by(&store, &mut list, 0, -1), Ok(0));
+        assert_eq!(move_by(&mut list, 0, -1), Ok(0));
         let last = list.len() - 1;
-        assert_eq!(move_by(&store, &mut list, last, 1), Ok(last));
-        assert!(store.is_empty());
-        assert_eq!(move_by(&store, &mut list, 0, 100), Ok(last));
+        assert_eq!(move_by(&mut list, last, 1), Ok(last));
+        assert_eq!(list, pinned());
+        assert_eq!(move_by(&mut list, 0, 100), Ok(last));
         assert_eq!(list[last].app, "terminal");
-        assert!(move_by(&store, &mut list, 99, 1).is_err());
+        assert!(move_by(&mut list, 99, 1).is_err());
     }
 
     #[test]
-    fn remove_can_unpin_everything() {
-        let store = MemStore::new();
-        let mut list = pinned();
-        while !list.is_empty() {
-            assert_eq!(remove(&store, &mut list, 0), Ok(0));
-        }
-        assert!(remove(&store, &mut list, 0).is_err());
-        assert!(load(&store).is_empty());
-    }
-
-    #[test]
-    fn remove_selects_a_neighbour() {
-        let store = MemStore::new();
+    fn remove_can_unpin_everything_and_selects_a_neighbour() {
         let mut list = pinned();
         let last = list.len() - 1;
-        assert_eq!(remove(&store, &mut list, last), Ok(last - 1));
-        assert_eq!(remove(&store, &mut list, 0), Ok(0));
-        assert!(remove(&store, &mut list, 50).is_err());
+        assert_eq!(remove(&mut list, last), Ok(last - 1));
+        while !list.is_empty() {
+            assert_eq!(remove(&mut list, 0), Ok(0));
+        }
+        assert!(remove(&mut list, 0).is_err());
     }
 
     #[test]
     fn rename_cleans_and_rejects_bad_labels() {
-        let store = MemStore::new();
         let mut list = pinned();
-        rename(&store, &mut list, 0, "  Shell\t\n ").unwrap();
+        rename(&mut list, 0, "  Shell\t\n ").unwrap();
         assert_eq!(list[0].label, "Shell");
-        assert!(rename(&store, &mut list, 0, "").is_err());
-        assert!(rename(&store, &mut list, 0, " \t\u{7} ").is_err());
-        assert!(rename(&store, &mut list, 0, &"x".repeat(MAX_LABEL + 1)).is_err());
-        rename(&store, &mut list, 0, &"x".repeat(MAX_LABEL)).unwrap();
+        assert!(rename(&mut list, 0, "").is_err());
+        assert!(rename(&mut list, 0, " \t\u{7} ").is_err());
+        assert!(rename(&mut list, 0, &"x".repeat(MAX_LABEL + 1)).is_err());
+        rename(&mut list, 0, &"x".repeat(MAX_LABEL)).unwrap();
         assert_eq!(list[0].label.len(), MAX_LABEL);
-        assert!(rename(&store, &mut list, 99, "a").is_err());
-        assert_eq!(load(&store)[0].label.len(), MAX_LABEL);
+        assert!(rename(&mut list, 99, "a").is_err());
     }
 
     #[test]
     fn add_appends_and_rejects_duplicates() {
-        let store = MemStore::new();
         let mut list = vec![Entry::new("terminal", "Terminal").unwrap()];
-        assert_eq!(add(&store, &mut list, &choice("paint")), Ok(1));
+        assert_eq!(add(&mut list, &choice("paint")), Ok(1));
         assert_eq!(list[1].label, "PAINT");
-        assert!(add(&store, &mut list, &choice("paint")).is_err());
-        assert!(add(&store, &mut list, &choice("Bad Id")).is_err());
+        assert!(add(&mut list, &choice("paint")).is_err());
+        assert!(add(&mut list, &choice("Bad Id")).is_err());
         assert_eq!(list.len(), 2);
     }
 
     #[test]
     fn add_stops_at_the_cap() {
-        let store = MemStore::new();
         let mut list = Vec::new();
         for i in 0..MAX_ENTRIES {
-            add(&store, &mut list, &choice(&format!("app{i}"))).unwrap();
+            add(&mut list, &choice(&format!("app{i}"))).unwrap();
         }
-        assert!(add(&store, &mut list, &choice("one-more")).is_err());
+        assert!(add(&mut list, &choice("one-more")).is_err());
         assert_eq!(list.len(), MAX_ENTRIES);
     }
 
@@ -265,30 +263,15 @@ mod tests {
     }
 
     #[test]
-    fn reset_restores_defaults_and_clears_the_key() {
+    fn a_refused_save_leaves_the_store_alone() {
         let store = MemStore::new();
-        let mut list = pinned();
-        remove(&store, &mut list, 0).unwrap();
-        reset(&store, &mut list).unwrap();
-        assert_eq!(list, deskmenu::defaults());
-        assert!(store.is_empty());
-    }
-
-    #[test]
-    fn store_failure_leaves_state_unchanged() {
-        let store = MemStore::new();
-        let mut list = pinned();
-        let before = list.clone();
+        save(&store, &pinned()).unwrap();
         *store.fail_writes.borrow_mut() = Some("denied".into());
-        assert_eq!(move_by(&store, &mut list, 1, -1), Err("denied".into()));
-        assert_eq!(remove(&store, &mut list, 0), Err("denied".into()));
-        assert_eq!(rename(&store, &mut list, 0, "X"), Err("denied".into()));
-        assert_eq!(
-            add(&store, &mut Vec::new(), &choice("x")),
-            Err("denied".into())
-        );
-        assert_eq!(reset(&store, &mut list), Err("denied".into()));
-        assert_eq!(list, before);
+        let mut draft = pinned();
+        remove(&mut draft, 0).unwrap();
+        assert_eq!(save(&store, &draft), Err("denied".into()));
+        assert_eq!(save(&store, &deskmenu::defaults()), Err("denied".into()));
+        assert_eq!(load(&store), pinned());
     }
 
     #[test]

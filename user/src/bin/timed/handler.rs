@@ -4,7 +4,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use user::messenger::timed::{self as api, wire};
-use user::messenger::{errno, Error, Message, Parcel, Result};
+use user::messenger::{errno, services, Error, Message, Parcel, Result};
 use user::sys;
 
 use crate::state::{now, State};
@@ -13,6 +13,11 @@ use crate::state::{now, State};
 /// kernel's RTC range so an out-of-range value fails here with a clear code.
 const MAX_SET_SECS: i64 = 7_258_118_400;
 
+/// Why a clock or zone change was refused (with `EPERM`): the attack harness
+/// (`tools/accounts`) matches this text, so a regression that refuses for
+/// another reason cannot pass as the policy holding.
+const DENIED: &str = "only an administrator, through elevd, may change the clock or the time zone";
+
 /// Route one inbound message. `Ok(parcel)` is the reply; `Err` becomes the
 /// structured error reply the caller sees.
 pub(super) fn dispatch(state: &mut State, message: &Message) -> Result<Parcel> {
@@ -20,6 +25,14 @@ pub(super) fn dispatch(state: &mut State, message: &Message) -> Result<Parcel> {
         return Err(Error::Errno(-errno::EINVAL));
     }
     let method = message.method();
+    if matches!(method, wire::METHOD_SETZONE | wire::METHOD_SETTIME) && !authorized(message) {
+        return Ok(services::refusal(
+            api::INTERFACE,
+            method,
+            errno::EPERM,
+            DENIED,
+        ));
+    }
     let body = match method {
         wire::METHOD_NOW => now_reply(state)?,
         wire::METHOD_GETZONE => wire::encode_get_zone_reply(&wire::GetZoneReply {
@@ -33,7 +46,7 @@ pub(super) fn dispatch(state: &mut State, message: &Message) -> Result<Parcel> {
         }
         wire::METHOD_SETTIME => {
             let args = wire::decode_set_time_args(&message.parcel.body).map_err(Error::Parcel)?;
-            set_time(state, message, args.unix_secs)?;
+            set_time(state, args.unix_secs)?;
             Vec::new()
         }
         _ => return Err(Error::Errno(-errno::EINVAL)),
@@ -62,16 +75,21 @@ fn set_zone(state: &mut State, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Step the wall clock. The check is on the requester's kernel-stamped
-/// identity, never on anything in the request body: `CAP_SYS_TIME`, or
-/// `elevd` (docs/accounts-plan.md U2), which asks only once an administrator
-/// approved the change on the trusted prompt.
-fn set_time(state: &mut State, message: &Message, unix_secs: i64) -> Result<()> {
+/// Whether the requester may change the clock or the zone, both machine
+/// settings (docs/accounts-plan.md U2): the check is on its kernel-stamped
+/// identity, never on anything in the request body. `CAP_SYS_TIME`, or
+/// `elevd`, which asks only once an administrator approved the change on
+/// the trusted prompt; anyone else gets `EPERM` and [`DENIED`]. A session's
+/// zone change reaches `timed` as `elevd`'s write of the confd key it
+/// follows.
+fn authorized(message: &Message) -> bool {
     let cred = message.caller();
-    let elevd = elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session);
-    if cred.caps & sys::CAP_SYS_TIME == 0 && !elevd {
-        return Err(Error::Errno(-errno::EPERM));
-    }
+    cred.caps & sys::CAP_SYS_TIME != 0
+        || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session)
+}
+
+/// Step the wall clock (the caller is [`authorized`]).
+fn set_time(state: &mut State, unix_secs: i64) -> Result<()> {
     if !(0..MAX_SET_SECS).contains(&unix_secs) {
         return Err(Error::Errno(-errno::EINVAL));
     }

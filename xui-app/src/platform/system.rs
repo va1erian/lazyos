@@ -138,7 +138,19 @@ impl System for OsSystem {
             name: zone.to_owned(),
         })
         .map_err(|_| String::from("bad zone name"))?;
-        self.call(wire::METHOD_SETZONE, body).map(|_| ())
+        let service =
+            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
+        match service.call(wire::INTERFACE_ID, wire::METHOD_SETZONE, ERROR_FIELD, body) {
+            Ok(_) => Ok(()),
+            // A machine setting, like the clock: a session asks an
+            // administrator, and `timed` follows the confd key `elevd` writes.
+            Err(code) if -code == errno::EPERM => {
+                super::elevd::request("conf.set", &[timezone::ZONE_KEY, "str", zone])
+                    .map(|_| ())
+                    .map_err(|error| super::elevd::describe(&error))
+            }
+            Err(code) => Err(describe(code)),
+        }
     }
 
     fn os_version(&self) -> String {

@@ -2912,7 +2912,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "SetZone",
                 id: 1574816713,
                 oneway: false,
-                doc: "Switch to the built-in zone `name` and persist it to `confd`.\nAn unknown name fails with `EINVAL`.",
+                doc: "Switch to the built-in zone `name` and persist it to `confd`.\nAn unknown name fails with `EINVAL`. A machine setting, like the\nclock: the caller's kernel-stamped credentials must hold\n`CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`\n(a session asks `elevd` to write `sys/time/zone`, which `timed`\nfollows).",
                 params: &[Field { name: "name", id: 1, ty: Ty::String }],
                 returns: &[],
                 transfers: &[],
