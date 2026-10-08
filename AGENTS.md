@@ -501,6 +501,28 @@ cargo test -p trayclient -p messenger-generated
 cd xui-app && cargo test -p lazyshell
 ```
 
+## Picture Viewer (`LAZYOS_PICTURES=1`)
+
+`os.lazy.pictures` is a Windows XP-style picture viewer written in LazyRAD
+(`lazyrad-os/samples/pictures`, LazyRAD's `PictureBox` control), shipped as a
+core package that carries the player and the project: PNG, JPEG, BMP and GIF,
+paging through the folder, fit/zoom/pan, rotation, a slide show, Edit through
+`mimed`. A picture double-clicked in Files reaches the script as
+`app.documents` (`lrplay` treats a positional path that is not a project as a
+document and grants its folder read-only). See
+[`docs/lazyrad-pictures.md`](docs/lazyrad-pictures.md).
+
+```bash
+python tools/run_demo.py --pictures             # desktop + the viewer
+cd lazyrad-os && cargo test --test pictures     # the real form offscreen (snapshots in target/snapshots)
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pictures \
+    --script tools/screenshot/examples/lazyrad_pictures.json   # image: LAZYOS_DESKTOP=1 LAZYOS_PICTURES=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+```
+
+A form script must not give its own functions a control method's name and
+arity (`fn best_fit()` beside `picture1.best_fit()`): Rhai calls the script
+function for the method too, and it recurses (LazyRAD's lint warns about it in the IDE).
+
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 
 A ProTracker player written as a LazyRAD project (`lazyrad-os/samples/modplayer`)

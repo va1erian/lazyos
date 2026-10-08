@@ -2,8 +2,10 @@
 //!
 //! Three callers produce it, and all are treated as untrusted input:
 //!
-//! * `init`'s launcher: `<app> [--client] [<path>] attempt=N`, where `<path>` is
-//!   a project directory or `.lrp` (from `mimed` open-with or another app);
+//! * `init`'s launcher: `<app> [--client] [<path>...] attempt=N`, where a
+//!   `<path>` is a project directory or `.lrp`, or a *document* the app was
+//!   asked to open (from `mimed` open-with or another app: a picture
+//!   double-clicked in Files);
 //! * a package manifest's `[entry] args`, for example
 //!   `["--project", "resources/project"]`;
 //! * a developer at a shell.
@@ -22,6 +24,8 @@
 //!   not contain `..`;
 //! * `--project <absolute>` and a bare positional path are used as given (a
 //!   developer's `lrplay /system/share/lazyrad/hello`, or `mimed` opening a `.lrp`);
+//! * a positional path that is neither a directory nor an `.lrp` is a document,
+//!   handed to the scripts as `app.documents` (at most [`MAX_DOCUMENTS`]);
 //! * with neither, `<install>/resources/project` is used when it exists, so the
 //!   packager writes `args = []`.
 //!
@@ -46,6 +50,9 @@ use std::path::{Component, Path, PathBuf};
 /// a large allocation).
 pub const MAX_PATH_BYTES: usize = 4096;
 
+/// The most documents one command line may name.
+pub const MAX_DOCUMENTS: usize = 64;
+
 /// The project directory inside an install directory.
 pub const DEFAULT_PROJECT: &str = "resources/project";
 
@@ -56,6 +63,8 @@ pub struct PlayerArgs {
     pub client: bool,
     /// The project named by `--project` or positionally, unresolved.
     pub project: Option<PathBuf>,
+    /// The documents to open, in order, unresolved.
+    pub documents: Vec<PathBuf>,
 }
 
 /// Why the command line was refused. `Display` is one line, shown on serial.
@@ -67,6 +76,8 @@ pub enum ArgError {
     MissingValue,
     /// A project path given twice (flag and positional, or two positionals).
     DuplicateProject,
+    /// More than [`MAX_DOCUMENTS`] documents.
+    TooManyDocuments,
     /// The path is empty, too long, or contains NUL or control characters.
     BadPath,
     /// A relative path that would leave the install directory.
@@ -81,6 +92,7 @@ impl std::fmt::Display for ArgError {
             ArgError::UnknownFlag(flag) => write!(f, "unknown option `{flag}`"),
             ArgError::MissingValue => write!(f, "--project needs a path"),
             ArgError::DuplicateProject => write!(f, "more than one project path"),
+            ArgError::TooManyDocuments => write!(f, "more than {MAX_DOCUMENTS} files to open"),
             ArgError::BadPath => write!(f, "the project path is not valid"),
             ArgError::Escapes(path) => write!(f, "`{path}` leaves the install directory"),
             ArgError::NoProject(path) => write!(f, "no project at `{}`", path.display()),
@@ -89,7 +101,10 @@ impl std::fmt::Display for ArgError {
 }
 
 /// Parses `args` (the command line without the program name).
-pub fn parse_player<I>(args: I) -> Result<PlayerArgs, ArgError>
+///
+/// `is_project` tells a project from a document among the positional paths:
+/// on LazyOS, an `.lrp` file or a directory ([`looks_like_project`]).
+pub fn parse_player<I>(args: I, is_project: impl Fn(&Path) -> bool) -> Result<PlayerArgs, ArgError>
 where
     I: IntoIterator<Item = OsString>,
 {
@@ -108,11 +123,55 @@ where
             set_project(&mut parsed, OsString::from(value))?;
         } else if text.starts_with('-') {
             return Err(ArgError::UnknownFlag(text.into_owned()));
-        } else {
+        } else if is_project(Path::new(&arg)) {
             set_project(&mut parsed, arg)?;
+        } else {
+            add_document(&mut parsed, arg)?;
         }
     }
     Ok(parsed)
+}
+
+/// Whether a positional `path` names a project: an `.lrp` file or a directory.
+pub fn looks_like_project(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("lrp"))
+        || path.is_dir()
+}
+
+/// Records a document to open, refusing a malformed path or too many.
+fn add_document(parsed: &mut PlayerArgs, value: OsString) -> Result<(), ArgError> {
+    if parsed.documents.len() >= MAX_DOCUMENTS {
+        return Err(ArgError::TooManyDocuments);
+    }
+    let path = checked_path(value)?;
+    parsed.documents.push(path);
+    Ok(())
+}
+
+/// `value` as a path, if it is non-empty, short enough and free of control
+/// characters.
+fn checked_path(value: OsString) -> Result<PathBuf, ArgError> {
+    let path = PathBuf::from(value);
+    let text = path.to_string_lossy();
+    if text.is_empty() || text.len() > MAX_PATH_BYTES || text.chars().any(char::is_control) {
+        return Err(ArgError::BadPath);
+    }
+    Ok(path)
+}
+
+/// `documents` made absolute against `cwd`, as the sandbox grants them.
+pub fn absolute_documents(documents: &[PathBuf], cwd: &Path) -> Vec<PathBuf> {
+    documents
+        .iter()
+        .map(|path| {
+            if is_absolute(path) {
+                path.clone()
+            } else {
+                cwd.join(path)
+            }
+        })
+        .collect()
 }
 
 /// Records the project path, refusing a second one or a malformed one.
@@ -120,12 +179,7 @@ fn set_project(parsed: &mut PlayerArgs, value: OsString) -> Result<(), ArgError>
     if parsed.project.is_some() {
         return Err(ArgError::DuplicateProject);
     }
-    let path = PathBuf::from(value);
-    let text = path.to_string_lossy();
-    if text.is_empty() || text.len() > MAX_PATH_BYTES || text.chars().any(char::is_control) {
-        return Err(ArgError::BadPath);
-    }
-    parsed.project = Some(path);
+    parsed.project = Some(checked_path(value)?);
     Ok(())
 }
 
@@ -199,8 +253,63 @@ pub fn resolve_project(
 mod tests {
     use super::*;
 
+    /// Parses with every positional path taken for a project, as before
+    /// documents existed.
     fn parse(args: &[&str]) -> Result<PlayerArgs, ArgError> {
-        parse_player(args.iter().map(OsString::from))
+        parse_player(args.iter().map(OsString::from), |_| true)
+    }
+
+    /// Parses with the LazyOS rule, minus the filesystem: `.lrp` or a name
+    /// without an extension is a project.
+    fn parse_docs(args: &[&str]) -> Result<PlayerArgs, ArgError> {
+        parse_player(args.iter().map(OsString::from), |path| {
+            path.extension().is_none_or(|ext| ext == "lrp")
+        })
+    }
+
+    #[test]
+    fn a_file_to_open_is_a_document_not_a_project() {
+        let args = parse_docs(&["/home/user/Pictures/cat.png", "attempt=1"]).unwrap();
+        assert_eq!(args.project, None, "the packaged project runs");
+        assert_eq!(
+            args.documents,
+            [PathBuf::from("/home/user/Pictures/cat.png")]
+        );
+        let args = parse_docs(&["--project", "resources/project", "a.png", "b.jpg"]).unwrap();
+        assert_eq!(args.project, Some(PathBuf::from("resources/project")));
+        assert_eq!(args.documents.len(), 2);
+        let args = parse_docs(&["/home/me/todo/todo.lrp"]).unwrap();
+        assert_eq!(args.project, Some(PathBuf::from("/home/me/todo/todo.lrp")));
+        assert!(args.documents.is_empty());
+    }
+
+    #[test]
+    fn documents_are_checked_and_bounded() {
+        assert_eq!(parse_docs(&["a\nb.png"]), Err(ArgError::BadPath));
+        let many: Vec<String> = (0..=MAX_DOCUMENTS).map(|i| format!("{i}.png")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(parse_docs(&many), Err(ArgError::TooManyDocuments));
+        assert_eq!(
+            parse_docs(&many[..MAX_DOCUMENTS]).unwrap().documents.len(),
+            MAX_DOCUMENTS
+        );
+    }
+
+    #[test]
+    fn relative_documents_are_made_absolute() {
+        let cwd = Path::new("/home/user");
+        let got = absolute_documents(&[PathBuf::from("a.png"), PathBuf::from("/b.png")], cwd);
+        assert_eq!(
+            got,
+            [PathBuf::from("/home/user/a.png"), PathBuf::from("/b.png")]
+        );
+    }
+
+    #[test]
+    fn a_project_is_an_lrp_or_a_directory() {
+        assert!(looks_like_project(Path::new("/x/todo.LRP")));
+        assert!(looks_like_project(&std::env::temp_dir()));
+        assert!(!looks_like_project(Path::new("/no/such/picture.png")));
     }
 
     #[test]

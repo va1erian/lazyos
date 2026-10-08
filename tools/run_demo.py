@@ -32,6 +32,7 @@ Examples
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
+    python tools/run_demo.py --pictures      # desktop + the Picture Viewer (docs/lazyrad-pictures.md)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -72,7 +73,7 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
-    build_rhai, build_tls, build_xui_apps,
+    build_pictures, build_rhai, build_tls, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -252,6 +253,7 @@ def main(argv: list[str]) -> int:
         # Opt-in apps, built before their switch (the MOD player after LazyRAD's).
         for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
+                                      (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB")):

@@ -313,6 +313,18 @@ class MainTests(unittest.TestCase):
             self.assertEqual(env.get(switch), "1", switch)
         self.assertIn("virtio-sound-pci,audiodev=snd0", command)
 
+    def test_pictures_is_a_desktop_app_whose_player_is_built_before_packaging(self) -> None:
+        order: list[str] = []
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "build_pictures",
+                                  side_effect=lambda: order.append("player") or True), \
+                mock.patch.object(run_demo, "build_core_packages",
+                                  side_effect=lambda: order.append("packages") or True):
+            self.assertEqual(self.run_main("--pictures")[0], 0)
+        self.assertEqual(order, ["player", "packages"])
+        self.assertEqual(self.builds[-1].get("LAZYOS_PICTURES"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+
     def test_lazyrad_is_a_desktop_core_package_built_before_packaging(self) -> None:
         # os.lazy.lazyrad is a core package: `--lazyrad` implies the desktop,
         # and the packages are built (after the IDE) before the image.

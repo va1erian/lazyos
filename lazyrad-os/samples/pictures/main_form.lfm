@@ -1,0 +1,147 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Picture Viewer"
+width = 920
+height = 620
+
+[[node]]
+kind = "PictureBox"
+name = "picture1"
+left = 0
+top = 0
+width = 920
+height = 540
+anchor = "fill"
+background = "#ffffff"
+
+[[node]]
+kind = "Button"
+name = "prev_button"
+left = 11
+top = 548
+width = 72
+height = 28
+anchor = "bottom"
+text = "Previous"
+
+[[node]]
+kind = "Button"
+name = "next_button"
+left = 87
+top = 548
+width = 56
+height = 28
+anchor = "bottom"
+text = "Next"
+
+[[node]]
+kind = "Button"
+name = "fit_button"
+left = 153
+top = 548
+width = 72
+height = 28
+anchor = "bottom"
+text = "Best Fit"
+
+[[node]]
+kind = "Button"
+name = "actual_button"
+left = 229
+top = 548
+width = 88
+height = 28
+anchor = "bottom"
+text = "Actual Size"
+
+[[node]]
+kind = "Button"
+name = "slideshow_button"
+left = 327
+top = 548
+width = 88
+height = 28
+anchor = "bottom"
+text = "Slide Show"
+
+[[node]]
+kind = "Button"
+name = "zoom_in_button"
+left = 425
+top = 548
+width = 72
+height = 28
+anchor = "bottom"
+text = "Zoom In"
+
+[[node]]
+kind = "Button"
+name = "zoom_out_button"
+left = 501
+top = 548
+width = 80
+height = 28
+anchor = "bottom"
+text = "Zoom Out"
+
+[[node]]
+kind = "Button"
+name = "rotate_cw_button"
+left = 591
+top = 548
+width = 96
+height = 28
+anchor = "bottom"
+text = "Rotate Right"
+
+[[node]]
+kind = "Button"
+name = "rotate_ccw_button"
+left = 691
+top = 548
+width = 88
+height = 28
+anchor = "bottom"
+text = "Rotate Left"
+
+[[node]]
+kind = "Button"
+name = "open_button"
+left = 789
+top = 548
+width = 64
+height = 28
+anchor = "bottom"
+text = "Open..."
+
+[[node]]
+kind = "Button"
+name = "edit_button"
+left = 857
+top = 548
+width = 52
+height = 28
+anchor = "bottom"
+text = "Edit"
+
+[[node]]
+kind = "Label"
+name = "status_label"
+left = 10
+top = 588
+width = 900
+height = 22
+anchor = "bottom_left"
+text = ""
+
+[[node]]
+kind = "Timer"
+name = "slide_timer"
+left = 10
+top = 10
+width = 72
+height = 20
+interval = 4000
+enabled = false

@@ -3,7 +3,9 @@
 //! It answers four questions the portable crates cannot:
 //!
 //! * which files a script may touch (decision D5: an app's private data
-//!   directory, its own project read-only, nothing else);
+//!   directory, its own project read-only, the documents it was started to
+//!   open read-only; [`crate::policy`]);
+//! * which files those are (`app.documents`);
 //! * where LazyRAD keeps settings and projects (the user's home, [`Home`]);
 //! * where the player binary is (`lrplay.elf` beside the running IDE in its
 //!   install directory, [`player_beside`]);
@@ -22,8 +24,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use lazyrad_runtime::platform::{Platform, ScriptPermissions};
-use lazyrad_runtime::{Access, FsPolicy, Sandbox};
+use lazyrad_runtime::FsPolicy;
 use xui_core::widget::StdFileSystem;
+
+pub use crate::policy::{data_root, installed_app_id, player_policy, PolicySpec};
 
 /// Where installed apps live (`docs/packages.md`: `install_dir` is relative to
 /// this). Read only: `pkgd` writes it.
@@ -143,36 +147,6 @@ fn usable_home(value: &str) -> bool {
             .all(|segment| !matches!(segment, "" | "." | ".."))
 }
 
-/// The app id of `exe` when it runs from an installed package
-/// (`/apps/<id>/<version>-<hash>/bin/<elf>`), else `None`.
-pub fn installed_app_id(exe: &Path) -> Option<String> {
-    let text = exe.to_string_lossy().replace('\\', "/");
-    let rest = text.strip_prefix(APPS_ROOT)?.strip_prefix('/')?;
-    let id = rest.split('/').next()?;
-    let valid = !id.is_empty() && id != "." && id != "..";
-    valid.then(|| id.to_owned())
-}
-
-/// The read/write root for a script: an installed app's
-/// `<home>/.apps/<system_name>`, else `<home>/.apps/os.lazy.lazyrad/data`.
-///
-/// A player that runs from the IDE's own install directory (Play) is not an
-/// installed app of its own: it gets the IDE's `data` folder, so a project's
-/// files never mix with the IDE's `config`.
-pub fn data_root(exe: &Path, home: &Home) -> PathBuf {
-    match installed_app_id(exe) {
-        Some(id) if id != fhs::state::LAZYRAD_APP => home.app_data(&id),
-        _ => home.dev_data_dir(),
-    }
-}
-
-/// The policy for a player running `project` from `exe`: read/write under
-/// [`data_root`], plus read-only access to the project itself.
-pub fn player_policy(exe: &Path, project: &Path, home: &Home) -> FsPolicy {
-    let root = data_root(exe, home);
-    FsPolicy::Sandboxed(Sandbox::new(root).allow(project.to_path_buf(), Access::Read))
-}
-
 /// The folder the file dialog starts in: the projects folder, else the home,
 /// else `/transient` (the first `exists` answers yes for), else `/`.
 pub fn start_dir(home: &Home, exists: impl Fn(&Path) -> bool) -> PathBuf {
@@ -188,19 +162,22 @@ pub fn start_dir(home: &Home, exists: impl Fn(&Path) -> bool) -> PathBuf {
 
 /// What the player and the IDE share on LazyOS.
 pub struct LazyOsPlatform {
-    policy: FsPolicy,
+    policy: PolicySpec,
     home: Home,
     player: Option<PathBuf>,
+    documents: Vec<PathBuf>,
 }
 
 impl LazyOsPlatform {
-    /// The platform for a player whose scripts run under `policy`. A player
-    /// starts no other player.
-    pub fn player(policy: FsPolicy, home: Home) -> LazyOsPlatform {
+    /// The platform for a player whose scripts run under `policy` and were
+    /// started to open `documents` (which `policy` must let them read). A
+    /// player starts no other player.
+    pub fn player(policy: PolicySpec, home: Home, documents: Vec<PathBuf>) -> LazyOsPlatform {
         LazyOsPlatform {
             policy,
             home,
             player: None,
+            documents,
         }
     }
 
@@ -209,9 +186,10 @@ impl LazyOsPlatform {
     /// `exe` ([`player_beside`]).
     pub fn ide(home: Home, exe: &Path) -> LazyOsPlatform {
         LazyOsPlatform {
-            policy: FsPolicy::Sandboxed(Sandbox::new(home.projects_dir())),
+            policy: PolicySpec::new(home.projects_dir()),
             home,
             player: Some(player_beside(exe)),
+            documents: Vec::new(),
         }
     }
 }
@@ -230,7 +208,11 @@ impl Platform for LazyOsPlatform {
     }
 
     fn fs_policy(&self) -> FsPolicy {
-        self.policy.clone()
+        self.policy.build()
+    }
+
+    fn documents(&self) -> Vec<PathBuf> {
+        self.documents.clone()
     }
 
     fn prefers_dark(&self) -> bool {
@@ -286,7 +268,6 @@ impl Platform for LazyOsPlatform {
 mod tests {
     use super::*;
 
-    const APP_EXE: &str = "/apps/user.me.todo/1.0.0-abcd1234/bin/lrplay.elf";
     const IDE_EXE: &str = "/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf";
 
     fn home(path: &str) -> Home {
@@ -340,86 +321,6 @@ mod tests {
             Home::from_var(None).config_dir(),
             Path::new("/transient/lazyrad/.apps/os.lazy.lazyrad/config")
         );
-    }
-
-    #[test]
-    fn an_installed_app_writes_its_own_folder_in_the_home() {
-        let exe = Path::new(APP_EXE);
-        assert_eq!(installed_app_id(exe).as_deref(), Some("user.me.todo"));
-        assert_eq!(
-            data_root(exe, &home("/home/user")),
-            Path::new("/home/user/.apps/user.me.todo")
-        );
-        assert!(!data_root(exe, &home("/home/user")).starts_with(APPS_ROOT));
-    }
-
-    #[test]
-    fn a_dev_run_uses_lazyrads_own_data_folder() {
-        // A shell run, and Play: the player beside the installed IDE.
-        let play = player_beside(Path::new(IDE_EXE));
-        assert_eq!(
-            play,
-            Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lrplay.elf")
-        );
-        assert_eq!(
-            data_root(&play, &home("/home/admin")),
-            Path::new("/home/admin/.apps/os.lazy.lazyrad/data")
-        );
-        let exe = Path::new("/transient/lrplay.elf");
-        assert_eq!(installed_app_id(exe), None);
-        assert_eq!(
-            data_root(exe, &home("/home/admin")),
-            Path::new("/home/admin/.apps/os.lazy.lazyrad/data")
-        );
-        assert_eq!(
-            data_root(exe, &Home::from_var(None)),
-            Path::new("/transient/lazyrad/.apps/os.lazy.lazyrad/data")
-        );
-    }
-
-    #[test]
-    fn odd_paths_are_not_app_ids() {
-        for bad in [
-            "/apps/",
-            "/apps//x/bin/a",
-            "/apps/../bin/a",
-            "/appsx/y/bin/a",
-        ] {
-            assert_eq!(installed_app_id(Path::new(bad)), None, "{bad}");
-        }
-    }
-
-    #[test]
-    fn the_player_policy_is_private_data_plus_a_read_only_project() {
-        // A directory grant needs the directory to exist, so use a real one.
-        let project =
-            std::env::temp_dir().join(format!("lazyrad-os-policy-{}", std::process::id()));
-        std::fs::create_dir_all(&project).unwrap();
-        let file = project.join("main.lfm");
-        std::fs::write(&file, "x").unwrap();
-        let file = file.to_string_lossy().into_owned();
-        let user = home("/home/user");
-
-        let policy = player_policy(Path::new(APP_EXE), &project, &user);
-        let own = policy
-            .resolve("notes.txt", Access::Write)
-            .expect("own data");
-        let own = own.to_string_lossy().replace('\\', "/");
-        assert!(
-            own.ends_with("/home/user/.apps/user.me.todo/notes.txt"),
-            "{own}"
-        );
-        assert!(
-            policy.resolve(&file, Access::Read).is_ok(),
-            "the project is readable"
-        );
-        assert!(
-            policy.resolve(&file, Access::Write).is_err(),
-            "the project is read-only"
-        );
-        assert!(policy.resolve("/system/etc/passwd", Access::Read).is_err());
-        assert!(policy.resolve("../other/x", Access::Read).is_err());
-        let _ = std::fs::remove_dir_all(&project);
     }
 
     #[test]
@@ -488,5 +389,16 @@ mod tests {
             ))
         );
         assert!(!platform.default_monospace_font().is_empty());
+        assert!(platform.documents().is_empty());
+    }
+
+    #[test]
+    fn a_player_reports_the_documents_it_was_started_with() {
+        let user = home("/home/user");
+        let spec = PolicySpec::new(user.dev_data_dir());
+        let picture = PathBuf::from("/home/user/Pictures/a.png");
+        let platform = LazyOsPlatform::player(spec, user, vec![picture.clone()]);
+        assert_eq!(platform.documents(), [picture]);
+        assert!(matches!(platform.fs_policy(), FsPolicy::Sandboxed(_)));
     }
 }

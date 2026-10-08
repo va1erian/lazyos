@@ -12,6 +12,8 @@
 //! Command line: see `lazyrad_os::args`. Serial evidence:
 //! `LRPLAY:DATA:PASS:<dir>` naming the scripts' read/write folder (in the
 //! user's home; `LRPLAY:HOME:WARN` first when `$HOME` is unset),
+//! `LRPLAY:DOCUMENT:PASS:<path>` for each file it was started to open
+//! (`app.documents`, readable with its folder),
 //! `LRPLAY:MSG:PASS` once form scripts have the `msg` and `sys::*` modules
 //! (Messenger), `LRPLAY:MSGEVENT:PASS` after the first Messenger handler (a
 //! topic event, a call to a service the script serves) ran without error,
@@ -44,7 +46,7 @@ fn main() -> ExitCode {
     MARK.install_panic_hook();
     // Remember the last problem the player reports, for `init` (#549).
     let tap = StderrTap::install();
-    let parsed = match args::parse_player(std::env::args_os().skip(1)) {
+    let parsed = match args::parse_player(std::env::args_os().skip(1), args::looks_like_project) {
         Ok(parsed) => parsed,
         Err(error) => return fail("ARGS", &error.to_string()),
     };
@@ -64,13 +66,19 @@ fn main() -> ExitCode {
     if let Some(warning) = home.fallback_warning() {
         MARK.warn("HOME", &warning);
     }
-    let policy = player_policy(&exe, &project, &home);
+    let documents = args::absolute_documents(&parsed.documents, &cwd);
+    for document in &documents {
+        MARK.pass_with("DOCUMENT", &document.to_string_lossy());
+    }
+    let policy = player_policy(&exe, &project, &home, &documents);
     // Best effort: an unwritable home only means `file_write_text` reports an
     // error to the script.
     let data = data_root(&exe, &home);
     let _ = std::fs::create_dir_all(&data);
     MARK.pass_with("DATA", &data.to_string_lossy());
-    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::player(policy, home))).is_err() {
+    if lazyrad_runtime::platform::install(Box::new(LazyOsPlatform::player(policy, home, documents)))
+        .is_err()
+    {
         return fail("ARGS", "a platform was already installed");
     }
 

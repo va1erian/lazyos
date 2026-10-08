@@ -137,6 +137,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--mail", action="store_true",
                         help="the desktop with HTTPS and Mail, esMail's IMAP/SMTP client "
                              "(LAZYOS_MAIL=1, docs/mail.md)")
+    parser.add_argument("--pictures", action="store_true",
+                        help="the desktop with the Picture Viewer, a LazyRAD app that opens "
+                             "PNG, JPEG, BMP and GIF pictures (LAZYOS_PICTURES=1, a core "
+                             "package; builds the LazyRAD player with tools/lazyrad/build.py; "
+                             "docs/lazyrad-pictures.md)")
     parser.add_argument("--traydemo", action="store_true",
                         help="the desktop with the tray sample app os.lazy.traydemo "
                              "(LAZYOS_TRAYDEMO=1, docs/tray-plan.md)")
@@ -173,10 +178,11 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
-    # as do the desktop-only apps (Doom, LazyWeb, Mail, the tray demo) and the
+    # as do the desktop-only apps (Doom, LazyWeb, Mail, the Picture Viewer, the
+    # tray demo) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
-                    or args.mail or args.traydemo or args.setup)
+                    or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
     args.net = args.net or args.tls
