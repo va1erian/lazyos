@@ -61,14 +61,14 @@ audioclient = { path = "../libs/audioclient" }
 # scripts, #88; docs/lazyrad-messenger-plan.md).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "0793715dee383b5d39e2c11d2ff8da8bb0ad61ea", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "0793715dee383b5d39e2c11d2ff8da8bb0ad61ea", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "0793715dee383b5d39e2c11d2ff8da8bb0ad61ea", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "0793715dee383b5d39e2c11d2ff8da8bb0ad61ea", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
 # The form document: the player's UI probe reads control rectangles from it
 # (`probe`, issue #538), and the sample tests read form values back
 # (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "0793715dee383b5d39e2c11d2ff8da8bb0ad61ea" }
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873" }
 
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.
