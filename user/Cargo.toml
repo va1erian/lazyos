@@ -17,6 +17,9 @@ fhs = { path = "../libs/fhs", features = ["alloc"] }
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }
+# Every native syscall (`int 0x80`): numbers, ABI blocks and wrappers shared
+# with the static-musl programs (issue #666).
+lazyos-sys = { path = "../libs/lazyos-sys", features = ["alloc", "devinspect"] }
 # Vetted primitives for `keyd` (issue #102): SHA-256/HMAC/HKDF/Argon2id and the
 # entropy pool. Kernel tests import the same crate, so host KATs cover the code
 # that runs in ring 3.

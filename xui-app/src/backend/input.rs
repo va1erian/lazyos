@@ -83,7 +83,7 @@ impl LazyOSBackend {
                 break;
             }
             for index in 0..count {
-                let Some(raw) = sys::decode_event(&bytes, index) else {
+                let Some(raw) = sys::RawEvent::decode(&bytes, index) else {
                     continue;
                 };
                 match raw.kind {

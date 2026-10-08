@@ -14,14 +14,9 @@
 //!
 //! The layout mirrors `kernel/src/dev/syscall.rs`; keep them in lockstep.
 
-use core::arch::asm;
-
 use libmessenger::{Decoder, Parcel};
 
 pub mod inspect;
-
-/// The device syscall number.
-pub const SYS_DEV: u64 = 23;
 
 /// Capability required to list or claim devices at all.
 pub const CAP_DEV_CLAIM: u32 = 1 << 8;
@@ -161,26 +156,10 @@ impl Row {
 }
 
 fn dev_syscall(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> i64 {
-    let code: u64;
-    // SAFETY: `int 0x80` with syscall 23; every pointer argument is validated by
-    // the kernel against this task's address space before use.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") SYS_DEV,
-            in("rdi") op,
-            in("rsi") a1,
-            in("rdx") a2,
-            in("r10") a3,
-            in("r8") a4,
-            lateout("rax") code,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    code as i64
+    // SAFETY: every caller in this module passes, for its `op`, pointers to
+    // buffers it owns for the call (rows, BAR records, IRQ blocks) with their
+    // real lengths; the kernel validates them against this task again.
+    unsafe { lazyos_sys::dev::dev_syscall(op, a1, a2, a3, a4) }
 }
 
 fn value(code: i64) -> Result<u64, i64> {

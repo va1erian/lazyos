@@ -21,7 +21,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use user::messenger::router;
-use user::sys::{self, Cred as SysCred};
+use user::sys;
 use user::sysinfo::MAX_TASKS;
 
 use super::service::{Phase, Service};
@@ -108,9 +108,6 @@ fn retire_rows(services: &mut [Service], broker: &mut router::TopicBroker, sessi
 /// own: it is in session 0, which [`end_session`] refuses).
 fn session_tasks(session: u64) -> Vec<u64> {
     (1..MAX_TASKS as u64)
-        .filter(|slot| {
-            let mut cred = SysCred::default();
-            sys::cred_get(Some(*slot), &mut cred).is_ok() && cred.session == session
-        })
+        .filter(|slot| sys::cred_get(Some(*slot)).is_ok_and(|cred| cred.session == session))
         .collect()
 }

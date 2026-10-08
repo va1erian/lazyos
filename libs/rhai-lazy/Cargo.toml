@@ -19,9 +19,10 @@ std = ["rhai/std"]
 # a native `x86_64-unknown-none` host. Off for the musl `std` host.
 no_std = ["rhai/no_std"]
 # The real Messenger transport (`msg::gate`): the native `int 0x80` gate a
-# static-musl or native LazyOS program reaches the fabric through. Off for host
-# tests, which run the `msg` module against an in-memory fabric.
-lazyos = []
+# static-musl or native LazyOS program reaches the fabric through, issued by
+# `lazyos-sys`. Off for host tests, which run the `msg` module against an
+# in-memory fabric.
+lazyos = ["dep:lazyos-sys"]
 
 [dependencies]
 # Pinned exactly (supply chain): a Rhai bump is a reviewed change to this line
@@ -42,3 +43,6 @@ libmessenger = { path = "../messenger" }
 # The tests also cross-check the schema-driven codec against the compiled
 # codecs: what one encodes, the other must decode.
 messenger-generated = { path = "../generated" }
+# Every native syscall, shared with the native runtime and the xui apps
+# (issue #666): the gate's Messenger ops and the registry helpers.
+lazyos-sys = { path = "../lazyos-sys", features = ["parcel"], optional = true }

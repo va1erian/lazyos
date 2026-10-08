@@ -7,19 +7,12 @@
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::arch::asm;
 
-const SYS_STAT: u64 = 15;
-const SYS_READDIR: u64 = 16;
-const SYS_WRITE_FILE: u64 = 17;
-const SYS_MKDIR: u64 = 18;
-const SYS_UNLINK: u64 = 19;
-const SYS_RENAME: u64 = 20;
-const SYS_POWER: u64 = 21;
-const SYS_FSYNC: u64 = 22;
-const SYS_APPEND_FILE: u64 = 28;
-const SYS_READ_AT: u64 = 30;
-const SYS_CHMOD: u64 = 32;
+use lazyos_sys::nr::{
+    APPEND_FILE as SYS_APPEND_FILE, CHMOD as SYS_CHMOD, FSYNC as SYS_FSYNC, MKDIR as SYS_MKDIR,
+    POWER as SYS_POWER, READDIR as SYS_READDIR, READ_AT as SYS_READ_AT, RENAME as SYS_RENAME,
+    STAT as SYS_STAT, UNLINK as SYS_UNLINK, WRITE_FILE as SYS_WRITE_FILE,
+};
 
 /// Largest file `write_file` accepts (mirrors the kernel's `MAX_WRITE`).
 pub const MAX_FILE: usize = 1 << 20;
@@ -44,25 +37,10 @@ pub struct Entry {
 }
 
 fn syscall(nr: u64, a: u64, b: u64, c: u64) -> i64 {
-    let code: u64;
-    // SAFETY: `int 0x80` with one of the filesystem syscalls; every pointer
-    // passed is valid for the length passed alongside it, and the kernel
-    // validates them again before use.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") nr,
-            in("rdi") a,
-            in("rsi") b,
-            in("rdx") c,
-            lateout("rax") code,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    code as i64
+    // SAFETY: one of the filesystem syscalls; every pointer passed is valid
+    // for the length passed alongside it, and the kernel validates them again
+    // before use.
+    unsafe { lazyos_sys::raw::syscall3(nr, a, b, c) }
 }
 
 /// `Ok(value)` for a non-negative result, `Err(errno)` for `-errno`.

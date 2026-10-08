@@ -84,7 +84,7 @@ impl Attempt {
         let mut buffer = None;
         if self.with_buffer {
             let size = self.buffer_bytes.max(4096) as u64;
-            let (handle, va) = sys::display_create_buffer(size)
+            let (handle, va, _) = sys::display_create_buffer(size)
                 .map_err(|code| user::messenger::Error::Errno(-code))?;
             buffer = Some(handle);
             let one = ring_bytes(self.init_slots);

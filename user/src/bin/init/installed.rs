@@ -256,11 +256,10 @@ pub(super) fn alias_of(system_name: &str) -> Option<&str> {
 /// back from the kernel through `cred_get` and `label_name`, not echoed from the
 /// request.
 pub(super) fn report_label(pid: u64, id: &str) {
-    let mut cred = sys::Cred::default();
     let mut name = [0u8; sys::MAX_LABEL_BYTES];
-    let label = sys::cred_get(Some(pid), &mut cred)
+    let label = sys::cred_get(Some(pid))
         .ok()
-        .and_then(|()| sys::label_name(cred.label_id, &mut name).ok())
+        .and_then(|cred| sys::label_name(cred.label_id, &mut name).ok())
         .and_then(|len| core::str::from_utf8(&name[..len]).ok());
     match label {
         Some(label) => sys::write_str(&format!("PKGD:LAUNCH:LABEL {label} pid={pid}\n")),

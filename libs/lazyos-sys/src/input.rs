@@ -4,23 +4,12 @@
 //! driver holding `CAP_INPUT_SOURCE` may publish onto it as a registered
 //! source (`docs/usb-hid-plan.md` U1); everyone else gets `-EPERM`.
 
-use core::arch::asm;
-
-/// `input_raw(op, a1, a2)`: the raw input event bus.
-pub const SYS_INPUT_RAW: u64 = 25;
+use crate::nr;
 
 /// Bytes per raw event record.
 pub const RAW_EVENT_BYTES: usize = 24;
 
-/// Capability bit that authorises the raw bus (kernel `ipc::credentials`).
-pub const CAP_INPUT_RAW: u32 = 1 << 9;
-
-/// Capability bit that authorises publishing as a source.
-pub const CAP_INPUT_SOURCE: u32 = 1 << 10;
-
-/// Capability bit that authorises claiming the login console's keyboard
-/// (issue #396): `init` stamps it onto `logind` alone.
-pub const CAP_INPUT_CONSOLE: u32 = 1 << 13;
+pub use crate::cred::{CAP_INPUT_CONSOLE, CAP_INPUT_RAW, CAP_INPUT_SOURCE};
 
 /// Source classes (`kernel/src/input/sources.rs`): what a source may publish.
 pub mod source_class {
@@ -96,30 +85,20 @@ impl RawEvent {
     }
 }
 
-fn input_syscall(op: u64, a1: u64, a2: u64) -> i64 {
-    let code: u64;
-    // SAFETY: `int 0x80` with syscall 25; the kernel validates the buffer and
-    // capability, and clobbers only the registers declared here.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") SYS_INPUT_RAW,
-            in("rdi") op,
-            in("rsi") a1,
-            in("rdx") a2,
-            lateout("rax") code,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    code as i64
+/// One raw-bus op. Ops that take a buffer pass it as `a1`.
+///
+/// # Safety
+///
+/// `a1`, when `op` reads or writes through it, must be valid for that access.
+unsafe fn input_syscall(op: u64, a1: u64, a2: u64) -> i64 {
+    // SAFETY: forwarded; the caller upholds the pointer contract.
+    unsafe { crate::raw::syscall3(nr::INPUT_RAW, op, a1, a2) }
 }
 
 /// Claim this task's raw-bus consumer ring. `Err(-EPERM)` without `CAP_INPUT_RAW`.
 pub fn input_raw_open() -> Result<(), i64> {
-    match input_syscall(input_op::OPEN, 0, 0) {
+    // SAFETY: no pointer crosses the gate.
+    match unsafe { input_syscall(input_op::OPEN, 0, 0) } {
         0 => Ok(()),
         code => Err(code),
     }
@@ -127,7 +106,8 @@ pub fn input_raw_open() -> Result<(), i64> {
 
 /// Drain queued raw events into `buf`, returning the number of whole records.
 pub fn input_raw_poll(buf: &mut [u8]) -> Result<usize, i64> {
-    let code = input_syscall(input_op::POLL, buf.as_mut_ptr() as u64, buf.len() as u64);
+    // SAFETY: the kernel writes at most `buf.len()` bytes into `buf`.
+    let code = unsafe { input_syscall(input_op::POLL, buf.as_mut_ptr() as u64, buf.len() as u64) };
     if code >= 0 {
         Ok(code as usize)
     } else {
@@ -137,7 +117,8 @@ pub fn input_raw_poll(buf: &mut [u8]) -> Result<usize, i64> {
 
 /// Release the consumer ring.
 pub fn input_raw_close() -> Result<(), i64> {
-    match input_syscall(input_op::CLOSE, 0, 0) {
+    // SAFETY: no pointer crosses the gate.
+    match unsafe { input_syscall(input_op::CLOSE, 0, 0) } {
         0 => Ok(()),
         code => Err(code),
     }
@@ -146,7 +127,8 @@ pub fn input_raw_close() -> Result<(), i64> {
 /// The task slot holding the display grant (the compositor), `Err(-ENOENT)`
 /// when nothing is bound. Needs `CAP_INPUT_RAW`.
 pub fn input_display_owner() -> Result<u64, i64> {
-    let code = input_syscall(input_op::DISPLAY_OWNER, 0, 0);
+    // SAFETY: no pointer crosses the gate.
+    let code = unsafe { input_syscall(input_op::DISPLAY_OWNER, 0, 0) };
     if code >= 0 {
         Ok(code as u64)
     } else {
@@ -157,7 +139,8 @@ pub fn input_display_owner() -> Result<u64, i64> {
 /// Register a source of `class` ([`source_class`]); returns its id.
 /// `Err(-EPERM)` without `CAP_INPUT_SOURCE`, `Err(-EBUSY)` when full.
 pub fn input_source_register(class: u8) -> Result<u64, i64> {
-    let code = input_syscall(input_op::REGISTER_SOURCE, u64::from(class), 0);
+    // SAFETY: no pointer crosses the gate.
+    let code = unsafe { input_syscall(input_op::REGISTER_SOURCE, u64::from(class), 0) };
     if code >= 0 {
         Ok(code as u64)
     } else {
@@ -179,7 +162,8 @@ pub fn input_source_publish(id: u64, records: &[SourceRecord]) -> Result<usize, 
         out[4..8].copy_from_slice(&record.value.to_le_bytes());
     }
     let packed = id << 16 | records.len() as u64;
-    let code = input_syscall(input_op::PUBLISH, bytes.as_ptr() as u64, packed);
+    // SAFETY: the kernel reads `records.len()` 8-byte records from `bytes`.
+    let code = unsafe { input_syscall(input_op::PUBLISH, bytes.as_ptr() as u64, packed) };
     if code >= 0 {
         Ok(code as usize)
     } else {
@@ -189,7 +173,8 @@ pub fn input_source_publish(id: u64, records: &[SourceRecord]) -> Result<usize, 
 
 /// Close source `id`; the kernel releases every key and button it held.
 pub fn input_source_close(id: u64) -> Result<(), i64> {
-    match input_syscall(input_op::CLOSE_SOURCE, id, 0) {
+    // SAFETY: no pointer crosses the gate.
+    match unsafe { input_syscall(input_op::CLOSE_SOURCE, id, 0) } {
         0 => Ok(()),
         code => Err(code),
     }
@@ -200,7 +185,8 @@ pub fn input_source_close(id: u64) -> Result<(), i64> {
 /// to this task's sessionless input session. `Err(-EPERM)` without
 /// `CAP_INPUT_CONSOLE`, `Err(-EBUSY)` while another task holds it.
 pub fn input_console_claim() -> Result<(), i64> {
-    match input_syscall(input_op::CONSOLE_CLAIM, 0, 0) {
+    // SAFETY: no pointer crosses the gate.
+    match unsafe { input_syscall(input_op::CONSOLE_CLAIM, 0, 0) } {
         0 => Ok(()),
         code => Err(code),
     }
@@ -208,7 +194,8 @@ pub fn input_console_claim() -> Result<(), i64> {
 
 /// Give the console's keyboard back to the kernel terminal.
 pub fn input_console_release() -> Result<(), i64> {
-    match input_syscall(input_op::CONSOLE_RELEASE, 0, 0) {
+    // SAFETY: no pointer crosses the gate.
+    match unsafe { input_syscall(input_op::CONSOLE_RELEASE, 0, 0) } {
         0 => Ok(()),
         code => Err(code),
     }
@@ -217,7 +204,8 @@ pub fn input_console_release() -> Result<(), i64> {
 /// The task slot holding the console claim, `Err(-ENOENT)` when none does.
 /// Needs `CAP_INPUT_RAW` (`inputd` authenticates its console client with it).
 pub fn input_console_owner() -> Result<u64, i64> {
-    let code = input_syscall(input_op::CONSOLE_OWNER, 0, 0);
+    // SAFETY: no pointer crosses the gate.
+    let code = unsafe { input_syscall(input_op::CONSOLE_OWNER, 0, 0) };
     if code >= 0 {
         Ok(code as u64)
     } else {

@@ -665,6 +665,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyos-sys"
+version = "0.1.0"
+dependencies = [
+ "devinspect",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "lazypkg"
 version = "0.1.0"
 dependencies = [
@@ -1328,6 +1337,7 @@ dependencies = [
  "hda",
  "inputmap",
  "lazyos-crypto",
+ "lazyos-sys",
  "lazypkg",
  "libmessenger",
  "logstore",

@@ -4,15 +4,12 @@
 //! and the refused claims in the audit ring.
 //!
 //! Shared by `devctl` (native) and the Devices app (static musl), so the row
-//! layouts and the names live in one place. Pure data: the callers issue the
-//! syscall themselves (`int 0x80`, syscall 23, `op` / buffer / capacity).
+//! layouts and the names live in one place. Pure data: `lazyos-sys` issues the
+//! syscall (`lazyos_sys::dev::{inventory, policy, denials}`).
 
 #![no_std]
 
 use core::fmt;
-
-/// The device syscall number.
-pub const SYS_DEV: u64 = 23;
 
 /// Inspection op codes (`dev::syscall::OP_*`).
 pub mod op {

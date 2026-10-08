@@ -135,7 +135,7 @@ fn run() -> ! {
         Err(error) => fail("create_desktop_surface", error.errno().unwrap_or(0)),
     };
     let desktop_bytes = (work.w * work.h * 4) as u64;
-    let (desktop_buffer, desktop_va) = match sys::display_create_buffer(desktop_bytes) {
+    let (desktop_buffer, desktop_va, _) = match sys::display_create_buffer(desktop_bytes) {
         Ok(buffer) => buffer,
         Err(code) => fail("create_buffer(desktop)", code),
     };
@@ -192,7 +192,7 @@ fn run() -> ! {
         Err(error) => fail("create_surface", error.errno().unwrap_or(0)),
     };
     let window_bytes = (WINDOW_W * WINDOW_H * 4) as u64;
-    let (window_buffer, window_va) = match sys::display_create_buffer(window_bytes) {
+    let (window_buffer, window_va, _) = match sys::display_create_buffer(window_bytes) {
         Ok(buffer) => buffer,
         Err(code) => fail("create_buffer(window)", code),
     };

@@ -521,7 +521,7 @@ stays cheap under load.
   string). They are mechanism only: restart policy, dependencies and health
   live in `init`. Since filesystem F3 (#507) programs live in `/system/bin` on
   the ext2 OS volume, `spawnv` (syscall 31) passes an `argv` vector and `envp`,
-  and syscall 9 reads both back (`user/src/sys/spawn.rs`).
+  and syscall 9 reads both back (`user/src/sys/args.rs`).
 
 ---
 

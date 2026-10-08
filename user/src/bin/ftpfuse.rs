@@ -157,9 +157,8 @@ fn files_owner(opts: &Options) -> Result<(u32, u32), Failed> {
     if let Some(owner) = opts.owner {
         return Ok(owner);
     }
-    let mut cred = sys::Cred::default();
-    sys::cred_get(None, &mut cred)
-        .map_err(|e| (Failure::Mount, format!("credentials: errno {e}")))?;
+    let cred =
+        sys::cred_get(None).map_err(|e| (Failure::Mount, format!("credentials: errno {e}")))?;
     Ok((cred.uid, cred.gid))
 }
 

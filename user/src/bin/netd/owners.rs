@@ -40,7 +40,7 @@ impl Tasks {
         if self.at == Some(tick) {
             return true;
         }
-        if sys::tasks(self.snapshot.as_mut_ptr() as u64) != 0 {
+        if sys::tasks(&mut self.snapshot).is_err() {
             self.at = None;
             return false;
         }

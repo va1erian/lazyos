@@ -1,6 +1,6 @@
 //! Shared runtime for LazyOS ring-3 programs.
 //!
-//! Provides the `int 0x80` syscall wrappers ([`sys`]) and a global heap
+//! Provides the native syscalls ([`sys`], from `lazyos-sys`) and a global heap
 //! allocator, so user programs can use `alloc` (`Vec`, `String`, `format!`).
 
 #![no_std]
@@ -18,7 +18,8 @@ pub mod dev;
 
 pub mod files;
 
-pub mod sysinfo;
+/// The system-stats snapshot, shared with the xui system monitor.
+pub use lazyos_sys::sysinfo;
 
 pub mod messenger;
 

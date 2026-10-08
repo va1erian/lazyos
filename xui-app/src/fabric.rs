@@ -20,4 +20,4 @@ mod stats;
 pub use broker::{Broker, TopicRow, Topics, TOPICS_NAME};
 pub use error::errno_text;
 pub use registry::{registry, RegistryEntry};
-pub use stats::{fabric_stats, FabricStats, TaskUsage, FABRIC_STATS_SIZE, FABRIC_TASKS};
+pub use stats::{fabric_stats, FabricStats, TaskUsage, FABRIC_TASKS};

@@ -2,10 +2,7 @@
 //! from the kernel CSPRNG, for services that have no capabilities to seed a
 //! pool with.
 
-use core::arch::asm;
-
-/// `random(buf, len)` — see `kernel/src/process/randsys.rs`.
-pub const SYS_RANDOM: u64 = 26;
+use crate::nr;
 
 /// Most bytes one call returns; larger requests are short reads.
 pub const RANDOM_MAX: usize = 256;
@@ -13,23 +10,9 @@ pub const RANDOM_MAX: usize = 256;
 /// One call: the byte count written (at most [`RANDOM_MAX`]), or the negative
 /// errno the kernel refused with.
 fn random_once(buf: &mut [u8]) -> i64 {
-    let result: u64;
-    // Safety: `int 0x80` with syscall 26; the kernel validates the destination
-    // and writes at most `min(len, 256)` bytes into it.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") SYS_RANDOM,
-            in("rdi") buf.as_mut_ptr() as u64,
-            in("rsi") buf.len() as u64,
-            lateout("rax") result,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
-    }
-    result as i64
+    // SAFETY: the kernel writes at most `min(len, RANDOM_MAX)` bytes into
+    // `buf`.
+    unsafe { crate::raw::syscall2(nr::RANDOM, buf.as_mut_ptr() as u64, buf.len() as u64) }
 }
 
 /// Fill `buf` with random bytes, looping over the kernel's short reads.
