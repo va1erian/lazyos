@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::fs::openfile::OpenFile;
+use crate::ipc::endpointfd::EndpointWatch;
 use crate::tty::pty::Pty;
 
 /// Per-descriptor `FD_CLOEXEC` bit in a [`super::FdTable`] slot's flags.
@@ -47,6 +48,9 @@ pub enum Fd {
     /// One side of a pseudo-terminal (`/dev/ptmx` is the master, `/dev/pts/N`
     /// the slave; see `crate::tty::pty`).
     Pty { pty: Arc<Pty>, master: bool },
+    /// A Messenger endpoint watched for readiness (`ipc::endpointfd`, issue
+    /// #667): pollable, never readable or writable.
+    Endpoint { watch: Arc<EndpointWatch> },
 }
 
 impl Fd {
@@ -85,6 +89,7 @@ impl Fd {
             Fd::Pipe { pipe, .. } => Some([Arc::as_ptr(pipe) as u64, 0]),
             Fd::Socket { pair, .. } => Some(pair.pipe_keys()),
             Fd::Pty { pty, .. } => Some([Arc::as_ptr(pty) as u64, 0]),
+            Fd::Endpoint { watch } => Some([watch.key(), 0]),
             _ => None,
         }
     }
@@ -145,6 +150,7 @@ impl Fd {
             Fd::Unbound { .. } => (0, 0),
             Fd::Inet { sock } => sock.poll_gen(events),
             Fd::Pty { pty, master } => pty.poll_gen(*master, events),
+            Fd::Endpoint { watch } => watch.poll_gen(events),
         }
     }
 }
@@ -181,6 +187,9 @@ impl Clone for Fd {
                 sock: Arc::clone(sock),
             },
             Fd::Pty { pty, master } => Fd::pty_side(Arc::clone(pty), *master),
+            Fd::Endpoint { watch } => Fd::Endpoint {
+                watch: Arc::clone(watch),
+            },
         }
     }
 }
@@ -209,6 +218,7 @@ impl Fd {
             (Fd::Pty { pty: a, master: x }, Fd::Pty { pty: b, master: y }) => {
                 Arc::ptr_eq(a, b) && x == y
             }
+            (Fd::Endpoint { watch: a }, Fd::Endpoint { watch: b }) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -260,4 +270,6 @@ pub enum FdKind {
     Inet,
     /// A pseudo-terminal master or slave.
     Pty,
+    /// A Messenger endpoint watched for readiness.
+    Endpoint,
 }

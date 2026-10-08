@@ -86,6 +86,7 @@ mod call;
 mod close;
 mod connect;
 pub mod declared;
+mod pollstate;
 mod recv;
 mod registry;
 mod stats;
@@ -96,6 +97,7 @@ mod types;
 pub use call::*;
 pub use close::*;
 pub use connect::*;
+pub use pollstate::{ring, side_state};
 pub use recv::*;
 use registry::*;
 pub use stats::*;
@@ -212,6 +214,7 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     // The message owns the moved references now; the sender's numbers are gone.
     close_moved_handles(&numbers, &kinds);
     wake(receivers.iter());
+    ring(channel_id, 1 - side);
     Ok(())
 }
 
@@ -256,6 +259,7 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<WaiterS
     let endpoint = &mut channel.endpoints[peer];
     endpoint.inbox.push_back(message);
     endpoint.queued_bytes += bytes;
+    endpoint.arrivals += 1;
     let receivers = endpoint.waiters.take();
     meter(channel, sender).sent += 1;
     Ok(receivers)

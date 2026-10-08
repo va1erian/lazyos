@@ -120,7 +120,9 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
         }
         // eventfd/epoll fds are anonymous inodes; a regular-file mode is the
         // closest the stat ABI gets.
-        FdKind::EventFd | FdKind::Epoll => Ok(Attrs::anonymous(S_IFREG | 0o600, 0, fd)),
+        FdKind::EventFd | FdKind::Epoll | FdKind::Endpoint => {
+            Ok(Attrs::anonymous(S_IFREG | 0o600, 0, fd))
+        }
         FdKind::Closed => Err(err(EBADF)),
     }
 }

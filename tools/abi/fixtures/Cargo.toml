@@ -56,6 +56,11 @@ path = "src/sigstress.rs"
 name = "epollstress"
 path = "src/epollstress.rs"
 
+# A Messenger endpoint beside a socket in one epoll set (issue #667).
+[[bin]]
+name = "msgpoll"
+path = "src/msgpoll.rs"
+
 [[bin]]
 name = "unixstress"
 path = "src/unixstress.rs"
@@ -111,3 +116,10 @@ path = "src/netbulk.rs"
 [[bin]]
 name = "diskbench"
 path = "src/diskbench.rs"
+
+[dependencies]
+# The native Messenger calls and the endpoint descriptor (`msgpoll`, issue
+# #667); `no_std` + `alloc` underneath, so the other fixtures are unaffected.
+lazyos-sys = { path = "../../../libs/lazyos-sys", features = ["parcel", "std"] }
+# The parcel type and header flags `msgpoll` sends with.
+libmessenger = { path = "../../../libs/messenger" }

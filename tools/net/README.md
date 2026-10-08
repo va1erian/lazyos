@@ -181,8 +181,11 @@ server's own record of commands and transfers; see `docs/architecture/networking
 `rust-lld`) and embeds `netfix` in the image as `/system/bin/netfix`; without a musl toolchain the N5 checks are
 skipped. `netd demo=1` runs `/system/bin/netfix` under the Linux personality: `std::net` only, no libc extras. It needs the harness
 (the echo servers, and a second port forward to its listener on guest port 47774), so it is not part of
-`tools/abi/run.py`. The capture adds 3 TCP flows and 22 datagram echoes to the totals of stage N3, and a
-second inbound connection of 100 000 bytes. The kernel's side is tested without a network:
+`tools/abi/run.py`. The capture adds 4 TCP flows and 22 datagram echoes to the totals of stage N3, and a
+second inbound connection of 100 000 bytes. The fourth flow is `msgpoll` (issue #667,
+`netfix_msgpoll.rs`): a `TcpStream` and a Messenger endpoint descriptor in one `epoll` set (TCP alone, the
+endpoint alone, both, and a blocked `epoll_wait(-1)` woken by an echo another thread's write caused);
+`NETFIX:msgpoll:PASS` is a required marker beside `ABI:netfix:PASS` (`NETFIX_REQUIRED`). The kernel's side is tested without a network:
 
 ```bash
 LAZYOS_TEST_FILTER=inet python tools/test/run.py --accel none    # the 24 AF_INET tests (touch kernel/src/main.rs to force a rebuild after changing the filter)

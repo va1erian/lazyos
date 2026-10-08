@@ -12,7 +12,7 @@ use lazyos_sys::{dev, msg, nr};
 
 fn kernel(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../kernel/src");
-    // A Windows checkout with `core.autocrlf` has CRLF line ends.
+    // A Windows checkout may carry CRLF line ends; the patterns below are LF.
     std::fs::read_to_string(root.join(path))
         .unwrap_or_else(|e| panic!("reading {path}: {e}"))
         .replace("\r\n", "\n")
@@ -153,6 +153,8 @@ fn the_messenger_ops_match_the_kernel_abi() {
         ("OP_ACL_LOAD", msg::op::ACL_LOAD),
         ("OP_WAIT", msg::op::WAIT),
         ("OP_CONNECT", msg::op::CONNECT),
+        ("OP_ENDPOINT_FD", msg::op::ENDPOINT_FD),
+        ("ENDPOINT_FD_CLOEXEC", msg::op::ENDPOINT_FD_CLOEXEC),
         ("CLOSE_RELEASE", msg::op::CLOSE_RELEASE),
         ("RECV_SENDER_ID", msg::op::RECV_SENDER_ID),
         ("REGISTRY_TARGET_SELF", msg::REGISTRY_TARGET_SELF),
@@ -164,7 +166,7 @@ fn the_messenger_ops_match_the_kernel_abi() {
         assert_eq!(value_of(theirs), value, "{name}");
     }
     let op_count = table.keys().filter(|name| name.starts_with("OP_")).count();
-    assert_eq!(op_count, 20, "a new kernel op needs a name in msg::op");
+    assert_eq!(op_count, 21, "a new kernel op needs a name in msg::op");
 }
 
 #[test]

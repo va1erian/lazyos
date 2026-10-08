@@ -122,6 +122,8 @@ pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::EventFd => write_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
+        // Readiness only: messages are taken with the Messenger `recv`.
+        FdKind::Endpoint => err(EINVAL),
     }
 }
 
@@ -241,6 +243,8 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::EventFd => read_eventfd(fd, ptr, len),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
+        // Readiness only: messages are taken with the Messenger `recv`.
+        FdKind::Endpoint => err(EINVAL),
     }
 }
 

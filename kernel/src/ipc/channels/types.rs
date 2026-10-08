@@ -300,6 +300,9 @@ pub(super) struct Endpoint {
     /// not yet finished serving: the receiver's next `recv` on this side
     /// ends any that are still unanswered with `TimedOut`.
     pub(super) serving_polls: Vec<u64>,
+    /// Messages ever delivered here: an endpoint descriptor's edge counter
+    /// (`pollstate`, issue #667).
+    pub(super) arrivals: u64,
 }
 
 /// A duplex channel: two endpoints, their transactions, and their meters.

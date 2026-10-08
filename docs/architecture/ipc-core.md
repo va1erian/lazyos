@@ -10,6 +10,7 @@ buffers with fences. Spec: [messenger.md](../messenger.md) sections 4-10.
 |---|---|
 | `kernel/src/ipc/handles.rs` | Per-process handle tables and rights (issue #64) |
 | `kernel/src/ipc/channels.rs` (+ `channels/*.rs`) | Endpoints, inboxes, transactions (issue #66); the call half (`call.rs`), the indexed registry (`registry.rs`), types, helpers, close, recv, stats, txn timeouts in submodules |
+| `kernel/src/ipc/endpointfd.rs`, `channels/pollstate.rs` | Pollable endpoints: a Linux descriptor `poll`/`epoll` can watch for a channel handle (issue #667, [endpoint-fd.md](endpoint-fd.md)) |
 | `kernel/src/ipc/shared.rs` (+ `shared/{types,registry,fences}.rs`) | Shared buffers, mappings, fences (issue #67) |
 | `libs/messenger/src/lib.rs` | Parcel codec shared by kernel and userspace (issue #65) |
 

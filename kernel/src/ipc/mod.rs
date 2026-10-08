@@ -19,6 +19,7 @@ pub mod channels;
 pub mod connect;
 pub mod credentials;
 pub mod devspawn;
+pub mod endpointfd;
 pub mod epoll;
 pub mod eventfd;
 pub mod handles;

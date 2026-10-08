@@ -6,6 +6,10 @@ client), `user/src/messenger_async/selector.rs` (`Selector`). Tests:
 `kernel/src/tests/waitset_suite.rs`, `waitset_ext_suite.rs`,
 `waitset_call_suite.rs`; demo: `user/src/bin/async_echo.rs` (`wait.rs`).
 
+The other direction, `poll`/`select`/`epoll` watching an endpoint so a
+`std` event loop can include Messenger, is the `ENDPOINT_FD` descriptor
+([endpoint-fd.md](endpoint-fd.md), issue #667).
+
 ## The op
 
 Native Messenger op `wait` (19). `MsgArgs::parcel_ptr` points at

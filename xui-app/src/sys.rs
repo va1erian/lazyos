@@ -33,9 +33,15 @@ pub fn msg_wait_any(handles: &[u64], deadline: u64) -> Result<u64, i64> {
     lazyos_sys::msg::wait_any(handles, 0, deadline)
 }
 
-/// Sleep for `millis` milliseconds on the native monotonic clock.
+/// Sleep for `millis` milliseconds: `std::thread::sleep`, kept under this
+/// name for the many poll loops that call it. (Apps once avoided std's sleep
+/// because LazyOS read an absolute `clock_nanosleep` deadline as a duration;
+/// the kernel honours `TIMER_ABSTIME` now, and the suite's
+/// `linux_clock_nanosleep_*` tests and the `time` ABI fixture check both
+/// kinds of wait, issue #669. Unlike the native `sleep_ms`, std resumes a
+/// sleep a signal interrupted.)
 pub fn sleep_millis(millis: u64) {
-    lazyos_sys::time::sleep_ms(millis);
+    std::thread::sleep(std::time::Duration::from_millis(millis));
 }
 
 /// Start the static Linux program at `path` as a child of this task, stamped

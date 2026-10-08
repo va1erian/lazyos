@@ -84,6 +84,7 @@ pub fn dispatch(op: u64, args_ptr: u64, result_ptr: u64) -> u64 {
     // know.
     let allowed = (op == OP_CLOSE_ENDPOINT && args.flags == CLOSE_RELEASE)
         || (op == OP_RECV && args.flags == RECV_SENDER_ID)
+        || (op == OP_ENDPOINT_FD && args.flags == ENDPOINT_FD_CLOEXEC)
         || (op == OP_WAIT && channels::wait_flags_known(args.flags));
     if args.flags != 0 && !allowed {
         return report(result_ptr, errno::EINVAL);
@@ -138,6 +139,7 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_AUTHORIZE_TOPIC => op_authorize_topic(args),
         OP_ACL_LOAD => aclop::op_acl_load(args),
         OP_WAIT => op_wait(args),
+        OP_ENDPOINT_FD => op_endpoint_fd(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -185,6 +187,21 @@ fn write_reply(args: &MsgArgs, reply: &[u8]) -> Result<MsgResult, i64> {
     copy_out(args.buf_ptr, reply)?;
     Ok(MsgResult {
         bytes: reply.len() as u64,
+        ..MsgResult::default()
+    })
+}
+
+/// `ENDPOINT_FD`: a pollable descriptor for `args.handle`.
+fn op_endpoint_fd(args: &MsgArgs) -> Result<MsgResult, i64> {
+    use crate::ipc::endpointfd::{open_fd, OpenError};
+    let fd = open_fd(args.handle, args.flags == ENDPOINT_FD_CLOEXEC).map_err(|e| match e {
+        OpenError::NoHandle => errno::ENOENT,
+        OpenError::WrongKind => errno::EINVAL,
+        OpenError::MissingRight => errno::EACCES,
+        OpenError::TableFull => errno::EMFILE,
+    })?;
+    Ok(MsgResult {
+        value: fd as u64,
         ..MsgResult::default()
     })
 }

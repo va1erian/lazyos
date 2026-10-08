@@ -133,6 +133,7 @@ pub fn begin_call_owned(
         let endpoint = &mut channel.endpoints[peer];
         endpoint.inbox.push_back(queued);
         endpoint.queued_bytes += queued_bytes;
+        endpoint.arrivals += 1;
         let receivers = endpoint.waiters.take();
         channel.calls += 1;
         let sender = meter(channel, me);
@@ -145,6 +146,7 @@ pub fn begin_call_owned(
     // wakes it for this request. `send` does the same; the userspace
     // `messengerd` round trip depends on it. The caller is about to park in
     // `await_reply`: the callee runs in its place (P6.2).
+    ring(channel_id, peer);
     hand_off_to(wake(receivers.iter()));
     // The caller stays runnable: `call` parks in `await_reply` (in the same
     // interrupts-off syscall, so no reply can slip in before the first wait),

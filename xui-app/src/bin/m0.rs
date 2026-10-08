@@ -42,10 +42,8 @@ fn main() {
     }
     println!("XUIAPP:PRESENT:PASS");
 
-    // Hold the display so the frame is observable, then release it. The raw
-    // relative sleep is used because std's absolute clock_nanosleep deadline
-    // confuses LazyOS's ABI (see `sys::sleep_millis`).
-    sys::sleep_millis(30_000);
+    // Hold the display so the frame is observable, then release it.
+    std::thread::sleep(std::time::Duration::from_millis(30_000));
     let _ = sys::display_unbind();
     std::process::exit(0);
 }

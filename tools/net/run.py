@@ -81,10 +81,13 @@ NETD_DEMO_CLIENTS = 13
 #: Stage N5: the Linux fixture `netfix` (`tools/abi/fixtures/src/netfix.rs`,
 #: `std::net` over the kernel's `AF_INET` shim) runs as one more demo client when
 #: the image has it. It adds TCP flows to the echo port (the 200 000-byte echo,
-#: the timed connect, the address check), 22 datagram echoes, and a listener on
-#: guest port 47774 the harness connects into through a second port forward.
+#: the timed connect, the address check, the TCP-and-endpoint `epoll` check of
+#: issue #667), 22 datagram echoes, and a listener on guest port 47774 the
+#: harness connects into through a second port forward. `NETFIX_REQUIRED` are
+#: the markers a run with it must show.
 NETFIX_ELF = ROOT / "target" / "abi" / "fixtures" / "netfix.elf"
-NETFIX_TCP_FLOWS = 3
+NETFIX_TCP_FLOWS = 4
+NETFIX_REQUIRED = ("ABI:netfix:PASS", "NETFIX:msgpoll:PASS")
 NETFIX_UDP_PAIRS = 22
 NETFIX_LISTEN_PORT = 47774
 NETFIX_INBOUND_BYTES = 100_000
@@ -184,7 +187,7 @@ def netd_done(text: str, netfix: bool = False) -> bool:
         and ("NSLOOKUP:PASS" in text or "NSLOOKUP:NXDOMAIN" in text)
         and text.count("NC:PASS") >= 4
         and text.count("NETD:DEMO:EXIT") >= NETD_DEMO_CLIENTS + int(netfix)
-        and (not netfix or "ABI:netfix:PASS" in text)
+        and (not netfix or all(marker in text for marker in NETFIX_REQUIRED))
     )
 
 
@@ -400,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
             missing.append("NSLOOKUP:PASS|NSLOOKUP:NXDOMAIN")
         if text.count("NC:PASS") < 4:
             missing.append(f"NC:PASS x4 (saw {text.count('NC:PASS')})")
-        if netfix and "ABI:netfix:PASS" not in text:
-            missing.append("ABI:netfix:PASS")
+        if netfix:
+            missing.extend(marker for marker in NETFIX_REQUIRED if marker not in text)
     # A failure marker fails the run even when every pass marker also appeared
     # (`wait_for_marker` only stops early on one; it does not judge).
     failed = [marker for marker in fail_markers if marker in text]

@@ -37,6 +37,7 @@ NAMES = [
     "procstress",
     "sigstress",
     "epollstress",
+    "msgpoll",
     "unixstress",
     "persist",
     "statxio",

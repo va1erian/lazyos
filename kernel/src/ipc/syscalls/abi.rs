@@ -25,6 +25,8 @@ pub mod errno {
     pub const EEXIST: i64 = 17;
     /// A malformed argument, parcel, or op code.
     pub const EINVAL: i64 = 22;
+    /// The caller's descriptor table is full (`ENDPOINT_FD`).
+    pub const EMFILE: i64 = 24;
     /// The peer endpoint is gone.
     pub const EPIPE: i64 = 32;
     /// Refused because a call would form a synchronous cycle.
@@ -120,6 +122,15 @@ pub const OP_WAIT: u64 = 19;
 /// `Connected` message on the registered endpoint. Gated like [`OP_RESOLVE`].
 pub const OP_CONNECT: u64 = 20;
 
+/// Open a Linux descriptor watching the endpoint `handle` names (issue #667,
+/// `ipc::endpointfd`): `poll`/`select`/`epoll` report it readable while a
+/// message is queued or the peer closed, and it hangs up once the handle is
+/// gone. `value` is the descriptor; flag [`ENDPOINT_FD_CLOEXEC`] opens it
+/// close-on-exec. `ENOENT` for no such handle, `EINVAL` for one that is not
+/// a channel, `EACCES` without `CALL`, `EMFILE` for a full table. A kernel
+/// ABI op: no parcel crosses it.
+pub const OP_ENDPOINT_FD: u64 = 21;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
@@ -168,6 +179,9 @@ pub const CLOSE_RELEASE: u64 = 1;
 /// capability without `CAP_SETUID`, which reading an arbitrary task's
 /// credentials needs.
 pub const RECV_SENDER_ID: u64 = 1;
+
+/// `endpoint_fd` flag: open the descriptor close-on-exec.
+pub const ENDPOINT_FD_CLOEXEC: u64 = 1;
 
 impl MsgArgs {
     /// Decode a little-endian block of exactly [`ARGS_SIZE`] bytes.
