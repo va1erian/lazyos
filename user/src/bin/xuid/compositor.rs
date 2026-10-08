@@ -107,6 +107,8 @@ pub(super) struct Compositor {
     /// `inputd` is reachable (`prompt_keys.rs`): layout-aware keys from
     /// every keyboard. `None`: the kernel's key stream serves the prompt.
     pub(super) prompt_keys: Option<user::messenger::input::KeySession>,
+    /// The shell holds the keyboard for its panel menus (`panelkeys.rs`).
+    pub(super) panel_keys: bool,
 }
 
 impl Compositor {
@@ -150,6 +152,7 @@ impl Compositor {
             prompt: None,
             prompt_reply: None,
             prompt_keys: None,
+            panel_keys: false,
         }
     }
 

@@ -39,12 +39,15 @@ const IF: u64 = 1 << 9;
 type LockProbe = (&'static str, fn() -> bool);
 
 /// The kernel's global spin locks worth reporting.
-const LOCKS: [LockProbe; 5] = [
+const LOCKS: [LockProbe; 6] = [
     ("tasks", crate::task::diag::table_locked),
     ("heap", crate::mem::heap_locked),
     ("console", crate::console::locked),
     ("serial", crate::serial::locked),
     ("signals", crate::task::signal::registry_locked),
+    // A yielding lock (`task::relax`): held while its holder parks, so a
+    // hang with it held points at whoever cannot get back to release it.
+    ("vfs", crate::fs::vfs_locked),
 ];
 
 /// The context an NMI interrupted, as the CPU saved it.

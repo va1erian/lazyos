@@ -47,7 +47,7 @@ Reboot and power-off are the same sequence until that last call.
 |---|---|---|---|
 | 0. Request | caller -> `init` | `init.Shutdown(mode, reason, force)` replies at once with the phase. | - |
 | 1. Freeze | `init` | `stopping()` is set: no restart, no autostart, `Launch` is `EBUSY`. Rows waiting to start or restart are retired. The kernel watchdog is armed (`power(ARM_WATCHDOG, op)`). Phase `stopping` is published. | - |
-| 2. Apps | `init` | Every launched app gets `SIGTERM` (phase `apps`), LazyShell included: its `Restart::Always` row is retired like any other, never restarted. `xuid` paints the shutting-down overlay as soon as it sees the topic. | 5 s each, then `SIGKILL` |
+| 2. Apps | `init` | Every launched app is stopped by the one rule `Stop` and logout share (phase `apps`, issue #651, `svcpolicy::stop_mode`): `Quit(grace)` on its lifecycle channel when it watches one or is resident (the Volume applet prints `VOLUME:QUIT:PASS`), `SIGTERM` otherwise; LazyShell included: its `Restart::Always` row is retired like any other, never restarted. `INIT:SHUTDOWN:APPS asked=<n> quit=<n> term=<n>`. `xuid` paints the shutting-down overlay as soon as it sees the topic. | 3 s from the stage's start, then `SIGKILL` |
 | 3. Services | `init` | The manifest services in [`stop_order`](../user/src/bin/init/stop_order.rs) order (phase `services`): a row is stopped once no live row depends on it and no lower-tier row is live. A service that serves `os.lazy.lifecycle.v1` (`confd`, `logd`, `pkgd`) gets its `Shutdown` message; any other gets `SIGTERM`. `pkgd` (an ordinary tier, depending on `confd` and `mimed`) fsyncs `/logs/pkg.log`, the tail of its audit chain, and prints `PKGD:STOP sync=<ok|none|errno>` before `confd` is asked to stop. Independent rows stop together. | 3 s each, then `SIGKILL` |
 | 4. Persist | `confd`, `logd` | `confd` flushes its store's volume (`CONFD:STOP dir=/conf sync=ok`; the harness requires `/conf` on a desktop boot); its writes are synchronous, so none is in flight. `logd` drains its feeds, flushes and fsyncs its journals in `/logs`, and verifies its chain (`LOGD:STOP records=<n> verified=<bool> persisted=<n>`; the harness requires `persisted>0` on a desktop boot). Both are in the persist tier, so they stop after every ordinary service. | (phase 3's) |
 | 5. Quiesced | `init` | Every row is reaped; `init: userspace quiesced (killed=N)`. Phase `power` is published. | - |
@@ -247,7 +247,8 @@ had the VM not stopped, which the judge rejects.
   login-session caller, for now (above). A tighter
   policy (console session only, or a `confd` setting) can come later without
   changing the sequence.
-- **App veto or delay** ("unsaved changes"): deferred. Apps get `SIGTERM` and
-  5 s; a veto would need its own hard timeout.
+- **App veto or delay** ("unsaved changes"): deferred. Apps get `Quit` (or
+  `SIGTERM` without a lifecycle channel) and a fixed 3 s, the same rule as
+  `Stop` and logout (issue #651); a veto would need its own hard timeout.
 - **Reboot reason record** (a boot-record page so the next boot can log why it
   restarted): deferred.

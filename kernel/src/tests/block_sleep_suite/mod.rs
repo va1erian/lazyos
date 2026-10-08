@@ -18,6 +18,7 @@ use crate::task::WaitKind;
 mod ata;
 mod ext2;
 mod plan;
+mod spinwait;
 mod virtio;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -30,6 +31,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         virtio::killed_waiter_finishes,
     ),
     ("block_sleep_ata_threads", ata::threads_and_a_spinner),
+    (
+        "block_sleep_spin_ends_by_deadline",
+        spinwait::spin_ends_by_deadline_with_windows,
+    ),
+    (
+        "block_sleep_soak_spins_bounded",
+        spinwait::soak_spins_stay_bounded,
+    ),
     (
         "block_sleep_soak_ext2_threads",
         ext2::soak_threads_on_one_volume,

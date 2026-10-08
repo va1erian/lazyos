@@ -36,6 +36,8 @@ mod console;
 mod delivery;
 #[path = "inputd/grants.rs"]
 mod grants;
+#[path = "inputd/held.rs"]
+mod held;
 #[path = "inputd/hub.rs"]
 mod hub;
 #[path = "inputd/keypages.rs"]

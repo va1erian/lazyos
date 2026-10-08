@@ -2,8 +2,8 @@
 //! first one in the device list, or exactly the one `devd` named (`dev=<id>`).
 //!
 //! Everything here is the same for both cards and uses only the `dev_*` ops
-//! every driver uses: claim (with the service endpoint for interrupts, the line
-//! shared), the command register for decode and bus mastering, `map_bar`, and
+//! every driver uses: claim (interrupts on the channel the kernel makes, the
+//! line shared), the command register for decode and bus mastering, `map_bar`, and
 //! `irq_enable` once the card is described. What differs lives in
 //! `virtio_card.rs` and `e1000_card.rs`.
 
@@ -64,28 +64,29 @@ pub(super) fn find(wanted: Option<u64>) -> Result<(Row, Kind), Error> {
 pub(super) struct Claimed {
     pub(super) handle: u64,
     pub(super) row: Row,
-    with_irq: bool,
+    /// The channel the kernel posts interrupt messages to (issue #496).
+    pub(super) irq_channel: Option<Endpoint>,
     pub(super) irq: bool,
     /// How interrupts arrive once [`arm`] succeeded.
     pub(super) mode: Option<dev::IrqMode>,
 }
 
-/// Claim `row`. `server` is the driver's own service endpoint: the kernel
-/// posts interrupt messages into its inbox, so client calls and interrupts
-/// arrive in the one receive loop. The line may be shared (with the polled
-/// virtio-blk on both QEMU machine types), so the claim opts in to sharing.
-/// If the kernel refuses the endpoint, or `allow_irq` is false, the claim is
-/// made without one and the driver polls, which is always correct. Memory
-/// decode and bus mastering are switched on.
-pub(super) fn claim(row: Row, server: &Endpoint, allow_irq: bool) -> Result<Claimed, Error> {
+/// Claim `row`. Interrupt messages arrive on a channel the kernel makes for
+/// the claim, which the service loop waits on beside its own endpoint. The
+/// line may be shared (with the polled virtio-blk on both QEMU machine types),
+/// so the claim opts in to sharing. If the kernel refuses the interrupt
+/// channel, or `allow_irq` is false, the claim is made without one and the
+/// driver polls, which is always correct. Memory decode and bus mastering are
+/// switched on.
+pub(super) fn claim(row: Row, allow_irq: bool) -> Result<Claimed, Error> {
     let with_irq = if allow_irq {
-        dev::claim(row.id, Some(server.handle()), true).ok()
+        dev::claim_with_irq(row.id, true).ok()
     } else {
         None
     };
-    let (handle, with_irq) = match with_irq {
-        Some(handle) => (handle, true),
-        None => (dev::claim(row.id, None, false).map_err(Error::Dev)?, false),
+    let (handle, irq_channel) = match with_irq {
+        Some((handle, channel)) => (handle, Some(Endpoint::from_raw(channel))),
+        None => (dev::claim(row.id).map_err(Error::Dev)?, None),
     };
     let command = dev::cfg_read(handle, COMMAND, 2).map_err(Error::Dev)?;
     dev::cfg_write(
@@ -98,7 +99,7 @@ pub(super) fn claim(row: Row, server: &Endpoint, allow_irq: bool) -> Result<Clai
     Ok(Claimed {
         handle,
         row,
-        with_irq,
+        irq_channel,
         irq: false,
         mode: None,
     })
@@ -119,7 +120,7 @@ pub(super) fn map(claimed: &Claimed, bar: usize, min: u64) -> Result<*mut u8, Er
 /// again to let the card assert it; on MSI or MSI-X the kernel has already
 /// programmed the card's message interrupt.
 pub(super) fn arm(claimed: &mut Claimed) -> Result<(), Error> {
-    claimed.mode = if claimed.with_irq {
+    claimed.mode = if claimed.irq_channel.is_some() {
         dev::irq_enable(claimed.handle).ok()
     } else {
         None

@@ -9,6 +9,7 @@
 //!   their geometry.
 //! * [`desktop`]: the desktop icons from the user's desktop folder, their
 //!   layout, and the `sys/ui/desktop` launchers that seed the folder.
+//! * [`keynav`]: the keyboard rules of the panel menus and the tray (#648).
 //! * [`shortcut`]: the `.lnk` shortcut files the desktop folder holds.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
 //! * [`notice`]: the "app stopped" notice `init`'s app failures become.
@@ -24,6 +25,7 @@
 
 pub mod clock;
 pub mod desktop;
+pub mod keynav;
 pub mod menu;
 pub mod notice;
 pub mod policy;

@@ -167,6 +167,15 @@ interface os.lazy.input.shell.v1 {
     /// otherwise a key typed right after a click would reach the window the
     /// click left.
     method NoteInputDone(seq: U64 = 1) -> () = 13 oneway;
+    /// One-way: the shell's panel menu has the keyboard (`held`), or no
+    /// longer has it. Focus does not move, so the focused session sees no
+    /// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+    /// presses, repeats and text made while held never reach it, the release
+    /// of a key it saw go down before the hold is still delivered (nothing
+    /// sticks), a key pressed while held stays invisible to it until pressed
+    /// again, and its key-state page shows nothing held meanwhile
+    /// (`inputmap::hold`, issue #648).
+    method NoteKeysHeld(held: Bool = 1) -> () = 14 oneway;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
     /// Shell event: the client owning `surface` asked for a grab of `kind`

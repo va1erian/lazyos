@@ -544,6 +544,21 @@
         "name": "AllowPopup",
         "id": 44,
         "oneway": false
+      },
+      {
+        "name": "GrabPanelKeys",
+        "id": 45,
+        "oneway": false
+      },
+      {
+        "name": "PanelKey",
+        "id": 46,
+        "oneway": true
+      },
+      {
+        "name": "TrayKeys",
+        "id": 47,
+        "oneway": true
       }
     ],
     "topics": []
@@ -954,6 +969,11 @@
       {
         "name": "NoteInputDone",
         "id": 13,
+        "oneway": true
+      },
+      {
+        "name": "NoteKeysHeld",
+        "id": 14,
         "oneway": true
       },
       {

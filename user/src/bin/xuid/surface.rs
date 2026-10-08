@@ -45,6 +45,9 @@ pub(super) struct Surface {
     /// The normal window rectangle saved while maximized; `Some` while the
     /// surface is maximized.
     pub(super) maximized: Option<Rect>,
+    /// The half of the work area the window is snapped to and its normal
+    /// rectangle to come back to; `Some` while snapped (`wm.rs`).
+    pub(super) snap: Option<(super::wm::Side, Rect)>,
     /// Hidden by the minimize button; restored by the shell or Alt+Tab.
     pub(super) minimized: bool,
     /// What the surface is (`wire::ROLE_*`): a decorated window, the
@@ -159,4 +162,8 @@ pub(super) struct Drag {
     pub(super) grab_x: i32,
     /// Pointer offset from the window origin at grab time.
     pub(super) grab_y: i32,
+    /// The pointer has moved since the press: a press-and-release without
+    /// movement is a click, which never moves, snaps or unsnaps the window
+    /// (`wm::drag_began_on`).
+    pub(super) moved: bool,
 }

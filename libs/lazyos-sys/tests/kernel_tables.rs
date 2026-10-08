@@ -1,13 +1,14 @@
 //! The numbers in `lazyos-sys` against the kernel sources they mirror: the
 //! native dispatch table (`kernel/src/process/gate.rs`), the Messenger op
-//! table (`kernel/src/ipc/syscalls/abi.rs`) and the wait flags
-//! (`kernel/src/ipc/channels/recv/waitset.rs`). A renumbering on either side
-//! fails here instead of at runtime.
+//! table (`kernel/src/ipc/syscalls/abi.rs`), the wait flags
+//! (`kernel/src/ipc/channels/recv/waitset.rs`) and the device syscall's ops
+//! and `claim` arguments (`kernel/src/dev/syscall.rs`). A renumbering on
+//! either side fails here instead of at runtime.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use lazyos_sys::{msg, nr};
+use lazyos_sys::{dev, msg, nr};
 
 fn kernel(path: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../kernel/src");
@@ -118,6 +119,9 @@ fn value_of(text: &str) -> u64 {
     if text == "u64::MAX" {
         return u64::MAX;
     }
+    if let Some((base, less)) = text.split_once(" - ") {
+        return value_of(base) - value_of(less);
+    }
     if let Some((base, shift)) = text.split_once("<<") {
         return value_of(base) << value_of(shift);
     }
@@ -191,4 +195,36 @@ fn the_wait_flags_match_the_kernel() {
     }
     let call = constants(&kernel("ipc/channels/recv/waitcall.rs"));
     assert_eq!(value_of(&call["WAIT_ITEM_CALL"]), msg::WAIT_ITEM_CALL);
+}
+
+#[test]
+fn the_device_ops_match_the_kernel() {
+    let table = constants(&kernel("dev/syscall.rs"));
+    let ours = [
+        ("OP_LIST", dev::op::LIST),
+        ("OP_CLAIM", dev::op::CLAIM),
+        ("OP_MAP_BAR", dev::op::MAP_BAR),
+        ("OP_PIO", dev::op::PIO),
+        ("OP_CFG_READ", dev::op::CFG_READ),
+        ("OP_CFG_WRITE", dev::op::CFG_WRITE),
+        ("OP_IRQ_ENABLE", dev::op::IRQ_ENABLE),
+        ("OP_IRQ_ACK", dev::op::IRQ_ACK),
+        ("OP_RELEASE", dev::op::RELEASE),
+        ("OP_DMA_ALLOC", dev::op::DMA_ALLOC),
+        ("OP_INVENTORY", dev::op::INVENTORY),
+        ("OP_POLICY", dev::op::POLICY),
+        ("OP_DENIALS", dev::op::DENIALS),
+        ("FLAG_SHARED_IRQ", dev::FLAG_SHARED_IRQ),
+        ("NO_ENDPOINT", dev::NO_ENDPOINT),
+        ("KERNEL_CHANNEL", dev::KERNEL_CHANNEL),
+        ("ROW_WORDS", dev::ROW_WORDS as u64),
+    ];
+    for (name, value) in ours {
+        let theirs = table
+            .get(name)
+            .unwrap_or_else(|| panic!("kernel has no {name}"));
+        assert_eq!(value_of(theirs), value, "{name}");
+    }
+    let op_count = table.keys().filter(|name| name.starts_with("OP_")).count();
+    assert_eq!(op_count, 13, "a new kernel op needs a name in dev::op");
 }

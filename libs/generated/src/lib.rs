@@ -3535,6 +3535,12 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_GETOUTPUT: u32 = 43;
     /// `AllowPopup` method id.
     pub const METHOD_ALLOWPOPUP: u32 = 44;
+    /// `GrabPanelKeys` method id.
+    pub const METHOD_GRABPANELKEYS: u32 = 45;
+    /// `PanelKey` method id.
+    pub const METHOD_PANELKEY: u32 = 46;
+    /// `TrayKeys` method id.
+    pub const METHOD_TRAYKEYS: u32 = 47;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -5223,6 +5229,61 @@ pub mod os_lazy_display_v1 {
                     out.h = field.as_u32()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: take the keyboard for the shell's panel menus (issue
+    /// #648; the start menu, its submenus, a tray menu, the tray). While
+    /// `grab` is set every key the compositor does not keep for itself
+    /// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
+    /// a `PanelKey` event instead of to the focused window, which keeps its
+    /// focus (no leave/enter); `inputd` holds the window's key content
+    /// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
+    /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
+    /// or under a client's keyboard grab or the trusted prompt, which win.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GrabPanelKeysArgs {
+        pub grab: bool,
+    }
+
+    pub fn encode_grab_panel_keys_args(value: &GrabPanelKeysArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.grab)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_grab_panel_keys_args(body: &[u8]) -> Result<GrabPanelKeysArgs, Error> {
+        let mut out = GrabPanelKeysArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.grab = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell event: a key went down while the shell holds the panel keys
+    /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PanelKeyArgs {
+        pub key: u32,
+    }
+
+    pub fn encode_panel_key_args(value: &PanelKeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.key)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_panel_key_args(body: &[u8]) -> Result<PanelKeyArgs, Error> {
+        let mut out = PanelKeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.key = field.as_u32()?;
             }
         }
         Ok(out)
@@ -8092,6 +8153,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_FORGETSURFACE: u32 = 12;
     /// `NoteInputDone` method id.
     pub const METHOD_NOTEINPUTDONE: u32 = 13;
+    /// `NoteKeysHeld` method id.
+    pub const METHOD_NOTEKEYSHELD: u32 = 14;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -8525,6 +8588,36 @@ pub mod os_lazy_input_shell_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.seq = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way: the shell's panel menu has the keyboard (`held`), or no
+    /// longer has it. Focus does not move, so the focused session sees no
+    /// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+    /// presses, repeats and text made while held never reach it, the release
+    /// of a key it saw go down before the hold is still delivered (nothing
+    /// sticks), a key pressed while held stays invisible to it until pressed
+    /// again, and its key-state page shows nothing held meanwhile
+    /// (`inputmap::hold`, issue #648).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteKeysHeldArgs {
+        pub held: bool,
+    }
+
+    pub fn encode_note_keys_held_args(value: &NoteKeysHeldArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.held)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_keys_held_args(body: &[u8]) -> Result<NoteKeysHeldArgs, Error> {
+        let mut out = NoteKeysHeldArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.held = field.as_bool()?;
             }
         }
         Ok(out)

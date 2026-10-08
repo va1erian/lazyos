@@ -74,6 +74,7 @@ impl Compositor {
             wire::METHOD_SETWORKAREA => self.set_work_area(message, body),
             wire::METHOD_SETICONGEOMETRY => self.set_icon_geometry(message, body),
             wire::METHOD_HINTLAUNCHORIGIN => self.hint_launch_origin(message, body),
+            wire::METHOD_GRABPANELKEYS => self.grab_panel_keys(message, body),
             _ => error_reply(message.method(), messenger::errno::EINVAL),
         }
     }
@@ -154,6 +155,7 @@ impl Compositor {
                 self.notify_focus();
             }
             self.notify_surface(id, wire::CHANGE_CREATED);
+            self.wm_mark("OPENED", id);
             // Open with a zoom out of the tile the app (or the shell) hinted
             // at, else out of the window's icon. The zoom runs from the main
             // loop (`opening.rs`), so this answers at once and the app builds
@@ -379,6 +381,7 @@ fn new_surface(
         buf_h: 0,
         hints: None,
         maximized: None,
+        snap: None,
         minimized: false,
         role,
         icon: None,

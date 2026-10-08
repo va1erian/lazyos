@@ -33,6 +33,8 @@ pub(super) struct InputLink {
     registered: BTreeSet<u64>,
     /// The focus `inputd` last heard (`None`: never told, or unsure).
     pub(super) told_focus: Option<Option<u64>>,
+    /// The key hold `inputd` last heard (`NoteKeysHeld`; `None`: never told).
+    pub(super) told_held: Option<bool>,
     /// The last failure logged, so a changing error is reported but retries
     /// of the same one stay quiet.
     reported: Option<Option<i64>>,
@@ -66,6 +68,7 @@ impl InputLink {
             next_try: 0,
             registered: BTreeSet::new(),
             told_focus: None,
+            told_held: None,
             reported: None,
             owns_pointer: false,
             buttons: 0,
@@ -121,6 +124,7 @@ impl Compositor {
                 self.input.link = Some(link);
                 self.input.registered.clear();
                 self.input.told_focus = None;
+                self.input.told_held = None;
                 self.input.press_unacked = false;
                 sys::write_str("xuid: attached to inputd\n");
                 self.register_chords();
@@ -148,8 +152,20 @@ impl Compositor {
     /// from session clients (the compositor still sees them on the kernel
     /// stream). Plain Escape stays with the client.
     fn register_chords(&mut self) {
-        // HID usages: Tab, F4, Escape; modifier bits from `inputmap::mods`.
-        const CHORDS: [(u32, u32); 4] = [(0x2B, 4), (0x2B, 2), (0x3D, 4), (0x29, 2)];
+        // HID usages: Tab, F4, Escape, B (Super+B, the tray, issue #648),
+        // the arrows (Super+arrows, issue #161); modifier bits from
+        // `inputmap::mods`.
+        const CHORDS: [(u32, u32); 9] = [
+            (0x2B, 4),
+            (0x2B, 2),
+            (0x3D, 4),
+            (0x29, 2),
+            (0x05, 8),
+            (0x4F, 8),
+            (0x50, 8),
+            (0x51, 8),
+            (0x52, 8),
+        ];
         let Some(link) = self.input.link.as_ref() else {
             return;
         };
@@ -301,6 +317,16 @@ impl Compositor {
         if self.input.told_focus != Some(focus) {
             match sent(link.note_focus(focus)) {
                 Some(true) => self.input.told_focus = Some(focus),
+                Some(false) => {}
+                None => return false,
+            }
+        }
+        // The shell's panel menu has the keys: `inputd` holds the focused
+        // window's key content without moving focus (`panelkeys.rs`).
+        let keys_held = self.panel_keys_active();
+        if self.input.told_held != Some(keys_held) {
+            match sent(link.note_keys_held(keys_held)) {
+                Some(true) => self.input.told_held = Some(keys_held),
                 Some(false) => {}
                 None => return false,
             }

@@ -44,8 +44,8 @@ pub fn irq_kernel_handler() -> Result<(), String> {
     let dev = add_device(Spec::nic(Some(LINE_B)))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
-    let handle = expect_ok(claim_irq(dev, endpoint, false), "claim")?;
+    let mut endpoint = 0u64;
+    let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
     expect_errno(
         sys(OP_IRQ_ENABLE, handle, 0, 0, 0),
         EBUSY,
@@ -98,9 +98,9 @@ pub fn irq_polling_fallback() -> Result<(), String> {
     let none = add_device(Spec::nic(Some(0xFF)))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
+    let mut endpoint = 0u64;
     expect_errno(
-        claim_irq(none, endpoint, false),
+        claim_irq(none, &mut endpoint, false),
         EPERM,
         "endpoint without an irq right",
     )?;
@@ -145,7 +145,6 @@ pub fn irq_dead_endpoint() -> Result<(), String> {
     let r = rig(LINE_A, false, true)?;
     enter(r.slot)?;
     channels::close_endpoint(r.endpoint).map_err(|e| e.message().to_string())?;
-    channels::close_endpoint(r.peer).map_err(|e| e.message().to_string())?;
     fire(LINE_A, 5);
     check!(
         r.flags()? == (false, false, false),
@@ -174,7 +173,7 @@ pub fn irq_queue_full_retry() -> Result<(), String> {
     let r = rig(LINE_A, false, true)?;
     enter(r.slot)?;
     let mut stuffed = 0;
-    while stuff_inbox(r.peer).is_ok() {
+    while stuff_inbox(r.endpoint).is_ok() {
         stuffed += 1;
         check!(stuffed <= 1024, "the inbox never filled");
     }

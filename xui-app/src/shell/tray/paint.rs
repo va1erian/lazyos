@@ -55,6 +55,10 @@ pub fn paint(canvas: &mut dyn Canvas, ctx: &Ctx, hover: Option<usize>, chevron: 
         } else if hover == Some(index) {
             canvas.fill_rect_rgba(area.shrink(s), highlight);
         }
+        // The keyboard's cell (Win+B) gets a focus ring.
+        if tray.keys.get() == Some(index) {
+            canvas.stroke_rect(area.shrink(s), color(palette.taskbar_entry_focus), s as f32);
+        }
         let icon = rect(icon_rect(cell.rect), s);
         let dir = tray.icons_dir(&entry.app);
         match tray

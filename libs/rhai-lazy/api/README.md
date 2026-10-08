@@ -242,6 +242,9 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
 | `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32)` | The screen in physical pixels and the desktop's integer UI scale |
 | `allow_popup(task, token, x, y, w, h)` | `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: let task `task` create one `Popup` surface with `token` |
+| `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
+| `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
+| `tray_keys()` | `TrayKeys() -> () oneway` | Shell event: Super+B (Win+B) went down: move the keyboard to the |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 
@@ -428,6 +431,7 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `note_surface(surface, owner)` | `NoteSurface(surface: U64, owner: U64) -> () oneway` | One-way `RegisterSurface` (see `NoteFocus`). |
 | `forget_surface(surface)` | `ForgetSurface(surface: U64) -> () oneway` | One-way `UnregisterSurface` (see `NoteFocus`). |
 | `note_input_done(seq)` | `NoteInputDone(seq: U64) -> () oneway` | One-way: the compositor has handled every `PointerEvent` up to `seq` |
+| `note_keys_held(held)` | `NoteKeysHeld(held: Bool) -> () oneway` | One-way: the shell's panel menu has the keyboard (`held`), or no |
 | `hotkey_fired(id)` | `HotkeyFired(id: U64) -> () oneway` | Shell event: a registered chord was pressed. |
 | `grant_requested(session, kind, surface)` | `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway` | Shell event: the client owning `surface` asked for a grab of `kind` |
 | `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It |

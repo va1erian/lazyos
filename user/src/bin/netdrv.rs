@@ -45,7 +45,7 @@ use core::panic::PanicInfo;
 
 use user::central;
 use user::messenger::net::{self as api, wire};
-use user::messenger::{self, errno, registry, services, Endpoint, Error as MsgError};
+use user::messenger::{self, registry, services, wait, Endpoint, Error as MsgError};
 use user::sys;
 use virtio_net::settings::Settings;
 
@@ -179,7 +179,7 @@ fn run(args: &Args) -> Result<(), Error> {
     }
     let fail = |error: MsgError| Error::Messenger(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
-    let mut card = Card::open(&server, &settings, row, kind)?;
+    let mut card = Card::open(&settings, row, kind)?;
     sys::write_str(&format!(
         "NETDRV:CARD model={} device={} mac={} link={} mtu={} rx_entries={} tx_entries={} irq={}\n",
         card.model,
@@ -231,13 +231,22 @@ fn selftest_and_report(card: &mut Card, server: &Endpoint) {
     }
 }
 
-/// Wait up to one tick on the service endpoint, handling an interrupt if that
-/// is what arrived. Used while no client can be calling yet (the self-test).
+/// Wait up to one tick for an interrupt and handle what arrived. Used while no
+/// client can be calling yet (the self-test).
 fn wait_event(card: &mut Card, server: &Endpoint) {
-    let mut buffer = [0u8; 256];
-    if let Ok(message) = server.recv_with(&mut buffer, Some(sys::clock() + 1)) {
-        if Card::is_interrupt(&message) {
-            card.handle_interrupt();
+    park_on(card, server, sys::clock() + 1);
+    card.drain_interrupts();
+}
+
+/// Park until the service endpoint or the card's interrupt channel has
+/// something, or `deadline` (ticks) passes.
+fn park_on(card: &Card, server: &Endpoint, deadline: u64) {
+    match card.irq_channel() {
+        Some(irq) => {
+            let _ = wait::wait_any(&[*server, irq], 0, Some(deadline));
+        }
+        None => {
+            let _ = wait::wait_any(&[*server], 0, Some(deadline));
         }
     }
 }
@@ -281,9 +290,11 @@ fn serve(
             (true, true) => DEMO_REAP_TICKS,
             (false, _) => poll_ticks,
         };
-        match server.recv_with(&mut buffer, Some(sys::clock() + park)) {
-            Ok(message) if Card::is_interrupt(&message) => service.card.handle_interrupt(),
-            Ok(message) => {
+        park_on(&service.card, server, sys::clock() + park);
+        service.card.drain_interrupts();
+        match server.poll_recv_with(&mut buffer) {
+            Ok(None) => {}
+            Ok(Some(message)) => {
                 let reply = service.dispatch(&message).unwrap_or_else(|error| {
                     services::error_reply(message.interface_id(), message.method(), error)
                 });
@@ -291,7 +302,6 @@ fn serve(
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }
             }
-            Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => {}
             Err(error) => return Err(fail(error)),
         }
         service.housekeeping()?;

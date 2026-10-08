@@ -159,11 +159,13 @@ fn build_call(world: &World, actor: usize, rng: &mut Rng) -> Call {
         }
         OP_CLAIM => {
             call.args[0] = device_arg(world, rng);
-            call.args[1] = match rng.below(4) {
-                0 | 1 => NO_ENDPOINT,
-                2 => me.endpoints[rng.below(me.endpoints.len())],
+            call.args[1] = match rng.below(6) {
+                0..=2 => NO_ENDPOINT,
+                3 => KERNEL_CHANNEL,
+                4 => me.endpoints[rng.below(me.endpoints.len())],
                 _ => edge_or_noise(rng),
             };
+            call.args[3] = pointer_arg(&mut call, 1, rng);
             call.args[2] = if rng.chance(70) {
                 rng.below(2) as u64
             } else {

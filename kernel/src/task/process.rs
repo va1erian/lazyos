@@ -202,6 +202,8 @@ pub(crate) fn after_finish(parent: usize) {
     super::close_exited_fds();
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
     crate::dev::silence_exited();
+    // A zombie holds no device claim (issue #496).
+    crate::dev::release_exited();
     // The child-exit event is both a `SIGCHLD` and a wait-queue notification:
     // the signal is recorded/queued (and wakes a handler-armed parent), while
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run

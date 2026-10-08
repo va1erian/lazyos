@@ -3,12 +3,12 @@
 //! exactly the one `devd` named (`dev=<id>`).
 //!
 //! Both cards go through the same `dev_*` ops: claim with an interrupt
-//! endpoint, the command register for decode and bus mastering, `map_bar`,
+//! channel, the command register for decode and bus mastering, `map_bar`,
 //! and `irq_enable` once the card is described. What differs lives in
 //! `virtio_device.rs`/`virtio_card.rs` and `hda_card.rs`.
 
 use user::dev::{self, Row};
-use user::messenger::{self, Endpoint};
+use user::messenger::Endpoint;
 use user::sys;
 use virtio::regs::{pci_device_id, PCI_VENDOR};
 use virtio_snd::DEVICE_TYPE;
@@ -67,18 +67,15 @@ pub(super) struct Claimed {
 }
 
 /// Claim `row` and switch on memory decode and bus mastering. Interrupts
-/// arrive as kernel messages in the inbox of the channel side named at claim
-/// time, and that same side is where the driver reads them; the other side
-/// stays open (unused) so the channel never reports a dead peer. If the
-/// kernel refuses the endpoint the claim is retried without one and the
-/// driver polls, which is always correct, just a tick slower. `shared` opts
-/// in to sharing the interrupt line.
+/// arrive as kernel messages on the channel the kernel makes for the claim
+/// (issue #496), where the driver reads them. If the kernel refuses it the
+/// claim is retried without one and the driver polls, which is always
+/// correct, just a tick slower. `shared` opts in to sharing the interrupt
+/// line.
 pub(super) fn claim(row: Row, shared: bool) -> Result<Claimed, Error> {
-    let (irq_side, _peer) =
-        messenger::create_pair().map_err(|_| Error::Messenger("irq channel"))?;
-    let (handle, pending) = match dev::claim(row.id, Some(irq_side.handle()), shared) {
-        Ok(handle) => (handle, Some(irq_side)),
-        Err(_) => (dev::claim(row.id, None, false).map_err(Error::Dev)?, None),
+    let (handle, pending) = match dev::claim_with_irq(row.id, shared) {
+        Ok((handle, channel)) => (handle, Some(Endpoint::from_raw(channel))),
+        Err(_) => (dev::claim(row.id).map_err(Error::Dev)?, None),
     };
     let command = dev::cfg_read(handle, COMMAND, 2).map_err(Error::Dev)?;
     dev::cfg_write(

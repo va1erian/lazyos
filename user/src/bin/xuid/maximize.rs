@@ -40,7 +40,9 @@ impl Compositor {
         let from = surface.window();
         let target = geometry::maximized_rect(self.work_area());
         if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
-            surface.maximized = Some(from);
+            // A snapped window maximizes keeping its normal rectangle.
+            let normal = surface.snap.take().map_or(from, |(_, rect)| rect);
+            surface.maximized = Some(normal);
         }
         // Hide the window for the animation, like `iconify`.
         self.set_minimized(id, true);
@@ -48,6 +50,7 @@ impl Compositor {
         self.apply_window(id, target);
         self.set_minimized(id, false);
         self.configure_and_notify(id, wire::WINDOW_STATE_MAXIMIZED, wire::CHANGE_MAXIMIZED);
+        self.wm_mark("MAXIMIZE", id);
         self.repaint_full();
     }
 
@@ -77,6 +80,7 @@ impl Compositor {
         self.apply_window(id, restore);
         self.set_minimized(id, false);
         self.configure_and_notify(id, wire::WINDOW_STATE_NORMAL, wire::CHANGE_UNMAXIMIZED);
+        self.wm_mark("RESTORE", id);
         self.repaint_full();
     }
 
@@ -102,10 +106,11 @@ impl Compositor {
                 self.configure_and_notify(id, wire::WINDOW_STATE_MAXIMIZED, wire::CHANGE_MAXIMIZED);
             }
         }
+        self.reflow_snapped();
     }
 
     /// Move and size surface `id` to the decorated window rectangle `rect`.
-    fn apply_window(&mut self, id: u64, rect: Rect) {
+    pub(super) fn apply_window(&mut self, id: u64, rect: Rect) {
         if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
             surface.x = rect.x;
             surface.y = rect.y;
@@ -116,7 +121,7 @@ impl Compositor {
 
     /// Send the surface's client a `Configure` with its current content size
     /// and `state`, then tell the shell `change`.
-    fn configure_and_notify(&mut self, id: u64, state: u32, change: u32) {
+    pub(super) fn configure_and_notify(&mut self, id: u64, state: u32, change: u32) {
         if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
             let (events, width, height) = (surface.events, surface.w, surface.h);
             self.send_configure(id, events, width, height, state);

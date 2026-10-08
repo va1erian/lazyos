@@ -92,7 +92,7 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
 ///
 /// Returns the channel endpoints that rode in the dropped messages (moved
 /// handles nobody received), for [`close_orphans`].
-fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
+pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
     let mut remove = false;
     let mut woken: Vec<usize> = Vec::new();
     let mut orphans: Vec<u64> = Vec::new();

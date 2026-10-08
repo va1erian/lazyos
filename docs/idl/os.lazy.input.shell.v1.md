@@ -31,6 +31,7 @@ refused (`EINVAL`).
 | NoteSurface | 11 | oneway | `(surface: U64, owner: U64) -> ()` |
 | ForgetSurface | 12 | oneway | `(surface: U64) -> ()` |
 | NoteInputDone | 13 | oneway | `(seq: U64) -> ()` |
+| NoteKeysHeld | 14 | oneway | `(held: Bool) -> ()` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
 | GrantRequested | 21 | oneway | `(session: U64, kind: U32, surface: U64) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |

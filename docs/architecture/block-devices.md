@@ -90,7 +90,11 @@ trait, a fixed registry with a selected boot device, and four drivers.
   no interrupts (`VRING_AVAIL_F_NO_INTERRUPT`). A killed waiter keeps waiting
   in naps until the device is done with its buffers. Every other caller
   (FAT, partition scans, boot-time mounts, the test suite's own task) passes
-  `Wait::Spin` and busy-waits as before, draining the i8042.
+  `Wait::Spin` and busy-waits, draining the i8042. A spin's deadline is
+  read from the TSC (`monotonic_ns` cannot pass one tick while interrupts
+  are off) and every 1024 spins is an `irq_window` poll point, so a device
+  that never answers costs its timeout, not minutes with the timer shut out
+  (issue #449, `block_sleep_spin_ends_by_deadline`).
 - Who may sleep: the ext2 adapter, while it holds its volume gate
   (`fs/ext2/volio.rs`). A gate holder holds the mount table (FS or ABI_FS) and
   the gate, all `task::relax::YieldMutex`es, and the library's lock and block

@@ -41,6 +41,9 @@ pub(super) struct Modifiers {
     pub(super) alt: bool,
     #[allow(dead_code)]
     pub(super) super_key: bool,
+    /// Super went down and no other key since: its release opens the start
+    /// menu (a chord such as Super+B does not).
+    pub(super) super_alone: bool,
 }
 
 /// The open Alt+Tab overlay: a snapshot of the window cycle and the current
@@ -180,6 +183,10 @@ impl Compositor {
         let Some(previous) = core::mem::replace(&mut self.shell, next) else {
             return;
         };
+        // The panel keys were the old shell's: a new one starts without.
+        if next_task != Some(previous.task) {
+            self.set_panel_keys(false);
+        }
         let _ = Endpoint::from_raw(previous.events).close();
         if next_task != Some(previous.task) && self.work.take().is_some() {
             self.reflow_maximized();
@@ -202,6 +209,7 @@ impl Compositor {
         restore(&mut self.surfaces, &mut self.focused, id);
         if was_minimized {
             self.notify_surface(id, wire::CHANGE_RESTORED);
+            self.wm_mark("UNMINIMIZE", id);
         }
         if self.focused != before {
             self.notify_focus();
@@ -236,6 +244,10 @@ impl Compositor {
                 self.alt_tab = Some(AltTab { order, selected });
             }
         }
+        if let Some(tab) = &self.alt_tab {
+            let id = tab.order.get(tab.selected).copied().unwrap_or(0);
+            self.wm_mark(&alloc::format!("ALTTAB n={}", tab.order.len()), id);
+        }
         self.repaint_full();
     }
 
@@ -249,6 +261,7 @@ impl Compositor {
             return;
         }
         self.restore_and_focus(id);
+        self.wm_mark("ALTTAB:COMMIT", id);
         self.repaint_full();
     }
 }

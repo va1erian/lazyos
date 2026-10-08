@@ -30,9 +30,12 @@ fn step(world: &mut World, fx: &Fixture, rng: &mut Rng, served: &mut u32) -> Res
             let device = rng.below(world.ids.len());
             // The bridge has no interrupt line to listen on.
             let listen = rng.chance(50) && world.role(device) != Role::Bridge;
-            let channel = if listen { Some(irq_channel()?) } else { None };
-            let endpoint = channel.map_or(NO_ENDPOINT, |(endpoint, _)| endpoint);
-            let got = claim_irq(world.ids[device], endpoint, listen && rng.chance(50));
+            let mut endpoint = 0u64;
+            let got = if listen {
+                claim_irq(world.ids[device], &mut endpoint, rng.chance(50))
+            } else {
+                claim_plain(world.ids[device])
+            };
             match world.owner[device] {
                 None => {
                     let handle = expect_ok(got, "claim of a free device")?;
@@ -43,11 +46,8 @@ fn step(world: &mut World, fx: &Fixture, rng: &mut Rng, served: &mut u32) -> Res
                     }
                 }
                 Some(_) => {
+                    // A refused claim makes no interrupt channel.
                     expect_errno(got, EBUSY, "claim of an owned device")?;
-                    if let Some((endpoint, peer)) = channel {
-                        let _ = channels::close_endpoint(endpoint);
-                        let _ = channels::close_endpoint(peer);
-                    }
                 }
             }
         }

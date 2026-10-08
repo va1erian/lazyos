@@ -126,6 +126,8 @@ mod maximize;
 mod opening;
 #[path = "xuid/origin.rs"]
 mod origin;
+#[path = "xuid/panelkeys.rs"]
+mod panelkeys;
 #[path = "xuid/pointer_feed.rs"]
 mod pointer_feed;
 #[path = "xuid/powerfeed.rs"]
@@ -175,6 +177,8 @@ mod title;
 mod wheel;
 #[path = "xuid/window.rs"]
 mod window;
+#[path = "xuid/wm.rs"]
+mod wm;
 
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
@@ -291,6 +295,7 @@ fn run() -> ! {
         cursor::selftest_cursor,
         shellcalls::selftest_shell_calls,
         prompt::selftest_prompt,
+        wm::selftest_wm,
     ] {
         sys::write_str(selftest());
     }

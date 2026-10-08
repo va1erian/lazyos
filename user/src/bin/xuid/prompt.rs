@@ -207,6 +207,8 @@ impl Compositor {
     /// (the prompt's own surface, when it reads its keys from `inputd`).
     pub(super) fn input_focus(&self) -> Option<u64> {
         if self.prompt.is_none() {
+            // A shell panel menu holding the keys does not move focus: the
+            // window keeps it, `inputd` holds its keys (`panelkeys.rs`).
             self.focused
         } else if self.prompt_keys_from_inputd() {
             Some(super::prompt_keys::PROMPT_SURFACE)

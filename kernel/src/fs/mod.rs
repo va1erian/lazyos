@@ -144,6 +144,11 @@ pub fn mount_flags(path: &str) -> MountFlags {
     with(|vfs| vfs.mount_flags(path)).unwrap_or_default()
 }
 
+/// Whether a task holds the native VFS right now (the NMI hang report).
+pub fn vfs_locked() -> bool {
+    FS.is_locked()
+}
+
 /// Run `f` against the global VFS, if it is mounted.
 fn with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     FS.lock().as_mut().map(|(vfs, _)| f(vfs))

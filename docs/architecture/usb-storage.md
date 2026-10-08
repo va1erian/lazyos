@@ -101,9 +101,12 @@ Nothing the provider does can hang or crash the kernel:
   `REMOVE` the disk (`USBD:MSC:GONE`); a re-plugged stick is a new `usb<n>`
   and is not remounted automatically.
 - The filesystem locks a requester holds while it waits (both mount tables,
-  each ext2 volume) are `task::relax::YieldMutex`es: a contender yields the
-  CPU and lets the timer tick in, instead of spinning with interrupts off
-  while the holder waits for `usbd`. The provider's own syscall path never
+  each ext2 volume) are `task::relax::YieldMutex`es: a contender parks for
+  200 µs at a time (`relax::PARK_NS`), instead of spinning with interrupts
+  off while the holder waits for `usbd`. It parks rather than yields because
+  classes are strict: a contender that only yielded stayed the best pick
+  whenever it outranked the holder, which then never ran to release the lock
+  (the `xuid` boot hang, issue #609). The provider's own syscall path never
   takes them. A context that holds the task table cannot park and its request
   fails; so does one with less than 14 KiB of kernel stack left
   (`relax::can_block`), since parking puts the scheduler's frames on top of

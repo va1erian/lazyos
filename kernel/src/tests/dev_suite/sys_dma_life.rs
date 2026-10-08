@@ -201,7 +201,8 @@ pub fn dma_busmaster_ordering() -> Result<(), String> {
     let events = order::events();
     check!(quiesce_before_free(&events), "death order {events:?}");
 
-    // (c) zombie exit: quiesce now, frames only at reap.
+    // (c) zombie exit: the claim is released at exit (issue #496), so the
+    // device is quiesced and then the frames go back, all before the reap.
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
     let handle = expect_ok(claim_plain(dev), "claim")?;
@@ -215,15 +216,19 @@ pub fn dma_busmaster_ordering() -> Result<(), String> {
         "the zombie did not quiesce: {zombie:?}"
     );
     check!(
-        !zombie.contains(&order::DMA_FREE),
-        "frames returned before the reap: {zombie:?}"
+        zombie.contains(&order::DMA_FREE) && quiesce_before_free(&zombie),
+        "the zombie's frames did not return after its quiesce: {zombie:?}"
     );
+    order::reset();
     check!(
         task::reap_child().map(|reaped| reaped.0) == Some(slot),
         "the zombie was not reaped"
     );
     let events = order::events();
-    check!(quiesce_before_free(&events), "zombie order {events:?}");
+    check!(
+        !events.contains(&order::DMA_FREE),
+        "the reap freed the zombie's frames a second time: {events:?}"
+    );
     Ok(())
 }
 

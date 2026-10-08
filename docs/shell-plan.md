@@ -187,6 +187,12 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
   XUI focus gap (a key with no pointer hit target reaches no widget, noted in
   #151) by routing to the focused widget. Menus and dialogs own focus within
   the shell.
+- The shell's panels (start menu, submenus, tray menus) never take focus;
+  while one is open LazyShell holds `GrabPanelKeys` and gets every key the
+  compositor does not keep as a `PanelKey` event, and Super+B (`TrayKeys`)
+  moves the keyboard to the tray (issue #648, `xuid/panelkeys.rs`,
+  `xui-app/src/shell/keys.rs`). Super alone opens the start menu on its
+  release, so chords can start with it.
 
 ## 9. Launch and supervision
 
@@ -212,7 +218,7 @@ Each stage ends with evidence in CI; sizes are rough (S/M/L).
 | S5.0 bring-up | #157 (LazyShell), #167 (display protocol, done), #158 (`init` `Launch`, done), #168 (xui client mode and focus routing, done) | `SHELL:DESKTOP`, `SHELL:LAUNCH`, `XUID:SHELL` | landed: LazyShell (desktop, taskbar, start menu) moved out of `xuid` (#157, PR #505); since #623 `logind` opens it in the user's login session (login screen or `LAZYOS_AUTOLOGIN`), with a "Log out..." row in the start menu |
 | S5.1 Files + start menu | #159 | `FILES:*` | largely landed: the Files app (PRs #383, #391) and LazyShell's start menu (PR #505) |
 | S5.2 session/Settings/themes | #160 | `THEME:*`, session-grant assertions | partly: Settings with live themes through `confd` (PRs #408, #502), per-user themes and an Accounts page; log out ends every task of the session ([`accounts-plan.md`](accounts-plan.md) U0-U2, PRs #645, #659); the session capability set is not done (`SESSION_CAPS` is empty) |
-| S5.3 polish + core apps | #161 (icons, notifications, window affordances), #162 (Editor, Terminal, Paint, Task Manager, Help) | `APP:*`, one session per affordance | core apps landed: Editor, Paint, Files (PR #383), Terminal, Task Manager (`sysmon`, Services tab in PR #500), Help as the Docs app (PR #402); notifications are not done |
+| S5.3 polish + core apps | #161 (icons, notifications, window affordances), #162 (Editor, Terminal, Paint, Task Manager, Help) | `APP:*`, one session per affordance | core apps landed: Editor, Paint, Files (PR #383), Terminal, Task Manager (`sysmon`, Services tab in PR #500), Help as the Docs app (PR #402); window affordances (#161): snap to a half (Super+Left/Right, or a title-bar drop on a screen edge), Super+Up/Down maximize/restore/minimize, `XUID:WM:*` markers for every window-manager action, the sessions `wm_snap.json`, `wm_alttab.json` and the generated create/close soak `wm_soak.json` (`tools/screenshot/wm_soak.py`); the keyboard reaches the start menu and tray menus (#648); notifications, the window menu, 16 px icons and a Files-to-Editor drag are not done |
 
 The split follows the task issues as filed (#159 Files, #160 session/themes,
 #161/#162 polish and apps), which is why Files precedes session/themes and apps
@@ -284,6 +290,7 @@ minimize-to-taskbar consistency, the Alt+Tab overlay, window menu); Editor,
 Terminal, Paint, Task Manager, and Help registered open-with; keyboard
 navigation/accessibility basics (focus order, scaling).
 **Depends on:** S5.0-S5.2; WM (#143); drag & drop (#145) for desktop/menu DnD.
+**Landed (#161, `user/src/bin/xuid/wm.rs`):** Super+Left/Right snap the focused window to half the work area and a title-bar drag released on the left or right screen edge does the same (on the top edge it maximizes); Super+Up maximizes, Super+Down restores a maximized or snapped window and minimizes a normal one. A snapped window keeps its normal rectangle and is re-fitted when the work area changes. Every action prints `XUID:WM:<what> id=<n> windows=<n> title=<t>` (`OPENED`, `CLOSED`, `SNAP side=`, `MAXIMIZE`, `RESTORE`, `MINIMIZE`, `UNMINIMIZE`, `ALTTAB n=`, `ALTTAB:COMMIT`), and the UI probe names each title bar (`UI:RECT ... name=title:<t>`) so a session drags a window by name.
 **Evidence:** one scripted session per affordance (Alt+Tab, snap,
 minimize/restore, a notification, a drag from Files into the editor, the
 platform-plan S5 acceptance) with screenshots and serial markers; repeated

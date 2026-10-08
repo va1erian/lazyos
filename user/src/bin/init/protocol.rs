@@ -13,9 +13,11 @@ use user::messenger::{self, router, services, Endpoint, Message, Parcel};
 use user::sys;
 
 use super::apps::app_infos;
+use super::apps::GREETER_APP_ID;
 use super::installed::InstalledApps;
 use super::launch::{actor, launch};
 use super::lifecycle::{self, Stops};
+use super::logout::Logouts;
 use super::sessions;
 use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
@@ -70,6 +72,8 @@ pub(super) struct Supervisor<'a> {
     pub(super) homes: &'a mut super::homes::HomeJobs,
     /// The `Stop`s waiting for their targets' exits.
     pub(super) stops: &'a mut Stops,
+    /// The sessions being logged out, waiting for their apps to quit.
+    pub(super) logouts: &'a mut Logouts,
 }
 
 /// Serve queued subscriptions and control calls without blocking.
@@ -168,15 +172,16 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
         installed,
         cache,
         shutdown,
+        logouts,
         ..
     } = state;
     match message.interface_id() {
         router::INTERFACE => {
             // `logind`'s login events also tell the launch path who owns
             // each session (see `sessions.rs`); a logout ends every task of
-            // the session (`logout.rs`, issue #623).
+            // the session (`logout.rs`, issues #623, #651).
             if let Some(ended) = sessions::observe(services, message) {
-                super::logout::end_session(services, broker, ended);
+                logouts.begin(services, broker, ended);
             }
             // `pkgd`'s provisioning progress, for the autostart.
             super::provisioning::observe(services, message);
@@ -225,6 +230,12 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
             }
             services::init::METHOD_LAUNCH => {
                 let request = services::decode_launch_request(&message.parcel)?;
+                // The login screen comes back once the ended session's apps
+                // are gone (or their grace ran out): `logind` retries.
+                if request.app == GREETER_APP_ID && logouts.holds_greeter() {
+                    sys::write_str("INIT:LOGOUT:GREETER:HELD\n");
+                    return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
+                }
                 let caller = actor(message)?;
                 match launch(services, broker, installed, &request, &caller, false) {
                     Ok(result) => services::launch_reply(&result),

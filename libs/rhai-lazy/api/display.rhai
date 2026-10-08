@@ -474,6 +474,41 @@ fn allow_popup(task, token, x, y, w, h) {
     msg::connect("os.lazy.display.v1").invoke("AllowPopup", [task, token, x, y, w, h])
 }
 
+/// `GrabPanelKeys(grab: Bool) -> ()`
+///
+/// Shell-only: take the keyboard for the shell's panel menus (issue
+/// #648; the start menu, its submenus, a tray menu, the tray). While
+/// `grab` is set every key the compositor does not keep for itself
+/// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
+/// a `PanelKey` event instead of to the focused window, which keeps its
+/// focus (no leave/enter); `inputd` holds the window's key content
+/// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
+/// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
+/// or under a client's keyboard grab or the trusted prompt, which win.
+fn grab_panel_keys(grab) {
+    msg::connect("os.lazy.display.v1").invoke("GrabPanelKeys", [grab])
+}
+
+/// `PanelKey(key: U32) -> () oneway`
+///
+/// Shell event: a key went down while the shell holds the panel keys
+/// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
+///
+/// One-way: returns `()` once the message is queued.
+fn panel_key(key) {
+    msg::connect("os.lazy.display.v1").invoke("PanelKey", [key])
+}
+
+/// `TrayKeys() -> () oneway`
+///
+/// Shell event: Super+B (Win+B) went down: move the keyboard to the
+/// tray. Super pressed and released alone still sends `StartMenu`.
+///
+/// One-way: returns `()` once the message is queued.
+fn tray_keys() {
+    msg::connect("os.lazy.display.v1").invoke("TrayKeys", [])
+}
+
 // Not callable from a script (the request transfers a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 

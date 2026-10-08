@@ -146,7 +146,7 @@ user wrappers are `user/src/dev.rs`.
 | Op | Effect | Checks |
 |---|---|---|
 | `list(buf, rows)` | copy device rows (ids, class, BAR sizes/kinds, `owned`, `generation`; never physical BAR bases) | `CAP_DEV_CLAIM` (devd), `os.kernel.dev` `list` |
-| `claim(id, irq_endpoint, flags)` | returns a `Device` handle; sets owner; `flags` bit 0 opts in to a shared interrupt line | `CAP_DEV_CLAIM`; `authorize(actor, "os.kernel.dev.<class>", claim)` with the resolved device class (§3.5), rights per the grant rule (§2 D3), device unowned, `DeviceClaims` quota |
+| `claim(id, NO_ENDPOINT \| KERNEL_CHANNEL, flags, out)` | returns a `Device` handle; sets owner; `flags` bit 0 opts in to a shared interrupt line; with `KERNEL_CHANNEL` the kernel makes the interrupt channel and writes its receive-only handle to `*out` (#496) | `CAP_DEV_CLAIM`; `authorize(actor, "os.kernel.dev.<class>", claim)` with the resolved device class (§3.5), rights per the grant rule (§2 D3), device unowned, `DeviceClaims` quota |
 | `map_bar(dev, bar)` | maps a memory BAR uncached, no-exec, into the caller's private user range | handle right `MMIO`; BAR at least a page, at most 64 MiB, not overlapping RAM; charged to `UserMemory` by uid |
 | `pio(dev, bar, off, width\|write\|val)` | port in/out inside the device's I/O BAR only | handle right `PIO`; offset+width < len; never below port 0x100 or in 0xCF8-0xCFF |
 | `cfg_read/cfg_write(dev, off, width, val)` | PCI config; the only writable register is the command register, masked | right `CONFIG`; bus-master needs `DMA`; no BAR programming |

@@ -213,6 +213,8 @@ fn run() -> messenger::Result<()> {
     let mut residents = residents::Residents::new();
     // The `Stop`s answered once their targets have exited.
     let mut stops = lifecycle::Stops::new(server);
+    // The sessions being logged out, waiting for their apps to quit.
+    let mut logouts = logout::Logouts::default();
     // Set by a `Shutdown` request; from then on nothing starts or restarts and
     // the loop steps the shutdown instead (docs/shutdown.md).
     let mut shutdown: Option<shutdown::Shutdown> = None;
@@ -267,7 +269,13 @@ fn run() -> messenger::Result<()> {
             Some(running) if stepped => running.next_deadline(&services),
             // The first step runs right after the pause above.
             Some(_) => Some(messenger::EXPIRED_DEADLINE),
-            None => next_wake(&services, &selftest, &autostart, now),
+            None => [
+                next_wake(&services, &selftest, &autostart, now),
+                logouts.next_deadline(),
+            ]
+            .into_iter()
+            .flatten()
+            .min(),
         };
         let ready = match wait::wait_any(&[server, app_server], wait::WAIT_CHILD, deadline) {
             Ok(ready) => ready,
@@ -286,6 +294,7 @@ fn run() -> messenger::Result<()> {
                 shutdown: &mut shutdown,
                 homes: &mut homes,
                 stops: &mut stops,
+                logouts: &mut logouts,
             },
             &server,
             &mut buffer,
@@ -309,6 +318,9 @@ fn run() -> messenger::Result<()> {
                 }
             }
         }
+        // A logout whose apps are gone, or whose grace ran out, sweeps the
+        // rest of its session.
+        logouts.step(&services, sys::clock());
         if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
             stepped = true;
