@@ -233,6 +233,11 @@ impl ExplorerWindow {
         Rc::clone(&self.chrome.details)
     }
 
+    /// The sort menu's popup node, so a test can see whether it is shown.
+    pub fn sort_menu_popup(&self) -> Option<xui_core::backend::WidgetId> {
+        self.sort_menu.popup_id(0)
+    }
+
     /// The address bar, shared so a test can type into it.
     pub fn address_handle(&self) -> Rc<Edit<Msg>> {
         Rc::clone(&self.chrome.address)
@@ -297,7 +302,16 @@ impl App for ExplorerWindow {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        // xui's in-window menus close only on a choice or Escape, so any
+        // other interaction that reaches the window dismisses them.
+        let sort_was_open = self.sort_menu.is_open();
+        if !matches!(msg, Msg::Menu(_) | Msg::SortChosen(_)) {
+            self.menu.close();
+            self.sort_menu.close();
+        }
         match msg {
+            // A second click on Sort closes its menu.
+            Msg::SortMenu if sort_was_open => {}
             Msg::Selection => {
                 // The view's own move for the arrow of an Alt+arrow shortcut
                 // just handled: keep the selection the navigation made.
