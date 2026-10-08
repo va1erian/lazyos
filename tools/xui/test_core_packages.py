@@ -159,12 +159,13 @@ class CorePackageTests(unittest.TestCase):
 
     def test_the_image_build_lists_the_same_core_apps(self) -> None:
         # `build_support/core_packages.rs` `is_core_stem` mirrors CORE_APPS
-        # (minus the LazyRAD IDE, which `lazyrad_embed` adds).
+        # (minus the LazyRAD IDE and the Picture Viewer, LazyRAD programs that
+        # `xui_embed` adds on their own switches).
         source = (core_packages.ROOT / "build_support" / "core_packages.rs").read_text(encoding="utf-8")
         block = re.search(r"const CORE: &\[&str\] = &\[(.*?)\];", source, re.S)
         self.assertIsNotNone(block)
         stems = set(re.findall(r'"([a-z]+)"', block.group(1)))
-        self.assertEqual(stems, set(core_packages.CORE_APPS) - {"lazyrad"})
+        self.assertEqual(stems, set(core_packages.CORE_APPS) - {"lazyrad", "pictures"})
 
     def test_the_package_carries_both_programs(self) -> None:
         import zipfile
@@ -173,6 +174,34 @@ class CorePackageTests(unittest.TestCase):
             names = set(zf.namelist())
             self.assertLessEqual({"bin/lazyrad.elf", "bin/lrplay.elf", "manifest.toml"}, names)
             self.assertNotEqual(zf.read("bin/lazyrad.elf"), zf.read("bin/lrplay.elf"))
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_the_picture_viewer_is_a_lazyrad_project_with_sample_pictures(self) -> None:
+        import zipfile
+        app = core_packages.CORE_APPS["pictures"]
+        self.assertTrue(app.optional, "shipped only by LAZYOS_PICTURES=1 images")
+        archive = next(p for p in self.build("pv") if p.name.startswith("os.lazy.pictures-"))
+        with zipfile.ZipFile(archive) as zf:
+            names = set(zf.namelist())
+            project = core_packages.PROJECT_DIR
+            self.assertLessEqual({"bin/pictures.elf", f"{project}/Pictures.lrp",
+                                  f"{project}/main_form.lfm", f"{project}/main_form.rhai",
+                                  f"{project}/paths.rhai", f"{project}/samples/Aurora.jpg"},
+                                 names)
+            manifest = tomllib.loads(zf.read("manifest.toml").decode())
+        self.assertEqual(manifest["app"]["category"], "graphics")
+        opened = {mime["type"] for mime in manifest["mime"] if "open" in mime["verbs"]}
+        self.assertEqual(opened, {"image/png", "image/jpeg", "image/bmp", "image/gif"})
+        for mime in manifest["mime"]:
+            self.assertNotIn("edit", mime["verbs"], "Edit stays with Paint")
+        self.assertIn("os.lazy.mimed.v1", manifest["permissions"]["interfaces"])
+
+    def test_a_project_file_glob_that_matches_nothing_is_an_error(self) -> None:
+        app = core_packages.CoreApp({"lrplay.elf": "bin/lrplay.elf"}, build_dir="lazyrad",
+                                    project="lazyrad-os/samples/pictures",
+                                    project_files=(("assets/no-such/*.jpg", "samples"),))
+        with self.assertRaises(core_packages.CoreError):
+            core_packages.copy_project(app, self.dir / "tree")
 
     def test_the_manifest_takes_the_workspace_version_and_the_autostart_flag(self) -> None:
         text = 'version = "0.1.0"\nautostart = false\n'

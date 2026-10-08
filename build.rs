@@ -33,6 +33,8 @@ mod hosts_embed;
 mod lazyrad_embed;
 #[path = "build_support/lazyweb_embed.rs"]
 mod lazyweb_embed;
+#[path = "build_support/pictures_embed.rs"]
+mod pictures_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]
@@ -376,6 +378,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/pictures_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
     // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in

@@ -1,0 +1,57 @@
+# Picture Viewer: a core LazyOS app written in LazyRAD
+# (docs/lazyrad-pictures.md), packaged by `tools/xui/core_packages.py`.
+#
+# Neither `bin/pictures.elf` (the LazyRAD player `lrplay.elf`, built by
+# `tools/lazyrad/build.py`) nor `resources/project/` (the project in
+# `lazyrad-os/samples/pictures`, with the wallpapers as its sample pictures)
+# is checked in here: the build copies them into a scratch copy of this tree,
+# the layout File -> Make LazyOS App gives every LazyRAD app. `version` is
+# replaced by the workspace version and `autostart` is set from
+# `LAZYOS_XUI_AUTOSTART`. Only `LAZYOS_PICTURES=1` images ship it.
+
+[app]
+name = "Picture Viewer"
+system_name = "os.lazy.pictures"
+author = "LazyOS"
+version = "0.1.0"
+description = "View pictures: page through a folder, zoom, rotate and run a slide show"
+category = "graphics"
+
+[entry]
+binary = "bin/pictures.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+# The player runs `resources/project` beside it by default; `init` appends
+# the picture to open, which the player hands the script as `app.documents`.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+# Double-clicking a picture in Files opens it here; `edit` stays with Paint.
+# `mimed` maps the extensions (a manifest cannot name them).
+[[mime]]
+type = "image/png"
+verbs = ["open", "view"]
+
+[[mime]]
+type = "image/jpeg"
+verbs = ["open", "view"]
+
+[[mime]]
+type = "image/bmp"
+verbs = ["open", "view"]
+
+[[mime]]
+type = "image/gif"
+verbs = ["open", "view"]
+
+[permissions]
+# The display and keyboard every LazyRAD player needs, and `mimed` for Edit
+# (the scripts' `sys::mimed::open`, found by `LazyOsPlatform::script_
+# permissions`, lazyrad-os/tests/pictures.rs). Confirmed by a run under
+# `LAZYOS_LABEL_TRACE=1` (docs/packages.md, core packages).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.mimed.v1",
+]

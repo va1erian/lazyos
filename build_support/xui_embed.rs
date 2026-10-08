@@ -292,9 +292,9 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         );
         sink.add_file(&destination, app);
     }
-    // The LazyRAD IDE and LazyWeb are core packages shipped only on request
-    // (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`); asking for one without having
-    // built it is an error.
+    // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
+    // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
+    // `LAZYOS_PICTURES=1`); asking for one without having built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
     println!("cargo:rerun-if-changed={}", lazyweb_elf.display());
     let requested = [
@@ -311,6 +311,11 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazyweb_embed::enabled(desktop),
             crate::lazyweb_embed::PACKAGE_SHORT,
             crate::lazyweb_embed::not_built(lazyweb_elf.is_file()),
+        ),
+        (
+            crate::pictures_embed::enabled(desktop),
+            crate::pictures_embed::PACKAGE_SHORT,
+            crate::pictures_embed::not_built(),
         ),
     ];
     for (wanted, short, missing) in requested {

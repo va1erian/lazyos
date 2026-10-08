@@ -5554,7 +5554,7 @@ dependencies = [
 [[package]]
 name = "xui-blitz"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=6d7bb7ca98073df049b41092dc5953570ab8dc7e#6d7bb7ca98073df049b41092dc5953570ab8dc7e"
+source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -5585,7 +5585,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=6d7bb7ca98073df049b41092dc5953570ab8dc7e#6d7bb7ca98073df049b41092dc5953570ab8dc7e"
+source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -5616,7 +5616,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=6d7bb7ca98073df049b41092dc5953570ab8dc7e#6d7bb7ca98073df049b41092dc5953570ab8dc7e"
+source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -5647,7 +5647,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=6d7bb7ca98073df049b41092dc5953570ab8dc7e#6d7bb7ca98073df049b41092dc5953570ab8dc7e"
+source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
 dependencies = [
  "xui-core",
 ]
@@ -5692,7 +5692,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=6d7bb7ca98073df049b41092dc5953570ab8dc7e#6d7bb7ca98073df049b41092dc5953570ab8dc7e"
+source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
 dependencies = [
  "serde",
  "serde_json",

@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls",
-                 "lazyweb", "mail", "traydemo", "autologin", "setup")
+                 "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -22,7 +22,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                      devices_var, doom_var, modplayer_var, net_var, on_start,
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
-                     autologin_var=None, setup_var=None) -> None:
+                     autologin_var=None, setup_var=None, pictures_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -37,7 +37,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     with HTTPS); ``traydemo_var`` the tray sample app (Desktop);
     ``autologin_var`` skips the Desktop's login screen (logs in ``user``,
     issue #623); ``setup_var`` starts it with no account, the login screen
-    asking for the owner (docs/accounts-plan.md U1); ``on_start`` runs the plan.
+    asking for the owner (docs/accounts-plan.md U1); ``pictures_var`` the
+    Picture Viewer (Desktop); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -88,6 +89,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(apps, text="Mail: esMail, an IMAP/SMTP client over TLS (builds it; "
                                    "turns HTTPS and networking on)",
                         variable=mail_var).pack(anchor="w", padx=8, pady=4)
+    if pictures_var is not None:
+        ttk.Checkbutton(apps, text="Picture Viewer: open PNG, JPEG, BMP and GIF pictures, "
+                                   "like Windows XP's (a LazyRAD app)",
+                        variable=pictures_var).pack(anchor="w", padx=8, pady=4)
     if traydemo_var is not None:
         ttk.Checkbutton(apps, text="Tray demo: a sample app with a taskbar tray icon "
                                    "(docs/tray-plan.md)",

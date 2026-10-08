@@ -95,6 +95,7 @@ SCRIPTS = [
     ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
+    ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",

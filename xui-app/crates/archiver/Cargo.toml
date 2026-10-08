@@ -12,9 +12,9 @@ publish = false
 description = "Archiver, a 7-Zip-style archive manager for xui"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93" }
 lazyarc = { path = "../archive" }
 
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93", default-features = false }

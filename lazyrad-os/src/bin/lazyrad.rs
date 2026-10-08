@@ -40,7 +40,8 @@ const PLAY_DEV: &str = "--play-dev";
 /// file means its folder; a relative path is taken from the working directory.
 fn project_to_open() -> Result<Option<PathBuf>, String> {
     let args = std::env::args_os().skip(1).filter(|arg| arg != PLAY_DEV);
-    let parsed = args::parse_player(args).map_err(|e| e.to_string())?;
+    // The IDE opens projects only: every positional path is one.
+    let parsed = args::parse_player(args, |_| true).map_err(|e| e.to_string())?;
     let Some(path) = parsed.project else {
         return Ok(None);
     };

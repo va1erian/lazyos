@@ -1,6 +1,7 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail), run before `cargo build`,
-and the switches of the desktop apps that need no step of their own (the tray demo).
+player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail),
+run before `cargo build`, and the switches of the opt-in desktop apps (the tray demo, the
+Picture Viewer).
 `catalog` re-exports them; they live apart to keep it small."""
 
 from __future__ import annotations
@@ -11,8 +12,9 @@ PY = sys.executable
 
 
 def lazyrad_step(cfg: dict) -> list[dict]:
-    """The step that builds LazyRAD's static-musl ELFs, when the image embeds them."""
-    if not cfg.get("lazyrad") and not cfg.get("modplayer"):
+    """The step that builds LazyRAD's static-musl ELFs, when the image embeds them
+    (the Picture Viewer runs on the player, `lrplay`)."""
+    if not cfg.get("lazyrad") and not cfg.get("modplayer") and not wants_pictures(cfg):
         return []
     return [{"label": "Build LazyRAD (static musl)",
              "argv": [PY, "tools/lazyrad/build.py"]}]
@@ -88,15 +90,25 @@ def wants_traydemo(cfg: dict) -> bool:
     return bool(cfg.get("traydemo") and cfg.get("desktop"))
 
 
+def wants_pictures(cfg: dict) -> bool:
+    """The Picture Viewer (docs/lazyrad-pictures.md) is a desktop app; its build
+    step is LazyRAD's (`lazyrad_step`), which packages it with the others."""
+    return bool(cfg.get("pictures") and cfg.get("desktop"))
+
+
 def desktop_app_env(cfg: dict) -> dict[str, str]:
-    """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`."""
-    return mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
+    """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
+    `LAZYOS_PICTURES`."""
+    return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
+            | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail` and `--traydemo`, which set those switches themselves."""
-    wanted = wants_traydemo(cfg) and not cfg.get("skip_build")
-    return mail_argv(cfg) + (["--traydemo"] if wanted else [])
+    """run_demo's `--mail`, `--traydemo` and `--pictures`, which set those
+    switches themselves."""
+    building = not cfg.get("skip_build")
+    return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
+            + (["--pictures"] if wants_pictures(cfg) and building else []))
 
 
 def app_steps(cfg: dict) -> list[dict]:

@@ -87,6 +87,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/pdf",
         Art::Lucide(Lucide::FileText, Tone::Rose),
     ),
+    // The Picture Viewer (docs/lazyrad-pictures.md): Lucide `image` on a teal
+    // tile; the Global Village picture is Paint's.
+    (
+        "xui-app/packages/pictures",
+        Art::Lucide(Lucide::Image, Tone::Teal),
+    ),
     // Tray Demo: Lucide `star` on an amber tile, unlike the `zap` outline it
     // puts in the tray, so a fallback to the package icon is visible.
     (

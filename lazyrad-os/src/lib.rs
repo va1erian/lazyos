@@ -9,6 +9,8 @@
 //!   over, parsed without trusting it;
 //! * [`platform`]: the [`lazyrad_runtime::platform::Platform`] LazyOS installs
 //!   (config directory, script file sandbox, where the player lives);
+//! * [`policy`]: that sandbox's rules (private data, the project and the
+//!   documents the player was started to open);
 //! * [`launcher`]: starting the player from the IDE with pipes polled on the UI
 //!   thread (LazyOS threads cannot share descriptors);
 //! * [`devplay`]: Play under the project's own permissions when the IDE is a
@@ -39,6 +41,7 @@ pub mod messenger;
 pub mod migrate;
 pub mod platform;
 pub mod playdev;
+pub mod policy;
 pub mod probe;
 pub mod tracker;
 pub mod transport;

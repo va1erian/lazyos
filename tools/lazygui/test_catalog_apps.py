@@ -356,6 +356,48 @@ class TrayDemoTests(unittest.TestCase):
             self.assertNotIn("os.lazy.traydemo", script.read())
 
 
+
+class PictureViewerTests(unittest.TestCase):
+    """The Picture Viewer (LAZYOS_PICTURES=1, docs/lazyrad-pictures.md) from the
+    Simple tab, the Advanced tab and run_demo, with the player built first."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_ships_it_on_the_desktop_only(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "pictures": True})
+        self.assertEqual(env["LAZYOS_PICTURES"], "1")
+        self.assertNotIn("LAZYOS_PICTURES", catalog.build_env({**self.base(), "desktop": True}))
+        self.assertNotIn("LAZYOS_PICTURES", catalog.build_env({**self.base(), "pictures": True}))
+
+    def test_simple_desktop_gets_it_and_cli_does_not(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", pictures=True)
+        self.assertTrue(cfg["pictures"])
+        self.assertEqual(catalog.build_env({**self.base(), **cfg})["LAZYOS_PICTURES"], "1")
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", pictures=True)["pictures"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["pictures"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=False))
+        self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=False, skip_build=False))
+        self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=True))
+
+    def test_a_plain_build_builds_the_player_first(self) -> None:
+        steps = catalog.app_steps({"pictures": True, "desktop": True})
+        self.assertEqual([step["argv"][1:] for step in steps], [["tools/lazyrad/build.py"]])
+        self.assertEqual(catalog.app_steps({"pictures": True}), [], "a CLI image has no viewer")
+        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True})
+        self.assertEqual(len(both), 1, "one LazyRAD build serves both")
+
+    def test_the_session_asks_for_the_viewer_and_the_ui_probe(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        cfg = {**self.base(), "mode": "Scripted session", "desktop": True,
+               "xui_autostart": "term", "script": index["lazyrad_pictures.json"]}
+        env = catalog.build_env(cfg)
+        self.assertEqual((env["LAZYOS_PICTURES"], env["LAZYOS_UI_PROBE"]), ("1", "1"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

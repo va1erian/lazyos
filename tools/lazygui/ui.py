@@ -104,9 +104,7 @@ class Launcher:
             # Mail speaks TLS: its switch brings the HTTPS stack and the card.
             "tls": self.v["tls"].get() or self.v["mail"].get(),
             "journal": self.v["journal"].get(),
-            "lazyweb": self.v["lazyweb"].get(),
-            "mail": self.v["mail"].get(),
-            "traydemo": self.v["traydemo"].get(),
+            **{app: self.v[app].get() for app in ("lazyweb", "mail", "traydemo", "pictures")},
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -135,7 +133,7 @@ class Launcher:
                          v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
                          v["simple_linuxapps"], v["simple_hidpi"], v["simple_tls"],
                          v["simple_lazyweb"], v["simple_mail"], v["simple_traydemo"],
-                         v["simple_autologin"], v["simple_setup"])
+                         v["simple_autologin"], v["simple_setup"], v["simple_pictures"])
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -163,6 +161,7 @@ class Launcher:
                     "modplayer")
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
+        self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
@@ -344,7 +343,8 @@ class Launcher:
         self.v["msgctl"].set(False)
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
-        self.v["traydemo"].set("LAZYOS_TRAYDEMO" in SCRIPT_ENV.get(match[0][0], {}))
+        for app, switch in (("traydemo", "LAZYOS_TRAYDEMO"), ("pictures", "LAZYOS_PICTURES")):
+            self.v[app].set(switch in SCRIPT_ENV.get(match[0][0], {}))
         self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()
 
