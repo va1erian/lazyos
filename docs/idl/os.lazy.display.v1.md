@@ -82,6 +82,9 @@ fields, which never use that id.
 | Dismiss | 42 | oneway | `() -> ()` |
 | GetOutput | 43 | sync | `() -> (width: U32, height: U32, scale: U32)` |
 | AllowPopup | 44 | sync | `(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
+| GrabPanelKeys | 45 | sync | `(grab: Bool) -> ()` |
+| PanelKey | 46 | oneway | `(key: U32) -> ()` |
+| TrayKeys | 47 | oneway | `() -> ()` |
 
 ## Transfers
 

@@ -468,9 +468,17 @@ checks; no `LABEL:DENY` under the trace.
 ### T2 - Menus (S)
 Declarative menus rendered by the shell (checks, radios, separators, one
 submenu level), the unremovable Quit row (stopping through `init.Stop` as
-it is until T3 adds `Quit`). Keyboard navigation is deferred to issue #648:
-shell panels never take keyboard focus, so it needs a shell-wide key route
-shared with the start menu, which has the same gap.
+it is until T3 adds `Quit`). Keyboard navigation landed with issue #648:
+shell panels never take keyboard focus, so while a panel menu (or the tray,
+reached with **Win+B**) is open LazyShell holds the compositor's panel-key
+grab (`GrabPanelKeys`, `PanelKey` and `TrayKeys` in `os.lazy.display.v1`)
+and drives the rows with the host-tested `lazyshell::keynav` rules:
+Up/Down (skipping separators and disabled rows), Right/Enter into a
+submenu, Left/Escape out of one, Enter to pick. On the tray Left/Right move
+between cells, Enter activates, Up/Down or Shift+F10 open the menu.
+`shell_keys.json` drives the start menu and a tray menu with keys only, in
+both themes (`SHELL:MENU:KEY:*`, `SHELL:SUBMENU:KEY:*`,
+`SHELL:TRAY:MENU:KEY:*`, `SHELL:TRAY:KEYS`).
 **Evidence:** `tray_menu.json`: open by right click, toggle a check
 (`TRAYDEMO:MENU:<id>:<checked>`), Quit stops the app, item gone; light and
 dark theme screenshots.

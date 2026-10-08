@@ -78,6 +78,11 @@ pub struct Ctx {
     pub submenu: RefCell<Option<Submenu>>,
     pub submenu_hover: Cell<Option<usize>>,
     pub submenu_window: RefCell<Option<WindowHandle<SubMsg>>>,
+    /// The keyboard moved into the open submenu (Right or Enter on its
+    /// category row): keys go there, not to the start menu (`keys.rs`).
+    pub keys_in_submenu: Cell<bool>,
+    /// Whether this shell holds the compositor's panel-key grab.
+    pub panel_grab: Cell<bool>,
     /// `init`'s app failures for this session, the notice on screen, its
     /// window, and the failures waiting behind it (issue #549).
     pub failures: RefCell<FailureFeed>,
@@ -123,6 +128,8 @@ impl Ctx {
             submenu: RefCell::new(None),
             submenu_hover: Cell::new(None),
             submenu_window: RefCell::new(None),
+            keys_in_submenu: Cell::new(false),
+            panel_grab: Cell::new(false),
             failures: RefCell::new(FailureFeed::new(session)),
             notice: RefCell::new(None),
             notice_window: RefCell::new(None),

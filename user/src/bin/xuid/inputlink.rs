@@ -148,8 +148,9 @@ impl Compositor {
     /// from session clients (the compositor still sees them on the kernel
     /// stream). Plain Escape stays with the client.
     fn register_chords(&mut self) {
-        // HID usages: Tab, F4, Escape; modifier bits from `inputmap::mods`.
-        const CHORDS: [(u32, u32); 4] = [(0x2B, 4), (0x2B, 2), (0x3D, 4), (0x29, 2)];
+        // HID usages: Tab, F4, Escape, B (Super+B, the tray, issue #648);
+        // modifier bits from `inputmap::mods`.
+        const CHORDS: [(u32, u32); 5] = [(0x2B, 4), (0x2B, 2), (0x3D, 4), (0x29, 2), (0x05, 8)];
         let Some(link) = self.input.link.as_ref() else {
             return;
         };
@@ -308,7 +309,9 @@ impl Compositor {
         // A press is handled once nothing read is still held (an animation
         // frame holds input), and its focus is noted just above: only then
         // may `inputd` let the keys typed after it go.
-        let settled = self.held.is_empty() && self.input.told_focus == Some(self.focused);
+        // (Under the shell's panel keys, `inputd` was told no window.)
+        let target = self.focused.filter(|_| !self.panel_keys_active());
+        let settled = self.held.is_empty() && self.input.told_focus == Some(target);
         if self.input.press_unacked && settled {
             match sent(link.note_input_done(self.input.polled.0)) {
                 Some(true) => self.input.press_unacked = false,

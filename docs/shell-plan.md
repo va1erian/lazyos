@@ -187,6 +187,12 @@ The shell owns no device grants; it is one more policy-checked Messenger client.
   XUI focus gap (a key with no pointer hit target reaches no widget, noted in
   #151) by routing to the focused widget. Menus and dialogs own focus within
   the shell.
+- The shell's panels (start menu, submenus, tray menus) never take focus;
+  while one is open LazyShell holds `GrabPanelKeys` and gets every key the
+  compositor does not keep as a `PanelKey` event, and Super+B (`TrayKeys`)
+  moves the keyboard to the tray (issue #648, `xuid/panelkeys.rs`,
+  `xui-app/src/shell/keys.rs`). Super alone opens the start menu on its
+  release, so chords can start with it.
 
 ## 9. Launch and supervision
 

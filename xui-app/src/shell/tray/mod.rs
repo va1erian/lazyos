@@ -88,6 +88,9 @@ pub struct TrayState {
     pub tooltip: RefCell<Option<tooltip::Open>>,
     /// The open menu panels: the top level, then at most one submenu.
     pub menus: RefCell<Vec<menu::Panel>>,
+    /// The cell the keyboard is on (Win+B, issue #648); `None` when the
+    /// tray does not have the keyboard.
+    pub keys: Cell<Option<usize>>,
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
     probed: RefCell<Vec<(String, Rect)>>,
@@ -107,6 +110,7 @@ impl TrayState {
             hover: RefCell::new(None),
             tooltip: RefCell::new(None),
             menus: RefCell::new(Vec::new()),
+            keys: Cell::new(None),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
         }

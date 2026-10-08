@@ -9,11 +9,17 @@
 //! press inside it is not one. Like the start menu it is created on demand and
 //! destroyed when it closes.
 //!
-//! Serial markers: `SHELL:SUBMENU:OPEN category=<id> apps=<n>` and
-//! `SHELL:SUBMENU:CLOSE`.
+//! From the keyboard (issue #648, `super::keys`), Right or Enter on a
+//! category row opens its submenu with the first app lit and moves the keys
+//! into it; Up/Down move, Enter launches, Left or Escape go back.
+//!
+//! Serial markers: `SHELL:SUBMENU:OPEN category=<id> apps=<n>`,
+//! `SHELL:SUBMENU:CLOSE`, `SHELL:SUBMENU:KEY:SELECT row=<label>` and
+//! `SHELL:SUBMENU:KEY:BACK`.
 
 use std::rc::Rc;
 
+use lazyshell::keynav::{self, NavKey, RowKind, Step};
 use lazyshell::menu::{Submenu, SUB_WIDTH};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
@@ -29,6 +35,8 @@ pub enum SubMsg {
     Move(i32, i32),
     Leave,
     Press(i32, i32),
+    /// A navigation key from the panel-key grab.
+    Key(NavKey),
 }
 
 /// Open the submenu of the start-menu row `row` (a category row), replacing
@@ -74,11 +82,43 @@ pub fn close(ctx: &Ctx) {
     let handle = ctx.submenu_window.borrow_mut().take();
     ctx.submenu.borrow_mut().take();
     ctx.submenu_hover.set(None);
+    ctx.keys_in_submenu.set(false);
     if let Some(handle) = handle {
         handle.close();
         println!("SHELL:SUBMENU:CLOSE");
         ctx.repaint_menu();
     }
+}
+
+/// The keyboard opened the submenu: light its first app and send the keys
+/// there.
+pub fn enter_by_key(ctx: &Ctx) {
+    let first = {
+        let submenu = ctx.submenu.borrow();
+        let Some(sub) = submenu.as_ref() else {
+            return;
+        };
+        keynav::next(&row_kinds(sub), None, true)
+    };
+    ctx.submenu_hover.set(first);
+    ctx.keys_in_submenu.set(true);
+    if let Some(handle) = &*ctx.submenu_window.borrow() {
+        handle.send(SubMsg::Key(NavKey::Home));
+    }
+}
+
+/// How each submenu row navigates (a disabled app is skipped).
+fn row_kinds(sub: &Submenu) -> Vec<RowKind> {
+    sub.rows()
+        .iter()
+        .map(|row| {
+            if row.enabled {
+                RowKind::Item
+            } else {
+                RowKind::Inert
+            }
+        })
+        .collect()
 }
 
 /// The submenu window's app.
@@ -117,12 +157,51 @@ impl SubmenuApp {
     /// Launch the app under `(x, y)`, zooming its window from the row, and
     /// close the whole menu.
     fn press(&self, x: i32, y: i32) {
+        if let Some(index) = self.row_at(x, y) {
+            self.launch(index);
+        }
+    }
+
+    /// A navigation key: move the lit app, launch it, or go back to the
+    /// start menu. Returns whether the panel must repaint.
+    fn key(&self, key: NavKey) -> bool {
+        let kinds = match self.ctx.submenu.borrow().as_ref() {
+            Some(sub) => row_kinds(sub),
+            None => return false,
+        };
+        match keynav::step(&kinds, self.ctx.submenu_hover.get(), key, true) {
+            Step::Select(index) => {
+                self.ctx.submenu_hover.set(Some(index));
+                if let Some(row) = self
+                    .ctx
+                    .submenu
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.rows().get(index))
+                {
+                    println!("SHELL:SUBMENU:KEY:SELECT row={}", row.label);
+                }
+                true
+            }
+            Step::Activate(index) => {
+                self.launch(index);
+                false
+            }
+            Step::Back => {
+                println!("SHELL:SUBMENU:KEY:BACK");
+                close(&self.ctx);
+                false
+            }
+            Step::OpenChild(_) | Step::Close | Step::Nothing => false,
+        }
+    }
+
+    /// Launch the app of row `index`, zooming its window from the row, and
+    /// close the whole menu.
+    fn launch(&self, index: usize) {
         let chosen = {
             let submenu = self.ctx.submenu.borrow();
             let Some(sub) = submenu.as_ref() else {
-                return;
-            };
-            let Some(index) = sub.row_at(x, y) else {
                 return;
             };
             let (ox, oy) = sub.origin();
@@ -156,6 +235,11 @@ impl App for SubmenuApp {
             SubMsg::Press(x, y) => {
                 let (x, y) = self.ctx.to_design(x, y);
                 self.press(x, y);
+            }
+            SubMsg::Key(key) => {
+                if self.key(key) {
+                    ui.invalidate(self.root.id());
+                }
             }
         }
     }
