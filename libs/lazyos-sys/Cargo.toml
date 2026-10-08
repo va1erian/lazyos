@@ -1,0 +1,30 @@
+[package]
+name = "lazyos-sys"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The native LazyOS syscalls (`int 0x80`) for every userspace program: numbers, ABI blocks and typed wrappers, defined once (issue #666)"
+
+# `no_std` by default so the native runtime (`user`, `x86_64-unknown-none`)
+# links it; the static-musl programs (`xui-app`, `rhai`, LazyRAD) turn on
+# `std`. Host `cargo test -p lazyos-sys` checks the argument packing and that
+# the numbers match the kernel's dispatch tables; nothing here issues a
+# syscall on the host.
+[features]
+default = []
+# `spawnv`'s argument blocks.
+alloc = []
+# `errno` -> `std::io::Error`, `Duration` deadlines.
+std = ["alloc"]
+# Parcel-level Messenger helpers (`msg::parcel`): `call`, `send`, `reply` and
+# the kernel registry's `resolve`/`register`/`unregister`/`list`, encoded
+# with the generated `os.lazy.messenger.registry.v1` stubs.
+parcel = ["alloc", "dep:libmessenger", "dep:messenger-generated"]
+# The device syscall's read-only inspection ops, decoded with `devinspect`.
+devinspect = ["alloc", "dep:devinspect"]
+
+[dependencies]
+libmessenger = { path = "../messenger", optional = true }
+messenger-generated = { path = "../generated", optional = true }
+devinspect = { path = "../devinspect", optional = true }

@@ -87,7 +87,7 @@ fn run() -> ! {
     let bytes = (W * H * 4) as u64;
     let mut canvases = [None, None];
     for (slot, canvas) in canvases.iter_mut().enumerate() {
-        let (buffer, va) = match sys::display_create_buffer(bytes) {
+        let (buffer, va, _) = match sys::display_create_buffer(bytes) {
             Ok(pair) => pair,
             Err(code) => fail("create_buffer", code),
         };

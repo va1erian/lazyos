@@ -66,8 +66,7 @@ pub(super) fn verdict(marker: &str, passed: bool) -> bool {
 /// Claim the display for [`DISPLAY_SESSION`] (the probe stays uid 0, so it is
 /// still privileged): the probe children then test the cross-session rule.
 pub(super) fn claim_session() {
-    let mut cred = sys::Cred::default();
-    if sys::cred_get(None, &mut cred).is_ok() {
+    if let Ok(mut cred) = sys::cred_get(None) {
         cred.session = DISPLAY_SESSION;
         let _ = sys::cred_set(None, &cred);
     }
@@ -90,7 +89,7 @@ pub(super) fn panel(client: &Client, screen: Rect) -> Option<(u64, Endpoint)> {
         client.place_surface(panel, screen.w + 500, -50),
     )?;
     let bytes = (PANEL_W * PANEL_H * 4) as u64;
-    let (buffer, va) = sys::display_create_buffer(bytes).ok()?;
+    let (buffer, va, _) = sys::display_create_buffer(bytes).ok()?;
     // SAFETY: `va` maps the buffer just created, `PANEL_W * PANEL_H * 4`
     // bytes long, and nothing else touches it.
     let mut canvas = unsafe { Canvas::new(va, PANEL_W, PANEL_H) };

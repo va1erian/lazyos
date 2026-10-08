@@ -110,7 +110,7 @@ impl Transport for Native {
     }
 
     fn create_ring(&self, bytes: usize) -> Result<NativeRing> {
-        let (handle, va) =
+        let (handle, va, _) =
             sys::display_create_buffer(bytes as u64).map_err(|code| Error::Errno(-code))?;
         Ok(NativeRing {
             handle,

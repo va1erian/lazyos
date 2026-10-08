@@ -189,7 +189,7 @@ impl Client {
         let layout =
             wire::attach_ring_rings(one as u64).ok_or(Error::Errno(-super::errno::EINVAL))?;
         let len = layout.total as usize;
-        let (buffer, va) =
+        let (buffer, va, _) =
             sys::display_create_buffer(len as u64).map_err(|code| Error::Errno(-code))?;
         let base = va as *mut u8;
         // SAFETY: the kernel mapped `len` zeroed bytes at `va`; each ring is

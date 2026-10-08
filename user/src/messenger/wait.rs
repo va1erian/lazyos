@@ -15,30 +15,12 @@ use super::endpoint::syscall;
 use super::types::{MsgArgs, MsgResult, Result};
 use super::{op, Endpoint};
 
-/// Most items (endpoints and calls) one wait may name (the kernel's limit).
-pub const MAX_ENDPOINTS: usize = 8;
-/// Marks a word of the wait set as a call's transaction id (the kernel's
-/// `channels::WAIT_ITEM_CALL`).
-pub const WAIT_ITEM_CALL: u64 = 1 << 63;
-/// Doorbell: the caller's raw input ring has records (`inputd` only).
-pub const WAIT_RAW_INPUT: u64 = 1;
-/// Doorbell: a key reached the display input queue (the display owner only).
-pub const WAIT_DISPLAY_KEYS: u64 = 2;
-/// Doorbell: an application acted on an `AF_INET` socket (the attached
-/// `netd` only, docs/performance-plan.md P4.1).
-pub const WAIT_INET: u64 = 4;
-/// Doorbell: a child of the caller finished and waits to be reaped with
-/// [`crate::sys::wait`] (any task; docs/performance-plan.md P7.1). It stays
-/// ready until every finished child is reaped.
-pub const WAIT_CHILD: u64 = 8;
-/// Bit of the ready mask that means "the raw input ring holds records".
-pub const RAW_INPUT_READY: u64 = 1 << 63;
-/// Bit of the ready mask that means "the display input queue has events".
-pub const DISPLAY_INPUT_READY: u64 = 1 << 62;
-/// Bit of the ready mask that means "the `AF_INET` pump has work".
-pub const INET_READY: u64 = 1 << 61;
-/// Bit of the ready mask that means "a child waits to be reaped".
-pub const CHILD_READY: u64 = 1 << 60;
+/// The wait set's limit, doorbells and ready-mask bits (the kernel's
+/// `channels::recv::waitset`), from `lazyos-sys`.
+pub use lazyos_sys::msg::{
+    CHILD_READY, DISPLAY_INPUT_READY, INET_READY, RAW_INPUT_READY, WAIT_CHILD, WAIT_DISPLAY_KEYS,
+    WAIT_INET, WAIT_ITEM_CALL, WAIT_MAX_ENDPOINTS as MAX_ENDPOINTS, WAIT_RAW_INPUT,
+};
 
 /// One thing a [`wait_items`] set can wait for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -39,7 +39,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::arch::asm;
 use core::panic::PanicInfo;
 
 use libmessenger::{flags, Header, Parcel, VERSION};
@@ -77,26 +76,14 @@ pub extern "C" fn _start() -> ! {
     sys::exit(status)
 }
 
-/// The raw `messenger` syscall: the status in `rax` (0 or `-errno`).
+/// The raw `messenger` syscall: the status (0 or `-errno`).
 fn msg(op: u64, args: &MsgArgs, result: &mut MsgResult) -> i64 {
-    let code: u64;
-    // SAFETY: `int 0x80` with syscall 5; `args` and `result` are live for
-    // the call, and the kernel validates every pointer they carry.
-    unsafe {
-        asm!(
-            "int 0x80",
-            in("rax") sys::SYS_MESSENGER,
-            in("rdi") op,
-            in("rsi") args as *const MsgArgs as u64,
-            in("rdx") result as *mut MsgResult as u64,
-            lateout("rax") code,
-            lateout("rcx") _,
-            lateout("r11") _,
-            options(nostack),
-            clobber_abi("sysv64"),
-        );
+    // SAFETY: every `MsgArgs` here points at buffers this function's callers
+    // own for the call, with their real lengths.
+    match unsafe { lazyos_sys::msg::messenger(op, args, result) } {
+        Ok(()) => 0,
+        Err(code) => code,
     }
-    code as i64
 }
 
 fn rdtsc() -> u64 {

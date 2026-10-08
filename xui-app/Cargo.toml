@@ -60,6 +60,9 @@ libmessenger = { path = "../libs/messenger" }
 # `idl/*.midl`): the fabric panel encodes and decodes those interfaces with the
 # same code the kernel and native clients use, never hand-copied field ids.
 messenger-generated = { path = "../libs/generated" }
+# Every native syscall (`int 0x80`): numbers, ABI blocks, typed wrappers and
+# the parcel-level Messenger helpers, shared with the native runtime (#666).
+lazyos-sys = { path = "../libs/lazyos-sys", features = ["std", "parcel", "devinspect"] }
 # The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
 # platform layer supplies its musl transport (`platform::audio`).
 audioclient = { path = "../libs/audioclient" }

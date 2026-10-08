@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "accountdb"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "passwd",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -623,6 +631,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyos-sys"
+version = "0.1.0"
+dependencies = [
+ "devinspect",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "lazypdf"
 version = "0.1.0"
 dependencies = [
@@ -765,6 +782,10 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "passwd"
+version = "0.1.0"
 
 [[package]]
 name = "peniko"
@@ -1375,6 +1396,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "audioclient",
  "confd",
  "deskmenu",
@@ -1382,6 +1404,7 @@ dependencies = [
  "fhs",
  "inputmap",
  "lazyicons",
+ "lazyos-sys",
  "lazyshell",
  "libc",
  "libmessenger",
@@ -1390,6 +1413,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "timezone",
  "trayclient",
  "uitheme",
  "xui-archiver",
@@ -1505,6 +1529,7 @@ dependencies = [
 name = "xui-settings"
 version = "0.1.0"
 dependencies = [
+ "accountdb",
  "confd",
  "deskmenu",
  "fhs",

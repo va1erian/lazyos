@@ -26,8 +26,7 @@ impl Client {
 
     /// Wrap an already-resolved endpoint.
     pub fn from_endpoint(endpoint: Endpoint) -> Result<Client> {
-        let mut cred = sys::Cred::default();
-        sys::cred_get(None, &mut cred).map_err(Error::Errno)?;
+        let cred = sys::cred_get(None).map_err(Error::Errno)?;
         Ok(Client {
             endpoint,
             session: cred.session,

@@ -83,6 +83,29 @@ syscall shim.
 | 32 | `chmod(path, mode)` | set the permission bits (`mode` holds only `0o7777` bits; any other bit is `-EINVAL`, not masked) through `Vfs::setattr`, the path the Linux `chmod` takes, so the rules are the same: owner or root (`-EPERM`), setgid dropped outside the file's group, `-EROFS` on a read-only mount, `-ENOENT`/`-EFAULT` for a bad path (`process/fsops.rs`); `pkgd` makes a package's `bin/` files `0755`, since native spawn needs an `x` bit |
 | 34 | `mono_time(op, a1)` | the monotonic clock in nanoseconds: `now` (op 0) returns `arch::clock::monotonic_ns`, `sleep_until` (op 1) parks until that clock reaches `a1` and returns 0, or 1 when a signal ended it; open to every task, unknown op `-EINVAL` (`process/timesys.rs`; `sys::monotonic_ns`, `sys::sleep_ns`; docs/performance-plan.md P2) |
 
+**Userspace side: `libs/lazyos-sys`** (issue #666). Every userspace
+`int 0x80` goes through this one crate, for native `no_std` programs (`user`)
+and static-musl `std` programs (xui apps, `rhai`, LazyRAD) alike: the gate is
+dispatched by task, not by binary kind, so the same wrapper is right for both.
+It holds the syscall numbers (`nr`), the single `asm!` (`raw`, `unsafe`
+because an argument may be a pointer the kernel writes), the errno values,
+the Messenger ABI blocks and op table with safe byte-level wrappers (`msg`,
+plus `msg::OwnedHandle`, released on drop), and typed surfaces for each
+syscall above (`display` with `DisplayGrant`, `cred`, `time`, `spawn`, `stats`
+and the decoded `sysinfo` snapshot, `dev`, `input`, `inet`, `storage`,
+`random`, `kill`, `process`). Features: `alloc` (spawn blocks, `sysinfo`),
+`parcel` (`msg::parcel`: `libmessenger` call/send/reply and the registry's
+`resolve`/`connect`/`register`/`unregister`/`list` from the generated stubs),
+`devinspect` (the device inspection rows) and `std` (`errno::io_error`,
+`Duration` deadlines). `user::sys` and `xui_app::sys` are re-exports under the
+names their callers already use, and `rhai_lazy::msg::gate` is a `Bus` over
+it. `cargo test -p lazyos-sys --all-features` checks the argument packing and,
+in `tests/kernel_tables.rs`, that every number reaches the expected arm of
+`native_dispatch` in `process/gate.rs`, that the kernel dispatches no number
+the crate does not name, and that the Messenger ops and wait flags match
+`ipc/syscalls/abi.rs` and `ipc/channels/recv/waitset.rs`. A new native
+syscall gets its number and wrapper there, never a private `asm!` block.
+
 - `spawnv` opens the ELF on the OS volume (`/system/bin/<name>`) and the
   loader streams it into the child (below), names the task after the file's basename and leaks one interned `&'static str`
   per distinct service name (at most 64; later spellings share the name

@@ -145,9 +145,8 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("netd: network stack\n");
     // The identity the kernel stamped on this task: `_netd` with no
     // capabilities under `init`, root when the kernel boots it directly.
-    let mut cred = sys::Cred::default();
-    match sys::cred_get(None, &mut cred) {
-        Ok(()) => sys::write_str(&format!(
+    match sys::cred_get(None) {
+        Ok(cred) => sys::write_str(&format!(
             "NETD:CRED uid={} caps={:#x}\n",
             cred.uid, cred.caps
         )),

@@ -14,7 +14,7 @@
 use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
 use messenger_generated::os_lazy_display_v1 as wire;
 
-use crate::sys::{self, errno, msg_op, MsgArgs, MsgResult};
+use crate::sys::{self, errno};
 
 mod dnd;
 mod frames;
@@ -382,47 +382,14 @@ pub fn decode_message(bytes: &[u8]) -> Option<Parcel> {
 }
 
 /// Close a handle opened by [`Client::connect`].
-pub fn close(handle: u64) -> Result<(), i64> {
-    let args = MsgArgs {
-        handle,
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    let code = sys::messenger(
-        msg_op::CLOSE_ENDPOINT,
-        &args as *const MsgArgs as u64,
-        &mut result as *mut MsgResult as u64,
-    );
-    if code < 0 {
-        Err(code)
-    } else {
-        Ok(())
-    }
-}
+pub use lazyos_sys::msg::close;
 
 /// Release this task's handle to an endpoint, closing its side only when no
 /// other handle names it. A handle from `msg_resolve` must be released, not
 /// closed: every client of a service shares that side, and closing it would
 /// make the service's own endpoint report a closed peer for good (a service
 /// parked on it would then spin).
-pub fn release(handle: u64) -> Result<(), i64> {
-    let args = MsgArgs {
-        handle,
-        flags: msg_op::CLOSE_RELEASE,
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    let code = sys::messenger(
-        msg_op::CLOSE_ENDPOINT,
-        &args as *const MsgArgs as u64,
-        &mut result as *mut MsgResult as u64,
-    );
-    if code < 0 {
-        Err(code)
-    } else {
-        Ok(())
-    }
-}
+pub use lazyos_sys::msg::release;
 
 #[cfg(test)]
 mod tests;

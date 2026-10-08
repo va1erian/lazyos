@@ -23,9 +23,6 @@
 //! `LOOKUP` reply gave it: an open file is read and written by node, so a
 //! rename does not lose it and the kernel need not resolve the path again.
 
-/// The syscall number.
-pub const SYS_FUSE: u64 = 35;
-
 /// Syscall operations (`rdi`).
 pub mod sys_op {
     pub const REGISTER: u64 = 0;

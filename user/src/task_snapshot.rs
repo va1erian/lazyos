@@ -47,6 +47,7 @@ impl TaskSnapshot {
 
     /// Number of bytes the snapshot occupies on the wire.
     pub const SIZE: usize = Self::WORDS * 8;
+    const _KERNEL_SIZE: () = assert!(Self::SIZE == crate::sys::TASKS_SNAPSHOT_SIZE);
 
     /// The pid of the live task in `slot` of a raw snapshot block, without
     /// decoding (or allocating for) every row. `None` for a free slot, a
@@ -104,9 +105,6 @@ impl TaskSnapshot {
 /// Read the live scheduler snapshot from the kernel.
 pub fn task_snapshot() -> Result<TaskSnapshot> {
     let mut buf = vec![0u8; TaskSnapshot::SIZE];
-    let code = sys::tasks(buf.as_mut_ptr() as u64);
-    if code != 0 {
-        return Err(Error::Errno(code));
-    }
+    sys::tasks(&mut buf).map_err(Error::Errno)?;
     TaskSnapshot::from_bytes(&buf).ok_or(Error::Errno(-22 /* EINVAL */))
 }

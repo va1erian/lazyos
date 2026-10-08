@@ -48,9 +48,8 @@ const CONNECT_ATTEMPTS: usize = 200;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let mut cred = sys::Cred::default();
-    match sys::cred_get(None, &mut cred) {
-        Ok(()) => sys::write_str(&format!(
+    match sys::cred_get(None) {
+        Ok(cred) => sys::write_str(&format!(
             "DEVD:CRED uid={} caps={:#x}\n",
             cred.uid, cred.caps
         )),

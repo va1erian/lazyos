@@ -4,9 +4,9 @@
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
-use crate::sys::{self, msg_op, MsgArgs, MsgResult};
+use crate::sys;
 
-use super::error::{error_code, E2BIG, EINVAL, ENOENT, EPIPE};
+use super::error::{error_code, EINVAL, ENOENT, EPIPE};
 use super::registry::{close, resolve};
 
 /// The topics-broker well-known name.
@@ -120,31 +120,9 @@ impl Broker {
 
 /// A blocking call with the broker's deadline; returns the reply length.
 fn call_on(handle: u64, request: &Parcel, buf: &mut [u8]) -> Result<usize, i64> {
-    let mut bytes = Vec::new();
-    request.encode(&mut bytes).map_err(|_| -EINVAL)?;
-    let args = MsgArgs {
-        handle,
-        parcel_ptr: bytes.as_ptr() as u64,
-        parcel_len: bytes.len() as u64,
-        buf_ptr: buf.as_mut_ptr() as u64,
-        buf_cap: buf.len() as u64,
-        deadline: sys::clock_ticks().saturating_add(BROKER_CALL_TICKS),
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    let code = sys::messenger(
-        msg_op::CALL,
-        &args as *const MsgArgs as u64,
-        &mut result as *mut MsgResult as u64,
-    );
-    if code < 0 {
-        return Err(code);
-    }
-    let len = result.bytes as usize;
-    if len > buf.len() {
-        return Err(-E2BIG);
-    }
-    Ok(len)
+    let bytes = lazyos_sys::msg::parcel::encode(request)?;
+    let deadline = sys::clock_ticks().saturating_add(BROKER_CALL_TICKS);
+    lazyos_sys::msg::call(handle, &bytes, buf, deadline)
 }
 
 /// Decode the generated `ListTopics` reply into display rows.

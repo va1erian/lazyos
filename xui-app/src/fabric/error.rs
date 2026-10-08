@@ -14,8 +14,6 @@ pub(super) fn error_code(parcel: &Parcel) -> Option<i64> {
     None
 }
 
-/// Errno values used here (Linux numbering; matches the native ABI).
-pub(super) const E2BIG: i64 = 7;
 /// No such handle or name.
 pub(super) const ENOENT: i64 = 2;
 /// The peer endpoint is gone.

@@ -137,13 +137,8 @@ pub(super) fn await_reply_with(txn: u64, buffer: &mut [u8]) -> messenger::Result
         ..messenger::MsgArgs::default()
     };
     let mut result = messenger::MsgResult::default();
-    let code = sys::messenger(
-        messenger::op::CALL_AWAIT,
-        &args as *const messenger::MsgArgs as u64,
-        &mut result as *mut messenger::MsgResult as u64,
-    );
-    if code < 0 {
-        return Err(messenger::Error::Errno(code));
-    }
-    Ok(())
+    // SAFETY: `args` points at `buffer`, exclusively borrowed for the call
+    // with its real length; the kernel writes at most that many bytes.
+    unsafe { lazyos_sys::msg::messenger(messenger::op::CALL_AWAIT, &args, &mut result) }
+        .map_err(messenger::Error::Errno)
 }

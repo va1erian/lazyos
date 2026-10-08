@@ -102,8 +102,7 @@ impl SenderId {
     }
 
     /// The user ABI block: `uid, gid, label_id, session, caps` as
-    /// little-endian `u64` words (`user/src/messenger/message.rs` mirrors
-    /// it; `xui-app/src/sys/messenger.rs` reads the identity words).
+    /// little-endian `u64` words (`lazyos_sys::msg::SenderId` mirrors it).
     pub fn to_bytes(self) -> [u8; Self::SIZE] {
         let words = [
             self.uid as u64,

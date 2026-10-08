@@ -2323,6 +2323,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyos-sys"
+version = "0.1.0"
+dependencies = [
+ "devinspect",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "lazypdf"
 version = "0.1.0"
 dependencies = [
@@ -5498,6 +5507,7 @@ dependencies = [
  "fhs",
  "inputmap",
  "lazyicons",
+ "lazyos-sys",
  "lazyshell",
  "libc",
  "libmessenger",

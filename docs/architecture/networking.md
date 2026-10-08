@@ -540,7 +540,7 @@ in-kernel suite, which has no scheduler.
 | `kernel/src/process/linux/sockopt.rs`, `kernel/src/ipc/inet/timeout.rs` | `setsockopt`/`getsockopt`; `SO_RCVTIMEO`/`SO_SNDTIMEO` stored in ticks |
 | `kernel/src/ipc/inet/bell.rs` | The pump's doorbell: what an application does that `netd` must act on wakes it (P4.1) |
 | `kernel/src/ipc/pipe/small.rs` | 256 KiB rings, a TCP window each (a socket's pair is 512 KiB, the cap is 128 rings, 32 MiB of a heap that grows on demand); which end rings the doorbell |
-| `user/src/bin/netd/inet.rs`, `inet/flow.rs`, `user/src/sys/inetpump.rs` | The pump in `netd` and its syscall wrapper |
+| `user/src/bin/netd/inet.rs`, `inet/flow.rs`, `libs/lazyos-sys/src/inet.rs` | The pump in `netd` and its syscall wrapper |
 | `tools/abi/fixtures/src/netfix.rs` | The Linux `std::net` program the shim is judged by |
 
 **Control calls are requests.** `bind`, `connect` and `listen` queue a request and park on

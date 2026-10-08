@@ -55,8 +55,7 @@ pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBr
 /// (`CAP_INPUT_CONSOLE`) goes to `logind` alone. `None` (plain inherit) when this
 /// task's own credentials cannot be read.
 fn manifest_cred(name: &str) -> Option<sys::Cred> {
-    let mut own = sys::Cred::default();
-    sys::cred_get(None, &mut own).ok()?;
+    let mut own = sys::cred_get(None).ok()?;
     if name == "inputd" {
         return Some(sys::Cred::new(0, 0, sys::CAP_INPUT_RAW, own.label_id, 0));
     }

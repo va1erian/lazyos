@@ -36,8 +36,9 @@
 //! identifies *where* memory is or *who* a task is must be a new version with
 //! an explicit capability check, not an extension of version 1.
 //!
-//! The wire form is mirrored (and decoded) by `user/src/sysinfo.rs`, and each
-//! field/index pair is duplicated as a compile-time-checked constant there.
+//! The wire form is mirrored (and decoded) by `libs/lazyos-sys/src/sysinfo/`,
+//! and each field/index pair is duplicated as a compile-time-checked constant
+//! there.
 
 use alloc::vec::Vec;
 

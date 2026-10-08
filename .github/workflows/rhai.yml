@@ -25,6 +25,7 @@ on:
     paths:
       - "rhai-host/**"
       - "libs/rhai-lazy/**"
+      - "libs/lazyos-sys/**"
       - "idl/**"
       - "tools/midlc/**"
       - "libs/messenger/**"
@@ -40,6 +41,7 @@ on:
     paths:
       - "rhai-host/**"
       - "libs/rhai-lazy/**"
+      - "libs/lazyos-sys/**"
       # The `msg` module is generated from the IDL and speaks the parcel codec.
       - "idl/**"
       - "tools/midlc/**"

@@ -12,6 +12,10 @@ members = [
     "user",
     "libs/messenger",
     "libs/generated",
+    # The native syscalls (`int 0x80`) for every userspace program, native and
+    # static-musl alike (issue #666): numbers, ABI blocks and typed wrappers,
+    # checked against the kernel's dispatch tables by host tests.
+    "libs/lazyos-sys",
     # Vetted cryptography shared by `keyd` and the kernel test suite (#102):
     # no_std for the freestanding targets plus host `cargo test` known-answer
     # vectors.

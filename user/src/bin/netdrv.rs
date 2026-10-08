@@ -141,9 +141,8 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("netdrv: NIC driver (virtio-net, Intel 8254x)\n");
     // The identity the kernel stamped on this task: `_net` with only
     // `CAP_DEV_CLAIM` under `init`, root when the kernel boots it directly.
-    let mut cred = sys::Cred::default();
-    match sys::cred_get(None, &mut cred) {
-        Ok(()) => sys::write_str(&format!(
+    match sys::cred_get(None) {
+        Ok(cred) => sys::write_str(&format!(
             "NETDRV:CRED uid={} caps={:#x}\n",
             cred.uid, cred.caps
         )),

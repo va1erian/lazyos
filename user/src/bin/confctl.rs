@@ -156,9 +156,8 @@ fn selftest(client: &wire::Client) -> Result<(), String> {
 
 /// The self-test body; any `?` failure becomes the printed verdict.
 fn run_selftest(client: &wire::Client) -> Result<(), String> {
-    let mut cred = sys::Cred::default();
-    let uid = sys::cred_get(None, &mut cred)
-        .map(|_| cred.uid)
+    let uid = sys::cred_get(None)
+        .map(|cred| cred.uid)
         .map_err(|error| format!("could not read own credentials: {error}"))?;
     // A non-root caller may only write its own subtree, so root uses sys/ and
     // everyone else uses user/<uid>/.
