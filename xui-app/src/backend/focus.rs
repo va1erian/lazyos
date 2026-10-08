@@ -2,8 +2,34 @@
 //! Tab/PageUp/PageDown focus cycle.
 
 use xui_core::backend::{Event, WidgetId, WindowId};
+use xui_core::Modifiers;
 
 use super::LazyOSBackend;
+
+/// What a Tab press does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TabAction {
+    /// Move the widget focus (forward unless Shift is held).
+    CycleFocus,
+    /// Deliver it to the focused widget like any key: the widget asked for
+    /// Tab (`NodeSpec::wants_tab`, a code editor indenting with it).
+    Deliver,
+    /// Drop it: Alt/Ctrl+Tab are the compositor's chords, and one that slips
+    /// through must neither move the focus nor reach a widget.
+    Ignore,
+}
+
+/// What a Tab press with `modifiers` does when the focused widget does (or
+/// does not) handle Tab itself.
+pub(super) fn tab_action(modifiers: Modifiers, focused_wants_tab: bool) -> TabAction {
+    if modifiers.alt || modifiers.ctrl {
+        TabAction::Ignore
+    } else if focused_wants_tab {
+        TabAction::Deliver
+    } else {
+        TabAction::CycleFocus
+    }
+}
 
 impl LazyOSBackend {
     /// Give `id` the keyboard focus, notifying the widget that lost it.
@@ -32,6 +58,18 @@ impl LazyOSBackend {
             .is_some_and(|(_, node)| node.visible && node.enabled && node.focus_stop)
     }
 
+    /// Whether the focused widget handles Tab itself ([`TabAction::Deliver`]).
+    pub(super) fn focused_wants_tab(&self) -> bool {
+        let Some(focused) = self.focused.get() else {
+            return false;
+        };
+        self.nodes
+            .borrow()
+            .iter()
+            .find(|(id, _)| *id == focused)
+            .is_some_and(|(_, node)| node.visible && node.enabled && node.wants_tab)
+    }
+
     /// Move the keyboard focus to the next (or previous) focus stop.
     pub(super) fn cycle_focus(&self, window: WindowId, forward: bool) {
         let stops: Vec<WidgetId> = self
@@ -57,5 +95,43 @@ impl LazyOSBackend {
             None => stops.len() - 1,
         };
         self.set_focus(stops[next]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHIFT: Modifiers = Modifiers {
+        shift: true,
+        ..Modifiers::NONE
+    };
+    const CTRL: Modifiers = Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    };
+    const ALT: Modifiers = Modifiers {
+        alt: true,
+        ..Modifiers::NONE
+    };
+
+    #[test]
+    fn tab_moves_focus_unless_the_focused_widget_wants_it() {
+        assert_eq!(tab_action(Modifiers::NONE, false), TabAction::CycleFocus);
+        assert_eq!(tab_action(SHIFT, false), TabAction::CycleFocus);
+        assert_eq!(tab_action(Modifiers::NONE, true), TabAction::Deliver);
+        assert_eq!(
+            tab_action(SHIFT, true),
+            TabAction::Deliver,
+            "Shift+Tab outdents"
+        );
+    }
+
+    #[test]
+    fn the_compositor_chords_never_reach_a_widget() {
+        for wants in [false, true] {
+            assert_eq!(tab_action(CTRL, wants), TabAction::Ignore);
+            assert_eq!(tab_action(ALT, wants), TabAction::Ignore);
+        }
     }
 }

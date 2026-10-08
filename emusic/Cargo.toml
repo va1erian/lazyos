@@ -38,7 +38,7 @@ audioclient = { path = "../libs/audioclient" }
 xui-app = { path = "../xui-app" }
 # `Backend`, for the host description; the revision `xui-app` pins, so one
 # `xui_core` links (emusic's frontend pins the same one).
-xui-core = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b" }
 # Every well-known path (the app's per-user folder).
 fhs = { path = "../libs/fhs", features = ["alloc"] }
 # emusic at the revision `tools/emusic/build.py` pins (EMUSIC_REV there).

@@ -10,19 +10,28 @@ use xui_core::{Key, Modifiers, MouseButton, Rect};
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
+use super::focus::{tab_action, TabAction};
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES, INPUT_BATCH};
 
 impl LazyOSBackend {
     /// Route one key press: focus navigation first, then the focused widget.
     ///
-    /// `Tab` and `Shift+Tab` move the widget focus. `PageUp`/`PageDown` are
-    /// *not* focus keys: the compositor no longer reserves them, so they reach
-    /// the focused widget (the Editor scrolls with them).
+    /// `Tab` and `Shift+Tab` move the widget focus, unless the focused widget
+    /// handles Tab itself (`NodeSpec::wants_tab`, a code editor), which then
+    /// gets it like any key. `PageUp`/`PageDown` are *not* focus keys: the
+    /// compositor no longer reserves them, so they reach the focused widget
+    /// (the Editor scrolls with them).
     fn key_down(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, true);
         if code == key::TAB {
-            self.cycle_focus(window, !modifiers.shift);
-            return;
+            match tab_action(modifiers, self.focused_wants_tab()) {
+                TabAction::CycleFocus => {
+                    self.cycle_focus(window, !modifiers.shift);
+                    return;
+                }
+                TabAction::Ignore => return,
+                TabAction::Deliver => {}
+            }
         }
         let target = self.focused.get().unwrap_or(WidgetId::NONE);
         if let Some(event) = key_event(code, true, modifiers) {
