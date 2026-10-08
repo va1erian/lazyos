@@ -3,11 +3,11 @@
 use std::string::String;
 use std::vec::Vec;
 
-use super::server::{Behaviour, Server, DOMAIN, PASSWORD, USER};
 use crate::client::{Client, Config, Logon, Open, Signing, Transport};
 use crate::header::command as cmd;
 use crate::msg;
 use crate::status;
+use crate::testserver::{Behaviour, Server, DOMAIN, PASSWORD, USER};
 use crate::Error;
 
 fn config(password: &str, signing: Signing) -> Config<'_> {

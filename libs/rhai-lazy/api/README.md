@@ -540,7 +540,7 @@ The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
 
 | Function | IDL | About |
 |---|---|---|
-| `mount(name, host, port, user, password)` | `Mount(name: String, host: String, port: U32, user: String, password: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
+| `mount(name, host, port, user, password, kind, share)` | `Mount(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
 | `unmount(name)` | `Unmount(name: String) -> ()` | Stop the mount `name` and forget it (a failed one is just forgotten). |
 | `list()` | `List() -> (mounts: Array<MountInfo>)` | Every mount the service knows about, in the order they were asked for. |
 | `new_mount_info()` | struct `MountInfo` | a `MountInfo` at its zero value |

@@ -58,6 +58,13 @@ pub fn gate() -> Result<(), String> {
             register_call(b"k", 0) == failed(EPERM),
             "a task without the capability"
         );
+        // The capability alone is not enough: a session user (or any
+        // service but `mountd`) holding it by mistake still cannot mount.
+        task_with(1000, CAP_FS_PROVIDER)?;
+        check!(
+            register_call(b"k", 0) == failed(EPERM),
+            "a uid that is not a provider uid"
+        );
         task_with(DAEMON_UID, CAP_FS_PROVIDER)?;
         for bad in [
             &b""[..],

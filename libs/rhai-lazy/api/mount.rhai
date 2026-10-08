@@ -5,7 +5,8 @@
 // `sys::mount`: the Messenger interface `os.lazy.mount.v1`.
 //
 // The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
-// supervises one user-space filesystem daemon per mount (`ftpfuse` today),
+// supervises one user-space filesystem daemon per mount (`ftpfuse` for an
+// FTP server, `smbfuse` for an SMB share),
 // each serving `/mnt/<name>` through the FUSE mechanism, so a program that
 // may not register a filesystem itself (an installed app has no
 // capabilities) can still ask for one.
@@ -30,10 +31,10 @@ fn connect() {
     msg::connect("os.lazy.mount.v1")
 }
 
-/// `Mount(name: String, host: String, port: U32, user: String, password: String) -> (path: String)`
+/// `Mount(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)`
 ///
 /// The mount's name: it is served at `path`, `/mnt/<name>`.
-/// The filesystem daemon's protocol (`ftp`).
+/// The filesystem daemon's protocol (`ftp` or `smb`).
 /// The server's host name or address, as given.
 /// The server's TCP port.
 /// The account it logs in as (`anonymous` when none was given).
@@ -41,15 +42,21 @@ fn connect() {
 /// `connecting`, `mounted` or `failed`.
 /// Why a mount failed, empty otherwise.
 /// The requester's uid: the files' owner.
-/// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
-/// with `password` (an empty `user` is the anonymous login). `name` is 1
-/// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
-/// `.` and `-`, not starting with `-` and with no `:` (the port goes in
-/// `port`, 1 to 65535, 0 meaning 21); `user` and `password` at most 128
-/// bytes with no control character, and a `password` only with a `user`.
-/// `path` is the mount point the daemon will serve.
-fn mount(name, host, port, user, password) {
-    msg::connect("os.lazy.mount.v1").invoke("Mount", [name, host, port, user, password])
+/// The SMB share, empty for an FTP mount.
+/// Mount a server at `/mnt/<name>`, logged in as `user` with `password`.
+/// `kind` is `ftp` (or empty) for the FTP server `host:port`, where an
+/// empty `user` is the anonymous login, or `smb` for the SMB 2.1 share
+/// `\\host\share`, which needs a `user` (the NTLM domain comes from the
+/// server). `name` is 1 to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to
+/// 253 of letters, digits, `.` and `-`, not starting with `-` and with no
+/// `:` (the port goes in `port`, 1 to 65535, 0 meaning 21 for FTP and 445
+/// for SMB); `share` (SMB only) 1 to 80 characters with none of
+/// `\ / : * ? " < > |`; `user` and `password` at most 128 bytes with no
+/// control character, and a `password` only with a `user`. An SMB
+/// password reaches `smbfuse` through its environment, never its
+/// arguments. `path` is the mount point the daemon will serve.
+fn mount(name, host, port, user, password, kind, share) {
+    msg::connect("os.lazy.mount.v1").invoke("Mount", [name, host, port, user, password, kind, share])
 }
 
 /// `Unmount(name: String) -> ()`
@@ -72,5 +79,5 @@ fn list() {
 ///
 /// One mount the service knows about.
 fn new_mount_info() {
-    #{ name: "", kind: "", host: "", port: 0, user: "", path: "", state: "", detail: "", owner: 0 }
+    #{ name: "", kind: "", host: "", port: 0, user: "", path: "", state: "", detail: "", owner: 0, share: "" }
 }

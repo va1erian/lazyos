@@ -58,6 +58,8 @@ messenger-generated = { path = "../libs/generated" }
 # boot, and the in-kernel suite checks what they decide.
 netpolicy = { path = "../libs/netpolicy" }
 usbpolicy = { path = "../libs/usbpolicy" }
+# Who may serve a user-space filesystem (`fs/fuse`, `FS_PROVIDER_UIDS`).
+mounttable = { path = "../libs/mounttable" }
 sndpolicy = { path = "../libs/sndpolicy" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }

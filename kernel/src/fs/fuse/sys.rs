@@ -1,8 +1,9 @@
 //! Syscall 35: the user-space filesystem surface. The contract (operations,
 //! records, payloads) is `libs/fused` (`fused::wire`); this is its gate.
 //!
-//! Every operation needs `CAP_FS_PROVIDER`, and a provider only answers the
-//! task that registered it. Nothing the daemon sends is trusted: names and
+//! Every operation needs `CAP_FS_PROVIDER` and a provider uid
+//! (`mounttable::FS_PROVIDER_UIDS`: root and `_mountd`), and a provider only
+//! answers the task that registered it. Nothing the daemon sends is trusted: names and
 //! flags are checked, the request record must be writable before a request
 //! is taken for it, a reply's data length is checked against the request's
 //! room, and data moves only through the slot's bounce buffer ([`super`]).
@@ -45,9 +46,13 @@ fn errno(error: FuseError) -> u64 {
     })
 }
 
-/// Whether task `me` may serve a filesystem.
+/// Whether task `me` may serve a filesystem: the capability and a provider
+/// uid, both.
 pub fn may_provide(me: usize) -> bool {
-    me != task::KERNEL_TASK && credentials::of(me).has_cap(CAP_FS_PROVIDER)
+    let cred = credentials::of(me);
+    me != task::KERNEL_TASK
+        && cred.has_cap(CAP_FS_PROVIDER)
+        && mounttable::FS_PROVIDER_UIDS.contains(&cred.uid)
 }
 
 /// The syscall entry point.

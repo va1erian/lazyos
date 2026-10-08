@@ -66,3 +66,8 @@ pub fn restore_native_for_test(previous: Option<(Vfs, bool)>) {
 pub fn restore_abi_for_test(previous: Option<Vfs>) {
     *ABI_FS.lock() = previous;
 }
+
+/// The Linux ABI table's cache counters (the FUSE coherence tests).
+pub fn abi_cache_stats_for_test() -> Option<super::vfs::CacheStats> {
+    ABI_FS.lock().as_ref().map(Vfs::cache_stats)
+}

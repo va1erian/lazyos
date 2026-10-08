@@ -92,6 +92,9 @@ const NATIVE: &[&str] = &[
     // The SMB 2.1 client (docs/smb-plan.md F2): `smb -U USER //SERVER/SHARE
     // [cmd ; cmd ...]`. On the image only with `LAZYOS_SMB=1`.
     fhs::bin::SMB,
+    // An SMB share as a directory (docs/smb-plan.md F3): `smbfuse -U USER
+    // //SERVER/SHARE [name=NAME] &` serves `/mnt/<name>`.
+    fhs::bin::SMBFUSE,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
     // [reason]` asks `init` for an orderly stop.
     fhs::bin::POWERCTL,

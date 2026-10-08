@@ -1,4 +1,5 @@
-//! An in-memory SMB 2.1 server for the client's tests: it verifies the NTLMv2
+//! An in-memory SMB 2.1 server for the client's tests (and, with the
+//! `testserver` feature, `libs/smbfs`'s): it verifies the NTLMv2
 //! proof and the client's signatures, keeps files in a map, and can be told to
 //! misbehave (guest logon, encryption, required signing, a tampered
 //! signature, a raw or SPNEGO logon).
@@ -354,5 +355,4 @@ impl Transport for Server {
     }
 }
 
-#[path = "server_files.rs"]
 mod files;

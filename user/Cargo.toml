@@ -91,6 +91,8 @@ netstack = { path = "../libs/netstack" }
 ftpwire = { path = "../libs/ftpwire" }
 # The SMB 2.1 client protocol for `smb` (docs/smb-plan.md F2).
 smbwire = { path = "../libs/smbwire" }
+# An SMB share as a user-space filesystem, for `smbfuse` (F3).
+smbfs = { path = "../libs/smbfs" }
 # The user-space filesystem protocol (syscall 35), its serve loop and the
 # in-memory tree `memfuse` serves (docs/smb-plan.md F1).
 fused = { path = "../libs/fused" }
@@ -502,8 +504,17 @@ path = "src/bin/smb.rs"
 test = false
 bench = false
 
+# `smbfuse` (docs/smb-plan.md F3): an SMB 2.1 share mounted at
+# `/mnt/<name>` through the FUSE mechanism, over `libs/smbfs`.
+[[bin]]
+name = "smbfuse"
+path = "src/bin/smbfuse.rs"
+test = false
+bench = false
+
 # `mountd` (docs/smb-plan.md): the network mount service, starting one
-# `ftpfuse` per mount for the Network Drives app (`os.lazy.mount.v1`).
+# `ftpfuse` or `smbfuse` per mount for the Network Drives app
+# (`os.lazy.mount.v1`).
 [[bin]]
 name = "mountd"
 path = "src/bin/mountd.rs"

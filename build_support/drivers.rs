@@ -102,7 +102,10 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // `ftpfuse`, the same server mounted as a directory under `/mnt`
         // (docs/smb-plan.md: a network filesystem on the FUSE mechanism).
         add(sink, fhs::bin::FTPFUSE, "ftpfuse");
-        // `mountd`, which starts `ftpfuse` for the Network Drives app.
+        // `smbfuse`, an SMB 2.1 share mounted the same way (F3).
+        add(sink, fhs::bin::SMBFUSE, "smbfuse");
+        // `mountd`, which starts `ftpfuse` and `smbfuse` for the Network
+        // Drives app.
         add(sink, fhs::bin::MOUNTD, "mountd");
         // `smb`, the SMB 2.1 client (docs/smb-plan.md F2), on request.
         if enabled("LAZYOS_SMB") {

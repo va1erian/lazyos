@@ -20,14 +20,18 @@ pub struct CacheStats {
     pub inode_misses: u64,
     /// Number of invalidation passes (one per mutation).
     pub invalidations: u64,
+    /// Entries dropped because their filesystem's cache lifetime ended.
+    pub expired: u64,
     /// Mounts currently in the table.
     pub mounts: usize,
 }
 
 /// A cached directory entry: just the inode number; the metadata lives in the
-/// inode cache so a path rename does not duplicate it.
+/// inode cache so a path rename does not duplicate it. `expires` is the
+/// filesystem's [`super::Filesystem::cache_deadline`] when it was cached.
 pub(super) struct Dentry {
     pub(super) ino: u64,
+    pub(super) expires: Option<u64>,
 }
 
 impl Vfs {
@@ -77,6 +81,7 @@ impl Vfs {
     /// Cache-aware metadata lookup for an absolute path.
     pub(super) fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
         let (mount, rel) = self.resolve_mount(path)?;
+        self.expire(mount, &rel);
         if let Some(dentry) = self.dentry.get(&(mount, rel.clone())) {
             self.stats.dentry_hits += 1;
             if let Some(meta) = self.inodes.get(&(mount, dentry.ino)) {
@@ -94,9 +99,34 @@ impl Vfs {
 
     /// Record a fresh metadata pair in both caches.
     pub(super) fn insert_cache(&mut self, mount: usize, rel: &str, meta: Meta) {
+        let expires = self.mounts[mount].fs.cache_deadline();
         self.inodes.insert((mount, meta.ino), meta);
-        self.dentry
-            .insert((mount, String::from(rel)), Dentry { ino: meta.ino });
+        self.dentry.insert(
+            (mount, String::from(rel)),
+            Dentry {
+                ino: meta.ino,
+                expires,
+            },
+        );
+    }
+
+    /// Drop `rel`'s cached entry once its lifetime is over, so the next
+    /// lookup asks the filesystem again (a share another client changed).
+    /// Only that name and its inode go: a cached descendant expires on its
+    /// own clock, so it is believed no longer than any other entry, and a
+    /// path through an ancestor that is no longer a directory still fails.
+    fn expire(&mut self, mount: usize, rel: &str) {
+        let key = (mount, String::from(rel));
+        let Some(deadline) = self.dentry.get(&key).and_then(|d| d.expires) else {
+            return;
+        };
+        if self.mounts[mount].fs.cache_now() < deadline {
+            return;
+        }
+        if let Some(dentry) = self.dentry.remove(&key) {
+            self.inodes.remove(&(mount, dentry.ino));
+            self.stats.expired += 1;
+        }
     }
 
     /// Invalidate a relative path within one mount, its inode, and any cached
