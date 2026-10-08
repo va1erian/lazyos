@@ -180,6 +180,7 @@ impl Backend for LazyOSBackend {
                 visible: spec.visible,
                 enabled: spec.enabled,
                 focus_stop: focus_stop(spec),
+                wants_tab: spec.wants_tab,
                 clip: None,
                 text: spec.text.clone(),
                 painter: None,

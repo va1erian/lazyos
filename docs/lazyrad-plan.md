@@ -371,6 +371,12 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   large); typing into a 2000-line, 150 KB module updates the document within
   about 20 ms to 270 ms per key (`lazyrad_typing.json`), repaint not separately
   timed. Session scripts therefore pace steps 2-3 s apart.
+- Tab and Shift+Tab indent in the code editor instead of moving the widget
+  focus: the editor's node asks for Tab (`NodeSpec::wants_tab`, va1erian/xui#291)
+  and both input paths of the backend (`xui-app/src/backend/input.rs`,
+  `session_input.rs`) deliver it (`focus::tab_action`). `lazyrad_tab.json`
+  checks it on the `perf2000` module with the IDE's `LRIDE:EDIT` counts
+  (they assume LF line endings; a CRLF Windows checkout adds 2000).
 - The in-window file dialog (painted `FileDialog` over `LazyFileSystem`) is
   implemented and renders, but **typing a path into it panicked on LazyOS**
   (`xui-core listview/api.rs:39` `RefCell already borrowed`, xui rev `58c1a6e`);

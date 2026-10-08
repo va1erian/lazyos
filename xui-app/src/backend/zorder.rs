@@ -79,6 +79,7 @@ mod tests {
             visible: true,
             enabled: true,
             focus_stop: false,
+            wants_tab: false,
             text: String::new(),
             painter: None,
             clip: None,

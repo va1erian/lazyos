@@ -208,6 +208,9 @@ struct Node {
     enabled: bool,
     /// Whether this node takes part in pointer click-focus and the focus cycle.
     focus_stop: bool,
+    /// Whether the widget handles Tab and Shift+Tab itself (`NodeSpec::wants_tab`:
+    /// a code editor indents), so Tab reaches it instead of moving the focus.
+    wants_tab: bool,
     /// Clips this node's descendants, in its own coordinates (`set_clip`).
     clip: Option<Rect>,
     text: String,
