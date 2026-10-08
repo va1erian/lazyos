@@ -7,9 +7,9 @@
 //! stays a small per-process integer and the frames outlive any single holder.
 //!
 //! Lifetime is reference-counted. Every handle holds one reference; every
-//! in-flight message that carries the buffer holds one, taken by [`retain`] /
-//! [`retain_descriptor`] when the parcel is queued and turned into the
-//! receiver's handle by [`attach`] on delivery. Each registry reference and
+//! in-flight message that carries the buffer holds one, taken by [`retain`]
+//! when the parcel is queued and turned into the receiver's handle by
+//! [`attach`] on delivery. Each registry reference and
 //! each mapping holds one allocator reference per frame, so a frame returns to
 //! the free pool exactly when its last reference (in flight, mapped, or held by
 //! a handle) goes away.

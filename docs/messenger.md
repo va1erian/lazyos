@@ -45,7 +45,7 @@ This document is the specification. The platform roadmap is in
 | **Object** | An instance of an interface inside a service. Referenced by a handle. |
 | **Handle** | An unforgeable per-process reference to an object. Carries rights. Holding it *is* the capability. |
 | **Channel** | A duplex connection between two endpoints; carries transactions and one-way messages. |
-| **Parcel** | A serialized message body: TLV-encoded fields plus an array of transferred handles and shared buffers. |
+| **Parcel** | A serialized message: a fixed header, TLV-encoded fields, and the object list (the channel ends and shared buffers its object fields refer to). |
 | **Transaction** | `call` + matching `reply`, identified by `txn_id`, with a deadline. |
 | **Topic** | A hierarchical pub/sub name, e.g. `system/events/network/up`. |
 | **Subscription** | A durable or transient interest in topics, with QoS and an optional filter. |
@@ -71,31 +71,32 @@ This document is the specification. The platform roadmap is in
 
 ## 4. Message format (wire)
 
-All integers little-endian. Parcels are version-tagged and length-delimited so
-old readers can **skip** unknown fields.
+All integers little-endian. Parcels are version-tagged (version 2,
+`docs/messenger-core-plan.md` 3.1) and length-delimited so old readers can
+**skip** unknown fields.
 
 ```
 +--------------------------------------------------------------+
 | Parcel header (fixed 48 bytes)                               |
-|  u16 version (=1)          u16 flags                         |
-|  u64 interface_id          u32 method                        |
+|  u16 version (=2)          u16 flags      u32 object_count   |
+|  u64 interface_id          u32 method     u32 body_len       |
 |  u64 txn_id                u64 reply_to (0 if a call)        |
-|  u64 deadline_ns (0 = none) u32 body_len  u16 handle_count   |
-|  u16 buffer_count          u32 body_crc32c (optional)        |
-+--------------------------------------------------------------+
-| Credentials (kernel-written, read-only to userspace)         |
-|  u32 pid u32 tid u32 uid u32 gid u32 caps u32 label_id       |
-|  u64 session_id            u8[16] signature_or_zero          |
-+--------------------------------------------------------------+
-| Announcement block (per method: which TLVs the reply carries)|
+|  u64 deadline_ns (0 = none)                                  |
 +--------------------------------------------------------------+
 | Body: sequence of TLV fields                                 |
-|   u32 type (domain,id,kind)   u32 len   u8[len] value        |
+|   u32 type (kind | id << 8)   u32 len   u8[len] value        |
+|   HANDLE (len 4):  u32 index into the object list            |
+|   BUFFER (len 20): u32 index, u64 offset, u64 len            |
 +--------------------------------------------------------------+
-| Handles:   u64 handle[]  (transferred/duplicated references) |
-| Buffers:   { u64 handle, u64 offset, u64 len, u32 flags }[]  |
+| Object list: object_count x 16 bytes                         |
+|   u32 kind (1 = Channel, 2 = Buffer)   u32 reserved (0)      |
+|   u64 handle (the sender's number; the receiver ignores it)  |
 +--------------------------------------------------------------+
 ```
+
+The sender's credentials are not in the parcel: the kernel stamps them on
+the queued message and `recv` reports them beside it (`RECV_SENDER_ID`,
+section 14). At most `MAX_OBJECTS = 8` objects travel in one parcel.
 
 ### 4.1 Flags
 
@@ -117,11 +118,15 @@ old readers can **skip** unknown fields.
 map as an `ARRAY` of key/value structs ([`docs/midl.md`](midl.md#types)).
 
 Unknown kinds and fields are skipped; required fields are declared per method in
-the IDL. MIDL never puts a `HANDLE` or `BUFFER` in a body (the number would
-mean nothing in the receiver's table): a request's handles and buffers travel
-in the parcel's vectors and are declared by the method's `transfers (...)`
-clause ([`docs/midl.md`](midl.md#transfers-handles-and-buffers)). Sizes are bounded per process (configurable quota) to prevent
-amplification attacks.
+the IDL. A `HANDLE` or `BUFFER` field holds no handle number (it would mean
+nothing in the receiver's table) but an index into the parcel's object list,
+which the kernel resolves, checks and installs: a `Channel<I>` parameter is
+a `HANDLE` field, a `Buffer` or `Ring<...>` parameter a `BUFFER` field with
+its byte range ([`docs/midl.md`](midl.md#objects-channels-and-buffers)). An
+object field's index is its position in the method's declared order, so the
+generated decoder refuses a repeated, skipped or out-of-range index. Sizes
+are bounded per process (configurable quota) to prevent amplification
+attacks.
 
 ---
 
@@ -359,10 +364,16 @@ Rights accompany a handle at creation/duplication time:
 | `TRANSFER` | move the handle to another process (ownership moves) |
 | `CONTROL` | administrative operations (revoke, reconfigure) |
 
-- Transferring a handle requires `TRANSFER` on the sender and the sender's
-  process policy must allow sending that object to that specific peer.
-- Receiving a handle requires policy to accept it; the kernel rewrites the
-  handle into the receiver's table.
+- Sending an object requires `TRANSFER` on the sender's handle, and the
+  parcel's object list must be exactly what the method declares in `.midl`
+  (same length, kinds and order; `messenger_generated::declared_objects`),
+  or the request is refused before anything moves. A channel end **moves**
+  (the sender's handle closes once the message is queued, and may appear
+  only once in a message); a buffer is **shared** (the sender keeps its
+  handle). A reply carries no objects.
+- The kernel installs each object in the receiver's table and `recv`
+  reports the new numbers in object-list order; the receiving library owns
+  them until a generated decoder claims them, and closes the rest.
 - Handles are kernel objects; allocating them is metered per process (quota) so
   a malicious sender cannot exhaust kernel memory.
 - On process exit all handles are closed and endpoints withdrawn; peers get
@@ -378,11 +389,15 @@ Rights accompany a handle at creation/duplication time:
   `buffer_close(handle)` unmaps and drops the reference. The pages live while
   any handle or in-flight message references them. There are no flags, no
   fences and no kinds of buffer.
-- Buffers are sent as `BUFFER` fields (metadata: handle, offset, length),
-  which the kernel duplicates into the receiver mapping. That is the one path
-  for a buffer: a buffer handle in a message's handle list is refused
-  (`EINVAL`), so handles only ever move endpoints, channels and objects
-  (`messenger-core-plan.md` M2).
+- A buffer travels as a `Buffer` parameter (`BUFFER` field: the index of
+  its object-list entry, an offset and a length); the kernel takes one
+  reference for the message and installs a new handle in the receiver's
+  table, which maps it when it wants. The kernel knows nothing about the
+  byte range: the receiving library checks `offset + len` against the size
+  `buffer_map` reports (`libmessenger::Buffer::fits`). An entry whose handle
+  is not a buffer is refused (`EINVAL`), so a channel slot only ever moves a
+  channel end and a buffer slot only ever shares pages
+  (`messenger-core-plan.md` 2.3).
 - Ordering is the protocol's business: `Present` is a call whose reply says
   the frame was consumed, audio orders with `Commit`, and the NIC rings use
   the armed flag in their ring header (`docs/midl.md`, "Rings").
@@ -410,9 +425,8 @@ interface os.lazy.notify.v1 {
     method Notify(level: Level, title: String, body: String) -> (id: U64);
     /// Publish a typed event on a topic owned by this service.
     method Publish(topic: String, event: Event) -> ();
-    /// Deliver `Event`s as one-way messages on the transferred channel.
-    method Watch(topic_filter: String, qos: Qos) -> ()
-        transfers (events: Channel<os.lazy.notify.v1>);
+    /// Deliver `Event`s as one-way messages on the carried channel.
+    method Watch(topic_filter: String, qos: Qos, events: Channel<os.lazy.notify.v1>) -> ();
     method Delivered(event: Event) -> () oneway;
     enum Level { Info, Warn, Error, Critical }
     struct Event { topic: String, payload: Bytes, at: U64 }
@@ -504,8 +518,13 @@ stays cheap under load.
 
 - **Handle table** per process: `Vec<HandleEntry>` indexed by local handle, with
   rights, refcount, and type tag (object/channel/endpoint/buffer/subscription).
-- **Channels:** pairs of bounded queues; each entry is a `ParcelRef` (buffer
-  handle + offset) to avoid copying; small parcels are inlined.
+- **Channels:** pairs of bounded queues; each entry holds the parcel bytes
+  as they arrived plus the resolved object list (`Resolved { kind, rights,
+  object_id }` per entry, `kernel/src/ipc/channels/support.rs`). Queueing a
+  message resolves the list against the sender's table after the declared
+  gate (`declared.rs`), takes a reference per buffer and closes the sender's
+  moved channel handles; delivery installs the list in the receiver's table
+  with one loop and one rollback (`recv.rs`).
 - **Queues:** per-channel ring buffers with per-sender metering; block/wake via
   the scheduler's wait queues (no spinning).
 - **Topics** live in `messengerd`; the kernel only moves messages.
@@ -515,12 +534,15 @@ stays cheap under load.
   `(sender creds/label, target object's owner, interface.method, rights)`; the
   compiled policy is a compact trie/bitmap loaded by `messengerd` via a privileged
   interface. Decisions are O(1)-ish and audited on denial.
-- **Limits:** max parcel size, max handles per message, max queue depth per
-  process, max outstanding transactions; all metered and reported.
+- **Limits:** max parcel size, max objects per message (8), max queue depth
+  per process, max outstanding transactions; all metered and reported.
 - **Syscalls** (native ABI), each taking a small op structure validated on entry:
   `msg_endpoint`, `msg_connect`, `msg_register`, `msg_resolve`, `msg_call`,
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
-  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_buffer_create`/`msg_buffer_map`/`msg_buffer_close` (ops `BUFFER_CREATE = 22`, `BUFFER_MAP = 23`, `BUFFER_CLOSE = 24`: create takes a size and returns `(handle, address, size)`, map returns `(address, size)`; `lazyos_sys::msg::buffer_create`), `msg_stats`, `msg_acl_load`.
+  `msg_recv` (the result block, `MsgResult`, is 13 words: `status`,
+  `value`, `aux`, `bytes`, `object_count`, then `objects[8]`, the handles the
+  delivery installed in object-list order; `lazyos_sys::msg::MsgResult`,
+  `kernel/src/ipc/syscalls/abi.rs`), `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_buffer_create`/`msg_buffer_map`/`msg_buffer_close` (ops `BUFFER_CREATE = 22`, `BUFFER_MAP = 23`, `BUFFER_CLOSE = 24`: create takes a size and returns `(handle, address, size)`, map returns `(address, size)`; `lazyos_sys::msg::buffer_create`), `msg_stats`, `msg_acl_load`.
 - **Service supervision calls:** ahead of the Messenger family, the S2
   supervisor adds four small native calls — `spawn` (start a program as the
   caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT

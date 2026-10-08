@@ -110,14 +110,25 @@ userspace never names another task's handles.
   committed. Plain `recv` with `EXPIRED_DEADLINE` (no transaction) is unchanged.
   Tests: `ipc_channel_poll_*` in `tests/ipc_channel_suite/poll.rs`, including a
   20,000-round soak.
-- A parcel's handles **move** (sender holds `TRANSFER`; its handle closes once
-  queued; delivery opens a receiver-local one); buffers **share** (the message
-  takes one reference). The buffer list is the one path for a buffer: a
-  `Buffer` handle in the handle list is refused at resolve time
-  (`BufferInHandles`, `EINVAL`) before anything moves, so queue, deliver and
-  rollback know no buffer special case (core plan M2; test
-  `ipc_buffer_in_handles_refused`). Replies refuse transfers
-  (`UnsupportedTransfer`); non-buffer objects have no refcount yet.
+- **Objects** (`channels/support.rs`, `recv.rs`; core plan 2.3): a parcel's
+  object list (`libmessenger::Object`, one entry per `Channel<I>` or
+  `Buffer` field) is resolved into one `Vec<Resolved { kind, rights,
+  object_id }>` by `resolve_objects`: the declared gate first, then each
+  entry's handle must be of its slot's kind (`WrongObjectKind`) and hold
+  `TRANSFER`, and a channel end may appear once (`BadTransfer`). A channel
+  entry **moves** (the sender's handle closes once the message is queued;
+  delivery opens a receiver-local one); a buffer entry **shares** (the
+  message takes one reference with `shared::retain`; delivery converts it
+  into the receiver's handle with `attach`). `deliver` installs the list in
+  one loop and `rollback_delivery` undoes a partial one (installed handles
+  closed, pending references released, orphaned ends closed). The kernel
+  knows nothing about byte ranges: a `Buffer` field's offset and length are
+  data the receiving library checks against the mapped size. `Message.objects`
+  carries the installed numbers in list order. Replies refuse objects
+  (`UnsupportedTransfer`); non-buffer objects have no refcount yet. Tests:
+  `ipc_buffer_handle_transfer_rights`, `ipc_object_*`
+  (`tests/ipc_shared_suite/{transfer,objects}.rs`, with a 100,000-round
+  move/share soak).
 - **Buffer syscalls** are `messenger` ops (`syscalls/bufop.rs`):
   `OP_BUFFER_CREATE = 22` (`parcel_len` is the size; `value` the handle, `aux`
   the address, `bytes` the size), `OP_BUFFER_MAP = 23` (`value` the address,
@@ -125,15 +136,16 @@ userspace never names another task's handles.
   compositor's screen buffer). The display syscall's former ops 4 to 6 are
   gone. Userspace: `lazyos_sys::msg::{buffer_create, buffer_map,
   buffer_close}`. Tests: `display_close_buffer_*`, `tests/bufops.rs`.
-- **Declared transfers** (issue #516, `channels/declared.rs`): a request may
-  carry only what its `.midl` method declares. `send`/`begin_call` look the
-  parcel header's `(interface_id, method)` up in `midlc`'s generated
-  `DECLARED_TRANSFERS` before resolving anything and refuse more handles or
-  buffers with `UndeclaredTransfer` (`EINVAL`), so the sender's table is
-  untouched and nothing reaches the receiver. An interface no `.midl` declares
-  may carry none. Test builds exempt the suite's fixture interface
-  (`0x0bad_cafe`). Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`,
-  with a 20,000-request soak).
+- **Declared objects** (issue #516, `channels/declared.rs`): a request
+  carries exactly what its `.midl` method declares. `send`/`begin_call`
+  compare the parcel's object kinds with `midlc`'s generated
+  `declared_objects(interface_id, method)` (same length, kinds and order)
+  before resolving anything and refuse any other list with
+  `UndeclaredObject` (`EINVAL`), so the sender's table is untouched and
+  nothing reaches the receiver. An interface no `.midl` declares may carry
+  none. Test builds exempt the suite's fixture interface (`0x0bad_cafe`).
+  Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`, with a
+  20,000-request soak).
 
 **Shared buffers** (`shared.rs`)
 
@@ -147,9 +159,9 @@ userspace never names another task's handles.
   and refuses a driver's share-only DMA buffer (`dma_alloc(SHARE_ONLY)`,
   [devices.md](devices.md)) for anyone but the creator; `close` unmaps and drops a
   reference; `info` reports state.
-- Lifetime is refcounted: handles + in-flight messages + mappings. `retain` /
-  `retain_descriptor` take the message reference, `attach` converts it into the
-  receiver's handle, `release` drops it when a queue is discarded.
+- Lifetime is refcounted: handles + in-flight messages + mappings. `retain`
+  takes the message reference, `attach` converts it into the receiver's
+  handle, `release` drops it when a queue is discarded.
 - Every handoff is zero-copy (`Stats::handoffs`): mappings alias the same
   frames. Ordering belongs to the protocol (a `Present` reply, audio's
   `Commit`, a ring's armed flag), never to the kernel.
@@ -183,7 +195,7 @@ name policy is `Resolve`'s. User side: `messenger::registry::connect`. Tests:
 `connect_*` (`tests/connect_suite.rs`, two clients in two tasks, orphans, a
 5,000-round connect/call/close soak) and `ipc_registry_syscall_connect`.
 
-**Status.** Working: handle rights, transactions with deadlines/cancel, handle
-move and buffer share, per-connection channels. Open: reply-borne
-transfers, services serving their connections (they still serve the shared
-endpoint), non-buffer object refcounts.
+**Status.** Working: handle rights, transactions with deadlines/cancel,
+objects as fields (channel move and buffer share), per-connection channels.
+Open: reply-borne objects, services serving their connections (they still
+serve the shared endpoint), non-buffer object refcounts.
