@@ -6,7 +6,8 @@ Every guest connection to a harness SMB port is reassembled
 
 * no secret (the password, in ASCII or UTF-16LE) anywhere on the flow;
 * the client offers dialect 2.1, and the server's choice is the expected one;
-* the TREE_CONNECT names the expected share;
+* the TREE_CONNECT names the expected share, and a flow whose logon or tree
+  connect was refused carries no file command;
 * signing: on a signing port every message after the logon is signed, both
   ways; on a plain port no request is;
 * file bytes: each expected upload is rebuilt from WRITE requests alone and
@@ -26,6 +27,8 @@ sys.path.insert(0, str(HERE.parent / "net"))
 import sockets_pcap  # noqa: E402
 
 NEGOTIATE, SESSION_SETUP, TREE_CONNECT, READ, WRITE = 0, 1, 3, 8, 9
+#: CREATE, READ, WRITE, QUERY_DIRECTORY, SET_INFO: what a refused session must never send.
+FILE_COMMANDS = {5, READ, WRITE, 0x0E, 0x11}
 FLAG_RESPONSE, FLAG_ASYNC, FLAG_SIGNED = 0x1, 0x2, 0x8
 PENDING = 0x00000103
 
@@ -158,6 +161,12 @@ def check_flow(client: bytes, server: bytes, expect: PortExpect, where: str) -> 
         seen["share"] = any(p.lower().endswith("\\" + expect.share.lower()) for p in paths)
     if expect.signed is not None:
         problems += _signing_problems(requests, responses, expect.signed, where)
+    # A flow whose logon or tree connect was refused must carry no file
+    # command: the refusal is the client's to obey, whatever the server does.
+    tree_ok = any(m.command == TREE_CONNECT and m.status == 0 for m in responses)
+    touched = sorted({m.command for m in requests if m.command in FILE_COMMANDS})
+    if touched and not (seen["logged_on"] and tree_ok):
+        problems.append(f"{where}: file commands {touched} on a refused session")
     pieces, outside = writes(requests)
     uploaded = _rebuild(pieces)
     downloaded = _rebuild(reads(requests, responses))

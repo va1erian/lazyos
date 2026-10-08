@@ -39,6 +39,8 @@ pub struct Behaviour {
     pub unsign: Option<u16>,
     pub timestamp: bool,
     pub max_io: u32,
+    /// Answer every QUERY_DIRECTORY with only `.` and `..`, never ending.
+    pub endless_listing: bool,
 }
 
 impl Default for Behaviour {
@@ -54,6 +56,7 @@ impl Default for Behaviour {
             unsign: None,
             timestamp: true,
             max_io: 65536,
+            endless_listing: false,
         }
     }
 }

@@ -52,6 +52,8 @@ def smbwire_seeds():
         "decode_negotiate": b"\x00" + negotiate(),
         "decode_challenge": b"\x00" + challenge(),
         "decode_ntlm": b"\x00" + p.challenge_message(bytes(8), "D", "S", None),
-        "frames": b"\x05" + p.frame(negotiate()) + p.frame(challenge()),
+        # mode % 3 == 1 selects the framing path; mode >> 2 == 1 feeds it
+        # 2-byte chunks.
+        "frames": b"\x04" + p.frame(negotiate()) + p.frame(challenge()),
         "session": b"\x02" + session_script(),
     }

@@ -178,6 +178,7 @@ impl<T: Transport> Client<T> {
         let output = self.max_transact;
         self.with(path, Open::Directory, |c, dir| {
             let mut entries = Vec::new();
+            let mut seen = 0usize;
             let pattern = crate::crypto::utf16le("*");
             let mut flags = msg::QUERY_RESTART_SCANS;
             loop {
@@ -204,9 +205,12 @@ impl<T: Transport> Client<T> {
                 if buffer.is_empty() {
                     return Ok(entries);
                 }
-                let (found, _) = msg::parse_directory(buffer)?;
+                let (found, skipped) = msg::parse_directory(buffer)?;
+                // Skipped entries count too: a server answering every query
+                // with only `.`, `..` or unlistable names must still end.
+                seen += found.len() + skipped;
                 entries.extend(found);
-                if entries.len() > MAX_LISTING {
+                if seen > MAX_LISTING {
                     return Err(Error::Malformed("directory listing too long"));
                 }
             }

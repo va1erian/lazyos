@@ -223,6 +223,20 @@ fn a_wrong_password_or_domain_is_a_logon_failure() {
 }
 
 #[test]
+fn a_listing_of_only_skipped_names_still_ends() {
+    let how = Behaviour {
+        endless_listing: true,
+        ..Behaviour::default()
+    };
+    let (mut c, _) = connect(how, Signing::Auto).unwrap();
+    c.tree_connect("h", "share").unwrap();
+    assert_eq!(
+        c.list(""),
+        Err(Error::Malformed("directory listing too long"))
+    );
+}
+
+#[test]
 fn an_unknown_share_is_bad_network_name() {
     let (mut c, _) = connect(Behaviour::default(), Signing::Auto).unwrap();
     assert_eq!(

@@ -30,6 +30,8 @@ from sockets_fixtures import GATEWAY_IP, GUEST_IP, frames_of, stream_flow  # noq
 
 PORT = 1445
 SECRET = b"hunter2secret"
+#: The password as it would sit in a UTF-16LE field.
+WIDE = SECRET.decode().encode("utf-16-le")
 UPLOAD = bytes((i * 7 + 3) & 0xFF for i in range(5000))
 DOWNLOAD = bytes((i * 13 + 1) & 0xFF for i in range(4000))
 
@@ -44,7 +46,7 @@ def message(command: int, mid: int, body: bytes, *, response: bool = False, stat
 
 
 def conversation(*, dialect: int = 0x0210, sign: bool = False, share: str = "share",
-                 extra_up: bytes = b"", upload: bytes = UPLOAD) -> tuple[bytes, bytes]:
+                 extra_up: bytes = b"", upload: bytes = UPLOAD, tree_status: int = 0) -> tuple[bytes, bytes]:
     """(client bytes, server bytes) of one session."""
     negotiate = struct.pack("<HHHHI", 36, 2, 1, 0, 0) + bytes(24) + struct.pack("<HH", 0x0210, 0x0202)
     path = f"\\\\10.0.2.2\\{share}".encode("utf-16-le")
@@ -61,7 +63,8 @@ def conversation(*, dialect: int = 0x0210, sign: bool = False, share: str = "sha
             + message(sp.SESSION_SETUP, 1, struct.pack("<HHHH", 9, 0, 0, 0), response=True,
                       status=0xC0000016)
             + message(sp.SESSION_SETUP, 2, struct.pack("<HHHH", 9, 0, 0, 0), response=True)
-            + message(sp.TREE_CONNECT, 3, struct.pack("<HBBIII", 16, 1, 0, 0, 0, 0), response=True, signed=sign)
+            + message(sp.TREE_CONNECT, 3, struct.pack("<HBBIII", 16, 1, 0, 0, 0, 0), response=True, signed=sign,
+                      status=tree_status)
             + message(sp.WRITE, 4, struct.pack("<HHII", 17, 0, len(UPLOAD), 0) + bytes(8), response=True,
                       signed=sign)
             + message(sp.READ, 5, read_resp, response=True, signed=sign))
@@ -72,7 +75,7 @@ def check(up: bytes, down: bytes, expect: sp.PortExpect, flows: int = 1) -> list
     raw = []
     for n in range(flows):
         raw += stream_flow(50000 + n, PORT, up, down)
-    _, problems = sp.check_smb_flows(frames_of(raw), GUEST_IP, GATEWAY_IP, {PORT: expect}, [SECRET])
+    _, problems = sp.check_smb_flows(frames_of(raw), GUEST_IP, GATEWAY_IP, {PORT: expect}, [SECRET, WIDE])
     return problems
 
 
@@ -89,7 +92,7 @@ class WireTests(unittest.TestCase):
     def test_each_damage_is_caught(self) -> None:
         cases = {
             "secret": (conversation(extra_up=SECRET), expect(), "secret"),
-            "utf16": (conversation(extra_up=b"x" + SECRET), expect(), "secret"),
+            "utf16": (conversation(extra_up=WIDE), expect(), "secret"),
             "dialect": (conversation(dialect=0x0202), expect(), "dialect"),
             "unsigned": (conversation(), expect(signed=True), "unsigned"),
             "signed": (conversation(sign=True), expect(), "signed though"),
@@ -97,6 +100,7 @@ class WireTests(unittest.TestCase):
             "upload": (conversation(upload=UPLOAD[:-1] + b"\x00"), expect(), "uploads"),
             "outside": (conversation(extra_up=UPLOAD[:64]), expect(), "outside WRITE"),
             "download": (conversation(), expect(downloads=[DOWNLOAD[::-1]]), "downloads"),
+            "refused": (conversation(tree_status=0xC00000CC), expect(uploads=[], downloads=[]), "refused"),
         }
         for name, ((up, down), want, fragment) in cases.items():
             problems = check(up, down, want)

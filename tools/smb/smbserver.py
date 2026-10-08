@@ -115,6 +115,7 @@ class Connection:
         self.signing = False
         self.logged_on = False
         self.wrapped = True
+        self.tree = False
         self.challenge = os.urandom(8)
         self.files = FileOps(server.root)
 
@@ -185,6 +186,10 @@ class Connection:
             return self.respond(h, p.SUCCESS, bytes([4, 0, 0, 0]))
         if h.command == p.TREE_CONNECT:
             return self.tree_connect(h, message, body)
+        if not self.tree:
+            # File commands need a connected share, as on a real server.
+            self.server.event(name, "no tree")
+            return self.respond(h, p.NETWORK_NAME_DELETED, b"")
         status, reply, detail = self.files.dispatch(h.command, message, body)
         self.server.event(name, detail)
         tamper = self.o.tamper_read and h.command == p.READ
@@ -255,6 +260,7 @@ class Connection:
         self.server.event("TREE_CONNECT", path)
         if share.lower() != self.o.share.lower():
             return self.respond(h, p.BAD_NETWORK_NAME, b"")
+        self.tree = True
         return self.respond(h, p.SUCCESS, struct.pack("<HBBIII", 16, 1, 0, 0, 0, 0x001F01FF))
 
 

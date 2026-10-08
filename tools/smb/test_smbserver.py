@@ -36,7 +36,8 @@ SMBCAT = ROOT / "target" / "debug" / "examples" / ("smbcat.exe" if os.name == "n
 class CryptoTests(unittest.TestCase):
     def test_md4_and_the_ms_nlmp_vectors(self) -> None:
         self.assertEqual(ntlm.md4(b"").hex(), "31d6cfe0d16ae931b73c59d7e0c089c0")
-        self.assertEqual(ntlm.md4(b"a" * 100).hex(), ntlm.md4(b"a" * 100).hex())
+        # RFC 1320's 80-byte vector: two blocks, so the multi-block path too.
+        self.assertEqual(ntlm.md4(b"1234567890" * 8).hex(), "e33b4ddc9c38f2199c3e7b164fcc0536")
         self.assertEqual(ntlm.nt_hash("Password").hex(), "a4f49c406510bdcab6824ee7c30fd852")
         key = ntlm.ntowfv2("Password", "User", "Domain")
         self.assertEqual(key.hex(), "0c868a403bfd7a93a3001ef22ef02e3f")
