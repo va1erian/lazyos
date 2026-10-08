@@ -129,7 +129,9 @@ impl Hub {
                 Ok(Vec::new())
             }
             shell_wire::METHOD_NOTEKEYSHELD => self.note_keys_held(body).map(|()| Vec::new()),
-            shell_wire::METHOD_NOTESESSIONLAYOUT => self.note_session_layout(body).map(|()| Vec::new()),
+            shell_wire::METHOD_NOTESESSIONLAYOUT => {
+                self.note_session_layout(body).map(|()| Vec::new())
+            }
             shell_wire::METHOD_NOTEINPUTDONE => {
                 let args = shell_wire::decode_note_input_done_args(body).map_err(Error::Parcel)?;
                 self.input_done(args.seq);

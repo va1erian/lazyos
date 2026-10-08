@@ -94,8 +94,14 @@ mod tests {
 
     #[test]
     fn every_account_but_uid_0_has_its_own_key() {
-        assert_eq!(user_layout_key(1000).as_deref(), Some("user/1000/input/layout"));
-        assert_eq!(user_layout_key(u32::MAX).as_deref(), Some("user/4294967295/input/layout"));
+        assert_eq!(
+            user_layout_key(1000).as_deref(),
+            Some("user/1000/input/layout")
+        );
+        assert_eq!(
+            user_layout_key(u32::MAX).as_deref(),
+            Some("user/4294967295/input/layout")
+        );
         assert_eq!(user_layout_key(0), None);
     }
 }

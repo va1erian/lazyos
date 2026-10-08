@@ -21,8 +21,8 @@ use xui_core::HasText;
 
 use crate::app::{choice_list, Msg};
 use crate::keyboard;
-use inputmap::session_layout::user_layout_key;
 use crate::store::ConfigStore;
+use inputmap::session_layout::user_layout_key;
 
 /// The widest the list and the test field get.
 const FIELD_W: i32 = 300;
@@ -209,10 +209,17 @@ mod tests {
     #[test]
     fn a_user_layout_is_its_own_and_asks_nobody() {
         let (mem, own) = account(1000);
-        mem.set(keyboard::KEY_LAYOUT, Value::Str("us".into())).unwrap();
+        mem.set(keyboard::KEY_LAYOUT, Value::Str("us".into()))
+            .unwrap();
         assert_eq!(apply(own.as_ref(), Some(1)), "Keyboard layout changed.");
-        assert_eq!(stored(&mem, "user/1000/input/layout"), Some(Value::Str("fr".into())));
-        assert_eq!(stored(&mem, keyboard::KEY_LAYOUT), Some(Value::Str("us".into())));
+        assert_eq!(
+            stored(&mem, "user/1000/input/layout"),
+            Some(Value::Str("fr".into()))
+        );
+        assert_eq!(
+            stored(&mem, keyboard::KEY_LAYOUT),
+            Some(Value::Str("us".into()))
+        );
         assert_eq!(keyboard::current(own.as_ref()), Some(1));
     }
 
@@ -222,8 +229,15 @@ mod tests {
         apply(own.as_ref(), Some(1));
         let text = make_default(own.as_ref(), mem.as_ref(), Some(1));
         assert_eq!(text, "Français (AZERTY) is now the default for everyone.");
-        assert_eq!(stored(&mem, keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
-        assert_eq!(stored(&mem, "user/1000/input/layout"), None, "own copy kept");
+        assert_eq!(
+            stored(&mem, keyboard::KEY_LAYOUT),
+            Some(Value::Str("fr".into()))
+        );
+        assert_eq!(
+            stored(&mem, "user/1000/input/layout"),
+            None,
+            "own copy kept"
+        );
         assert_eq!(keyboard::current(own.as_ref()), Some(1));
     }
 
@@ -235,14 +249,23 @@ mod tests {
         let text = make_default(own.as_ref(), mem.as_ref(), Some(1));
         assert!(text.contains("cancelled"), "{text}");
         assert_eq!(stored(&mem, keyboard::KEY_LAYOUT), None);
-        assert_eq!(stored(&mem, "user/1000/input/layout"), Some(Value::Str("fr".into())));
+        assert_eq!(
+            stored(&mem, "user/1000/input/layout"),
+            Some(Value::Str("fr".into()))
+        );
     }
 
     #[test]
     fn uid_0_make_default_keeps_the_key_it_wrote() {
         let (mem, own) = account(0);
         make_default(own.as_ref(), mem.as_ref(), Some(1));
-        assert_eq!(stored(&mem, keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
-        assert_eq!(make_default(own.as_ref(), mem.as_ref(), None), "Select a layout first.");
+        assert_eq!(
+            stored(&mem, keyboard::KEY_LAYOUT),
+            Some(Value::Str("fr".into()))
+        );
+        assert_eq!(
+            make_default(own.as_ref(), mem.as_ref(), None),
+            "Select a layout first."
+        );
     }
 }

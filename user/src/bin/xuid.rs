@@ -118,6 +118,8 @@ mod keys;
 mod layers;
 #[path = "xuid/layout.rs"]
 mod layout;
+#[path = "xuid/layoutfeed.rs"]
+mod layoutfeed;
 #[path = "xuid/loginfeed.rs"]
 mod loginfeed;
 #[path = "xuid/maximize.rs"]
@@ -169,8 +171,6 @@ mod spinner;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
-#[path = "xuid/layoutfeed.rs"]
-mod layoutfeed;
 #[path = "xuid/themefeed.rs"]
 mod themefeed;
 #[path = "xuid/title.rs"]

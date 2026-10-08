@@ -417,7 +417,9 @@ impl App for SettingsApp {
             Msg::MakeDefault => self.make_default(ui),
             Msg::Keyboard(msg) => say(
                 &self.status,
-                self.pages.keyboard.update(msg, store, self.machine.as_ref()),
+                self.pages
+                    .keyboard
+                    .update(msg, store, self.machine.as_ref()),
             ),
             Msg::Time(msg) => say(
                 &self.status,

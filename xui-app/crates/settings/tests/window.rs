@@ -195,7 +195,11 @@ fn a_keyboard_layout_is_the_users_own_and_only_the_default_asks() {
         assert_eq!(mem.get(own), Some(Value::Str("fr".into())));
         // An approved one sets the default and the account follows it.
         *mem.fail_writes.borrow_mut() = None;
-        let default = vec![page, kb(KeyboardMsg::Select(1)), kb(KeyboardMsg::MakeDefault)];
+        let default = vec![
+            page,
+            kb(KeyboardMsg::Select(1)),
+            kb(KeyboardMsg::MakeDefault),
+        ];
         save(
             &drive(mem.clone(), people(), default),
             "settings-keyboard-default.png",

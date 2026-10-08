@@ -264,8 +264,11 @@ mod tests {
     #[test]
     fn the_keyboard_layout_is_the_users_own() {
         let (mem, store) = user_store(Some(1000));
-        mem.set("sys/input/layout", Value::Str("us".into())).unwrap();
-        store.set("sys/input/layout", Value::Str("fr".into())).unwrap();
+        mem.set("sys/input/layout", Value::Str("us".into()))
+            .unwrap();
+        store
+            .set("sys/input/layout", Value::Str("fr".into()))
+            .unwrap();
         assert_eq!(mem.get("sys/input/layout"), Some(Value::Str("us".into())));
         assert_eq!(
             mem.get("user/1000/input/layout"),
@@ -277,7 +280,9 @@ mod tests {
         assert_eq!(store.get("sys/input/layout"), Some(Value::Str("us".into())));
         // uid 0 sets the machine default itself.
         let (mem, store) = user_store(Some(0));
-        store.set("sys/input/layout", Value::Str("fr".into())).unwrap();
+        store
+            .set("sys/input/layout", Value::Str("fr".into()))
+            .unwrap();
         assert_eq!(mem.get("sys/input/layout"), Some(Value::Str("fr".into())));
     }
 

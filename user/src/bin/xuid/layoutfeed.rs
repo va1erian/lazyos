@@ -110,7 +110,9 @@ impl LayoutFeed {
             self.stale = true;
         }
         if self.stale {
-            let read = confd.zip(user_layout_key(uid)).map(|(client, key)| client.get(&key));
+            let read = confd
+                .zip(user_layout_key(uid))
+                .map(|(client, key)| client.get(&key));
             // A failing `confd` keeps the layout already in effect.
             if let Some(Ok(value)) = read {
                 self.stale = false;
