@@ -46,7 +46,7 @@ Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
 | Driver config keys | specified (`net/<drv>/mtu`, `rx_ring_entries`, `mac_override`, ...) | [driver-config-plan.md](driver-config-plan.md) §2 |
 | Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |
 | BusyBox | `defconfig` static build already runs on the shim; its network applets are compiled in and simply fail at `socket()` | `tools/abi/busybox.py` |
-| Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §6, §7, §10 |
+| Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §2, §6, §7 |
 | Known Messenger gaps that matter here | replies cannot carry handles or buffers; per-connection channels exist (`Connect`, #483) but `netd` does not use them yet | [architecture/ipc-core.md](architecture/ipc-core.md) |
 | Time | 100 Hz PIT, 10 ms resolution everywhere | `kernel/src/process/linux/time.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom`; no native wrapper found in `user/src/sys.rs` | `kernel/src/entropy.rs` |
@@ -534,7 +534,8 @@ Kept current as stages land; the reasoning for each is where it is used.
   receiver (`recv` gives a first handle and a first buffer, and the parcel bytes
   still carry the sender's handle numbers), so the second could never be used.
   Both rings now share one buffer of `2 * ring_bytes(slots)`. Found while reading
-  `sndd`'s `discard_transfers` for N1.
+  `sndd`'s default-arm cleanup for N1 (gone since `messenger-core-plan.md`
+  M3: an unclaimed object closes with the `Message`).
 
 **N1**
 
@@ -623,6 +624,7 @@ Kept current as stages land; the reasoning for each is where it is used.
   enforcement (no policy loader, so `Renew` and `Reattach` are open to anyone
   until one exists), releasing a parked `Ping` whose caller cancelled or died
   (the slot is held until the ping's own timeout, at most 60 s), the shared PCI
-  bring-up module, `sndd`'s
-  `discard_transfers` leaving extra handles open, hosted CI (the workflow is
-  written, not run on GitHub).
+  bring-up module, hosted CI (the workflow is written, not run on GitHub).
+  `sndd` leaving extra received handles open was closed by
+  `messenger-core-plan.md` M3 (an unclaimed object closes with the
+  `Message`).

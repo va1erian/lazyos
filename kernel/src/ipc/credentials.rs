@@ -4,7 +4,7 @@
 //! Every Messenger call carries an identity the sender cannot forge: the kernel
 //! stamps `uid/gid/caps/label/session` from this registry, and no syscall or
 //! parcel field can write them back (`docs/security-model.md` section 2 and
-//! `docs/messenger.md` section 14). The stamp is what the ACL hook and the audit
+//! `docs/messenger.md` section 9). The stamp is what the ACL hook and the audit
 //! ring read, so there is exactly one source of truth.
 //!
 //! Like the handle table, credentials live here keyed by task slot rather than

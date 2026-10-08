@@ -97,9 +97,10 @@ hand-typed. The generated Markdown (`docs/idl/*.md`) lists the same table.
 ## Objects: channels and buffers
 
 A parcel carries its kernel objects in an *object list* beside its TLV body
-(`docs/messenger-core-plan.md` 3.1); an object field in the body holds only
-an index into that list, which the kernel resolves, checks and installs in
-the receiver's table. In MIDL an object is a parameter type like any other:
+([`docs/messenger.md`](messenger.md) sections 1 and 4); an object field in
+the body holds only an index into that list, which the kernel resolves,
+checks and installs in the receiver's table. In MIDL an object is a
+parameter type like any other:
 
 ```idl
 interface os.lazy.display.v1 {
@@ -133,7 +134,9 @@ claimed by exactly one field. A request carries at most eight objects.
 
 A `Channel<I>` field is a `u64` (the sender's handle when encoding, the
 installed one when decoded); a `Buffer` or `Ring<...>` field is a
-`libmessenger::Buffer`. For a method whose request carries objects, in the
+`libmessenger::Buffer`. Both sit in the request struct (`<Method>Args`,
+e.g. `AttachBufferArgs { surface: u64, pixels: libmessenger::Buffer }`) as
+plain fields. For a method whose request carries objects, in the
 interface's module:
 
 * `encode_<method>_args(&value)` returns `(body, objects)`, the parcel's body
@@ -262,7 +265,10 @@ default and only cancels an earlier `oneway`.
 Built-ins: `Bool`, `I32`, `I64`, `U32`, `U64`, `F64`, `String` (UTF-8),
 `Bytes`, `Array<T>` and `Option<T>` (exactly one parameter each), and the
 objects `Channel<I>`, `Buffer` and `Ring<A, ...>` (above: in a request or a
-struct, never in a reply, a topic, an `Option` or an `Array`). A name
+struct, never in a reply, a topic, an `Option` or an `Array`; `I` must be an
+interface of the compile with a `oneway` method; at most eight objects per
+request; each object field's index is its position in the depth-first
+declaration order). A name
 declared as a `struct` or `enum` of the same interface is also a type. Enums
 travel as `U32` (the variant's index, in declaration order), and an
 enum-typed field is a `u32` in the generated Rust (compare it with the

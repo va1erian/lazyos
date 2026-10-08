@@ -71,6 +71,18 @@ IPC, processes, display, etc.) and focused plans for
 Read those for anything about kernel internals, syscall numbers, or
 window/task management rather than assuming from comments elsewhere.
 
+Before touching IPC, read the six concepts and the cheat sheet in
+[`docs/messenger.md`](docs/messenger.md) (sections 1 and 5): a message is a
+header, a TLV body and an object list; an interface's objects are parameters
+of type `Channel<I>` (one end of a channel, which moves) or `Buffer` (shared
+pages with a byte range, which is shared), declared in `.midl` like any other
+field and refused in a reply, a topic, an `Option` or an `Array`. The index
+rule and fixed cardinality apply: an object field's index is its position in
+the method's declared order, the kernel refuses a request whose object list
+is not exactly the declared kinds, and the generated `decode_<m>_args`
+refuses any other index. `midlc` refuses the old `transfers (...)` clause;
+there is no other way to carry a handle.
+
 Boot it with one command:
 
 ```bash

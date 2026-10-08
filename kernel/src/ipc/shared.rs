@@ -1,6 +1,6 @@
 //! Shared buffers (issue #67).
 //!
-//! `docs/messenger.md` sections 4, 7.1 and 10: a shared buffer is a page-aligned
+//! `docs/messenger.md` sections 2, 4 and 7.1: a shared buffer is a page-aligned
 //! run of frames that can be mapped read/write into several address spaces at
 //! once. The kernel keeps those frames in the `REGISTRY` keyed by the
 //! `object_id` carried by `HandleKind::Buffer` handles, so a handle number
