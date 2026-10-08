@@ -45,6 +45,13 @@ impl LazyOSBackend {
     /// Route one key release to the focused widget.
     fn key_up(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, false);
+        // A Tab release goes to the widget only when its press would have: not
+        // after a press that moved the focus, nor for a compositor chord
+        // (Ctrl/Alt+Tab) that never reached the widget.
+        if code == key::TAB && tab_action(modifiers, self.focused_wants_tab()) != TabAction::Deliver
+        {
+            return;
+        }
         let target = self.focused.get().unwrap_or(WidgetId::NONE);
         if let Some(event) = key_event(code, false, modifiers) {
             self.deliver(window, target, &event);
