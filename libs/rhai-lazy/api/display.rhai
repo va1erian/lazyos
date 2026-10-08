@@ -481,7 +481,8 @@ fn allow_popup(task, token, x, y, w, h) {
 /// `grab` is set every key the compositor does not keep for itself
 /// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
 /// a `PanelKey` event instead of to the focused window, which keeps its
-/// focus; `inputd` is told no window has the keyboard meanwhile. It ends
+/// focus (no leave/enter); `inputd` holds the window's key content
+/// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
 /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
 /// or under a client's keyboard grab or the trusted prompt, which win.
 fn grab_panel_keys(grab) {

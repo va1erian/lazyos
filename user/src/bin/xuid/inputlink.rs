@@ -33,6 +33,8 @@ pub(super) struct InputLink {
     registered: BTreeSet<u64>,
     /// The focus `inputd` last heard (`None`: never told, or unsure).
     pub(super) told_focus: Option<Option<u64>>,
+    /// The key hold `inputd` last heard (`NoteKeysHeld`; `None`: never told).
+    pub(super) told_held: Option<bool>,
     /// The last failure logged, so a changing error is reported but retries
     /// of the same one stay quiet.
     reported: Option<Option<i64>>,
@@ -66,6 +68,7 @@ impl InputLink {
             next_try: 0,
             registered: BTreeSet::new(),
             told_focus: None,
+            told_held: None,
             reported: None,
             owns_pointer: false,
             buttons: 0,
@@ -121,6 +124,7 @@ impl Compositor {
                 self.input.link = Some(link);
                 self.input.registered.clear();
                 self.input.told_focus = None;
+                self.input.told_held = None;
                 self.input.press_unacked = false;
                 sys::write_str("xuid: attached to inputd\n");
                 self.register_chords();
@@ -317,12 +321,20 @@ impl Compositor {
                 None => return false,
             }
         }
+        // The shell's panel menu has the keys: `inputd` holds the focused
+        // window's key content without moving focus (`panelkeys.rs`).
+        let keys_held = self.panel_keys_active();
+        if self.input.told_held != Some(keys_held) {
+            match sent(link.note_keys_held(keys_held)) {
+                Some(true) => self.input.told_held = Some(keys_held),
+                Some(false) => {}
+                None => return false,
+            }
+        }
         // A press is handled once nothing read is still held (an animation
         // frame holds input), and its focus is noted just above: only then
         // may `inputd` let the keys typed after it go.
-        // (Under the shell's panel keys, `inputd` was told no window.)
-        let target = self.focused.filter(|_| !self.panel_keys_active());
-        let settled = self.held.is_empty() && self.input.told_focus == Some(target);
+        let settled = self.held.is_empty() && self.input.told_focus == Some(self.focused);
         if self.input.press_unacked && settled {
             match sent(link.note_input_done(self.input.polled.0)) {
                 Some(true) => self.input.press_unacked = false,

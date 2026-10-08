@@ -162,4 +162,8 @@ pub(super) struct Drag {
     pub(super) grab_x: i32,
     /// Pointer offset from the window origin at grab time.
     pub(super) grab_y: i32,
+    /// The pointer has moved since the press: a press-and-release without
+    /// movement is a click, which never moves, snaps or unsnaps the window
+    /// (`wm::drag_began_on`).
+    pub(super) moved: bool,
 }

@@ -60,7 +60,13 @@ impl Compositor {
             return;
         }
         self.pointer = new;
-        if let Some(active) = self.drag {
+        if let Some(mut active) = self.drag {
+            // The press only armed the drag: it begins with the first move.
+            if super::wm::drag_began_on(active.moved, old, new) {
+                active.moved = true;
+                self.drag = Some(active);
+                self.drag_began(active.id);
+            }
             // A title-bar drag: place the window so the grabbed point stays
             // under the pointer (exact even if events were coalesced),
             // keeping its title bar reachable in the work area. The repaint
@@ -230,11 +236,12 @@ impl Compositor {
                 // A maximized window does not move on a title-bar drag; only
                 // the double-click above restores it.
                 if self.alt_tab.is_none() && !maximized {
-                    self.drag_began(id);
+                    // Pending until the pointer moves (a click is no drag).
                     self.drag = Some(Drag {
                         id,
                         grab_x: point.0 - origin.0,
                         grab_y: point.1 - origin.1,
+                        moved: false,
                     });
                 }
             }
@@ -302,11 +309,11 @@ impl Compositor {
                     return;
                 }
                 if let Some(active) = self.drag.take() {
-                    // The drag is committed, so tell the shell the new
-                    // geometry.
-                    if surface_by_id(&self.surfaces, active.id).is_some() {
+                    // A drag that moved is committed: tell the shell the new
+                    // geometry, and a drop on a screen edge snaps or
+                    // maximizes. A click without movement changes nothing.
+                    if active.moved && surface_by_id(&self.surfaces, active.id).is_some() {
                         self.notify_surface(active.id, wire::CHANGE_MOVED);
-                        // A drop on a screen edge snaps or maximizes.
                         self.drag_ended(active.id);
                     }
                 }

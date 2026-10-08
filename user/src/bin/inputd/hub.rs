@@ -9,6 +9,7 @@
 use alloc::format;
 use alloc::vec::Vec;
 
+use inputmap::hold::KeyHold;
 use inputmap::router::Error as RouteError;
 use inputmap::{Barrier, Engine, Grabs, KeyOut, KeyState, Layout, Output, Router};
 use user::messenger::input::{self as api, shell_wire, wire};
@@ -50,6 +51,9 @@ pub(super) struct Hub {
     /// Key content held until the compositor has handled a press
     /// (`settle.rs`).
     pub(super) barrier: Barrier,
+    /// Key content held while the shell's panel menu has the keyboard
+    /// (`held.rs`).
+    pub(super) hold: KeyHold,
 }
 
 impl Hub {
@@ -63,6 +67,7 @@ impl Hub {
             grabs: Grabs::new(),
             key_pages: KeyPages::default(),
             barrier: Barrier::new(),
+            hold: KeyHold::new(),
         }
     }
 
@@ -120,6 +125,7 @@ impl Hub {
                 self.set_focus(args.surface);
                 Ok(Vec::new())
             }
+            shell_wire::METHOD_NOTEKEYSHELD => self.note_keys_held(body).map(|()| Vec::new()),
             shell_wire::METHOD_NOTEINPUTDONE => {
                 let args = shell_wire::decode_note_input_done_args(body).map_err(Error::Parcel)?;
                 self.input_done(args.seq);
@@ -257,6 +263,8 @@ impl Hub {
     /// entered, and end a grab whose holder lost focus.
     pub(super) fn apply(&mut self, change: inputmap::router::FocusChange) {
         self.engine.cancel_repeat();
+        // The keys the next holder sees start clean (no owed releases).
+        self.hold.reset_keys();
         if let Some(session) = change.left {
             self.key_pages.clear(&self.engine, session);
             self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
@@ -272,7 +280,8 @@ impl Hub {
     /// change).
     pub(super) fn publish_key_pages(&mut self) {
         let focused = self.router.focused_session();
-        self.key_pages.publish(&self.engine, focused);
+        let keys = self.page_keys();
+        self.key_pages.publish(&self.engine, focused, keys);
     }
 
     /// Tell `session` it has the keyboard, seeding it with the held keys.
@@ -295,12 +304,17 @@ impl Hub {
                 ),
                 Output::Escape => self.escape_chord(),
                 Output::Key(key) => {
+                    if !self.admit_key(key) {
+                        continue;
+                    }
                     if let Some(session) = self.router.focused_session() {
                         self.send(session, wire::METHOD_KEYEVENT, encode_key(key));
                     }
                 }
                 Output::Text(text) => {
-                    if let Some(session) = self.router.focused_session() {
+                    if let Some(session) =
+                        self.router.focused_session().filter(|_| self.admit_text())
+                    {
                         let body = wire::encode_text_input_args(&wire::TextInputArgs {
                             utf8: text.clone(),
                         });
@@ -387,6 +401,8 @@ impl Hub {
     /// the chords it registered (a re-attach registers them again).
     fn drop_shell(&mut self) {
         self.pointer.subscribed = false;
+        // A hold is the compositor's: it ends with it.
+        self.hold.set(false, [0; 4]);
         if let Some(old) = self.shell.take() {
             let _ = old.events.close();
             for id in old.hotkeys {

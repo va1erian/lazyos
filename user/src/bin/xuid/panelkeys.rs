@@ -3,8 +3,11 @@
 //! submenu, a tray menu, the tray reached with Win+B) the shell asks for the
 //! keyboard with `GrabPanelKeys(true)`, and every key the compositor does not
 //! keep for itself goes to the shell as a `PanelKey` event instead of to the
-//! focused window. The window keeps its focus (its title stays lit), and
-//! `inputd` is told no window has the keyboard, so nothing reaches it twice.
+//! focused window. Focus does not move: the window keeps it (its title stays
+//! lit) and its client sees no `KeyboardLeave`/`KeyboardEnter`, which it may
+//! read as a new focus (Doom re-requests an escaped grab on one). `inputd`
+//! is told `NoteKeysHeld` instead and holds that client's key content,
+//! still delivering the releases of keys it saw go down (`inputmap::hold`).
 //!
 //! The grab is the shell's alone: the events go to the shell subscriber,
 //! never to a privileged observer, which must not read keystrokes. It ends
