@@ -116,7 +116,7 @@ pub fn wait_until(
     let answered = if can_sleep(wait) {
         sleep_until(expect, start, timeout_ns, &mut done)
     } else {
-        spin_until(start, timeout_ns, &mut done)
+        spin_until(timeout_ns, &mut done)
     };
     if answered {
         expect.note(monotonic_ns().saturating_sub(start));
@@ -191,8 +191,8 @@ pub mod test_hooks {
 /// the timer and the i8042 shut out (issue #449). Every
 /// [`SPINS_PER_SERVICE`] spins is also a poll point (`arch::irq_window`), so
 /// inside a syscall pending interrupts are taken while the device works.
-fn spin_until(start: u64, timeout_ns: u64, done: &mut impl FnMut() -> bool) -> bool {
-    let tsc_start = crate::arch::clock::tsc_ns();
+fn spin_until(timeout_ns: u64, done: &mut impl FnMut() -> bool) -> bool {
+    let began = crate::perf::rdtsc();
     let mut spins = 0u64;
     loop {
         if done() {
@@ -204,7 +204,7 @@ fn spin_until(start: u64, timeout_ns: u64, done: &mut impl FnMut() -> bool) -> b
         if spins.is_multiple_of(SPINS_PER_SERVICE) {
             crate::input::ps2::service();
             crate::arch::irq_window::poll_point();
-            if spun_out(start, tsc_start, timeout_ns) || spins >= SPIN_BACKSTOP {
+            if spun_out(began, timeout_ns) || spins >= SPIN_BACKSTOP {
                 return done();
             }
         }
@@ -212,15 +212,28 @@ fn spin_until(start: u64, timeout_ns: u64, done: &mut impl FnMut() -> bool) -> b
     }
 }
 
-/// Whether a spin that began at `start` (`monotonic_ns`) and `tsc_start`
-/// (`tsc_ns`, when the TSC is calibrated) has used up `timeout_ns`.
-fn spun_out(start: u64, tsc_start: Option<u64>, timeout_ns: u64) -> bool {
-    let elapsed = match (tsc_start, crate::arch::clock::tsc_ns()) {
-        (Some(began), Some(now)) => now.saturating_sub(began),
-        _ => monotonic_ns().saturating_sub(start),
+/// Whether a spin that began at TSC `began` has used up `timeout_ns`.
+///
+/// The TSC runs while interrupts are off, unlike `monotonic_ns`. Before the
+/// timer has calibrated it (`dev::init` attaches the block drivers before
+/// `arch::init`), or when nothing could calibrate it, the cycles are read at
+/// [`UNCALIBRATED_CYCLES_PER_NS`]: no real CPU counts faster, so such a wait
+/// may end late but never early, and still long before [`SPIN_BACKSTOP`].
+fn spun_out(began: u64, timeout_ns: u64) -> bool {
+    let cycles = crate::perf::rdtsc().wrapping_sub(began);
+    let per_tick = crate::arch::clock::cycles_per_tick();
+    let elapsed = if per_tick == 0 {
+        cycles / UNCALIBRATED_CYCLES_PER_NS
+    } else {
+        (u128::from(cycles) * u128::from(TICK_NS) / u128::from(per_tick)) as u64
     };
     elapsed >= timeout_ns
 }
+
+/// TSC cycles per nanosecond assumed while the TSC is uncalibrated (10 GHz).
+const UNCALIBRATED_CYCLES_PER_NS: u64 = 10;
+/// Nanoseconds per timer tick (100 Hz), the unit of `cycles_per_tick`.
+const TICK_NS: u64 = 10_000_000;
 
 /// Between two pieces of a long filesystem call: let pending interrupts in,
 /// deliver what they raised to user-space drivers, and give the CPU to a task
