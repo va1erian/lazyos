@@ -151,7 +151,7 @@ pub struct MsgArgs {
 pub const MAX_OBJECTS: usize = 8;
 
 /// The syscall response block; the kernel's `MsgResult`
-/// (`docs/messenger.md` section 14, `docs/messenger-core-plan.md` 3.3).
+/// (`docs/messenger.md` section 10, `docs/messenger-core-plan.md` 3.3).
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgResult {

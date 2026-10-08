@@ -19,7 +19,7 @@ monotonic nanoseconds with `WAIT_DEADLINE_NS`; 0 is "none"). It returns a
 ready mask: bit `i` for word `i`, bits 59..63 for the doorbells. Nothing is
 consumed: the caller then takes what is ready with its normal operation
 (`try_recv`, `await_reply`, draining the bus), so every rule of those paths
-(transfers, quotas, poll grace) stays in one place.
+(objects, quotas, poll grace) stays in one place.
 
 ## Handle kinds
 

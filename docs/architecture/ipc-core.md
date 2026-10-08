@@ -2,7 +2,8 @@
 
 **What it is.** The kernel transport of the Messenger fabric: capability
 handles, duplex channels with synchronous transactions, and zero-copy shared
-buffers. Spec: [messenger.md](../messenger.md) sections 4-10.
+buffers. Spec: [messenger.md](../messenger.md) sections 1-5 (the model, the
+rules and the wire), 6 (transactions) and 10 (the receive ABI).
 
 **Key files**
 
@@ -110,25 +111,29 @@ userspace never names another task's handles.
   committed. Plain `recv` with `EXPIRED_DEADLINE` (no transaction) is unchanged.
   Tests: `ipc_channel_poll_*` in `tests/ipc_channel_suite/poll.rs`, including a
   20,000-round soak.
-- **Objects** (`channels/support.rs`, `recv.rs`; core plan 2.3): a parcel's
-  object list (`libmessenger::Object`, one entry per `Channel<I>` or
-  `Buffer` field) is resolved into one `Vec<Resolved { kind, rights,
-  object_id }>` by `resolve_objects`: the declared gate first, then each
-  entry's handle must be of its slot's kind (`WrongObjectKind`) and hold
-  `TRANSFER`, and a channel end may appear once (`BadTransfer`). A channel
-  entry **moves** (the sender's handle closes once the message is queued;
-  delivery opens a receiver-local one); a buffer entry **shares** (the
-  message takes one reference with `shared::retain`; delivery converts it
-  into the receiver's handle with `attach`). `deliver` installs the list in
-  one loop and `rollback_delivery` undoes a partial one (installed handles
-  closed, pending references released, orphaned ends closed). The kernel
-  knows nothing about byte ranges: a `Buffer` field's offset and length are
-  data the receiving library checks against the mapped size. `Message.objects`
-  carries the installed numbers in list order. Replies refuse objects
-  (`UnsupportedTransfer`); non-buffer objects have no refcount yet. Tests:
-  `ipc_buffer_handle_transfer_rights`, `ipc_object_*`
-  (`tests/ipc_shared_suite/{transfer,objects}.rs`, with a 100,000-round
-  move/share soak).
+- **Objects** (`channels/support.rs`, `recv.rs`; messenger.md section 3):
+  a parcel's object list (`libmessenger::Object`, one entry per `Channel<I>`
+  or `Buffer` field) goes through two loops over the same `Vec<Resolved {
+  kind, rights, object_id }>`. *Resolve* (`resolve_objects`, at `send`/
+  `begin_call`): the declared gate first, then per entry the handle must be
+  of its slot's kind (`WrongObjectKind`) and hold `TRANSFER`, and a channel
+  end may appear once (`BadTransfer`); the message then takes one reference
+  per buffer (`retain_objects`, `shared::retain`) and the sender's moved
+  channel handles close (`close_moved_handles`). *Deliver* (`deliver`, at
+  `recv`): one `match` per entry opens a receiver-local channel handle
+  (`handles::open`) or converts the buffer reference into a handle
+  (`shared::attach`); the first failure runs `rollback_delivery` (installed
+  handles closed, pending references released, orphaned ends closed) and
+  nothing reaches the receiver. The kernel knows nothing about byte ranges:
+  a `Buffer` field's offset and length are data the receiving library checks
+  against the mapped size. The receive ABI reports the installed numbers in
+  list order (`MsgResult.object_count`, `objects[8]`; 13 words, 104 bytes,
+  `syscalls/abi.rs`, mirrored in `lazyos_sys::msg::MsgResult`), and the
+  parcel arrives with its own object list, so the receiver knows each
+  handle's kind. Replies refuse objects (`UnsupportedTransfer`); non-buffer
+  objects have no refcount yet. Tests: `ipc_buffer_handle_transfer_rights`,
+  `ipc_object_*` (`tests/ipc_shared_suite/{transfer,objects}.rs`, with a
+  100,000-round move/share soak).
 - **Buffer syscalls** are `messenger` ops (`syscalls/bufop.rs`):
   `OP_BUFFER_CREATE = 22` (`parcel_len` is the size; `value` the handle, `aux`
   the address, `bytes` the size), `OP_BUFFER_MAP = 23` (`value` the address,

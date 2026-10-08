@@ -53,7 +53,7 @@ close, so each new message is a fresh edge even while the side stayed
 readable, and a repeated wait with no news reports nothing.
 
 Nothing is consumed: the program takes the message with the Messenger
-`recv` (or `try_recv`) as before, so transfers, quotas and the poll grace
+`recv` (or `try_recv`) as before, so objects, quotas and the poll grace
 keep their one code path. `read`, `write` and `lseek` on the descriptor
 fail (`EINVAL`, `ESPIPE`); `fstat` shows an anonymous inode,
 `/proc/self/fd` links read `anon_inode:[messenger]`.

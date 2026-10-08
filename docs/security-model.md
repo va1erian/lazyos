@@ -388,7 +388,8 @@ capabilities = []
   encryption keys, signing keys.
 - Clients never receive raw keys. They ask for operations: `Sign(key, digest)`,
   `Decrypt(handle, ciphertext)`, `Wrap/Unwrap`, `TLS server session`. Key material
-  lives in `SHARE_ONLY` buffers that are not mapped into any client address space.
+  lives in `keyd`'s own memory: no `keyd` method carries a `Buffer`, so no
+  client ever maps a page that holds a key.
 - **Unlock model:** secrets are sealed per user with a key derived at login
   (Argon2id from the password + machine secret); a locked account's keys are
   unavailable even to the kernel.
@@ -532,7 +533,7 @@ Security must not be a maze:
 | Compromised daemon | Least-privilege service account; signed bundle; sandbox profile; no root |
 | Network daemon exploit | Sandboxed; TLS keys in `keyd`; per-profile firewall; minimal parser surface |
 | Kernel bug via syscalls/parcels | Rust safety, checked copies, fuzzing, W^X, SMEP/SMAP, KASLR-lite |
-| Secret theft | `keyd` isolation; `SHARE_ONLY` buffers; per-login sealing |
+| Secret theft | `keyd` isolation (keys never leave its memory); per-login sealing |
 | Repudiation | Hash-chained audit log; correlation ids for calls |
 | Privilege creep | Capabilities dropped on exec; timed elevation; diff-based consent |
 

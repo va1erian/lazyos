@@ -62,7 +62,7 @@ pub mod rights {
 }
 
 /// Kernel handles per process. A quota keeps a malicious sender from exhausting
-/// kernel memory with handles (see `docs/messenger.md` section 9).
+/// kernel memory with handles (see `docs/messenger.md` section 14).
 pub const MAX_HANDLES: usize = 256;
 
 /// One occupied handle slot.
