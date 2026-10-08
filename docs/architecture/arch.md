@@ -118,7 +118,7 @@ per-task thread pointer, restored on every context switch.
   a `nap`, or before `irq_window::arm()` in `main`. Where a poll point is due
   but no span is open, it only drains the i8042 (`ps2::service`).
 - Every voluntary switch (`task::switch::yield_now`, and the `YieldMutex`
-  halt) runs outside the span and gives it back only if one was open
+  park or halt) runs outside the span and gives it back only if one was open
   (`irqoff::paused`), so no span outlives its task's syscall; `exit_cpu`
   ends it for good. `task::preempt_point` does nothing while a window is
   open: an interrupt there stopped code that may hold locks.

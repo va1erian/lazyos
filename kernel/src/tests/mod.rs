@@ -215,6 +215,7 @@ mod quota_enforce_suite;
 mod quota_suite;
 mod ramdisk_suite;
 mod registry_suite;
+mod relax_suite;
 mod runq_suite;
 mod sched_suite;
 mod service_suite;
@@ -259,6 +260,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     sched_suite::CASES,
     runq_suite::CASES,
     preempt_wake_suite::CASES,
+    relax_suite::CASES,
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,

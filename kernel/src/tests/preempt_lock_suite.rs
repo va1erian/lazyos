@@ -251,7 +251,7 @@ pub fn nmi_report_is_complete() -> Result<(), String> {
         "HANG:BEGIN reason=nmi",
         "HANG:CPU rip=",
         " if=0 ",
-        "HANG:LOCKS tasks=free heap=free console=free serial=free signals=free",
+        "HANG:LOCKS tasks=free heap=free console=free serial=free signals=free vfs=free",
         "HANG:LASTTICK",
         "HANG:TASK slot=0 name=",
         "HANG:END",
