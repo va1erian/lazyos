@@ -6,19 +6,13 @@ use std::ffi::OsString;
 
 use super::actions::delete_prompt;
 use crate::model::Entry;
-use crate::platform::Kind;
+use crate::platform::{Kind, Meta, RawEntry};
 
 fn entry(name: &str, kind: Kind) -> Entry {
-    Entry {
+    Entry::from_raw(RawEntry {
         name: OsString::from(name),
-        display: name.to_string(),
-        detail: match kind {
-            Kind::Dir => "Folder".to_string(),
-            _ => "File".to_string(),
-        },
-        kind,
-        size: None,
-    }
+        meta: Meta::bare(std::path::Path::new(name), kind),
+    })
 }
 
 #[test]

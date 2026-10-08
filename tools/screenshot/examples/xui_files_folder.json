@@ -1,16 +1,13 @@
 [
   {"wait_for": "FILES:UP:PASS", "timeout": 240},
+  {"wait_for": "FILES:DIR:/", "timeout": 60},
   {"at": 1.5, "shot": "01_files_root"},
-
-  {"at": 2.0, "mouse_move": [-300, -300]},
-  {"at": 2.2, "mouse_move": [-300, -300]},
-  {"at": 2.4, "mouse_move": [-300, -300]},
-  {"at": 2.6, "mouse_move": [-300, -300]},
-  {"at": 2.8, "mouse_move": [-300, -300]},
-  {"at": 3.0, "mouse_move": [-300, -300]},
-  {"at": 3.2, "mouse_move": [110, 95]},
-  {"at": 3.6, "mouse_click": "left"},
-  {"at": 4.1, "key": "enter"},
-  {"at": 9.0, "shot": "02_subfolder_window"},
-  {"at": 10.0, "quit": true}
+  {"at": 0.5, "click_at": {"window": "Files", "offset": [-39, -171]}, "button": "right", "timeout": 30, "note": "right-click the second tile, apps (accounts, the first, is private)"},
+  {"wait": 1.0},
+  {"shot": "02_context_menu"},
+  {"at": 0.3, "keys": ["down", "enter"], "note": "Open in New Window"},
+  {"wait_for": "FILES:DIR:/apps", "timeout": 30, "note": "the second window announces its folder"},
+  {"wait_for": "name=window:apps", "timeout": 30},
+  {"at": 2.0, "shot": "03_new_window"},
+  {"at": 1.0, "quit": true}
 ]

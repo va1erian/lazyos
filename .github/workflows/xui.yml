@@ -526,6 +526,9 @@ jobs:
           done
           ! grep -q "^init: launch .* failed" shots/paint/serial.log
 
+      # Files browses in place: the address bar, the details view, Alt+Up,
+      # Alt+Left, then a file typed into the address bar opens. It clicks the
+      # toolbar by window name, so the image carries the UI probe.
       - name: Capture Files (browse, open)
         if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.files != '' }}
         shell: bash
@@ -533,11 +536,12 @@ jobs:
           LAZYOS_DESKTOP: "1"
           LAZYOS_XUI_APPS: ${{ steps.app.outputs.files }}:${{ steps.app.outputs.editor }}
           LAZYOS_XUI_AUTOSTART: files
+          LAZYOS_UI_PROBE: "1"
         run: |
           set -euo pipefail
           cargo build
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/files             --timeout 300 --script tools/screenshot/examples/xui_files.json             --fail-on "FILES:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for marker in FILES:UP:PASS FILES:OPEN:PASS; do
+          for marker in FILES:UP:PASS FILES:DIR:/docs/os FILES:OPEN:PASS:/docs/os/README.md; do
             grep -q "$marker" shots/files/serial.log
           done
           ! grep -q "^init: launch .* failed" shots/files/serial.log

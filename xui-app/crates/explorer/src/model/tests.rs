@@ -7,22 +7,34 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use super::sort::sort_entries;
 use super::*;
-use crate::platform::{Kind, Meta};
+use crate::platform::{Kind, Meta, RawEntry};
 
 fn entry(name: &str, kind: Kind, size: Option<u64>) -> Entry {
-    let detail = match kind {
-        Kind::Dir => "Folder".to_string(),
-        _ => size.map(format_size).unwrap_or_else(|| "File".to_string()),
-    };
-    Entry {
+    entry_at(name, kind, size, None)
+}
+
+fn entry_at(name: &str, kind: Kind, size: Option<u64>, modified: Option<u64>) -> Entry {
+    let mut meta = Meta::bare(&Path::new("/x").join(name), kind);
+    meta.size = size;
+    meta.modified = modified.map(at);
+    Entry::from_raw(RawEntry {
         name: OsString::from(name),
-        display: name.to_string(),
-        detail,
-        kind,
-        size,
+        meta,
+    })
+}
+
+/// A listing of `entries` in the order given.
+fn listing(entries: Vec<Entry>) -> Listing {
+    Listing {
+        dir: PathBuf::from("/a"),
+        entries,
+        error: None,
     }
+}
+
+fn names(entries: &[Entry]) -> Vec<&str> {
+    entries.iter().map(|entry| entry.display.as_str()).collect()
 }
 
 fn meta(name: &str, parent: &str, kind: Kind, size: Option<u64>, entries: Option<usize>) -> Meta {
@@ -46,46 +58,127 @@ fn folders_sort_before_files_case_insensitively() {
         entry("beta.log", Kind::File, Some(1)),
         entry("apple", Kind::Dir, None),
     ];
-    sort_entries(&mut entries);
-    let names: Vec<&str> = entries.iter().map(|entry| entry.display.as_str()).collect();
-    assert_eq!(names, ["Alpha", "apple", "beta.log", "zeta.txt"]);
+    sort_entries(&mut entries, SortOrder::default());
+    assert_eq!(names(&entries), ["Alpha", "apple", "beta.log", "zeta.txt"]);
+}
+
+#[test]
+fn every_key_sorts_both_ways_with_folders_first() {
+    let entries = vec![
+        entry_at("b.txt", Kind::File, Some(30), Some(100)),
+        entry_at("a.png", Kind::File, Some(10), Some(300)),
+        entry_at("c.md", Kind::File, Some(20), None),
+        entry_at("zdir", Kind::Dir, None, Some(50)),
+        entry_at("adir", Kind::Dir, None, Some(60)),
+    ];
+    let sorted = |key, descending| {
+        let mut entries = entries.clone();
+        sort_entries(&mut entries, SortOrder { key, descending });
+        names(&entries)
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        sorted(SortKey::Name, false),
+        ["adir", "zdir", "a.png", "b.txt", "c.md"]
+    );
+    assert_eq!(
+        sorted(SortKey::Name, true),
+        ["zdir", "adir", "c.md", "b.txt", "a.png"]
+    );
+    assert_eq!(
+        sorted(SortKey::Size, false),
+        ["adir", "zdir", "a.png", "c.md", "b.txt"]
+    );
+    assert_eq!(
+        sorted(SortKey::Size, true),
+        ["adir", "zdir", "b.txt", "c.md", "a.png"]
+    );
+    // MD File < PNG File < TXT File.
+    assert_eq!(
+        sorted(SortKey::Type, false),
+        ["adir", "zdir", "c.md", "a.png", "b.txt"]
+    );
+    // An unknown time sorts first ascending.
+    assert_eq!(
+        sorted(SortKey::Modified, false),
+        ["zdir", "adir", "c.md", "b.txt", "a.png"]
+    );
+    assert_eq!(
+        sorted(SortKey::Modified, true),
+        ["adir", "zdir", "a.png", "b.txt", "c.md"]
+    );
+}
+
+#[test]
+fn a_header_click_flips_the_same_key_and_starts_a_new_one_ascending() {
+    let order = SortOrder::default();
+    let flipped = order.toggled(SortKey::Name);
+    assert!(flipped.descending);
+    let by_size = flipped.toggled(SortKey::Size);
+    assert_eq!(
+        by_size,
+        SortOrder {
+            key: SortKey::Size,
+            descending: false
+        }
+    );
+    for key in SortKey::ALL {
+        assert_eq!(SortKey::of_column(key.column()), Some(key));
+    }
+    assert_eq!(SortKey::of_column(9), None);
+}
+
+#[test]
+fn the_type_column_names_folders_links_and_extensions() {
+    use std::ffi::OsStr;
+    assert_eq!(type_name(Kind::Dir, OsStr::new("a.png")), "Folder");
+    assert_eq!(type_name(Kind::Symlink, OsStr::new("a.png")), "Link");
+    assert_eq!(type_name(Kind::File, OsStr::new("a.png")), "PNG File");
+    assert_eq!(type_name(Kind::File, OsStr::new("Makefile")), "File");
+    assert_eq!(type_name(Kind::File, OsStr::new(".bashrc")), "File");
+}
+
+#[test]
+fn the_details_cells_follow_the_columns() {
+    use std::rc::Rc;
+    use xui_core::widget::ListModel;
+
+    let model = SharedListing::new(Rc::new(listing(vec![
+        entry("docs", Kind::Dir, None),
+        entry_at("notes.txt", Kind::File, Some(2048), Some(0)),
+    ])));
+    assert_eq!(model.rows(), 2);
+    assert_eq!(model.cell(0, 0), Some("docs"));
+    assert_eq!(model.cell(0, 1), Some(""), "a folder has no size");
+    assert_eq!(model.cell(0, 2), Some("Folder"));
+    assert_eq!(model.cell(1, 1), Some("2.0 KiB"));
+    assert_eq!(model.cell(1, 2), Some("TXT File"));
+    assert_eq!(model.cell(1, 3), Some("1970-01-01 00:00"));
+    assert_eq!(model.cell(1, 4), None);
 }
 
 #[test]
 fn a_non_utf8_name_sorts_without_panicking() {
-    let mut entries = vec![Entry {
-        name: OsString::from("z"),
-        display: "z".to_string(),
-        detail: "File".to_string(),
-        kind: Kind::File,
-        size: None,
-    }];
+    let raw = |name: OsString| {
+        Entry::from_raw(RawEntry {
+            meta: Meta::bare(Path::new(&name), Kind::File),
+            name,
+        })
+    };
+    let mut entries = vec![raw(OsString::from("z"))];
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStringExt;
-        entries.push(Entry {
-            name: OsString::from_vec(vec![0xff, 0x61]),
-            display: OsString::from_vec(vec![0xff, 0x61])
-                .to_string_lossy()
-                .into_owned(),
-            detail: "File".to_string(),
-            kind: Kind::File,
-            size: None,
-        });
+        entries.push(raw(OsString::from_vec(vec![0xff, 0x61])));
     }
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStringExt;
-        let name = OsString::from_wide(&[0xD800, 0x0061]);
-        entries.push(Entry {
-            name: name.clone(),
-            display: name.to_string_lossy().into_owned(),
-            detail: "File".to_string(),
-            kind: Kind::File,
-            size: None,
-        });
+        entries.push(raw(OsString::from_wide(&[0xD800, 0x0061])));
     }
-    sort_entries(&mut entries);
+    sort_entries(&mut entries, SortOrder::default());
     assert_eq!(entries.len(), 2);
 }
 
@@ -245,7 +338,7 @@ fn unicode_names_sort_case_insensitively() {
         entry("ä", Kind::File, Some(1)),
         entry("Ä", Kind::File, Some(1)),
     ];
-    sort_entries(&mut entries);
+    sort_entries(&mut entries, SortOrder::default());
     let names: Vec<&str> = entries.iter().map(|entry| entry.display.as_str()).collect();
     assert_eq!(names, ["Zebra", "Ä", "ä"]);
 }
@@ -276,61 +369,19 @@ fn is_within_compares_path_components() {
 }
 
 #[test]
-fn the_model_reports_the_open_icon_only_while_the_folder_flashes() {
-    use std::cell::Cell;
-    use std::ffi::OsStr;
-    use std::rc::Rc;
-    use std::time::Instant;
-
-    use xui_core::icon::{IconRef, Lucide};
-    use xui_core::widget::IconModel;
-
-    let now = Rc::new(Cell::new(Instant::now()));
-    let clock: Clock = {
-        let now = Rc::clone(&now);
-        Rc::new(move || now.get())
-    };
-    let flash = Rc::new(Flash::with_clock(clock));
-    let mut listing = Listing::empty(Path::new("/a"));
-    listing.entries = vec![
-        entry("docs", Kind::Dir, None),
-        entry("notes.txt", Kind::File, Some(4)),
-    ];
-    let model = SharedListing::with_flash(Rc::new(listing), Rc::clone(&flash));
-
-    assert_eq!(model.icon(0), Some(IconRef::Lucide(Lucide::Folder)));
-    flash.flash(OsStr::new("docs"));
-    assert_eq!(model.icon(0), Some(IconRef::Lucide(Lucide::FolderOpen)));
-    assert_eq!(
-        model.icon(1),
-        Some(IconRef::Lucide(Lucide::File)),
-        "a file never opens its icon"
-    );
-
-    now.set(now.get() + Duration::from_millis(2_000));
-    assert_eq!(
-        model.icon(0),
-        Some(IconRef::Lucide(Lucide::Folder)),
-        "the open icon reverts at the deadline"
-    );
-}
-
-#[test]
 fn listing_remaps_a_selection_by_name() {
-    let mut listing = Listing::empty(Path::new("/a"));
-    listing.entries = vec![
+    let before = listing(vec![
         entry("a", Kind::Dir, None),
         entry("b", Kind::File, Some(1)),
         entry("c", Kind::File, Some(2)),
-    ];
-    let names = listing.names_of(&[0, 2]);
+    ]);
+    let names = before.names_of(&[0, 2]);
     assert_eq!(names, vec![OsString::from("a"), OsString::from("c")]);
 
     // After a refresh that dropped "a", only "c" is left to select.
-    let mut refreshed = Listing::empty(Path::new("/a"));
-    refreshed.entries = vec![
+    let refreshed = listing(vec![
         entry("b", Kind::File, Some(1)),
         entry("c", Kind::File, Some(2)),
-    ];
+    ]);
     assert_eq!(refreshed.indices_of(&names), vec![1]);
 }

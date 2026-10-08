@@ -1,19 +1,17 @@
 //! The harness the headless tests share: a recording launcher and one
 //! explorer window rendered offscreen over a `MemPlatform`.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::io::{self, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Instant;
 
 use xui_canvas::snapshot::{Snapshot, Stage, render_with};
 use xui_core::backend::{BackendError, WindowId};
 use xui_core::units::Dip;
-use xui_core::widget::{IconView, StatusBar};
-use xui_explorer::model::Clock;
+use xui_core::widget::{Edit, IconView, ListView, StatusBar};
 use xui_explorer::platform::{Launcher, Platform};
-use xui_explorer::window::{FlashHandle, Msg};
+use xui_explorer::window::Msg;
 use xui_explorer::{Explorer, ExplorerWindow, MemPlatform};
 
 /// A launcher that records what it was asked to open, or fails on demand.
@@ -28,8 +26,7 @@ impl TestLauncher {
     pub fn failing() -> TestLauncher {
         TestLauncher {
             fail: true,
-            opened: RefCell::new(Vec::new()),
-            hints: RefCell::new(Vec::new()),
+            ..TestLauncher::default()
         }
     }
 }
@@ -50,18 +47,53 @@ impl Launcher for TestLauncher {
 
 /// The handles a test keeps after the app is built.
 pub struct Handles {
-    pub view: Rc<IconView<Msg>>,
+    pub explorer: Rc<Explorer>,
+    pub icons: Rc<IconView<Msg>>,
+    pub details: Rc<ListView<Msg>>,
+    pub address: Rc<Edit<Msg>>,
     pub status: Rc<StatusBar<Msg>>,
-    pub flash: FlashHandle,
     pub window: WindowId,
+}
+
+impl Handles {
+    /// The folder the window shows now.
+    pub fn dir(&self) -> PathBuf {
+        self.explorer
+            .view_state(self.window.raw())
+            .expect("the window is open")
+            .dir
+    }
+
+    /// The window's title now.
+    pub fn title(&self) -> String {
+        self.explorer.title_of(self.window).unwrap_or_default()
+    }
+
+    /// The selection the window last published, as paths.
+    pub fn selected(&self) -> Vec<PathBuf> {
+        self.explorer
+            .view_state(self.window.raw())
+            .expect("the window is open")
+            .selected
+    }
+}
+
+/// `path` with `/` separators, so an expectation reads the same on Windows.
+pub fn slash(path: &Path) -> String {
+    slashed(&path.display().to_string())
+}
+
+/// `text` with `\` turned into `/`.
+pub fn slashed(text: &str) -> String {
+    text.replace('\\', "/")
 }
 
 pub fn has(part: Option<String>, needle: &str) -> bool {
     part.map(|part| part.contains(needle)).unwrap_or(false)
 }
 
-/// Builds one explorer window over `platform` on the system clock and runs
-/// `step` before the capture.
+/// Builds one explorer window over `platform` showing `dir` and runs `step`
+/// before the capture. Returns the shell and the handles.
 pub fn drive<F>(
     platform: Rc<dyn Platform>,
     launcher: Rc<dyn Launcher>,
@@ -71,43 +103,22 @@ pub fn drive<F>(
 where
     F: FnOnce(&Stage<'_, Msg>, &Handles) + 'static,
 {
-    let clock: Clock = Rc::new(Instant::now);
-    drive_with_clock(platform, launcher, dir, clock, step)
-}
-
-/// Builds one explorer window over `platform` whose flash reads `clock`, and
-/// runs `step` before the capture. Returns the shell (for registry assertions)
-/// and the handles.
-pub fn drive_with_clock<F>(
-    platform: Rc<dyn Platform>,
-    launcher: Rc<dyn Launcher>,
-    dir: &str,
-    clock: Clock,
-    step: F,
-) -> (Rc<Explorer>, Handles)
-where
-    F: FnOnce(&Stage<'_, Msg>, &Handles) + 'static,
-{
     let explorer = Explorer::new(platform, launcher);
-    let explorer_out = Rc::clone(&explorer);
     let slot: Rc<RefCell<Option<Handles>>> = Rc::new(RefCell::new(None));
     let slot_build = Rc::clone(&slot);
     let slot_step = Rc::clone(&slot);
     let explorer_build = Rc::clone(&explorer);
     let dir = dir.to_string();
     render_with(
-        Snapshot::new(Dip(420.0), Dip(320.0)),
+        Snapshot::new(Dip(560.0), Dip(360.0)),
         move |ui| {
-            let window = ExplorerWindow::with_clock(
-                ui,
-                Rc::clone(&explorer_build),
-                PathBuf::from(&dir),
-                clock,
-            )?;
+            let window = ExplorerWindow::new(ui, Rc::clone(&explorer_build), PathBuf::from(&dir))?;
             *slot_build.borrow_mut() = Some(Handles {
-                view: window.view_handle(),
+                explorer: Rc::clone(&explorer_build),
+                icons: window.view_handle(),
+                details: window.details_handle(),
+                address: window.address_handle(),
                 status: window.status_bar(),
-                flash: window.flash_handle(),
                 window: ui.window(),
             });
             Ok::<_, BackendError>(window)
@@ -121,7 +132,7 @@ where
     )
     .expect("the headless render");
     let handles = slot.borrow_mut().take().expect("handles");
-    (explorer_out, handles)
+    (explorer, handles)
 }
 
 pub fn mem() -> Rc<MemPlatform> {
@@ -132,14 +143,4 @@ pub fn mem() -> Rc<MemPlatform> {
             .file("/a/b/inner.txt", 4)
             .file("/a/top.txt", 2),
     )
-}
-
-/// A clock a test can advance, shared with the window's flash.
-pub fn advanceable_clock() -> (Rc<Cell<Instant>>, Clock) {
-    let now = Rc::new(Cell::new(Instant::now()));
-    let clock: Clock = {
-        let now = Rc::clone(&now);
-        Rc::new(move || now.get())
-    };
-    (now, clock)
 }
