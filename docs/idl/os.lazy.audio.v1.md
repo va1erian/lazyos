@@ -15,12 +15,12 @@ so the wire never carries audio. A stream has exactly one owner, the task
 that opened it.
 
 **The client owns the ring.** Replies cannot carry buffers (the kernel
-refuses transfers in a reply), and the driver must not trust memory a
+refuses objects in a reply), and the driver must not trust memory a
 client can rewrite while the device reads it, so the driver keeps its own DMA
 slots and copies committed periods out of the client's ring. A playback
 client therefore: `OpenStream` (learn the granted parameters), create a
 shared buffer of at least `periods * period_bytes` bytes, `AttachRing` it
-(`buffers[0]` of the request), write interleaved samples into it, `Commit`
+(the request's `ring`), write interleaved samples into it, `Commit`
 how many frames it has written, `Start`, and finally `Drain` and
 `CloseStream`.
 
@@ -53,7 +53,7 @@ declared reply fields.
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: AudioInfo)` |
 | OpenStream | 410137073 | sync | `(dir: U32, format: U32, rate: U32, channels: U32, period_bytes: U32) -> (grant: StreamGrant)` |
-| AttachRing | 62355614 | sync | `(stream: U32) -> () transfers (ring: Ring<Samples>)` |
+| AttachRing | 62355614 | sync | `(stream: U32, ring: Ring<Samples>) -> ()` |
 | Commit | 2036391452 | sync | `(stream: U32, written_frames: U64) -> (consumed: U64)` |
 | Start | 182978943 | sync | `(stream: U32) -> (ok: Bool)` |
 | Stop | 1266644741 | sync | `(stream: U32) -> (ok: Bool)` |
@@ -63,14 +63,14 @@ declared reply fields.
 | SetVolume | 1919741053 | sync | `(stream: U32, gain_q16: U32) -> ()` |
 | SetMute | 1285443642 | sync | `(stream: U32, mute: Bool) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| AttachRing | `ring` | `buffers[0]`, a shared buffer holding the rings `Samples` back to back |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| AttachRing | `ring` | `Ring<Samples>` | `objects[0]`, a shared buffer holding the rings `Samples` back to back |
 
 ## Topics
 

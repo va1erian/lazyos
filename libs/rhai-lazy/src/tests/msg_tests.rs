@@ -314,15 +314,17 @@ fn malformed_replies_and_handles_are_errors_not_panics() {
     raw[0] = 7; // relabel the kind as String
     assert!(codec::decode_named(iface, method.returns, &raw, 0).is_err());
     let reg = schema::interface("os.lazy.display.v1").unwrap();
-    let handles = reg
+    // `AttachBuffer(surface: U64, pixels: Buffer)`: the object field is
+    // refused before anything is sent.
+    let objects = reg
         .methods
         .iter()
-        .find(|m| m.params.iter().any(|f| f.ty == schema::Ty::Handle));
-    if let Some(m) = handles {
+        .find(|m| m.name == "AttachBuffer" && m.params.iter().any(|f| f.ty == schema::Ty::Buffer));
+    if let Some(m) = objects {
         let args: alloc::vec::Vec<Dynamic> =
             m.params.iter().map(|_| Dynamic::from_int(1)).collect();
         let error = codec::encode_positional(reg, m.params, &args).unwrap_err();
-        assert!(error.contains("cannot send handles"), "{error}");
+        assert!(error.contains("cannot send channel ends"), "{error}");
     }
 }
 

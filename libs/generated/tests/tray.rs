@@ -75,12 +75,15 @@ fn set_item_roundtrips_every_icon_source() {
                 menu: menu(),
                 activate: ACTIVATION_DEFAULT_ITEM,
             },
+            events: 5,
         };
-        let back = decode_set_args(&encode_set_args(&args).unwrap()).unwrap();
-        assert_eq!(back, args);
+        let (body, objects) = encode_set_args(&args).unwrap();
+        assert_eq!(objects, vec![libmessenger::Object::Channel(5)]);
+        let back = decode_set_args(&body, &[libmessenger::Object::Channel(12)]).unwrap();
+        assert_eq!(back.item, args.item);
+        assert_eq!(back.events, 12);
     }
-    assert_eq!(SET_TRANSFERS.handles, 1);
-    assert_eq!(SET_TRANSFERS.buffers, 0);
+    assert_eq!(SET_OBJECTS, &[libmessenger::ObjectKind::Channel]);
 }
 
 #[test]
@@ -177,7 +180,7 @@ fn lifecycle_events_roundtrip() {
     let quit = app_events::QuitArgs { grace_ms: 3000 };
     let body = app_events::encode_quit_args(&quit).unwrap();
     assert_eq!(app_events::decode_quit_args(&body).unwrap(), quit);
-    assert_eq!(app::WATCH_TRANSFERS.handles, 1);
+    assert_eq!(app::WATCH_OBJECTS, &[libmessenger::ObjectKind::Channel]);
     assert_ne!(app::INTERFACE_ID, init::INTERFACE_ID);
 }
 

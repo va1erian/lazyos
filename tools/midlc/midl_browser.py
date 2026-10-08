@@ -5,7 +5,7 @@ Discovers all `*.midl` files under the repository (or the paths you pass),
 parses them with the same parser the compiler uses (`midlc.py`), and shows a
 navigable tree of every interface (a file may hold several) with its methods,
 events, structs, enums, topics and rings, and the details (method ids,
-signatures with their `transfers`, ring layouts, interface hash, doc comments)
+signatures with their objects, ring layouts, interface hash, doc comments)
 in the right pane. Discovery, loading and filtering live in
 `midl_browser_model.py`.
 
@@ -28,7 +28,7 @@ from tkinter import filedialog, ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import midlc  # noqa: E402
-import midlc_transfers  # noqa: E402
+import midlc_objects  # noqa: E402
 from midl_browser_model import (  # noqa: E402
     REPO_ROOT,
     Loaded,
@@ -346,10 +346,10 @@ class MidlBrowser:
             self._put(f"\nReturns ({len(method.returns)})\n", "section")
             for p in method.returns:
                 self._put(f"  {p.name}: {p.ty}\n", "code")
-        if method.transfers:
-            self._put(f"\nTransfers ({len(method.transfers)})\n", "section")
-            for t in method.transfers:
-                self._put(f"  {t.name}: {midlc_transfers.describe(t)}\n", "code")
+        if method.objects:
+            self._put(f"\nObjects ({len(method.objects)})\n", "section")
+            for o in method.objects:
+                self._put(f"  {o.dotted}: {midlc_objects.describe(o)}\n", "code")
 
     def _render_struct(self, node: Node) -> None:
         struct: midlc.Struct = node.payload  # type: ignore[assignment]
@@ -398,20 +398,20 @@ class MidlBrowser:
         if ring.advance:
             self._put(f"advance     {ring.advance}\n", "code")
         # Ring names are scoped to their interface: only the interface that
-        # declares this ring object can transfer it (a file may hold several
+        # declares this ring object can carry it (a file may hold several
         # interfaces with same-named rings).
         carriers = [
             (m, t)
             for entry in self.loaded
             if entry.interface is not None and any(r is ring for r in entry.interface.rings)
             for m in entry.interface.methods
-            for t in m.transfers
+            for t in m.objects
             if ring.name in t.rings
         ]
         if carriers:
-            self._put("\nTransferred by\n", "section")
-            for method, transfer in carriers:
-                self._put(f"  {method.name}: {midlc_transfers.describe(transfer)}\n", "code")
+            self._put("\nCarried by\n", "section")
+            for method, obj in carriers:
+                self._put(f"  {method.name}: {midlc_objects.describe(obj)}\n", "code")
         if ring.doc:
             self._put(f"\n{ring.doc}\n", "doc")
 
@@ -432,7 +432,7 @@ class MidlBrowser:
         total = counts(self.loaded)
         text = (
             f"{total['interfaces']} interface(s) in {total['files']} file(s) · "
-            f"{total['methods']} methods ({total['transferring']} with transfers) · "
+            f"{total['methods']} methods ({total['carrying']} with objects) · "
             f"{total['structs']} structs · {total['enums']} enums · "
             f"{total['topics']} topics · {total['rings']} rings"
         )

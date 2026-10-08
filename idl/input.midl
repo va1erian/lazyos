@@ -29,11 +29,9 @@ interface os.lazy.input.v1 {
     /// login console's session (issue #396): only the task holding the
     /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
     /// second holder `EBUSY`), and it receives keys only while no compositor
-    /// is attached. The parcel transfers the event
-    /// endpoint (`handles[0]`) that receives every event below. A task may hold
-    /// several sessions, one per surface.
-    method Open(surface: Option<U64> = 1) -> (session: U64 = 1) = 1
-        transfers (events: Channel<os.lazy.input.v1>);
+    /// is attached. `events` is the event endpoint that receives every
+    /// event below. A task may hold several sessions, one per surface.
+    method Open(surface: Option<U64> = 1, events: Channel<os.lazy.input.v1> = 2) -> (session: U64 = 1) = 1;
     /// End a session. Only the task that opened it may.
     method Close(session: U64 = 1) -> () = 2;
     /// The current layout name, modifier and lock bits (`mods` as in
@@ -58,16 +56,15 @@ interface os.lazy.input.v1 {
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
     method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6;
-    /// Attach a key-state page to `session` (the caller's): the parcel's
-    /// `buffers[0]`, a shared buffer the client created (one page is
-    /// plenty). While the session has keyboard focus `inputd` writes the
+    /// Attach a key-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes the
     /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
     /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
     /// HID usages); the moment focus leaves it clears the page, before
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
-    method AttachKeyState(session: U64 = 1) -> () = 7
-        transfers (state: Buffer);
+    method AttachKeyState(session: U64 = 1, state: Buffer = 2) -> () = 7;
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -111,11 +108,10 @@ interface os.lazy.input.v1 {
 /// a focus change (docs/accounts-plan.md U2). `Attach` on that channel is
 /// refused (`EINVAL`).
 interface os.lazy.input.shell.v1 {
-    /// Become the shell client; the parcel transfers the endpoint (`handles[0]`)
-    /// that receives the shell events below, and on which the compositor makes
-    /// every later call. Attaching again replaces it.
-    method Attach() -> () = 1
-        transfers (events: Channel<os.lazy.input.shell.v1>);
+    /// Become the shell client; `events` is the endpoint that receives the
+    /// shell events below, and on which the compositor makes every later
+    /// call. Attaching again replaces it.
+    method Attach(events: Channel<os.lazy.input.shell.v1> = 1) -> () = 1;
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.

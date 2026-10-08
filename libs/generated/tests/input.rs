@@ -99,9 +99,10 @@ fn keyboard_enter_carries_the_held_keys() {
 #[test]
 fn open_distinguishes_an_absent_surface() {
     for surface in [None, Some(0), Some(7), Some(u64::MAX)] {
-        let args = input::OpenArgs { surface };
-        let body = input::encode_open_args(&args).unwrap();
-        assert_eq!(input::decode_open_args(&body).unwrap(), args);
+        let args = input::OpenArgs { surface, events: 3 };
+        let (body, objects) = input::encode_open_args(&args).unwrap();
+        assert_eq!(objects, vec![libmessenger::Object::Channel(3)]);
+        assert_eq!(input::decode_open_args(&body, &objects).unwrap(), args);
     }
     let reply = input::OpenReply { session: 42 };
     let body = input::encode_open_reply(&reply).unwrap();

@@ -29,13 +29,13 @@ errno-style code plus friendly text) instead of the declared reply fields.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Open | 1 | sync | `(surface: Option<U64>) -> (session: U64) transfers (events: Channel<os.lazy.input.v1>)` |
+| Open | 1 | sync | `(surface: Option<U64>, events: Channel<os.lazy.input.v1>) -> (session: U64)` |
 | Close | 2 | sync | `(session: U64) -> ()` |
 | GetState | 3 | sync | `() -> (layout: String, mods: U32, repeat_delay_ms: U32, repeat_interval_ms: U32)` |
 | RequestGrant | 4 | sync | `(session: U64, kind: U32) -> ()` |
 | ReleaseGrant | 5 | sync | `(session: U64) -> ()` |
 | Ping | 6 | sync | `(session: U64, token: U64) -> (token: U64, seq: U64)` |
-| AttachKeyState | 7 | sync | `(session: U64) -> () transfers (state: Buffer)` |
+| AttachKeyState | 7 | sync | `(session: U64, state: Buffer) -> ()` |
 | KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
 | TextInput | 11 | oneway | `(utf8: String) -> ()` |
 | KeyboardEnter | 12 | oneway | `(down: Array<U32>) -> ()` |
@@ -43,15 +43,15 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | LayoutChanged | 14 | oneway | `(layout: String) -> ()` |
 | GrantChanged | 15 | oneway | `(kind: U32, active: Bool, reason: U32) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Open | `events` | `handles[0]`, a channel the receiver sends `os.lazy.input.v1` on |
-| AttachKeyState | `state` | `buffers[0]`, a shared buffer |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Open | `events` | `Channel<os.lazy.input.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.input.v1` on |
+| AttachKeyState | `state` | `Buffer` | `objects[0]`, a shared buffer |
 
 ## enum `KeyState`
 

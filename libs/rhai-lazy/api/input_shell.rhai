@@ -238,5 +238,5 @@ fn grab_changed(surface) {
     msg::connect("os.lazy.input.shell.v1").invoke("GrabChanged", [surface])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Attach.

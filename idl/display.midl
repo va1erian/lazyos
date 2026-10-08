@@ -15,13 +15,12 @@
 /// values the hand-written protocol used (1-24), so the numbering stays
 /// append-only from here on.
 ///
-/// Endpoint and buffer transfers ride in the parcel's `handles` and `buffers`
-/// vectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`
-/// fields because a raw handle number in the body would be meaningless to the
-/// receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
-/// (`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
-/// least `width * height * 4` bytes of RGBA8 for the surface's current
-/// content size, rows tightly packed at that width).
+/// Endpoints and buffers are object fields of the request (the parcel's
+/// object list, which the kernel resolves and installs in the receiver's
+/// table): `CreateSurface` and `Subscribe` move one event endpoint
+/// (`events`), `AttachBuffer` shares one pixel buffer (`pixels`, at least
+/// `width * height * 4` bytes of RGBA8 for the surface's current content
+/// size, rows tightly packed at that width).
 ///
 /// Pointer coordinates in every event are relative to the surface content
 /// origin; a move outside the surface (a press-and-drag) reports negative or
@@ -37,16 +36,14 @@ interface os.lazy.display.v1 {
     /// the previous desktop. The desktop role is compositor-privileged. A
     /// `Popup` (a tray flyout, docs/tray-plan.md section 7.3) needs `popup`,
     /// the one-shot token the shell granted this task with `AllowPopup`
-    /// (`EACCES` without a valid one). The parcel transfers the event
-    /// endpoint the compositor sends input on.
-    method CreateSurface(width: U32 = 1, height: U32 = 2, title: String = 3, role: U32 = 4, popup: Option<U64> = 5) -> (surface: U64 = 1) = 1
-        transfers (events: Channel<os.lazy.display.v1>);
+    /// (`EACCES` without a valid one). `events` is the event endpoint the
+    /// compositor sends input on.
+    method CreateSurface(width: U32 = 1, height: U32 = 2, title: String = 3, role: U32 = 4, popup: Option<U64> = 5, events: Channel<os.lazy.display.v1> = 6) -> (surface: U64 = 1) = 1;
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
     /// once the surface has used `Present`, which owns slot ownership from
     /// then on.
-    method AttachBuffer(surface: U64 = 1) -> () = 2
-        transfers (pixels: Buffer);
+    method AttachBuffer(surface: U64 = 1, pixels: Buffer = 2) -> () = 2;
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
     method Commit(surface: U64 = 1, x: U32 = 2, y: U32 = 3, w: U32 = 4, h: U32 = 5) -> () = 3;
@@ -97,8 +94,8 @@ interface os.lazy.display.v1 {
     /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
     /// own since issue #157).
     method GetWorkArea() -> (x: I32 = 1, y: I32 = 2, w: I32 = 3, h: I32 = 4) = 19;
-    /// Register this task as a subscriber under `subscriber_role`; the parcel
-    /// transfers the event endpoint for the shell events. The role `shell`
+    /// Register this task as a subscriber under `subscriber_role`; `events`
+    /// is the event endpoint for the shell events. The role `shell`
     /// makes the task *the* shell (it may then create desktop and panel
     /// surfaces and call the shell-only methods). It is accepted from uid 0 or
     /// `CAP_SETUID`, or from a task in the session that owns the display: the
@@ -108,8 +105,7 @@ interface os.lazy.display.v1 {
     /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
-    method Subscribe(subscriber_role: String = 1) -> () = 20
-        transfers (events: Channel<os.lazy.display.v1>);
+    method Subscribe(subscriber_role: String = 1, events: Channel<os.lazy.display.v1> = 2) -> () = 20;
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
@@ -123,13 +119,12 @@ interface os.lazy.display.v1 {
     method FocusChanged(surface: Option<U64> = 1) -> () = 23 oneway;
     /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
     method StartMenu() -> () = 24 oneway;
-    /// Register a pixel buffer (the parcel's `buffers[0]`, at least
-    /// `width * height * 4` bytes) as buffer slot `slot` (0-3) of `surface`.
+    /// Register a pixel buffer (`pixels`, at least `width * height * 4`
+    /// bytes) as buffer slot `slot` (0-3) of `surface`.
     /// The compositor only reads the *current* slot, so attaching to any
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
-    method AttachBufferSlot(surface: U64 = 1, slot: U32 = 2) -> () = 25
-        transfers (pixels: Buffer);
+    method AttachBufferSlot(surface: U64 = 1, slot: U32 = 2, pixels: Buffer = 3) -> () = 25;
     /// Pipelined present (no reply): make `slot` the surface's current buffer
     /// and composite `damage` (content-relative, clipped to the content; an
     /// empty list or more than 16 rects means the whole content). `seq` is

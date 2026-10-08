@@ -1,0 +1,5 @@
+// Conformance case (must be rejected): a published event carries no objects.
+interface os.lazy.conformance.bad.v1 {
+    struct Changed { pixels: Buffer = 1 }
+    topic "system/conformance/changed" : Changed;
+}

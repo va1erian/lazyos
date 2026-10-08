@@ -1,0 +1,24 @@
+// Conformance case: objects inside structs (nested), a Ring with the Channel
+// its server-produced ring needs, and the depth-first object indexes.
+
+/// Events the server sends on a client's channel.
+interface os.lazy.conformance.objevents.v1 {
+    method Notify(ring: U32 = 1) -> () oneway;
+}
+
+/// Objects as plain and nested fields.
+interface os.lazy.conformance.objects.v1 {
+    /// A top-level buffer, then a struct holding a channel and a nested buffer.
+    method Configure(surface: U64 = 1, pixels: Buffer = 2, config: Config = 3) -> (ok: Bool = 1) = 1;
+    /// A server-produced frames ring with the channel its doorbell travels on.
+    method Attach(slots: U32 = 1, rings: Ring<Rx> = 2, notify: Channel<os.lazy.conformance.objects.v1> = 3) -> (ring: U32 = 1) = 2;
+    method Notify(ring: U32 = 1) -> () oneway;
+    /// A struct that holds no object keeps the plain codec.
+    method Plain(point: Point = 1) -> () = 3;
+
+    struct Config { name: String = 1, events: Channel<os.lazy.conformance.objevents.v1> = 2, state: State = 3 }
+    struct State { page: Buffer = 1, generation: U32 = 2 }
+    struct Point { x: I32 = 1, y: I32 = 2 }
+
+    ring Rx : frames producer=server doorbell=Notify;
+}

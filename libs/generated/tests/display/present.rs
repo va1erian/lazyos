@@ -17,10 +17,11 @@ fn pipelined_present_ids_are_appended_after_the_legacy_range() {
 
 #[test]
 fn present_and_its_events_roundtrip() {
-    roundtrip!(
+    roundtrip_objects!(
         AttachBufferSlotArgs {
             surface: 7,
-            slot: 3
+            slot: 3,
+            pixels: libmessenger::Buffer::whole(11, 4096)
         },
         encode_attach_buffer_slot_args,
         decode_attach_buffer_slot_args
