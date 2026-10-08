@@ -96,6 +96,10 @@ positions or ring a doorbell.
   `Array<T>`), so the declared list is one static slice per method and the
   gate is one comparison; the generated decoder repeats it as defence in
   depth.
+* Inside the body, an object field's index is its position in the declared
+  order. The generated decoder refuses any other value, so two fields can
+  never name the same installed handle, an index can never be out of range,
+  and every installed object is claimed by exactly one field.
 * A reply with objects is refused.
 * On process exit every handle closes; peers see `PeerDied`.
 
@@ -148,7 +152,9 @@ pub struct Buffer { pub handle: u64, pub offset: u64, pub len: u64 }  // a decod
 ```
 
 The encoder pushes the handle onto `objects` and writes the index into the
-field; the decoder takes the installed handle at that index. The kernel
+field; the decoder takes the installed handle at that index, and refuses a
+field whose index is not its declared position (a repeated index, a skipped
+one, or one past the list are all `Error::BadObjectIndex`). The kernel
 resolves each list entry to `Resolved { kind, rights, object_id }` and
 delivery installs them with one loop and one rollback. `Transfer`,
 `BufferTransfer`, `BufferDesc`, `retain_descriptor` and the three
@@ -257,8 +263,9 @@ This is the one stage where everything rebuilds together.
   sndd, audiod, xui-app display and input, nicctl). Each gets shorter: the
   object is a field of the request struct, and the default arm closes nothing.
 * Tests: a `channels_suite` case per rule in 2.3 (kind-list gate, duplicate
-  channel, reply refused, rollback on a full table, an index out of range
-  refused by the decoder, an unclaimed object closed on drop); a soak that
+  channel, reply refused, rollback on a full table, an index out of range,
+  repeated or out of order refused by the decoder with the message's objects
+  then closed on drop, an unclaimed object closed on drop); a soak that
   moves a channel end back and forth 100k times and shares a buffer 100k
   times with handle-count and frame-count checks before and after; a
   `libs/messenger` seeded fuzz of the v2 decoder (`fuzz/`, `gen_corpus.py`).
