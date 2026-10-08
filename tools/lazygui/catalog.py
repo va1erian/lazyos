@@ -21,7 +21,7 @@ from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: 
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
-from .drivers import device_flags, driver_env  # noqa: F401 (re-exported)
+from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -365,7 +365,7 @@ def build_plan(cfg: dict) -> list[dict]:
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
                 "--memory", cfg["memory"], "--image", IMAGE]
-        argv += net_flags(cfg)
+        argv += net_flags(cfg) + session_sound(cfg)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         steps.append({"label": "Capture screenshots", "argv": argv})
@@ -389,7 +389,7 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["tablet"]:
             argv.append("--tablet")
-        argv += net_flags(cfg)
+        argv += net_flags(cfg) + session_sound(cfg)
         steps.append({"label": f"Session: {label}", "argv": argv})
 
     elif mode == "Kernel test suite":

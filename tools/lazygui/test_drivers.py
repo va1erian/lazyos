@@ -82,6 +82,22 @@ class DriverChoiceTests(unittest.TestCase):
         e1000 = qemu_net.netdev_args([], nic="e1000")
         self.assertIn(f"e1000,netdev={qemu_net.NETDEV_ID}", e1000)
 
+    def test_headless_modes_record_a_sound_card_for_emusic(self) -> None:
+        base = {"skip_build": True, "accel": "auto", "memory": "1G", "qemu": "",
+                "out": "shots", "timeout": "300", "tablet": False, "script": 0,
+                "times": "2,5"}
+        for mode in ("Headless screenshots", "Scripted session"):
+            argv = catalog.build_plan({**base, "mode": mode, "emusic": True})[-1]["argv"]
+            self.assertIn("--extra-arg=virtio-sound-pci,audiodev=snd0", argv, mode)
+            audiodev = argv[argv.index("--extra-arg=-audiodev") + 1]
+            self.assertTrue(audiodev.startswith("--extra-arg=wav,id=snd0,path="), audiodev)
+            self.assertTrue(audiodev.endswith("/shots/sound.wav"), audiodev)
+            plain = catalog.build_plan({**base, "mode": mode})[-1]["argv"]
+            self.assertFalse([arg for arg in plain if "audiodev" in arg], mode)
+        argv = catalog.build_plan({**base, "mode": "Scripted session", "sound": True,
+                                   "sound_card": "hda"})[-1]["argv"]
+        self.assertIn("--extra-arg=intel-hda,id=hda0", argv)
+
 
 if __name__ == "__main__":
     unittest.main()
