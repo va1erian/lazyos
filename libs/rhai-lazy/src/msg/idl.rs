@@ -1670,7 +1670,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.keyd.v1",
         id: 0xd948c3355ba590bf,
-        doc: "The secrets and crypto service (issue #102).\n\n`keyd` owns every long-term secret; no method returns key material. Keys\nare scoped to the uid that generated them (the kernel-stamped sender), so\n`Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys.\nPayloads of `Bytes` are capped at 8 KiB so a reply always fits the call\nbuffer. Failures are returned as a structured error field (errno-style\ncode, friendly text), not as a typed reply.\n\nKey tables are meant to live in `SHARE_ONLY` shared buffers once a\nuserspace syscall for them exists; the wire has no buffer or handle\nparameters today, so nothing here needs `Buffer`/`Handle` yet.",
+        doc: "The secrets and crypto service (issue #102).\n\n`keyd` owns every long-term secret; no method returns key material. Keys\nare scoped to the uid that generated them (the kernel-stamped sender), so\n`Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys.\nPayloads of `Bytes` are capped at 8 KiB so a reply always fits the call\nbuffer. Failures are returned as a structured error field (errno-style\ncode, friendly text), not as a typed reply.\n\nKey material stays in `keyd`'s own memory: no method carries a `Buffer`\nor a `Channel`, so no client ever maps a page that holds a key.",
         methods: &[
             Method {
                 name: "Verify",

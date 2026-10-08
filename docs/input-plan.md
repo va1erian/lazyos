@@ -146,8 +146,8 @@ service with no window can use input; a display client needs no input rights).
 
 **Client flow.** A display client keeps creating its surface through
 `os.lazy.display.v1` unchanged. To get keys it calls `os.lazy.input.v1`
-`Open(surface: Option<U64>) -> (session: U64)` and transfers an event endpoint
-in the parcel (endpoint transfers stay in `handles`, as in `display.midl`).
+`Open(surface: Option<U64>, events: Channel<...>) -> (session: U64)` and
+passes an event endpoint as a `Channel` parameter (as in `display.midl`).
 `inputd` binds the session to the kernel-stamped sender task, and the shell
 side tells it which session owns which surface (`xuid` already knows the
 surface's creator, so it registers `(surface, owner task)` and `inputd`
@@ -186,8 +186,8 @@ never uses them, and they are removed in I5. No new display method is added by
 this plan.
 
 **Low-latency poll path for games.** Optionally `inputd` (not the compositor)
-hands a focused session a `SHARE_ONLY` shared buffer holding a 256-bit *down
-bitmap* plus a `seq: AtomicU64`. Reading `is_down(HID_W)` is a memory read, no
+hands a focused session a shared buffer holding a 256-bit *down bitmap* plus
+a `seq: AtomicU64` (the plan said `SHARE_ONLY`; see the status note below). Reading `is_down(HID_W)` is a memory read, no
 Messenger round trip and no event queue. The bitmap is cleared and the client
 notified on `KeyboardLeave`. Events still flow for edge-triggered actions.
 
@@ -311,10 +311,10 @@ client side in `xui-app/src/input/grab.rs`.
   word, the raw `seq` of the newest edge, a focused flag and a 256-bit bitmap
   of HID usages (`inputmap::keystate::SharedKeys`, 56 bytes). Focus leaving
   clears it *before* `KeyboardLeave` is sent. The plan said `SHARE_ONLY`, but
-  the kernel's `SHARE_ONLY` means nobody but the creator may map a buffer
-  (`kernel/src/ipc/shared.rs`), which is the opposite of what is needed, and
-  buffer flags are per buffer, not per mapping. So the page is an ordinary
-  buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
+  share-only meant nobody but the creator may map a buffer, the opposite of
+  what is needed; ordinary buffers have no flags at all since
+  `messenger-core-plan.md` M1 (only a driver's `dma_alloc(SHARE_ONLY)` keeps
+  that behaviour). So the page is an ordinary buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
   counter (`keystate::Writer`, never reading the page back), and the page
   carries nothing the session's `KeyEvent`s did not already tell it, so a
   client scribbling on it confuses only itself. `Ping(session, token)` returns the newest

@@ -203,5 +203,5 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// Default reply/receive buffer for the convenience methods. A reply that does
 /// not fit is refused with `-E2BIG` *after* the transaction completes, so the
 /// bytes are lost; a streaming/shared-buffer path is the follow-up for large
-/// payloads (`docs/messenger.md` section 10).
+/// payloads (`docs/messenger.md` section 2).
 pub const DEFAULT_BUFFER: usize = 16 * 1024;
