@@ -1,6 +1,8 @@
 //! The display grant (syscall 12, issue #113): binding the screen, the
-//! owner's raw input queue, presenting, and the shared buffers every
-//! compositor client draws into. Mirrors `kernel/src/display.rs`.
+//! owner's raw input queue and presenting. Mirrors `kernel/src/display.rs`.
+//! The shared buffers compositor clients draw into are Messenger's
+//! [`crate::msg::buffer_create`], [`crate::msg::buffer_map`] and
+//! [`crate::msg::buffer_close`].
 
 use crate::{nr, value, zero};
 
@@ -14,13 +16,7 @@ pub mod display_op {
     pub const INPUT_POLL: u64 = 2;
     /// Copy a damage rectangle from the screen buffer to the framebuffer.
     pub const PRESENT: u64 = 3;
-    /// Create a shared buffer and map it; `[handle, va, size]` out. Open to
-    /// compositor *clients*, which never bind the display.
-    pub const CREATE_BUFFER: u64 = 4;
-    /// Map a shared buffer received from another task; its address out.
-    pub const MAP_BUFFER: u64 = 5;
-    /// Close a shared buffer handle (unmaps it, frees its quota charge).
-    pub const CLOSE_BUFFER: u64 = 6;
+    // Ops 4 to 6 were the shared-buffer ops, now `msg::op::BUFFER_*`.
     /// Declare the screen buffer's byte order ([`super::screen_layout`]).
     pub const SET_LAYOUT: u64 = 7;
     /// The byte order `present` copies without converting.
@@ -175,8 +171,8 @@ pub struct DisplayInfo {
 
 /// A display op whose arguments are plain values.
 fn plain(op: u64, a1: u64) -> i64 {
-    // SAFETY: the callers pass no pointer (`UNBIND`, `PRESENT`, the buffer
-    // handle ops, the layout ops).
+    // SAFETY: the callers pass no pointer (`UNBIND`, `PRESENT`, the layout
+    // ops).
     unsafe { crate::raw::syscall3(nr::DISPLAY, op, a1, 0) }
 }
 
@@ -227,44 +223,6 @@ pub fn pack_rect(x: i32, y: i32, w: i32, h: i32) -> u64 {
 /// owner may present.
 pub fn display_present(x: i32, y: i32, w: i32, h: i32) -> Result<(), i64> {
     zero(plain(display_op::PRESENT, pack_rect(x, y, w, h)))
-}
-
-/// Create a shared buffer of `size` bytes, mapped into this task; returns
-/// `(handle, address, size)`. Pass the handle to the compositor to attach it.
-pub fn display_create_buffer(size: u64) -> Result<(u64, u64, u64), i64> {
-    let mut words = [0u64; 3];
-    // SAFETY: the kernel writes three words to `words`.
-    let code = unsafe {
-        crate::raw::syscall3(
-            nr::DISPLAY,
-            display_op::CREATE_BUFFER,
-            size,
-            words.as_mut_ptr() as u64,
-        )
-    };
-    zero(code).map(|()| (words[0], words[1], words[2]))
-}
-
-/// Map a shared-buffer handle received from another task; its address here.
-pub fn display_map_buffer(handle: u64) -> Result<u64, i64> {
-    let mut va = 0u64;
-    // SAFETY: the kernel writes one word to `va`.
-    let code = unsafe {
-        crate::raw::syscall3(
-            nr::DISPLAY,
-            display_op::MAP_BUFFER,
-            handle,
-            &mut va as *mut u64 as u64,
-        )
-    };
-    zero(code).map(|()| va)
-}
-
-/// Close a shared buffer: unmaps it and releases the per-process buffer
-/// quota. The compositor's own reference keeps an attached surface's pixels
-/// alive until it detaches.
-pub fn display_close_buffer(handle: u64) -> Result<(), i64> {
-    zero(plain(display_op::CLOSE_BUFFER, handle))
 }
 
 /// Declare the byte order the owner draws its screen buffer in (one of

@@ -42,6 +42,9 @@ pub enum Error {
     BadTransfer,
     /// Transfers are only carried by messages, not by replies (yet).
     UnsupportedTransfer,
+    /// A shared-buffer handle sits in the `handles` vector; a buffer travels
+    /// only in `buffers`.
+    BufferInHandles,
     /// The request carries more handles or buffers than its interface and
     /// method declare in `.midl` (issue #516).
     UndeclaredTransfer,
@@ -74,6 +77,9 @@ impl Error {
                 "a transferred handle does not exist or does not grant the transfer right"
             }
             Error::UnsupportedTransfer => "replies cannot carry handles or buffers yet",
+            Error::BufferInHandles => {
+                "a shared buffer is sent in the buffers list, not as a handle"
+            }
             Error::UndeclaredTransfer => {
                 "this request carries handles or buffers its method does not declare"
             }

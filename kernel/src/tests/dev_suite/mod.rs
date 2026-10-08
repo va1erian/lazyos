@@ -15,6 +15,7 @@ mod fixture;
 mod fuzz;
 mod fuzz_soak;
 mod fuzz_world;
+mod handoff;
 mod irq;
 mod irq_channel;
 mod irq_edge;

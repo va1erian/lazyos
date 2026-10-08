@@ -112,8 +112,19 @@ userspace never names another task's handles.
   20,000-round soak.
 - A parcel's handles **move** (sender holds `TRANSFER`; its handle closes once
   queued; delivery opens a receiver-local one); buffers **share** (the message
-  takes one reference). Replies refuse transfers (`UnsupportedTransfer`);
-  non-buffer objects have no refcount yet.
+  takes one reference). The buffer list is the one path for a buffer: a
+  `Buffer` handle in the handle list is refused at resolve time
+  (`BufferInHandles`, `EINVAL`) before anything moves, so queue, deliver and
+  rollback know no buffer special case (core plan M2; test
+  `ipc_buffer_in_handles_refused`). Replies refuse transfers
+  (`UnsupportedTransfer`); non-buffer objects have no refcount yet.
+- **Buffer syscalls** are `messenger` ops (`syscalls/bufop.rs`):
+  `OP_BUFFER_CREATE = 22` (`parcel_len` is the size; `value` the handle, `aux`
+  the address, `bytes` the size), `OP_BUFFER_MAP = 23` (`value` the address,
+  `aux` the size) and `OP_BUFFER_CLOSE = 24` (`EBUSY` for the bound
+  compositor's screen buffer). The display syscall's former ops 4 to 6 are
+  gone. Userspace: `lazyos_sys::msg::{buffer_create, buffer_map,
+  buffer_close}`. Tests: `display_close_buffer_*`, `tests/bufops.rs`.
 - **Declared transfers** (issue #516, `channels/declared.rs`): a request may
   carry only what its `.midl` method declares. `send`/`begin_call` look the
   parcel header's `(interface_id, method)` up in `midlc`'s generated

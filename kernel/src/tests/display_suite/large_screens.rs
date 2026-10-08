@@ -23,25 +23,22 @@ fn bind_three_surfaces(width: usize, height: usize) -> Result<(), String> {
         "{width}x{height}: screen buffer {}",
         info[6]
     );
-    let mut windows = Vec::new();
-    for slot_index in 0..2 {
-        let mut out = [0u64; 3];
-        let code = process::dispatch_for_test(
-            12,
-            crate::display::op::CREATE_BUFFER,
-            size,
-            out.as_mut_ptr() as u64,
-        );
-        check!(
-            code == 0,
-            "{width}x{height}: window buffer {slot_index} -> {code:#x}"
-        );
-        windows.push(out[0]);
-    }
-    for handle in windows {
-        let code = process::dispatch_for_test(12, crate::display::op::CLOSE_BUFFER, handle, 0);
-        check!(code == 0, "close -> {code:#x}");
-    }
+    crate::tests::bufops::in_space(|| {
+        let mut windows = Vec::new();
+        for slot_index in 0..2 {
+            let (code, handle, _, _) = crate::tests::bufops::create_raw(size);
+            check!(
+                code == 0,
+                "{width}x{height}: window buffer {slot_index} -> {code:#x}"
+            );
+            windows.push(handle);
+        }
+        for handle in windows {
+            let code = crate::tests::bufops::close(handle);
+            check!(code == 0, "close -> {code:#x}");
+        }
+        Ok(())
+    })?;
     let code = process::dispatch_for_test(12, crate::display::op::UNBIND, 0, 0);
     check!(code == 0, "unbind -> {code:#x}");
     check!(

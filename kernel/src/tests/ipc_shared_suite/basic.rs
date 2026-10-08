@@ -146,11 +146,13 @@ pub fn buffer_share_only_not_mappable() -> Result<(), String> {
         "the creator's SHARE_ONLY mapping is missing"
     );
 
-    let bytes = parcel_with_transfers(1, "key material", vec![handle], Vec::new())?;
+    let bytes = parcel_with_transfers(1, "key material", Vec::new(), vec![share(handle)?])?;
     channels::send(client, &bytes).map_err(channel_reason)?;
+    // The creator drops its handle; the message keeps the buffer alive.
+    shared::close(handle).map_err(buffer_reason)?;
     check!(
         handles::get(handle) == Err(HandleError::InvalidHandle),
-        "the transfer did not move the sender's handle"
+        "the close did not drop the sender's handle"
     );
 
     task::harness::switch_current(child);
@@ -158,12 +160,12 @@ pub fn buffer_share_only_not_mappable() -> Result<(), String> {
         .map_err(channel_reason)?
         .ok_or("the transferred message is missing")?;
     check!(
-        message.handles.len() == 1,
-        "delivered {} handles, expected 1",
-        message.handles.len()
+        message.buffers.len() == 1,
+        "delivered {} buffers, expected 1",
+        message.buffers.len()
     );
     check!(
-        shared::map(message.handles[0]) == Err(BufferError::ShareOnly),
+        shared::map(message.buffers[0].handle) == Err(BufferError::ShareOnly),
         "a receiver mapped a SHARE_ONLY buffer"
     );
 

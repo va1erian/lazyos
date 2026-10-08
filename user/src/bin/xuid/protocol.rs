@@ -16,7 +16,7 @@ pub(super) fn drop_rejected_transfers(message: &Message) {
         let _ = Endpoint::from_raw(message.first_handle).close();
     }
     if message.buffers != 0 {
-        let _ = sys::display_close_buffer(message.first_buffer);
+        let _ = sys::buffer_close(message.first_buffer);
     }
 }
 

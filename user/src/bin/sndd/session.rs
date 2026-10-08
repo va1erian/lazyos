@@ -153,7 +153,9 @@ impl Session {
         }
         let offset = usize::try_from(desc.offset).map_err(|_| invalid())?;
         let bytes = usize::try_from(desc.len).map_err(|_| invalid())?;
-        let va = sys::display_map_buffer(handle).map_err(MsgError::Errno)?;
+        let va = sys::buffer_map(handle)
+            .map(|(va, _)| va)
+            .map_err(MsgError::Errno)?;
         let base = (va as usize).checked_add(offset).ok_or_else(invalid)? as *const u8;
         self.ring = Some(ClientRing {
             handle,
@@ -360,7 +362,7 @@ impl Session {
             State::Stopped | State::Drained => {}
         }
         if let Some(ring) = self.ring.take() {
-            let _ = sys::display_close_buffer(ring.handle);
+            let _ = sys::buffer_close(ring.handle);
         }
         card.give_back(self.stream.into_region());
     }

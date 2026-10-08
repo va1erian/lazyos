@@ -142,9 +142,9 @@ impl Transport for Audio {
     }
 
     fn create_ring(&self, bytes: usize) -> Result<SharedRing> {
-        let (handle, va, _) = sys::display_create_buffer(bytes as u64).map_err(errno_of)?;
+        let (handle, va, _) = sys::buffer_create(bytes as u64).map_err(errno_of)?;
         if va == 0 {
-            let _ = sys::display_close_buffer(handle);
+            let _ = sys::buffer_close(handle);
             return Err(Error::Errno(errno::EINVAL));
         }
         Ok(SharedRing {
@@ -201,7 +201,7 @@ impl RingBuffer for SharedRing {
             .is_some_and(|end| end <= self.len);
         assert!(fits, "ring write out of bounds");
         // SAFETY: `offset + bytes.len() <= len`, checked above, and `base` is
-        // the `len`-byte mapping `display_create_buffer` returned, live until
+        // the `len`-byte mapping `buffer_create` returned, live until
         // `drop` closes it. The mixer only reads this memory, so a raw copy
         // (no reference into the mapping) is all that is needed.
         unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), self.base.add(offset), bytes.len()) };
@@ -210,7 +210,7 @@ impl RingBuffer for SharedRing {
 
 impl Drop for SharedRing {
     fn drop(&mut self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }
 

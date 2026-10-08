@@ -40,9 +40,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | 1 | `unbind` | - |
 | 2 | `input_poll` | in: buffer + capacity; out: event count |
 | 3 | `present` | packed damage `x \| y<<16 \| w<<32 \| h<<48` |
-| 4 | `create_buffer` | in: size; out: `[handle, va, size]` |
-| 5 | `map_buffer` | in: handle; out: `va` |
-| 6 | `close_buffer` | in: handle; unmaps and drops the reference (`-EBADF` if not held, `-EBUSY` for the bound compositor's screen buffer) |
+| 4-6 | - | unassigned: the shared-buffer ops moved to the `messenger` syscall (`OP_BUFFER_CREATE`/`MAP`/`CLOSE`, [ipc-core.md](ipc-core.md)); `buffer_close` still refuses the bound compositor's screen buffer with `-EBUSY` |
 | 7 | `set_layout` | in: the screen buffer's byte order, `0` RGBA (the default after every bind) or `1` BGRA; owner only |
 | 8 | `native_layout` | out: the order `present` copies without converting, or `-ENOENT` (a 24-bit or other mode: every present converts); owner only |
 
@@ -132,7 +130,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   kernel boots `xuid` *and* the app, which never binds the grant.
   `LazyOSBackend::new_client` resolves `os.lazy.display.v1` over the raw
   syscall-5 shim, creates a surface, attaches two display shared buffers
-  (`create_buffer`) as buffer slots, presents per-node damage through the
+  (`buffer_create`) as buffer slots, presents per-node damage through the
   pipelined `Present` (see below), and consumes `POINTER_*`, `KEY_*`,
   `WINDOW_CLOSE` and frame events from its event endpoint. The
   WM (drag, minimize, close) runs in `xuid` and works on the app

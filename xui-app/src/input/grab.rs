@@ -42,7 +42,7 @@ impl KeyStatePage {
 
 impl Drop for KeyStatePage {
     fn drop(&mut self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }
 
@@ -50,7 +50,7 @@ impl Session {
     /// Create a key-state page and attach it to this session.
     pub fn attach_key_state(&self) -> Result<KeyStatePage, i64> {
         const _: () = assert!(SIZE as u64 <= PAGE_BYTES);
-        let (handle, va, _) = sys::display_create_buffer(PAGE_BYTES)?;
+        let (handle, va, _) = sys::buffer_create(PAGE_BYTES)?;
         // Dropped on any failure below, which closes the buffer.
         let page = KeyStatePage { handle, va };
         let body = wire::encode_attach_key_state_args(&wire::AttachKeyStateArgs {

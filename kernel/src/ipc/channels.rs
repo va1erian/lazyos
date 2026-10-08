@@ -44,7 +44,10 @@
 //! reference to the buffer (the sender keeps its handle and mapping) and
 //! delivery installs a receiver-local buffer handle without copying a byte.
 //! The receiver maps it on demand with `ipc::shared::map`, which refuses
-//! `SHARE_ONLY` buffers for anyone but the creator.
+//! `SHARE_ONLY` buffers for anyone but the creator. That list is the only
+//! way a buffer travels: a `Buffer` handle in `handles` is refused with
+//! [`Error::BufferInHandles`] before anything moves
+//! (`docs/messenger-core-plan.md` M2).
 //!
 //! Replies carry no transfers yet: a reply parcel with handles or buffers is
 //! refused with [`Error::UnsupportedTransfer`].
@@ -195,7 +198,6 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     let (method, parcel_flags) = (parcel.header.method, parcel.header.flags);
     let (handles, buffers) = resolve_transfers(&parcel)?;
     let numbers: Vec<u64> = parcel.handles().collect();
-    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
     let receivers = enqueue(
         channel_id,
         side,
@@ -212,7 +214,7 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
         },
     )?;
     // The message owns the moved references now; the sender's numbers are gone.
-    close_moved_handles(&numbers, &kinds);
+    close_moved_handles(&numbers);
     wake(receivers.iter());
     ring(channel_id, 1 - side);
     Ok(())

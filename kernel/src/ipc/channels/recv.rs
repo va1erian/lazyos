@@ -113,17 +113,12 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
 pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
     let mut handles_out: Vec<u64> = Vec::with_capacity(queued.handles.len());
     let mut buffers_out: Vec<BufferDesc> = Vec::with_capacity(queued.buffers.len());
-    for (index, transfer) in queued.handles.iter().enumerate() {
-        let opened = if transfer.kind == HandleKind::Buffer {
-            shared::attach(transfer.object_id, transfer.rights).map_err(from_shared)
-        } else {
-            handles::open(transfer.kind, transfer.rights, transfer.object_id).map_err(from_handles)
-        };
-        match opened {
+    for transfer in queued.handles.iter() {
+        match handles::open(transfer.kind, transfer.rights, transfer.object_id) {
             Ok(handle) => handles_out.push(handle),
             Err(error) => {
-                rollback_delivery(&queued, index, &handles_out, &buffers_out);
-                return Err(error);
+                rollback_delivery(&queued, &handles_out, &buffers_out);
+                return Err(from_handles(error));
             }
         }
     }
@@ -136,7 +131,7 @@ pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
                 flags: buffer.flags,
             }),
             Err(error) => {
-                rollback_delivery(&queued, queued.handles.len(), &handles_out, &buffers_out);
+                rollback_delivery(&queued, &handles_out, &buffers_out);
                 return Err(from_shared(error));
             }
         }
@@ -155,28 +150,14 @@ pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
 }
 
 /// Undo a partial [`deliver`]: close the installed handles and release the
-/// message references of everything still pending.
+/// message references of every buffer still pending.
 ///
-/// Non-buffer objects have no kernel object refcount yet, so releasing a moved
+/// Moved objects have no kernel object refcount yet, so releasing a moved
 /// handle whose delivery failed drops the handle but not the object; that is
 /// the documented follow-up for when `HandleEntry` grows a refcount.
-pub(super) fn rollback_delivery(
-    queued: &Queued,
-    installed: usize,
-    handles_out: &[u64],
-    buffers_out: &[BufferDesc],
-) {
-    for (transfer, &handle) in queued.handles[..installed].iter().zip(handles_out) {
-        if transfer.kind == HandleKind::Buffer {
-            shared::close(handle).ok();
-        } else {
-            handles::close(handle).ok();
-        }
-    }
-    for transfer in &queued.handles[installed..] {
-        if transfer.kind == HandleKind::Buffer {
-            shared::release(transfer.object_id);
-        }
+pub(super) fn rollback_delivery(queued: &Queued, handles_out: &[u64], buffers_out: &[BufferDesc]) {
+    for &handle in handles_out {
+        handles::close(handle).ok();
     }
     for descriptor in buffers_out {
         // Closing the receiver's buffer handle drops the reference `attach`

@@ -35,7 +35,7 @@ pub(super) struct Mapping {
 impl Mapping {
     /// Unmap and drop the compositor's reference; the client keeps its own.
     fn unmap(self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }
 
@@ -72,7 +72,7 @@ pub(super) fn attach(
 ) -> Result<(), i64> {
     let result = try_attach(message, surfaces, id, slot);
     if result.is_err() && message.buffers != 0 {
-        let _ = sys::display_close_buffer(message.first_buffer);
+        let _ = sys::buffer_close(message.first_buffer);
     }
     result
 }
@@ -117,7 +117,9 @@ fn try_attach(
     if !message.carries(wire::request_transfers(message.method())) || claimed < expected {
         return Err(messenger::errno::EINVAL);
     }
-    let va = sys::display_map_buffer(message.first_buffer).map_err(|code| -code)?;
+    let va = sys::buffer_map(message.first_buffer)
+        .map(|(va, _)| va)
+        .map_err(|code| -code)?;
     let mapping = Mapping {
         va,
         bytes: expected,

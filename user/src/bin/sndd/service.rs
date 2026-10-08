@@ -228,7 +228,7 @@ impl Service {
 /// several still leaves the extras open until the client's own quotas stop it.
 fn discard_transfers(message: &Message, buffer_adopted: bool) {
     if message.buffers > 0 && !buffer_adopted {
-        let _ = sys::display_close_buffer(message.first_buffer);
+        let _ = sys::buffer_close(message.first_buffer);
     }
     if message.handles > 0 {
         let _ = user::messenger::Endpoint::from_raw(message.first_handle).close();

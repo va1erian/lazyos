@@ -171,7 +171,7 @@ fn release_transfers(result: &MsgResult, keep: bool) -> Option<u64> {
         }
     }
     if result.reserved[3] > 0 {
-        let _ = sys::display_close_buffer(result.reserved[2]);
+        let _ = sys::buffer_close(result.reserved[2]);
     }
     kept
 }

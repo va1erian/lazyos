@@ -168,6 +168,7 @@ mod block_suite;
 mod boot_io_suite;
 mod boot_media_suite;
 mod boot_trace_suite;
+mod bufops;
 mod chmod_suite;
 mod confd_suite;
 mod connect_suite;

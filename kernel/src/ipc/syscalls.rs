@@ -56,6 +56,7 @@ use crate::task;
 mod abi;
 mod aclop;
 pub mod bootstrap;
+mod bufop;
 mod regops;
 mod usermem;
 
@@ -140,6 +141,9 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_ACL_LOAD => aclop::op_acl_load(args),
         OP_WAIT => op_wait(args),
         OP_ENDPOINT_FD => op_endpoint_fd(args),
+        OP_BUFFER_CREATE => bufop::op_buffer_create(args),
+        OP_BUFFER_MAP => bufop::op_buffer_map(args),
+        OP_BUFFER_CLOSE => bufop::op_buffer_close(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -420,7 +424,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
-        BadTransfer | UnsupportedTransfer | UndeclaredTransfer => errno::EINVAL,
+        BadTransfer | UnsupportedTransfer | UndeclaredTransfer | BufferInHandles => errno::EINVAL,
     }
 }
 

@@ -34,7 +34,7 @@ pub(super) fn attach(display: Client, title: &str, draw: &dyn Fn(&mut Canvas)) -
         Err(_) => fatal("create_surface"),
     };
     let bytes = (W * H * 4) as u64;
-    let (buffer, va, _) = match sys::display_create_buffer(bytes) {
+    let (buffer, va, _) = match sys::buffer_create(bytes) {
         Ok(pair) => pair,
         Err(_) => fatal("create_buffer"),
     };

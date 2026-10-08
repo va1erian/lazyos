@@ -189,8 +189,7 @@ impl Client {
         let layout =
             wire::attach_ring_rings(one as u64).ok_or(Error::Errno(-super::errno::EINVAL))?;
         let len = layout.total as usize;
-        let (buffer, va, _) =
-            sys::display_create_buffer(len as u64).map_err(|code| Error::Errno(-code))?;
+        let (buffer, va, _) = sys::buffer_create(len as u64).map_err(|code| Error::Errno(-code))?;
         let base = va as *mut u8;
         // SAFETY: the kernel mapped `len` zeroed bytes at `va`; each ring is
         // `one` bytes at an offset the layout keeps inside `len`, and the
@@ -201,7 +200,7 @@ impl Client {
             (rx, tx)
         };
         let (Ok(rx), Ok(tx)) = (rx, tx) else {
-            let _ = sys::display_close_buffer(buffer);
+            let _ = sys::buffer_close(buffer);
             return Err(Error::Errno(-super::errno::EINVAL));
         };
         let body = wire::encode_attach_ring_args(&wire::AttachRingArgs { slots })
@@ -233,7 +232,7 @@ impl Client {
                 })
             }
             Err(error) => {
-                let _ = sys::display_close_buffer(buffer);
+                let _ = sys::buffer_close(buffer);
                 Err(error)
             }
         }
@@ -252,7 +251,7 @@ impl Shared {
     /// Unmap the shared buffer and close the notify endpoint. The ring
     /// endpoints must be gone first: they point into the buffer.
     pub fn close(self) {
-        let _ = sys::display_close_buffer(self.buffer);
+        let _ = sys::buffer_close(self.buffer);
         if let Some(notify) = self.notify {
             let _ = notify.close();
         }
@@ -333,7 +332,7 @@ impl Attachment {
     /// Release the shared buffer and the notify endpoint. Call
     /// [`Client::detach`] first to release the driver's side.
     pub fn close(self) {
-        let _ = sys::display_close_buffer(self.buffer);
+        let _ = sys::buffer_close(self.buffer);
         if let Some(notify) = self.notify {
             let _ = notify.close();
         }

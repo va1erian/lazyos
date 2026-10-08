@@ -30,10 +30,13 @@
 //!   op 1 (unbind):        -
 //!   op 2 (input_poll):    rsi -> event records, rdx = capacity in bytes -> count
 //!   op 3 (present):       rsi = packed damage (x | y<<16 | w<<32 | h<<48)
-//!   op 4 (create_buffer): rsi = size, rdx -> [handle, va, size]
-//!   op 5 (map_buffer):    rsi = handle, rdx -> va
-//!   op 6 (close_buffer):  rsi = handle (unmap; -EBADF when not held)
+//!   op 7 (set_layout):    rsi = byte order
+//!   op 8 (native_layout): -> the order present copies as is
 //! ```
+//!
+//! The shared buffers clients draw into are `messenger` ops
+//! (`OP_BUFFER_CREATE`/`MAP`/`CLOSE`, `ipc::syscalls::bufop`); ops 4 to 6
+//! once held them and are now refused.
 //!
 //! All ops return 0 or `-errno`. Every pointer argument is validated against the
 //! caller's page tables (`user_ptr::try_*`) before the kernel touches it, so a
@@ -41,8 +44,7 @@
 //!
 //! `bind` is privileged: the display grant hands one task every pixel and every
 //! keystroke, so the caller must hold `CAP_SYS_ADMIN` (the "mounts and driver
-//! grants" capability). An unprivileged task gets `-EPERM`; ops 4 and 5 (shared
-//! surface buffers) stay open to every task.
+//! grants" capability). An unprivileged task gets `-EPERM`.
 
 use alloc::collections::VecDeque;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -55,7 +57,6 @@ use crate::user_ptr;
 
 mod abi;
 pub mod bochs;
-mod buffers;
 mod input;
 pub mod logical;
 pub mod modecfg;
@@ -174,8 +175,8 @@ pub fn owner() -> Option<usize> {
 
 /// The screen-buffer handle `slot` holds as the bound compositor, if any.
 ///
-/// `close_buffer` refuses it: closing it would leave the grant pointing at a
-/// freed mapping that `present` still blits from.
+/// `OP_BUFFER_CLOSE` refuses it: closing it would leave the grant pointing
+/// at a freed mapping that `present` still blits from.
 pub(crate) fn grant_handle_of(slot: usize) -> Option<u64> {
     if OWNER.load(Ordering::Relaxed) != slot {
         return None;
@@ -195,9 +196,6 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
             crate::perf::presented(started);
             result
         }
-        op::CREATE_BUFFER => buffers::create_buffer(a1, a2),
-        op::MAP_BUFFER => buffers::map_buffer(a1, a2),
-        op::CLOSE_BUFFER => buffers::close_buffer(a1),
         op::SET_LAYOUT => order::set(a1),
         op::NATIVE_LAYOUT => order::native(),
         _ => negative(errno::EINVAL),

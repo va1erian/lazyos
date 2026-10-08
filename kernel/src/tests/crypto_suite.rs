@@ -95,20 +95,24 @@ pub fn keyd_wrap_roundtrip_share_only() -> Result<(), String> {
         "the service could not unwrap its own blob"
     );
 
-    // Hand the handle to the client. The transfer moves the handle and its
-    // only mapping out of the creator; the client gets the handle but the
-    // kernel refuses to map it, so no client address space ever sees the
-    // blob.
-    let bytes =
-        ipc_shared_suite::parcel_with_transfers(1, "wrapped key", vec![handle], Vec::new())?;
+    // Share the buffer with the client, then drop the creator's handle and
+    // its only mapping; the client gets a handle but the kernel refuses to
+    // map it, so no client address space ever sees the blob.
+    let bytes = ipc_shared_suite::parcel_with_transfers(
+        1,
+        "wrapped key",
+        Vec::new(),
+        vec![ipc_shared_suite::share(handle)?],
+    )?;
     channels::send(client, &bytes).map_err(ipc_shared_suite::channel_reason)?;
+    shared::close(handle).map_err(ipc_shared_suite::buffer_reason)?;
     check!(
         handles::get(handle) == Err(HandleError::InvalidHandle),
-        "the transfer did not move the sender's handle"
+        "the close did not drop the sender's handle"
     );
     check!(
         raw_entry(mem::kernel_table(), creator_va).is_none(),
-        "the creator's mapping outlived the handle transfer"
+        "the creator's mapping outlived its close"
     );
 
     task::harness::switch_current(child);
@@ -116,12 +120,12 @@ pub fn keyd_wrap_roundtrip_share_only() -> Result<(), String> {
         .map_err(ipc_shared_suite::channel_reason)?
         .ok_or("the transferred message is missing")?;
     check!(
-        message.handles.len() == 1,
-        "delivered {} handles, expected 1",
-        message.handles.len()
+        message.buffers.len() == 1,
+        "delivered {} buffers, expected 1",
+        message.buffers.len()
     );
     check!(
-        shared::map(message.handles[0]) == Err(BufferError::ShareOnly),
+        shared::map(message.buffers[0].handle) == Err(BufferError::ShareOnly),
         "a client mapped a SHARE_ONLY key buffer"
     );
 

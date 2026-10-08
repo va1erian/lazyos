@@ -84,8 +84,8 @@ impl Attempt {
         let mut buffer = None;
         if self.with_buffer {
             let size = self.buffer_bytes.max(4096) as u64;
-            let (handle, va, _) = sys::display_create_buffer(size)
-                .map_err(|code| user::messenger::Error::Errno(-code))?;
+            let (handle, va, _) =
+                sys::buffer_create(size).map_err(|code| user::messenger::Error::Errno(-code))?;
             buffer = Some(handle);
             let one = ring_bytes(self.init_slots);
             if one != 0 && self.buffer_bytes >= one * 2 {
@@ -115,7 +115,7 @@ impl Attempt {
         if result.is_err() {
             // The driver closed its copies; ours are closed here.
             if let Some(handle) = buffer {
-                let _ = sys::display_close_buffer(handle);
+                let _ = sys::buffer_close(handle);
             }
             if let Some((mine, theirs)) = pair {
                 let _ = mine.close();
