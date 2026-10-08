@@ -183,22 +183,43 @@ pub mod test_hooks {
 }
 
 /// Busy-wait for `done()` with interrupts as they are.
+///
+/// The deadline is read from the TSC, which runs with interrupts off:
+/// `monotonic_ns` advances at most one tick period past the last tick it saw
+/// while they are (`arch::clock::interpolate`), so a device that never
+/// answered used to hold the CPU until [`SPIN_BACKSTOP`] spins, minutes with
+/// the timer and the i8042 shut out (issue #449). Every
+/// [`SPINS_PER_SERVICE`] spins is also a poll point (`arch::irq_window`), so
+/// inside a syscall pending interrupts are taken while the device works.
 fn spin_until(start: u64, timeout_ns: u64, done: &mut impl FnMut() -> bool) -> bool {
+    let tsc_start = crate::arch::clock::tsc_ns();
     let mut spins = 0u64;
     loop {
         if done() {
             return true;
         }
         spins += 1;
-        // The wait runs with interrupts off: keep the i8042 drained.
+        // The wait runs with interrupts off: keep the i8042 drained and let
+        // pending interrupts in.
         if spins.is_multiple_of(SPINS_PER_SERVICE) {
             crate::input::ps2::service();
-            if monotonic_ns().saturating_sub(start) >= timeout_ns || spins >= SPIN_BACKSTOP {
+            crate::arch::irq_window::poll_point();
+            if spun_out(start, tsc_start, timeout_ns) || spins >= SPIN_BACKSTOP {
                 return done();
             }
         }
         core::hint::spin_loop();
     }
+}
+
+/// Whether a spin that began at `start` (`monotonic_ns`) and `tsc_start`
+/// (`tsc_ns`, when the TSC is calibrated) has used up `timeout_ns`.
+fn spun_out(start: u64, tsc_start: Option<u64>, timeout_ns: u64) -> bool {
+    let elapsed = match (tsc_start, crate::arch::clock::tsc_ns()) {
+        (Some(began), Some(now)) => now.saturating_sub(began),
+        _ => monotonic_ns().saturating_sub(start),
+    };
+    elapsed >= timeout_ns
 }
 
 /// Between two pieces of a long filesystem call: let pending interrupts in,
