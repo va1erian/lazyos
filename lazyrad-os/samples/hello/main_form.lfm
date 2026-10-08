@@ -1,0 +1,44 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Hello"
+
+[[node]]
+kind = "Label"
+name = "prompt_label"
+left = 16
+top = 16
+width = 130
+text = "Enter your name:"
+
+[[node]]
+kind = "Edit"
+name = "name_edit"
+left = 16
+top = 44
+width = 200
+
+[[node]]
+kind = "ComboBox"
+name = "greeting_combo"
+left = 16
+top = 76
+width = 200
+items = ["Hello", "Hi", "Hey"]
+
+[[node]]
+kind = "Button"
+name = "hello_button"
+left = 16
+top = 108
+width = 120
+height = 32
+text = "Say hello"
+
+[[node]]
+kind = "Label"
+name = "result_label"
+left = 16
+top = 148
+width = 200

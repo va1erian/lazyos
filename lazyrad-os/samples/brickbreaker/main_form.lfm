@@ -1,0 +1,19 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Brick Breaker"
+width = 640
+height = 520
+resizable = false
+
+[[node]]
+kind = "Canvas"
+name = "game_canvas"
+left = 0
+top = 0
+width = 640
+height = 520
+anchor = "fill"
+background = "#101018"
+fps = 60

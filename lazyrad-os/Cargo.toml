@@ -60,7 +60,8 @@ audioclient = { path = "../libs/audioclient" }
 # theme (#95), xui-rich-text (#92) and `lazyos-msg` (Messenger in form
 # scripts, #88; docs/lazyrad-messenger-plan.md).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
-# the dev-dependency packager) together, then regenerate the lockfile.
+# the dev-dependency packager) and the `testing` dev-dependency together, then
+# regenerate the lockfile.
 lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
 lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
 lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
@@ -73,6 +74,9 @@ xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c6
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.
 modplay = { path = "../libs/modplay", features = ["fuzz"] }
+# LazyRAD's host test kit (`TestApp`), which plays a sample offscreen
+# (`tests/brickbreaker.rs`). Same pin as the dependency above: bump together.
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false, features = ["testing"] }
 
 [lib]
 name = "lazyrad_os"
