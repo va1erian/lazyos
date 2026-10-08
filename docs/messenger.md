@@ -286,7 +286,10 @@ endpoints (`wait_any`), and on a ring drains with expired-deadline
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test when the broker is reachable
 and prints `TOPIC:FANOUT:PASS`, `TOPIC:WILDCARD:PASS`, `TOPIC:RETAINED:PASS`,
-`TOPIC:DROP:PASS`, `TOPIC:QOS:PASS` and `TOPIC:UNSUB:PASS` on the serial log.
+`TOPIC:DROP:PASS`, `TOPIC:QOS:PASS` and `TOPIC:UNSUB:PASS` on the serial log,
+then `MESSAGE:OBJECTS:PASS` once it has checked that a received message owns
+its objects until a decoder claims them and closes the rest when it drops
+(`user/src/bin/messengerctl/object_tests.rs`).
 `messengerctl topics` lists known topics and `tail <filter> [count]` streams
 (issue #92). Under `LAZYOS_SERVICES=1`, `messengerd` runs a boot-time
 `soak=4096` request/reply self-test through its serve loop and prints
