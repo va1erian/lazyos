@@ -295,6 +295,31 @@ The Terminal reports one `TERM:OUT` per command, and a command that wraps past
 sets `PS1='# '` first). Shell command substitution (`$(...)`) works since #518
 (`cmdsubst_console.json`, `cmdsubst_desktop.json`).
 
+## emusic (an installable `.lzp` package, `LAZYOS_EMUSIC=1`)
+
+emusic (va1erian/emusic, the music player and library) runs as the package
+`org.lazy.emusic`: `emusic/` is the LazyOS half (window through
+`LazyOSBackend`, sound through `audiod`), emusic's own crates, fetched at the
+revision `emusic/Cargo.toml` pins, are the rest (MP3s decoded by its
+`emusic-lazyaudio` backend, symphonia, no BASS). See
+[`docs/media-plan.md`](docs/media-plan.md) and [`emusic/README.md`](emusic/README.md).
+
+```bash
+python tools/emusic/build.py              # target/emusic/emusic.elf + target/pkg/emusic.lzp (--emusic-src DIR: a local clone)
+python tools/run_demo.py --emusic         # desktop + /system/share/samples/emusic.lzp + a sound card
+python tools/emusic/run.py --app          # build, install, record `emusic.elf --sound-check` and the app; judge the WAVs
+python tools/emusic/test_judge.py         # the judge fails when it should
+python tools/emusic/session.py --check    # emusic.json / emusic_sound.json are current
+cargo test --manifest-path emusic/Cargo.toml --lib
+```
+
+The sessions need a fresh OS volume (`LAZYOS_RESET_OS=1`; `run.py` rebuilds
+before each) and `LAZYOS_UI_PROBE=1`. Markers: `EMUSIC:UP:PASS`,
+`EMUSIC:PLAY:<file>`, `EMUSIC:POS:<s>`, `EMUSIC:END:<file>`; the sound check
+prints `EMUSIC:CHECK:DONE` and logs to `~/.apps/org.lazy.emusic/sound-check.log`.
+QEMU's WAV recorder drops the time no stream plays, so the judge splits the
+recording by pitch, not by silence.
+
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
 `python tools/linuxapps/build.py` builds unmodified dash, lua, sqlite3, jq and

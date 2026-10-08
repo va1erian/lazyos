@@ -25,7 +25,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,
                   hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
                   mail: bool = False, traydemo: bool = False,
-                  autologin: bool = False, setup: bool = False) -> dict:
+                  autologin: bool = False, setup: bool = False, emusic: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -44,7 +44,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
     Desktop's login screen and logs ``user`` in (issue #623); ``setup`` starts
     the Desktop with no account, so the login screen asks for its owner (the
-    first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``). Machine settings
+    first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``emusic``
+    adds the emusic package (Desktop only, like ``doom``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -85,6 +86,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "shell": desktop and shell,
         "devices": desktop and devices,
         "doom": desktop and doom,
+        "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
         "net": net or tls,
         "net_forwards": "",

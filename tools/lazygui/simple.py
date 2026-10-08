@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls",
-                 "lazyweb", "mail", "traydemo", "autologin", "setup")
+                 "lazyweb", "mail", "traydemo", "autologin", "setup", "emusic")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -22,7 +22,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                      devices_var, doom_var, modplayer_var, net_var, on_start,
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
-                     autologin_var=None, setup_var=None) -> None:
+                     autologin_var=None, setup_var=None, emusic_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -84,6 +84,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ttk.Checkbutton(apps, text="MOD player made with LazyRAD (builds the package; install "
                                "it from /system/share/samples like Doom)",
                     variable=modplayer_var).pack(anchor="w", padx=8, pady=4)
+    if emusic_var is not None:
+        ttk.Checkbutton(apps, text="emusic music player (builds the package; install it from "
+                                   "/system/share/samples like Doom)",
+                        variable=emusic_var).pack(anchor="w", padx=8, pady=4)
     if mail_var is not None:
         ttk.Checkbutton(apps, text="Mail: esMail, an IMAP/SMTP client over TLS (builds it; "
                                    "turns HTTPS and networking on)",

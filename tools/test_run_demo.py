@@ -302,6 +302,16 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
                          LAZYOS_SAMPLES)
 
+    def test_emusic_brings_the_desktop_and_a_sound_card(self) -> None:
+        with mock.patch.object(run_demo, "build_emusic", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--emusic")
+        self.assertEqual(code, 0)
+        package.assert_called_once()
+        env = self.builds[-1]
+        for switch in ("LAZYOS_EMUSIC", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
+            self.assertEqual(env.get(switch), "1", switch)
+        self.assertIn("virtio-sound-pci,audiodev=snd0", command)
+
     def test_modplayer_brings_lazyrad_the_desktop_and_a_sound_card(self) -> None:
         with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as lazyrad,                 mock.patch.object(run_demo, "build_modplayer", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
             code, command = self.run_main("--modplayer")
