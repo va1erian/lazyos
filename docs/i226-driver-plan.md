@@ -29,8 +29,8 @@ kernel), [driver-config-plan.md](driver-config-plan.md) (`sys/dev/net/*`),
    descriptor format and per-queue register block (`0xC000` receive,
    `0xE000` transmit, `SRRCTL`, `RXDCTL`/`TXDCTL` enable bits) the I225
    inherited *to confirm*. So the ring code is written once, chip-neutral,
-   and proven end to end in CI on QEMU's `igb`; only reset, NVM/MAC, PHY and
-   link are I226-specific, and those are proven by a register-level fake on
+   and is to be proven end to end in CI on QEMU's `igb`; only reset, NVM/MAC, PHY and
+   link are I226-specific, and those are to be proven by a register-level fake on
    the host and then by the real box.
 3. **v1 is deliberately small:** one receive and one transmit queue, MSI with
    the legacy-style `ICR`/`IMS` causes (as the 8254x back end already does),
@@ -50,10 +50,10 @@ kernel), [driver-config-plan.md](driver-config-plan.md) (`sys/dev/net/*`),
 | PCI ids | Intel `8086`; I226: `125B` LM, `125C` **V**, `125D` IT, `3102` K, `5503` LMvP, `125F` blank NVM; I225: `15F2` LM, `15F3` V, `15F8` I, `0D9F` IT, `3100` K, `5502` LMvP, `15FD` blank NVM | from FreeBSD `igc_hw.h` *to confirm*; the box's own id comes from K0 |
 | BARs | BAR 0: registers, 64-bit memory, 128 KiB *to confirm*; BAR 3: MSI-X table, 16 KiB *to confirm* | BAR 0 is `map_bar`ped whole; BAR 3 is the kernel's ([interrupts.md](architecture/interrupts.md)) |
 | Interrupts | MSI and MSI-X (up to 5 vectors *to confirm*), INTx | the kernel picks MSI; in MSI mode causes are read from `ICR` (read-to-clear) as on the 8254x *to confirm* |
-| Descriptors | advanced only (16-byte read/write-back formats, `SRRCTL.DESCTYPE` one-buffer) | Linux and FreeBSD both use advanced only; the legacy format is not relied on |
-| Queues | 4 receive, 4 transmit | v1 uses queue 0 of each |
-| PHY | internal 2.5GBASE-T PHY, reached through `MDIC`, guarded by the software/firmware semaphore (`SWSM`, `SW_FW_SYNC`) | 2.5G advertisement through the PHY's multi-gig autoneg control *to confirm* (FreeBSD `igc_phy.c`) |
-| NVM | external flash; the MAC is loaded into `RAL0`/`RAH0` by hardware after reset | a blank-NVM part (`125F`) has no MAC: `mac_override` or refuse |
+| Descriptors | advanced only *to confirm* (16-byte read/write-back formats, `SRRCTL.DESCTYPE` one-buffer) | Linux and FreeBSD both use advanced only; the legacy format is not relied on |
+| Queues | 4 receive, 4 transmit *to confirm* | v1 uses queue 0 of each |
+| PHY | internal 2.5GBASE-T PHY *to confirm*, reached through `MDIC`, guarded by the software/firmware semaphore (`SWSM`, `SW_FW_SYNC`) *to confirm* | 2.5G advertisement through the PHY's multi-gig autoneg control *to confirm* (FreeBSD `igc_phy.c`) |
+| NVM | external flash; the MAC is loaded into `RAL0`/`RAH0` by hardware after reset *to confirm* | a blank-NVM part (`125F`) has no MAC: `mac_override` or refuse |
 | Reset | `CTRL.DEV_RST` (not the 8254x's `CTRL.RST`), then wait for the NVM auto-read to finish | *to confirm* bit numbers and the done flag |
 | Link | `STATUS.LU`; speed from `STATUS` including a 2500 bit; `ICR.LSC` on change | *to confirm* bit numbers |
 
@@ -194,6 +194,9 @@ logged and the default used.
 
 ## 5. Testing
 
+Everything in this section is a planned acceptance criterion: nothing below
+has run yet, and a row counts as met only when its stage (§6) lands.
+
 | Layer | What | Where |
 |---|---|---|
 | Host unit | reset timing, reset that never finishes, semaphore held forever, `MDIC` errors and timeouts, blank NVM, `RAH.AV` clear, all-ones device, `FER` for each `PEIND` region (the PCIe recovery order checked write by write) then a second bring-up, link up/down/speed, every `SetupError` | `cargo test -p igc` against `fake.rs`, a register-level model of the chip that can lie |
@@ -296,8 +299,8 @@ n150-driver-plan P2), VLAN filtering, EEE on, a second port on dual-NIC boxes
 
 ## 8. Decisions (2026-10-08)
 
-1. **The QEMU `igb` back end ships** as a supported driver matched on
-   `8086:10C9`, labelled "QEMU-verified" in the compat notes.
+1. **The QEMU `igb` back end is to ship** as a supported driver matched on
+   `8086:10C9`, labelled "QEMU-verified" in the compat notes once I1's acceptance runs pass (until then it is planned, not supported).
 2. **The I225 ids are matched in v1**; the compat row says only the I226 is
    verified.
 3. **Real hardware is the N150 box running Linux** (no other Linux machine).
