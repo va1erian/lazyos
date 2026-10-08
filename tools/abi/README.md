@@ -21,7 +21,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `alloc` | Heap allocation and deallocation. |
 | `hashmap` | `std::collections` over the allocator. |
 | `file` | Open/read/write/stat/rename/unlink through the VFS. |
-| `time` | Clocks and `sleep`. |
+| `time` | Clocks and sleeping: `Instant`/`SystemTime`, std's `thread::sleep`, and `clock_nanosleep` relative and with `TIMER_ABSTIME` on the monotonic and realtime clocks (each must last its 50 ms, issue #669), plus a past absolute deadline that must not block. |
 | `thread` | `std::thread` spawn/join. |
 | `syncstress` | Mutex/condvar/channel concurrency soak. |
 | `fsstress` | Filesystem create/read/write churn. |
