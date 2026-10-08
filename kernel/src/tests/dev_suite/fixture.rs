@@ -248,20 +248,20 @@ pub fn claim_plain(id: DeviceId) -> i64 {
     sys(devsys::OP_CLAIM, u64::from(id.0), NO_ENDPOINT, 0, 0)
 }
 
-/// A driver's interrupt channel in the current task: the endpoint handle it
-/// names at `claim` and the peer handle a test uses to fill its inbox.
+/// A plain channel pair in the current task (no longer a valid IRQ endpoint).
 pub fn irq_channel() -> Result<(u64, u64), String> {
     channels::create().map_err(|error| error.message().to_string())
 }
 
-/// `claim` with an interrupt endpoint (and optional sharing).
-pub fn claim_irq(id: DeviceId, endpoint: u64, shared: bool) -> i64 {
+/// `claim` with interrupts on a kernel-made channel (and optional sharing);
+/// the channel's receive handle lands in `endpoint`.
+pub fn claim_irq(id: DeviceId, endpoint: &mut u64, shared: bool) -> i64 {
     sys(
         devsys::OP_CLAIM,
         u64::from(id.0),
-        endpoint,
+        devsys::KERNEL_CHANNEL,
         u64::from(shared),
-        0,
+        endpoint as *mut u64 as u64,
     )
 }
 
@@ -300,8 +300,9 @@ pub fn take_irq(endpoint: u64) -> Result<(usize, u32, u32, u32), String> {
     Ok((message.sender, fields[0], fields[1], fields[2]))
 }
 
-/// Send one one-way message into the inbox behind `endpoint`'s peer, to fill it.
-pub fn stuff_inbox(peer: u64) -> Result<(), channels::Error> {
+/// Post one one-way message as the kernel into the inbox behind the current
+/// task's `endpoint`, to fill it.
+pub fn stuff_inbox(endpoint: u64) -> Result<(), channels::Error> {
     let mut body = Encoder::new();
     body.u32(1, 1).map_err(|_| channels::Error::BadParcel)?;
     let parcel = Parcel {
@@ -322,7 +323,7 @@ pub fn stuff_inbox(peer: u64) -> Result<(), channels::Error> {
     parcel
         .encode(&mut bytes)
         .map_err(|_| channels::Error::BadParcel)?;
-    channels::send(peer, &bytes)
+    channels::post_into_handle(endpoint, &bytes)
 }
 
 /// Simulate the ISR for `line` followed by the bottom half at tick `now`.

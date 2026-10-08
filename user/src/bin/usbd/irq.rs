@@ -5,7 +5,7 @@
 //! put up to 10 ms between a key or mouse report reaching the controller and
 //! `inputd` hearing of it. Each controller's interrupter 0 now raises the
 //! claim's INTx line when an event lands; the kernel posts that as a message
-//! to the endpoint named at claim time (the mechanism `sndd` and `netdrv`
+//! on the channel it made at claim time (the mechanism `sndd` and `netdrv`
 //! use), and the idle loop parks on every controller's endpoint at once with
 //! the Messenger wait set. A slow poll ([`FALLBACK_TICKS`]) stays as a safety
 //! net: a lost or unroutable interrupt costs at most that, never a hang.
@@ -35,16 +35,13 @@ const IMOD: u32 = 160;
 const PCI_COMMAND: u64 = 4;
 const PCI_INTX_DISABLE: u64 = 1 << 10;
 
-/// Claim `row` with an interrupt endpoint, or without one (polling) if the
-/// kernel refuses it. The channel's other side is dropped deliberately
-/// unused but open, so the endpoint never reports a dead peer.
+/// Claim `row` with an interrupt channel (the kernel makes it, issue #496),
+/// or without one (polling) if the kernel refuses it.
 pub(super) fn claim(row: &Row) -> Result<(u64, Option<Endpoint>), Error> {
-    if let Ok((side, _peer)) = messenger::create_pair() {
-        if let Ok(handle) = dev::claim(row.id, Some(side.handle()), false) {
-            return Ok((handle, Some(side)));
-        }
+    if let Ok((handle, channel)) = dev::claim_with_irq(row.id, false) {
+        return Ok((handle, Some(Endpoint::from_raw(channel))));
     }
-    Ok((dev::claim(row.id, None, false).map_err(Error::Dev)?, None))
+    Ok((dev::claim(row.id).map_err(Error::Dev)?, None))
 }
 
 /// Arm the claim's line once the controller runs: the kernel keeps INTx off

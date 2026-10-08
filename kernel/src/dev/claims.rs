@@ -19,6 +19,7 @@ use spin::Mutex;
 use super::class::Class;
 use super::resources::MAX_BARS;
 use super::table::MAX_DEVICES;
+use super::throttle::Throttle;
 use super::DeviceId;
 
 /// One bit per device id: the claimants a delivery round waits on.
@@ -159,10 +160,12 @@ pub enum InstallError {
     LineBusy,
 }
 
-/// All live claims plus the per-line delivery rounds.
+/// All live claims plus the per-line delivery rounds and rate limits.
 pub struct Claims {
     pub(super) slots: [Option<Claim>; MAX_DEVICES],
     pub(super) rounds: [Round; SOURCES],
+    /// Per legacy line: rounds started this tick (`dev::throttle`).
+    pub(super) throttle: [Throttle; super::irq::LINES as usize],
 }
 
 impl Claims {
@@ -173,6 +176,7 @@ impl Claims {
                 waiting: 0,
                 deadline: 0,
             }; SOURCES],
+            throttle: [Throttle::NEW; super::irq::LINES as usize],
         }
     }
 

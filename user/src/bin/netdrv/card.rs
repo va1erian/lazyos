@@ -67,14 +67,13 @@ pub(super) struct Card {
 
 impl Card {
     /// Claim the card `row` (found by [`device::find`]), bring it up and go
-    /// live. `server` is the service endpoint interrupts go to.
+    /// live.
     pub(super) fn open(
-        server: &Endpoint,
         settings: &Settings,
         row: user::dev::Row,
         kind: Kind,
     ) -> Result<Card, Error> {
-        let mut claimed = device::claim(row, server, settings.irq_mode == IrqMode::Auto)?;
+        let mut claimed = device::claim(row, settings.irq_mode == IrqMode::Auto)?;
         let (backend, brought, model, name) = match kind {
             Kind::Virtio => {
                 let (virtio, brought) = virtio_card::open(&claimed, settings)?;
@@ -175,5 +174,23 @@ impl Card {
     /// Whether the interrupt line is armed.
     pub(super) fn irq_armed(&self) -> bool {
         self.claimed.irq
+    }
+
+    /// The channel interrupt messages arrive on, while the line is armed.
+    pub(super) fn irq_channel(&self) -> Option<Endpoint> {
+        self.claimed.irq_channel.filter(|_| self.claimed.irq)
+    }
+
+    /// Handle every interrupt message already queued, without waiting.
+    pub(super) fn drain_interrupts(&mut self) {
+        let Some(channel) = self.irq_channel() else {
+            return;
+        };
+        let mut buffer = [0u8; 256];
+        while let Ok(Some(message)) = channel.poll_recv_with(&mut buffer) {
+            if Card::is_interrupt(&message) {
+                self.handle_interrupt();
+            }
+        }
     }
 }

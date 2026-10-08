@@ -45,6 +45,9 @@ pub fn begin_call_owned(
         if channel.endpoints[peer].closed {
             return Err(Error::PeerDied);
         }
+        if channel.endpoints[peer].kernel_held {
+            return Err(Error::MissingRight);
+        }
         if channel.endpoints[peer].inbox.len() >= MAX_QUEUE_DEPTH
             || channel.endpoints[peer]
                 .queued_bytes

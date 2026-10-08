@@ -160,6 +160,25 @@ pub fn set_masked(line: u8, masked: bool) {
     ioapic::set_masked(gsi, masked);
 }
 
+/// Whether a request that arrives on `line` while it is masked is still
+/// delivered once it is unmasked: always on the 8259 (its request register
+/// latches the edge), and on the I/O APIC only for a level-triggered input
+/// (the device keeps asserting; an edge that arrives masked is lost). The
+/// interrupt rate limit (`dev::throttle`) holds only such lines.
+pub fn masked_keeps_request(line: u8) -> bool {
+    if line >= LINES {
+        return false;
+    }
+    if chip() == Chip::Pic {
+        return true;
+    }
+    /// Redirection entry bit 15: level-triggered.
+    const LEVEL: u64 = 1 << 15;
+    gsi(line)
+        .and_then(ioapic::entry)
+        .is_some_and(|entry| entry & LEVEL != 0)
+}
+
 /// Whether `line` is masked (lines that cannot be delivered read masked).
 pub fn is_masked(line: u8) -> bool {
     if line >= LINES {

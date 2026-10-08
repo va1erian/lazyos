@@ -49,8 +49,8 @@ pub fn teardown_releases_everything() -> Result<(), String> {
     let quiet = add_device(Spec::nic(None))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
-    let first = expect_ok(claim_irq(mapped, endpoint, false), "claim mapped")?;
+    let mut endpoint = 0u64;
+    let first = expect_ok(claim_irq(mapped, &mut endpoint, false), "claim mapped")?;
     let second = expect_ok(claim_plain(quiet), "claim quiet")?;
     expect_ok(sys(OP_IRQ_ENABLE, first, 0, 0, 0), "irq_enable")?;
     let va = expect_ok(sys(OP_MAP_BAR, first, 0, 0, 0), "map_bar")?;
@@ -155,39 +155,77 @@ pub fn teardown_leaves_shared_rounds() -> Result<(), String> {
     Ok(())
 }
 
-/// A task that exits but is not yet reaped stops being an interrupt listener
-/// and a possible DMA master at once (issue #283); the claim itself (and its
-/// mappings) lives until the reap frees them.
-pub fn zombie_claim_is_silenced_at_exit() -> Result<(), String> {
+/// A task that exits but is not yet reaped holds no claim (issues #283,
+/// #496): at exit it stops listening and DMAing, and its claim is released
+/// outright (device free with a new generation, MMIO unmapped from the
+/// zombie's address space, charge returned, one audit record), so the next
+/// driver can claim the device before the parent reaps. The reap then has
+/// nothing left to release.
+pub fn zombie_holds_no_claim() -> Result<(), String> {
     let fx = Fixture::new()?;
-    let r = rig(LINE_A, false, true)?;
+    let dev = add_device(Spec::nic(Some(LINE_A)).with_bars(vec![mem_bar(0, DEVICE_MEM, 0x2000)]))?;
+    let slot = spawn_driver(driver_cred())?;
+    enter(slot)?;
+    let mut endpoint = 0u64;
+    let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
+    expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
+    let va = expect_ok(sys(OP_MAP_BAR, handle, 0, 0, 0), "map_bar")?;
     fire(LINE_A, 10);
-    check!(
-        r.flags()? == (true, true, false),
-        "the claim is not in flight"
-    );
+    let generation = table_state(dev).1;
+    let table = task::pml4_of(slot).ok_or("no address space")?;
     leave(&fx);
 
-    task::harness::finish(r.slot, 0);
+    task::harness::finish(slot, 0);
     check!(
-        r.flags()? == (false, false, false),
-        "a zombie still listens: {:?}",
-        r.flags()?
+        table_state(dev) == (None, generation + 1),
+        "the zombie still holds the device: {:?}",
+        table_state(dev)
     );
+    check!(CLAIMS.lock().len() == 0, "the zombie still has a claim");
     check!(masked(LINE_A), "a zombie left its line unmasked");
     check!(
-        table_state(r.dev).0 == Some(crate::dev::TaskSlot(r.slot)),
-        "the claim was released before the reap"
+        usage(Resource::DeviceClaims) == 0 && usage(Resource::UserMemory) == 0,
+        "the zombie's charges were kept: claims {} memory {}",
+        usage(Resource::DeviceClaims),
+        usage(Resource::UserMemory)
+    );
+    check!(
+        raw_entry(PhysAddr::new(table), va).is_none(),
+        "the BAR is still mapped in the zombie's address space"
+    );
+    let releases = |dev| {
+        audit::recent(audit::AUDIT_CAPACITY)
+            .into_iter()
+            .filter(|event| {
+                event.method == method::RELEASE && report::device_of(event.txn_id) == Some(dev)
+            })
+            .count()
+    };
+    check!(
+        releases(dev) == 1,
+        "{} release records at exit",
+        releases(dev)
     );
 
-    // Now reap: the release completes and the device is free again.
+    // Another driver can take the device while the zombie waits for its reap.
+    let next = spawn_driver(driver_cred())?;
+    enter(next)?;
+    let again = expect_ok(claim_plain(dev), "claim from the zombie's successor")?;
+    leave(&fx);
+
     let reaped = task::reap_child().ok_or("the finished task was not reaped")?;
-    check!(reaped.0 == r.slot, "reaped slot {}", reaped.0);
+    check!(reaped.0 == slot, "reaped slot {}", reaped.0);
     check!(
-        table_state(r.dev).0.is_none(),
-        "the reap left the device owned"
+        releases(dev) == 1,
+        "the reap released the claim a second time"
     );
-    check!(CLAIMS.lock().len() == 0, "a claim survived the reap");
+    check!(
+        table_state(dev).0 == Some(crate::dev::TaskSlot(next)),
+        "the reap disturbed the successor's claim"
+    );
+    enter(next)?;
+    expect_ok(sys(OP_RELEASE, again, 0, 0, 0), "successor release")?;
+    leave(&fx);
     Ok(())
 }
 
@@ -316,10 +354,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "dev_teardown_releases_everything",
         teardown_releases_everything,
     ),
-    (
-        "dev_zombie_claim_is_silenced_at_exit",
-        zombie_claim_is_silenced_at_exit,
-    ),
+    ("dev_zombie_holds_no_claim", zombie_holds_no_claim),
     (
         "dev_teardown_leaves_shared_rounds",
         teardown_leaves_shared_rounds,

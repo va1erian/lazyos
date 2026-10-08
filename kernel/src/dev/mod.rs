@@ -46,6 +46,7 @@ mod selfcheck;
 pub mod syscall;
 pub mod table;
 mod teardown;
+pub mod throttle;
 
 pub use bus::{Bus, Enumerated, PciBus};
 pub(crate) use driver::attach_all;
@@ -54,7 +55,8 @@ pub use resources::{Bar, BarKind, Irq, Msi, MsiX, Resource, Resources, MAX_BARS}
 pub use selfcheck::selfcheck;
 pub use table::{DevError, DeviceHandle, DeviceTable, MAX_DEVICES};
 pub use teardown::{
-    dma_buffer_freed, dma_quarantine, note_task_exited, silence_exited, teardown_task,
+    dma_buffer_freed, dma_quarantine, note_task_exited, release_exited, releases_pending,
+    silence_exited, teardown_task,
 };
 
 use core::sync::atomic::{AtomicBool, Ordering};
