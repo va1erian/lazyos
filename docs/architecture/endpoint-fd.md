@@ -123,4 +123,8 @@ blocked in `epoll_wait` woken by a send and by its own timeout. Soaks:
 one `epoll` set (every wait must report exactly the endpoints holding a
 message), and 2 000 blocked-`epoll_wait` rounds; both end with no watch and
 no endpoint registration left. The `msgpoll` ABI fixture runs the same
-contract from a musl `std` program, beside a `UnixStream`.
+contract from a musl `std` program, beside a `UnixStream`; `netfix`'s
+`msgpoll` check (`tools/abi/fixtures/src/netfix_msgpoll.rs`, judged by
+`tools/net/run.py --netd`, which requires `NETFIX:msgpoll:PASS`) does it
+beside a `TcpStream` to the host echo server: TCP alone, the endpoint
+alone, both in one wait, and a blocked `epoll_wait(-1)` woken by TCP.

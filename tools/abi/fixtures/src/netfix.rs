@@ -12,10 +12,13 @@
 //! addresses), `udp` (datagrams, a connected socket, the size limit),
 //! `listen` (accept a connection the harness opens and echo it), and the
 //! stage T1 name checks of [`netfix_names`] (`resolv_conf`, `hosts`, `trust`,
-//! `dns`): musl's own `getaddrinfo` over `/etc/resolv.conf` and `/etc/hosts`.
+//! `dns`): musl's own `getaddrinfo` over `/etc/resolv.conf` and `/etc/hosts`,
+//! and [`netfix_msgpoll`] (`msgpoll`, issue #667): a `TcpStream` and a
+//! Messenger endpoint in one `epoll_wait`.
 //! The final line is `ABI:netfix:PASS`/`FAIL` as for every fixture.
 
 mod common;
+mod netfix_msgpoll;
 mod netfix_names;
 
 use std::io::{ErrorKind, Read, Write};
@@ -219,6 +222,7 @@ fn main() {
         Ok(None) => {} // `NETFIX:dns:OFFLINE` already printed
         Err(why) => check("dns", Err(why), &mut failures),
     }
+    check("msgpoll", netfix_msgpoll::msgpoll(addr(ECHO_TCP)), &mut failures);
     check("listen", listen(), &mut failures);
     common::report("netfix", failures.is_empty(), &failures.join("; "));
 }
