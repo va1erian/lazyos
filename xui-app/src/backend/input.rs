@@ -24,7 +24,10 @@ impl LazyOSBackend {
     fn key_down(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, true);
         if code == key::TAB {
-            match tab_action(modifiers, self.focused_wants_tab()) {
+            let action = tab_action(modifiers, self.focused_wants_tab());
+            // The release follows this decision (see `key_up`).
+            self.tab_delivered.set(action == TabAction::Deliver);
+            match action {
                 TabAction::CycleFocus => {
                     self.cycle_focus(window, !modifiers.shift);
                     return;
@@ -45,11 +48,10 @@ impl LazyOSBackend {
     /// Route one key release to the focused widget.
     fn key_up(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, false);
-        // A Tab release goes to the widget only when its press would have: not
-        // after a press that moved the focus, nor for a compositor chord
-        // (Ctrl/Alt+Tab) that never reached the widget.
-        if code == key::TAB && tab_action(modifiers, self.focused_wants_tab()) != TabAction::Deliver
-        {
+        // A Tab release goes to the widget exactly when its press did, as
+        // decided at the press: not after a press that moved the focus, nor for
+        // a compositor chord (Ctrl/Alt+Tab), even if a modifier changed between.
+        if code == key::TAB && !self.tab_delivered.replace(false) {
             return;
         }
         let target = self.focused.get().unwrap_or(WidgetId::NONE);

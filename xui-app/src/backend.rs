@@ -121,6 +121,9 @@ pub struct LazyOSBackend {
     /// Keys an `inputd` session reported down and not yet up, so a focus loss
     /// can release them (`KeyboardLeave`).
     held_keys: RefCell<Vec<Key>>,
+    /// Whether the last Tab press (owner mode) went to the focused widget, so
+    /// its release follows the same decision whatever modifiers changed since.
+    tab_delivered: Cell<bool>,
     /// Repeating timers armed by [`Backend::set_timer`].
     timers: RefCell<Vec<Timer>>,
     next_timer: Cell<usize>,
@@ -289,6 +292,7 @@ impl LazyOSBackend {
             clicks: RefCell::new(double_click::ClickTracker::new()),
             modifiers: Cell::new(Modifiers::NONE),
             held_keys: RefCell::new(Vec::new()),
+            tab_delivered: Cell::new(false),
             timers: RefCell::new(Vec::new()),
             next_timer: Cell::new(1),
             watched_fd: Cell::new(None),
