@@ -701,6 +701,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmessenger"
 version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
 
 [[package]]
 name = "linked_list_allocator"

@@ -6,3 +6,11 @@ publish = false
 description = "Messenger parcel codec (shared by the LazyOS kernel and userspace)"
 
 [dependencies]
+
+[features]
+# Expose `fuzz::run`, the decoder entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
