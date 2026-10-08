@@ -6,8 +6,10 @@
 //! 1. **Freeze** ([`begin`]): restarts, autostart and `Launch` stop
 //!    ([`stopping`]); rows waiting to start or restart are retired; the kernel
 //!    watchdog is armed so a hang here still ends in a synced stop.
-//! 2. **Apps**: every launched app gets `SIGTERM`, then `SIGKILL` at its
-//!    deadline.
+//! 2. **Apps**: every launched app is stopped by the rule `Stop` and a
+//!    logout share ([`super::lifecycle::begin_stop`], issue #651): `Quit` on
+//!    its lifecycle channel when it watches one or is resident, `SIGTERM`
+//!    otherwise, then `SIGKILL` once the fixed 3 s grace has passed.
 //! 3. **Services**: the manifest services in [`stop_order`] order. A service
 //!    that serves `os.lazy.lifecycle.v1` gets its `Shutdown` message (it
 //!    persists and exits); any other gets `SIGTERM`. Each has a deadline, then
@@ -25,6 +27,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use svcpolicy::StopMode;
 use user::files;
 use user::messenger::{self, confd, mount, pkgd, registry, router, services};
 use user::sys::{self, Cred as SysCred};
@@ -33,8 +36,6 @@ use super::service::{Phase, Service};
 use super::stop_order::{self, Node};
 use super::supervise::publish_state;
 
-/// How long launched apps get to exit after `SIGTERM` (100 Hz): 5 s.
-const APP_STOP_TICKS: u64 = 500;
 /// How long one service gets to exit after its stop message: 3 s.
 const SERVICE_STOP_TICKS: u64 = 300;
 /// How long a killed task gets to be reaped before its row is written off.
@@ -245,19 +246,29 @@ impl Shutdown {
         }
     }
 
-    /// Phase 2: `SIGTERM` every launched app, then wait for all to go.
+    /// Phase 2: stop every launched app by the one rule (`Quit` or
+    /// `SIGTERM`, killed after the 3 s grace), then wait for all to go.
     fn step_apps(&mut self, services: &mut [Service], broker: &mut router::TopicBroker, now: u64) {
         if !self.entered {
             self.entered = true;
             self.publish(broker, "apps");
-            let mut asked = 0;
+            let (mut quit, mut term) = (0, 0);
             for row in services.iter_mut().filter(|row| row.launched) {
-                if row.phase == Phase::Running {
-                    ask_to_stop(row, broker, sys::SIG_TERM, now + APP_STOP_TICKS);
-                    asked += 1;
+                if row.phase != Phase::Running {
+                    continue;
                 }
+                let pid = row.pid;
+                match super::lifecycle::begin_stop(row, now) {
+                    StopMode::Quit => quit += 1,
+                    StopMode::Terminate => term += 1,
+                    StopMode::Retire => continue,
+                }
+                publish_state(broker, row, "stopping", pid, row.restarts, 0, "shutdown");
             }
-            sys::write_str(&format!("INIT:SHUTDOWN:APPS asked={asked}\n"));
+            sys::write_str(&format!(
+                "INIT:SHUTDOWN:APPS asked={} quit={quit} term={term}\n",
+                quit + term
+            ));
         }
         if !services.iter().any(|row| row.launched && is_live(row)) {
             self.stage = Stage::Services;

@@ -232,3 +232,44 @@ fn a_resident_app_restarts_after_a_crash_past_start_up_only() {
         }
     ));
 }
+
+#[test]
+fn a_watching_or_resident_app_is_asked_to_quit() {
+    assert_eq!(stop_mode(true, true, false), StopMode::Quit);
+    assert_eq!(stop_mode(true, false, true), StopMode::Quit);
+    assert_eq!(stop_mode(true, true, true), StopMode::Quit);
+}
+
+#[test]
+fn an_app_with_no_channel_is_terminated() {
+    assert_eq!(stop_mode(true, false, false), StopMode::Terminate);
+}
+
+#[test]
+fn a_row_without_a_task_is_only_retired() {
+    for (watching, resident) in [(false, false), (true, false), (false, true), (true, true)] {
+        assert_eq!(stop_mode(false, watching, resident), StopMode::Retire);
+    }
+}
+
+#[test]
+fn the_grace_is_three_seconds_from_the_request() {
+    assert_eq!(QUIT_GRACE_TICKS, 300);
+    assert_eq!(quit_deadline(1_000), 1_300);
+    assert_eq!(quit_deadline(u64::MAX - 1), u64::MAX);
+}
+
+#[test]
+fn a_logout_settles_when_its_rows_are_gone() {
+    assert!(logout_settled(0, 1_000, 1_000));
+    assert!(!logout_settled(2, 1_000, 1_299));
+}
+
+#[test]
+fn a_logout_never_waits_past_its_deadline() {
+    let deadline = logout_deadline(1_000);
+    assert_eq!(deadline, 1_000 + QUIT_GRACE_TICKS + LOGOUT_REAP_TICKS);
+    assert!(!logout_settled(1, 1_000, deadline - 1));
+    assert!(logout_settled(1, 1_000, deadline));
+    assert!(logout_settled(5, 1_000, u64::MAX));
+}

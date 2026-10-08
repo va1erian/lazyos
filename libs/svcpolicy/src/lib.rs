@@ -24,6 +24,12 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 
+mod stop;
+pub use stop::{
+    logout_deadline, logout_settled, quit_deadline, stop_mode, StopMode, LOGOUT_REAP_TICKS,
+    QUIT_GRACE_TICKS,
+};
+
 /// First restart delay (PIT ticks, 100 Hz), doubled per rapid crash.
 pub const BACKOFF_BASE: u64 = 10;
 /// Restart delay cap, so a crash loop stays gentle.

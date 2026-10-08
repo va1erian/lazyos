@@ -113,6 +113,24 @@ class JudgeTest(unittest.TestCase):
                      "power: sync failed: I/O error"]:
             self.assertTrue(judge(GOOD + line + "\n", "poweroff"), line)
 
+    def test_the_volume_applet_must_quit_in_the_apps_phase(self):
+        watched = "INIT:APP:WATCH app=os.lazy.volume pid=30\n" + GOOD
+        quit_lines = ("INIT:SHUTDOWN:APPS asked=3\n"
+                      "INIT:APP:QUIT:SENT app=os.lazy.volume grace_ms=3000\n"
+                      "VOLUME:QUIT:PASS\n")
+        good = watched.replace("INIT:SHUTDOWN:APPS asked=3\n", quit_lines)
+        self.assertEqual(judge(good, "poweroff"), [])
+        # Never asked, never quit: the old SIGTERM path.
+        self.assertTrue(any("not sent Quit" in f for f in judge(watched, "poweroff")))
+        self.assertTrue(any("never quit" in f for f in judge(watched, "poweroff")))
+        late = good.replace("VOLUME:QUIT:PASS\n", "") + "VOLUME:QUIT:PASS\n"
+        self.assertTrue(any("outside the apps phase" in f for f in judge(late, "poweroff")))
+        killed = good.replace("VOLUME:QUIT:PASS\n",
+                              "INIT:APP:QUIT:TIMEOUT app=os.lazy.volume pid=30\n")
+        self.assertTrue(any("killed at the grace" in f for f in judge(killed, "poweroff")))
+        # An image whose session never ran the applet is not held to it.
+        self.assertEqual(judge(GOOD, "poweroff"), [])
+
     def test_a_missing_watchdog(self):
         self.assertTrue(judge(GOOD.replace("power: watchdog armed", "power: armed"),
                               "poweroff"))
