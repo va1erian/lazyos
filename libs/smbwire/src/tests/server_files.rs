@@ -124,7 +124,7 @@ impl Server {
     pub(super) fn query_directory(&mut self, h: &Header, body: &[u8]) {
         let restart = body[3] & msg::QUERY_RESTART_SCANS != 0;
         let (_, dir) = self.handle_path(&body[8..]).unwrap();
-        if !restart {
+        if !restart && !self.how.endless_listing {
             return self.reply(h, NO_MORE_FILES, &[]);
         }
         let prefix = if dir.is_empty() {
@@ -139,6 +139,9 @@ impl Server {
                     names.push(String::from(rest));
                 }
             }
+        }
+        if self.how.endless_listing {
+            names.truncate(2);
         }
         let mut buffer = Vec::new();
         for (index, name) in names.iter().enumerate() {
