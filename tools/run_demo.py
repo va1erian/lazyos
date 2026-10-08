@@ -28,6 +28,7 @@ Examples
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
@@ -264,6 +265,9 @@ def main(argv: list[str]) -> int:
             env[switch] = "1"
         if args.journal:
             env["LAZYOS_JOURNAL"] = args.journal
+        if args.smb:
+            # The SMB client is a `user` binary: no separate build step.
+            env["LAZYOS_SMB"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

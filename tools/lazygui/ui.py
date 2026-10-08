@@ -101,6 +101,7 @@ class Launcher:
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
+            "smb": self.v["smb"].get(),
             # Mail speaks TLS: its switch brings the HTTPS stack and the card.
             "tls": self.v["tls"].get() or self.v["mail"].get(),
             "journal": self.v["journal"].get(),
@@ -184,7 +185,7 @@ class Launcher:
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
-                                                    "lazyweb")))
+                                                    "lazyweb", "smb")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))

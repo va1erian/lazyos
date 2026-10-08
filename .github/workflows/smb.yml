@@ -1,0 +1,107 @@
+name: smb
+
+# SMB client (docs/smb-plan.md, stage F2): host tests of `libs/smbwire` (SMB 2.1,
+# NTLMv2/SPNEGO, signing; MS-NLMP vectors, a fake server, seeded fuzz), the
+# harness server and judges' own tests, the licence gate, the library against
+# real Samba in Docker, and the end-to-end harness: `smb` in a booted image
+# against host servers, judged from their files, their records and the capture.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smb-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
+      - name: smbwire (host, includes the seeded fuzz tests)
+        run: cargo test -p smbwire
+        env:
+          FUZZ_CASES: "2000"
+
+      - name: Lints
+        run: cargo clippy -p smbwire --all-targets --features fuzz -- -D warnings
+
+      - name: Harness server against the host client, and the judges (they must fail when they should)
+        run: |
+          python tools/smb/test_smbserver.py
+          python tools/smb/test_judge.py
+
+      - name: GPLv2-compatible dependency tree
+        run: |
+          rustup target add x86_64-unknown-none
+          python tools/smb/licenses.py
+
+  samba:
+    name: real Samba
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
+      - name: smbwire against Samba in Docker (signing, refusals)
+        run: python tools/smb/samba_interop.py
+
+  harness:
+    name: harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image-smb
+          workspaces: |
+            . -> target
+
+      - uses: ./.github/actions/busybox
+
+      - name: Build, boot, transfer over SMB and judge
+        run: python tools/smb/run.py
+
+      - name: Upload the capture and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smb
+          path: shots/smb/**
+          if-no-files-found: warn

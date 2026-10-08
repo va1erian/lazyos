@@ -23,8 +23,9 @@ def wants_tls(cfg: dict) -> bool:
 
 
 def wants_net(cfg: dict) -> bool:
-    """Whether the image has the network stack and QEMU a network card."""
-    return bool(cfg.get("net") or wants_tls(cfg))
+    """Whether the image has the network stack and QEMU a network card (the
+    SMB client needs it too)."""
+    return bool(cfg.get("net") or cfg.get("smb") or wants_tls(cfg))
 
 
 def net_specs(cfg: dict) -> list[str]:

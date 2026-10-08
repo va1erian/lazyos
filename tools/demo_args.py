@@ -124,6 +124,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "`wget` and `fetch` in /system/bin, one rustls program that "
                              "verifies certificates against /etc/ssl/certs, built by "
                              "tools/nettls/build.py (docs/tls-plan.md)")
+    parser.add_argument("--smb", action="store_true",
+                        help="networking plus the SMB 2.1 client `smb` (LAZYOS_SMB=1): "
+                             "`smb -U USER //SERVER/SHARE ls ; get FILE ! ; put -g N FILE` "
+                             "(docs/smb-plan.md F2)")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -185,7 +189,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
-    args.net = args.net or args.tls
+    args.net = args.net or args.tls or args.smb
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:

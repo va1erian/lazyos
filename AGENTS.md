@@ -822,6 +822,32 @@ python tools/fuse/ui_run.py               # build, mount from the app against a 
 python tools/fuse/test_ui_judge.py        # the judge fails when it should
 ```
 
+## SMB client (`LAZYOS_SMB=1`: `smb`)
+
+`smb` (`user/src/bin/smb.rs`) is an SMB 2.1 client over the socket service:
+NTLMv2 inside SPNEGO, HMAC-SHA256 signing, from `libs/smbwire` (pure
+`no_std`, host-tested and fuzzed; [`docs/smb-plan.md`](docs/smb-plan.md) F2,
+§4.6). The password comes from `LAZYOS_SMB_PASSWORD` or a prompt that does
+not echo, never an argument. From a shell, quote the command list:
+`smb -U chaton //10.0.2.2/share 'ls ; get hello.txt - ; put -g 1000 up.bin'`
+(add `-p 1445` for the harness server). A native program run from the shell
+must be on the kernel's list in `kernel/src/process/linux/native.rs`, or it is
+loaded as a Linux program with no native heap.
+
+```bash
+python tools/run_demo.py --smb             # networking + smb
+cargo test -p smbwire                      # MS-NLMP vectors, a fake server, refusals, seeded fuzz
+python tools/smb/test_smbserver.py         # the harness server against the host client smbcat
+python tools/smb/test_judge.py             # the judges fail when they should
+python tools/smb/samba_interop.py          # the library against real Samba (Docker)
+python tools/smb/run.py                    # build, boot, 12 checks against host servers, judge files + pcap
+python tools/smb/licenses.py               # GPLv2-compatible crates only
+```
+
+`run.py` types passwords with the session step `{"type_secret": "VAR"}`
+(the value of a host environment variable), so no password is in the script;
+it scans the serial log, the capture and the session record for it.
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers

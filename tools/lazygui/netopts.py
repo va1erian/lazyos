@@ -18,9 +18,9 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
 
 
 def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=None,
-                lazyweb_var=None) -> None:
+                lazyweb_var=None, smb_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
-    browser, the forwards, isolation."""
+    browser, the SMB client, the forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
                                  "Network and Net Tools apps on the desktop)",
                     variable=net_var).pack(anchor="w", padx=6)
@@ -32,6 +32,10 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=
         ttk.Checkbutton(parent, text="LazyWeb browser (LAZYOS_LAZYWEB; run_demo --lazyweb; "
                                      "implies the desktop, the stack and HTTPS)",
                         variable=lazyweb_var).pack(anchor="w", padx=6)
+    if smb_var is not None:
+        ttk.Checkbutton(parent, text="SMB client smb (LAZYOS_SMB; run_demo --smb; implies the stack; "
+                                     "docs/smb-plan.md)",
+                        variable=smb_var).pack(anchor="w", padx=6)
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
     ttk.Label(row, text="Port forwards:").pack(side="left")

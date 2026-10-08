@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player, the Linux programs, the HTTPS tools, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools, the SMB client, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -425,3 +425,28 @@ class JournalTests(unittest.TestCase):
         self.assertIn("--journal", demo_argv(journal=True, skip_build=False))
         self.assertNotIn("--journal", demo_argv(skip_build=False))
         self.assertNotIn("--journal", demo_argv(journal=True, skip_build=True))
+
+
+class SmbTests(unittest.TestCase):
+    """The SMB 2.1 client `smb` (docs/smb-plan.md F2) from the Advanced tab and
+    run_demo: its switch, the network stack it needs, and the run_demo flag."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_build_variable_and_the_stack(self) -> None:
+        for desktop in (False, True):
+            env = catalog.build_env({**self.base(), "desktop": desktop, "smb": True})
+            self.assertEqual(env["LAZYOS_SMB"], "1")
+            self.assertEqual(env["LAZYOS_NETD"], "1", "smb connects through the socket service")
+            self.assertNotIn("LAZYOS_SMB", catalog.build_env({**self.base(), "desktop": desktop}))
+
+    def test_advanced_sessions_get_the_card_with_smb_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "smb": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "smb": True}))
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--smb", demo_argv(smb=True, skip_build=False))
+        self.assertNotIn("--smb", demo_argv(skip_build=False))
+        self.assertNotIn("--smb", demo_argv(smb=True, skip_build=True))
