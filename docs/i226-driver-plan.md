@@ -109,9 +109,10 @@ ends" rule asks of a driver with no app.
    2 KiB buffers via `SRRCTL`) and `TCTL`; set up queue 0's rings
    (`RDBAL/H`, `RDLEN`, `SRRCTL`, `RXDCTL.ENABLE` polled until it reads
    back set, then `RDT`; likewise transmit) and only then enable the units.
-7. Unmask `RXDMT0 | RXT0 | TXDW | LSC` (the 8254x's wanted set *to confirm*
-   for this chip), plus the fatal-error cause if the datasheet has one
-   (§4.3), after `device::arm` has the vector.
+7. Clear `PCIEERRSTS` and `LANPERRSTS` and drain `PEIND` (§4.3), then
+   unmask `RXDMT0 | RXT0 | TXDW | LSC | FER` (the 8254x's wanted set plus the
+   fatal error, *to confirm* for this chip) after `device::arm` has the
+   vector.
 
 ### 4.2 Rings (`libs/igc::rings`)
 
@@ -147,20 +148,42 @@ for the I226.
   legitimately return it (`STATUS`, `CTRL`) is `Fatal::Hardware("device
   gone")`; `netdrv` exits and `init`'s restart policy, with its backoff,
   tries again. Never spin on a bit of a register that reads all ones.
-- **A fatal internal error** (an uncorrectable parity/ECC error in the
-  chip's packet buffers or descriptor caches, reported by a fatal-error
-  cause in `ICR` *to confirm* the bit and its name for the I225/I226) is
-  handled the same way, and v1 attempts no recovery of its own: the cause is
-  unmasked, and seeing it logs `NETDRV:FATAL:<cause>` and returns
-  `Fatal::Hardware("internal error")`. `netdrv` exits without touching the
-  rings again; the restart's bring-up (§4.1) does a full `CTRL.DEV_RST`,
-  which is the recovery. In-flight frames are lost and the client sees a
-  link drop and a fresh attach, as after any driver restart. If the chip
-  has no such cause, the failure shows instead as a stuck queue: no receive
-  or transmit completions while `STATUS.LU` is up; v1 does not detect that
-  (a transmit watchdog is an I5 item). The fake raises the cause in a test
-  that checks the driver stops and a second bring-up of the same fake
-  succeeds.
+- **A fatal internal error** (an uncorrectable parity/ECC error in one of
+  the chip's memories) raises `ICR.FER`. The reference is FreeBSD commit
+  `bbf93227` ("igc: Recover from fatal internal memory errors", 2026-08-12,
+  tested on an I225-IT rev. 3); its register names and offsets are checked
+  against the datasheet in I0. `PEIND` (`0x01084`, read-clear) names the
+  region: LAN `0x1`, management `0x2`, PCIe `0x4`, DMA `0x8`; the
+  per-region status registers are `PCIEERRSTS` (`0x05BA8`, RW1C, fatal mask
+  `0x78`) and `LANPERRSTS` (`0x05F58`, RW1C). On `FER` the dying `netdrv`
+  masks `FER` (`IMC`), reads `PEIND` and the status registers, logs
+  `NETDRV:FATAL:<region>:<status>`, and stops using the rings. Then:
+  - **PCIe region** (`PEIND & 0x4`, or fatal bits in `PCIEERRSTS`): an
+    ordinary reset is not enough and the order differs from a normal
+    bring-up, because the parity error can stop PCIe and DMA traffic. Still
+    holding its claim, the driver asserts `CTRL.DEV_RST`, waits at least
+    3 ms (one 10 ms nap) before touching a register, polls (bounded) for
+    the NVM auto-read and `STATUS.RST_DONE`, *then* clears bus mastering
+    (`cfg_write` of the command register, an op it already uses), and
+    clears `PCIEERRSTS`'s fatal bits.
+  - **LAN or DMA region:** no extra step; the restart's reset is the
+    recovery.
+  - **Management region:** left to the management firmware, as FreeBSD
+    does; the driver still restarts.
+
+  It then returns `Fatal::Hardware("internal error")`, `netdrv` exits and
+  `init` restarts it. The new instance's ordinary bring-up (§4.1) is the
+  port reinitialisation: it turns bus mastering back on, resets, and before
+  it unmasks `FER` clears `PCIEERRSTS` and `LANPERRSTS` again and drains
+  `PEIND` (a reset can latch it again). Doing that drain on *every*
+  bring-up also covers an instance that died before it finished the PCIe
+  steps. In-flight frames are lost and the client sees a link drop and a
+  fresh attach, as after any driver restart. A failure that raises no `FER`
+  shows as a stuck queue (no completions while `STATUS.LU` is up); v1 does
+  not detect that (a transmit watchdog is an I5 item). Fake-device tests:
+  one per region. The PCIe case checks the order of register and config
+  writes (`DEV_RST`, the wait, then bus master off, then the `PCIEERRSTS`
+  clear), and that the second bring-up drains `PEIND` before `IMS.FER`.
 
 ### 4.4 Settings
 
@@ -173,7 +196,7 @@ logged and the default used.
 
 | Layer | What | Where |
 |---|---|---|
-| Host unit | reset timing, reset that never finishes, semaphore held forever, `MDIC` errors and timeouts, blank NVM, `RAH.AV` clear, all-ones device, the fatal-error cause then a second bring-up, link up/down/speed, every `SetupError` | `cargo test -p igc` against `fake.rs`, a register-level model of the chip that can lie |
+| Host unit | reset timing, reset that never finishes, semaphore held forever, `MDIC` errors and timeouts, blank NVM, `RAH.AV` clear, all-ones device, `FER` for each `PEIND` region (the PCIe recovery order checked write by write) then a second bring-up, link up/down/speed, every `SetupError` | `cargo test -p igc` against `fake.rs`, a register-level model of the chip that can lie |
 | Host rings | the e1000 ring tests ported to the advanced format: gap movement, full/empty, hostile write-backs (length 0, past the slot, no `EOP`, error bits, `DD` on a descriptor never posted, head running past tail) | `cargo test -p igc` |
 | Host fuzz | `fuzz::run(&[u8])`: a scripted hostile device and client over the rings and setup, shared with a `fuzz/` cargo-fuzz target; seeds in `fuzz/seeds/igc`, `python fuzz/gen_corpus.py --check` | `FUZZ_CASES=20000 cargo test -p igc --release seeded` |
 | Manifest | `devmatch` rows equal `igc::DEVICES`; `plan()` with an I226 and a virtio-net picks the first in enumeration order | `cargo test -p devmatch` |
