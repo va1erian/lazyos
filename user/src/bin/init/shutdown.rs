@@ -51,7 +51,8 @@ const GRACEFUL: &[(&str, &str)] = &[
     ("confd", confd::NAME),
     ("logd", services::LOGD_NAME),
     ("pkgd", pkgd::NAME),
-    // Stops its `ftpfuse` daemons, which are its children, not `init`'s.
+    // Stops its `ftpfuse` and `smbfuse` daemons, which are its children,
+    // not `init`'s.
     ("mountd", mount::NAME),
 ];
 

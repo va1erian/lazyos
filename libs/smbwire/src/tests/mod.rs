@@ -1,7 +1,6 @@
 //! Host tests: published vectors for the crypto, the codecs against hostile
 //! bytes, and whole sessions against the in-memory server in `server.rs`.
 
-mod server;
 mod session;
 
 use std::vec;

@@ -5,7 +5,10 @@ Status: **F0 reviewed, F1 (the FUSE mechanism) built**: syscall 35,
 `tools/fuse/run.py` (§3.1 records what the review changed). **F2 (the SMB
 client) built**: `libs/smbwire`, the `smb` command (`LAZYOS_SMB=1`,
 `run_demo.py --smb`), `tools/smb/run.py` and a real-Samba interop check
-(§4.6 records what F2 decided). F3 onwards is not started. It is built
+(§4.6 records what F2 decided). **F3 (the share as a directory) built**:
+`libs/smbfs`, the `smbfuse` daemon, SMB mounts through `mountd` and
+Network Drives, a cache lifetime for FUSE mounts in the VFS, the provider
+uid rule, and `tools/smb/fuse_run.py` (§4.7). F4 onwards is not started. It is built
 inside-out from a **FUSE mechanism** — a user-space filesystem framework whose
 kernel side is as thin and generic as we can make it — so that every
 filesystem behaviour, including SMB, lives in userspace. SMB is then just one
@@ -154,8 +157,10 @@ owns durability; the flusher never waits.
 **Authority.** Registering a provider and mounting are privileged edges:
 `CAP_FS_PROVIDER` (bit 12; root holds it) allows it, and only under `/mnt`, so
 a daemon can never shadow a system directory. Unlike the block provider there
-is no uid allow-list yet: F3 adds one (or a label rule) when `smbfuse` gets its
-service account ([security-model.md](security-model.md) §5).
+was no uid allow-list at first; F3 added one: syscall 35 also requires a
+provider uid (`mounttable::FS_PROVIDER_UIDS`: root and `_mountd`, the
+account `mountd` and its daemons run as), so a service given the capability
+by mistake still cannot mount ([security-model.md](security-model.md) §5).
 
 **Caching and coherence.** The kernel backend is stateless; the daemon caches
 SMB metadata and handles. The VFS's own dentry/inode cache sits above and
@@ -167,8 +172,13 @@ another client writes. F3 must add an expiry to the VFS cache for FUSE mounts
 ships; until then a remote change is invisible to `stat` and `ls` of a path
 already looked up. The two mount tables also cache separately, so a change
 made through one (a native `chmod`) is not seen by the other's cache (a Linux
-`stat`) until that path is invalidated there: the same expiry fixes both, and
-the kernel suite shows the gap.
+`stat`) until that path is invalidated there: the same expiry fixes both.
+**Built in F3** as a per-filesystem lifetime: `Filesystem::cache_deadline`
+(default none, so ext2, ramfs and FAT cache as before) and the FUSE backend
+answering 1 s (`fuse::ATTR_TICKS`); the VFS drops an expired entry at its
+next lookup. `fuse_suite` shows a remote write, unlink, create and a
+directory replaced by a file, and a native `chmod` reaching the ABI table,
+all within the lifetime and not before (`coherence.rs`).
 
 **The mount table lock** (found in review). The VFS holds its mount table (a
 `YieldMutex`) across every filesystem call, so a path operation (lookup,
@@ -201,7 +211,8 @@ without it refuses `REGISTER` with `ENOENT`.
 | `libs/smbwire/` | The SMB2 + NTLMv2 protocol (no I/O); host-tested and fuzzed (§4.2) |
 | `user/src/bin/memfuse.rs` | A toy in-memory filesystem daemon that proves the mechanism with **no network at all** (stage F1); on every image |
 | `user/src/bin/ftpfuse.rs` | A proof of concept of a **network** filesystem daemon: an FTP server at `/mnt/<name>`, over `netsock` and `libs/ftpwire`, sharing the `ftp` client's session code (`LAZYOS_NETD=1` images) |
-| `user/src/bin/smbfuse.rs` | The SMB daemon: implements `FuseFs` over `smbwire` and `netsock` (§4.4) |
+| `libs/smbfs/` | The share as a `FuseFs` over `smbwire`'s client (§4.4, §4.7): caches, a handle pool, reconnects; host-tested against `smbwire`'s in-memory server |
+| `user/src/bin/smbfuse.rs` | The SMB daemon: `libs/smbfs` over `netsock`, the logon and the serve loop (§4.7) |
 | `user/src/bin/smb.rs` | The direct command for tests and diagnostics (§4.5) |
 
 **`ftpfuse`, the network PoC.** It has the shape `smbfuse` will have (a
@@ -228,29 +239,33 @@ chunk, and the VFS cache above it has the expiry gap of §3.1.
 ### 3.4 Mounting from the desktop: `mountd` and Network Drives
 
 A daemon needs `CAP_FS_PROVIDER` and an installed app holds no capability, so
-the desktop cannot start `ftpfuse` itself. **`mountd`** (`user/src/bin/mountd.rs`,
+the desktop cannot start `ftpfuse` or `smbfuse` itself. **`mountd`** (`user/src/bin/mountd.rs`,
 `LAZYOS_NETD=1` images) is the one place that may: a supervised service running
 as `_mountd` (uid 910) with `CAP_FS_PROVIDER` and nothing else, serving
 `os.lazy.mount.v1` (`idl/mount.midl`: `Mount`, `Unmount`, `List`). Each
-`Mount` starts one `ftpfuse`, which inherits that credential; a package reaches
-the service only through its manifest's `os.lazy.mount.v1` permission.
+`Mount` starts one `ftpfuse` or, with `kind` `smb` and a `share`, one
+`smbfuse`, which inherits that credential; a package reaches the service
+only through its manifest's `os.lazy.mount.v1` permission.
 
 | Rule | How |
 |---|---|
 | Hostile requests | `libs/mounttable` (host-tested) checks every field before anything starts: the name is one directory (`a-z0-9-_`, 32 bytes), the host cannot read as an option or carry a port, no control characters; at most 8 mounts |
 | Ownership | the files are reported as the **caller's** kernel-stamped uid and gid (`ftpfuse owner=`), not `_mountd`'s; only that uid or root may unmount |
-| Passwords | travel only in the daemon's `argv`; the table, `List` and the serial log never hold one |
+| Passwords | an FTP password travels in `ftpfuse`'s `argv`, an SMB one only in `smbfuse`'s environment (§6); the table, `List` and the serial log never hold one |
 | State without a pipe | native programs have no pipe, so the mount point appearing makes a mount `mounted`, the daemon's exit code (`ftpfuse`'s `Failure`: network, resolve, login, mount, serve) makes it `failed` with a reason, and 45 s without either kills it |
 | Unmount | `SIGTERM` to the daemon; the kernel removes the dead mount at the next flusher pass or `REGISTER` of the name |
 | Shutdown | `mountd` serves `os.lazy.lifecycle.v1` and stops its daemons; a crash of `mountd` leaves them serving, unlisted |
 
 **Network Drives** (`os.lazy.netdrives`, `xui-app/src/bin/netdrives.rs`) is the
-front end, a core package in every `--net` desktop: a connect form (server,
-port, user, password, folder name) checked with `mounttable`'s rules, the mount
+front end, a core package in every `--net` desktop: a connect form (FTP
+server or SMB share, server, port, share, user, password, folder name)
+checked with `mounttable`'s rules, the mount
 list refreshed every second with each state and failure reason, **Open in
 Files** (`init.Launch` of `os.lazy.files` at `/mnt/<name>`) and **Unmount**.
 Scripts reach the same service as `sys::mount` (`rhai`). `tools/fuse/ui_run.py`
-drives the app against the host FTP server under `LAZYOS_LABEL_TRACE=1`.
+drives the app against the host FTP server (`--smb`: the SMB harness server)
+under `LAZYOS_LABEL_TRACE=1`. Opening the folder in Files is F3's "network
+view": the mounted share is an ordinary directory there.
 
 ## 4. SMB as a user-space filesystem
 
@@ -369,6 +384,20 @@ Serial markers: `SMB:DIALECT 0x0210`, `SMB:LOGON user=… domain=…`,
 | `smb` | `user/src/bin/smb.rs` (+ `smb/link.rs`, `smb/cmds.rs`): the password from `LAZYOS_SMB_PASSWORD` or a prompt that does not echo; a native program, so it is on the kernel's `execve` list of native programs (`process/linux/native.rs`) |
 | Harness peer | **not impacket**: antivirus flags it on Windows hosts, so `tools/smb/smbserver.py` is a standard-library SMB 2.1 server written for the harness (NTLMv2 verified with its own MD4, signatures checked both ways, a request record, and switches for each negative). Real Samba is the interop check: `tools/smb/samba_interop.py` runs Samba 4.19 (Alpine, Docker) against the library's host client `smbcat` |
 | Secrets in sessions | `qemu_session.py` gained `type_secret`, which types a host environment variable, so the password is in neither the script nor the summary |
+
+### 4.7 What F3 built and decided
+
+| Piece | As built |
+|---|---|
+| `libs/smbfs` | `SmbFs`, `fused::daemon::FuseFs` over `smbwire::client::Client`: the table of §4.4, with `create` an exclusive `CREATE` (`Open::Create`) and writes in place on an existing file (`Open::Write`, no truncation). Pure `no_std`, the clock passed in |
+| Coherence | attributes and listings believed for 1 s (`FRESH_TICKS`, the kernel's `ATTR_TICKS`); a fresh listing answers a lookup of an absent name without a round trip; reads and writes always reach the server |
+| Handles | the kernel never says when a file is closed, so a file read or written keeps its handle: at most 8, least recently used closed first, any idle 5 s closed between requests, and every handle of a path closed before it is removed or renamed. A sequential `cp` is one `CREATE`, the `WRITE`s and one `CLOSE` |
+| Reconnects | a lost connection or session (`USER_SESSION_DELETED`, `NETWORK_SESSION_EXPIRED`) drops the session, its handles and caches; the next request logs on again with the same server, share and credential. Lookups, listings, reads, writes at an offset, truncates and `statfs` are retried once on the new session; create, remove and rename fail `EIO`, since the server may have done them. (F5 still owns long reconnect soaks) |
+| Attributes | owner from `owner=` (the requester), directories `0755`, files `0644` or `0444` when read-only on the server; `chmod`, `chown` and times accepted and not applied |
+| `smbfuse` | `user/src/bin/smbfuse.rs`, every `LAZYOS_NETD=1` image, on the kernel's native `execve` list. With `LAZYOS_SMB_PASSWORD` in its environment (how `mountd` starts it) it serves in place; from a shell it prompts without echo, starts itself again in the background with the password in that copy's environment and returns once `/mnt/<name>` answers, like `mount.cifs` (`-f` serves in the foreground). Exit codes are `mountd`'s contract, plus 8 for a refused share |
+| Who may serve | the provider uid rule of §3.1: root and `_mountd` |
+| The mount table lock | `smbfuse` touches no file while serving: only the socket service and the console, so the rule of §3.1 holds without releasing the table |
+| Not yet | an `IPC$` share list (F4), a keyd-sealed password (§6, 3), SMB times and attributes on `setattr`, oplocks, the shared data plane (F5) |
 
 ## 5. The crypto the design needs
 
@@ -498,7 +527,11 @@ harness needs no host privilege; the live run uses the usual **445**.
 | SMB e2e | `python tools/smb/run.py`: four transfers (plain, signing required, `--sign`, raw NTLM without a server time): NEGOTIATE picks 0x0210, `ls`, `get` to stdout and checksummed, a 300 KB generated `put`, a `put` of a file the shell wrote, `mkdir`, `mv`, `rm`, `rmdir`, `cd`, `df`; the main server's directory afterwards equals exactly what was sent | built |
 | Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, `--no-sign` against a server requiring signing, a guest logon, a server demanding encryption, a truncated challenge, a signature-tampered response, an SMB3-only server — each refused for its reason, and the refusing servers' records show no file operation | built, in `run.py` |
 | Wire | the capture: no password (ASCII or UTF-16) on any flow, the client offering 0x0210 and the server's choice, the tree path, every message after the logon signed on the signing ports (and no signed request where signing was neither required nor asked for), uploads rebuilt from `WRITE` data alone and absent from the rest of the client's stream, downloads rebuilt from `READ` responses alone | built: `tools/smb/smb_pcap.py` + `test_judge.py` (the judge must fail when it should) |
-| Live (opt-in) | `--live --server chatonnas --user chaton` with the password typed (or `LAZYOS_SMB_PASSWORD`); `net mount`, `ls`, `cp` against the real server over bridged networking | manual |
+| SMB mount host | `cargo test -p smbfs`: the tree round trip (a 200 KB file in 64 KiB requests, in-place patch, truncate, mkdir, renames, replace), the POSIX errors and stale nodes, the handle pool's bounds and idle close (every handle closed), changes on the server shown after 1 s and not before, a lost session replaced and only safe operations retried, and a seeded 3000-operation soak answered exactly as `fused`'s in-memory tree answers it | built |
+| Cache lifetime | `fuse_suite` `coherence.rs`: remote changes within and after `ATTR_TICKS`, a local mount never expiring, a 2000-round expiry soak; `fuse_sys_gate` refuses a non-provider uid holding the capability | built |
+| SMB mount e2e | `python tools/smb/fuse_run.py`: `smbfuse` mounts `/mnt/share` (password at its prompt), then `ls`, `cat`, `md5sum`, `cp` both ways and `cmp`, `wc`, an in-place `dd`, `>>`, `mkdir`, `mv`, `rm`, `rmdir` (and a refused non-empty one), `df`, `sync`; a second mount requiring signing; a wrong password (status 5, `LOGON_FAILURE`) and an unknown share (status 8) leave nothing under `/mnt`. Judged from both servers' directories, their records (signatures, `FLUSH`), the capture (upload from WRITEs, download from READs, signing) and the leak scan | built |
+| Desktop SMB mount | `python tools/fuse/ui_run.py --smb`: Network Drives with the SMB choice and a share, the password typed from the host environment; the same verdict as the FTP run | built |
+| Live (opt-in) | `smbfuse -U chaton //chatonnas/<share>` with the password typed, `ls`, `cp` against the real server over bridged networking | manual |
 
 **Leak check.** The password must not appear in `serial.log`, the session
 record, the pcap or any committed file — the same scan `tls_run.py` does.
@@ -516,7 +549,7 @@ is a daemon on top of it.
 | **F0** | This plan reviewed; FUSE provider ABI, dialect, crypto and harness pinned | none | this document |
 | **F1** (built) | The **FUSE mechanism**: syscall 35, `kernel/src/fs/fuse/`, mount registration and `Vfs::unmount`, `FsError::Io`, `libs/fused`, the `memfuse` toy daemon; correctness + soak tests | **yes**, generic, with full tests | `memfuse` is mounted; `cp`/`ls`/`cat` round-trip byte-exact (`tools/fuse/run.py`); `python tools/test/run.py --accel none` |
 | **F2** (built) | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
-| **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view; a VFS cache expiry for FUSE mounts (§3.1) and the daemon's uid/label rule | the cache expiry (generic) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
+| **F3** (built) | `smbfuse` over `libs/smbfs` and `libs/fused`; `smbfuse` itself is the shell's mount command (`net mount`'s role) and `ls /mnt` its list; SMB mounts in `mountd` and Network Drives, which opens a share in Files; a VFS cache lifetime for FUSE mounts (§3.1) and the provider uid rule | the cache lifetime and the uid rule (generic) | the share is a directory; `cp` in and out round-trips byte for byte (`tools/smb/fuse_run.py`); Files walks it (`tools/fuse/ui_run.py --smb`) — **G2 reached** |
 | **F4** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none | `chatonnas` resolves; `-L` lists the server's shares; live mount and `cp` |
 | **F5** | Hardening: shared ring data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |
 | **F6** | SMB3: 3.1.1 negotiation, preauth integrity, AES-CMAC/GCM signing, encryption policy | none | dialect 0x0311, encrypted share round-trip |

@@ -5,6 +5,7 @@
 //! runs); hostile daemons (lying replies, silence, death); the syscall 35
 //! gate; and a soak.
 
+mod coherence;
 mod hostile;
 mod io;
 mod sys;
@@ -20,8 +21,8 @@ use fused::memfs::MemFs;
 use fused::wire::{Reply, Request, MAX_PAYLOAD};
 use spin::Mutex;
 
-/// The test daemon's uid.
-const DAEMON_UID: u32 = 1000;
+/// The test daemon's uid: `_mountd`'s, a provider uid.
+const DAEMON_UID: u32 = mounttable::MOUNTD_UID;
 
 /// How the fake daemon answers its next requests.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -347,6 +348,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_read_only_mount", io::read_only_mount),
     ("fuse_unregister_and_remount", io::unregister_and_remount),
     ("fuse_stress", io::stress),
+    (
+        "fuse_remote_change_expires",
+        coherence::remote_change_expires,
+    ),
+    (
+        "fuse_local_cache_does_not_expire",
+        coherence::local_cache_does_not_expire,
+    ),
+    ("fuse_expiry_soak", coherence::expiry_soak),
     ("fuse_error_statuses", hostile::error_statuses),
     ("fuse_silent_daemon_dies", hostile::silent_daemon_dies),
     ("fuse_death_mid_request", hostile::death_mid_request),

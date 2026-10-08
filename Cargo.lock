@@ -623,6 +623,7 @@ dependencies = [
  "logstore",
  "membook",
  "messenger-generated",
+ "mounttable",
  "netpolicy",
  "nvme",
  "pkgstore",
@@ -1064,6 +1065,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "smbfs"
+version = "0.1.0"
+dependencies = [
+ "fused",
+ "smbwire",
+]
+
+[[package]]
 name = "smbwire"
 version = "0.1.0"
 dependencies = [
@@ -1380,6 +1389,7 @@ dependencies = [
  "passwd",
  "pcm",
  "pkgstore",
+ "smbfs",
  "smbwire",
  "sndpolicy",
  "spin",

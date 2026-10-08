@@ -319,7 +319,8 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         deps: &[],
     },
     // The network mount service (docs/smb-plan.md §3.4): starts `ftpfuse`
-    // for the Network Drives app. The daemons wait for `netd` themselves.
+    // and `smbfuse` for the Network Drives app. The daemons wait for `netd`
+    // themselves.
     #[cfg(lazyos_netd)]
     ServiceSpec {
         name: "mountd",

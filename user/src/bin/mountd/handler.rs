@@ -5,7 +5,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use mounttable::{daemon_args, validate, Table, KIND_FTP};
+use mounttable::{daemon_args, daemon_env, validate_kind, Kind, Table};
 use user::messenger::mount::{self as api, wire};
 use user::messenger::{errno, Error, Message, Parcel, Result};
 use user::sys::{self, Personality, SpawnCred};
@@ -41,10 +41,12 @@ pub(super) fn dispatch(table: &mut Table, message: &Message) -> Result<Parcel> {
 /// it as connecting. The owner is the kernel-stamped caller, never a field
 /// of the request.
 fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result<String> {
-    let request = validate(
+    let request = validate_kind(
+        &args.kind,
         &args.name,
         &args.host,
         args.port,
+        &args.share,
         &args.user,
         &args.password,
     )
@@ -54,20 +56,31 @@ fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result
     })?;
     table.admit(&request).map_err(table_error)?;
     let caller = message.caller();
-    let argv = daemon_args(fhs::bin::FTPFUSE, &request, caller.uid, caller.gid);
+    let program = match request.kind {
+        Kind::Ftp => fhs::bin::FTPFUSE,
+        Kind::Smb => fhs::bin::SMBFUSE,
+    };
+    let argv = daemon_args(program, &request, caller.uid, caller.gid);
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+    // An SMB password travels in the environment, never in `argv`.
+    let envp = daemon_env(&request);
+    let envp: Vec<&str> = envp.iter().map(String::as_str).collect();
     // Inherit: the daemon gets this service's identity, `CAP_FS_PROVIDER`
     // and nothing more, whoever asked.
     let pid = sys::spawnv(
-        fhs::bin::FTPFUSE,
+        program,
         &argv,
-        &[],
+        &envp,
         Personality::Native,
         SpawnCred::Inherit,
     )
     .map_err(Error::Errno)?;
     table.add(&request, caller.uid, pid, sys::clock());
-    sys::write_str(&format!("MOUNTD:START {} pid={pid}\n", request.name));
+    sys::write_str(&format!(
+        "MOUNTD:START {} kind={} pid={pid}\n",
+        request.name,
+        request.kind.name()
+    ));
     Ok(crate::mount_point(&request.name))
 }
 
@@ -95,7 +108,7 @@ fn table_error(error: mounttable::Error) -> Error {
 fn info(entry: &mounttable::Entry) -> wire::MountInfo {
     wire::MountInfo {
         name: entry.name.clone(),
-        kind: String::from(KIND_FTP),
+        kind: String::from(entry.kind.name()),
         host: entry.host.clone(),
         port: u32::from(entry.port),
         user: if entry.user.is_empty() {
@@ -107,5 +120,6 @@ fn info(entry: &mounttable::Entry) -> wire::MountInfo {
         state: String::from(entry.state.name()),
         detail: String::from(entry.state.detail()),
         owner: entry.owner,
+        share: entry.share.clone(),
     }
 }

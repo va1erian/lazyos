@@ -10834,6 +10834,7 @@ pub mod os_lazy_mount_v1 {
         pub state: alloc::string::String,
         pub detail: alloc::string::String,
         pub owner: u32,
+        pub share: alloc::string::String,
     }
 
     pub fn encode_mount_info(value: &MountInfo) -> Result<Vec<u8>, Error> {
@@ -10847,6 +10848,7 @@ pub mod os_lazy_mount_v1 {
         target.string(7, &value.state)?;
         target.string(8, &value.detail)?;
         target.u32(9, value.owner)?;
+        target.string(10, &value.share)?;
         Ok(target.finish())
     }
 
@@ -10882,6 +10884,9 @@ pub mod os_lazy_mount_v1 {
                 9 => {
                     out.owner = field.as_u32()?;
                 }
+                10 => {
+                    out.share = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -10896,7 +10901,7 @@ pub mod os_lazy_mount_v1 {
     pub const METHOD_LIST: u32 = 220805025;
 
     /// The mount's name: it is served at `path`, `/mnt/<name>`.
-    /// The filesystem daemon's protocol (`ftp`).
+    /// The filesystem daemon's protocol (`ftp` or `smb`).
     /// The server's host name or address, as given.
     /// The server's TCP port.
     /// The account it logs in as (`anonymous` when none was given).
@@ -10904,13 +10909,19 @@ pub mod os_lazy_mount_v1 {
     /// `connecting`, `mounted` or `failed`.
     /// Why a mount failed, empty otherwise.
     /// The requester's uid: the files' owner.
-    /// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
-    /// with `password` (an empty `user` is the anonymous login). `name` is 1
-    /// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
-    /// `.` and `-`, not starting with `-` and with no `:` (the port goes in
-    /// `port`, 1 to 65535, 0 meaning 21); `user` and `password` at most 128
-    /// bytes with no control character, and a `password` only with a `user`.
-    /// `path` is the mount point the daemon will serve.
+    /// The SMB share, empty for an FTP mount.
+    /// Mount a server at `/mnt/<name>`, logged in as `user` with `password`.
+    /// `kind` is `ftp` (or empty) for the FTP server `host:port`, where an
+    /// empty `user` is the anonymous login, or `smb` for the SMB 2.1 share
+    /// `\\host\share`, which needs a `user` (the NTLM domain comes from the
+    /// server). `name` is 1 to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to
+    /// 253 of letters, digits, `.` and `-`, not starting with `-` and with no
+    /// `:` (the port goes in `port`, 1 to 65535, 0 meaning 21 for FTP and 445
+    /// for SMB); `share` (SMB only) 1 to 80 characters with none of
+    /// `\ / : * ? " < > |`; `user` and `password` at most 128 bytes with no
+    /// control character, and a `password` only with a `user`. An SMB
+    /// password reaches `smbfuse` through its environment, never its
+    /// arguments. `path` is the mount point the daemon will serve.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MountArgs {
         pub name: alloc::string::String,
@@ -10918,6 +10929,8 @@ pub mod os_lazy_mount_v1 {
         pub port: u32,
         pub user: alloc::string::String,
         pub password: alloc::string::String,
+        pub kind: alloc::string::String,
+        pub share: alloc::string::String,
     }
 
     pub fn encode_mount_args(value: &MountArgs) -> Result<Vec<u8>, Error> {
@@ -10927,6 +10940,8 @@ pub mod os_lazy_mount_v1 {
         target.u32(3, value.port)?;
         target.string(4, &value.user)?;
         target.string(5, &value.password)?;
+        target.string(6, &value.kind)?;
+        target.string(7, &value.share)?;
         Ok(target.finish())
     }
 
@@ -10949,6 +10964,12 @@ pub mod os_lazy_mount_v1 {
                 }
                 5 => {
                     out.password = field.as_str()?.into();
+                }
+                6 => {
+                    out.kind = field.as_str()?.into();
+                }
+                7 => {
+                    out.share = field.as_str()?.into();
                 }
                 _ => {}
             }
