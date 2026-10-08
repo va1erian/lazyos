@@ -1,0 +1,64 @@
+//! The NTSTATUS codes the client acts on, and their names for messages.
+
+pub const SUCCESS: u32 = 0x0000_0000;
+pub const PENDING: u32 = 0x0000_0103;
+pub const BUFFER_OVERFLOW: u32 = 0x8000_0005;
+pub const NO_MORE_FILES: u32 = 0x8000_0006;
+pub const INVALID_PARAMETER: u32 = 0xC000_000D;
+pub const END_OF_FILE: u32 = 0xC000_0011;
+pub const MORE_PROCESSING_REQUIRED: u32 = 0xC000_0016;
+pub const ACCESS_DENIED: u32 = 0xC000_0022;
+pub const OBJECT_NAME_INVALID: u32 = 0xC000_0033;
+pub const OBJECT_NAME_NOT_FOUND: u32 = 0xC000_0034;
+pub const OBJECT_NAME_COLLISION: u32 = 0xC000_0035;
+pub const OBJECT_PATH_NOT_FOUND: u32 = 0xC000_003A;
+pub const SHARING_VIOLATION: u32 = 0xC000_0043;
+pub const DELETE_PENDING: u32 = 0xC000_0056;
+pub const LOGON_FAILURE: u32 = 0xC000_006D;
+pub const ACCOUNT_RESTRICTION: u32 = 0xC000_006E;
+pub const PASSWORD_EXPIRED: u32 = 0xC000_0071;
+pub const ACCOUNT_DISABLED: u32 = 0xC000_0072;
+pub const FILE_IS_A_DIRECTORY: u32 = 0xC000_00BA;
+pub const NOT_SUPPORTED: u32 = 0xC000_00BB;
+pub const BAD_NETWORK_NAME: u32 = 0xC000_00CC;
+pub const DIRECTORY_NOT_EMPTY: u32 = 0xC000_0101;
+pub const NOT_A_DIRECTORY: u32 = 0xC000_0103;
+pub const USER_SESSION_DELETED: u32 = 0xC000_0203;
+pub const NETWORK_SESSION_EXPIRED: u32 = 0xC000_035C;
+
+/// A short name for `status`, or `None` for one this table lacks.
+pub fn name(status: u32) -> Option<&'static str> {
+    Some(match status {
+        SUCCESS => "SUCCESS",
+        PENDING => "PENDING",
+        BUFFER_OVERFLOW => "BUFFER_OVERFLOW",
+        NO_MORE_FILES => "NO_MORE_FILES",
+        INVALID_PARAMETER => "INVALID_PARAMETER",
+        END_OF_FILE => "END_OF_FILE",
+        MORE_PROCESSING_REQUIRED => "MORE_PROCESSING_REQUIRED",
+        ACCESS_DENIED => "ACCESS_DENIED",
+        OBJECT_NAME_INVALID => "OBJECT_NAME_INVALID",
+        OBJECT_NAME_NOT_FOUND => "OBJECT_NAME_NOT_FOUND",
+        OBJECT_NAME_COLLISION => "OBJECT_NAME_COLLISION",
+        OBJECT_PATH_NOT_FOUND => "OBJECT_PATH_NOT_FOUND",
+        SHARING_VIOLATION => "SHARING_VIOLATION",
+        DELETE_PENDING => "DELETE_PENDING",
+        LOGON_FAILURE => "LOGON_FAILURE",
+        ACCOUNT_RESTRICTION => "ACCOUNT_RESTRICTION",
+        PASSWORD_EXPIRED => "PASSWORD_EXPIRED",
+        ACCOUNT_DISABLED => "ACCOUNT_DISABLED",
+        FILE_IS_A_DIRECTORY => "FILE_IS_A_DIRECTORY",
+        NOT_SUPPORTED => "NOT_SUPPORTED",
+        BAD_NETWORK_NAME => "BAD_NETWORK_NAME",
+        DIRECTORY_NOT_EMPTY => "DIRECTORY_NOT_EMPTY",
+        NOT_A_DIRECTORY => "NOT_A_DIRECTORY",
+        USER_SESSION_DELETED => "USER_SESSION_DELETED",
+        NETWORK_SESSION_EXPIRED => "NETWORK_SESSION_EXPIRED",
+        _ => return None,
+    })
+}
+
+/// An error severity (the top two bits are `11`).
+pub fn is_error(status: u32) -> bool {
+    status >> 30 == 3
+}

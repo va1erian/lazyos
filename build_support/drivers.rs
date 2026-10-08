@@ -76,6 +76,12 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     if usb {
         add(sink, fhs::bin::USBD, "usbd");
     }
+    // `smb` speaks over the socket service: without it the image would carry
+    // a client that cannot connect.
+    assert!(
+        netd || !enabled("LAZYOS_SMB"),
+        "LAZYOS_SMB=1 needs LAZYOS_NETD=1 (the socket service smb connects through)"
+    );
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
         add(sink, fhs::bin::NETDRV, "netdrv");
@@ -98,6 +104,10 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         add(sink, fhs::bin::FTPFUSE, "ftpfuse");
         // `mountd`, which starts `ftpfuse` for the Network Drives app.
         add(sink, fhs::bin::MOUNTD, "mountd");
+        // `smb`, the SMB 2.1 client (docs/smb-plan.md F2), on request.
+        if enabled("LAZYOS_SMB") {
+            add(sink, fhs::bin::SMB, "smb");
+        }
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.

@@ -2,8 +2,10 @@
 
 Status: **F0 reviewed, F1 (the FUSE mechanism) built**: syscall 35,
 `kernel/src/fs/fuse/`, `libs/fused`, `memfuse`, `fuse_suite` and
-`tools/fuse/run.py` (§3.1 records what the review changed). F2 onwards is not
-started. It is built
+`tools/fuse/run.py` (§3.1 records what the review changed). **F2 (the SMB
+client) built**: `libs/smbwire`, the `smb` command (`LAZYOS_SMB=1`,
+`run_demo.py --smb`), `tools/smb/run.py` and a real-Samba interop check
+(§4.6 records what F2 decided). F3 onwards is not started. It is built
 inside-out from a **FUSE mechanism** — a user-space filesystem framework whose
 kernel side is as thin and generic as we can make it — so that every
 filesystem behaviour, including SMB, lives in userspace. SMB is then just one
@@ -331,9 +333,15 @@ for a mismatch is rejected.
 ### 4.5 The `smb` command
 
 ```
-smb [--sign] [--sign-required] [-p PORT] [-W DOMAIN] [-d DIAG] -U user //server/share [cmd ...]
+smb [-q] [-v] [--sign | --sign-required | --no-sign] [-p PORT] [-W DOMAIN]
+    -U user //server/share [cmd ; cmd ...]
 smb -L //server -U user                        # list shares (F4)
 ```
+
+(As built: `-v` echoes each command in place of the planned `-d DIAG`;
+`--no-sign` refuses a server that requires signing; `mv FROM TO` and `df`
+join the commands. From a shell, quote the command list: `;` is the
+shell's separator too.)
 
 The password is never an argument (a `%pass` form does not exist): it comes from
 the prompt or, for headless runs, `LAZYOS_SMB_PASSWORD` (§6). Commands:
@@ -348,6 +356,19 @@ run the protocol without FUSE and to feed the harness sink.
 Serial markers: `SMB:DIALECT 0x0210`, `SMB:LOGON user=… domain=…`,
 `SMB:TREE share=…`, `SMB:LIST n=…`, `SMB:GET name bytes=N crc=…`, `SMB:PUT …`,
 `SMB:PASS|FAIL reason=…` — markers say when, they are never the verdict.
+
+### 4.6 What F2 built and decided
+
+| Piece | As built |
+|---|---|
+| `libs/smbwire` | `frame` (Direct TCP, 256 KiB bound checked before buffering), `header`, `msg` (every command of §4.4, each response checked against its `StructureSize` and every offset against the message), `ntlm`, `spnego`, `crypto`, `name` (paths to the backslash form; `..`, streams, wildcards and control characters refused; listed names that are not one plain component skipped), and `client`: a synchronous session over a `Transport` trait that owns message ids, credits, interim `STATUS_PENDING` responses, unsolicited oplock breaks and signing. No clock and no random source: the caller passes the time, the `ClientGuid` and the client challenge |
+| NTLMv2 timestamp | the server's `MsvAvTimestamp` when the challenge carries one (Samba and Windows do), with 24 zero bytes for the LM response (`MS-NLMP` 3.1.5.1.2); the client's clock only otherwise, with LMv2. So a dead RTC breaks only servers that send no time, and `smb` says so on a `LOGON_FAILURE` when the clock reads before 2026-01-02 |
+| No MIC | the AUTHENTICATE carries no MIC: a MIC makes Samba demand SPNEGO's `mechListMIC` too. Both are optional, and Samba 4.19 accepts the exchange without them; adding them is a self-contained later change |
+| Refusals | a guest or anonymous session (`map to guest` would make a wrong password look like a logon), `ENCRYPT_DATA` on the session or the share, a non-disk share, a server requiring signing under `--no-sign`, a dialect other than 2.0.2/2.1, a missing or wrong signature when signing is on, and a forged one on any response that claims to be signed. Samba with `server smb encrypt = required` answers a 2.1 logon with `ACCESS_DENIED`, which `smb` explains as possibly needing SMB3 |
+| Sizes | no `LARGE_MTU`: reads, writes and listings are at most 64 KiB (or the server's smaller maximum), one request outstanding |
+| `smb` | `user/src/bin/smb.rs` (+ `smb/link.rs`, `smb/cmds.rs`): the password from `LAZYOS_SMB_PASSWORD` or a prompt that does not echo; a native program, so it is on the kernel's `execve` list of native programs (`process/linux/native.rs`) |
+| Harness peer | **not impacket**: antivirus flags it on Windows hosts, so `tools/smb/smbserver.py` is a standard-library SMB 2.1 server written for the harness (NTLMv2 verified with its own MD4, signatures checked both ways, a request record, and switches for each negative). Real Samba is the interop check: `tools/smb/samba_interop.py` runs Samba 4.19 (Alpine, Docker) against the library's host client `smbcat` |
+| Secrets in sessions | `qemu_session.py` gained `type_secret`, which types a host environment variable, so the password is in neither the script nor the summary |
 
 ## 5. The crypto the design needs
 
@@ -457,10 +478,10 @@ network variable.
 
 **Harness peer.** A scripted SMB2 server on the host loopback, reachable from
 the guest at `10.0.2.2:PORT` with no QEMU forward (slirp maps the gateway to
-host loopback): **`impacket`'s `smbserver.py`** (Python, modified Apache
-Software License; `-username`/
-`-password`, a share directory, a request log) first, then **real Samba in
-Docker/WSL** with a pinned `smb.conf` for interop, and the developer's own
+host loopback): `tools/smb/smbserver.py`, a standard-library server written
+for the harness (planned as impacket's `smbserver.py`, which antivirus
+quarantines on Windows hosts; §4.6), then **real Samba in
+Docker** with a pinned `smb.conf` for interop, and the developer's own
 **`chatonnas`** for `--live`. Use a **high host port** (e.g. 1445) so the
 harness needs no host privilege; the live run uses the usual **445**.
 
@@ -471,13 +492,19 @@ harness needs no host privilege; the live run uses the usual **445**.
 | Mechanism e2e | `tools/fuse/run.py`: start `memfuse`, `cp` a file in and out and `cmp` it, rename, append, remove, `statfs`, kill the daemon and remount | built |
 | Network daemon PoC | `tools/fuse/ftp_run.py` (`--list` for servers without `MLSD`): `ftpfuse` against a host FTP server (`tools/fuse/ftpserver.py`, checked by `test_ftpserver.py` against `ftplib`); list, read, `md5sum`, `cp` in, `>>`, an in-place `dd` patch, `mkdir`/`mv`/`rm`/`rmdir`, judged from the server's directory | built |
 | Desktop mount (§3.4) | `cargo test -p mounttable`; `tools/fuse/ui_run.py`: Network Drives fills its form by widget name, a wrong password fails with the login reason, the right one mounts `/mnt/site` owned by the requester, the Terminal reads and writes through it, Files opens it, Unmount removes it; no `LABEL:DENY` | built |
-| SMB e2e | `python tools/smb/run.py`: NEGOTIATE picks 0x0210; the configured user logs in; a share mounts; `ls` equals the server's directory; `cp` out hashes equal to the server's; `cp` in equals the file the server wrote; `mkdir`/`rm`/rename round-trip | new |
-| Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, a share needing signing when the client will not, a server demanding encryption, a truncated challenge, a signature-tampered response — each refused, and the server's log shows no file bytes | in `run.py` |
-| Wire | the pcap's 445 flow: no plaintext password anywhere, the dialect in `NEGOTIATE`, the tree path, upload bytes only inside SMB2 `WRITE` requests and download bytes inside SMB2 `READ` responses, each signed when signing is required or requested (unsigned accepted only when signing is optional and not requested) | `tools/smb/` pcap judge + `test_judge.py` (the judge must fail when it should) |
+| SMB host | `cargo test -p smbwire`: the `MS-NLMP` NTLMv2 vectors, a signature computed by the Python reference, framing, headers, paths, challenges, SPNEGO both ways, and whole sessions against an in-memory server that verifies the NTLMv2 proof and every client signature (2.0.2 and 2.1, SPNEGO and raw, signing off, required and asked for, and every refusal), plus seeded fuzz of every decoder and of replayed, damaged server transcripts; the cargo-fuzz target `smbwire` | built |
+| Harness server | `tools/smb/test_smbserver.py`: the server's NTLM against the vectors, its DER, and sessions with the host client `smbcat` in every behaviour the guest harness uses | built |
+| Real Samba | `tools/smb/samba_interop.py`: Samba 4.19 in Docker; a round trip of every operation with signing off, asked for and required; mandatory signing; `--no-sign` refused; required encryption refused | built |
+| SMB e2e | `python tools/smb/run.py`: four transfers (plain, signing required, `--sign`, raw NTLM without a server time): NEGOTIATE picks 0x0210, `ls`, `get` to stdout and checksummed, a 300 KB generated `put`, a `put` of a file the shell wrote, `mkdir`, `mv`, `rm`, `rmdir`, `cd`, `df`; the main server's directory afterwards equals exactly what was sent | built |
+| Negative | wrong password (`STATUS_LOGON_FAILURE`), unknown share, `--no-sign` against a server requiring signing, a guest logon, a server demanding encryption, a truncated challenge, a signature-tampered response, an SMB3-only server — each refused for its reason, and the refusing servers' records show no file operation | built, in `run.py` |
+| Wire | the capture: no password (ASCII or UTF-16) on any flow, the client offering 0x0210 and the server's choice, the tree path, every message after the logon signed on the signing ports (and no signed request where signing was neither required nor asked for), uploads rebuilt from `WRITE` data alone and absent from the rest of the client's stream, downloads rebuilt from `READ` responses alone | built: `tools/smb/smb_pcap.py` + `test_judge.py` (the judge must fail when it should) |
 | Live (opt-in) | `--live --server chatonnas --user chaton` with the password typed (or `LAZYOS_SMB_PASSWORD`); `net mount`, `ls`, `cp` against the real server over bridged networking | manual |
 
 **Leak check.** The password must not appear in `serial.log`, the session
 record, the pcap or any committed file — the same scan `tls_run.py` does.
+`run.py` makes a random password per run (or takes `LAZYOS_SMB_USER` and
+`LAZYOS_SMB_PASSWORD`), types it at `smb`'s prompt with `type_secret`, and
+scans every artifact for it raw and in UTF-16LE.
 
 ## 10. Staged delivery
 
@@ -488,7 +515,7 @@ is a daemon on top of it.
 |---|---|---|---|
 | **F0** | This plan reviewed; FUSE provider ABI, dialect, crypto and harness pinned | none | this document |
 | **F1** (built) | The **FUSE mechanism**: syscall 35, `kernel/src/fs/fuse/`, mount registration and `Vfs::unmount`, `FsError::Io`, `libs/fused`, the `memfuse` toy daemon; correctness + soak tests | **yes**, generic, with full tests | `memfuse` is mounted; `cp`/`ls`/`cat` round-trip byte-exact (`tools/fuse/run.py`); `python tools/test/run.py --accel none` |
-| **F2** | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
+| **F2** (built) | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
 | **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view; a VFS cache expiry for FUSE mounts (§3.1) and the daemon's uid/label rule | the cache expiry (generic) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
 | **F4** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none | `chatonnas` resolves; `-L` lists the server's shares; live mount and `cp` |
 | **F5** | Hardening: shared fenced data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |

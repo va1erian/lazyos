@@ -34,6 +34,7 @@ passwd = { path = "../libs/passwd", features = ["fuzz"] }
 accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
 elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
 accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
+smbwire = { path = "../libs/smbwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
 
 [workspace]
@@ -202,6 +203,13 @@ bench = false
 [[bin]]
 name = "pkgstore_rules"
 path = "fuzz_targets/pkgstore_rules.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smbwire"
+path = "fuzz_targets/smbwire.rs"
 test = false
 doc = false
 bench = false

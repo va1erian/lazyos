@@ -79,7 +79,7 @@ jobs:
         # ext2fs: the F2 filesystem driver's mutate-and-check script target; this
         # is the only cargo-fuzz job in CI, so it lives with the others, as does
         # nvme (the kernel NVMe driver's hostile-controller target).
-        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules]
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire]
     steps:
       - uses: actions/checkout@v4
 

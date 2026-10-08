@@ -416,6 +416,13 @@ class NetTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertIn("virtio-net-pci,netdev=n0", command)
 
+    def test_smb_builds_the_client_and_brings_the_network(self) -> None:
+        code, command = self.run_net("--smb")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_SMB"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+
     def test_tls_stops_when_the_tools_do_not_build(self) -> None:
         with mock.patch.object(run_demo, "build_tls", return_value=False):
             code, command = self.run_net("--tls")

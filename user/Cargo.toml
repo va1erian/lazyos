@@ -86,6 +86,8 @@ framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }
 ftpwire = { path = "../libs/ftpwire" }
+# The SMB 2.1 client protocol for `smb` (docs/smb-plan.md F2).
+smbwire = { path = "../libs/smbwire" }
 # The user-space filesystem protocol (syscall 35), its serve loop and the
 # in-memory tree `memfuse` serves (docs/smb-plan.md F1).
 fused = { path = "../libs/fused" }
@@ -486,6 +488,14 @@ bench = false
 [[bin]]
 name = "ftpfuse"
 path = "src/bin/ftpfuse.rs"
+test = false
+bench = false
+
+# `smb` (docs/smb-plan.md F2): an SMB 2.1 client over `os.lazy.net.socket.v1`,
+# NTLMv2 and signing from `libs/smbwire`. In `LAZYOS_SMB=1` images.
+[[bin]]
+name = "smb"
+path = "src/bin/smb.rs"
 test = false
 bench = false
 
