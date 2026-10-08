@@ -20,6 +20,7 @@ mod engine;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod grab;
+pub mod hold;
 pub mod keymap;
 pub mod keystate;
 pub mod keysym;

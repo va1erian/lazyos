@@ -144,6 +144,22 @@ fn note_input_done(seq) {
     msg::connect("os.lazy.input.shell.v1").invoke("NoteInputDone", [seq])
 }
 
+/// `NoteKeysHeld(held: Bool) -> () oneway`
+///
+/// One-way: the shell's panel menu has the keyboard (`held`), or no
+/// longer has it. Focus does not move, so the focused session sees no
+/// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+/// presses, repeats and text made while held never reach it, the release
+/// of a key it saw go down before the hold is still delivered (nothing
+/// sticks), a key pressed while held stays invisible to it until pressed
+/// again, and its key-state page shows nothing held meanwhile
+/// (`inputmap::hold`, issue #648).
+///
+/// One-way: returns `()` once the message is queued.
+fn note_keys_held(held) {
+    msg::connect("os.lazy.input.shell.v1").invoke("NoteKeysHeld", [held])
+}
+
 /// `HotkeyFired(id: U64) -> () oneway`
 ///
 /// Shell event: a registered chord was pressed.

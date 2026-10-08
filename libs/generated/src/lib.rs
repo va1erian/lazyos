@@ -5239,7 +5239,8 @@ pub mod os_lazy_display_v1 {
     /// `grab` is set every key the compositor does not keep for itself
     /// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
     /// a `PanelKey` event instead of to the focused window, which keeps its
-    /// focus; `inputd` is told no window has the keyboard meanwhile. It ends
+    /// focus (no leave/enter); `inputd` holds the window's key content
+    /// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
     /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
     /// or under a client's keyboard grab or the trusted prompt, which win.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -8152,6 +8153,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_FORGETSURFACE: u32 = 12;
     /// `NoteInputDone` method id.
     pub const METHOD_NOTEINPUTDONE: u32 = 13;
+    /// `NoteKeysHeld` method id.
+    pub const METHOD_NOTEKEYSHELD: u32 = 14;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -8585,6 +8588,36 @@ pub mod os_lazy_input_shell_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.seq = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way: the shell's panel menu has the keyboard (`held`), or no
+    /// longer has it. Focus does not move, so the focused session sees no
+    /// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+    /// presses, repeats and text made while held never reach it, the release
+    /// of a key it saw go down before the hold is still delivered (nothing
+    /// sticks), a key pressed while held stays invisible to it until pressed
+    /// again, and its key-state page shows nothing held meanwhile
+    /// (`inputmap::hold`, issue #648).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteKeysHeldArgs {
+        pub held: bool,
+    }
+
+    pub fn encode_note_keys_held_args(value: &NoteKeysHeldArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.held)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_keys_held_args(body: &[u8]) -> Result<NoteKeysHeldArgs, Error> {
+        let mut out = NoteKeysHeldArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.held = field.as_bool()?;
             }
         }
         Ok(out)

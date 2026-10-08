@@ -60,12 +60,14 @@ impl KeyPages {
     /// Bring every page up to date: the focused session's shows the keys
     /// held now, every other one is cleared. Cheap when nothing changed (the
     /// writers skip identical states).
-    pub(super) fn publish(&mut self, engine: &Engine, focused: Option<u64>) {
+    /// `down` is the keys the focused page may show (`held.rs` hides the
+    /// ones a panel menu holds).
+    pub(super) fn publish(&mut self, engine: &Engine, focused: Option<u64>, down: [u64; 4]) {
         for (session, page) in self.pages.iter_mut() {
             let state = Snapshot {
                 seq: engine.last_seq(),
                 focused: focused == Some(*session),
-                down: engine.down_bits(),
+                down,
             };
             page.writer.publish(shared_at(page.va), state);
         }
@@ -119,7 +121,8 @@ impl Hub {
         );
         // Seed it at once, so a focused session sees its keys right away.
         let focused = self.router.focused_session();
-        self.key_pages.publish(&self.engine, focused);
+        let keys = self.page_keys();
+        self.key_pages.publish(&self.engine, focused, keys);
         Ok(Vec::new())
     }
 

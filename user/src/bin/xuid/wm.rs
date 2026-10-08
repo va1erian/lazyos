@@ -9,7 +9,9 @@
 //!   snapped window to its saved normal rectangle, and minimizes a normal one.
 //! * Releasing a title-bar drag with the pointer on the left or right screen
 //!   edge snaps the window there; on the top edge it maximizes. Dragging a
-//!   snapped window off keeps its size and forgets the snap.
+//!   snapped window off keeps its size and forgets the snap. A press arms
+//!   the drag and only the first pointer move begins it, so a click on a
+//!   title bar (no movement) never moves, snaps or unsnaps a window.
 //!
 //! A snapped window keeps its normal rectangle (`Surface::snap`) like a
 //! maximized one does, is re-fitted when the work area changes, and its
@@ -78,6 +80,12 @@ pub(super) fn edge_drop(pointer: (i32, i32), screen: Rect) -> Option<EdgeDrop> {
     } else {
         None
     }
+}
+
+/// Whether a pointer move from `from` to `to` begins an armed title-bar
+/// drag: the first move that goes anywhere (`moved`: it already began).
+pub(super) fn drag_began_on(moved: bool, from: (i32, i32), to: (i32, i32)) -> bool {
+    !moved && from != to
 }
 
 impl Compositor {
@@ -257,7 +265,10 @@ pub(super) fn selftest_wm() -> &'static str {
         && edge_drop((0, 0), screen) == Some(EdgeDrop::Snap(Side::Left))
         && edge_drop((600, 300), screen).is_none()
         && edge_drop((2, 300), screen).is_none();
-    if halves && offset && edges {
+    let pending = drag_began_on(false, (5, 5), (6, 5))
+        && !drag_began_on(false, (5, 5), (5, 5))
+        && !drag_began_on(true, (5, 5), (9, 9));
+    if halves && offset && edges && pending {
         "XUID:SNAP:PASS\n"
     } else {
         "XUID:SNAP:FAIL\n"

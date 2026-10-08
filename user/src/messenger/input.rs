@@ -234,6 +234,15 @@ impl ShellLink {
         self.shell_note(shell_wire::METHOD_NOTEINPUTDONE, body)
     }
 
+    /// One-way: the shell's panel menu holds (or gives back) the keyboard;
+    /// focus stays, key content to the focused session is held
+    /// (`NoteKeysHeld`, `inputmap::hold`).
+    pub fn note_keys_held(&self, held: bool) -> Result<()> {
+        let body = shell_wire::encode_note_keys_held_args(&shell_wire::NoteKeysHeldArgs { held })
+            .map_err(Error::Parcel)?;
+        self.shell_note(shell_wire::METHOD_NOTEKEYSHELD, body)
+    }
+
     /// One-way [`ShellLink::register_surface`].
     pub fn note_surface(&self, surface: u64, owner: u64) -> Result<()> {
         let body =
