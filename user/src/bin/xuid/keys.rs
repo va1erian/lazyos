@@ -67,6 +67,10 @@ impl Compositor {
             }
             return;
         }
+        // Super+arrows: snap, maximize, restore, minimize (issue #161).
+        if self.mods.super_key && self.wm_key(key) {
+            return;
+        }
         // Super+B: the keyboard goes to the tray (issue #648).
         if key == super::panelkeys::TRAY_KEY && self.mods.super_key {
             self.notify_tray_keys();

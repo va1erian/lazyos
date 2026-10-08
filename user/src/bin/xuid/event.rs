@@ -230,6 +230,7 @@ impl Compositor {
                 // A maximized window does not move on a title-bar drag; only
                 // the double-click above restores it.
                 if self.alt_tab.is_none() && !maximized {
+                    self.drag_began(id);
                     self.drag = Some(Drag {
                         id,
                         grab_x: point.0 - origin.0,
@@ -305,6 +306,8 @@ impl Compositor {
                     // geometry.
                     if surface_by_id(&self.surfaces, active.id).is_some() {
                         self.notify_surface(active.id, wire::CHANGE_MOVED);
+                        // A drop on a screen edge snaps or maximizes.
+                        self.drag_ended(active.id);
                     }
                 }
             }

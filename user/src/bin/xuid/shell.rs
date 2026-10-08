@@ -209,6 +209,7 @@ impl Compositor {
         restore(&mut self.surfaces, &mut self.focused, id);
         if was_minimized {
             self.notify_surface(id, wire::CHANGE_RESTORED);
+            self.wm_mark("UNMINIMIZE", id);
         }
         if self.focused != before {
             self.notify_focus();
@@ -243,6 +244,10 @@ impl Compositor {
                 self.alt_tab = Some(AltTab { order, selected });
             }
         }
+        if let Some(tab) = &self.alt_tab {
+            let id = tab.order.get(tab.selected).copied().unwrap_or(0);
+            self.wm_mark(&alloc::format!("ALTTAB n={}", tab.order.len()), id);
+        }
         self.repaint_full();
     }
 
@@ -256,6 +261,7 @@ impl Compositor {
             return;
         }
         self.restore_and_focus(id);
+        self.wm_mark("ALTTAB:COMMIT", id);
         self.repaint_full();
     }
 }

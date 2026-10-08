@@ -93,6 +93,7 @@ impl Compositor {
             self.notify_focus();
         }
         self.iconify(id);
+        self.wm_mark("MINIMIZE", id);
         // The row carries the post-minimize focus flag, so send it after the
         // focus recompute.
         self.notify_surface(id, wire::CHANGE_MINIMIZED);
@@ -146,6 +147,9 @@ impl Compositor {
             .is_some_and(|active| active.source == id || active.target == Some(id));
         if stranding {
             self.drag_cancel();
+        }
+        if surface_by_id(&self.surfaces, id).is_some_and(|surface| surface.is_window()) {
+            self.wm_mark("CLOSED", id);
         }
         self.notify_destroyed(id);
         if let Some(tab) = self.alt_tab.as_mut() {
@@ -280,6 +284,7 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         buf_h: 0,
         hints: None,
         maximized: None,
+        snap: None,
         slots: Default::default(),
         minimized,
         role,

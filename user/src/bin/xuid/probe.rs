@@ -36,4 +36,14 @@ pub(super) fn window(surface: &Surface) {
         "UI:RECT x={} y={} w={} h={} name=window:{}\n",
         rect.x, rect.y, rect.w, rect.h, surface.title
     ));
+    // The title bar too, so a session drags a window by name (issue #161).
+    let frame = surface.window();
+    sys::write_str(&format!(
+        "UI:RECT x={} y={} w={} h={} name=title:{}\n",
+        frame.x,
+        frame.y,
+        frame.w,
+        super::theme::title_h(),
+        surface.title
+    ));
 }

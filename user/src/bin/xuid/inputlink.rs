@@ -148,9 +148,20 @@ impl Compositor {
     /// from session clients (the compositor still sees them on the kernel
     /// stream). Plain Escape stays with the client.
     fn register_chords(&mut self) {
-        // HID usages: Tab, F4, Escape, B (Super+B, the tray, issue #648);
-        // modifier bits from `inputmap::mods`.
-        const CHORDS: [(u32, u32); 5] = [(0x2B, 4), (0x2B, 2), (0x3D, 4), (0x29, 2), (0x05, 8)];
+        // HID usages: Tab, F4, Escape, B (Super+B, the tray, issue #648),
+        // the arrows (Super+arrows, issue #161); modifier bits from
+        // `inputmap::mods`.
+        const CHORDS: [(u32, u32); 9] = [
+            (0x2B, 4),
+            (0x2B, 2),
+            (0x3D, 4),
+            (0x29, 2),
+            (0x05, 8),
+            (0x4F, 8),
+            (0x50, 8),
+            (0x51, 8),
+            (0x52, 8),
+        ];
         let Some(link) = self.input.link.as_ref() else {
             return;
         };
