@@ -206,12 +206,16 @@ fn hit_brick() {
             // Bounce along the axis the ball went in least.
             let push_x = min(left + size - b.x, b.x + b.w - left);
             let push_y = min(top + size - b.y, b.y + b.h - top);
+            // Bounce, and move the ball just outside the brick on that side,
+            // so the next step cannot hit the same brick again.
             if push_x < push_y {
                 let from_left = this.ball_x < b.x + b.w / 2.0;
                 this.ball_vx = if from_left { -abs(this.ball_vx) } else { abs(this.ball_vx) };
+                this.ball_x = if from_left { b.x - r } else { b.x + b.w + r };
             } else {
                 let from_above = this.ball_y < b.y + b.h / 2.0;
                 this.ball_vy = if from_above { -abs(this.ball_vy) } else { abs(this.ball_vy) };
+                this.ball_y = if from_above { b.y - r } else { b.y + b.h + r };
             }
             this.bricks[i].hits = b.hits - 1;
             if b.hits == 1 {

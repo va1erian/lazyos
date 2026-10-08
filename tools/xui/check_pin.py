@@ -44,7 +44,13 @@ XUI_URL = re.compile(r"^(?:git\+)?https://(?:www\.)?github\.com/va1erian/xui(?:\
 
 # Workspaces held at an older revision: directory (relative to the root, `/`
 # separated) -> (revision, reason).
-LAGGING: dict[str, tuple[str, str]] = {}
+LAGGING: dict[str, tuple[str, str]] = {
+    "emusic": (
+        "51bded370a5174ab43a33be56991807ae5b2be93",
+        "va1erian/emusic pins this xui itself; bcdde8c only adds NodeSpec::wants_tab "
+        "(the code editor taking Tab), which emusic does not use",
+    ),
+}
 
 
 @dataclass(frozen=True)
