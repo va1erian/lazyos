@@ -286,10 +286,7 @@ impl Keyd {
 
     /// The public key rows for `owner`: ids, kinds and counters. This is the
     /// *only* shape in which keys leave [`Keyd`], and only the caller's own.
-    ///
-    /// When the shared-buffer syscall lands, the table moves into a
-    /// `SHARE_ONLY` buffer created in this task; the kernel then refuses to map
-    /// it anywhere else, so even a leaked handle cannot expose `material`.
+    /// The table itself is never placed in a shared buffer (module docs).
     pub(crate) fn keys(&self, owner: u32) -> Vec<wire::KeyInfo> {
         self.keys
             .iter()

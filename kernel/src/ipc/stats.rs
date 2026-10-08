@@ -4,13 +4,14 @@
 //! from day one. This module is the kernel side of that promise: one
 //! [`FabricStats`] snapshot aggregates the live state and cumulative counters of
 //! every Messenger subsystem — channels and endpoints, message/transaction
-//! counters, shared buffers and fences, per-slot handle and buffer usage, the
+//! counters, shared buffers, per-slot handle and buffer usage, the
 //! ACL and audit rings, and the kernel services registered so far.
 //!
 //! [`FabricStats`] is also the versioned ABI block behind the native `stats`
-//! syscall op. [`FABRIC_STATS_VERSION`] is 4 (version 2 had 16 per-slot rows,
+//! syscall op. [`FABRIC_STATS_VERSION`] is 5 (version 2 had 16 per-slot rows,
 //! version 3 had 64 after issue #204, version 4 has 256 for the application
-//! package system); version 1 was the compact 64-byte
+//! package system, version 5 dropped the four fence counters, issue #677);
+//! version 1 was the compact 64-byte
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
 //! callers stay green. The wire form is little-endian `u64` words in field
@@ -30,14 +31,15 @@ use crate::task::MAX_TASKS;
 ///
 /// * `1` — the compact 64-byte [`crate::ipc::syscalls::MsgStats`] counters.
 /// * `2` — this snapshot: every subsystem, per-slot usage included.
-pub const FABRIC_STATS_VERSION: u64 = 4;
+/// * `5` — no fence counters (issue #677).
+pub const FABRIC_STATS_VERSION: u64 = 5;
 
 /// Words in one per-slot task usage row (see [`TaskUsage`]).
 const TASK_USAGE_WORDS: usize = 4;
 
 /// Words in the snapshot: scalars, the handle table, the ACL/audit block, then
 /// the per-slot rows. Used for [`FabricStats::SIZE`] and the field-order decode.
-const SCALAR_WORDS: usize = 22;
+const SCALAR_WORDS: usize = 18;
 const ACL_AUDIT_WORDS: usize = 8;
 
 /// Words in the [`FabricStats`] block.
@@ -102,14 +104,6 @@ pub struct FabricStats {
     pub buffer_bytes: u64,
     /// Mappings of shared buffers into task address spaces.
     pub buffer_mappings: u64,
-    /// Cumulative fence submissions.
-    pub fences_submitted: u64,
-    /// Cumulative fence waits that parked.
-    pub fence_waits: u64,
-    /// Fence waits that hit their deadline.
-    pub fence_timeouts: u64,
-    /// Submitted fence sequences not yet observed by a waiter.
-    pub outstanding_fences: u64,
     /// Buffer descriptors delivered to a receiver without copying.
     pub handoffs: u64,
     /// Handles held across every task.
@@ -155,10 +149,6 @@ impl Default for FabricStats {
             buffers: 0,
             buffer_bytes: 0,
             buffer_mappings: 0,
-            fences_submitted: 0,
-            fence_waits: 0,
-            fence_timeouts: 0,
-            outstanding_fences: 0,
             handoffs: 0,
             handles: 0,
             handles_per_task: [0; MAX_TASKS],
@@ -232,10 +222,6 @@ impl FabricStats {
         stats.buffers = buffer_stats.buffers;
         stats.buffer_bytes = buffer_stats.bytes;
         stats.buffer_mappings = buffer_stats.mappings;
-        stats.fences_submitted = buffer_stats.fences_submitted;
-        stats.fence_waits = buffer_stats.fence_waits;
-        stats.fence_timeouts = buffer_stats.fence_timeouts;
-        stats.outstanding_fences = buffer_stats.outstanding_fences;
         stats.handoffs = buffer_stats.handoffs;
         stats.handles = handles_total;
         stats.acl_rules = acl::rule_count() as u64;
@@ -268,10 +254,6 @@ impl FabricStats {
         words.push(self.buffers);
         words.push(self.buffer_bytes);
         words.push(self.buffer_mappings);
-        words.push(self.fences_submitted);
-        words.push(self.fence_waits);
-        words.push(self.fence_timeouts);
-        words.push(self.outstanding_fences);
         words.push(self.handoffs);
         words.push(self.handles);
         words.extend_from_slice(&self.handles_per_task);
@@ -338,12 +320,8 @@ impl FabricStats {
         stats.buffers = word(13)?;
         stats.buffer_bytes = word(14)?;
         stats.buffer_mappings = word(15)?;
-        stats.fences_submitted = word(16)?;
-        stats.fence_waits = word(17)?;
-        stats.fence_timeouts = word(18)?;
-        stats.outstanding_fences = word(19)?;
-        stats.handoffs = word(20)?;
-        stats.handles = word(21)?;
+        stats.handoffs = word(16)?;
+        stats.handles = word(17)?;
         stats.acl_rules = word(acl)?;
         stats.acl_loaded = word(acl + 1)?;
         stats.audit_trace = word(acl + 2)?;

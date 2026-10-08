@@ -198,8 +198,7 @@ pub fn teardown_releases_fabric_state() -> Result<(), String> {
     task::harness::switch_current(child);
     mem::switch_to(child_table);
     let (a, _b) = channels::create().map_err(|e| e.message().to_string())?;
-    let buffer = shared::create(2 * 4096, shared::flags::READ | shared::flags::WRITE)
-        .map_err(|e| e.message().to_string())?;
+    let buffer = shared::create(2 * 4096).map_err(|e| e.message().to_string())?;
     shared::map(buffer).map_err(|e| e.message().to_string())?;
     mem::switch_to(kernel_table);
     task::harness::switch_current(task::KERNEL_TASK);
@@ -308,8 +307,7 @@ pub fn soak_teardown_generations() -> Result<(), String> {
         for _ in 0..3 {
             channels::create().map_err(|e| e.message().to_string())?;
         }
-        let buffer = shared::create(4096, shared::flags::READ | shared::flags::WRITE)
-            .map_err(|e| e.message().to_string())?;
+        let buffer = shared::create(4096).map_err(|e| e.message().to_string())?;
         shared::map(buffer).map_err(|e| e.message().to_string())?;
         mem::switch_to(kernel_table);
         task::harness::switch_current(task::KERNEL_TASK);

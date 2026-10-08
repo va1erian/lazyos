@@ -3,8 +3,8 @@
 //! This module owns the kernel-side objects the Messenger fabric is built on:
 //! the per-process handle table that gives every object reference an
 //! unforgeable, rights-carrying name; the channels that carry one-way messages
-//! and synchronous transactions; the shared buffers and fences that make
-//! handoff copy-free (issue #67); and the security core: kernel-stamped
+//! and synchronous transactions; the shared buffers that make handoff
+//! copy-free (issue #67); and the security core: kernel-stamped
 //! credentials, the default-deny ACL hook, and the hash-chained audit ring
 //! (issue #68). The name registry in [`registry`] turns those objects into
 //! discoverable services: names carry an owner, an interface list and an

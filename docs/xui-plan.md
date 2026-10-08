@@ -164,7 +164,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
   lists `init`'s supervised services with `healthd`'s health through the
   generated stubs in `src/services.rs`) and `src/bin/fabricmon.rs`
   (syscall-5 panel: registry names with owners/interfaces, topics-broker
-  counts, shared buffers/fences/handles, per-task usage; the registry and
+  counts, shared buffers/handles, per-task usage; the registry and
   topics wires come from the generated `messenger-generated` stubs, issue #302,
   while the stats payload is a raw syscall snapshot). Both refresh on a
   one-second backend timer, route `r`/`q` through the backend's focused-node

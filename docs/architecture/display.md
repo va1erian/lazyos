@@ -271,7 +271,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   `sysmon` renders the syscall-14 snapshot (frame/slab/heap gauges, uptime, the
   task table) on its Overview tab and, on its Services tab (issue #489), the
   services `init` supervises with `healthd`'s health for each, and `fabricmon` renders the syscall-5 fabric (registry names with
-  owners/interfaces, topics-broker counts, buffers/fences/handles, per-task
+  owners/interfaces, topics-broker counts, buffers/handles, per-task
   usage). Each is one owner-drawn node with a one-second `ui` timer and `r`/`q`
   keys (`sysmon` adds `o`/`s` and clickable tabs), prints `SYSMON:*`/`FABMON:*` serial markers, and is captured in
   `.github/workflows/xui.yml` as the display owner in turn (both over the

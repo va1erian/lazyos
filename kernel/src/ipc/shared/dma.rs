@@ -36,23 +36,16 @@ pub struct DmaOwner {
 /// `KernelMemory` is not charged; the per-process buffer count still applies.
 ///
 /// The caller maps the buffer into the calling task and owns the returned
-/// handle. Every failure here frees the frames (returning them to the pool) and
-/// undoes the count, so the caller need only unwind its own `DmaMemory` charge.
+/// handle; `share_only` keeps every other task from mapping it. Every failure
+/// here frees the frames (returning them to the pool) and undoes the count, so
+/// the caller need only unwind its own `DmaMemory` charge.
 pub fn create_from_frames(
     frames: Vec<PhysAddr>,
-    flags: u32,
+    share_only: bool,
     uid: u32,
     owner: DmaOwner,
 ) -> Result<u64, Error> {
     // The caller owns the frames and expects every failure to return them.
-    if flags & !flags::ALL != 0 {
-        free_frames(&frames);
-        return Err(Error::BadFlags);
-    }
-    if flags & flags::EXECUTABLE != 0 {
-        free_frames(&frames);
-        return Err(Error::ExecutableDenied);
-    }
     if frames.is_empty() {
         return Err(Error::BadSize);
     }
@@ -84,7 +77,7 @@ pub fn create_from_frames(
             table,
             VirtAddr::new(at),
             *frame,
-            map_flags(flags) | PageTableFlags::BIT_11,
+            map_flags() | PageTableFlags::BIT_11,
         ) {
             // Drop the mapping reference just taken on this frame.
             mem::free_frame(*frame);
@@ -117,12 +110,10 @@ pub fn create_from_frames(
         owner: slot,
         owner_uid: uid,
         size,
-        flags,
+        share_only,
         frames,
         refs: 1,
         mappings,
-        submitted: 0,
-        waited: 0,
         dma: Some(owner),
     });
     Ok(handle)

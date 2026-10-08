@@ -297,8 +297,7 @@ pub fn shared_buffer_charge() -> Result<(), String> {
     fresh()?;
     let uid = credentials::of(task::current()).uid;
     let resource = Resource::KernelMemory;
-    let handle = shared::create(2 * 4096, shared::flags::READ | shared::flags::WRITE)
-        .map_err(|error| error.message())?;
+    let handle = shared::create(2 * 4096).map_err(|error| error.message())?;
     let info = shared::info(handle).map_err(|error| error.message())?;
     check!(
         quota::usage(uid, resource) == info.size,

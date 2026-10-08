@@ -1,10 +1,10 @@
-//! Shared buffers and fences (issue #67).
+//! Shared buffers (issue #67).
 //!
 //! `docs/messenger.md` sections 4, 7.1 and 10: a shared buffer is a page-aligned
-//! run of frames that can be mapped into several address spaces at once. The
-//! kernel keeps those frames in the `REGISTRY` keyed by the `object_id` carried
-//! by `HandleKind::Buffer` handles, so a handle number stays a small per-process
-//! integer and the frames outlive any single holder.
+//! run of frames that can be mapped read/write into several address spaces at
+//! once. The kernel keeps those frames in the `REGISTRY` keyed by the
+//! `object_id` carried by `HandleKind::Buffer` handles, so a handle number
+//! stays a small per-process integer and the frames outlive any single holder.
 //!
 //! Lifetime is reference-counted. Every handle holds one reference; every
 //! in-flight message that carries the buffer holds one, taken by [`retain`] /
@@ -21,18 +21,14 @@
 //! handoff and DMA rings copy-free (`stats().handoffs` counts deliveries done
 //! that way, and the zero-copy test checks frame identity directly).
 //!
-//! `SHARE_ONLY` withholds mappings from everyone except the creator's initial
-//! one: the kernel refuses [`map`] for any other task, so key material can be
-//! handed to a service without ever entering its address space.
-//!
-//! Fences are per-buffer monotonic counters: a producer calls [`fence_submit`]
-//! after writing, a consumer calls [`fence_wait`] before reading. Waiters park
-//! on [`FENCES`] and honor deadlines, so ordering costs no extra copies.
+//! A driver's `dma_alloc(SHARE_ONLY)` buffer ([`create_from_frames`]) is
+//! mapped for its creator only: the kernel refuses [`map`] for any other task,
+//! so a DMA target can be handed to a client without entering its address
+//! space. Ordinary buffers have no flags: every mapping is read/write.
 //!
 //! Locking: `REGISTRY` is held while frame mapping runs (`REGISTRY` -> frame
 //! allocator) and while a handle is opened (`REGISTRY` -> handle table); those
-//! orders are never inverted. `FENCES` is notified only after `REGISTRY` is
-//! released, matching the queue-then-task order in `task::wait`.
+//! orders are never inverted.
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -46,35 +42,26 @@ use crate::ipc::handles::{self, rights, HandleKind};
 use crate::mem;
 use crate::mem::vma::Prot;
 use crate::quota::{self, Resource};
-use crate::task::wait::WaitQueue;
-use crate::task::{self, WaitKind, WakeReason};
+use crate::task;
 
 mod dma;
-mod fences;
 mod registry;
+mod stats;
 mod types;
 
 pub use dma::{create_from_frames, is_live, DmaOwner};
-pub use fences::*;
 use registry::*;
+pub use stats::*;
 pub use types::*;
 
 /// Create a buffer of `size` bytes and return a `Buffer` handle in the calling
 /// process.
 ///
-/// Frames are zeroed and mapped (read/write, or a flagless read/write default)
-/// into the caller's address space on a fresh virtual range; [`map`] returns
-/// that address. A `SHARE_ONLY` buffer is mapped for the creator only: [`map`]
-/// refuses every other task. The creator holds one reference; handles opened
-/// by receivers hold the references that [`attach`] converts from in-flight
-/// messages.
-pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
-    if flags & !flags::ALL != 0 {
-        return Err(Error::BadFlags);
-    }
-    if flags & flags::EXECUTABLE != 0 {
-        return Err(Error::ExecutableDenied);
-    }
+/// Frames are zeroed and mapped read/write into the caller's address space on
+/// a fresh virtual range; [`map`] returns that address. The creator holds one
+/// reference; handles opened by receivers hold the references that [`attach`]
+/// converts from in-flight messages.
+pub fn create(size: u64) -> Result<u64, Error> {
     let size = round_up(size).filter(|bytes| *bytes > 0 && *bytes <= max_bytes_per_process());
     let Some(size) = size else {
         return Err(Error::BadSize);
@@ -112,10 +99,8 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         return Err(Error::OutOfMemory);
     };
 
-    // Map the creator's view, including for a `SHARE_ONLY` buffer: the creator
-    // is the one process that may ever hold a mapping. Each mapping holds one
-    // allocator reference per frame, so the allocator refcount stays
-    // `refs + mappings`.
+    // Map the creator's view. Each mapping holds one allocator reference per
+    // frame, so the allocator refcount stays `refs + mappings`.
     let table = mem::kernel_table();
     let mut mappings = Vec::new();
     let va = super::shared_va::alloc(pages);
@@ -129,7 +114,7 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
             release_quota(&mut registry, slot, uid, size);
             return Err(Error::MapFailed);
         }
-        if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(flags)) {
+        if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags()) {
             // Undo this share and the mapped prefix, then return every
             // frame's allocation reference.
             mem::free_frame(*frame);
@@ -164,12 +149,10 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
         owner: slot,
         owner_uid: uid,
         size,
-        flags,
+        share_only: false,
         frames,
         refs: 1,
         mappings,
-        submitted: 0,
-        waited: 0,
         dma: None,
     });
     Ok(handle)
@@ -178,9 +161,9 @@ pub fn create(size: u64, flags: u32) -> Result<u64, Error> {
 /// Map the buffer `handle` names into the calling task and return its address.
 ///
 /// The mapping is idempotent per task: a second call returns the recorded
-/// address. A `SHARE_ONLY` buffer is refused for every task except the creator
-/// (whose mapping creation already installed), so a received handle can never
-/// be mapped by a client.
+/// address. A share-only DMA buffer is refused for every task except the
+/// creator (whose mapping creation already installed), so a received handle
+/// can never be mapped by a client.
 pub fn map(handle: u64) -> Result<u64, Error> {
     let object_id = object_of(handle, rights::CALL)?;
     let slot = task::current();
@@ -196,7 +179,7 @@ pub fn map(handle: u64) -> Result<u64, Error> {
     if let Some(mapping) = buffer.mappings.iter().find(|mapping| mapping.slot == slot) {
         return Ok(mapping.va);
     }
-    if buffer.flags & flags::SHARE_ONLY != 0 {
+    if buffer.share_only {
         return Err(Error::ShareOnly);
     }
     let table = mem::kernel_table();
@@ -208,7 +191,7 @@ pub fn map(handle: u64) -> Result<u64, Error> {
             discard_range(table, va, at, buffer.size / PAGE);
             return Err(Error::MapFailed);
         }
-        if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags(buffer.flags)) {
+        if !mem::map_page_in(table, VirtAddr::new(at), *frame, map_flags()) {
             // Undo this frame's share and the pages mapped before it.
             mem::free_frame(*frame);
             discard_range(table, va, at, buffer.size / PAGE);
@@ -428,13 +411,10 @@ pub fn info(handle: u64) -> Result<BufferInfo, Error> {
     };
     Ok(BufferInfo {
         size: buffer.size,
-        flags: buffer.flags,
         dma: buffer.dma.is_some(),
         frames: buffer.frames.len() as u64,
         refs: buffer.refs,
         mappings: buffer.mappings.len() as u64,
-        submitted: buffer.submitted,
-        waited: buffer.waited,
     })
 }
 
@@ -442,31 +422,6 @@ pub fn info(handle: u64) -> Result<BufferInfo, Error> {
 #[cfg(lazyos_tests)]
 pub mod harness {
     use super::*;
-
-    /// Do a single fence check for the current task and, when the sequence is
-    /// not there yet, park it on [`FENCES`] without yielding. Returns whether
-    /// the wait was already satisfied. The suite uses this to observe the
-    /// block/wake path without a running scheduler.
-    pub fn park_wait(handle: u64, sequence: u64, deadline: Option<u64>) -> Result<bool, Error> {
-        let object_id = object_of(handle, rights::CALL)?;
-        {
-            let mut registry = REGISTRY.lock();
-            let Some(index) = registry
-                .buffers
-                .iter()
-                .position(|buffer| buffer.object_id == object_id)
-            else {
-                return Err(Error::NotFound);
-            };
-            let buffer = &mut registry.buffers[index];
-            if buffer.submitted >= sequence {
-                buffer.waited = buffer.waited.max(sequence);
-                return Ok(true);
-            }
-        }
-        FENCES.park(task::current(), deadline);
-        Ok(false)
-    }
 
     /// The backing frames of the buffer `handle` names, for tests that check
     /// contiguity, zeroing and frame identity (issue #241).

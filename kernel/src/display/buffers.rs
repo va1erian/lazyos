@@ -14,7 +14,7 @@ pub(super) fn create_buffer(size: u64, out_ptr: u64) -> u64 {
     if size == 0 {
         return negative(errno::EINVAL);
     }
-    let handle = match shared::create(size, shared::flags::READ | shared::flags::WRITE) {
+    let handle = match shared::create(size) {
         Ok(handle) => handle,
         Err(error) => return shared_errno(error),
     };

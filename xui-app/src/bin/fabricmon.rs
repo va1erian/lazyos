@@ -125,11 +125,11 @@ impl State {
     fn evidence(&self) -> String {
         match &self.stats {
             Some(s) => format!(
-                "FABMON:UP:PASS\nFABMON:DATA:channels={} endpoints={} buffers={} fences_submitted={} names={} topics={}",
+                "FABMON:UP:PASS\nFABMON:DATA:channels={} endpoints={} buffers={} handoffs={} names={} topics={}",
                 s.channels,
                 s.endpoints,
                 s.buffers,
-                s.fences_submitted,
+                s.handoffs,
                 self.names(),
                 self.topic_count()
             ),

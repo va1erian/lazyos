@@ -30,11 +30,10 @@
 //!
 //! # Buffer handle
 //!
-//! The kernel's `SHARE_ONLY` shared buffers (`kernel/src/ipc/shared.rs`) are
-//! the future transport for pastes; there is no userspace mapping syscall yet
-//! (`keyd` documents the same gap), so [`wire::BufferHandle`] carries the bytes
-//! in the reply parcel and the service bounds inline eager payloads at
-//! [`wire::MAX_DATA`]. The protocol does not change when the mapping op lands.
+//! A shared buffer (`kernel/src/ipc/shared.rs`) is the future transport for
+//! large pastes; today [`wire::BufferHandle`] carries the bytes in the reply
+//! parcel and the service bounds inline eager payloads at [`wire::MAX_DATA`].
+//! The protocol does not change when the buffer path lands.
 
 #![no_std]
 #![no_main]

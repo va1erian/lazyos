@@ -37,7 +37,12 @@ fn main() -> std::process::ExitCode {
     {
         let outbox = Rc::clone(&outbox);
         backend.on_drag_event(move |_, event| {
-            if let DropEvent::Drop { mime, data: Ok(bytes), .. } = event {
+            if let DropEvent::Drop {
+                mime,
+                data: Ok(bytes),
+                ..
+            } = event
+            {
                 if mime == urilist::MIME {
                     if let Some(proxy) = outbox.borrow().as_ref() {
                         let _ = proxy.send(Msg::Dropped(urilist::decode(bytes)));
@@ -54,7 +59,8 @@ fn main() -> std::process::ExitCode {
             ui.set_theme(theme);
         }
         *outbox.borrow_mut() = Some(ui.proxy());
-        let app = PdfApp::build(ui, Host::std(dirs::default_dir())).expect("the PDF Viewer's widgets built");
+        let app = PdfApp::build(ui, Host::std(dirs::default_dir()))
+            .expect("the PDF Viewer's widgets built");
         if let Some(path) = path {
             ui.emit(Msg::OpenChosen(path));
         }

@@ -37,9 +37,7 @@ pub(crate) fn print_report_json(stats: &FabricStats) {
          \"queued\":{},\"queued_bytes\":{},\"outstanding\":{},\
          \"calls\":{},\"replies\":{},\"one_way\":{},\
          \"timeouts\":{},\"cancels\":{},\"drops\":{},\
-         \"buffers\":{},\"buffer_bytes\":{},\"buffer_mappings\":{},\
-         \"fences_submitted\":{},\"fence_waits\":{},\"fence_timeouts\":{},\
-         \"outstanding_fences\":{},\"handoffs\":{},\
+         \"buffers\":{},\"buffer_bytes\":{},\"buffer_mappings\":{},\"handoffs\":{},\
          \"acl_loaded\":{},\"acl_rules\":{},\"audit_trace\":{},\
          \"audit_denies\":{},\"audit_allows\":{},\"audit_count\":{},\"audit_total\":{},\
          \"tasks\":{tasks}}}\n",
@@ -58,10 +56,6 @@ pub(crate) fn print_report_json(stats: &FabricStats) {
         stats.buffers,
         stats.buffer_bytes,
         stats.buffer_mappings,
-        stats.fences_submitted,
-        stats.fence_waits,
-        stats.fence_timeouts,
-        stats.outstanding_fences,
         stats.handoffs,
         stats.acl_loaded,
         stats.acl_rules,
@@ -149,17 +143,8 @@ pub(crate) fn print_report(stats: &FabricStats) {
     ));
 
     sys::write_str(&format!(
-        "[buffers]\n  buffers {}  bytes {}  mappings {}\n  \
-         fences submitted {}  waits {}\n  \
-         fence timeouts {}  outstanding {}\n  zero-copy handoffs {}\n",
-        stats.buffers,
-        stats.buffer_bytes,
-        stats.buffer_mappings,
-        stats.fences_submitted,
-        stats.fence_waits,
-        stats.fence_timeouts,
-        stats.outstanding_fences,
-        stats.handoffs
+        "[buffers]\n  buffers {}  bytes {}  mappings {}\n  zero-copy handoffs {}\n",
+        stats.buffers, stats.buffer_bytes, stats.buffer_mappings, stats.handoffs
     ));
 
     let acl = if stats.acl_loaded != 0 {

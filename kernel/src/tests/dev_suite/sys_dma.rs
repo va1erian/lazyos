@@ -6,6 +6,7 @@ use super::fixture::*;
 use super::*;
 use crate::dev::errno::*;
 use crate::dev::syscall::*;
+use crate::mem::vma::Prot;
 use crate::quota::{self, Resource};
 
 /// Claim `dev` in a fresh driver task (entered) and return `(slot, handle)`.
@@ -201,10 +202,14 @@ pub fn dma_copy_out_failure_undoes_everything() -> Result<(), String> {
     let dev = add_device(Spec::nic(None))?;
     let (slot, handle) = driver_with(dev)?;
     let handles_before = handles::count_for_task(slot);
-    // A read-only buffer mapping is a valid readable, unwritable user address.
-    let ro = crate::ipc::shared::create(4096, crate::ipc::shared::flags::READ)
-        .map_err(|error| error.message().to_string())?;
+    // A buffer mapping made read-only is a valid readable, unwritable user
+    // address (every shared-buffer mapping starts read/write).
+    let ro = crate::ipc::shared::create(4096).map_err(|error| error.message().to_string())?;
     let va = crate::ipc::shared::map(ro).map_err(|error| error.message().to_string())?;
+    check!(
+        crate::mem::protect_range(crate::mem::kernel_table(), va, va + 4096, Prot::READ),
+        "the buffer page could not be made read-only"
+    );
     let handles_mid = handles::count_for_task(slot);
     let strict = Strict::on();
     crate::mem::dma::order::reset();

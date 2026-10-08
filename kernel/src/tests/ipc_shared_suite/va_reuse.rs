@@ -3,10 +3,8 @@
 
 use super::*;
 
-const RW: u32 = shared::flags::READ | shared::flags::WRITE;
-
 fn make(size: u64) -> Result<(u64, u64), String> {
-    let handle = shared::create(size, RW).map_err(buffer_reason)?;
+    let handle = shared::create(size).map_err(buffer_reason)?;
     let va = shared::map(handle).map_err(buffer_reason)?;
     Ok((handle, va))
 }

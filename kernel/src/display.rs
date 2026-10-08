@@ -249,7 +249,7 @@ fn bind(info_ptr: u64) -> u64 {
     }
     // The logical screen, never the mode: a 4K mode would not fit the cap.
     let size = screen.width * screen.height * 4;
-    let handle = match shared::create(size, shared::flags::READ | shared::flags::WRITE) {
+    let handle = match shared::create(size) {
         Ok(handle) => handle,
         Err(error) => return shared_errno(error),
     };
