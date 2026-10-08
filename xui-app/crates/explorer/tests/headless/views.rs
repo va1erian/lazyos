@@ -194,3 +194,24 @@ fn the_sort_menu_closes_on_any_other_click_and_on_a_second_sort_click() {
     });
     assert_eq!(seen, ["true", "false", "false", "false"]);
 }
+
+/// Clicks that reach no control (the gap between toolbar groups, the status
+/// bar) close the sort menu too.
+#[test]
+fn a_click_on_empty_toolbar_space_or_the_status_bar_closes_the_menu() {
+    let seen = run(|stage, handles, record| {
+        let popup = handles.sort_popup.expect("the sort menu has a popup");
+        let open = || stage.ui().is_visible(popup);
+        stage.emit(Msg::SortMenu);
+        record(format!("{}", open()));
+        // Between Up (ends at 6 + 3 * 30 + 2 * 2 = 100) and the address bar
+        // (starts 6 px later), in the 38 px toolbar.
+        stage.click(103, 19);
+        record(format!("{}", open()));
+        stage.emit(Msg::SortMenu);
+        let status = stage.ui().bounds(handles.status.id());
+        stage.click(status.left + 40, (status.top + status.bottom) / 2);
+        record(format!("{}", open()));
+    });
+    assert_eq!(seen, ["true", "false", "false"]);
+}

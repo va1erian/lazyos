@@ -18,6 +18,7 @@ use xui_core::units::Dip;
 use xui_core::widget::{Button, Edit, Fill, IconView, ListView, Menu, MenuId, StatusBar};
 
 use super::Msg;
+use super::backdrop::backdrop;
 use crate::model::{SharedListing, SortKey};
 
 /// The toolbar's height and its square buttons' side.
@@ -83,7 +84,12 @@ pub(super) struct Chrome {
 
 impl Handles {
     /// The window: the toolbar, the two views in one place, the status bar.
+    /// A backdrop under it all takes the clicks between widgets.
     pub(super) fn layout(&self, model: SharedListing) -> Layout<Msg> {
+        stack().children((backdrop(), self.content(model)))
+    }
+
+    fn content(&self, model: SharedListing) -> Layout<Msg> {
         column().children((
             self.toolbar().fixed(TOOLBAR_HEIGHT),
             stack()
