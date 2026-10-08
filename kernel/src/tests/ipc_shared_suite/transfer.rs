@@ -1,10 +1,12 @@
-//! Handle transfer rights across tasks and a zero-copy handoff.
+//! Handle moves and buffer shares across tasks, the one path for a buffer,
+//! and a zero-copy handoff.
 
 use super::*;
 
-/// A message transfers handles across two tasks: the sender's numbers are
-/// gone, the receiver's table gets fresh numbers with the same rights, and
-/// a handle without `TRANSFER` is refused.
+/// A message moves handles and shares buffers across two tasks: a moved
+/// handle's sender number is gone, a shared buffer's stays, the receiver's
+/// table gets fresh numbers with the same rights, and a handle without
+/// `TRANSFER` is refused.
 pub fn buffer_handle_transfer_rights() -> Result<(), String> {
     fresh()?;
     let creator = task::current();
@@ -27,12 +29,19 @@ pub fn buffer_handle_transfer_rights() -> Result<(), String> {
         "the refused transfer moved the sender's handle"
     );
 
-    let bytes = parcel_with_transfers(1, "yes", vec![movable, buffer], Vec::new())?;
+    let bytes = parcel_with_transfers(1, "yes", vec![movable], vec![share(buffer)?])?;
     channels::send(client, &bytes).map_err(channel_reason)?;
     check!(
-        handles::get(movable) == Err(HandleError::InvalidHandle)
-            && handles::get(buffer) == Err(HandleError::InvalidHandle),
-        "the transfer did not move the sender's handles"
+        handles::get(movable) == Err(HandleError::InvalidHandle),
+        "the transfer did not move the sender's object handle"
+    );
+    check!(
+        handles::get(buffer).is_ok(),
+        "sharing a buffer took the sender's handle"
+    );
+    check!(
+        shared::info(buffer).map_err(buffer_reason)?.refs == 2,
+        "the queued message holds no reference of its own"
     );
 
     task::harness::switch_current(child);
@@ -40,12 +49,13 @@ pub fn buffer_handle_transfer_rights() -> Result<(), String> {
         .map_err(channel_reason)?
         .ok_or("the transferred message is missing")?;
     check!(
-        message.handles.len() == 2,
-        "delivered {} handles, expected 2",
-        message.handles.len()
+        message.handles.len() == 1 && message.buffers.len() == 1,
+        "delivered {} handles and {} buffers, expected 1 and 1",
+        message.handles.len(),
+        message.buffers.len()
     );
     let object_handle = message.handles[0];
-    let buffer_handle = message.handles[1];
+    let buffer_handle = message.buffers[0].handle;
     let object_entry = handles::get(object_handle).map_err(handle_reason)?;
     check!(
         object_entry.kind == HandleKind::Object
@@ -73,7 +83,73 @@ pub fn buffer_handle_transfer_rights() -> Result<(), String> {
     handles::close(object_handle).ok();
     handles::reset_for_task(child);
     task::harness::switch_current(creator);
+    check!(
+        shared::info(buffer).map_err(buffer_reason)?.refs == 1,
+        "the receiver's close left its reference"
+    );
+    shared::close(buffer).map_err(buffer_reason)?;
     handles::close(stuck).ok();
+    channels::reset();
+    shared::reset();
+    reap(child)?;
+    Ok(())
+}
+
+/// A buffer handle in the `handles` vector is refused (`BufferInHandles`,
+/// `EINVAL` at the gate) before anything moves: the sender's table is as it
+/// was, the buffer's reference count too, and nothing reaches the receiver.
+pub fn buffer_in_handles_refused() -> Result<(), String> {
+    fresh()?;
+    let creator = task::current();
+    let child = spawn_receiver()?;
+    let (client, child_server) = channel_to(child)?;
+    let buffer = shared::create(4096).map_err(buffer_reason)?;
+    let movable = handles::open(HandleKind::Object, rights::CALL | rights::TRANSFER, 0xabc)
+        .map_err(handle_reason)?;
+    let before = handles::count();
+
+    // The buffer first, then an object behind it: refused as a whole.
+    let bytes = parcel_with_transfers(1, "moved?", vec![buffer, movable], Vec::new())?;
+    check!(
+        channels::send(client, &bytes) == Err(ChannelError::BufferInHandles),
+        "a buffer handle in `handles` was accepted"
+    );
+    // The object first, then the buffer: the object must not have moved.
+    let bytes = parcel_with_transfers(1, "moved?", vec![movable, buffer], Vec::new())?;
+    check!(
+        channels::send(client, &bytes) == Err(ChannelError::BufferInHandles),
+        "a buffer handle behind an object was accepted"
+    );
+    check!(
+        handles::get(buffer).is_ok() && handles::get(movable).is_ok(),
+        "the refused send changed the sender's table"
+    );
+    check!(
+        handles::count() == before,
+        "the sender's table has {} handles, had {before}",
+        handles::count()
+    );
+    let info = shared::info(buffer).map_err(buffer_reason)?;
+    check!(
+        info.refs == 1 && info.mappings == 1,
+        "the refused send touched the buffer: {info:?}"
+    );
+    check!(
+        channels::stats().queued == 0,
+        "the refused send queued a message"
+    );
+
+    task::harness::switch_current(child);
+    check!(
+        channels::try_recv(child_server)
+            .map_err(channel_reason)?
+            .is_none(),
+        "the receiver got a message from a refused send"
+    );
+    handles::reset_for_task(child);
+    task::harness::switch_current(creator);
+    shared::close(buffer).map_err(buffer_reason)?;
+    handles::close(movable).ok();
     channels::reset();
     shared::reset();
     reap(child)?;
@@ -104,22 +180,25 @@ pub fn buffer_zero_copy_handoff() -> Result<(), String> {
         }
     }
 
-    // The transfer moves the creator's handle; its mapping goes with it.
-    let bytes = parcel_with_transfers(5, "surface", vec![handle], Vec::new())?;
+    // The message shares the buffer; the creator then drops its own handle
+    // and mapping, so the message's reference is the only one left.
+    let bytes = parcel_with_transfers(5, "surface", Vec::new(), vec![share(handle)?])?;
     channels::send(client, &bytes).map_err(channel_reason)?;
+    shared::close(handle).map_err(buffer_reason)?;
 
     task::harness::switch_current(child);
     let message = channels::try_recv(child_server)
         .map_err(channel_reason)?
         .ok_or("the transferred message is missing")?;
     check!(
-        message.handles.len() == 1,
-        "delivered {} handles, expected 1",
-        message.handles.len()
+        message.buffers.len() == 1,
+        "delivered {} buffers, expected 1",
+        message.buffers.len()
     );
-    let receiver_va = shared::map(message.handles[0]).map_err(buffer_reason)?;
-    // The creator's mapping went with the transferred handle, so its virtual
-    // range may be recycled for the receiver; what matters is the frames.
+    let received = message.buffers[0].handle;
+    let receiver_va = shared::map(received).map_err(buffer_reason)?;
+    // The creator's mapping is gone, so its virtual range may be recycled
+    // for the receiver; what matters is the frames.
     for (page, expected) in creator_frames.iter().enumerate() {
         let actual = frame_of(mem::kernel_table(), receiver_va + page as u64 * 4096)
             .map_err(|error| format!("receiver page {page}: {error}"))?;
@@ -148,7 +227,7 @@ pub fn buffer_zero_copy_handoff() -> Result<(), String> {
         creator_frames.len()
     );
 
-    shared::close(message.handles[0]).map_err(buffer_reason)?;
+    shared::close(received).map_err(buffer_reason)?;
     handles::reset_for_task(child);
     task::harness::switch_current(creator);
     channels::reset();

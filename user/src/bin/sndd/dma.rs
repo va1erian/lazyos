@@ -25,7 +25,9 @@ impl Region {
     pub(super) fn alloc(device: u64, len: usize) -> Result<Region, Error> {
         let len = len.div_ceil(PAGE) * PAGE;
         let (handle, bus) = dev::dma_alloc(device, len as u64, 0).map_err(Error::Dev)?;
-        let va = sys::display_map_buffer(handle).map_err(Error::Dev)?;
+        let va = sys::buffer_map(handle)
+            .map(|(va, _)| va)
+            .map_err(Error::Dev)?;
         Ok(Region {
             va: va as *mut u8,
             bus,

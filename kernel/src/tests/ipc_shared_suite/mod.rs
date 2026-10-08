@@ -83,6 +83,18 @@ pub(crate) fn parcel_with_transfers(
     Ok(bytes)
 }
 
+/// The descriptor that shares the whole of `handle`'s buffer in a parcel's
+/// `buffers` list: the one way a buffer travels (core plan M2).
+pub(crate) fn share(handle: u64) -> Result<BufferDesc, String> {
+    let size = shared::info(handle).map_err(buffer_reason)?.size;
+    Ok(BufferDesc {
+        handle,
+        offset: 0,
+        len: size,
+        flags: 0,
+    })
+}
+
 /// Spawn a fork child with an empty handle table; the caller reaps it.
 pub(crate) fn spawn_receiver() -> Result<usize, String> {
     let child = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
@@ -120,6 +132,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_buffer_handle_transfer_rights",
         buffer_handle_transfer_rights,
     ),
+    ("ipc_buffer_in_handles_refused", buffer_in_handles_refused),
     ("ipc_buffer_zero_copy_handoff", buffer_zero_copy_handoff),
     (
         "ipc_buffer_va_reused_after_close",

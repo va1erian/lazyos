@@ -54,7 +54,7 @@ impl Service {
     fn drop_attachment(&mut self, why: &str) {
         if let Some(attachment) = self.attachment.take() {
             sys::write_str(&format!("NETDRV:DETACH {why}\n"));
-            let _ = sys::display_close_buffer(attachment.buffer);
+            let _ = sys::buffer_close(attachment.buffer);
             let _ = attachment.notify.release();
         }
     }
@@ -228,7 +228,9 @@ impl Service {
         }
         let offset = usize::try_from(desc.offset).map_err(|_| err(errno::EINVAL))?;
         let len = usize::try_from(desc.len).map_err(|_| err(errno::EINVAL))?;
-        let va = sys::display_map_buffer(message.first_buffer).map_err(MsgError::Errno)?;
+        let va = sys::buffer_map(message.first_buffer)
+            .map(|(va, _)| va)
+            .map_err(MsgError::Errno)?;
         let base = (va as usize)
             .checked_add(offset)
             .ok_or_else(|| err(errno::EINVAL))?;
@@ -277,7 +279,7 @@ fn discard_transfers(message: &Message, adopted: bool) {
         return;
     }
     if message.buffers > 0 {
-        let _ = sys::display_close_buffer(message.first_buffer);
+        let _ = sys::buffer_close(message.first_buffer);
     }
     if message.handles > 0 {
         let _ = Endpoint::from_raw(message.first_handle).release();

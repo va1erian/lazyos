@@ -50,7 +50,7 @@ pub struct Message {
     /// none).
     pub handles: u64,
     /// First shared-buffer handle installed by the delivery, ready for
-    /// `crate::sys::display_map_buffer`. [`Message::buffers`] says whether it
+    /// `crate::sys::buffer_map`. [`Message::buffers`] says whether it
     /// is real. The display protocol reads a client's surface buffer here.
     pub first_buffer: u64,
     /// Number of shared-buffer handles the delivery installed.

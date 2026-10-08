@@ -190,7 +190,7 @@ fn draw_chromeless(screen: &mut Canvas, surface: &Surface, clip: Rect) {
     if area.intersect(clip).is_empty() || !has_pixels(surface) {
         return;
     }
-    // SAFETY: the mapping was installed by `display_map_buffer` for this
+    // SAFETY: the mapping was installed by `buffer_map` for this
     // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`), so
     // the slice describes exactly the source `blit` reads.
     let pixels =
@@ -419,7 +419,7 @@ fn draw_surface(screen: &mut Canvas, surface: &Surface, focused: bool, clip: Rec
         {
             screen.fill(strip, clip, window_bg());
         }
-        // SAFETY: the mapping was installed by `display_map_buffer` for this
+        // SAFETY: the mapping was installed by `buffer_map` for this
         // buffer; `bytes` is at least `buf_w * buf_h * 4` (see `has_pixels`),
         // so the slice describes exactly the source `blit` reads.
         let pixels = unsafe {

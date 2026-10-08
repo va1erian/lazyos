@@ -131,6 +131,25 @@ pub const OP_CONNECT: u64 = 20;
 /// ABI op: no parcel crosses it.
 pub const OP_ENDPOINT_FD: u64 = 21;
 
+/// Create a shared buffer of `parcel_len` bytes, mapped into the caller
+/// (`docs/messenger-core-plan.md` 3.4): `value` is the buffer handle, `aux`
+/// its address, `bytes` its size (rounded up to whole pages). The handle
+/// travels in a parcel's `buffers` list; the peer maps it with
+/// [`OP_BUFFER_MAP`]. `EINVAL` for a zero or oversized size, `EAGAIN` over
+/// the buffer quota, `ENOMEM` when no frames or handle are left.
+pub const OP_BUFFER_CREATE: u64 = 22;
+
+/// Map the buffer `handle` names into the caller (idempotent per task):
+/// `value` is the address, `aux` the size. `ENOENT` for no such handle,
+/// `EINVAL` for one that is not a buffer.
+pub const OP_BUFFER_MAP: u64 = 23;
+
+/// Close the buffer `handle` names: unmap it and drop the caller's reference
+/// (the pages live while any other handle or in-flight message holds one).
+/// `ENOENT` for a handle the caller does not hold, `EBUSY` for the bound
+/// compositor's own screen buffer (`unbind` releases that one).
+pub const OP_BUFFER_CLOSE: u64 = 24;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
@@ -148,13 +167,14 @@ pub const RESULT_SIZE: usize = 64;
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgArgs {
-    /// Endpoint handle: call, begin, send, recv, close, stats.
+    /// Endpoint handle: call, begin, send, recv, close, stats; the buffer
+    /// handle of `buffer_map` and `buffer_close`.
     pub handle: u64,
     /// Transaction id: reply, cancel, await.
     pub txn_id: u64,
     /// Request parcel bytes (call, begin, send, reply).
     pub parcel_ptr: u64,
-    /// Request parcel length in bytes.
+    /// Request parcel length in bytes; the size of `buffer_create`.
     pub parcel_len: u64,
     /// Reply or receive buffer (call, recv, await, stats).
     pub buf_ptr: u64,

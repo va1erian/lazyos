@@ -26,14 +26,14 @@ impl MappedRing {
         let mapped = (|| {
             let offset = usize::try_from(desc.offset).ok()?;
             let len = usize::try_from(desc.len).ok()?;
-            let va = sys::display_map_buffer(handle).ok()?;
+            let va = sys::buffer_map(handle).map(|(va, _)| va).ok()?;
             let base = (va as usize).checked_add(offset)? as *const u8;
             Some((base, len))
         })();
         match mapped {
             Some((base, len)) => Some(MappedRing { handle, base, len }),
             None => {
-                let _ = sys::display_close_buffer(handle);
+                let _ = sys::buffer_close(handle);
                 None
             }
         }
@@ -65,6 +65,6 @@ impl audiomix::Ring for MappedRing {
 
 impl Drop for MappedRing {
     fn drop(&mut self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }

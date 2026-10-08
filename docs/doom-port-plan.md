@@ -123,7 +123,7 @@ not with a Doom-side workaround.
 
 - Extract the client-mode display setup from `xui-app` into a small reusable
   crate (e.g. `lazyos-surface-client`): resolve `os.lazy.display.v1`, `create
-  surface`, `create_buffer`, `commit(damage)`, event polling. Today this lives
+  surface`, `buffer_create`, `commit(damage)`, event polling. Today this lives
   inside `LazyOSBackend`, which is coupled to xui widgets; Doom only needs the
   raw-pixels half. **This is the one refactor with real design content**, so do
   it as its own reviewed change and keep both consumers on it.

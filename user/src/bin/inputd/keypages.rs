@@ -29,7 +29,7 @@ struct Page {
 
 impl Page {
     fn close(self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }
 
@@ -91,7 +91,7 @@ impl Hub {
     pub(super) fn attach_key_state(&mut self, message: &Message) -> Result<Vec<u8>> {
         let result = self.attach_key_state_inner(message);
         if result.is_err() && message.buffers != 0 {
-            let _ = sys::display_close_buffer(message.first_buffer);
+            let _ = sys::buffer_close(message.first_buffer);
         }
         result
     }
@@ -106,7 +106,9 @@ impl Hub {
             return Err(Error::Errno(-errno::EINVAL));
         }
         self.own_session(args.session, message.sender)?;
-        let va = sys::display_map_buffer(message.first_buffer).map_err(Error::Errno)?;
+        let va = sys::buffer_map(message.first_buffer)
+            .map(|(va, _)| va)
+            .map_err(Error::Errno)?;
         if va == 0 || va % 8 != 0 {
             return Err(Error::Errno(-errno::EINVAL));
         }

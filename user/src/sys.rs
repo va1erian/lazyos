@@ -13,6 +13,7 @@ pub use lazyos_sys::display::*;
 pub use lazyos_sys::inet::*;
 pub use lazyos_sys::input::*;
 pub use lazyos_sys::kill::*;
+pub use lazyos_sys::msg::{buffer_close, buffer_create, buffer_map};
 pub use lazyos_sys::nr;
 pub use lazyos_sys::process::*;
 pub use lazyos_sys::random::*;

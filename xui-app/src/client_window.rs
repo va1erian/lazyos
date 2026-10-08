@@ -251,10 +251,10 @@ enum AttachError {
 /// handle and mapping. A failed attach closes the buffer again so it does not
 /// count against the per-process quota until task exit.
 fn attach_new_buffer(client: Client, surface: u64, size: u64) -> Result<(u64, u64), AttachError> {
-    let (buffer, va, _) = sys::display_create_buffer(size)
+    let (buffer, va, _) = sys::buffer_create(size)
         .map_err(|code| AttachError::Failed(format!("create_buffer: errno {code}")))?;
     if let Err(code) = client.attach_slot(surface, 0, buffer, size) {
-        let _ = sys::display_close_buffer(buffer);
+        let _ = sys::buffer_close(buffer);
         return Err(match code {
             c if c == -errno::EINVAL => AttachError::Refused,
             c if c == -errno::ENOENT => AttachError::Closed,

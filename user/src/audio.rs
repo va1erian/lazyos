@@ -111,7 +111,7 @@ impl Transport for Native {
 
     fn create_ring(&self, bytes: usize) -> Result<NativeRing> {
         let (handle, va, _) =
-            sys::display_create_buffer(bytes as u64).map_err(|code| Error::Errno(-code))?;
+            sys::buffer_create(bytes as u64).map_err(|code| Error::Errno(-code))?;
         Ok(NativeRing {
             handle,
             base: va as *mut u8,
@@ -154,7 +154,7 @@ impl RingBuffer for NativeRing {
             .is_some_and(|end| end <= self.len);
         assert!(fits, "ring write out of bounds");
         // SAFETY: `offset + bytes.len() <= len`, checked above, and `base` is
-        // the `len`-byte mapping `display_create_buffer` returned, live until
+        // the `len`-byte mapping `buffer_create` returned, live until
         // `drop` closes it. The service only reads this memory, so a raw copy
         // (no reference into the mapping) is all that is needed.
         unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), self.base.add(offset), bytes.len()) };
@@ -163,6 +163,6 @@ impl RingBuffer for NativeRing {
 
 impl Drop for NativeRing {
     fn drop(&mut self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }

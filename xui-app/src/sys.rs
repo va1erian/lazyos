@@ -10,9 +10,8 @@
 
 pub use lazyos_sys::cred::{cred_get, Cred};
 pub use lazyos_sys::display::{
-    button, display_bind, display_close_buffer, display_create_buffer, display_input_poll,
-    display_op as op, display_present, display_unbind, event, key, DisplayEvent as RawEvent,
-    DisplayInfo, EVENT_BYTES,
+    button, display_bind, display_input_poll, display_op as op, display_present, display_unbind,
+    event, key, DisplayEvent as RawEvent, DisplayInfo, EVENT_BYTES,
 };
 pub use lazyos_sys::errno;
 pub use lazyos_sys::msg::parcel::{
@@ -20,10 +19,10 @@ pub use lazyos_sys::msg::parcel::{
     resolve as msg_resolve, send as msg_send,
 };
 pub use lazyos_sys::msg::{
-    close as msg_close, create_pair as msg_create_pair, op as msg_op, queued as msg_queued,
-    recv as msg_recv, recv_from as msg_recv_from, release as msg_release,
-    wait_any_ns as msg_wait_any_ns, MsgArgs, MsgResult, SenderId, EXPIRED_DEADLINE, FD_READY,
-    REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT, WAIT_MAX_ENDPOINTS,
+    buffer_close, buffer_create, buffer_map, close as msg_close, create_pair as msg_create_pair,
+    op as msg_op, queued as msg_queued, recv as msg_recv, recv_from as msg_recv_from,
+    release as msg_release, wait_any_ns as msg_wait_any_ns, MsgArgs, MsgResult, SenderId,
+    EXPIRED_DEADLINE, FD_READY, REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT, WAIT_MAX_ENDPOINTS,
 };
 pub use lazyos_sys::time::{clock as clock_ticks, monotonic_ns, wall_centis};
 

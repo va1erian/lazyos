@@ -36,7 +36,6 @@ pub fn begin_call_owned(
     let parcel_flags = parcel.header.flags;
     let (handles, buffers) = resolve_transfers(&parcel)?;
     let numbers: Vec<u64> = parcel.handles().collect();
-    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
     let peer = 1 - side;
     let txn_id = new_txn_id(channel_id);
     let receivers = {
@@ -115,7 +114,7 @@ pub fn begin_call_owned(
             channel.drops += 1;
             return Err(error);
         }
-        close_moved_handles(&numbers, &kinds);
+        close_moved_handles(&numbers);
         channel.txns.push(Transaction {
             id: txn_id,
             caller: me,

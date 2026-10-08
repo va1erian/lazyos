@@ -173,10 +173,10 @@ each server closes `first_buffer` by hand in its default arm (`audiod`,
 ### 3.4 Buffer syscalls
 
 `buffer_create`, `buffer_map`, `buffer_close` join the `msg` op family
-(`op::BUFFER_CREATE = 21`, `BUFFER_MAP = 22`, `BUFFER_CLOSE = 23`); `map`
-returns the address and the size. The display ops `CREATE_BUFFER`,
-`MAP_BUFFER`, `CLOSE_BUFFER` are removed once every caller moves. `create`
-takes a size and nothing else.
+(`op::BUFFER_CREATE = 22`, `BUFFER_MAP = 23`, `BUFFER_CLOSE = 24`; 21 went
+to `ENDPOINT_FD`, issue #667, before this landed); `map` returns the address
+and the size. The display ops `CREATE_BUFFER`, `MAP_BUFFER`, `CLOSE_BUFFER`
+are removed once every caller moves. `create` takes a size and nothing else.
 
 ### 3.5 MIDL
 

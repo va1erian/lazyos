@@ -134,7 +134,7 @@ impl Slots {
                 return Err(-errno::EAGAIN);
             }
             if entry.buffer != 0 {
-                let _ = sys::display_close_buffer(entry.buffer);
+                let _ = sys::buffer_close(entry.buffer);
             }
             *entry = Slot::default();
             let attached = attach_slot(client, surface, slot, width, height);
@@ -228,7 +228,7 @@ impl Slots {
     /// own reference to the attached ones until the surface is destroyed.
     pub fn close(&self) {
         for slot in self.slots.iter().filter(|slot| slot.buffer != 0) {
-            let _ = sys::display_close_buffer(slot.buffer);
+            let _ = sys::buffer_close(slot.buffer);
         }
     }
 
@@ -267,9 +267,9 @@ fn attach_slot(
         return Err(-errno::EINVAL);
     }
     let size = width as u64 * height as u64 * 4;
-    let (buffer, va, _) = sys::display_create_buffer(size)?;
+    let (buffer, va, _) = sys::buffer_create(size)?;
     if let Err(code) = client.attach_slot(surface, slot, buffer, size) {
-        let _ = sys::display_close_buffer(buffer);
+        let _ = sys::buffer_close(buffer);
         return Err(code);
     }
     Ok((buffer, va))

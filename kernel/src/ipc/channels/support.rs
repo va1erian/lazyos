@@ -64,6 +64,10 @@ pub(super) fn validate_parcel(bytes: &[u8]) -> Result<ParcelView<'_>, Error> {
 /// per-message limits. No reference is taken here: [`retain_transfers`] runs
 /// once the message is accepted for queueing, so a refused send changes
 /// nothing.
+///
+/// A buffer travels only in `buffers` (`docs/messenger-core-plan.md` 3.4):
+/// a `Buffer` handle in `handles` is refused before anything moves, so the
+/// handle vector only ever carries endpoints, channels and objects.
 pub(super) fn resolve_transfers(
     parcel: &ParcelView<'_>,
 ) -> Result<(Vec<Transfer>, Vec<BufferTransfer>), Error> {
@@ -81,6 +85,9 @@ pub(super) fn resolve_transfers(
             return Err(Error::BadTransfer);
         }
         let entry = handles::get(local).map_err(from_handles)?;
+        if entry.kind == HandleKind::Buffer {
+            return Err(Error::BufferInHandles);
+        }
         if entry.rights & rights::TRANSFER == 0 {
             return Err(Error::MissingRight);
         }
@@ -114,18 +121,6 @@ pub(super) fn resolve_transfers(
 /// was already taken if a later entry fails.
 pub(super) fn retain_transfers(message: &Queued) -> Result<(), Error> {
     let mut retained: Vec<u64> = Vec::new();
-    for transfer in &message.handles {
-        if transfer.kind != HandleKind::Buffer {
-            continue;
-        }
-        if let Err(error) = shared::retain(transfer.object_id) {
-            for object_id in &retained {
-                shared::release(*object_id);
-            }
-            return Err(from_shared(error));
-        }
-        retained.push(transfer.object_id);
-    }
     for buffer in &message.buffers {
         if let Err(error) = shared::retain_descriptor(buffer.object_id, buffer.offset, buffer.len) {
             for object_id in &retained {
@@ -168,11 +163,6 @@ pub(super) fn release_queued_quota(uid: u32, bytes: usize) {
 /// (the receiving endpoint closed, the channel was dropped, or delivery failed
 /// before the handles were installed).
 pub(super) fn release_queued(message: &Queued) {
-    for transfer in &message.handles {
-        if transfer.kind == HandleKind::Buffer {
-            shared::release(transfer.object_id);
-        }
-    }
     for buffer in &message.buffers {
         shared::release(buffer.object_id);
     }
@@ -180,13 +170,9 @@ pub(super) fn release_queued(message: &Queued) {
 
 /// Finish a handle move: the sender's numbers were resolved into the message,
 /// so close the sender's handles now that the message is safely queued.
-pub(super) fn close_moved_handles(numbers: &[u64], kinds: &[HandleKind]) {
-    for (local, kind) in numbers.iter().zip(kinds.iter()) {
-        if *kind == HandleKind::Buffer {
-            shared::close(*local).ok();
-        } else {
-            handles::close(*local).ok();
-        }
+pub(super) fn close_moved_handles(numbers: &[u64]) {
+    for local in numbers {
+        handles::close(*local).ok();
     }
 }
 

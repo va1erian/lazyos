@@ -154,6 +154,9 @@ fn the_messenger_ops_match_the_kernel_abi() {
         ("OP_WAIT", msg::op::WAIT),
         ("OP_CONNECT", msg::op::CONNECT),
         ("OP_ENDPOINT_FD", msg::op::ENDPOINT_FD),
+        ("OP_BUFFER_CREATE", msg::op::BUFFER_CREATE),
+        ("OP_BUFFER_MAP", msg::op::BUFFER_MAP),
+        ("OP_BUFFER_CLOSE", msg::op::BUFFER_CLOSE),
         ("ENDPOINT_FD_CLOEXEC", msg::op::ENDPOINT_FD_CLOEXEC),
         ("CLOSE_RELEASE", msg::op::CLOSE_RELEASE),
         ("RECV_SENDER_ID", msg::op::RECV_SENDER_ID),
@@ -166,7 +169,7 @@ fn the_messenger_ops_match_the_kernel_abi() {
         assert_eq!(value_of(theirs), value, "{name}");
     }
     let op_count = table.keys().filter(|name| name.starts_with("OP_")).count();
-    assert_eq!(op_count, 21, "a new kernel op needs a name in msg::op");
+    assert_eq!(op_count, 24, "a new kernel op needs a name in msg::op");
 }
 
 #[test]

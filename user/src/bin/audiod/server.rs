@@ -262,7 +262,7 @@ fn take_ring(message: &Message, wanted: bool) -> Option<MappedRing> {
     match message.parcel.buffers.first() {
         Some(desc) if wanted => MappedRing::map(handle, desc),
         _ => {
-            let _ = sys::display_close_buffer(handle);
+            let _ = sys::buffer_close(handle);
             None
         }
     }
