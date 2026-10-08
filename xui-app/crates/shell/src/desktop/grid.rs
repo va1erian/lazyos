@@ -1,12 +1,12 @@
-//! Where desktop icons sit: columns anchored to the screen's right edge,
-//! filled top to bottom, the first column rightmost.
+//! Where desktop icons sit: columns anchored to the screen's left edge,
+//! filled top to bottom, the first column leftmost.
 //!
 //! The icon view lays its tiles out row by row (slot `k` at row
 //! `k / columns`, column `k % columns`). The desktop wants Windows-style
-//! columns instead, so the first launchers stay at the top right where new
-//! windows (placed from the top left) do not cover them, and a desktop with
-//! more icons than one column holds grows leftwards. [`Grid`] maps the view's
-//! slots to items; a slot past the last item in a short column is empty.
+//! columns instead: the first launchers at the top left, and a desktop with
+//! more icons than one column holds grows rightwards. [`Grid`] maps the
+//! view's slots to items; a slot past the last item in a short column is
+//! empty.
 
 /// The column layout for `items` icons, `rows` to a column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,7 +42,7 @@ impl Grid {
         if row >= self.rows {
             return None;
         }
-        let item = (self.columns - 1 - column) * self.rows + row;
+        let item = column * self.rows + row;
         (item < self.items).then_some(item)
     }
 }
@@ -61,15 +61,15 @@ mod tests {
     }
 
     #[test]
-    fn more_icons_grow_columns_leftwards() {
-        // 5 items, 3 to a column: 2 columns, the first (items 0-2) on the right.
+    fn more_icons_grow_columns_rightwards() {
+        // 5 items, 3 to a column: 2 columns, the first (items 0-2) on the left.
         let grid = Grid::new(5, 3);
         assert_eq!((grid.columns, grid.slots()), (2, 6));
         let items: Vec<_> = (0..6).map(|slot| grid.item_at(slot)).collect();
         assert_eq!(
             items,
-            [Some(3), Some(0), Some(4), Some(1), None, Some(2)],
-            "slot 4 is the short left column's empty foot"
+            [Some(0), Some(3), Some(1), Some(4), Some(2), None],
+            "slot 5 is the short right column's empty foot"
         );
     }
 
@@ -78,8 +78,8 @@ mod tests {
         assert_eq!(Grid::new(0, 5).slots(), 0);
         let grid = Grid::new(3, 0);
         assert_eq!((grid.rows, grid.columns), (1, 3));
-        assert_eq!(grid.item_at(0), Some(2));
-        assert_eq!(grid.item_at(2), Some(0));
+        assert_eq!(grid.item_at(0), Some(0));
+        assert_eq!(grid.item_at(2), Some(2));
         assert_eq!(grid.item_at(3), None);
     }
 }

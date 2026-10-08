@@ -1,27 +1,40 @@
 # xui-explorer
 
-A small, **spatial** file explorer built on xui's portable widget layer: one
-window is one open folder, with no tree, address bar or in-window navigation.
-It is written as a portable core with every OS-specific operation behind two
-small traits, so it can be embedded by an operating system with its own
-filesystem and shell — in particular **LazyOS**.
+A small, **explorer-style** file manager built on xui's portable widget layer:
+a window browses folders in place, like a web browser, with a toolbar, an
+address bar and a history. It is written as a portable core with every
+OS-specific operation behind two small traits, so it can be embedded by an
+operating system with its own filesystem and shell — in particular **LazyOS**.
 
 - `xui-core` only (no platform dependency, no `unsafe`).
-- Folders open their own window (or reuse the one already showing them); files
-  go to the OS default handler.
-- `IconView` listing (folders first, then files), a `StatusBar` summary, a
-  context `Menu`, Copy/Paste/Delete/Properties actions (`TaskDialog`/`Dialog`)
-  and `Ctrl+C` / `Ctrl+V` / `Delete` / `Alt+Enter` / `F5` shortcuts.
+- Opening a folder (double-click, Return, the address bar, Up) replaces the
+  view in the same window; files go to the OS default handler. The window
+  title is the folder's name.
+- The toolbar: **Back**, **Forward** (a per-window history, `model::History`),
+  **Up** (the folder we came from is selected), the **address bar** (a typed
+  path, relative to the folder, `~` for home; Return goes, Escape reverts),
+  **Sort** (a menu of Name/Size/Type/Modified and Descending), the folder's
+  **Properties**, and the switch between the **icon view** and the
+  **details view** (an `IconView` and a `ListView` stacked in one place, with
+  sortable Name, Size, Type and Modified columns; a header click sorts, a
+  second click reverses). Folders always come first.
+- The context menu: Open, **Open in New Window** (the one way to a second
+  window, which inherits the view and the sort), Copy, Paste, Delete,
+  Properties (of the item, or of the folder on empty space), Refresh.
+- Shortcuts: Alt+Left/Right/Up, Backspace (Up), Ctrl+L / Alt+D / F4 (the
+  address bar), F5, Delete, Ctrl+C, Ctrl+V, Alt+Enter. While the address bar
+  has the focus, the keys that edit text stay with it
+  (`Explorer::set_focus_probe` tells the windows which widget has it).
+- A `StatusBar` summary; confirm and Properties dialogs (`TaskDialog`/`Dialog`).
 - Copy, paste and the selection go through an optional third seam,
   `Session` (below); `Explorer::reveal_root` opens a folder with one item
   selected.
 - Tile icons: the multi-colour Global Village set when the opt-in
   `village-icons` feature is on (the LazyOS Files app enables it), else the
-  single-colour Lucide fallback. The `xui-icons` crate stays in the xui
-  repository and is a git dependency. Opening a folder shows its open icon for
-  two seconds, then reverts.
+  single-colour Lucide fallback, which the details rows always use. The
+  `xui-icons` crate stays in the xui repository and is a git dependency.
 
-## Icons and the open-folder flash
+## Icons
 
 With the `village-icons` feature enabled (as the LazyOS Files app does), tiles
 are drawn with the `xui-icons` Global Village set, classified by kind and
@@ -31,13 +44,13 @@ is retinted to a pale periwinkle, so the outlines stay visible, and both
 palettes are built once. Leave the feature off for the single-colour Lucide
 fallback (the crate default); the classification is shared by both paths.
 
-Opening a folder (double-click or Enter) flags it in a per-window list of
-`(name, deadline)` entries and shows its open icon for 2000 ms; several folders
-can flash at once, each with its own deadline, and re-opening one restarts it.
-A single repeating timer prunes expired names and repaints, and stops as soon
-as nothing is flashing, so an idle window has no timer. The flash is visual
-only — it never changes the opening behaviour, selection, focus or scroll — and
-survives a refresh by name, dropping a folder that was deleted or renamed.
+## Many windows
+
+A window navigates, so the shell does not map folders to windows. It keeps
+what each open window shows (`shell::ViewState`: its folder, the view on
+screen, the selection and a `Proxy`); after a delete or a paste it asks every
+window at or below the folder to refresh, and a window whose folder is gone
+climbs to the nearest folder that still exists.
 
 ## The seam
 
@@ -60,14 +73,17 @@ The trait signatures mention only `Path`/`PathBuf`, `OsString`, `io::Result`
 and `SystemTime` — no `xui`, no `std::fs`, no `cfg`. The rest of the crate is
 portable:
 
-- `model/` is pure logic: sorting, `Listing`, the `IconModel` view, status
-  summaries, the Properties rows, size and UTC time formatting and path
-  helpers. It assumes nothing about drive letters or separators.
-- `window.rs` is the per-window `App`: it owns the widgets and reacts to their
-  messages; it never touches the filesystem directly.
-- `shell.rs` holds the `Platform`, the `Launcher` and the path-to-window
-  registry that makes an already-open folder a no-op and lets a delete close
-  the windows below it.
+- `model/` is pure logic: sorting, `Listing` and its `IconModel`/`ListModel`
+  view, the `History`, the address bar's path resolution, status summaries,
+  the Properties rows, size and UTC time formatting and path helpers. It
+  assumes nothing about drive letters or separators.
+- `window.rs` (and `window/`: `chrome` the layout and menus, `nav` the
+  navigation, `view` the two views and sorting, `keys` the shortcuts,
+  `actions` delete and Properties, `clipboard`) is the per-window `App`: it
+  owns the widgets and reacts to their messages; it never touches the
+  filesystem directly.
+- `shell.rs` holds the `Platform`, the `Launcher`, the `Session` and what each
+  open window shows.
 
 `testing::MemPlatform` is an in-memory `Platform` used by the tests, so no test
 touches the real disk.
@@ -95,29 +111,33 @@ dependency graph).
 ## Opening animation hint
 
 `Launcher::hint_open_origin(window, tile)` is an optional method (default: do
-nothing) called right before a folder window opens because a tile was activated
-(not when the folder is already open, and not for files). `window` is the
-backend's raw id of the source window and `tile` the tile's approximate edge in
-device pixels (`shell::open_tile_px`, 64 dip). The explorer has no item-rect API
-from `IconView`, so it does not compute the tile's rectangle: the backend
+nothing) called right before "Open in New Window" opens a folder window.
+`window` is the backend's raw id of the source window and `tile` the tile's
+approximate edge in device pixels (`shell::open_tile_px`, 64 dip). The backend
 centres a `tile`-sized square on the window's last pointer position, which is
-the tile that was just double-clicked. The LazyOS Files app forwards it to
+where the context menu was opened. The LazyOS Files app forwards it to
 `LazyOSBackend::hint_open_origin`, which sends `HintOpenOrigin` (display
-protocol method 30) so `xuid` zooms the new window open from the tile instead of
-the taskbar. It is cosmetic and best-effort: keyboard activation with the
-pointer outside the window sends no hint.
+protocol method 30) so `xuid` zooms the new window open from there instead of
+the taskbar. It is cosmetic and best-effort.
 
-## Known limits (v1)
+## Known limits
 
 - **No filesystem watching.** Refresh happens on `F5`, the context menu, and
-  after the explorer's own delete. A change made outside the explorer shows only
-  after a refresh.
+  after the explorer's own delete and paste. A change made outside the
+  explorer shows only after a refresh.
 - **Listing runs on the UI thread.** A very large or slow directory blocks the
   window while it loads.
-- **No raise/focus API.** Opening a folder that is already open reports
-  `"already open"` in the status bar instead of bringing that window forward.
+- **Multi-selection** is Ctrl/Shift+click and Shift+arrows only: no
+  rubber-band and no Ctrl+A yet, and a press on a tile collapses a
+  multi-selection before a drag (worked around with `Msg::RestoreSelection`);
+  va1erian/xui#289 asks the views for them.
+- **The icon view takes a new model while hidden** (`window/view.rs`,
+  `set_models`): xui's `IconView::set_model` re-enters the layout with its
+  state borrowed when its scrollbar appears or goes.
+- The details view's context menu needs a row: a right click on its empty
+  space shows nothing (use the folder Properties button or F5).
 - Out of scope: rename, cut/move by keyboard, new folder, recycle bin,
-  hidden-file toggle, sorting options, search, navigating up.
+  hidden-file toggle, search, a folder tree.
 
 ## The session seam (copy, paste, selection)
 
@@ -135,8 +155,8 @@ with `Explorer::with_session`. Copy (context menu or `Ctrl+C`) hands the
 selection's absolute paths to `copy`; Paste (`Ctrl+V`) asks `paste_into` to
 copy the clipboard's files into the window's folder, then refreshes every
 window showing it and reports the count (or the failures) in the status bar.
-Every selection change, and every window that opens or refreshes, calls
-`selection_changed`. The LazyOS Files app implements it over `clipboardd`
+Every selection change, and every window that opens, navigates or refreshes,
+calls `selection_changed`. The LazyOS Files app implements it over `clipboardd`
 (`text/uri-list`), `std_platform::copy_into` and the `session/<id>/selection`
 topic (`xui-app/src/bin/files/session.rs`, issue #488).
 
@@ -148,8 +168,9 @@ cargo clippy -p xui-explorer --all-targets -- -D warnings
 cargo test -p xui-explorer
 ```
 
-The snapshot test writes `target/snapshots/xui-explorer-{light,dark}.png`
-headlessly, with no window.
+The snapshot test writes
+`target/snapshots/xui-explorer-{icons,details}-{light,dark}.png` headlessly,
+with no window.
 
 ## Drag and drop
 

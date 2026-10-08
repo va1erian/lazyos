@@ -1,18 +1,16 @@
 #![forbid(unsafe_code)]
 
-//! The shared shell: the platform, the launcher and the window registry.
+//! The shared shell: the platform, the launcher, the session and what every
+//! open window shows.
 //!
-//! [`Explorer`] owns a `Rc<dyn Platform>` and a `Rc<dyn Launcher>` and keeps
-//! one entry per open folder window, so opening a folder that is already shown
-//! is a no-op and deleting a folder can close the windows below it. There is no
-//! raise/focus API in the portable layer, so a duplicate open reports
-//! `"already open"` in the status bar instead of raising the existing window.
-//!
-//! The registry never holds its borrow across a call that can call back
-//! (`open_window`, `close`, `send`): it collects what it needs, drops the
-//! borrow, then acts. See [`registry`] for the map and its tests.
+//! [`Explorer`] owns a `Rc<dyn Platform>`, a `Rc<dyn Launcher>` and a
+//! `Rc<dyn Session>`, and keeps one [`ViewState`] per open window (its folder,
+//! its active view, its selection and a [`Proxy`](xui_core::app::Proxy) to
+//! reach it). A window navigates in place, so the shell never maps a folder
+//! to "its" window: after a delete or a paste it asks every window showing
+//! the folder, or a folder below it, to refresh, and a window whose folder
+//! is gone climbs to the nearest folder that still exists.
 
-mod registry;
 mod views;
 
 use std::cell::RefCell;
@@ -21,36 +19,38 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use xui_core::app::{Ui, WindowHandle};
-use xui_core::backend::{PlatformSpec, WindowId};
+use xui_core::app::Ui;
+use xui_core::backend::{PlatformSpec, WidgetId, WindowId};
 use xui_core::units::Dip;
 
-use crate::model::title;
+use crate::model::{is_within, title};
 use crate::platform::{Launcher, NoSession, Platform, Session};
-use crate::window::{ExplorerWindow, Msg};
+use crate::window::{ExplorerWindow, Msg, ViewOptions};
 
-pub use registry::{Closable, Registry};
 pub use views::{ViewState, Views};
 
-/// The width each folder window opens at.
+/// The width each new window opens at.
 const WINDOW_WIDTH: Dip = Dip(720.0);
-/// The height each folder window opens at.
+/// The height each new window opens at.
 const WINDOW_HEIGHT: Dip = Dip(480.0);
 
 /// The open animation's start tile, in design pixels (an icon and its label).
 const OPEN_TILE_DIP: f32 = 64.0;
+
+/// Answers which widget has the keyboard focus, when the backend knows.
+type FocusProbe = Box<dyn Fn() -> Option<WidgetId>>;
 
 /// The shared bits behind every explorer window.
 pub struct Explorer {
     platform: Rc<dyn Platform>,
     launcher: Rc<dyn Launcher>,
     session: Rc<dyn Session>,
-    registry: Registry<WindowHandle<Msg>>,
     /// The title last published by each window, keyed by its window id. Used by
     /// tests to read a title the portable backend does not offer back.
     titles: RefCell<HashMap<u64, String>>,
-    /// What each window shows, for the platform's drag and drop.
+    /// What each window shows: for drag and drop, refreshes and tests.
     views: Views,
+    focus: RefCell<Option<FocusProbe>>,
 }
 
 impl Explorer {
@@ -70,10 +70,26 @@ impl Explorer {
             platform,
             launcher,
             session,
-            registry: Registry::new(),
             titles: RefCell::new(HashMap::new()),
             views: Views::default(),
+            focus: RefCell::new(None),
         })
+    }
+
+    /// Tells the windows which widget has the keyboard focus, so a shortcut
+    /// such as Delete or Backspace is left to the address bar while the user
+    /// types in it. Without a probe a window assumes the address bar has the
+    /// focus only while it holds an unsubmitted edit.
+    pub fn set_focus_probe(&self, probe: impl Fn() -> Option<WidgetId> + 'static) {
+        *self.focus.borrow_mut() = Some(Box::new(probe));
+    }
+
+    /// Whether `widget` has the focus: `None` when there is no probe.
+    pub(crate) fn has_focus(&self, widget: WidgetId) -> Option<bool> {
+        self.focus
+            .borrow()
+            .as_ref()
+            .map(|probe| probe() == Some(widget))
     }
 
     /// The filesystem.
@@ -96,15 +112,8 @@ impl Explorer {
         self.platform.home()
     }
 
-    /// The registry, for a test that checks duplicate/close behaviour.
-    pub fn registry(&self) -> &Registry<WindowHandle<Msg>> {
-        &self.registry
-    }
-
-    /// Builds the primary (root) window for `path` and records it so a later
-    /// request to open the same folder is a no-op.
+    /// Builds the first window, showing `path`.
     pub fn open_root(self: &Rc<Self>, ui: &mut Ui<Msg>, path: PathBuf) -> ExplorerWindow {
-        self.registry.register_primary(path.clone());
         ExplorerWindow::new(ui, Rc::clone(self), path).expect("the explorer's widgets built")
     }
 
@@ -122,41 +131,30 @@ impl Explorer {
         (window, found)
     }
 
-    /// Opens `path` in its own window unless a window already shows it. Returns
-    /// whether a new window was opened.
-    pub fn open_or_reuse(self: &Rc<Self>, ui: &Ui<Msg>, path: PathBuf) -> bool {
-        if self.registry.is_open(&path) {
-            return false;
-        }
+    /// Opens `path` in a new window that starts with `options` (the opener's
+    /// view and sort). Returns whether the window opened.
+    pub fn open_window(self: &Rc<Self>, ui: &Ui<Msg>, path: PathBuf, options: ViewOptions) -> bool {
         self.launcher
             .hint_open_origin(ui.window().raw(), open_tile_px(ui.dpi()));
         let shell = Rc::clone(self);
-        let child_path = path.clone();
-        let spec = window_spec(&path);
-        // `open_window` is called with no registry borrow held. It runs the
-        // child's build (and drains its first messages) synchronously.
-        match ui.open_window(spec, move |ui| {
-            ExplorerWindow::new(ui, shell, child_path).expect("the explorer's widgets built")
-        }) {
-            Ok(handle) => {
-                self.registry.register(path, handle);
-                true
-            }
-            Err(_) => false,
-        }
+        let spec = PlatformSpec::new(title(&path)).size(WINDOW_WIDTH, WINDOW_HEIGHT);
+        // `open_window` runs the child's build (and drains its first
+        // messages) synchronously; nothing of the shell is borrowed across it.
+        ui.open_window(spec, move |ui| {
+            ExplorerWindow::with_options(ui, shell, path, options)
+                .expect("the explorer's widgets built")
+        })
+        .is_ok()
     }
 
-    /// Closes every secondary window showing `dir` or a folder below it.
-    pub fn close_under(&self, dir: &Path) {
-        self.registry.close_under(dir);
-    }
-
-    /// Sends [`Msg::Refresh`] to every other window showing `dir`.
-    pub fn refresh_windows_showing(&self, dir: &Path, except: WindowId) {
-        let handles = self.registry.handles_at(dir);
-        for handle in handles {
-            if handle.window() != except {
-                handle.send(Msg::Refresh);
+    /// Sends [`Msg::Refresh`] to every window other than `except` that shows
+    /// `dir` or a folder below it (a folder that was deleted makes its window
+    /// climb to the nearest folder still there).
+    pub fn refresh_under(&self, dir: &Path, except: Option<WindowId>) {
+        for state in self.views.all() {
+            let skipped = except.is_some_and(|except| except.raw() == state.window);
+            if !skipped && is_within(&state.dir, dir) {
+                let _ = state.proxy.send(Msg::Refresh);
             }
         }
     }
@@ -169,14 +167,23 @@ impl Explorer {
         }
     }
 
+    /// The folder every open window shows, in no particular order.
+    pub fn open_dirs(&self) -> Vec<PathBuf> {
+        self.views
+            .all()
+            .into_iter()
+            .map(|state| state.dir)
+            .collect()
+    }
+
     /// What window `window` (a raw window id) shows, while it is open.
     pub fn view_state(&self, window: u64) -> Option<ViewState> {
         self.views.get(window)
     }
 
     /// Records what a window shows.
-    pub(crate) fn publish_view(&self, window: u64, state: ViewState) {
-        self.views.publish(window, state);
+    pub(crate) fn publish_view(&self, state: ViewState) {
+        self.views.publish(state);
     }
 
     /// Forgets a closed window.
@@ -201,9 +208,4 @@ impl Explorer {
 /// about an icon plus its label, so the wireframe leaves the whole tile.
 pub fn open_tile_px(dpi: u32) -> i32 {
     Dip(OPEN_TILE_DIP).to_px(dpi).value()
-}
-
-/// The [`PlatformSpec`] a folder window opens with.
-fn window_spec(path: &Path) -> PlatformSpec {
-    PlatformSpec::new(title(path)).size(WINDOW_WIDTH, WINDOW_HEIGHT)
 }
