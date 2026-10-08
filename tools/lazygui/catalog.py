@@ -18,10 +18,10 @@ from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-expor
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
-from .drivers import device_flags, driver_env  # noqa: F401 (re-exported)
+from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
@@ -191,6 +191,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # Places the Doom package (built by `tools/doom/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
         env["LAZYOS_DOOM"] = "1"
+    if cfg.get("emusic"):
+        # Places the emusic package (built by `tools/emusic/build.py`) in
+        # /system/share/samples; a user installs it through pkgd.
+        env["LAZYOS_EMUSIC"] = "1"
     if cfg.get("modplayer"):
         # Places modplayer.lzp (built by `tools/lazyrad/package.py`) in /system/share/samples on the OS
         # volume; the player it carries is LazyRAD's, so LazyRAD comes too.
@@ -290,6 +294,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("doom") and not cfg["skip_build"]:
             # run_demo builds the package and sets LAZYOS_DOOM itself.
             argv.append("--doom")
+        if cfg.get("emusic") and not cfg["skip_build"]:
+            # run_demo builds the package, adds a sound card and sets LAZYOS_EMUSIC.
+            argv.append("--emusic")
         if cfg.get("modplayer") and not cfg["skip_build"]:
             # run_demo builds LazyRAD and the package and sets the switches.
             argv.append("--modplayer")
@@ -358,7 +365,7 @@ def build_plan(cfg: dict) -> list[dict]:
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
                 "--memory", cfg["memory"], "--image", IMAGE]
-        argv += net_flags(cfg)
+        argv += net_flags(cfg) + session_sound(cfg)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         steps.append({"label": "Capture screenshots", "argv": argv})
@@ -382,7 +389,7 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["tablet"]:
             argv.append("--tablet")
-        argv += net_flags(cfg)
+        argv += net_flags(cfg) + session_sound(cfg)
         steps.append({"label": f"Session: {label}", "argv": argv})
 
     elif mode == "Kernel test suite":

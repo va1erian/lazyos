@@ -28,6 +28,14 @@ def doom_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/doom/build.py", "--require"]}]
 
 
+def emusic_step(cfg: dict) -> list[dict]:
+    """The step that builds the emusic package, when the image embeds it."""
+    if not cfg.get("emusic"):
+        return []
+    return [{"label": "Build emusic package",
+             "argv": [PY, "tools/emusic/build.py", "--require"]}]
+
+
 def modplayer_step(cfg: dict) -> list[dict]:
     """The step that packages the LazyRAD MOD player, when the image embeds it
     (after `lazyrad_step`: the package carries the player it built)."""
@@ -113,5 +121,6 @@ def desktop_app_argv(cfg: dict) -> list[str]:
 
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
-    return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + linuxapps_step(cfg)
+    return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + emusic_step(cfg)
+            + linuxapps_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + mail_step(cfg))

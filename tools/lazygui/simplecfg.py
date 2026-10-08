@@ -26,7 +26,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
-                  pictures: bool = False) -> dict:
+                  pictures: bool = False, emusic: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -46,7 +46,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     Desktop's login screen and logs ``user`` in (issue #623); ``setup`` starts
     the Desktop with no account, so the login screen asks for its owner (the
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
-    the Picture Viewer (Desktop only, docs/lazyrad-pictures.md). Machine settings
+    the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
+    the emusic package (Desktop only, like ``doom``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -87,6 +88,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "shell": desktop and shell,
         "devices": desktop and devices,
         "doom": desktop and doom,
+        "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
         "net": net or tls,
         "net_forwards": "",

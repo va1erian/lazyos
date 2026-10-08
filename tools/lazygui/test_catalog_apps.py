@@ -62,6 +62,43 @@ class DoomTests(unittest.TestCase):
         self.assertEqual(catalog.app_steps({}), [])
 
 
+class EmusicTests(unittest.TestCase):
+    """The launcher can put the emusic package on the image
+    (`/system/share/samples/emusic.lzp`), from both tabs and run_demo."""
+
+    base = DoomTests.base
+
+    def test_the_switch_sets_the_embed_variable(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "emusic": True})
+        self.assertEqual(env["LAZYOS_EMUSIC"], "1")
+        self.assertNotIn("LAZYOS_EMUSIC", catalog.build_env({**self.base(), "desktop": True}))
+
+    def test_simple_desktop_can_include_it_and_cli_cannot(self) -> None:
+        self.assertTrue(catalog.simple_config(demo_config(), "dev", "Desktop", emusic=True)["emusic"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", emusic=True)["emusic"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["emusic"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--emusic", demo_argv(emusic=True, skip_build=False))
+        self.assertNotIn("--emusic", demo_argv(skip_build=False))
+        self.assertNotIn("--emusic", demo_argv(emusic=True, skip_build=True))
+
+    def test_session_modes_build_the_package_before_the_image(self) -> None:
+        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+               "accel": "auto", "memory": "1G", "qemu": "", "out": "shots",
+               "timeout": "300", "tablet": False, "script": 0, "emusic": True}
+        plan = catalog.build_plan(cfg)
+        labels = [step["label"] for step in plan]
+        at = labels.index("Build image (cargo build)")
+        self.assertEqual(labels[at - 1], "Build emusic package")
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/emusic/build.py", "--require"])
+
+    def test_it_builds_after_doom(self) -> None:
+        steps = catalog.app_steps({"doom": True, "emusic": True})
+        self.assertEqual([s["argv"][1] for s in steps],
+                         ["tools/doom/build.py", "tools/emusic/build.py"])
+
+
 class ModPlayerTests(unittest.TestCase):
     """The LazyRAD MOD player as a package (`/system/share/samples/modplayer.lzp`, then `pkgctl
     install`), from the Simple tab, the Advanced tab and run_demo."""

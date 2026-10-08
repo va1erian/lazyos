@@ -73,6 +73,62 @@ Choices, each reversible:
 | **P4** | lazyos | `tools/emusic/run.py`: boot, play a fixture of known tones (A4 2 s then C5 2 s), record with `-audiodev wav`, judge frequency and timing, a seek lands on the second tone, pause records silence, volume 0.5 is -6 dB; `test_judge.py` proves the judge can fail. | Judge passes under WHPX/KVM |
 | **Later** | | Extract the seam into `libs/mediaplay` (+ `Format` registry, `play` shell command, rhai module, gapless via LAME delay/padding, other formats), when a second consumer asks. | n/a |
 
+## Status (2026-10-08)
+
+P1a to P4 are implemented: emusic's branch `feat/lazyos-port` (pinned in
+`emusic/Cargo.toml`) and this tree's `emusic/`, `tools/emusic/`,
+`LAZYOS_EMUSIC=1`, `run_demo.py --emusic` and the launcher's emusic boxes.
+emusic opens an MP3 from `mimed`, plays it through `audiod` with the clock
+following what played, and the recorded sound check passes the judge.
+
+How it differs from the plan above:
+
+- **P1a** bumps `xui` to the revision LazyOS pins (`6d7bb7c`) without
+  rewriting the views as layouts: `make(ui, builder)` (frontend-portable
+  `make.rs`) realises one `arrange` builder through a throwaway mount, so the
+  hand-placed views keep their code; the Settings `FormPage` places its rows
+  from a `FormContent` leaf inside the scroll view's layout. A real layout
+  migration stays possible, view by view.
+- **`bass` is not feature-gated**: it is only a `libloading` wrapper and
+  compiles for musl; nothing opens it on LazyOS, because a host passes its own
+  `AudioBackend` (`emusic_ui::backend::build_with`, `run_on(Host)`). SID is
+  gated (`emusic-sid/engine`, `emusic-player/sid`), the dialogs go through
+  `emusic_ui::file_picker` (rfd behind the `rfd` feature) and the canvas
+  backend through the `winit` feature.
+- **The `PlaybackStream` output lives in this tree** (`emusic/src/audiod.rs`),
+  not in `emusic-lazyaudio`, so emusic depends on nothing from LazyOS;
+  `output.rs` there holds the `Output` trait and the in-memory sink the tests
+  use.
+- **P4 runs a headless sound check** (`emusic.elf --sound-check`): the backend
+  itself, through `audiod`, in a fixed sequence (whole track, seek, pause,
+  half volume), judged by `tools/emusic/judge.py`. The app session (P3) is
+  judged too (`run.py --app`).
+
+Found while bringing it up:
+
+- `audioclient::PlaybackStream::try_write` sizes the free space from the last
+  commit and returns 0 without asking again, so a caller that only uses
+  `try_write` (no blocking `write`) never sees room after the ring fills;
+  `emusic/src/audiod.rs` refreshes with `free_frames`.
+- `audiod` resamples, and holds the last frames of a stream back until more
+  follow: the backend pads the last period and one more.
+- SQLite's WAL needs a shared mapping of its `-shm` file. Without one the
+  `journal_mode = WAL` pragma still succeeds (and marks the file WAL), then
+  every write fails with `SQLITE_IOERR_SHMMAP`; emusic's store now probes WAL
+  on a throwaway file beside the database and otherwise keeps the rollback
+  journal.
+- No inotify (`ENOSYS`): emusic's library watcher is off; rescans still work.
+- BusyBox `mkdir -p ~/Music` fails at `/home` (permission denied where Linux
+  says "exists").
+- QEMU's WAV recorder drops the time no stream plays, so a recording cannot
+  show a pause as silence; the judge splits phases by pitch.
+
+Still open: merging emusic's branch (va1erian/emusic#536; the pin names
+its commit, `--emusic-src <clone>` builds a local one), a LazyOS `FilePicker` (Settings -> Add
+folder answers "cancelled"), automatic CI triggers for
+`.github/workflows/emusic.yml` (it runs on manual dispatch only, like
+`doom.yml`), and the "Later" row.
+
 ## Verification
 
 Sound is judged from the recording, not serial markers (AGENTS.md). Host

@@ -23,6 +23,7 @@ Examples
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
+    python tools/run_demo.py --emusic        # desktop + /system/share/samples/emusic.lzp, with sound
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
@@ -73,8 +74,8 @@ from lazygui.catalog import lazyrad_samples  # noqa: E402
 from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
-    build_pictures, build_rhai, build_tls, build_xui_apps,
+    build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail,
+    build_modplayer, build_pictures, build_rhai, build_tls, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -253,6 +254,7 @@ def main(argv: list[str]) -> int:
             env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
         # Opt-in apps, built before their switch (the MOD player after LazyRAD's).
         for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
+                                      (args.emusic, build_emusic, "LAZYOS_EMUSIC"),
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),

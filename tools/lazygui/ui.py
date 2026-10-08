@@ -95,7 +95,7 @@ class Launcher:
             "shell": self.v["shell"].get(),
             "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
             "devices": self.v["devices"].get(),
-            "doom": self.v["doom"].get(),
+            "doom": self.v["doom"].get(), "emusic": self.v["emusic"].get(),
             "modplayer": self.v["modplayer"].get(),
             "net": self.v["net"].get(),
             "net_forwards": self.v["net_forwards"].get().strip(),
@@ -132,9 +132,8 @@ class Launcher:
         build_simple_tab(scrollable(self.tab_simple), v["simple_build"], v["simple_iface"],
                          v["simple_lazyrad"], v["simple_shell"], v["simple_devices"],
                          v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
-                         v["simple_linuxapps"], v["simple_hidpi"], v["simple_tls"],
-                         v["simple_lazyweb"], v["simple_mail"], v["simple_traydemo"],
-                         v["simple_autologin"], v["simple_setup"], v["simple_pictures"])
+                         *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
+                                                     "traydemo", "autologin", "setup", "pictures", "emusic")))
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -158,6 +157,7 @@ class Launcher:
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
+        self._check(g, "emusic package in /system/share/samples (LAZYOS_EMUSIC)", "emusic")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")

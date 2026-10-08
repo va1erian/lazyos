@@ -103,6 +103,12 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "Freedoom): install it with `pkgctl install "
                              "/system/share/samples/doom.lzp` or by opening it in Files, "
                              "then start Doom from the menu")
+    parser.add_argument("--emusic", action="store_true",
+                        help="the desktop profile with the emusic package at "
+                             "/system/share/samples/emusic.lzp (LAZYOS_EMUSIC=1; builds it "
+                             "with tools/emusic/build.py, which fetches emusic) and a sound "
+                             "card: copy it to your home and install it with `pkgctl "
+                             "install`, or open it in Files, then start emusic from the menu")
     parser.add_argument("--modplayer", action="store_true",
                         help="the desktop profile with LazyRAD, its MOD player sample at "
                              "/system/share/lazyrad/modplayer and the same app packaged at "
@@ -177,7 +183,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
-    if args.modplayer and not args.sound:
+    if (args.modplayer or args.emusic) and not args.sound:
         args.sound = "auto"
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
@@ -185,8 +191,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # as do the desktop-only apps (Doom, LazyWeb, Mail, the Picture Viewer, the
     # tray demo) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
-    args.desktop = (args.desktop or args.devices or args.doom or args.lazyrad or args.lazyweb
-                    or args.mail or args.pictures or args.traydemo or args.setup)
+    args.desktop = (args.desktop or args.devices or args.doom or args.emusic or args.lazyrad
+                    or args.lazyweb or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
     args.net = args.net or args.tls or args.smb

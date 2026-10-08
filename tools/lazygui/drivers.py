@@ -10,6 +10,10 @@ Interrupt routing (issue #616) is `LAZYOS_IRQCHIP` (`--irqchip`) and
 
 from __future__ import annotations
 
+import os
+
+from demo_qemu import sound_args
+
 from .netplan import wants_net
 
 #: `run_demo.py --sound-card` values, default first.
@@ -51,3 +55,16 @@ def device_flags(cfg: dict) -> list[str]:
     if not cfg.get("msi", True):
         flags.append("--no-msi")
     return flags
+
+
+def session_sound(cfg: dict) -> list[str]:
+    """The sound card for the headless modes (screenshots, scripted
+    sessions), as `--extra-arg` flags: when the run asks for sound or carries
+    an app that plays it (emusic). The card records to `<out>/sound.wav`
+    instead of the host's speakers, so a headless run stays quiet and leaves
+    a recording to judge."""
+    if not (cfg.get("sound") or cfg.get("emusic")):
+        return []
+    wav = os.path.join(cfg.get("out") or ".", "sound.wav")
+    card = cfg.get("sound_card", SOUND_CARDS[0])
+    return [f"--extra-arg={arg}" for arg in sound_args(f"wav:{wav}", card)]

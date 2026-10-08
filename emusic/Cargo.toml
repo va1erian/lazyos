@@ -1,0 +1,57 @@
+# emusic on LazyOS (docs/media-plan.md): va1erian/emusic's portable frontend
+# and player, fetched at a pinned revision, on the `xuid` compositor through
+# `xui-app`'s backend, playing MP3s through `audiod` with emusic's
+# `emusic-lazyaudio` backend. Shipped as the `.lzp` package `org.lazy.emusic`.
+[package]
+name = "lazyemusic"
+version = "0.1.0"
+edition = "2024"
+publish = false
+# emusic is MIT, symphonia MPL-2.0; this wrapper and the LazyOS libraries it
+# links are GPL-3.0-or-later, so the binary is distributed under the GPL
+# (see NOTICE).
+license = "GPL-3.0-or-later"
+description = "emusic (music player and library) as a LazyOS desktop app"
+
+# A standalone workspace, like `doom/`: a static-musl program built by
+# `tools/emusic/build.py` with the zig toolchain (SQLite is C). The OS
+# workspace never builds it.
+[workspace]
+resolver = "3"
+
+[lib]
+name = "lazyemusic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lazyemusic"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+# The `Output` the backend plays into: `PlaybackStream` over `audiod`, and
+# the musl transport (`xui_app::platform::audio::Audio`).
+audioclient = { path = "../libs/audioclient" }
+# The window backend (`LazyOSBackend`) and the musl audio transport.
+xui-app = { path = "../xui-app" }
+# `Backend`, for the host description; the revision `xui-app` pins, so one
+# `xui_core` links (emusic's frontend pins the same one).
+xui-core = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93" }
+# Every well-known path (the app's per-user folder).
+fhs = { path = "../libs/fhs", features = ["alloc"] }
+# emusic at the revision `tools/emusic/build.py` pins (EMUSIC_REV there).
+# `--emusic-src PATH` builds a local checkout instead through a `[patch]`.
+# No BASS, SID or platform dialogs: none exist on LazyOS.
+emusic-ui = { git = "https://github.com/va1erian/emusic", rev = "15ecbc73af3443e694b917fc5911047ff7f83d4c", default-features = false }
+emusic-frontend-portable = { git = "https://github.com/va1erian/emusic", rev = "15ecbc73af3443e694b917fc5911047ff7f83d4c", default-features = false }
+emusic-lazyaudio = { git = "https://github.com/va1erian/emusic", rev = "15ecbc73af3443e694b917fc5911047ff7f83d4c" }
+emusic-player = { git = "https://github.com/va1erian/emusic", rev = "15ecbc73af3443e694b917fc5911047ff7f83d4c", default-features = false }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = "symbols"

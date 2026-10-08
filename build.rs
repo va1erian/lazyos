@@ -25,6 +25,8 @@ mod doom_embed;
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/emusic_embed.rs"]
+mod emusic_embed;
 #[path = "build_support/evidence_embed.rs"]
 mod evidence_embed;
 #[path = "build_support/hosts_embed.rs"]
@@ -433,6 +435,8 @@ fn main() {
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
     // through pkgd.
     doom_embed::embed(&mut files, &manifest_dir);
+    // The emusic package (`LAZYOS_EMUSIC=1`), a sample user package too.
+    emusic_embed::embed(&mut files, &manifest_dir);
     // The LazyRAD MOD player package (`LAZYOS_MODPLAYER=1`) in /system/share/samples.
     modplayer_embed::embed(&mut files, &manifest_dir);
     builder

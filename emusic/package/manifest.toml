@@ -1,0 +1,35 @@
+# emusic as an installable package (docs/packages.md, docs/media-plan.md).
+#
+# Only this manifest, the icons, the docs and the sample track are checked in:
+# `tools/emusic/build.py` adds `bin/emusic.elf` (va1erian/emusic at a pinned
+# revision with its LazyOS backend, built with zig for SQLite) and the licence
+# files before it builds `target/pkg/emusic.lzp`.
+
+[app]
+name = "emusic"
+system_name = "org.lazy.emusic"
+author = "emusic (va1erian/emusic); LazyOS port"
+version = "0.1.0"
+description = "A music player and library. Plays MP3s through the system mixer; add a folder in Settings or open an MP3 from Files. Sample track: resources/tones.mp3 in its install folder."
+category = "accessories"
+
+[entry]
+binary = "bin/emusic.elf"
+# A desktop app is a client of the `xuid` compositor; `init` appends the file
+# to open, if any.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+
+# MP3s open in emusic (mimed maps `.mp3` to `audio/mpeg`).
+[[mime]]
+type = "audio/mpeg"
+verbs = ["open", "play"]
+
+[permissions]
+# The compositor for its window, `inputd` for its keyboard, the system mixer
+# for its sound, the clipboard for "copy path".
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.audio.v1", "os.lazy.clipboard.v1"]
+# Its config, library database and thumbnails in its own folder; the music
+# where people keep it.
+files = ["write:$HOME/.apps/org.lazy.emusic", "read:$HOME/Music", "read:$HOME/Downloads"]

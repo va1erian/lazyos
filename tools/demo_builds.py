@@ -1,7 +1,7 @@
 """The optional build steps `run_demo.py` runs before `cargo build`.
 
 Each runs one tool script quietly and reports a failure in one line; the
-explicitly requested ones (`--lazyrad`, `--doom`, `--modplayer`, `--pictures`,
+explicitly requested ones (`--lazyrad`, `--doom`, `--emusic`, `--modplayer`, `--pictures`,
 `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return False so the run stops instead of booting
 an image without what was asked for.
 """
@@ -58,6 +58,13 @@ def build_doom() -> bool:
     """The Doom package (`tools/doom/build.py`: engine, Freedoom, then
     `target/pkg/doom.lzp`); a missing toolchain or download stops the run."""
     return required("Doom", "doom/build.py", ("--require",))
+
+
+def build_emusic() -> bool:
+    """The emusic package (`tools/emusic/build.py`: the program, then
+    `target/pkg/emusic.lzp`); `EMUSIC_SRC` names a local emusic clone. A
+    missing toolchain or download stops the run."""
+    return required("emusic", "emusic/build.py", ("--require",))
 
 
 def build_modplayer() -> bool:

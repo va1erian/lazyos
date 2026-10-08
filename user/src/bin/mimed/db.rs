@@ -48,6 +48,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("7z", "application/x-7z-compressed"),
     // PDF documents, opened by the PDF Viewer (docs/pdf-reader-plan.md).
     ("pdf", "application/pdf"),
+    // MP3 audio, opened by emusic when it is installed (docs/media-plan.md).
+    ("mp3", "audio/mpeg"),
     ("c", "text/x-c"),
     ("h", "text/x-c"),
 ];

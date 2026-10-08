@@ -1,0 +1,82 @@
+name: emusic
+
+# emusic as an installable package (docs/media-plan.md P3-P4, emusic/README.md).
+# Host-tests the LazyOS layer and the judge, builds `emusic.elf` with zig
+# (emusic fetched at the revision emusic/Cargo.toml pins), packs `emusic.lzp`,
+# and boots the desktop twice with a recorded sound card: the sound check
+# (whole track, seek, pause, half volume) and the app opening the sample track
+# through mimed. The verdict is the recording, judged by tools/emusic/judge.py.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emusic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emusic:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: emusic
+          workspaces: |
+            . -> target
+            xui-app -> target
+            emusic -> target
+
+      - name: Pin and cache the zig global cache
+        shell: bash
+        run: echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-0.16.0-${{ runner.os }}
+
+      - name: Install zig
+        run: python -m pip install ziglang==0.16.0
+
+      - name: Host tests (emusic layer, judge, sessions, package builder)
+        run: |
+          cargo test --manifest-path emusic/Cargo.toml --lib
+          cargo clippy --manifest-path emusic/Cargo.toml --lib --tests -- -D warnings
+          python tools/emusic/test_judge.py
+          python tools/emusic/session.py --check
+          python tools/emusic/make_tones.py --check
+          python tools/pkg/test_build.py
+
+      - uses: ./.github/actions/busybox
+
+      - name: Build, record and judge (sound check and app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/rhai/build.py > /dev/null
+          python tools/emusic/run.py --app
+
+      - name: Upload screenshots, recordings and serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emusic-guest
+          path: |
+            shots/emusic/*.png
+            shots/emusic/*.wav
+            shots/emusic/serial.log
+            shots/emusic_sound/*.png
+            shots/emusic_sound/*.wav
+            shots/emusic_sound/serial.log
