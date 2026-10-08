@@ -79,6 +79,13 @@ Absorbs the open parts of #447 and phase 3 of the hardening plan.
 
 - Graphical login is the default on desktop images (`sys/session/mode`
   shipped as `graphical`), with **logout** ending every task in the session.
+  The session's apps are stopped first by the rule `init.Stop` and the
+  shutdown share (issue #651): `Quit` for an app that watches its lifecycle
+  or is resident, `SIGTERM` for any other, a kill once 3 s have passed since
+  the logout; then every task left in the session (the Terminal's shell) is
+  killed. `init` holds the login screen's launch until then
+  (`INIT:LOGOUT:BEGIN`, `INIT:LOGOUT:PASS ... ticks=<n>`), so it comes back
+  once the apps are gone and never later than 3.5 s.
   `LAZYOS_AUTOLOGIN=<name>` (a `run_demo.py --autologin` flag and a GUI
   control) logs straight in for development and the screenshot sessions,
   through the same session path as a typed password.

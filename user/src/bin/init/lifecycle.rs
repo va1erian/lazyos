@@ -12,16 +12,19 @@
 //!   starts nothing: its args reach the instance as `Reopen`, or wait in the
 //!   row's queue (at most [`REOPEN_QUEUE`], the oldest dropped) until it
 //!   watches.
-//! * **Quit.** A `Stop` of an app that watches, or of a resident app that
-//!   may still come to watch, sends `Quit(grace)` and leaves it
-//!   [`GRACE_TICKS`] (a hard 3 s counted from the `Stop`) before the kill;
-//!   any other app is killed at once, as before. The `Stop` itself is
+//! * **Stop.** One rule for every path that stops a launched app (`Stop`,
+//!   a logout, the shutdown's apps stage; `svcpolicy::stop_mode`, issue
+//!   #651): an app that watches, or a resident app that may still come to
+//!   watch, gets `Quit(grace)`; any other gets `SIGTERM`. Either way it is
+//!   killed once `svcpolicy::QUIT_GRACE_TICKS` (a hard 3 s counted from the
+//!   request, never extended) have passed ([`begin_stop`]). A `Stop` is
 //!   answered only once every target has been reaped ([`Stops`]).
 //!
 //! Serial: `INIT:APP:WATCH app=<id> pid=<n>`, `INIT:APP:REOPEN:SENT|QUEUED
-//! app=<id>`, `INIT:APP:REOPEN:DROPPED app=<id>`, `INIT:APP:QUIT:SENT
-//! app=<id> grace_ms=<n>`, `INIT:APP:QUIT:TIMEOUT app=<id> pid=<n>`,
-//! `INIT:STOP:DONE app=<id> stopped=<n>`.
+//! app=<id>`, `INIT:APP:REOPEN:DROPPED app=<id>`, `INIT:APP:QUIT:SENT|HELD
+//! app=<id> grace_ms=<n>`, `INIT:APP:TERM:SENT app=<id> grace_ms=<n>`,
+//! `INIT:APP:QUIT:TIMEOUT app=<id> pid=<n>`, `INIT:STOP:DONE app=<id>
+//! stopped=<n>`.
 
 use alloc::collections::VecDeque;
 use alloc::format;
@@ -34,14 +37,14 @@ use messenger_generated::os_lazy_init_app_v1 as app_wire;
 use user::messenger::{self, services, Endpoint, Message, Parcel};
 use user::sys;
 
+use svcpolicy::{quit_deadline, stop_mode, StopMode};
+
 use super::service::{Phase, Service};
 
 /// The interface served on [`APP_NAME`].
 pub(super) const APP_INTERFACE: u64 = app_wire::INTERFACE_ID;
 /// The name `os.lazy.init.app.v1` is served under.
 pub(super) const APP_NAME: &str = "os.lazy.init.app";
-/// The quit grace: 3 s at 100 Hz, for every app (no per-package override).
-pub(super) const GRACE_TICKS: u64 = 300;
 /// Most `Reopen`s queued for an instance that does not watch yet.
 pub(super) const REOPEN_QUEUE: usize = 16;
 /// Milliseconds per PIT tick.
@@ -222,20 +225,63 @@ pub(super) fn reopen(row: &mut Service, args: &str) {
     sys::write_str(&format!("INIT:APP:REOPEN:QUEUED app={name}\n"));
 }
 
-/// Whether a `Stop` of `row` gives it a grace rather than an instant kill:
-/// it watches, or it is resident and may still come to watch.
-pub(super) fn graceful(row: &Service) -> bool {
-    row.life.watching() || row.life.resident
+/// Start stopping the launched `row` at `now` by the one rule
+/// (`svcpolicy::stop_mode`): `Quit` for an app that watches or is resident,
+/// `SIGTERM` for any other, a plain retire for a row that holds no task. A
+/// row given a grace is `Stopping` until it exits (its exit retires it,
+/// `supervise::quit_completed`) or the deadline's kill ([`sweep`], or the
+/// shutdown's own `expire`).
+pub(super) fn begin_stop(row: &mut Service, now: u64) -> StopMode {
+    let mode = stop_mode(row.pid != 0, row.life.watching(), row.life.resident);
+    match mode {
+        StopMode::Retire => {
+            row.phase = Phase::Stopped;
+            row.pid = 0;
+            row.last_status = None;
+        }
+        StopMode::Quit => begin_quit(row, now),
+        StopMode::Terminate => begin_terminate(row, now),
+    }
+    mode
+}
+
+/// Mark `row` stopping on request from `now`: the grace runs, nothing it
+/// queued is delivered, and its exit is never taken for a crash.
+fn enter_grace(row: &mut Service, now: u64) {
+    row.phase = Phase::Stopping;
+    row.stop_deadline = quit_deadline(now);
+    row.killed = false;
+    row.life.quit = true;
+    row.life.reopens.clear();
+}
+
+/// `SIGTERM` an app with no lifecycle channel; killed at the grace's end.
+fn begin_terminate(row: &mut Service, now: u64) {
+    enter_grace(row, now);
+    match sys::kill(row.pid, sys::SIG_TERM) {
+        // Gone already: its exit is queued for the supervision loop.
+        Ok(()) | Err(-3) => {}
+        Err(code) => sys::write_str(&format!(
+            "INIT:STOP:TERM:FAIL app={} pid={} errno={code}\n",
+            row.name, row.pid
+        )),
+    }
+    sys::write_str(&format!(
+        "INIT:APP:TERM:SENT app={} grace_ms={}\n",
+        row.name,
+        grace_left(row.stop_deadline, now)
+    ));
+}
+
+/// Whether `row` was asked to stop and is still waiting out its grace.
+pub(super) fn quitting(row: &Service) -> bool {
+    row.life.quit && row.phase == Phase::Stopping
 }
 
 /// Start `row`'s graceful quit at `now`: `Quit` now if it watches, else at
 /// its `Watch`; killed at the end of the grace either way.
-pub(super) fn begin_quit(row: &mut Service, now: u64) {
-    row.phase = Phase::Stopping;
-    row.stop_deadline = now.saturating_add(GRACE_TICKS);
-    row.killed = false;
-    row.life.quit = true;
-    row.life.reopens.clear();
+fn begin_quit(row: &mut Service, now: u64) {
+    enter_grace(row, now);
     let grace = grace_left(row.stop_deadline, now);
     match row.life.watch {
         Some(watch) if send_quit(&watch, grace) => sys::write_str(&format!(

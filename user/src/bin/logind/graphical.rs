@@ -53,6 +53,10 @@ const CALL_TICKS: u64 = 300;
 /// How long to wait before trying again what could not be done (a service
 /// not registered yet, a launch refused for a full task table).
 const RETRY_TICKS: u64 = 100;
+/// How soon a refused login-screen launch is tried again: `init` holds it
+/// while a logout's apps are still quitting (issue #651, at most 3.5 s), and
+/// the screen should come back as soon as they are gone.
+const GREETER_RETRY_TICKS: u64 = 20;
 /// The account the build logs straight in (`LAZYOS_AUTOLOGIN`, resolved by
 /// `user/build.rs`): empty for none.
 const AUTOLOGIN: &str = env!("LAZYOS_AUTOLOGIN_NAME");
@@ -117,6 +121,7 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
     loop {
         desktop.connect();
         let mut retry = false;
+        let mut soon = false;
         if desktop.active.is_none() && !desktop.greeter {
             if !desktop.autologin_tried && desktop.accounts.is_some() {
                 desktop.autologin_tried = true;
@@ -125,13 +130,17 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
             if desktop.active.is_none() && desktop.autologin_tried {
                 match desktop.show_greeter() {
                     Ok(()) => {}
-                    Err(true) => retry = true,
+                    Err(true) => soon = true,
                     Err(false) => return Ok(()),
                 }
             }
             retry |= desktop.accounts.is_none();
         }
-        let deadline = retry.then(|| sys::clock() + RETRY_TICKS);
+        let deadline = if soon {
+            Some(sys::clock() + GREETER_RETRY_TICKS)
+        } else {
+            retry.then(|| sys::clock() + RETRY_TICKS)
+        };
         let message = match server.recv_with(buffer, deadline) {
             Ok(message) => message,
             Err(messenger::Error::Errno(code)) if code == -errno::ETIMEDOUT => continue,

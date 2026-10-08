@@ -234,9 +234,14 @@ resident = true       # new: may run with no window; single instance; always in 
   the same either way. The queue is per instance and dropped with it; past
   16 entries the oldest go (repeated launches of a starting app). Reacting
   to them is the app's job (§5.1).
-- **Quit.** `init.Stop` (the tray's Quit row, logout, `pkgd` removing the
-  package) sends `Quit(grace_ms)` first and kills the app only if it is still
-  running after the grace period. The grace is a fixed **3 s** for every
+- **Quit.** `init.Stop` (the tray's Quit row, `pkgd` removing the
+  package), a logout and the shutdown's apps stage all stop an app by one
+  rule (`svcpolicy::stop_mode`, issue #651): `Quit(grace_ms)` for an app
+  that watches its lifecycle or is resident, `SIGTERM` for one with no
+  channel, and a kill only if it is still running after the grace period.
+  A logout counts the grace from the logout and kills the session's other
+  tasks (the Terminal's shell) only once its apps are gone or the grace has
+  ended; the login screen waits for that, and no longer. The grace is a fixed **3 s** for every
   app, with no per-package override and no "this app is not responding"
   dialog: an app that has not exited by then is killed quietly
   (`INIT:APP:QUIT:TIMEOUT` on serial, a line in the service log).

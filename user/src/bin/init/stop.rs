@@ -1,20 +1,22 @@
 //! `init`'s `Stop(app)`: end every running instance of an app, for the tray's
-//! Quit row, a logout, or the package manager removing it (`pkgd` calls this
-//! before it deletes the app's files and revokes its policy, so nothing keeps
-//! running on a policy that is gone).
+//! Quit row or the package manager removing it (`pkgd` calls this before it
+//! deletes the app's files and revokes its policy, so nothing keeps running
+//! on a policy that is gone).
 //!
-//! An app that watches its lifecycle (or a resident app, which may still
-//! come to watch) is asked to quit and given a hard 3 s grace counted from
-//! the `Stop` ([`super::lifecycle`]); any other instance is killed at once
-//! with the native `kill` syscall (28). Either way the row is retired before
-//! its exit is reaped, so the restart policy never respawns what was stopped
-//! on purpose, and the `Stop` is answered only once every target has exited
-//! (docs/tray-plan.md section 5): the caller learns of the reap, not of a
-//! signal still in flight.
+//! Each instance is stopped by the one rule a logout and the shutdown share
+//! ([`lifecycle::begin_stop`], issue #651): `Quit` for an app that watches
+//! its lifecycle (or a resident app, which may still come to watch),
+//! `SIGTERM` for any other, and a kill once a hard 3 s grace counted from the
+//! `Stop` has passed. The row is marked stopping before its exit is reaped,
+//! so the restart policy never respawns what was stopped on purpose, and the
+//! `Stop` is answered only once every target has exited (docs/tray-plan.md
+//! section 5): the caller learns of the reap, not of a signal still in
+//! flight.
 
 use alloc::format;
 use alloc::vec::Vec;
 
+use svcpolicy::StopMode;
 use user::messenger::{self, router};
 use user::sys::{self, Cred as SysCred};
 
@@ -73,27 +75,14 @@ pub(super) fn stop_app(
             // Already quitting from an earlier `Stop`: just wait for it too.
             continue;
         }
-        if pid != 0 && lifecycle::graceful(row) {
-            lifecycle::begin_quit(row, now);
-            publish_state(broker, row, "stopping", pid, 0, 0, "quit on request");
-            continue;
-        }
-        // Retire the row first: the exit that follows must not look like a
-        // crash to the restart policy.
-        row.phase = Phase::Stopped;
-        row.pid = 0;
-        row.last_status = None;
-        if pid != 0 {
-            match sys::kill(pid, sys::SIG_KILL) {
-                Ok(()) => {}
-                // Already gone: the goal is met, and there is no exit to wait for.
-                Err(-3) => stopped.pids.retain(|&target| target != pid),
-                Err(code) => sys::write_str(&format!(
-                    "INIT:STOP:KILL:FAIL app={app} pid={pid} errno={code}\n"
-                )),
+        match lifecycle::begin_stop(row, now) {
+            StopMode::Retire => {
+                publish_state(broker, row, "stopped", 0, 0, 0, "stopped on request")
+            }
+            StopMode::Quit | StopMode::Terminate => {
+                publish_state(broker, row, "stopping", pid, 0, 0, "quit on request")
             }
         }
-        publish_state(broker, row, "stopped", 0, 0, 0, "stopped on request");
     }
     sys::write_str(&format!(
         "INIT:STOP:PASS app={app} stopped={}\n",

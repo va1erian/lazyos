@@ -16,6 +16,8 @@ nothing went wrong on the way:
 * when `pkgd` ran, it stopped through the lifecycle contract inside the
   services phase, synced `/logs/pkg.log` (`PKGD:STOP sync=ok|none`) and did so
   before `confd`, which it depends on;
+* when the session ran the Volume applet, the apps phase sent it `Quit` on
+  its lifecycle channel and it quit there (`VOLUME:QUIT:PASS`, issue #651);
 * nothing was killed at a deadline, nothing restarted after the request;
 * the kernel synced the filesystems and did not fall back (no "8042 reset
   ignored", no "no ACPI power-off").
@@ -102,6 +104,7 @@ def judge(log: str, mode: str, desktop: bool = True) -> list[str]:
             failures.append("pkgd stopped after confd, which it depends on")
         if (match := re.search(r"PKGD:STOP sync=(\S+)", tail)) and match.group(1) not in ("ok", "none"):
             failures.append(f"pkgd's final sync of pkg.log failed ({match.group(1)})")
+    failures += judge_volume_quit(log, tail)
     if (match := re.search(r"CONFD:STOP \S+ sync=(\S+)", tail)) and match.group(1) != "ok":
         failures.append(f"confd's final sync failed ({match.group(1)})")
     if (match := re.search(r"LOGD:STOP records=\d+ verified=(\S+)", tail)) and \
@@ -121,6 +124,28 @@ def judge(log: str, mode: str, desktop: bool = True) -> list[str]:
     for line, why in FORBIDDEN:
         if line in tail:
             failures.append(f"{why} ({line!r})")
+    return failures
+
+
+def judge_volume_quit(log: str, tail: str) -> list[str]:
+    """When the Volume applet ran (it opens with every desktop session and
+    watches its lifecycle), the apps stage must have asked it to quit and it
+    must have quit inside that stage (issue #651), not been killed."""
+    before = log[: len(log) - len(tail)]
+    if "INIT:APP:WATCH app=os.lazy.volume" not in before:
+        return []
+    apps = tail.find("INIT:SHUTDOWN:PHASE apps")
+    services = tail.find("INIT:SHUTDOWN:PHASE services")
+    failures = []
+    if "INIT:APP:QUIT:SENT app=os.lazy.volume" not in tail:
+        failures.append("the Volume applet was not sent Quit on its lifecycle channel")
+    quit_at = tail.find("VOLUME:QUIT:PASS")
+    if quit_at < 0:
+        failures.append("the Volume applet never quit (no VOLUME:QUIT:PASS)")
+    elif not apps < quit_at < (services if services >= 0 else len(tail)):
+        failures.append("VOLUME:QUIT:PASS outside the apps phase")
+    if "INIT:APP:QUIT:TIMEOUT" in tail:
+        failures.append("an app ignored its Quit and was killed at the grace")
     return failures
 
 
