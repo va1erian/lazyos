@@ -16,6 +16,7 @@
 //! released. Window state lives in this struct, not in shared cells.
 
 mod actions;
+mod backdrop;
 mod chrome;
 mod clipboard;
 mod keys;
@@ -118,6 +119,9 @@ pub enum Msg {
     SortColumn(usize),
     /// Switch between the icon and the details view.
     ToggleView,
+    /// A click that hit no control (empty toolbar space, the status bar):
+    /// it only closes the menus.
+    Dismiss,
 }
 
 /// One explorer window.
@@ -172,6 +176,7 @@ impl ExplorerWindow {
         let handles = Handles::default();
         ui.root(handles.layout(SharedListing::new(Rc::clone(&listing))))?;
         let chrome = handles.get();
+        ui.register_events(chrome.status.id(), backdrop::dismiss);
         ui.on_key(|key, modifiers| {
             keys::watched(key, modifiers).then_some(Msg::Key(key, modifiers))
         });
@@ -293,7 +298,8 @@ impl ExplorerWindow {
             | Msg::Confirm(_)
             | Msg::PropertiesClosed
             | Msg::RestoreSelection
-            | Msg::AddressEdited => {}
+            | Msg::AddressEdited
+            | Msg::Dismiss => {}
         }
     }
 }
