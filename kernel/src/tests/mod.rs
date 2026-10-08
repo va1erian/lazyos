@@ -192,6 +192,7 @@ mod input_bus_suite;
 mod ipc_channel_suite;
 mod ipc_shared_suite;
 mod ipc_suite;
+mod irq_window_deadline;
 mod irq_window_suite;
 mod keyboard_suite;
 mod label_suite;
