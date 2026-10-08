@@ -17,6 +17,9 @@ fhs = { path = "../libs/fhs", features = ["alloc"] }
 # The parcel codec, shared with the kernel, so client/server parcels round-trip
 # through one implementation (issue #69).
 libmessenger = { path = "../libs/messenger" }
+# Every native syscall (`int 0x80`): numbers, ABI blocks and wrappers shared
+# with the static-musl programs (issue #666).
+lazyos-sys = { path = "../libs/lazyos-sys", features = ["alloc", "devinspect"] }
 # Vetted primitives for `keyd` (issue #102): SHA-256/HMAC/HKDF/Argon2id and the
 # entropy pool. Kernel tests import the same crate, so host KATs cover the code
 # that runs in ring 3.
@@ -86,6 +89,8 @@ framering = { path = "../libs/framering" }
 # The stack `netd` runs: smoltcp over the frame rings, DHCP, the echo path.
 netstack = { path = "../libs/netstack" }
 ftpwire = { path = "../libs/ftpwire" }
+# The SMB 2.1 client protocol for `smb` (docs/smb-plan.md F2).
+smbwire = { path = "../libs/smbwire" }
 # The user-space filesystem protocol (syscall 35), its serve loop and the
 # in-memory tree `memfuse` serves (docs/smb-plan.md F1).
 fused = { path = "../libs/fused" }
@@ -486,6 +491,14 @@ bench = false
 [[bin]]
 name = "ftpfuse"
 path = "src/bin/ftpfuse.rs"
+test = false
+bench = false
+
+# `smb` (docs/smb-plan.md F2): an SMB 2.1 client over `os.lazy.net.socket.v1`,
+# NTLMv2 and signing from `libs/smbwire`. In `LAZYOS_SMB=1` images.
+[[bin]]
+name = "smb"
+path = "src/bin/smb.rs"
 test = false
 bench = false
 

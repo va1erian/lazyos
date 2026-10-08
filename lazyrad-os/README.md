@@ -41,7 +41,8 @@ starts and `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out.
 `samples/` holds LazyOS-only sample projects (`samples/messenger`: confd, a
 change topic and a served method; `samples/modplayer`: the MOD player, also
 packaged as `/system/share/samples/modplayer.lzp` by `tools/lazyrad/package.py` with
-`examples/lzpack.rs`). `run_demo.py --lazyrad` and the GUI
+`examples/lzpack.rs`; `samples/pictures`: the Picture Viewer, the core package
+`os.lazy.pictures` of `LAZYOS_PICTURES=1` images, docs/lazyrad-pictures.md). `run_demo.py --lazyrad` and the GUI
 launcher embed them under `/system/share/lazyrad/` next to any `LAZYRAD_SAMPLES` entries;
 `python tools/rhai/run.py --lazyrad` boots the Messenger one and judges it.
 
@@ -151,6 +152,6 @@ procedure in [`docs/xui-plan.md`](../docs/xui-plan.md): LazyRAD's workspace, thi
 ## Tests
 
 ```bash
-cd lazyrad-os && cargo test    # args, platform, markers, tracker, tests/lzp_conformance.rs, tests/samples.rs, tests/modplayer.rs
+cd lazyrad-os && cargo test    # args, platform, markers, tracker, tests/lzp_conformance.rs, tests/samples.rs, tests/modplayer.rs, tests/pictures.rs
 # LAZYRAD_SAMPLES=<lazyrad>/examples/hello;... adds the real samples to the conformance run
 ```

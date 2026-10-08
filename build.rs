@@ -49,6 +49,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "build_support/os_recover.rs"]
 mod os_recover;
+#[path = "build_support/pictures_embed.rs"]
+mod pictures_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
@@ -378,6 +380,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/pictures_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
     // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in

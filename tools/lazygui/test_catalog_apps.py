@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player, the Linux programs, the HTTPS tools, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools, the SMB client, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -393,6 +393,48 @@ class TrayDemoTests(unittest.TestCase):
             self.assertNotIn("os.lazy.traydemo", script.read())
 
 
+
+class PictureViewerTests(unittest.TestCase):
+    """The Picture Viewer (LAZYOS_PICTURES=1, docs/lazyrad-pictures.md) from the
+    Simple tab, the Advanced tab and run_demo, with the player built first."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_ships_it_on_the_desktop_only(self) -> None:
+        env = catalog.build_env({**self.base(), "desktop": True, "pictures": True})
+        self.assertEqual(env["LAZYOS_PICTURES"], "1")
+        self.assertNotIn("LAZYOS_PICTURES", catalog.build_env({**self.base(), "desktop": True}))
+        self.assertNotIn("LAZYOS_PICTURES", catalog.build_env({**self.base(), "pictures": True}))
+
+    def test_simple_desktop_gets_it_and_cli_does_not(self) -> None:
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", pictures=True)
+        self.assertTrue(cfg["pictures"])
+        self.assertEqual(catalog.build_env({**self.base(), **cfg})["LAZYOS_PICTURES"], "1")
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "CLI", pictures=True)["pictures"])
+        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["pictures"])
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=False))
+        self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=False, skip_build=False))
+        self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=True))
+
+    def test_a_plain_build_builds_the_player_first(self) -> None:
+        steps = catalog.app_steps({"pictures": True, "desktop": True})
+        self.assertEqual([step["argv"][1:] for step in steps], [["tools/lazyrad/build.py"]])
+        self.assertEqual(catalog.app_steps({"pictures": True}), [], "a CLI image has no viewer")
+        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True})
+        self.assertEqual(len(both), 1, "one LazyRAD build serves both")
+
+    def test_the_session_asks_for_the_viewer_and_the_ui_probe(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        cfg = {**self.base(), "mode": "Scripted session", "desktop": True,
+               "xui_autostart": "term", "script": index["lazyrad_pictures.json"]}
+        env = catalog.build_env(cfg)
+        self.assertEqual((env["LAZYOS_PICTURES"], env["LAZYOS_UI_PROBE"]), ("1", "1"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -420,3 +462,28 @@ class JournalTests(unittest.TestCase):
         self.assertIn("--journal", demo_argv(journal=True, skip_build=False))
         self.assertNotIn("--journal", demo_argv(skip_build=False))
         self.assertNotIn("--journal", demo_argv(journal=True, skip_build=True))
+
+
+class SmbTests(unittest.TestCase):
+    """The SMB 2.1 client `smb` (docs/smb-plan.md F2) from the Advanced tab and
+    run_demo: its switch, the network stack it needs, and the run_demo flag."""
+
+    def base(self) -> dict:
+        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def test_the_switch_sets_the_build_variable_and_the_stack(self) -> None:
+        for desktop in (False, True):
+            env = catalog.build_env({**self.base(), "desktop": desktop, "smb": True})
+            self.assertEqual(env["LAZYOS_SMB"], "1")
+            self.assertEqual(env["LAZYOS_NETD"], "1", "smb connects through the socket service")
+            self.assertNotIn("LAZYOS_SMB", catalog.build_env({**self.base(), "desktop": desktop}))
+
+    def test_advanced_sessions_get_the_card_with_smb_alone(self) -> None:
+        self.assertEqual(catalog.net_flags({"net": False, "smb": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "smb": True}))
+
+    def test_the_demo_passes_the_run_demo_flag(self) -> None:
+        self.assertIn("--smb", demo_argv(smb=True, skip_build=False))
+        self.assertNotIn("--smb", demo_argv(skip_build=False))
+        self.assertNotIn("--smb", demo_argv(smb=True, skip_build=True))

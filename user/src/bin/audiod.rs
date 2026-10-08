@@ -55,8 +55,7 @@ const DEMO_TICKS: u64 = 10;
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     sys::write_str("audiod: system mixer\n");
-    let mut cred = sys::Cred::default();
-    if sys::cred_get(None, &mut cred).is_ok() {
+    if let Ok(cred) = sys::cred_get(None) {
         sys::write_str(&format!(
             "AUDIOD:CRED uid={} caps={:#x}\n",
             cred.uid, cred.caps

@@ -13,8 +13,6 @@ use alloc::vec::Vec;
 
 use libmessenger::Parcel;
 
-use crate::sys;
-
 use super::message::{decode_caller, Message, CALLER_BLOCK, RECV_SENDER_ID};
 use super::types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, DEFAULT_BUFFER, EXPIRED_DEADLINE,
@@ -341,18 +339,7 @@ pub fn global_stats() -> Result<Stats> {
 
 /// Global message totals through the dedicated `TOTALS` op.
 pub fn global_totals() -> Result<Stats> {
-    let mut stats = Stats::default();
-    let args = MsgArgs {
-        buf_ptr: &mut stats as *mut Stats as u64,
-        buf_cap: Stats::SIZE as u64,
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    syscall(op::TOTALS, &args, &mut result)?;
-    if result.bytes as usize != Stats::SIZE {
-        return Err(Error::Errno(-errno::E2BIG));
-    }
-    Ok(stats)
+    lazyos_sys::msg::totals().map_err(Error::Errno)
 }
 
 /// The versioned fabric snapshot (stats ABI v3): every subsystem in one block.
@@ -368,37 +355,12 @@ pub fn fabric_stats() -> Result<FabricStats> {
 /// [`fabric_stats`] with a caller-owned buffer of at least
 /// [`FabricStats::SIZE`] bytes.
 pub fn fabric_stats_with(buf: &mut [u8]) -> Result<FabricStats> {
-    let args = MsgArgs {
-        buf_ptr: buf.as_mut_ptr() as u64,
-        buf_cap: buf.len() as u64,
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    syscall(op::STATS, &args, &mut result)?;
-    let len = result.bytes as usize;
-    if len > buf.len() {
-        return Err(Error::Errno(-errno::E2BIG));
-    }
-    FabricStats::from_bytes(&buf[..len]).ok_or(Error::Errno(-errno::EINVAL))
+    lazyos_sys::msg::fabric_stats_into(buf).map_err(Error::Errno)
 }
 
-/// Read `Stats` into an aligned local and hand the kernel its address. The
-/// kernel writes little-endian `u64`s in the same field order, so on x86_64 the
-/// struct is already the wire layout.
+/// The compact channel counters of `handle` (`0`: every live channel).
 fn stats_call(handle: u64) -> Result<Stats> {
-    let mut stats = Stats::default();
-    let args = MsgArgs {
-        handle,
-        buf_ptr: &mut stats as *mut Stats as u64,
-        buf_cap: Stats::SIZE as u64,
-        ..MsgArgs::default()
-    };
-    let mut result = MsgResult::default();
-    syscall(op::STATS, &args, &mut result)?;
-    if result.bytes as usize != Stats::SIZE {
-        return Err(Error::Errno(-errno::E2BIG));
-    }
-    Ok(stats)
+    lazyos_sys::msg::stats(handle).map_err(Error::Errno)
 }
 
 /// A blocking request loop in the `Server::serve` shape.
@@ -444,16 +406,9 @@ impl Server {
 /// the odd raw syscall directly (stats fetches, the topics broker's own
 /// `AUTHORIZE_TOPIC` call) instead of going through [`Endpoint`].
 pub(super) fn syscall(op: u64, args: &MsgArgs, result: &mut MsgResult) -> Result<()> {
-    let code = sys::messenger(
-        op,
-        args as *const MsgArgs as u64,
-        result as *mut MsgResult as u64,
-    );
-    if code < 0 {
-        Err(Error::Errno(code))
-    } else {
-        Ok(())
-    }
+    // SAFETY: every `MsgArgs` this crate builds points at parcels, buffers
+    // and wait sets it owns for the call, with their real lengths.
+    unsafe { lazyos_sys::msg::messenger(op, args, result) }.map_err(Error::Errno)
 }
 
 /// Encode a parcel for the wire.

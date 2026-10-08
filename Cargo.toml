@@ -12,6 +12,10 @@ members = [
     "user",
     "libs/messenger",
     "libs/generated",
+    # The native syscalls (`int 0x80`) for every userspace program, native and
+    # static-musl alike (issue #666): numbers, ABI blocks and typed wrappers,
+    # checked against the kernel's dispatch tables by host tests.
+    "libs/lazyos-sys",
     # Vetted cryptography shared by `keyd` and the kernel test suite (#102):
     # no_std for the freestanding targets plus host `cargo test` known-answer
     # vectors.
@@ -95,6 +99,10 @@ members = [
     # devd's static driver manifest (issue #497, driver-plan 3.6).
     "libs/devmatch",
     "libs/ftpwire",
+    # The SMB 2.1 client protocol (docs/smb-plan.md F2): framing, messages,
+    # NTLMv2/SPNEGO, signing and a synchronous client over a byte transport.
+    # Pure `no_std` + `alloc`, host-tested and fuzzed.
+    "libs/smbwire",
     # Printing (docs/printing-plan.md P1/P2): IPP messages and the PWG Raster
     # encoder, pure `no_std` + `alloc` with host tests and fuzz entry points.
     "libs/ipp",

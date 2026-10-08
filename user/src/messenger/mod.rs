@@ -45,84 +45,17 @@ pub use types::{
 /// accepts parcels, so callers need the type by name.
 pub use libmessenger::Parcel;
 
-/// Native syscall ops, matching the kernel's `ipc::syscalls::OP_*`.
-pub mod op {
-    /// Call a method and block until the reply arrives.
-    pub const CALL: u64 = 1;
-    /// Answer a pending transaction with a reply parcel.
-    pub const REPLY: u64 = 2;
-    /// Send a one-way message; never blocks.
-    pub const SEND: u64 = 3;
-    /// Receive the next message, blocking until one is queued.
-    pub const RECV: u64 = 4;
-    /// Cancel a pending transaction.
-    pub const CANCEL: u64 = 5;
-    /// Close an endpoint handle.
-    pub const CLOSE_ENDPOINT: u64 = 6;
-    /// `flags` of [`CLOSE_ENDPOINT`]: release the handle, and close the side
-    /// only if no other handle names it.
-    pub const CLOSE_RELEASE: u64 = 1;
-    /// Create a fresh channel pair; both handles open in this task.
-    pub const CREATE_PAIR: u64 = 7;
-    /// Read channel counters (`handle = 0` means every live channel).
-    pub const STATS: u64 = 8;
-    /// Claim the boot-time client endpoint (first userspace task only).
-    pub const BOOTSTRAP: u64 = 9;
-    /// Register a call and park, returning the transaction id.
-    pub const CALL_BEGIN: u64 = 10;
-    /// Wait for a `CALL_BEGIN` transaction and return its reply.
-    pub const CALL_AWAIT: u64 = 11;
-    /// Global message totals in the compact 64-byte [`Stats`] shape.
-    pub const TOTALS: u64 = 12;
-    /// Publish a service name in the kernel registry (issue #89).
-    pub const REGISTER: u64 = 13;
-    /// Resolve a service name to a new handle.
-    pub const RESOLVE: u64 = 14;
-    /// Withdraw a service name.
-    pub const UNREGISTER: u64 = 15;
-    /// Snapshot the name table into the caller's buffer.
-    pub const LIST: u64 = 16;
-    /// Ask the kernel policy engine about every segment of a topic or filter
-    /// (issue #92); the daemon uses this on behalf of a requesting client.
-    pub const AUTHORIZE_TOPIC: u64 = 17;
-    /// Replace every rule of one label (`CAP_IPC_CONTROL`; see [`super::policy`]).
-    pub const ACL_LOAD: u64 = 18;
-    /// Park until one of several endpoints (or a doorbell) is ready; see
-    /// [`super::wait`].
-    pub const WAIT: u64 = 19;
-    /// Open a private connection to a registered name (issue #483).
-    pub const CONNECT: u64 = 20;
-}
+/// Native syscall ops, the kernel's `ipc::syscalls::OP_*` (from `lazyos-sys`).
+pub use lazyos_sys::msg::op;
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task. A
 /// different slot is the `messengerd` proxy path (kernel-side
 /// `CAP_IPC_CONTROL`).
-pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
+pub use lazyos_sys::msg::REGISTRY_TARGET_SELF;
 
-/// Negative errno values the kernel returns; see the kernel's
+/// Errno values the kernel returns (negated); see the kernel's
 /// `ipc::syscalls::errno`.
-pub mod errno {
-    pub const EPERM: i64 = 1;
-    pub const ENOENT: i64 = 2;
-    pub const ESRCH: i64 = 3;
-    pub const EIO: i64 = 5;
-    pub const E2BIG: i64 = 7;
-    pub const EAGAIN: i64 = 11;
-    pub const ENOMEM: i64 = 12;
-    pub const EACCES: i64 = 13;
-    pub const EFAULT: i64 = 14;
-    pub const EBUSY: i64 = 16;
-    pub const EEXIST: i64 = 17;
-    pub const ENODEV: i64 = 19;
-    pub const EINVAL: i64 = 22;
-    pub const EPIPE: i64 = 32;
-    pub const EDEADLK: i64 = 35;
-    pub const ENOSYS: i64 = 38;
-    pub const EBADMSG: i64 = 74;
-    pub const ENOTSUP: i64 = 95;
-    pub const ETIMEDOUT: i64 = 110;
-    pub const ECANCELED: i64 = 125;
-}
+pub use lazyos_sys::errno;
 
 // ---------------------------------------------------------------------------
 // Service name registry (issue #89)

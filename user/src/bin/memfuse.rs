@@ -69,8 +69,7 @@ fn now() -> i64 {
 
 fn run() -> Result<(), String> {
     let opts = parse()?;
-    let mut cred = sys::Cred::default();
-    sys::cred_get(None, &mut cred).map_err(|e| format!("credentials: errno {e}"))?;
+    let cred = sys::cred_get(None).map_err(|e| format!("credentials: errno {e}"))?;
     let mut fs = MemFs::new(opts.capacity, MAX_NODES, cred.uid, cred.gid, now);
     let mut mount = sys::fuse::Mount::register(&opts.name, opts.flags)
         .map_err(|e| format!("mount /mnt/{}: errno {e}", opts.name))?;

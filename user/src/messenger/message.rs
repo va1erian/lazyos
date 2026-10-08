@@ -11,32 +11,21 @@
 
 use libmessenger::Parcel;
 
+use lazyos_sys::msg::SenderId;
+
 use crate::sys::Cred;
 
-/// `recv` flag: also write the sender's stamped credentials to `parcel_ptr`
-/// (the kernel's `ipc::syscalls::RECV_SENDER_ID`).
-pub(super) const RECV_SENDER_ID: u64 = 1;
+/// `recv` flag: also write the sender's stamped credentials to `parcel_ptr`.
+pub(super) use lazyos_sys::msg::op::RECV_SENDER_ID;
 
-/// Bytes of the stamped block: `uid, gid, label_id, session, caps` as
-/// little-endian `u64` words (the kernel's `channels::SenderId::SIZE`).
-pub(super) const CALLER_BLOCK: usize = 40;
+/// Bytes of the stamped block (the kernel's `channels::SenderId::SIZE`).
+pub(super) const CALLER_BLOCK: usize = SenderId::SIZE;
 
 /// Decode the kernel's stamped block. `None` if a word is out of range for
 /// its field, which the kernel never writes: the caller refuses the message
 /// rather than guess an identity.
 pub(super) fn decode_caller(block: &[u8; CALLER_BLOCK]) -> Option<Cred> {
-    let mut words = [0u64; CALLER_BLOCK / 8];
-    for (word, chunk) in words.iter_mut().zip(block.as_chunks::<8>().0) {
-        *word = u64::from_le_bytes(*chunk);
-    }
-    let [uid, gid, label_id, session, caps] = words;
-    Some(Cred::new(
-        u32::try_from(uid).ok()?,
-        u32::try_from(gid).ok()?,
-        u32::try_from(caps).ok()?,
-        u32::try_from(label_id).ok()?,
-        session,
-    ))
+    SenderId::from_bytes(block).map(SenderId::cred)
 }
 
 /// A received message: the decoded parcel plus the kernel-stamped metadata

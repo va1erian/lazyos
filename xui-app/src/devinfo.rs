@@ -4,26 +4,7 @@
 //! read-only ops; the row layouts and names are `libs/devinspect`'s, shared
 //! with `devctl`.
 
-use devinspect::{Denial, Device, Rule, DENIAL_WORDS, INVENTORY_WORDS, RULE_WORDS};
-
-use crate::sys;
-
-/// One op's rows, the buffer grown until it holds them all.
-fn read_all(op: u64, words_per_row: usize) -> Result<(Vec<u64>, usize), i64> {
-    let mut capacity = 16;
-    loop {
-        let mut words = vec![0u64; capacity * words_per_row];
-        let code = sys::dev_inspect(op, words.as_mut_ptr() as u64, capacity as u64);
-        if code < 0 {
-            return Err(-code);
-        }
-        let total = code as usize;
-        if total <= capacity {
-            return Ok((words, total));
-        }
-        capacity = total;
-    }
-}
+use devinspect::{Denial, Device, Rule};
 
 /// What one refresh read. Each part fails on its own: a user without
 /// `CAP_AUDIT_READ` still sees the devices and the rules.
@@ -36,25 +17,10 @@ pub struct DevView {
 
 impl DevView {
     pub fn read() -> DevView {
-        let devices = read_all(devinspect::op::INVENTORY, INVENTORY_WORDS).map(|(words, count)| {
-            devinspect::rows::<INVENTORY_WORDS>(&words, count)
-                .map(|row| Device::from_words(&row))
-                .collect()
-        });
-        let rules = match read_all(devinspect::op::POLICY, RULE_WORDS) {
-            Ok((words, count)) => Ok(Some(
-                devinspect::rows::<RULE_WORDS>(&words, count)
-                    .map(|row| Rule::from_words(&row))
-                    .collect(),
-            )),
-            Err(devinspect::errno::ENOENT) => Ok(None),
-            Err(errno) => Err(errno),
-        };
-        let denials = read_all(devinspect::op::DENIALS, DENIAL_WORDS).map(|(words, count)| {
-            devinspect::rows::<DENIAL_WORDS>(&words, count)
-                .map(|row| Denial::from_words(&row))
-                .collect()
-        });
+        // The view reports positive errnos.
+        let devices = lazyos_sys::dev::inventory().map_err(|code| -code);
+        let rules = lazyos_sys::dev::policy().map_err(|code| -code);
+        let denials = lazyos_sys::dev::denials().map_err(|code| -code);
         DevView {
             devices,
             rules,

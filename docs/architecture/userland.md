@@ -10,23 +10,24 @@
 |---|---|
 | `user/src/lib.rs` | Runtime modules: `sys`, `dev`, `files`, `sysinfo`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
 | `user/src/dev.rs` | Wrappers for the device syscall (23): `list`, `claim`, `map_bar`, `pio_*`, `cfg_*`, `irq_enable`/`irq_ack`, `release`, and `parse_irq` for the kernel's interrupt message (#240) |
-| `user/src/sys.rs` | `int 0x80` wrappers, syscall numbers 0-14, `Cred`, display helpers |
-| `user/src/sysinfo.rs`, `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot and the syscall 13 task snapshot |
+| `user/src/sys.rs` | The native syscalls: `libs/lazyos-sys` re-exported flat, plus this program's `args`/`env` (`sys/args.rs`) and the FUSE provider (`sys/fuse.rs`) |
+| `user::sysinfo` (`libs/lazyos-sys/src/sysinfo/`), `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot (shared with the xui system monitor) and the syscall 13 task snapshot |
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |
 | `user/src/heap.rs` | Bump allocator over `sbrk` (see [allocators.md](allocators.md)) |
 | `user/src/messenger/` | Blocking Messenger client: endpoints, registry, topics, services |
 | `user/src/messenger_async.rs` | Futures, `Executor`/`block_on`, `Selector`, `service!` |
 | `user/src/bin/*` | Ring-3 programs; manifest in `user/Cargo.toml` |
 
-**Syscall wrappers** (`sys.rs`) - register convention: `rax` = number, args in
-`rdi/rsi/rdx`, result in `rax`. `rcx`/`r11` are clobbered, so every wrapper
-declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
+**Syscall wrappers** (`sys.rs`, over `libs/lazyos-sys`, the one crate that
+issues `int 0x80`; see [processes.md](processes.md)) - register convention:
+`rax` = number, args in `rdi/rsi/rdx/r10/r8`, result in `rax`. `rcx`/`r11`
+are clobbered, so the gate declares `clobber_abi("sysv64")`. Numbers: 0 `exit`, 1 `write`, 2 `read_char`,
 3 `read_file`, 4 `sbrk`, 5 `messenger`, 7 `wait`, 8 `clock`,
-9 `args()`/`env()`/`getenv()`/`service_args` (`sys/spawn.rs`: the `argv` and
+9 `args()`/`env()`/`getenv()`/`service_args` (`sys/args.rs`: the `argv` and
 `envp` blocks, read once and kept; `service_args` joins `argv[1..]` with spaces
 for services that parse one string), 10 `cred_set`/`cred_get`/`label_name`, 12 `display_*`,
 13 `tasks`, 14 `system_stats`, 15-22 filesystem, `power` and `fsync`, 28 `append_file`, 30 `read_at` and 32 `chmod` (`files.rs`; 11, the quota read-back, has no wrapper yet), 23 `dev_*` (`dev.rs`; it also passes arguments in `r10` and `r8`),
-31 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`sys/spawn.rs`: the
+31 `spawnv(path, &argv, &envp, Personality, SpawnCred)` (`lazyos_sys::spawn`: the
 only spawn; `SpawnCred::{Inherit, As, AsLabelled}` stamps the child's identity
 and `Personality::Linux` selects the Linux ABI), with the shorthands
 `spawn_native(path, &args)`/`spawn_linux(path, &args)` (`argv` = the path then
@@ -40,8 +41,8 @@ See [processes.md](processes.md) and [display.md](display.md).
   `recv`/`recv_into`/`recv_with`, `poll_recv`, `cancel`, `close`, `stats`.
   `Message` exposes the decoded parcel plus kernel-stamped sender, `txn`, and
   delivered handle/buffer counts; `Server` is the `serve` shape.
-- `MsgArgs`/`MsgResult`/`Stats`/`FabricStats` mirror the kernel ABI byte for
-  byte; sizes are pinned there.
+- `MsgArgs`/`MsgResult`/`Stats`/`FabricStats` come from `lazyos_sys::msg`,
+  which mirrors the kernel ABI byte for byte; sizes are pinned there.
 - Modules: `registry` (direct ops plus the `Client` proxy through `messengerd`
   and the daemon's `serve_request`), `topics_client`
   (`os.lazy.messenger.topics`, QoS, deferred `next_event`; wire from the
@@ -174,7 +175,7 @@ command.
   as login shell.
 - **Messenger (`msg`).** On LazyOS (`uname` sysname `LazyOS`) the host
   installs `rhai_lazy::msg` over the native `int 0x80` gate
-  (`libs/rhai-lazy/src/msg/gate.rs`, feature `lazyos`). Calls are encoded from
+  (`libs/rhai-lazy/src/msg/gate.rs`, feature `lazyos`, over `lazyos-sys`). Calls are encoded from
   the `midlc --schema` table, so every IDL interface is scriptable; see
   [`docs/rhai/msg.md`](../rhai/msg.md). Guest check:
   `tools/screenshot/examples/rhai_msg.json` in the desktop Terminal.

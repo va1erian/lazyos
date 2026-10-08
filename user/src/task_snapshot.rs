@@ -101,12 +101,13 @@ impl TaskSnapshot {
     }
 }
 
+/// The kernel's snapshot size (`lazyos_sys::stats::tasks` checks buffers
+/// against it) must be this layout's.
+const _: () = assert!(TaskSnapshot::SIZE == crate::sys::TASKS_SNAPSHOT_SIZE);
+
 /// Read the live scheduler snapshot from the kernel.
 pub fn task_snapshot() -> Result<TaskSnapshot> {
     let mut buf = vec![0u8; TaskSnapshot::SIZE];
-    let code = sys::tasks(buf.as_mut_ptr() as u64);
-    if code != 0 {
-        return Err(Error::Errno(code));
-    }
+    sys::tasks(&mut buf).map_err(Error::Errno)?;
     TaskSnapshot::from_bytes(&buf).ok_or(Error::Errno(-22 /* EINVAL */))
 }

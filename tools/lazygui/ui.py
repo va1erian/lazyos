@@ -101,12 +101,11 @@ class Launcher:
             "net_forwards": self.v["net_forwards"].get().strip(),
             "net_restrict": self.v["net_restrict"].get(),
             "linuxapps": self.v["linuxapps"].get(),
+            "smb": self.v["smb"].get(),
             # Mail speaks TLS: its switch brings the HTTPS stack and the card.
             "tls": self.v["tls"].get() or self.v["mail"].get(),
             "journal": self.v["journal"].get(),
-            "lazyweb": self.v["lazyweb"].get(),
-            "mail": self.v["mail"].get(),
-            "traydemo": self.v["traydemo"].get(),
+            **{app: self.v[app].get() for app in ("lazyweb", "mail", "traydemo", "pictures")},
             "script": SCRIPTS.index(names[0]) if names else 0,
         }
 
@@ -133,9 +132,8 @@ class Launcher:
         build_simple_tab(scrollable(self.tab_simple), v["simple_build"], v["simple_iface"],
                          v["simple_lazyrad"], v["simple_shell"], v["simple_devices"],
                          v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
-                         v["simple_linuxapps"], v["simple_hidpi"], v["simple_tls"],
-                         v["simple_lazyweb"], v["simple_mail"], v["simple_traydemo"],
-                         v["simple_autologin"], v["simple_setup"], v["simple_emusic"])
+                         *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
+                                                     "traydemo", "autologin", "setup", "pictures", "emusic")))
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -164,6 +162,7 @@ class Launcher:
                     "modplayer")
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
+        self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
@@ -186,7 +185,7 @@ class Launcher:
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
-                                                    "lazyweb")))
+                                                    "lazyweb", "smb")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))
@@ -345,7 +344,8 @@ class Launcher:
         self.v["msgctl"].set(False)
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
-        self.v["traydemo"].set("LAZYOS_TRAYDEMO" in SCRIPT_ENV.get(match[0][0], {}))
+        for app, switch in (("traydemo", "LAZYOS_TRAYDEMO"), ("pictures", "LAZYOS_PICTURES")):
+            self.v[app].set(switch in SCRIPT_ENV.get(match[0][0], {}))
         self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()
 

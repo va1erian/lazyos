@@ -84,6 +84,10 @@ jobs:
         run: |
           cargo test -p accountdb -p elevpolicy
           cargo clippy -p accountdb -p elevpolicy --all-targets --features accountdb/fuzz,elevpolicy/fuzz -- -D warnings
+      - name: Native syscalls (lazyos-sys; numbers checked against the kernel's dispatch tables)
+        run: |
+          cargo test -p lazyos-sys --all-features
+          cargo clippy -p lazyos-sys --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks
       - name: Zone and DST resolution tests (timed)
         run: cargo test -p timezone
       - name: Keymap, modifier, repeat and pointer tests (inputd, includes the seeded pointer fuzz)

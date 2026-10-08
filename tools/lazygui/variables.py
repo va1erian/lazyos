@@ -93,6 +93,8 @@ def make_vars() -> dict:
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         "simple_tls": b(value=False),
+        # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
+        "smb": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
@@ -105,6 +107,9 @@ def make_vars() -> dict:
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).
         "traydemo": b(value=False),
         "simple_traydemo": b(value=False),
+        # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
+        "pictures": b(value=False),
+        "simple_pictures": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),

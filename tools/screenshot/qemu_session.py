@@ -103,6 +103,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -120,13 +121,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "net"))
 import qemu_net  # noqa: E402
 
 _ACTIONS = {
-    "shot", "type", "key", "keys", "key_down", "key_up", "mouse_move",
+    "shot", "type", "type_secret", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
     "click_at", "move_to", "wait", "wait_for", "qmp", "quit",
 }
 # Actions that send input and so may carry an `until` confirmation.
 _INPUT_ACTIONS = {
-    "type", "key", "keys", "key_down", "key_up", "mouse_move", "mouse_click",
+    "type", "type_secret", "key", "keys", "key_down", "key_up", "mouse_move", "mouse_click",
     "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs", "click_at", "move_to",
 }
 _POLL_SECONDS = 0.25
@@ -200,6 +201,10 @@ def perform(qmp: Qmp, action: str, step: dict, serial: SerialLog | None = None,
         # `"delay"`: seconds between characters (default 0.01); a busy TCG
         # host drops keys at the default pace.
         qmp.type_text(step["type"], delay=float(step.get("delay", 0.01)))
+    elif action == "type_secret":
+        # The value of a host environment variable, so a password never sits
+        # in the script or the summary (docs/smb-plan.md §6).
+        qmp.type_text(os.environ[step["type_secret"]], delay=float(step.get("delay", 0.01)))
     elif action == "key":
         qmp.press_key(step["key"])
     elif action == "keys":

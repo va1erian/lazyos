@@ -52,6 +52,12 @@ class CoreApp:
     optional: bool = False
     #: how to build it, for the skip note.
     built_by: str = "python tools/xui/build.py"
+    #: a LazyRAD project (relative to the root) copied to `resources/project`,
+    #: the layout File -> Make LazyOS App gives a LazyRAD app.
+    project: str | None = None
+    #: extra files for the project: a glob relative to the root -> the folder
+    #: inside the project they are copied to.
+    project_files: tuple[tuple[str, str], ...] = ()
 
 
 def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
@@ -110,6 +116,17 @@ CORE_APPS: dict[str, CoreApp] = {
         optional=True,
         built_by="python tools/lazyrad/build.py",
     ),
+    # The Picture Viewer (docs/lazyrad-pictures.md): a LazyRAD project on the
+    # player, with the wallpapers as its sample pictures. Only
+    # `LAZYOS_PICTURES=1` images ship it (`build_support/pictures_embed.rs`).
+    "pictures": CoreApp(
+        {"lrplay.elf": "bin/pictures.elf"},
+        build_dir="lazyrad",
+        optional=True,
+        built_by="python tools/lazyrad/build.py",
+        project="lazyrad-os/samples/pictures",
+        project_files=(("assets/wallpapers/*.jpg", "samples"),),
+    ),
     # Calculator: A basic calculator.
     "calc": xui_app("xui-calc.elf", "calc"),
     # PDF Viewer: Read PDF documents.
@@ -158,13 +175,34 @@ def render_manifest(text: str, version: str, autostart: bool) -> str:
     return text
 
 
+#: Where a LazyRAD app's project sits inside its package.
+PROJECT_DIR = "resources/project"
+
+
+def copy_project(app: CoreApp, tree: Path, root: Path = ROOT) -> None:
+    """Copy `app`'s LazyRAD project, and its extra files, into `tree`."""
+    if app.project is None:
+        return
+    project = tree / PROJECT_DIR
+    shutil.copytree(root / app.project, project)
+    for pattern, folder in app.project_files:
+        matches = sorted(root.glob(pattern))
+        if not matches:
+            raise CoreError(f"{app.project}: no file matches {pattern}")
+        (project / folder).mkdir(parents=True, exist_ok=True)
+        for path in matches:
+            shutil.copyfile(path, project / folder / path.name)
+
+
 def build_one(short: str, programs: dict[Path, str], version: str, autostart: bool,
-              out_dir: Path) -> Path:
+              out_dir: Path, app: CoreApp | None = None) -> Path:
     """Build one variant of one package into `out_dir`; returns the archive.
     `programs` maps each built program to its path inside the package."""
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / short
         shutil.copytree(SOURCES / short, tree)
+        if app is not None:
+            copy_project(app, tree)
         manifest = tree / "manifest.toml"
         manifest.write_text(render_manifest(manifest.read_text(encoding="utf-8"), version, autostart),
                             encoding="utf-8", newline="\n")
@@ -215,8 +253,8 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
                       f"(`{app.built_by}`)", file=sys.stderr)
                 continue
             raise CoreError(f"core package {short}: {missing[0]} is not built")
-        plain = build_one(short, programs, version, False, out_dir)
-        auto = build_one(short, programs, version, True, out_dir / AUTOSTART_DIR)
+        plain = build_one(short, programs, version, False, out_dir, app)
+        auto = build_one(short, programs, version, True, out_dir / AUTOSTART_DIR, app)
         system_name = plain.name[: -len(f"-{version}.lzp")]
         lines.append(" ".join([short, system_name, version,
                                plain.relative_to(out_dir).as_posix(), digest(plain),

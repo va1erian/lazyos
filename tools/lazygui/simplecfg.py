@@ -25,7 +25,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,
                   hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
                   mail: bool = False, traydemo: bool = False,
-                  autologin: bool = False, setup: bool = False, emusic: bool = False) -> dict:
+                  autologin: bool = False, setup: bool = False,
+                  pictures: bool = False, emusic: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -44,8 +45,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
     Desktop's login screen and logs ``user`` in (issue #623); ``setup`` starts
     the Desktop with no account, so the login screen asks for its owner (the
-    first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``emusic``
-    adds the emusic package (Desktop only, like ``doom``). Machine settings
+    first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
+    the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
+    the emusic package (Desktop only, like ``doom``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -96,6 +98,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "journal": False,
         "lazyweb": lazyweb,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
+        "pictures": desktop and pictures,
         "autologin": DEFAULT_ACCOUNT if desktop and autologin and not setup else "",
         "setup": desktop and setup,
         "display_mode": HIDPI_MODE if hidpi else "",

@@ -665,6 +665,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyos-sys"
+version = "0.1.0"
+dependencies = [
+ "devinspect",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "lazypkg"
 version = "0.1.0"
 dependencies = [
@@ -753,6 +762,25 @@ dependencies = [
  "serde",
  "serde-big-array",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
+name = "md4"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da5ac363534dce5fabf69949225e174fbf111a498bf0ff794c8ea1fba9f3dda"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -1034,6 +1062,17 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "smbwire"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "hmac",
+ "md-5",
+ "md4",
+ "sha2",
+]
 
 [[package]]
 name = "smoltcp"
@@ -1328,6 +1367,7 @@ dependencies = [
  "hda",
  "inputmap",
  "lazyos-crypto",
+ "lazyos-sys",
  "lazypkg",
  "libmessenger",
  "logstore",
@@ -1340,6 +1380,7 @@ dependencies = [
  "passwd",
  "pcm",
  "pkgstore",
+ "smbwire",
  "sndpolicy",
  "spin",
  "surfbuf",

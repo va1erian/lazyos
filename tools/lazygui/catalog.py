@@ -95,6 +95,7 @@ SCRIPTS = [
     ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
+    ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
@@ -222,6 +223,9 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if cfg.get("smb"):
+        # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
+        env["LAZYOS_SMB"] = "1"
     if wants_tls(cfg):
         # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
         # /system/bin; HTTPS needs the network stack above.
@@ -305,6 +309,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("journal") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_JOURNAL itself.
             argv.append("--journal")
+        if cfg.get("smb") and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_SMB and the stack itself.
+            argv.append("--smb")
         if cfg.get("lazyweb") and not cfg["skip_build"]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.

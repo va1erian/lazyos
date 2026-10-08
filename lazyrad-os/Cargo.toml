@@ -18,8 +18,8 @@ resolver = "2"
 # workspace (va1erian/lazyrad) pins the same revision: bump them together.
 # `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "6d7bb7ca98073df049b41092dc5953570ab8dc7e", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a33be56991807ae5b2be93", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -61,14 +61,14 @@ audioclient = { path = "../libs/audioclient" }
 # scripts, #88; docs/lazyrad-messenger-plan.md).
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) together, then regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "9b21bd426fb36e482adefa58c81acfad38b88cdc", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "9b21bd426fb36e482adefa58c81acfad38b88cdc", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "9b21bd426fb36e482adefa58c81acfad38b88cdc", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "9b21bd426fb36e482adefa58c81acfad38b88cdc", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873", default-features = false }
 # The form document: the player's UI probe reads control rectangles from it
 # (`probe`, issue #538), and the sample tests read form values back
 # (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "9b21bd426fb36e482adefa58c81acfad38b88cdc" }
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "66b1f09938d13c614ec117c014b928f375d50873" }
 
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.

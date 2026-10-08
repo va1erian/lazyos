@@ -1,7 +1,7 @@
 """The optional build steps `run_demo.py` runs before `cargo build`.
 
 Each runs one tool script quietly and reports a failure in one line; the
-explicitly requested ones (`--lazyrad`, `--doom`, `--emusic`, `--modplayer`,
+explicitly requested ones (`--lazyrad`, `--doom`, `--emusic`, `--modplayer`, `--pictures`,
 `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return False so the run stops instead of booting
 an image without what was asked for.
 """
@@ -43,6 +43,15 @@ def build_rhai() -> None:
 def build_lazyrad() -> bool:
     """The LazyRAD IDE and player (`--lazyrad`)."""
     return required("LazyRAD", "lazyrad/build.py")
+
+
+def build_pictures() -> bool:
+    """The Picture Viewer (`--pictures`): the LazyRAD player it runs on.
+    `tools/lazyrad/build.py` repackages the core packages after it, and the
+    desktop build packages them again before the image, so `os.lazy.pictures`
+    (the player, `lazyrad-os/samples/pictures` and the sample pictures) is
+    there either way."""
+    return required("the Picture Viewer (the LazyRAD player)", "lazyrad/build.py")
 
 
 def build_doom() -> bool:

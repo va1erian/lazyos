@@ -19,7 +19,8 @@ from lazygui.testplan import demo_argv, demo_config  # noqa: E402
 # The optional-app switches' tests live beside this file; importing them here
 # keeps `python tools/lazygui/test_catalog.py` running every launcher test.
 from lazygui.test_catalog_apps import (  # noqa: E402,F401
-    DoomTests, EmusicTests, LazyWebTests, LinuxAppsTests, ModPlayerTests, TlsTests, TrayDemoTests,
+    DoomTests, EmusicTests, LazyWebTests, LinuxAppsTests, ModPlayerTests, SmbTests, TlsTests,
+    TrayDemoTests,
 )
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401

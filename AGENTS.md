@@ -526,6 +526,28 @@ cargo test -p trayclient -p messenger-generated
 cd xui-app && cargo test -p lazyshell
 ```
 
+## Picture Viewer (`LAZYOS_PICTURES=1`)
+
+`os.lazy.pictures` is a Windows XP-style picture viewer written in LazyRAD
+(`lazyrad-os/samples/pictures`, LazyRAD's `PictureBox` control), shipped as a
+core package that carries the player and the project: PNG, JPEG, BMP and GIF,
+paging through the folder, fit/zoom/pan, rotation, a slide show, Edit through
+`mimed`. A picture double-clicked in Files reaches the script as
+`app.documents` (`lrplay` treats a positional path that is not a project as a
+document and grants its folder read-only). See
+[`docs/lazyrad-pictures.md`](docs/lazyrad-pictures.md).
+
+```bash
+python tools/run_demo.py --pictures             # desktop + the viewer
+cd lazyrad-os && cargo test --test pictures     # the real form offscreen (snapshots in target/snapshots)
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pictures \
+    --script tools/screenshot/examples/lazyrad_pictures.json   # image: LAZYOS_DESKTOP=1 LAZYOS_PICTURES=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+```
+
+A form script must not give its own functions a control method's name and
+arity (`fn best_fit()` beside `picture1.best_fit()`): Rhai calls the script
+function for the method too, and it recurses (LazyRAD's lint warns about it in the IDE).
+
 ## LazyRAD MOD player (`modplay` module, `.lzp` package)
 
 A ProTracker player written as a LazyRAD project (`lazyrad-os/samples/modplayer`)
@@ -824,6 +846,32 @@ cargo test -p mounttable
 python tools/fuse/ui_run.py               # build, mount from the app against a host FTP server, judge
 python tools/fuse/test_ui_judge.py        # the judge fails when it should
 ```
+
+## SMB client (`LAZYOS_SMB=1`: `smb`)
+
+`smb` (`user/src/bin/smb.rs`) is an SMB 2.1 client over the socket service:
+NTLMv2 inside SPNEGO, HMAC-SHA256 signing, from `libs/smbwire` (pure
+`no_std`, host-tested and fuzzed; [`docs/smb-plan.md`](docs/smb-plan.md) F2,
+§4.6). The password comes from `LAZYOS_SMB_PASSWORD` or a prompt that does
+not echo, never an argument. From a shell, quote the command list:
+`smb -U chaton //10.0.2.2/share 'ls ; get hello.txt - ; put -g 1000 up.bin'`
+(add `-p 1445` for the harness server). A native program run from the shell
+must be on the kernel's list in `kernel/src/process/linux/native.rs`, or it is
+loaded as a Linux program with no native heap.
+
+```bash
+python tools/run_demo.py --smb             # networking + smb
+cargo test -p smbwire                      # MS-NLMP vectors, a fake server, refusals, seeded fuzz
+python tools/smb/test_smbserver.py         # the harness server against the host client smbcat
+python tools/smb/test_judge.py             # the judges fail when they should
+python tools/smb/samba_interop.py          # the library against real Samba (Docker)
+python tools/smb/run.py                    # build, boot, 12 checks against host servers, judge files + pcap
+python tools/smb/licenses.py               # GPLv2-compatible crates only
+```
+
+`run.py` types passwords with the session step `{"type_secret": "VAR"}`
+(the value of a host environment variable), so no password is in the script;
+it scans the serial log, the capture and the session record for it.
 
 ## Network tooling
 

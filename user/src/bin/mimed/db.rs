@@ -21,6 +21,11 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("rs", "text/x-rust"),
     ("elf", "application/x-elf"),
     ("png", "image/png"),
+    // Pictures the Picture Viewer opens (docs/lazyrad-pictures.md).
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("bmp", "image/bmp"),
     ("html", "text/html"),
     ("htm", "text/html"),
     ("json", "application/json"),

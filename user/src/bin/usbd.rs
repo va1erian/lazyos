@@ -116,9 +116,8 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("usbd: USB driver\n");
     // The identity the kernel stamped on this task: `_usb` with only
     // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE | CAP_BLOCK_PROVIDER` under `init`.
-    let mut cred = sys::Cred::default();
-    match sys::cred_get(None, &mut cred) {
-        Ok(()) => sys::write_str(&format!(
+    match sys::cred_get(None) {
+        Ok(cred) => sys::write_str(&format!(
             "USBD:CRED uid={} caps={:#x}\n",
             cred.uid, cred.caps
         )),

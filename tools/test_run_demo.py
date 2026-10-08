@@ -68,8 +68,9 @@ class PrepareHomeDiskTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes()[LABEL_OFFSET:LABEL_OFFSET + 8], b"lazyhome")
 
 
-class MainTests(unittest.TestCase):
-    """`main` with the build, QEMU and the filesystem faked out."""
+class RunDemoCase(unittest.TestCase):
+    """`main` with the build, QEMU and the filesystem faked out (shared with
+    `test_run_demo_apps.py`)."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -101,6 +102,10 @@ class MainTests(unittest.TestCase):
             code = run_demo.main(["--image", str(self.image), "--home-disk", str(self.home),
                                   *argv])
         return code, launched
+
+
+class MainTests(RunDemoCase):
+    """The disks, profiles and switches `main` turns into a build and a boot."""
 
     def test_home_disk_is_created_and_attached_second(self) -> None:
         code, command = self.run_main("--no-build")
@@ -302,27 +307,6 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYRAD_SAMPLES", "").split(os.pathsep),
                          LAZYOS_SAMPLES)
 
-    def test_emusic_brings_the_desktop_and_a_sound_card(self) -> None:
-        with mock.patch.object(run_demo, "build_emusic", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, command = self.run_main("--emusic")
-        self.assertEqual(code, 0)
-        package.assert_called_once()
-        env = self.builds[-1]
-        for switch in ("LAZYOS_EMUSIC", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
-            self.assertEqual(env.get(switch), "1", switch)
-        self.assertIn("virtio-sound-pci,audiodev=snd0", command)
-
-    def test_modplayer_brings_lazyrad_the_desktop_and_a_sound_card(self) -> None:
-        with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as lazyrad,                 mock.patch.object(run_demo, "build_modplayer", return_value=True) as package,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, command = self.run_main("--modplayer")
-        self.assertEqual(code, 0)
-        lazyrad.assert_called_once()
-        package.assert_called_once()
-        env = self.builds[-1]
-        for switch in ("LAZYOS_MODPLAYER", "LAZYOS_LAZYRAD", "LAZYOS_DESKTOP", "LAZYOS_SOUND"):
-            self.assertEqual(env.get(switch), "1", switch)
-        self.assertIn("virtio-sound-pci,audiodev=snd0", command)
-
     def test_lazyrad_is_a_desktop_core_package_built_before_packaging(self) -> None:
         # os.lazy.lazyrad is a core package: `--lazyrad` implies the desktop,
         # and the packages are built (after the IDE) before the image.
@@ -423,6 +407,13 @@ class NetTests(unittest.TestCase):
         self.assertEqual(code, 0)
         tools.assert_called_once()
         self.assertEqual(self.builds[-1].get("LAZYOS_TLS"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+
+    def test_smb_builds_the_client_and_brings_the_network(self) -> None:
+        code, command = self.run_net("--smb")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_SMB"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertIn("virtio-net-pci,netdev=n0", command)
 

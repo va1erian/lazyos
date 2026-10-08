@@ -29,10 +29,12 @@ Examples
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
+    python tools/run_demo.py --pictures      # desktop + the Picture Viewer (docs/lazyrad-pictures.md)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -72,8 +74,8 @@ from lazygui.catalog import lazyrad_samples  # noqa: E402
 from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail, build_modplayer,
-    build_rhai, build_tls, build_xui_apps,
+    build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail,
+    build_modplayer, build_pictures, build_rhai, build_tls, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -254,6 +256,7 @@ def main(argv: list[str]) -> int:
         for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
                                       (args.emusic, build_emusic, "LAZYOS_EMUSIC"),
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
+                                      (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB")):
@@ -264,6 +267,9 @@ def main(argv: list[str]) -> int:
             env[switch] = "1"
         if args.journal:
             env["LAZYOS_JOURNAL"] = args.journal
+        if args.smb:
+            # The SMB client is a `user` binary: no separate build step.
+            env["LAZYOS_SMB"] = "1"
         print(f"building LazyOS [{profile}]…", flush=True)
         if args.sound:
             env["LAZYOS_SOUND"] = "1"

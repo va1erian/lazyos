@@ -99,7 +99,7 @@ with a heap that already exists), so they follow RAM alone:
 
 | Limit | Value | Why it stays fixed |
 |---|---|---|
-| `task::MAX_TASKS` | 256 (pid == slot) | The task table, the per-slot registries (credentials, handle tables, FPU areas, argument blocks) and the kernel stacks (`KSTACKS`, 32 KiB each) are static arrays, and the task/sysinfo snapshot ABIs carry one row per slot (`user/src/sysinfo.rs` mirrors it). Raising it means heap-allocated kernel stacks and an ABI version bump |
+| `task::MAX_TASKS` | 256 (pid == slot) | The task table, the per-slot registries (credentials, handle tables, FPU areas, argument blocks) and the kernel stacks (`KSTACKS`, 32 KiB each) are static arrays, and the task/sysinfo snapshot ABIs carry one row per slot (`libs/lazyos-sys/src/sysinfo/` mirrors it). Raising it means heap-allocated kernel stacks and an ABI version bump |
 | User address space | ~127.5 TiB private window, then a 512 GiB shared-buffer window | PML4 entries 0..254 / 255 (`mem::layout`); far beyond any RAM |
 | Kernel heap span | 512 GiB | One PML4 entry, so heap growth is visible in every address space |
 | Usable memory regions | 128 after merging | `mem::regions`; the smallest are dropped (and logged) past that |

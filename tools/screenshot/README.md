@@ -102,6 +102,7 @@ or since the latest `wait_for` gate) and one action:
 |--------|---------|
 | capture a screenshot | `{"at": 2, "shot": "boot"}` |
 | type text (US layout) | `{"type": "dir\\n"}` |
+| type a host environment variable's value (a password never written to the script) | `{"type_secret": "LAZYOS_SMB_PASSWORD"}` |
 | press a named key | `{"key": "enter"}` / `{"key": "f5"}` |
 | press several keys | `{"keys": ["up", "up", "enter"]}` |
 | hold a key | `{"key_down": "alt"}` / `{"key_up": "alt"}` |

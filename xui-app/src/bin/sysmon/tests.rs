@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use xui_app::sysinfo::{Snapshot, TaskClass, TaskRow, TaskState, MAX_TASKS};
+use xui_app::sysinfo::{decode_words, header, Snapshot, TaskClass, TaskRow, TaskState, WORDS};
 use xui_canvas::snapshot::Gallery;
 use xui_canvas::OffscreenBackend;
 use xui_core::app::{App, Ui};
@@ -35,11 +35,34 @@ fn task(pid: u64, name: &str, state: TaskState, cpu_ticks: u64) -> TaskRow {
         weight: 1024,
         cpu_ticks,
         short_name,
+        ..TaskRow::EMPTY
     }
 }
 
 fn sample() -> Snapshot {
-    let mut tasks = [TaskRow::EMPTY; MAX_TASKS];
+    let mut words = vec![0u64; WORDS];
+    for (index, value) in [
+        (header::VERSION, 4),
+        (header::TICKS, 360_000),
+        (header::IDLE_TICKS, 300_000),
+        (header::TASKS_LIVE, 4),
+        (header::FRAMES_TOTAL, 65_536),
+        (header::FRAMES_LIVE, 21_000),
+        (header::FRAMES_FREE, 44_536),
+        (header::FRAMES_ALLOCATED, 90_000),
+        (header::FRAMES_FREED, 69_000),
+        (header::FRAMES_RESERVED, 64),
+        (header::SLAB_LIVE, 3 << 20),
+        (header::SLAB_PEAK, 4 << 20),
+        (header::SLAB_OVERSIZED, 1 << 16),
+        (header::SLAB_OVERSIZED_PEAK, 1 << 17),
+        (header::HEAP_TOTAL, 16 << 20),
+        (header::HEAP_USED, 9 << 20),
+        (header::HEAP_FREE, 7 << 20),
+    ] {
+        words[index] = value;
+    }
+    let mut snapshot = decode_words(&words).expect("a version-4 block");
     for (slot, (name, state)) in [
         ("init", TaskState::Blocked),
         ("xuid", TaskState::Runnable),
@@ -49,32 +72,9 @@ fn sample() -> Snapshot {
     .into_iter()
     .enumerate()
     {
-        tasks[slot] = task(slot as u64 + 1, name, state, 1200 * (slot as u64 + 1));
+        snapshot.tasks[slot] = task(slot as u64 + 1, name, state, 1200 * (slot as u64 + 1));
     }
-    Snapshot {
-        version: 4,
-        ticks: 360_000,
-        idle_ticks: 300_000,
-        tasks_live: 4,
-        frames_total: 65_536,
-        frames_live: 21_000,
-        frames_free: 44_536,
-        frames_allocated: 90_000,
-        frames_freed: 69_000,
-        frames_reserved: 64,
-        frames_double_frees: 0,
-        frames_invalid_frees: 0,
-        slab_live: 3 << 20,
-        slab_peak: 4 << 20,
-        slab_oversized: 1 << 16,
-        slab_oversized_peak: 1 << 17,
-        slab_double_frees: 0,
-        slab_accounting_errors: 0,
-        heap_total: 16 << 20,
-        heap_used: 9 << 20,
-        heap_free: 7 << 20,
-        tasks,
-    }
+    snapshot
 }
 
 #[test]

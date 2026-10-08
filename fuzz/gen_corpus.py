@@ -25,6 +25,7 @@ from seeds_accounts import (
 from seeds_formats import ipp_seeds, lazypkg_seeds, pwgraster_seeds
 from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
 from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seeds, virtio_net_seeds
+from seeds_smb import smbwire_seeds
 from seeds_storage import (
     acpi_seeds, ext2fs_seeds, mscdesc_seeds, mscreply_seeds, mscsession_seeds, nvme_seeds,
 )
@@ -56,6 +57,7 @@ TARGETS = {
     "elevpolicy": elevpolicy_seeds,
     "accountwire": accountwire_seeds,
     "pkgstore_rules": pkgstore_rules_seeds,
+    "smbwire": smbwire_seeds,
 }
 
 
