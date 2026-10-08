@@ -342,7 +342,8 @@ pub fn handlers_take_no_lock() -> Result<(), String> {
 /// task table held (as the exit path holds it while it prints, and the
 /// serial drain opens windows), a deadline that comes due is acknowledged and
 /// left to the next ordinary tick. Its expiry, which takes the table, used to
-/// run there and spin forever with interrupts off.
+/// run there and spin forever with interrupts off. A waiter whose deadline
+/// passed meanwhile is still timed out by that later expiry.
 pub fn deadline_timer_defers_in_window() -> Result<(), String> {
     calibrated()?;
     if !crate::arch::event_timer::available() {
@@ -365,6 +366,26 @@ pub fn deadline_timer_defers_in_window() -> Result<(), String> {
         !crate::task::diag::table_locked(),
         "the task table stayed locked"
     );
+    // Deferred, not lost: a waiter whose deadline passed inside the window
+    // is timed out by the next ordinary expiry (what the next tick runs).
+    let waiter = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+    let queue = crate::task::wait::WaitQueue::new(crate::task::WaitKind::Sleep);
+    let deadline = clock::monotonic_ns() + 2_000_000;
+    queue.park_ns(waiter, Some(deadline));
+    let ((), _) = in_syscall(NR_A, || {
+        task::harness::with_table_locked(|| {
+            crate::arch::event_timer::program(Some(deadline), clock::monotonic_ns());
+            spin_us(25_000, irq_window::poll_point);
+        })
+    });
+    task::expire_due();
+    let reason = task::harness::take_wake_reason(waiter);
+    check!(
+        reason == Some(crate::task::WakeReason::TimedOut),
+        "the deferred deadline was lost: {reason:?}"
+    );
+    queue.notify_all();
+    task::harness::reset();
     Ok(())
 }
 
