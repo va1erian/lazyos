@@ -67,7 +67,7 @@ syscall shim.
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
-| 14 | `system_stats(op, buf, cap)` | uptime, frame/slab/heap counters and the task table for `top`/`sysmond` (`sysinfo.rs`, #144) |
+| 14 | `system_stats(op, buf, cap)` | uptime, idle ticks, frame/slab/heap counters, block-cache and slab frames (v5) and the task table for `top`/`sysmond`/System Monitor (`sysinfo.rs`, #144) |
 | 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
 | 21 | `power(op, arg)` | `0` reboot, `1` power-off (sync, then stop), `2` arm the shutdown watchdog (`arg` = the stop the kernel forces 30 s later if the machine is still up); `CAP_SYS_ADMIN` only, checked before the op; `init` is the only caller, after its orderly shutdown ([../shutdown.md](../shutdown.md); `process/power.rs`, `power_watchdog.rs`) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |

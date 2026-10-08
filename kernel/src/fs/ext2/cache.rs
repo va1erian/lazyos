@@ -6,9 +6,12 @@
 //! window, not heap memory: the kernel heap is small (~16 MiB) and shared by
 //! everything, while a useful cache is several MiB. Each page costs one small
 //! heap box for its handle.
+//!
+//! [`cache_frames`] counts the frames every volume's cache holds, so the
+//! system-stats snapshot can show "disk cache" as its own share of memory.
 
 use alloc::boxed::Box;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ext2fs::{CacheConfig, CacheMemory, CachePage, CACHE_PAGE_SIZE};
 use x86_64::PhysAddr;
@@ -26,6 +29,16 @@ const MAX_PAGES: usize = 8192;
 /// The cache stops taking frames while fewer than 1/16 of all frames are free,
 /// leaving them to processes; it then recycles its own pages instead.
 const RESERVE_DIVISOR: usize = 16;
+
+/// Frames held by cache pages across every mounted volume: one per live
+/// [`FramePage`]. An atomic, not a walk of the mounts, so the snapshot never
+/// waits on a volume a task holds.
+static CACHE_FRAMES: AtomicUsize = AtomicUsize::new(0);
+
+/// Frames the block caches of all volumes hold right now.
+pub fn cache_frames() -> usize {
+    CACHE_FRAMES.load(Ordering::Relaxed)
+}
 
 /// The configuration every cached mount gets.
 pub(super) fn config() -> CacheConfig {
@@ -55,6 +68,7 @@ impl CacheMemory for FrameMemory {
             return None;
         }
         let frame = mem::alloc_frame()?;
+        CACHE_FRAMES.fetch_add(1, Ordering::Relaxed);
         Some(Box::new(FramePage(frame)))
     }
 }
@@ -81,6 +95,7 @@ impl CachePage for FramePage {
 impl Drop for FramePage {
     fn drop(&mut self) {
         mem::free_frame(self.0);
+        CACHE_FRAMES.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
