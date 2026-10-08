@@ -53,7 +53,7 @@ kernel), [driver-config-plan.md](driver-config-plan.md) (`sys/dev/net/*`),
 | Descriptors | advanced only *to confirm* (16-byte read/write-back formats, `SRRCTL.DESCTYPE` one-buffer) | Linux and FreeBSD both use advanced only; the legacy format is not relied on |
 | Queues | 4 receive, 4 transmit *to confirm* | v1 uses queue 0 of each |
 | PHY | internal 2.5GBASE-T PHY *to confirm*, reached through `MDIC`, guarded by the software/firmware semaphore (`SWSM`, `SW_FW_SYNC`) *to confirm* | 2.5G advertisement through the PHY's multi-gig autoneg control *to confirm* (FreeBSD `igc_phy.c`) |
-| NVM | external flash; the MAC is loaded into `RAL0`/`RAH0` by hardware after reset *to confirm* | a blank-NVM part (`125F`) has no MAC: `mac_override` or refuse |
+| NVM | external flash; the MAC is loaded into `RAL0`/`RAH0` by hardware after reset *to confirm* | a blank-NVM part (`125F`) presumably loads no usable MAC *to confirm* (what it leaves in `RAL0`/`RAH0`); the driver's answer does not depend on it: §4.1 step 5 takes any address that is not valid usable unicast as missing, then `mac_override`, then refuses |
 | Reset | `CTRL.DEV_RST` (not the 8254x's `CTRL.RST`), then wait for the NVM auto-read to finish | *to confirm* bit numbers and the done flag |
 | Link | `STATUS.LU`; speed from `STATUS` including a 2500 bit; `ICR.LSC` on change | *to confirm* bit numbers |
 
