@@ -34,9 +34,11 @@ pub fn requirements(pictures: bool, desktop: bool) -> Result<(), String> {
     if !pictures || desktop {
         return Ok(());
     }
-    Err("LAZYOS_PICTURES=1 needs LAZYOS_DESKTOP=1 (the viewer is a desktop app); \
+    Err(
+        "LAZYOS_PICTURES=1 needs LAZYOS_DESKTOP=1 (the viewer is a desktop app); \
          `python tools/run_demo.py --pictures` sets both"
-        .to_owned())
+            .to_owned(),
+    )
 }
 
 /// The build failure for a wanted but unbuilt package, naming what to run.

@@ -19,8 +19,6 @@ mod docs_embed;
 mod hosts_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
-#[path = "../pictures_embed.rs"]
-mod pictures_embed;
 #[path = "../os_disk.rs"]
 mod os_disk;
 #[path = "../os_image.rs"]
@@ -31,6 +29,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "../os_recover.rs"]
 mod os_recover;
+#[path = "../pictures_embed.rs"]
+mod pictures_embed;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
 #[path = "../tls_embed.rs"]
@@ -59,9 +59,9 @@ mod layout_tests;
 #[cfg(test)]
 mod lazyweb_tests;
 #[cfg(test)]
-mod pictures_tests;
-#[cfg(test)]
 mod limits_tests;
+#[cfg(test)]
+mod pictures_tests;
 #[cfg(test)]
 mod recover_tests;
 #[cfg(test)]
