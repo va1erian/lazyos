@@ -73,24 +73,39 @@ impl ExplorerWindow {
 
     /// Back to the previous folder.
     pub(super) fn back(&mut self, ui: &mut Ui<Msg>) {
-        if let Some(dir) = self.history.back(&self.dir) {
-            self.revisit(ui, dir);
+        if let Some(dir) = self.history.back(&self.dir)
+            && !self.revisit(ui, &dir)
+        {
+            // Not entered: undo the step, so the history still has this
+            // folder as the current one.
+            self.history.forward(&dir);
         }
     }
 
     /// Forward to the next folder.
     pub(super) fn forward(&mut self, ui: &mut Ui<Msg>) {
-        if let Some(dir) = self.history.forward(&self.dir) {
-            self.revisit(ui, dir);
+        if let Some(dir) = self.history.forward(&self.dir)
+            && !self.revisit(ui, &dir)
+        {
+            self.history.back(&dir);
         }
     }
 
     /// Shows a folder from the history (which has already moved), climbing
-    /// to its nearest existing ancestor if it is gone.
-    fn revisit(&mut self, ui: &mut Ui<Msg>, dir: PathBuf) {
-        let dir = self.nearest_existing(dir);
+    /// to its nearest existing ancestor if it is gone. A folder that cannot
+    /// be listed is not entered, as in [`navigate`](Self::navigate): the
+    /// window stays and says why. Returns whether the window moved.
+    fn revisit(&mut self, ui: &mut Ui<Msg>, dir: &Path) -> bool {
+        let dir = self.nearest_existing(dir.to_path_buf());
         let listing = Listing::load(self.explorer.platform(), &dir, self.options.sort);
+        if let Some(error) = &listing.error {
+            self.chrome
+                .status
+                .set_parts(&[&format!("Cannot open {}: {error}", dir.display())]);
+            return false;
+        }
         self.show_listing(ui, Rc::new(listing), &[]);
+        true
     }
 
     /// Up to the parent folder, with the folder we came from selected.

@@ -268,3 +268,38 @@ fn moving_between_a_short_and_a_tall_folder_shows_and_hides_the_scrollbar() {
     );
     assert_eq!(*seen.borrow(), ["60", "2"]);
 }
+
+#[test]
+fn back_or_forward_into_an_unreadable_folder_stays_and_keeps_the_history() {
+    let platform = deep();
+    let lock = Rc::clone(&platform);
+    let seen: Rc<RefCell<Vec<String>>> = Rc::default();
+    let log = Rc::clone(&seen);
+    drive(
+        platform,
+        Rc::new(TestLauncher::default()),
+        "/a",
+        move |stage, handles| {
+            let record = |handles: &Handles| {
+                log.borrow_mut()
+                    .push(format!("{} [{}]", slash(&handles.dir()), handles.title()));
+            };
+            stage.emit(Msg::Activate(0)); // b
+            stage.emit(Msg::Back);
+            lock.set_readable("/a/b", false);
+            stage.emit(Msg::Forward); // refused: stays at /a
+            record(handles);
+            let refused = has(handles.status.text(0), "Cannot open");
+            log.borrow_mut().push(format!("refused={refused}"));
+            lock.set_readable("/a/b", true);
+            stage.emit(Msg::Forward); // the step is still there
+            record(handles);
+            stage.emit(Msg::Back);
+            record(handles);
+        },
+    );
+    assert_eq!(
+        *seen.borrow(),
+        ["/a [a]", "refused=true", "/a/b [b]", "/a [a]"]
+    );
+}
