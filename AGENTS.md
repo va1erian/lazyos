@@ -829,7 +829,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out sh
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 
-## Network Drives (FTP mounts from the desktop)
+## Network Drives (FTP and SMB mounts from the desktop)
 
 `ftpfuse` serves an FTP server, and `smbfuse` an SMB share, at
 `/mnt/<name>` through the FUSE mechanism (syscall 35, `CAP_FS_PROVIDER` and
@@ -861,7 +861,10 @@ serves in the foreground; `mountd` passes `LAZYOS_SMB_PASSWORD`). The FUSE
 mapping is `libs/smbfs` (host-tested against `smbwire`'s in-memory server,
 which the `testserver` feature exposes). FUSE metadata is believed for 1 s
 in the VFS (`Filesystem::cache_deadline`, `fuse::ATTR_TICKS`), so a change
-another client makes shows within that.
+another client makes shows within that. Running `smbfuse` directly needs
+a provider identity (root, as in a console image's shell, or `_mountd`): a
+session user's shell has no `CAP_FS_PROVIDER` and mounts through `mountd`
+(Network Drives, or `sys::mount` from `rhai`).
 
 ```bash
 cargo test -p smbfs -p mounttable -p fused

@@ -244,6 +244,10 @@ def main() -> int:
         if error:
             return fail(error)
     out.mkdir(parents=True, exist_ok=True)
+    # A session that dies before writing its log must not be judged on the
+    # previous run's.
+    for stale in ("serial.log", "session.json", "summary.json"):
+        (out / stale).unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as served:
         root = Path(served)
         seed(root)

@@ -16,7 +16,9 @@
 //!
 //! * the timer only counts the tick and acknowledges the PIC
 //!   ([`window_tick`]; `task::switch` routes IRQ0 here instead of to
-//!   `schedule`, so no task switch, signal sweep or deadline expiry runs);
+//!   `schedule`, so no task switch, signal sweep or deadline expiry runs),
+//!   and the APIC deadline timer (`arch::event_timer`) only acknowledges:
+//!   its expiry waits for the next ordinary tick;
 //! * IRQ1/IRQ12 only collect the i8042's bytes (`input::ps2::service`, whose
 //!   FIFO lock is never held with interrupts on), leaving the decoding for the
 //!   next tick outside a window;

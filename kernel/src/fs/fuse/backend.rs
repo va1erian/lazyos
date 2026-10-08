@@ -177,7 +177,7 @@ impl Filesystem for FuseFs {
     /// A daemon's tree may change without the VFS seeing it (a share other
     /// clients write), so its metadata is believed for [`super::ATTR_TICKS`].
     fn cache_deadline(&self) -> Option<u64> {
-        Some(super::now() + super::ATTR_TICKS)
+        Some(super::now().saturating_add(super::ATTR_TICKS))
     }
 
     fn cache_now(&self) -> u64 {
