@@ -59,7 +59,7 @@ pub fn cross_class_probe(tag: &str) {
         .iter()
         .filter(|device| !own.contains(&device.class_id))
     {
-        match super::claim(u64::from(device.id), None, false) {
+        match super::claim(u64::from(device.id)) {
             Err(errno::EACCES) => refused += 1,
             Ok(handle) => {
                 let _ = super::release(handle);

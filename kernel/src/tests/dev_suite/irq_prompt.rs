@@ -123,8 +123,8 @@ fn claimed_driver(fx: &Fixture, line: u8) -> Result<(usize, DeviceId), String> {
     handles::reset_for_task(slot);
     crate::ipc::credentials::set(slot, driver_cred());
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
-    let handle = expect_ok(claim_irq(dev, endpoint, false), "claim")?;
+    let mut endpoint = 0u64;
+    let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
     expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
     leave(fx);
     ENDPOINT.store(endpoint, Ordering::Relaxed);

@@ -76,7 +76,11 @@ mod error;
 pub use error::Error;
 #[path = "channels_kernel.rs"]
 mod kernel_post;
-pub use kernel_post::{post_from_kernel, private_endpoint_of_task, seal_endpoint};
+#[cfg(lazyos_tests)]
+pub use kernel_post::post_into_handle;
+pub use kernel_post::{
+    close_kernel_side, create_irq_channel, is_irq_channel, post_from_kernel, IRQ_SIDE,
+};
 
 mod call;
 mod close;
@@ -222,6 +226,9 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<WaiterS
     let channel = find_channel(&mut channels, channel_id)?;
     if channel.endpoints[peer].closed {
         return Err(Error::PeerDied);
+    }
+    if channel.endpoints[peer].kernel_held {
+        return Err(Error::MissingRight);
     }
     let inbox = &channel.endpoints[peer];
     if inbox.inbox.len() >= MAX_QUEUE_DEPTH

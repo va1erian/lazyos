@@ -10,7 +10,7 @@ use super::fixture::*;
 use super::*;
 use crate::dev::claims::CLAIMS;
 use crate::dev::errno::*;
-use crate::dev::syscall::{OP_IRQ_ACK, OP_IRQ_ENABLE, OP_RELEASE};
+use crate::dev::syscall::{OP_CLAIM, OP_IRQ_ACK, OP_IRQ_ENABLE, OP_RELEASE};
 use crate::dev::{intx, irq};
 use crate::quota;
 
@@ -21,7 +21,6 @@ pub struct Rig {
     pub dev: DeviceId,
     pub handle: u64,
     pub endpoint: u64,
-    pub peer: u64,
 }
 
 /// Spawn a driver and claim a fresh NIC-like device on `line`.
@@ -29,8 +28,8 @@ pub fn rig(line: u8, shared: bool, arm: bool) -> Result<Rig, String> {
     let dev = add_device(Spec::nic(Some(line)))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, peer) = irq_channel()?;
-    let handle = expect_ok(claim_irq(dev, endpoint, shared), "claim")?;
+    let mut endpoint = 0u64;
+    let handle = expect_ok(claim_irq(dev, &mut endpoint, shared), "claim")?;
     if arm {
         expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
     }
@@ -39,7 +38,6 @@ pub fn rig(line: u8, shared: bool, arm: bool) -> Result<Rig, String> {
         dev,
         handle,
         endpoint,
-        peer,
     })
 }
 
@@ -134,17 +132,17 @@ pub fn irq_exclusive_line_ebusy() -> Result<(), String> {
     let second_dev = add_device(Spec::nic(Some(LINE_A)))?;
     let other = spawn_driver(driver_cred())?;
     enter(other)?;
-    let (endpoint, _peer) = irq_channel()?;
+    let mut endpoint = 0u64;
     let handles_before = handles::count_for_task(other);
     let claims_before = usage(quota::Resource::DeviceClaims);
 
     expect_errno(
-        claim_irq(second_dev, endpoint, false),
+        claim_irq(second_dev, &mut endpoint, false),
         EBUSY,
         "exclusive on exclusive",
     )?;
     expect_errno(
-        claim_irq(second_dev, endpoint, true),
+        claim_irq(second_dev, &mut endpoint, true),
         EBUSY,
         "shared on exclusive",
     )?;
@@ -169,7 +167,7 @@ pub fn irq_exclusive_line_ebusy() -> Result<(), String> {
     expect_ok(sys(OP_RELEASE, first.handle, 0, 0, 0), "release")?;
     enter(other)?;
     expect_ok(
-        claim_irq(second_dev, endpoint, false),
+        claim_irq(second_dev, &mut endpoint, false),
         "claim after release",
     )?;
     drop(fx);
@@ -183,17 +181,17 @@ pub fn irq_shared_needs_all_opt_in() -> Result<(), String> {
     let device = add_device(Spec::nic(Some(LINE_A)))?;
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
+    let mut endpoint = 0u64;
     expect_errno(
-        claim_irq(device, endpoint, false),
+        claim_irq(device, &mut endpoint, false),
         EBUSY,
         "exclusive on shared",
     )?;
-    expect_ok(claim_irq(device, endpoint, true), "shared on shared")?;
+    expect_ok(claim_irq(device, &mut endpoint, true), "shared on shared")?;
     // Sharing without an endpoint is meaningless.
     let lone = add_device(Spec::nic(Some(LINE_A)))?;
     expect_errno(
-        claim_irq(lone, NO_ENDPOINT, true),
+        sys(OP_CLAIM, u64::from(lone.0), NO_ENDPOINT, 1, 0),
         EINVAL,
         "shared without endpoint",
     )?;

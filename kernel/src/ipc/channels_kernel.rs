@@ -1,49 +1,85 @@
-//! Kernel-originated one-way messages (issue #240).
+//! Kernel-originated one-way messages and the channels they travel on (issues
+//! #240, #496).
 //!
-//! The device core posts an interrupt notification into a driver's endpoint
-//! *as the kernel*: the message carries `sender == KERNEL_TASK` (slot 0), which
+//! The device core posts an interrupt notification into a driver's inbox *as
+//! the kernel*: the message carries `sender == KERNEL_TASK` (slot 0), which
 //! the receiver can trust because senders cannot forge it. There is no handle
 //! on the sending side, so this bypasses the per-task handle table and the ACL
-//! hook by design (the kernel is not a Messenger client); the destination was
-//! validated once, when the driver named it at `claim`.
+//! hook by design (the kernel is not a Messenger client).
 //!
-//! This is a child of `channels` so it can reach the private registry; it lives
-//! in its own file only to keep `channels.rs` from growing.
+//! # The interrupt channel kind (issue #496)
+//!
+//! Kernel-stamped messages land in the inbox of one channel side, and whoever
+//! holds that side reads them. When a driver named that side itself, the
+//! kernel could only check the handle tables, so a side published in the name
+//! registry or duplicated into a message still in flight could be bound and
+//! then read (or held) by someone else. The side is therefore never the
+//! driver's to name: [`create_irq_channel`] makes a fresh channel whose
+//! sending side is held by the kernel alone (no handle anywhere, nothing can
+//! be sent into it) and gives the claimant the receiving side with `CALL`
+//! only, so it can receive and wait on it but never duplicate, transfer or
+//! publish it. The device core closes the kernel's side when the claim goes
+//! ([`close_kernel_side`]); the driver then sees `PeerDied` once its inbox
+//! drains.
 
 use alloc::vec::Vec;
 
-use super::{enqueue, handles, split_object_id, wake, Error, HandleKind, Queued};
+use super::{
+    enqueue, fresh_channel, from_handles, handles, object_id, split_object_id, wake, Error,
+    HandleKind, Queued, CHANNELS,
+};
 
-/// The channel side a handle in `slot`'s table names, as `(channel_id, side)`,
-/// provided nobody else can read it (issue #283).
-///
-/// Kernel-stamped interrupt messages land in the inbox of the named side, and
-/// whoever holds that side reads them. A name resolve hands every client a
-/// handle to the *same* endpoint side, so a driver could otherwise name a side
-/// of a service it merely resolved and make that service receive
-/// kernel-stamped messages. The side must therefore be the claimant's own:
-/// held by this one handle and no other, in any table. Call [`seal_endpoint`]
-/// once the binding is committed so it stays that way.
-///
-/// The pair is a stable identity: channel ids are never reused, so a later post
-/// to a closed channel fails with [`Error::InvalidHandle`] or
-/// [`Error::PeerDied`] instead of reaching a stranger.
-pub fn private_endpoint_of_task(slot: usize, handle: u64) -> Result<(u64, usize), Error> {
-    let entry = handles::get_for_task(slot, handle).map_err(super::from_handles)?;
-    if entry.kind != HandleKind::Channel {
-        return Err(Error::WrongKind);
+/// The side of an interrupt channel the kernel keeps; the claimant gets the
+/// other one.
+const KERNEL_SIDE: usize = 0;
+/// The side the claimant receives on.
+pub const IRQ_SIDE: usize = 1;
+
+/// Create an interrupt channel for the current task: returns the channel id
+/// and the task's handle to its receiving side ([`IRQ_SIDE`]), which carries
+/// `CALL` (receive and wait) and nothing else.
+pub fn create_irq_channel() -> Result<(u64, u64), Error> {
+    let channel_id = CHANNELS.lock().insert(|id| {
+        let mut channel = fresh_channel(id);
+        channel.endpoints[KERNEL_SIDE].kernel_held = true;
+        channel
+    })?;
+    match handles::open(
+        HandleKind::Channel,
+        handles::rights::CALL,
+        object_id(channel_id, IRQ_SIDE),
+    ) {
+        Ok(handle) => Ok((channel_id, handle)),
+        Err(error) => {
+            CHANNELS.lock().remove(channel_id);
+            Err(from_handles(error))
+        }
     }
-    if handles::object_refs(HandleKind::Channel, entry.object_id) != 1 {
-        return Err(Error::MissingRight);
-    }
-    Ok(split_object_id(entry.object_id))
 }
 
-/// Drop the `DUPLICATE`/`TRANSFER` rights of an endpoint bound for interrupts,
-/// so the private side [`private_endpoint_of_task`] vetted cannot be spread.
-pub fn seal_endpoint(slot: usize, handle: u64) {
-    let spread = handles::rights::DUPLICATE | handles::rights::TRANSFER;
-    let _ = handles::drop_rights_for_task(slot, handle, spread);
+/// Close the kernel's side of interrupt channel `channel_id` (its claim is
+/// gone): the receiver sees `PeerDied` once it has drained what was queued,
+/// and the channel goes once the receiver's handle closes too. A channel that
+/// is not an interrupt channel is left alone.
+pub fn close_kernel_side(channel_id: u64) {
+    let ours = CHANNELS
+        .lock()
+        .get(channel_id)
+        .is_some_and(|channel| channel.endpoints[KERNEL_SIDE].kernel_held);
+    if ours {
+        let orphans = super::close::close_side(channel_id, KERNEL_SIDE);
+        super::close::close_orphans(orphans);
+    }
+}
+
+/// Whether the endpoint `object` (a handle's object id) belongs to an
+/// interrupt channel: such a side may never be published.
+pub fn is_irq_channel(object: u64) -> bool {
+    let (channel_id, _) = split_object_id(object);
+    CHANNELS
+        .lock()
+        .get(channel_id)
+        .is_some_and(|channel| channel.endpoints[KERNEL_SIDE].kernel_held)
 }
 
 /// Enqueue `parcel_bytes` into the inbox of `side` of `channel_id` as a one-way
@@ -68,4 +104,18 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
     let receivers = enqueue(channel_id, (side & 1) ^ 1, queued)?;
     wake(receivers.iter());
     Ok(())
+}
+
+/// Test builds: post `parcel_bytes` as the kernel into the inbox behind the
+/// current task's channel handle `handle` (to fill an interrupt inbox).
+#[cfg(lazyos_tests)]
+pub fn post_into_handle(handle: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
+    let entry = handles::get(handle).map_err(from_handles)?;
+    if entry.kind != HandleKind::Channel {
+        return Err(Error::WrongKind);
+    }
+    let (channel_id, side) = split_object_id(entry.object_id);
+    // The channel must exist (a stale handle names nothing).
+    super::find_channel(&mut CHANNELS.lock(), channel_id)?;
+    post_from_kernel(channel_id, side, parcel_bytes)
 }

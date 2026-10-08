@@ -7,8 +7,10 @@
 //! ```text
 //!   rax = 23  rdi = op  rsi = a1  rdx = a2  r10 = a3  r8 = a4   -> value | -errno
 //!   LIST(0)        a1 -> rows, a2 = capacity in rows   -> total rows
-//!   CLAIM(1)       a1 = device id, a2 = irq endpoint handle (or !0),
-//!                  a3 = flags (bit 0: share the interrupt line) -> handle
+//!   CLAIM(1)       a1 = device id, a2 = NO_ENDPOINT (!0: polled) or
+//!                  KERNEL_CHANNEL (!1: interrupts on a kernel-made channel),
+//!                  a3 = flags (bit 0: share the interrupt line),
+//!                  a4 -> u64 the channel's receive handle  -> Device handle
 //!   MAP_BAR(2)     a1 = handle, a2 = BAR                -> user virtual address
 //!   PIO(3)         a1 = handle, a2 = BAR, a3 = offset,
 //!                  a4 = width | write << 8 | value << 32 -> value read
@@ -68,6 +70,10 @@ pub const OP_DENIALS: u64 = 12;
 pub const FLAG_SHARED_IRQ: u64 = 1;
 /// `claim` endpoint argument meaning "no interrupt endpoint" (a polling driver).
 pub const NO_ENDPOINT: u64 = u64::MAX;
+/// `claim` endpoint argument asking for interrupts on a channel the kernel
+/// makes (`ipc::channels::create_irq_channel`, issue #496). No other value is
+/// accepted: a driver never names the side the kernel posts into.
+pub const KERNEL_CHANNEL: u64 = u64::MAX - 1;
 
 /// `u64` words per `list` row.
 pub const ROW_WORDS: usize = 13;
@@ -88,7 +94,7 @@ pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
     let slot = crate::task::current();
     let result = match op {
         OP_LIST => list(slot, a1, a2),
-        OP_CLAIM => claim(slot, a1, a2, a3),
+        OP_CLAIM => claim(slot, a1, a2, a3, a4),
         OP_MAP_BAR => with_handle(slot, a1, rights::DEV_MMIO, |r| ops::map_bar(r, a2)),
         OP_PIO => with_handle(slot, a1, rights::DEV_PIO, |r| ops::pio(r, a2, a3, a4)),
         OP_CFG_READ => with_handle(slot, a1, rights::DEV_CONFIG, |r| ops::cfg_read(r, a2, a3)),
@@ -270,10 +276,16 @@ struct ClaimUndo {
     id: DeviceId,
     charged_uid: Option<u32>,
     handle: Option<u64>,
+    /// The interrupt channel and the claimant's handle to it.
+    channel: Option<(u64, u64)>,
 }
 
 impl ClaimUndo {
     fn run(self) {
+        if let Some((channel, handle)) = self.channel {
+            let _ = channels::close_endpoint(handle);
+            channels::close_kernel_side(channel);
+        }
         if let Some(handle) = self.handle {
             let _ = handles::close(handle);
         }
@@ -290,7 +302,7 @@ impl ClaimUndo {
 /// effects runs first; ownership, quota and the handle follow, each undone if a
 /// later step fails; the claim record is installed last (it enforces the shared
 /// interrupt-line contract); only then is the device quiesced.
-fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Errno> {
+fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64, out: u64) -> Result<u64, Errno> {
     let cred = credentials::of(slot);
     let id = u16::try_from(id_raw).map(DeviceId).map_err(|_| ENODEV)?;
     let found = table().lock().get(id);
@@ -325,20 +337,19 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         return Err(deny(slot, Some(&info), reason::NO_RIGHTS, EPERM));
     }
 
-    let binding = if endpoint == NO_ENDPOINT {
-        None
-    } else {
-        if granted & rights::DEV_IRQ == 0 {
+    let wants_irq = match endpoint {
+        NO_ENDPOINT => false,
+        KERNEL_CHANNEL if granted & rights::DEV_IRQ == 0 => {
             return Err(deny(slot, Some(&info), reason::NO_RIGHTS, EPERM));
         }
-        let (channel, side) = channels::private_endpoint_of_task(slot, endpoint)
-            .map_err(|_| deny(slot, Some(&info), reason::BAD_ENDPOINT, EBADF))?;
-        Some(IrqBinding {
-            channel,
-            side,
-            shared: flags & FLAG_SHARED_IRQ != 0,
-        })
+        KERNEL_CHANNEL => true,
+        _ => return Err(deny(slot, Some(&info), reason::BAD_ENDPOINT, EBADF)),
     };
+    // Where the channel handle goes must be writable before anything is
+    // taken, so a bad pointer costs the device no generation.
+    if wants_irq && user_ptr::try_write(out, 0u64).is_err() {
+        return Err(EFAULT);
+    }
     let line = info
         .resources
         .irq()
@@ -352,6 +363,7 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         id,
         charged_uid: None,
         handle: None,
+        channel: None,
     };
     if quota::charge(cred.uid, Resource::DeviceClaims, 1).is_err() {
         undo.run();
@@ -367,6 +379,24 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
         }
     };
     undo.handle = Some(handle);
+    let binding = if wants_irq {
+        let Ok((channel, receive)) = channels::create_irq_channel() else {
+            undo.run();
+            return Err(EMFILE);
+        };
+        undo.channel = Some((channel, receive));
+        if user_ptr::try_copy_words(out, &[receive]).is_err() {
+            undo.run();
+            return Err(EFAULT);
+        }
+        Some(IrqBinding {
+            channel,
+            side: channels::IRQ_SIDE,
+            shared: flags & FLAG_SHARED_IRQ != 0,
+        })
+    } else {
+        None
+    };
     let record = Claim {
         owner: slot,
         uid: cred.uid,
@@ -391,9 +421,6 @@ fn claim(slot: usize, id_raw: u64, endpoint: u64, flags: u64) -> Result<u64, Err
             InstallError::Occupied => reason::BUSY,
         };
         return Err(deny(slot, Some(&info), why, EBUSY));
-    }
-    if binding.is_some() {
-        channels::seal_endpoint(slot, endpoint);
     }
     quiesce(&info);
     // A message interrupt left on (by firmware, or a driver of an earlier

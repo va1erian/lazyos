@@ -38,7 +38,6 @@ pub struct MsiRig {
     pub dev: DeviceId,
     pub handle: u64,
     pub endpoint: u64,
-    pub peer: u64,
     pub index: u8,
 }
 
@@ -56,8 +55,8 @@ impl MsiRig {
     /// Claim and arm the existing MSI device `dev` in driver task `slot`.
     pub fn claim(slot: usize, dev: DeviceId) -> Result<MsiRig, String> {
         enter(slot)?;
-        let (endpoint, peer) = irq_channel()?;
-        let handle = expect_ok(claim_irq(dev, endpoint, false), "claim")?;
+        let mut endpoint = 0u64;
+        let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
         let mode = expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
         check!(mode == MODE_MSI, "irq_enable answered mode {mode}, not MSI");
         let index = vector_of(dev)?;
@@ -66,7 +65,6 @@ impl MsiRig {
             dev,
             handle,
             endpoint,
-            peer,
             index,
         })
     }
@@ -257,8 +255,8 @@ pub fn msi_falls_back_to_intx() -> Result<(), String> {
         let dev = msi_device(Some(LINE_A))?;
         let slot = spawn_driver(driver_cred())?;
         enter(slot)?;
-        let (endpoint, _peer) = irq_channel()?;
-        let handle = expect_ok(claim_irq(dev, endpoint, false), "claim")?;
+        let mut endpoint = 0u64;
+        let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
         let mode = expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
         check!(mode == 0 && !masked(LINE_A), "MSI off but mode {mode}");
         return Ok(());
@@ -271,13 +269,13 @@ pub fn msi_falls_back_to_intx() -> Result<(), String> {
     let both = msi_device(Some(LINE_B))?;
     let only = msi_device(None)?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
-    let handle = expect_ok(claim_irq(both, endpoint, false), "claim both")?;
+    let mut endpoint = 0u64;
+    let handle = expect_ok(claim_irq(both, &mut endpoint, false), "claim both")?;
     let mode = expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable both")?;
     check!(mode == 0, "no vector left, yet mode {mode}");
     check!(!masked(LINE_B), "the fallback line was not unmasked");
-    let (endpoint2, _peer2) = irq_channel()?;
-    let lone = expect_ok(claim_irq(only, endpoint2, false), "claim msi-only")?;
+    let mut endpoint2 = 0u64;
+    let lone = expect_ok(claim_irq(only, &mut endpoint2, false), "claim msi-only")?;
     expect_errno(
         sys(OP_IRQ_ENABLE, lone, 0, 0, 0),
         ENOSYS,

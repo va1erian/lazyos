@@ -268,9 +268,9 @@ pub fn irq_real_device_end_to_end() -> Result<(), String> {
     let saved_command = pci::command(address);
     let slot = spawn_driver(driver_cred())?;
     enter(slot)?;
-    let (endpoint, _peer) = irq_channel()?;
+    let mut endpoint = 0u64;
     let handle = expect_ok(
-        claim_irq(nic.id, endpoint, false),
+        claim_irq(nic.id, &mut endpoint, false),
         "claim the real function",
     )?;
     let outcome = if irq::routable(line) || crate::dev::msi::enabled() {

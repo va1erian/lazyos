@@ -90,6 +90,10 @@ pub(super) fn registry_register(args: &MsgArgs, target: usize) -> Result<MsgResu
     if !matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint) {
         return Err(errno::EINVAL);
     }
+    // A device interrupt channel is its claimant's alone (issue #496).
+    if entry.kind == HandleKind::Channel && crate::ipc::channels::is_irq_channel(entry.object_id) {
+        return Err(errno::EINVAL);
+    }
     registry::register(
         target,
         &args.name,

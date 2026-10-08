@@ -153,8 +153,8 @@ pub fn claim_kill_soak_10k() -> Result<(), String> {
     for round in 0..ROUNDS {
         let slot = spawn_driver(driver_cred())?;
         enter(slot)?;
-        let (endpoint, _peer) = irq_channel()?;
-        let handle = expect_ok(claim_irq(dev, endpoint, false), "claim")?;
+        let mut endpoint = 0u64;
+        let handle = expect_ok(claim_irq(dev, &mut endpoint, false), "claim")?;
         expect_ok(sys(OP_IRQ_ENABLE, handle, 0, 0, 0), "irq_enable")?;
         let va = expect_ok(sys(OP_MAP_BAR, handle, 0, 0, 0), "map_bar")?;
         expect_ok(sys(OP_PIO, handle, 1, 0, pio_word(1, false, 0)), "pio")?;

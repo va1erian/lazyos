@@ -355,60 +355,6 @@ pub fn sys_empty_rights_is_eperm() -> Result<(), String> {
     Ok(())
 }
 
-/// The interrupt endpoint must be the claimant's own private inbox (issue
-/// #283): a side another handle also names (as every client of a resolved
-/// service does) is refused, and a bound side loses the rights to be spread.
-pub fn sys_irq_endpoint_must_be_private() -> Result<(), String> {
-    let fx = Fixture::new()?;
-    let dev = add_device(Spec::nic(Some(LINE_A)))?;
-    let slot = driver_in(driver_cred())?;
-    let (endpoint, _peer) = irq_channel()?;
-    let entry = handles::get(endpoint).map_err(|error| error.message().to_string())?;
-
-    // A second handle to the same side stands in for a resolved service.
-    let shared = handles::open_for_task(
-        slot,
-        handles::HandleKind::Channel,
-        handles::rights::ALL,
-        entry.object_id,
-    )
-    .map_err(|error| error.message().to_string())?;
-    expect_errno(
-        claim_irq(dev, endpoint, false),
-        EBADF,
-        "claim on a shared side",
-    )?;
-    check!(
-        table_state(dev).0.is_none(),
-        "a refused claim left an owner"
-    );
-    let _ = handles::close(shared);
-
-    // Not a channel at all.
-    let handle = expect_ok(claim_plain(dev), "plain claim")?;
-    let other = add_device(Spec::nic(Some(LINE_B)))?;
-    expect_errno(
-        claim_irq(other, handle, false),
-        EBADF,
-        "a device handle as endpoint",
-    )?;
-    expect_ok(sys(OP_RELEASE, handle, 0, 0, 0), "release")?;
-
-    // The private side binds and is sealed against duplication and transfer.
-    expect_ok(claim_irq(dev, endpoint, false), "claim on a private side")?;
-    let rights = handles::rights(endpoint).ok_or("the endpoint handle vanished")?;
-    check!(
-        rights & (handles::rights::DUPLICATE | handles::rights::TRANSFER) == 0,
-        "a bound endpoint can still be spread: rights {rights:#x}"
-    );
-    check!(
-        handles::duplicate(endpoint, handles::rights::CALL).is_err(),
-        "a bound endpoint was duplicated"
-    );
-    leave(&fx);
-    Ok(())
-}
-
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "dev_sys_claim_release_roundtrip",
@@ -420,8 +366,4 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("dev_sys_acl_is_class_specific", sys_acl_is_class_specific),
     ("dev_sys_empty_rights_is_eperm", sys_empty_rights_is_eperm),
-    (
-        "dev_sys_irq_endpoint_must_be_private",
-        sys_irq_endpoint_must_be_private,
-    ),
 ];

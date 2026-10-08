@@ -306,6 +306,8 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::IRQ_MSI,
     dev_suite::IRQ_REAL,
     dev_suite::IRQ_PROMPT,
+    dev_suite::IRQ_CHANNEL,
+    dev_suite::IRQ_RATE,
     dev_suite::SYSCALL,
     dev_suite::SYSCALL_GUARD,
     dev_suite::SYSCALL_OPS,

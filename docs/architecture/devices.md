@@ -21,7 +21,8 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/dev/table.rs` | fixed `MAX_DEVICES = 32` table; `owner: Option<TaskSlot>` + `generation` |
 | `kernel/src/dev/driver.rs` | `Driver` trait (`matches` / `attach` / `detach`) and the static `DRIVERS` table |
 | `kernel/src/dev/irq.rs` | ISR-side `dispatch(line)` (lock-free), kernel `fn(line)` handlers, which lines are routable |
-| `kernel/src/dev/intx.rs` | The bottom half (task context, or the line's interrupt when it stopped lock-free code) and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
+| `kernel/src/dev/intx.rs`, `dev/intx/service.rs` | The bottom half (task context, or the line's interrupt when it stopped lock-free code) and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
+| `kernel/src/dev/throttle.rs` | The per-line rate limit: a line past `ROUNDS_PER_TICK` rounds in one tick stays masked until a later tick's bottom half (#496) |
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
 | `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
@@ -32,7 +33,7 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/arch/irq_stubs.rs`, `arch/irqchip.rs` | IDT stubs for the legacy lines; mask/EOI/spurious/request helpers on the 8259 or the I/O APIC |
 | `kernel/src/dev/msi.rs`, `dev/msi_hw.rs`, `arch/msi_stubs.rs` | MSI and MSI-X: vectors, the lock-free vector handler, capability programming ([interrupts.md](interrupts.md)) |
 | `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
-| `kernel/src/ipc/channels_kernel.rs` | `post_from_kernel`: one-way messages from the kernel identity |
+| `kernel/src/ipc/channels_kernel.rs` | The interrupt channel kind (`create_irq_channel`, `close_kernel_side`) and `post_from_kernel`: one-way messages from the kernel identity |
 | `user/src/dev.rs` | Userspace wrappers for syscall 23 |
 
 **Ownership and generations.** Each table slot carries an `owner` and a
@@ -91,6 +92,18 @@ sharing, one outstanding message per (claim, line), unmask after the last ack,
 100-tick deadline, `missed`-bit recovery, exclusive lines fail `EBUSY`) is
 `docs/driver-plan.md` section 3.3, implemented in `intx.rs`.
 
+**Rate limit (#496).** A level-triggered line whose device nobody quiets
+re-asserts the moment its round ends, which used to cost an interrupt per
+bottom-half pass (every syscall). Each legacy line may start at most
+`throttle::ROUNDS_PER_TICK` (64) delivery rounds per timer tick; past that,
+the round's end leaves it masked (*held*, counted by `throttle::holds`), and
+the bottom half lets it go on a later tick: the tick that lands in user code
+or a nap runs it (`task::schedule`, `intx::service_in_interrupt`), else the
+next syscall or mux pass. Only a line whose request survives masking is held
+(`irqchip::masked_keeps_request`: any line on the 8259, a level-triggered
+I/O APIC input; an edge there would be lost), and MSI vectors are never
+held. A serviced device stays far below the limit (6,400 rounds a second).
+
 **The `dev_*` syscall (D3).** Syscall 23 (see the table in
 `docs/driver-plan.md` 3.2 and the header of `dev/syscall.rs`). `claim` checks
 `CAP_DEV_CLAIM`, resolves the device, authorizes `os.kernel.dev.<class>`,
@@ -106,13 +119,16 @@ subtree shared by every address space); its leaves carry software PTE bit 10
 device frame is never freed, shared or inherited. `ipc::teardown_task`
 releases every claim first: interrupts masked and the claimant dropped from
 rounds, decode/bus-master cleared with INTx disabled, MMIO unmapped and
-uncharged, generation bumped, one audit record. A task that has *exited* but
-is not yet reaped is a zombie whose address space (and MMIO mappings) lives on
-until the parent reaps it, so the claim is released then; but the dangerous
-part is stopped at exit: `process::finish` marks the slot and
-`dev::silence_exited` (run from the interrupt bottom half and from `finish`)
-takes its claims out of interrupt delivery, masks a line nobody else listens
-on, and clears the function's decode/bus-master enables.
+uncharged, generation bumped, one audit record. A task that has *exited* is
+released at exit, not at reap (#496): a zombie holds no claim. `process::finish`
+marks the slot; `dev::silence_exited` (any context, the interrupt bottom half
+included) takes its claims out of interrupt delivery at once, masks a line
+nobody else listens on, and clears the function's decode/bus-master enables;
+then `dev::release_exited` (task context: `finish` itself, or the next
+task-context bottom half) releases each claim exactly as `release` does,
+unmapping its MMIO from the zombie's still-live address space. The device is
+free for the next driver before the parent reaps; the reap's teardown then
+finds nothing left (`dev_zombie_holds_no_claim`).
 
 **Driver class rules (#481).** Each driver's device-class rules are data in
 its own crate (`libs/netpolicy`, `libs/usbpolicy`, `libs/sndpolicy`: claim,
@@ -141,15 +157,21 @@ Start menu, or `python tools/run_demo.py --devices` to open it at boot) shows
 the same and refreshes every two seconds
 (`tools/screenshot/examples/devices_desktop.json` drives both).
 
-**The interrupt endpoint (partly hardened, #283).** Kernel-stamped
-`os.kernel.dev` messages are posted into the inbox of the channel side named at
-`claim`, and whoever holds that side reads them. `claim` requires the side to be
-held by exactly that one handle in the task tables (a name resolve gives every
-client a handle to the same side, so a resolved service endpoint is refused with
-`EBADF`) and drops its `DUPLICATE`/`TRANSFER` rights. **Known gaps:** a handle
-duplicated earlier and currently *in flight* in a queued message, and a side
-published in the name registry, are not counted; closing them needs a
-kernel-owned IRQ channel kind (tracked in #283 item 1).
+**The interrupt channel (#283, #496).** Kernel-stamped `os.kernel.dev`
+messages land in the inbox of one channel side, and whoever holds that side
+reads them, so a driver never names it: `claim(id, KERNEL_CHANNEL, flags, out)`
+makes a fresh channel (`ipc::channels::create_irq_channel`) whose sending side
+the kernel alone holds (no handle anywhere; a send or call into it fails with
+`MissingRight`), and writes the claimant's handle to the receiving side to
+`*out`. That handle carries `CALL` only (receive, wait), so it can never be
+duplicated, transferred in a message, or published (the registry refuses an
+interrupt channel with `EINVAL`). Any other endpoint value is refused with
+`EBADF` and audited `BAD_ENDPOINT`; a fault writing `*out` undoes the whole
+claim (`EFAULT`). Releasing the claim (or the owner's exit) closes the
+kernel's side: the driver drains what was queued, then sees `PeerDied`, and
+the channel goes with its handle. `user::dev::claim_with_irq` returns both
+handles; `netdrv` waits on its service endpoint and the interrupt channel with
+`wait_any`, `sndd` and `usbd` on their interrupt channels as before.
 
 **IRQ routing on QEMU (observed).** The boot log prints one
 `dev: irq route ...` line per PCI function (pin, Interrupt Line, verdict). A

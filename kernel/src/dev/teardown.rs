@@ -8,10 +8,14 @@
 //! with a bumped generation so any old handle fails closed, and one audit
 //! record.
 //!
-//! A task that has *died* but not been reaped is a zombie: its address space
-//! (and so its MMIO mappings) lives on until the parent reaps it, so the claim
-//! itself is released then. The dangerous part, a live interrupt line and a
-//! device that can still DMA, is stopped at exit by [`silence_exited`].
+//! A task that has *died* is released at exit, not at reap (issue #496): a
+//! zombie holds no claim. The part that cannot wait, a live interrupt line and
+//! a device that can still DMA, is stopped at once by [`silence_exited`],
+//! which is lock-light and runs in the interrupt bottom half too; the rest
+//! (MMIO unmapped from the zombie's still-live address space, DMA buffers,
+//! quota, the device freed with a new generation, the audit record) follows
+//! from task context in [`release_exited`]. The reap ([`teardown_task`]) then
+//! finds nothing left, or releases what an exit path could not reach.
 //!
 //! There is no function-level reset yet (driver-plan risk 5): quiescing is the
 //! command-register clear, which is what stops a device from touching memory.
@@ -45,6 +49,11 @@ pub fn release_claim(id: DeviceId, actor: usize, why: u32, live_table: u64) {
     // Bus mastering is off, so no message is on its way: free the vector.
     if let Some(index) = claim.msi {
         super::msi::unroute(index, id);
+    }
+    // Nothing is posted for a detached claim: let the driver see the
+    // interrupt channel end once it has drained it.
+    if let Some(binding) = claim.irq {
+        crate::ipc::channels::close_kernel_side(binding.channel);
     }
     // Bus mastering is off, so the device can no longer write these frames.
     // Close the owner's reference to each DMA buffer *by object id* (a
@@ -97,9 +106,10 @@ fn unmap_all(claim: &Claim, live_table: u64) -> u64 {
 /// [`crate::ipc::teardown_task`], before the task's handle table and address
 /// space go away; `table` is the task's PML4.
 pub fn teardown_task(slot: usize, table: u64) {
-    // The slot is about to be reused: a stale exit mark must not silence its
-    // next owner.
+    // The slot is about to be reused: a stale exit mark must not silence or
+    // release its next owner's claims.
     EXITED.clear(slot);
+    RELEASE.clear(slot);
     let (ids, count) = CLAIMS.lock().owned_by(slot);
     for id in ids.iter().take(count).flatten() {
         release_claim(*id, slot, reason::TEARDOWN, table);
@@ -108,6 +118,9 @@ pub fn teardown_task(slot: usize, table: u64) {
 
 /// Bit per task slot that died since the last [`silence_exited`].
 static EXITED: crate::task::slotmask::SlotMask = crate::task::slotmask::SlotMask::new();
+/// Bit per dead task slot whose claims are silenced and wait for
+/// [`release_exited`].
+static RELEASE: crate::task::slotmask::SlotMask = crate::task::slotmask::SlotMask::new();
 
 /// Record that task `slot` has just died. Lock-free, so the scheduler can call
 /// it from the timer sweep with its own locks held; [`silence_exited`] does the
@@ -124,8 +137,8 @@ pub fn exits_pending() -> bool {
 /// Stop every device claimed by a task that died since the last call (issue
 /// #283): take the claim out of interrupt delivery, mask a line nobody else
 /// listens on, and clear the function's decode and bus-master enables. The
-/// claim, its mappings and its quota stay until the zombie is reaped, when
-/// [`teardown_task`] frees them. Idempotent.
+/// claim itself is released by [`release_exited`], from task context.
+/// Idempotent.
 pub fn silence_exited() {
     // The mux calls this with interrupts on and is preemptible: hold neither
     // the claim lock nor the PCI address port across a switch.
@@ -146,6 +159,34 @@ fn silence_exited_locked() {
             if let Some(index) = vector {
                 super::msi::unroute(index, *id);
             }
+        }
+        RELEASE.set(slot);
+    }
+}
+
+/// Whether a dead task's silenced claims wait for [`release_exited`].
+pub fn releases_pending() -> bool {
+    RELEASE.any()
+}
+
+/// Release every claim of a task that died (and was silenced) since the last
+/// call, exactly as `release` would: the zombie holds no claim, and its device
+/// is free for the next driver before the parent gets round to reaping it
+/// (issue #496). MMIO is unmapped from the zombie's address space, which lives
+/// until the reap. Task context only: it closes handles in the dead task's
+/// table and walks page tables.
+pub fn release_exited() {
+    if !RELEASE.any() {
+        return;
+    }
+    for slot in RELEASE.take().iter() {
+        // An empty slot was already reaped, and its teardown released all.
+        let Some(table) = crate::task::pml4_of(slot) else {
+            continue;
+        };
+        let (ids, count) = CLAIMS.lock().owned_by(slot);
+        for id in ids.iter().take(count).flatten() {
+            release_claim(*id, slot, reason::TEARDOWN, table);
         }
     }
 }

@@ -284,6 +284,10 @@ impl WaiterSet {
 #[derive(Default)]
 pub(super) struct Endpoint {
     pub(super) closed: bool,
+    /// Held by the kernel alone, with no handle anywhere: the sending side of
+    /// a device interrupt channel (`kernel_post::create_irq_channel`). Nothing
+    /// may be sent into it.
+    pub(super) kernel_held: bool,
     pub(super) inbox: VecDeque<Queued>,
     pub(super) queued_bytes: usize,
     /// Task slots parked in `recv` on this side (issue #338): a delivery or
