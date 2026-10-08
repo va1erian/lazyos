@@ -110,7 +110,8 @@ ends" rule asks of a driver with no app.
    (`RDBAL/H`, `RDLEN`, `SRRCTL`, `RXDCTL.ENABLE` polled until it reads
    back set, then `RDT`; likewise transmit) and only then enable the units.
 7. Unmask `RXDMT0 | RXT0 | TXDW | LSC` (the 8254x's wanted set *to confirm*
-   for this chip) after `device::arm` has the vector.
+   for this chip), plus the fatal-error cause if the datasheet has one
+   (§4.3), after `device::arm` has the vector.
 
 ### 4.2 Rings (`libs/igc::rings`)
 
@@ -146,6 +147,20 @@ for the I226.
   legitimately return it (`STATUS`, `CTRL`) is `Fatal::Hardware("device
   gone")`; `netdrv` exits and `init`'s restart policy, with its backoff,
   tries again. Never spin on a bit of a register that reads all ones.
+- **A fatal internal error** (an uncorrectable parity/ECC error in the
+  chip's packet buffers or descriptor caches, reported by a fatal-error
+  cause in `ICR` *to confirm* the bit and its name for the I225/I226) is
+  handled the same way, and v1 attempts no recovery of its own: the cause is
+  unmasked, and seeing it logs `NETDRV:FATAL:<cause>` and returns
+  `Fatal::Hardware("internal error")`. `netdrv` exits without touching the
+  rings again; the restart's bring-up (§4.1) does a full `CTRL.DEV_RST`,
+  which is the recovery. In-flight frames are lost and the client sees a
+  link drop and a fresh attach, as after any driver restart. If the chip
+  has no such cause, the failure shows instead as a stuck queue: no receive
+  or transmit completions while `STATUS.LU` is up; v1 does not detect that
+  (a transmit watchdog is an I5 item). The fake raises the cause in a test
+  that checks the driver stops and a second bring-up of the same fake
+  succeeds.
 
 ### 4.4 Settings
 
@@ -158,7 +173,7 @@ logged and the default used.
 
 | Layer | What | Where |
 |---|---|---|
-| Host unit | reset timing, reset that never finishes, semaphore held forever, `MDIC` errors and timeouts, blank NVM, `RAH.AV` clear, all-ones device, link up/down/speed, every `SetupError` | `cargo test -p igc` against `fake.rs`, a register-level model of the chip that can lie |
+| Host unit | reset timing, reset that never finishes, semaphore held forever, `MDIC` errors and timeouts, blank NVM, `RAH.AV` clear, all-ones device, the fatal-error cause then a second bring-up, link up/down/speed, every `SetupError` | `cargo test -p igc` against `fake.rs`, a register-level model of the chip that can lie |
 | Host rings | the e1000 ring tests ported to the advanced format: gap movement, full/empty, hostile write-backs (length 0, past the slot, no `EOP`, error bits, `DD` on a descriptor never posted, head running past tail) | `cargo test -p igc` |
 | Host fuzz | `fuzz::run(&[u8])`: a scripted hostile device and client over the rings and setup, shared with a `fuzz/` cargo-fuzz target; seeds in `fuzz/seeds/igc`, `python fuzz/gen_corpus.py --check` | `FUZZ_CASES=20000 cargo test -p igc --release seeded` |
 | Manifest | `devmatch` rows equal `igc::DEVICES`; `plan()` with an I226 and a virtio-net picks the first in enumeration order | `cargo test -p devmatch` |
@@ -229,7 +244,7 @@ Each stage merges on its own and keeps every existing harness green.
 | **I2** I225/I226 setup | `i225.rs`, `phy.rs`, `link.rs` against the fake; `Kind::Igc`; `sys/dev/net/igc/*`; the I225/I226 `devmatch` row | host tests and fuzz; CI cannot run the chip, so no claim beyond "host-tested" in the PR |
 | **I3** First light | VFIO on the box (§5.3), then bare metal: fix what the real chip disagrees with, then fix the fake too | §5.1 steps 1–3 under VFIO, then bare |
 | **I4** Hardening | §5.1 steps 4–7; the compat row | the soak's log and the row |
-| **I5** Extras, each optional | link speed on Messenger (`net.midl`); MSI-X if needed; hardware counters (`CRCERRS`, `MPC`, …) into `NicStats`; receive checksum offload; jumbo frames (`RCTL.LPE`, `SRRCTL` sizes, `mtu` up to 9000) | per item: host tests, `--nic igb` where QEMU models it |
+| **I5** Extras, each optional | link speed on Messenger (`net.midl`); MSI-X if needed; a transmit watchdog (a queue with work and no completions while the link is up ends the driver like a fatal error); hardware counters (`CRCERRS`, `MPC`, …) into `NicStats`; receive checksum offload; jumbo frames (`RCTL.LPE`, `SRRCTL` sizes, `mtu` up to 9000) | per item: host tests, `--nic igb` where QEMU models it |
 
 **Out of v1:** multiple queues and RSS (needs an engine that serves more than
 one ring pair), TSO, PTP and TSN, Wake-on-LAN configuration (firmware setting,
