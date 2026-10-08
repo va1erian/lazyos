@@ -35,7 +35,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "block_sleep_spin_ends_by_deadline",
         spinwait::spin_ends_by_deadline_with_windows,
     ),
-    ("block_sleep_soak_spins_bounded", spinwait::soak_spins_stay_bounded),
+    (
+        "block_sleep_soak_spins_bounded",
+        spinwait::soak_spins_stay_bounded,
+    ),
     (
         "block_sleep_soak_ext2_threads",
         ext2::soak_threads_on_one_volume,
