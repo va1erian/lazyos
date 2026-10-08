@@ -53,6 +53,7 @@ pub struct Handles {
     pub address: Rc<Edit<Msg>>,
     pub status: Rc<StatusBar<Msg>>,
     pub window: WindowId,
+    pub sort_popup: Option<xui_core::backend::WidgetId>,
 }
 
 impl Handles {
@@ -120,6 +121,7 @@ where
                 address: window.address_handle(),
                 status: window.status_bar(),
                 window: ui.window(),
+                sort_popup: window.sort_menu_popup(),
             });
             Ok::<_, BackendError>(window)
         },

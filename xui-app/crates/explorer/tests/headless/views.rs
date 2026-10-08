@@ -175,3 +175,22 @@ fn the_arrow_of_alt_up_does_not_move_the_selection_after_it() {
     });
     assert_eq!(seen, ["[1]", "[0]"]);
 }
+
+#[test]
+fn the_sort_menu_closes_on_any_other_click_and_on_a_second_sort_click() {
+    let seen = run(|stage, handles, record| {
+        let popup = handles.sort_popup.expect("the sort menu has a popup");
+        let open = || stage.ui().is_visible(popup);
+        stage.emit(Msg::SortMenu);
+        record(format!("{}", open()));
+        stage.emit(Msg::Selection); // a click in the view
+        record(format!("{}", open()));
+        stage.emit(Msg::SortMenu);
+        stage.emit(Msg::SortMenu); // the button again
+        record(format!("{}", open()));
+        stage.emit(Msg::SortMenu);
+        stage.emit(Msg::Up); // a toolbar button
+        record(format!("{}", open()));
+    });
+    assert_eq!(seen, ["true", "false", "false", "false"]);
+}
