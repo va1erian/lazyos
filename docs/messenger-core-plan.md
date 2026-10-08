@@ -125,7 +125,7 @@ length are data, and the receiving library checks them against the size
 ### 3.1 Wire (parcel version 2)
 
 ```
-Header (40 bytes)
+Header (48 bytes)
   u16 version (=2)   u16 flags       u32 object_count
   u64 interface_id   u32 method      u32 body_len
   u64 txn_id         u64 reply_to
@@ -138,7 +138,8 @@ Object list: object_count x 16 bytes
   u64 handle (sender's number; the receiver ignores it)
 ```
 
-`body_crc32c`, `handle_count`, `buffer_count` and the buffer descriptor go.
+`body_crc32c`, `handle_count`, `buffer_count` and the buffer descriptor go
+(the header keeps its 48 bytes: `object_count` and `body_len` take the room).
 `MAX_OBJECTS = 8` replaces `MAX_HANDLES = 64` and `MAX_BUFFERS = 64`. This
 is the Fuchsia FIDL shape: handles in the body are presence markers, the
 kernel moves a flat list it never has to find.

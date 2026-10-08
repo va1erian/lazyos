@@ -30,7 +30,7 @@ jobs:
         run: python tools/midlc/test_midlc.py
 
       - name: Transfer clause tests
-        run: python tools/midlc/test_midlc_transfers.py
+        run: python tools/midlc/test_midlc_objects.py
 
       - name: Ring declaration tests
         run: python tools/midlc/test_midlc_rings.py

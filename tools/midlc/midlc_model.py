@@ -18,11 +18,14 @@ SCALARS = {
     "U64": ("u64", "u64"),
     "F64": ("f64", "f64"),
 }
-BUILTINS = set(SCALARS) | {"String", "Bytes", "Array", "Option"}
-# Kernel objects: never a body field (a handle number means nothing in the
-# receiver's table), only a method's `transfers (...)` clause.
-TRANSFER_TYPES = {"Channel", "Buffer", "Ring"}
-BODY_FORBIDDEN = TRANSFER_TYPES | {"Handle"}
+# Kernel objects as parameter types (`docs/messenger-core-plan.md` 3.5): a
+# `Channel<I>` end, a shared `Buffer`, or a `Ring<A, B>` buffer with a ring
+# layout. Legal in a request's parameters and inside structs, refused in a
+# reply, a topic payload, an `Option<T>` or an `Array<T>`.
+OBJECT_TYPES = {"Channel", "Buffer", "Ring"}
+BUILTINS = set(SCALARS) | {"String", "Bytes", "Array", "Option"} | OBJECT_TYPES
+# The most objects one request may carry (`libmessenger::MAX_OBJECTS`).
+MAX_OBJECTS = 8
 
 
 class MidlError(Exception):
@@ -40,6 +43,10 @@ class Type:
     # Set by the parser when `name` is an enum of the interface: it travels
     # as a `U32` (the variant index) and is a `u32` in Rust.
     enum: bool = field(default=False, compare=False)
+    # Set by the parser when the value holds a kernel object: an object type
+    # itself, or a struct with one somewhere inside. Such a value is encoded
+    # and decoded against the parcel's object list.
+    objects: bool = field(default=False, compare=False)
 
     def __str__(self) -> str:
         return f"{self.name}<" + ", ".join(str(a) for a in self.args) + ">" if self.args else self.name
@@ -68,11 +75,14 @@ class Param:
 
 
 @dataclass
-class Transfer:
-    """One kernel object a request carries outside its TLV body
-    (`transfers (...)`, `docs/midl.md`). `kind` is `"channel"` (a slot of the
-    parcel's `handles`) or `"buffer"` (a slot of its `buffers`); `interface`
-    is what the receiver of a channel sends on it; `index` is the slot."""
+class ObjectRef:
+    """One kernel object a request carries, found by walking its parameters
+    depth-first in declaration order (`docs/midl.md`, "Objects"). `kind` is
+    `"channel"`, `"buffer"` or `"rings"` (a buffer with a ring layout);
+    `index` is the object's slot in the parcel's object list, which is also
+    the value the generated decoder demands of the field; `interface` is what
+    the receiver of a channel sends on it; `path` is the field names from the
+    parameter down to the object (one name for a top-level parameter)."""
 
     name: str
     kind: str
@@ -80,6 +90,15 @@ class Transfer:
     interface: str | None = None
     # `"rings"` only: the declared rings the buffer holds, back to back.
     rings: list[str] = field(default_factory=list)
+    path: list[str] = field(default_factory=list)
+
+    @property
+    def nested(self) -> bool:
+        return len(self.path) > 1
+
+    @property
+    def dotted(self) -> str:
+        return ".".join(self.path)
 
 
 @dataclass
@@ -109,7 +128,9 @@ class Method:
     method_id: int
     oneway: bool = False
     doc: str = ""
-    transfers: list[Transfer] = field(default_factory=list)
+    # The objects the request carries, in object-list order (set by the
+    # parser's `validate` once the interface's structs are known).
+    objects: list[ObjectRef] = field(default_factory=list)
 
 
 @dataclass

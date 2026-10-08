@@ -41,11 +41,17 @@ fn stats_roundtrip_at_the_extremes() {
 
 #[test]
 fn call_arguments_roundtrip() {
-    let attach = AttachRingArgs { slots: 256 };
+    let attach = AttachRingArgs {
+        slots: 256,
+        rings: libmessenger::Buffer::whole(4, 2 * 8192),
+        notify: 5,
+    };
+    let (body, objects) = encode_attach_ring_args(&attach).unwrap();
     assert_eq!(
-        decode_attach_ring_args(&encode_attach_ring_args(&attach).unwrap()).unwrap(),
-        attach
+        objects,
+        vec![libmessenger::Object::Buffer(4), libmessenger::Object::Channel(5)]
     );
+    assert_eq!(decode_attach_ring_args(&body, &objects).unwrap(), attach);
     let reply = AttachRingReply { ring: 7 };
     assert_eq!(
         decode_attach_ring_reply(&encode_attach_ring_reply(&reply).unwrap()).unwrap(),
@@ -68,11 +74,17 @@ fn call_arguments_roundtrip() {
 
 #[test]
 fn wake_up_is_a_pair_of_one_way_messages_not_a_topic_string() {
-    // The draft's `notify: String` is gone: AttachRing takes only the slot
-    // count in its body (the rings and endpoint ride in the parcel).
-    let body = encode_attach_ring_args(&AttachRingArgs { slots: 16 }).unwrap();
+    // The draft's `notify: String` is gone: AttachRing's body holds the slot
+    // count and two object fields (an index each; the objects ride in the
+    // parcel's list).
+    let (body, _) = encode_attach_ring_args(&AttachRingArgs {
+        slots: 16,
+        rings: libmessenger::Buffer::whole(1, 8192),
+        notify: 2,
+    })
+    .unwrap();
     assert!(
-        body.len() < 16,
+        body.len() < 64,
         "no topic name in the request body: {} bytes",
         body.len()
     );
@@ -151,8 +163,8 @@ fn truncated_bodies_are_rejected() {
 #[test]
 fn attach_ring_declares_both_rings_and_the_notify_channel() {
     use messenger_generated::rings::{Layout, Side};
-    assert_eq!(ATTACH_RING_TRANSFERS.handles, 1);
-    assert_eq!(ATTACH_RING_TRANSFERS.buffers, 1);
+    use libmessenger::ObjectKind;
+    assert_eq!(ATTACH_RING_OBJECTS, &[ObjectKind::Buffer, ObjectKind::Channel]);
     assert_eq!(ATTACH_RING_RINGS, [RING_RX, RING_TX]);
     // The driver produces received frames and rings `Notify` on the channel;
     // the client produces frames to send and rings `Kick`.

@@ -112,8 +112,7 @@ fn a_full_parcel_survives_the_codec() {
             deadline_ns: 0,
         },
         body: encode_list_reply(&reply).unwrap(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).unwrap();

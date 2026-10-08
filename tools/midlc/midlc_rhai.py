@@ -130,13 +130,13 @@ GATE_ONLY = {("os.lazy.messenger.registry.v1", "Connect")}
 
 
 def callable_methods(interface: Interface) -> list[Method]:
-    """Methods a script can call: a request that transfers a kernel object
+    """Methods a script can call: a request that carries a kernel object
     (channel, buffer, ring) needs something a script cannot create, and a
     gate-only method is not reachable over the daemon a script talks to."""
     return [
         m
         for m in interface.methods
-        if not m.transfers and (interface.name, m.name) not in GATE_ONLY
+        if not m.objects and (interface.name, m.name) not in GATE_ONLY
     ]
 
 
@@ -231,10 +231,10 @@ class ModuleWriter:
                 docs += ["///", "/// One-way: returns `()` once the message is queued."]
             body = f"{self.connect_expr()}.invoke({rhai_str(method.name)}, [{', '.join(params)}])"
             self.fn(docs, snake_case(method.name), params, body)
-        skipped = [m.name for m in self.interface.methods if m.transfers]
+        skipped = [m.name for m in self.interface.methods if m.objects]
         if skipped:
             self.lines += [
-                "// Not callable from a script (the request transfers a channel, buffer",
+                "// Not callable from a script (the request carries a channel, buffer",
                 f"// or ring): {', '.join(skipped)}.",
                 "",
             ]

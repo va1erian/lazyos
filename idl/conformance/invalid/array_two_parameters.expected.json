@@ -1,3 +1,3 @@
 {
-  "error": "Array takes exactly one type parameter"
+  "error": "line 3: Array takes exactly one type parameter"
 }

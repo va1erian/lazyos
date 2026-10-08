@@ -1,0 +1,5 @@
+// Conformance case (must be rejected): a reply carries no objects.
+interface os.lazy.conformance.bad.v1 {
+    method Tick() -> () oneway;
+    method M() -> (events: Channel<os.lazy.conformance.bad.v1> = 1);
+}

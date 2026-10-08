@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): the transfers clause is gone; objects are parameters.
+interface os.lazy.conformance.bad.v1 {
+    method M() -> () transfers (b: Buffer);
+}

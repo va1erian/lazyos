@@ -1,0 +1,3 @@
+{
+  "error": "line 3: Page inside Array: a request's object count must be fixed, so an object never sits in an Option or an Array"
+}

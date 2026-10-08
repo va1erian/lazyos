@@ -315,52 +315,27 @@ pub mod topics {
     }
 }
 
-/// Out-of-band objects a request carries in the parcel's `handles` and
-/// `buffers` vectors, as declared by `transfers (...)` clauses in `.midl`.
+/// The kernel objects a request carries in its parcel's object list, as
+/// declared by `Channel<I>`, `Buffer` and `Ring<...>` parameters in `.midl`.
 #[rustfmt::skip]
-pub mod transfers {
-    /// How many handles and shared buffers a request declares.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub struct Transfers {
-        pub handles: u8,
-        pub buffers: u8,
-    }
+pub mod objects {
+    /// The kind of one object-list entry (`libmessenger::ObjectKind`).
+    pub use libmessenger::ObjectKind as Kind;
 
-    impl Transfers {
-        /// A request that declares no transfers.
-        pub const NONE: Self = Self { handles: 0, buffers: 0 };
-
-        /// Whether a delivery that installed `handles` handles and `buffers`
-        /// shared buffers carries exactly what was declared. Servers check
-        /// this before dispatch, so an undeclared object is refused (and
-        /// closed) instead of leaking into their handle table.
-        pub fn matches(self, handles: u64, buffers: u64) -> bool {
-            handles == u64::from(self.handles) && buffers == u64::from(self.buffers)
-        }
-
-        /// Whether a parcel carrying `handles` handles and `buffers` shared
-        /// buffers stays within the declaration: the kernel's send-path
-        /// gate (issue #516). Fewer than declared passes here; servers
-        /// still demand an exact match with [`Transfers::matches`].
-        pub fn allows(self, handles: usize, buffers: usize) -> bool {
-            handles <= usize::from(self.handles) && buffers <= usize::from(self.buffers)
-        }
-    }
-
-    /// One request that declares transfers, for the kernel's table
-    /// ([`crate::DECLARED_TRANSFERS`]).
+    /// One request that carries objects, for the kernel's table
+    /// ([`crate::DECLARED_OBJECTS`]).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct TransferDecl {
+    pub struct ObjectDecl {
         /// The interface id the request's parcel header carries.
         pub interface: u64,
         /// The method id the request's parcel header carries.
         pub method: u32,
-        /// What the request declares.
-        pub transfers: Transfers,
+        /// The declared kinds, in object-list order.
+        pub kinds: &'static [Kind],
     }
 }
 
-/// Shared-memory rings declared in `.midl` (`ring` and `Ring<...>` transfers).
+/// Shared-memory rings declared in `.midl` (`ring` and `Ring<...>` parameters).
 #[rustfmt::skip]
 pub mod rings {
     /// How a ring is laid out and how its position moves.
@@ -376,7 +351,7 @@ pub mod rings {
     /// Which side of the request writes the ring.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Side {
-        /// The side that transfers the buffer.
+        /// The side that sends the buffer.
         Client,
         /// The side that receives it.
         Server,
@@ -413,7 +388,9 @@ pub mod os_lazy_accounts_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -871,12 +848,10 @@ pub mod os_lazy_accounts_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.audio.v1` (interface id `0x536f1f4639cf07f0`).
@@ -891,7 +866,9 @@ pub mod os_lazy_audio_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -1187,45 +1164,53 @@ pub mod os_lazy_audio_v1 {
         Ok(out)
     }
 
-    /// Attach the stream's sample ring: the request's `buffers[0]`, at least
+    /// Attach the stream's sample ring: `ring`, a shared buffer at least
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachRingArgs {
         pub stream: u32,
+        pub ring: libmessenger::Buffer,
     }
 
-    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `AttachRing`.
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u32(1, value.stream)?;
-        Ok(target.finish())
+        target.buffer(2, &value.ring, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_ring_args(body: &[u8]) -> Result<AttachRingArgs, Error> {
+    /// `AttachRing` from its body and the objects the kernel installed
+    /// (`ATTACH_RING_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_ring_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachRingArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachRingArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.stream = field.as_u32()?;
+            match field.id {
+                1 => {
+                    out.stream = field.as_u32()?;
+                }
+                2 => {
+                    out.ring = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `AttachRing` request carries outside its body.
-    pub const ATTACH_RING_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `AttachRing` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachRingTransfers {
-        /// `buffers[0]`, a shared buffer holding the rings `Samples` back to back.
-        pub ring: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `AttachRing` request.
-    pub fn encode_attach_ring_transfers(value: &AttachRingTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.ring])
-    }
+    /// The objects a `AttachRing` request carries, in object-list order:
+    /// `ring`, `objects[0]`, a shared buffer holding the rings `Samples` back to back.
+    pub const ATTACH_RING_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// The rings of `AttachRing`'s `ring` buffer, in order.
     pub const ATTACH_RING_RINGS: [rings::RingDecl; 1] = [RING_SAMPLES];
@@ -1571,14 +1556,11 @@ pub mod os_lazy_audio_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_ATTACHRING => ATTACH_RING_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_ATTACHRING, ATTACH_RING_OBJECTS),
+    ];
 
     /// Interleaved samples, client to driver; `Commit` reports how far the
     /// client wrote and replies how far the driver consumed.
@@ -1654,7 +1636,9 @@ pub mod os_lazy_audio_mixer_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -1931,12 +1915,10 @@ pub mod os_lazy_audio_mixer_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
@@ -1951,7 +1933,9 @@ pub mod os_lazy_clipboard_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -2437,12 +2421,10 @@ pub mod os_lazy_clipboard_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// The retained per-session offer-announcement topic (issue #307): paste
     /// UIs refresh from it without polling, and a late subscriber is handed
@@ -2597,7 +2579,9 @@ pub mod os_lazy_confd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -2980,12 +2964,10 @@ pub mod os_lazy_confd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Announced for every committed `sys/` change (issue #260): the topic is
     /// `system/confd/changed/<path>`, where `<path>` is the changed path, so a
@@ -3098,7 +3080,9 @@ pub mod os_lazy_devd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -3208,12 +3192,10 @@ pub mod os_lazy_devd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// The kernel's device id (the `dev=<id>` a driver is started with).
     /// PCI vendor and device ids.
@@ -3289,7 +3271,9 @@ pub mod os_lazy_display_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -3549,8 +3533,8 @@ pub mod os_lazy_display_v1 {
     /// the previous desktop. The desktop role is compositor-privileged. A
     /// `Popup` (a tray flyout, docs/tray-plan.md section 7.3) needs `popup`,
     /// the one-shot token the shell granted this task with `AllowPopup`
-    /// (`EACCES` without a valid one). The parcel transfers the event
-    /// endpoint the compositor sends input on.
+    /// (`EACCES` without a valid one). `events` is the event endpoint the
+    /// compositor sends input on.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CreateSurfaceArgs {
         pub width: u32,
@@ -3558,10 +3542,13 @@ pub mod os_lazy_display_v1 {
         pub title: alloc::string::String,
         pub role: u32,
         pub popup: core::option::Option<u64>,
+        pub events: u64,
     }
 
-    pub fn encode_create_surface_args(value: &CreateSurfaceArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `CreateSurface`.
+    pub fn encode_create_surface_args(value: &CreateSurfaceArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u32(1, value.width)?;
         target.u32(2, value.height)?;
         target.string(3, &value.title)?;
@@ -3576,10 +3563,17 @@ pub mod os_lazy_display_v1 {
                 target.option(5, None)?;
             }
         }
-        Ok(target.finish())
+        target.channel(6, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_create_surface_args(body: &[u8]) -> Result<CreateSurfaceArgs, Error> {
+    /// `CreateSurface` from its body and the objects the kernel installed
+    /// (`CREATE_SURFACE_OBJECTS`, each claimed by its field).
+    pub fn decode_create_surface_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<CreateSurfaceArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = CreateSurfaceArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
@@ -3605,8 +3599,14 @@ pub mod os_lazy_display_v1 {
                         out.popup = Some(item.as_u64()?);
                     }
                 }
+                6 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
                 _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
@@ -3633,20 +3633,9 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// What a `CreateSurface` request carries outside its body.
-    pub const CREATE_SURFACE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `CreateSurface` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct CreateSurfaceTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on.
-        pub events: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `CreateSurface` request.
-    pub fn encode_create_surface_transfers(value: &CreateSurfaceTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
-    }
+    /// The objects a `CreateSurface` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.display.v1` on.
+    pub const CREATE_SURFACE_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
@@ -3655,39 +3644,47 @@ pub mod os_lazy_display_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachBufferArgs {
         pub surface: u64,
+        pub pixels: libmessenger::Buffer,
     }
 
-    pub fn encode_attach_buffer_args(value: &AttachBufferArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `AttachBuffer`.
+    pub fn encode_attach_buffer_args(value: &AttachBufferArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u64(1, value.surface)?;
-        Ok(target.finish())
+        target.buffer(2, &value.pixels, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_buffer_args(body: &[u8]) -> Result<AttachBufferArgs, Error> {
+    /// `AttachBuffer` from its body and the objects the kernel installed
+    /// (`ATTACH_BUFFER_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_buffer_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachBufferArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachBufferArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.surface = field.as_u64()?;
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `AttachBuffer` request carries outside its body.
-    pub const ATTACH_BUFFER_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `AttachBuffer` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachBufferTransfers {
-        /// `buffers[0]`, a shared buffer.
-        pub pixels: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `AttachBuffer` request.
-    pub fn encode_attach_buffer_transfers(value: &AttachBufferTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.pixels])
-    }
+    /// The objects a `AttachBuffer` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    pub const ATTACH_BUFFER_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
@@ -4223,8 +4220,8 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// Register this task as a subscriber under `subscriber_role`; the parcel
-    /// transfers the event endpoint for the shell events. The role `shell`
+    /// Register this task as a subscriber under `subscriber_role`; `events`
+    /// is the event endpoint for the shell events. The role `shell`
     /// makes the task *the* shell (it may then create desktop and panel
     /// surfaces and call the shell-only methods). It is accepted from uid 0 or
     /// `CAP_SETUID`, or from a task in the session that owns the display: the
@@ -4237,39 +4234,47 @@ pub mod os_lazy_display_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SubscribeArgs {
         pub subscriber_role: alloc::string::String,
+        pub events: u64,
     }
 
-    pub fn encode_subscribe_args(value: &SubscribeArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Subscribe`.
+    pub fn encode_subscribe_args(value: &SubscribeArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.string(1, &value.subscriber_role)?;
-        Ok(target.finish())
+        target.channel(2, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_subscribe_args(body: &[u8]) -> Result<SubscribeArgs, Error> {
+    /// `Subscribe` from its body and the objects the kernel installed
+    /// (`SUBSCRIBE_OBJECTS`, each claimed by its field).
+    pub fn decode_subscribe_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<SubscribeArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = SubscribeArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.subscriber_role = field.as_str()?.into();
+            match field.id {
+                1 => {
+                    out.subscriber_role = field.as_str()?.into();
+                }
+                2 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `Subscribe` request carries outside its body.
-    pub const SUBSCRIBE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Subscribe` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct SubscribeTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on.
-        pub events: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Subscribe` request.
-    pub fn encode_subscribe_transfers(value: &SubscribeTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
-    }
+    /// The objects a `Subscribe` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.display.v1` on.
+    pub const SUBSCRIBE_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
@@ -4461,8 +4466,8 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// Register a pixel buffer (the parcel's `buffers[0]`, at least
-    /// `width * height * 4` bytes) as buffer slot `slot` (0-3) of `surface`.
+    /// Register a pixel buffer (`pixels`, at least `width * height * 4`
+    /// bytes) as buffer slot `slot` (0-3) of `surface`.
     /// The compositor only reads the *current* slot, so attaching to any
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
@@ -4470,16 +4475,26 @@ pub mod os_lazy_display_v1 {
     pub struct AttachBufferSlotArgs {
         pub surface: u64,
         pub slot: u32,
+        pub pixels: libmessenger::Buffer,
     }
 
-    pub fn encode_attach_buffer_slot_args(value: &AttachBufferSlotArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `AttachBufferSlot`.
+    pub fn encode_attach_buffer_slot_args(value: &AttachBufferSlotArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u64(1, value.surface)?;
         target.u32(2, value.slot)?;
-        Ok(target.finish())
+        target.buffer(3, &value.pixels, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_buffer_slot_args(body: &[u8]) -> Result<AttachBufferSlotArgs, Error> {
+    /// `AttachBufferSlot` from its body and the objects the kernel installed
+    /// (`ATTACH_BUFFER_SLOT_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_buffer_slot_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachBufferSlotArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachBufferSlotArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
@@ -4490,26 +4505,21 @@ pub mod os_lazy_display_v1 {
                 2 => {
                     out.slot = field.as_u32()?;
                 }
+                3 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
                 _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `AttachBufferSlot` request carries outside its body.
-    pub const ATTACH_BUFFER_SLOT_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `AttachBufferSlot` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachBufferSlotTransfers {
-        /// `buffers[0]`, a shared buffer.
-        pub pixels: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `AttachBufferSlot` request.
-    pub fn encode_attach_buffer_slot_transfers(value: &AttachBufferSlotTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.pixels])
-    }
+    /// The objects a `AttachBufferSlot` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    pub const ATTACH_BUFFER_SLOT_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Pipelined present (no reply): make `slot` the surface's current buffer
     /// and composite `damage` (content-relative, clipped to the content; an
@@ -5289,17 +5299,14 @@ pub mod os_lazy_display_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_CREATESURFACE => CREATE_SURFACE_TRANSFERS,
-            METHOD_ATTACHBUFFER => ATTACH_BUFFER_TRANSFERS,
-            METHOD_SUBSCRIBE => SUBSCRIBE_TRANSFERS,
-            METHOD_ATTACHBUFFERSLOT => ATTACH_BUFFER_SLOT_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CREATESURFACE, CREATE_SURFACE_OBJECTS),
+        (METHOD_ATTACHBUFFER, ATTACH_BUFFER_OBJECTS),
+        (METHOD_SUBSCRIBE, SUBSCRIBE_OBJECTS),
+        (METHOD_ATTACHBUFFERSLOT, ATTACH_BUFFER_SLOT_OBJECTS),
+    ];
 }
 
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
@@ -5314,7 +5321,9 @@ pub mod os_lazy_echo_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -5469,12 +5478,10 @@ pub mod os_lazy_echo_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.elevd.v1` (interface id `0xc9dbdc9caf1c9788`).
@@ -5489,7 +5496,9 @@ pub mod os_lazy_elevd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -5645,12 +5654,10 @@ pub mod os_lazy_elevd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// The operation table row.
     /// What it would change, as the prompt showed it.
@@ -5723,7 +5730,9 @@ pub mod os_lazy_display_prompt_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -5836,12 +5845,10 @@ pub mod os_lazy_display_prompt_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.files.v1` (interface id `0x95bb1421ccc6b3e7`).
@@ -5856,7 +5863,9 @@ pub mod os_lazy_files_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -5906,12 +5915,10 @@ pub mod os_lazy_files_v1 {
     }
 
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// The folder the window shows, as an absolute path.
     /// The selected items, as absolute paths in view order; empty when
@@ -5977,7 +5984,9 @@ pub mod os_lazy_healthd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -6145,12 +6154,10 @@ pub mod os_lazy_healthd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Service name (`summary` for the aggregate row).
     /// Health status (`ok`/`degraded`/`down`).
@@ -6267,7 +6274,9 @@ pub mod os_lazy_init_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -7161,12 +7170,10 @@ pub mod os_lazy_init_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Phase name: `stopping` (requested), `apps`, `services`,
     /// `quiesced`, then `power` just before the kernel call.
@@ -7397,7 +7404,9 @@ pub mod os_lazy_init_app_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -7411,29 +7420,52 @@ pub mod os_lazy_init_app_v1 {
     /// `Watch` method id.
     pub const METHOD_WATCH: u32 = 1;
 
-    /// What a `Watch` request carries outside its body.
-    pub const WATCH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Watch` request transfers, by name.
+    /// Ask for this instance's lifecycle events; replaces an earlier channel.
+    /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
+    /// dropped first) are sent on it at once, in order; a `Stop` pending at
+    /// that moment sends `Quit` with the grace remaining.
     #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct WatchTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.init.app.events.v1` on.
+    pub struct WatchArgs {
         pub events: u64,
     }
 
-    /// The parcel's `handles` and `buffers` for a `Watch` request.
-    pub fn encode_watch_transfers(value: &WatchTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
+    /// The body and the object list of `Watch`.
+    pub fn encode_watch_args(value: &WatchArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.channel(1, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_WATCH => WATCH_TRANSFERS,
-            _ => transfers::Transfers::NONE,
+    /// `Watch` from its body and the objects the kernel installed
+    /// (`WATCH_OBJECTS`, each claimed by its field).
+    pub fn decode_watch_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<WatchArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
         }
+        let next = &mut 0usize;
+        let mut out = WatchArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.events = field.claim_channel(objects, next)?;
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
     }
+
+    /// The objects a `Watch` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.init.app.events.v1` on.
+    pub const WATCH_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_WATCH, WATCH_OBJECTS),
+    ];
 }
 
 /// `os.lazy.init.app.events.v1` (interface id `0x23f37f265bbdfe2c`).
@@ -7448,7 +7480,9 @@ pub mod os_lazy_init_app_events_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -7515,12 +7549,10 @@ pub mod os_lazy_init_app_events_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.input.v1` (interface id `0x5026bd54a60f1ff6`).
@@ -7535,7 +7567,9 @@ pub mod os_lazy_input_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -7606,16 +7640,18 @@ pub mod os_lazy_input_v1 {
     /// login console's session (issue #396): only the task holding the
     /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
     /// second holder `EBUSY`), and it receives keys only while no compositor
-    /// is attached. The parcel transfers the event
-    /// endpoint (`handles[0]`) that receives every event below. A task may hold
-    /// several sessions, one per surface.
+    /// is attached. `events` is the event endpoint that receives every
+    /// event below. A task may hold several sessions, one per surface.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct OpenArgs {
         pub surface: core::option::Option<u64>,
+        pub events: u64,
     }
 
-    pub fn encode_open_args(value: &OpenArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Open`.
+    pub fn encode_open_args(value: &OpenArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         match &value.surface {
             Some(item) => {
                 let mut nested = Encoder::new();
@@ -7626,22 +7662,38 @@ pub mod os_lazy_input_v1 {
                 target.option(1, None)?;
             }
         }
-        Ok(target.finish())
+        target.channel(2, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_open_args(body: &[u8]) -> Result<OpenArgs, Error> {
+    /// `Open` from its body and the objects the kernel installed
+    /// (`OPEN_OBJECTS`, each claimed by its field).
+    pub fn decode_open_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<OpenArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = OpenArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                if field.payload.is_empty() {
-                    out.surface = None;
-                } else {
-                    let mut nested = field.nested(0)?;
-                    let item = nested.next()?.ok_or(Error::BadValue)?;
-                    out.surface = Some(item.as_u64()?);
+            match field.id {
+                1 => {
+                    if field.payload.is_empty() {
+                        out.surface = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.surface = Some(item.as_u64()?);
+                    }
                 }
+                2 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
@@ -7668,20 +7720,9 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
-    /// What a `Open` request carries outside its body.
-    pub const OPEN_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Open` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct OpenTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.input.v1` on.
-        pub events: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Open` request.
-    pub fn encode_open_transfers(value: &OpenTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
-    }
+    /// The objects a `Open` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.input.v1` on.
+    pub const OPEN_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// End a session. Only the task that opened it may.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -7876,9 +7917,9 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
-    /// Attach a key-state page to `session` (the caller's): the parcel's
-    /// `buffers[0]`, a shared buffer the client created (one page is
-    /// plenty). While the session has keyboard focus `inputd` writes the
+    /// Attach a key-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes the
     /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
     /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
     /// HID usages); the moment focus leaves it clears the page, before
@@ -7887,39 +7928,47 @@ pub mod os_lazy_input_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachKeyStateArgs {
         pub session: u64,
+        pub state: libmessenger::Buffer,
     }
 
-    pub fn encode_attach_key_state_args(value: &AttachKeyStateArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `AttachKeyState`.
+    pub fn encode_attach_key_state_args(value: &AttachKeyStateArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u64(1, value.session)?;
-        Ok(target.finish())
+        target.buffer(2, &value.state, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_key_state_args(body: &[u8]) -> Result<AttachKeyStateArgs, Error> {
+    /// `AttachKeyState` from its body and the objects the kernel installed
+    /// (`ATTACH_KEY_STATE_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_key_state_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachKeyStateArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachKeyStateArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.session = field.as_u64()?;
+            match field.id {
+                1 => {
+                    out.session = field.as_u64()?;
+                }
+                2 => {
+                    out.state = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `AttachKeyState` request carries outside its body.
-    pub const ATTACH_KEY_STATE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `AttachKeyState` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachKeyStateTransfers {
-        /// `buffers[0]`, a shared buffer.
-        pub state: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `AttachKeyState` request.
-    pub fn encode_attach_key_state_transfers(value: &AttachKeyStateTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.state])
-    }
+    /// The objects a `AttachKeyState` request carries, in object-list order:
+    /// `state`, `objects[0]`, a shared buffer.
+    pub const ATTACH_KEY_STATE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
@@ -8093,15 +8142,12 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_OPEN => OPEN_TRANSFERS,
-            METHOD_ATTACHKEYSTATE => ATTACH_KEY_STATE_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_OPEN, OPEN_OBJECTS),
+        (METHOD_ATTACHKEYSTATE, ATTACH_KEY_STATE_OBJECTS),
+    ];
 }
 
 /// `os.lazy.input.shell.v1` (interface id `0xc258ed5b9b5debfe`).
@@ -8116,7 +8162,9 @@ pub mod os_lazy_input_shell_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -8170,20 +8218,45 @@ pub mod os_lazy_input_shell_v1 {
     /// `GrabChanged` method id.
     pub const METHOD_GRABCHANGED: u32 = 26;
 
-    /// What a `Attach` request carries outside its body.
-    pub const ATTACH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Attach` request transfers, by name.
+    /// Become the shell client; `events` is the endpoint that receives the
+    /// shell events below, and on which the compositor makes every later
+    /// call. Attaching again replaces it.
     #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on.
+    pub struct AttachArgs {
         pub events: u64,
     }
 
-    /// The parcel's `handles` and `buffers` for a `Attach` request.
-    pub fn encode_attach_transfers(value: &AttachTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
+    /// The body and the object list of `Attach`.
+    pub fn encode_attach_args(value: &AttachArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.channel(1, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
+
+    /// `Attach` from its body and the objects the kernel installed
+    /// (`ATTACH_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.events = field.claim_channel(objects, next)?;
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Attach` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on.
+    pub const ATTACH_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
@@ -8835,14 +8908,11 @@ pub mod os_lazy_input_shell_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_ATTACH => ATTACH_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_ATTACH, ATTACH_OBJECTS),
+    ];
 }
 
 /// `os.lazy.keyd.v1` (interface id `0xd948c3355ba590bf`).
@@ -8857,7 +8927,9 @@ pub mod os_lazy_keyd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -9387,12 +9459,10 @@ pub mod os_lazy_keyd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.lifecycle.v1` (interface id `0x778a92e489f41682`).
@@ -9407,7 +9477,9 @@ pub mod os_lazy_lifecycle_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -9444,12 +9516,10 @@ pub mod os_lazy_lifecycle_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.logd.v1` (interface id `0x9c5197a46ce8a872`).
@@ -9464,7 +9534,9 @@ pub mod os_lazy_logd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -9749,12 +9821,10 @@ pub mod os_lazy_logd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.logind.v1` (interface id `0x98121a421f33722d`).
@@ -9769,7 +9839,9 @@ pub mod os_lazy_logind_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -10146,12 +10218,10 @@ pub mod os_lazy_logind_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Account name.
     /// User id stamped on the session.
@@ -10357,7 +10427,9 @@ pub mod os_lazy_mimed_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -10744,12 +10816,10 @@ pub mod os_lazy_mimed_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Published when `Open` resolves `<app>` for `path` (issue #307). Not
     /// retained: a launch is an event, not state.
@@ -10811,7 +10881,9 @@ pub mod os_lazy_mount_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -11033,12 +11105,10 @@ pub mod os_lazy_mount_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.net.nic.v1` (interface id `0x6748c83c2024715b`).
@@ -11053,7 +11123,9 @@ pub mod os_lazy_net_nic_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -11340,21 +11412,45 @@ pub mod os_lazy_net_nic_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachRingArgs {
         pub slots: u32,
+        pub rings: libmessenger::Buffer,
+        pub notify: u64,
     }
 
-    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `AttachRing`.
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u32(1, value.slots)?;
-        Ok(target.finish())
+        target.buffer(2, &value.rings, objects)?;
+        target.channel(3, value.notify, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_ring_args(body: &[u8]) -> Result<AttachRingArgs, Error> {
+    /// `AttachRing` from its body and the objects the kernel installed
+    /// (`ATTACH_RING_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_ring_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachRingArgs, Error> {
+        if objects.len() != 2 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachRingArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.slots = field.as_u32()?;
+            match field.id {
+                1 => {
+                    out.slots = field.as_u32()?;
+                }
+                2 => {
+                    out.rings = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.notify = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 2 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
@@ -11381,22 +11477,10 @@ pub mod os_lazy_net_nic_v1 {
         Ok(out)
     }
 
-    /// What a `AttachRing` request carries outside its body.
-    pub const ATTACH_RING_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 1 };
-
-    /// The objects a `AttachRing` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachRingTransfers {
-        /// `buffers[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back.
-        pub rings: libmessenger::BufferDesc,
-        /// `handles[0]`, a channel the receiver sends `os.lazy.net.nic.v1` on.
-        pub notify: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `AttachRing` request.
-    pub fn encode_attach_ring_transfers(value: &AttachRingTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.notify], alloc::vec![value.rings])
-    }
+    /// The objects a `AttachRing` request carries, in object-list order:
+    /// `rings`, `objects[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back.
+    /// `notify`, `objects[1]`, a channel the receiver sends `os.lazy.net.nic.v1` on.
+    pub const ATTACH_RING_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer, objects::Kind::Channel];
 
     /// The rings of `AttachRing`'s `rings` buffer, in order.
     pub const ATTACH_RING_RINGS: [rings::RingDecl; 2] = [RING_RX, RING_TX];
@@ -11523,14 +11607,11 @@ pub mod os_lazy_net_nic_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_ATTACHRING => ATTACH_RING_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_ATTACHRING, ATTACH_RING_OBJECTS),
+    ];
 
     /// The receive ring: frames the card received, driver to client.
     pub const RING_RX: rings::RingDecl = rings::RingDecl {
@@ -11612,7 +11693,9 @@ pub mod os_lazy_net_stack_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -12229,12 +12312,10 @@ pub mod os_lazy_net_stack_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Round trip in milliseconds (10 ms resolution).
     /// Four octets: who answered.
@@ -12346,7 +12427,9 @@ pub mod os_lazy_net_socket_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -13222,12 +13305,10 @@ pub mod os_lazy_net_socket_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.pkgd.v1` (interface id `0x2e65545739956542`).
@@ -13242,7 +13323,9 @@ pub mod os_lazy_pkgd_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -14119,12 +14202,10 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// uid of the task that asked.
     /// Friendly text: the error for a failure, empty on success.
@@ -14189,7 +14270,9 @@ pub mod os_lazy_messenger_policy_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -14282,12 +14365,10 @@ pub mod os_lazy_messenger_policy_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.messenger.names.resolve.v1` (interface id `0x51c42ba74885199f`).
@@ -14302,7 +14383,9 @@ pub mod os_lazy_messenger_names_resolve_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -14339,12 +14422,10 @@ pub mod os_lazy_messenger_names_resolve_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.process.label.spawn.v1` (interface id `0x2b9f30ad1cbea35e`).
@@ -14359,7 +14440,9 @@ pub mod os_lazy_process_label_spawn_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -14396,12 +14479,10 @@ pub mod os_lazy_process_label_spawn_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.print.v1` (interface id `0xbf8d5aec16ec445f`).
@@ -14416,7 +14497,9 @@ pub mod os_lazy_print_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -14776,12 +14859,10 @@ pub mod os_lazy_print_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.messenger.registry.v1` (interface id `0x51d501afec09806c`).
@@ -14796,7 +14877,9 @@ pub mod os_lazy_messenger_registry_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -15062,39 +15145,47 @@ pub mod os_lazy_messenger_registry_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ConnectedArgs {
         pub name: alloc::string::String,
+        pub connection: u64,
     }
 
-    pub fn encode_connected_args(value: &ConnectedArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Connected`.
+    pub fn encode_connected_args(value: &ConnectedArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.string(1, &value.name)?;
-        Ok(target.finish())
+        target.channel(2, value.connection, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_connected_args(body: &[u8]) -> Result<ConnectedArgs, Error> {
+    /// `Connected` from its body and the objects the kernel installed
+    /// (`CONNECTED_OBJECTS`, each claimed by its field).
+    pub fn decode_connected_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<ConnectedArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = ConnectedArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.name = field.as_str()?.into();
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.connection = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `Connected` request carries outside its body.
-    pub const CONNECTED_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Connected` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct ConnectedTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.messenger.registry.v1` on.
-        pub connection: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Connected` request.
-    pub fn encode_connected_transfers(value: &ConnectedTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.connection], Vec::new())
-    }
+    /// The objects a `Connected` request carries, in object-list order:
+    /// `connection`, `objects[0]`, a channel the receiver sends `os.lazy.messenger.registry.v1` on.
+    pub const CONNECTED_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// Withdraw `name`. Only its owner (or an administrator) may.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -15149,14 +15240,11 @@ pub mod os_lazy_messenger_registry_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_CONNECTED => CONNECTED_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CONNECTED, CONNECTED_OBJECTS),
+    ];
 }
 
 /// `os.lazy.shell.v1` (interface id `0x591939ff6e05f1c8`).
@@ -15171,7 +15259,9 @@ pub mod os_lazy_shell_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -15535,12 +15625,10 @@ pub mod os_lazy_shell_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.sysmond.v1` (interface id `0x5cd4605eb47c3d8f`).
@@ -15555,7 +15643,9 @@ pub mod os_lazy_sysmond_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -15752,12 +15842,10 @@ pub mod os_lazy_sysmond_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// The retained memory counters (issue #307): a late subscriber is handed
     /// the latest value immediately.
@@ -15866,7 +15954,9 @@ pub mod os_lazy_timed_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -16041,12 +16131,10 @@ pub mod os_lazy_timed_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 
     /// Published each minute (and on any zone or clock change) and retained, so
     /// a subscriber that starts late immediately learns the current time.
@@ -16108,7 +16196,9 @@ pub mod os_lazy_messenger_topics_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -16586,48 +16676,53 @@ pub mod os_lazy_messenger_topics_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct BellArgs {
         pub subscription: u64,
+        pub bell: u64,
     }
 
-    pub fn encode_bell_args(value: &BellArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Bell`.
+    pub fn encode_bell_args(value: &BellArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u64(1, value.subscription)?;
-        Ok(target.finish())
+        target.channel(2, value.bell, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_bell_args(body: &[u8]) -> Result<BellArgs, Error> {
+    /// `Bell` from its body and the objects the kernel installed
+    /// (`BELL_OBJECTS`, each claimed by its field).
+    pub fn decode_bell_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<BellArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = BellArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.subscription = field.as_u64()?;
+            match field.id {
+                1 => {
+                    out.subscription = field.as_u64()?;
+                }
+                2 => {
+                    out.bell = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `Bell` request carries outside its body.
-    pub const BELL_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+    /// The objects a `Bell` request carries, in object-list order:
+    /// `bell`, `objects[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on.
+    pub const BELL_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
-    /// The objects a `Bell` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct BellTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on.
-        pub bell: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Bell` request.
-    pub fn encode_bell_transfers(value: &BellTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.bell], Vec::new())
-    }
-
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_BELL => BELL_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_BELL, BELL_OBJECTS),
+    ];
 }
 
 /// `os.lazy.messenger.topics.bell.v1` (interface id `0xd4c79d9b36918ea0`).
@@ -16642,7 +16737,9 @@ pub mod os_lazy_messenger_topics_bell_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -16679,12 +16776,10 @@ pub mod os_lazy_messenger_topics_bell_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.messenger.topics.publish.v1` (interface id `0x7ffc19b03e941e16`).
@@ -16699,7 +16794,9 @@ pub mod os_lazy_messenger_topics_publish_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -16756,12 +16853,10 @@ pub mod os_lazy_messenger_topics_publish_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.messenger.topics.subscribe.v1` (interface id `0xefbc15f14c9d4bef`).
@@ -16776,7 +16871,9 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -16832,12 +16929,10 @@ pub mod os_lazy_messenger_topics_subscribe_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.shell.tray.v1` (interface id `0xe125dc0e9d908624`).
@@ -16852,7 +16947,9 @@ pub mod os_lazy_shell_tray_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -17237,45 +17334,53 @@ pub mod os_lazy_shell_tray_v1 {
     pub const METHOD_CLEAR: u32 = 3;
 
     /// Show the app's item, replacing its current one (custom or default).
-    /// The parcel transfers the channel the shell sends the item's events
+    /// `events` is the channel the shell sends the item's events
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item
     /// when the channel is gone (`EPIPE`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetArgs {
         pub item: Item,
+        pub events: u64,
     }
 
-    pub fn encode_set_args(value: &SetArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Set`.
+    pub fn encode_set_args(value: &SetArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.raw(Kind::Struct, 1, &encode_item(&value.item)?)?;
-        Ok(target.finish())
+        target.channel(2, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_set_args(body: &[u8]) -> Result<SetArgs, Error> {
+    /// `Set` from its body and the objects the kernel installed
+    /// (`SET_OBJECTS`, each claimed by its field).
+    pub fn decode_set_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<SetArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = SetArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.item = decode_item(field.payload)?;
+            match field.id {
+                1 => {
+                    out.item = decode_item(field.payload)?;
+                }
+                2 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `Set` request carries outside its body.
-    pub const SET_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Set` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct SetTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.shell.tray.events.v1` on.
-        pub events: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Set` request.
-    pub fn encode_set_transfers(value: &SetTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
-    }
+    /// The objects a `Set` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.shell.tray.events.v1` on.
+    pub const SET_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     /// Replace the given parts of the app's item; absent fields are kept
     /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
@@ -17399,14 +17504,11 @@ pub mod os_lazy_shell_tray_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_SET => SET_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_SET, SET_OBJECTS),
+    ];
 
     /// Published (retained) by the shell of `session` when it starts serving.
     /// The declared `session/+/shell/tray` topic (`Generation`, `latest`, retained).
@@ -17467,7 +17569,9 @@ pub mod os_lazy_shell_tray_events_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -17640,12 +17744,10 @@ pub mod os_lazy_shell_tray_events_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// Every topic declared across the compiled `.midl` files (issue #307).
@@ -17911,96 +18013,97 @@ pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {
     DECLARED_TOPICS.iter().find(|decl| topics::matches(decl.name, topic))
 }
 
-/// Every request that declares transfers across the compiled `.midl`
-/// files, sorted by interface id then method id (issue #516).
+/// Every request that carries objects across the compiled `.midl` files,
+/// sorted by interface id then method id.
 #[rustfmt::skip]
-pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
+pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     // os.lazy.input.v1.Open
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5026bd54a60f1ff6,
         method: 1,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.input.v1.AttachKeyState
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5026bd54a60f1ff6,
         method: 7,
-        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+        kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.messenger.registry.v1.Connected
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x51d501afec09806c,
         method: 2079757168,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.audio.v1.AttachRing
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x536f1f4639cf07f0,
         method: 62355614,
-        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+        kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.display.v1.CreateSurface
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5ef41f254d43c2b4,
         method: 1,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.display.v1.AttachBuffer
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5ef41f254d43c2b4,
         method: 2,
-        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+        kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.display.v1.Subscribe
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5ef41f254d43c2b4,
         method: 20,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.display.v1.AttachBufferSlot
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x5ef41f254d43c2b4,
         method: 25,
-        transfers: transfers::Transfers { handles: 0, buffers: 1 },
+        kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.init.app.v1.Watch
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x616633071591076d,
         method: 1,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.net.nic.v1.AttachRing
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0x6748c83c2024715b,
         method: 62355614,
-        transfers: transfers::Transfers { handles: 1, buffers: 1 },
+        kinds: &[objects::Kind::Buffer, objects::Kind::Channel],
     },
     // os.lazy.input.shell.v1.Attach
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0xc258ed5b9b5debfe,
         method: 1,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.messenger.topics.v1.Bell
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0xc5734f978fef7231,
         method: 1766698328,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
     // os.lazy.shell.tray.v1.Set
-    transfers::TransferDecl {
+    objects::ObjectDecl {
         interface: 0xe125dc0e9d908624,
         method: 1,
-        transfers: transfers::Transfers { handles: 1, buffers: 0 },
+        kinds: &[objects::Kind::Channel],
     },
 ];
 
-/// What the request `(interface, method)` declares; `NONE` when it
-/// declares nothing, including every method of an unknown interface.
+/// The object kinds the request `(interface, method)` declares, in order;
+/// empty when it declares none, including every method of an unknown
+/// interface.
 #[rustfmt::skip]
-pub fn declared_transfers(interface: u64, method: u32) -> transfers::Transfers {
-    DECLARED_TRANSFERS
+pub fn declared_objects(interface: u64, method: u32) -> &'static [objects::Kind] {
+    DECLARED_OBJECTS
         .iter()
         .find(|decl| decl.interface == interface && decl.method == method)
-        .map_or(transfers::Transfers::NONE, |decl| decl.transfers)
+        .map_or(&[], |decl| decl.kinds)
 }

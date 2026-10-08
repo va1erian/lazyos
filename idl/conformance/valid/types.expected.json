@@ -38,7 +38,7 @@
               "explicit": true
             }
           ],
-          "transfers": []
+          "objects": []
         },
         {
           "name": "Get",
@@ -66,7 +66,7 @@
               "explicit": false
             }
           ],
-          "transfers": []
+          "objects": []
         },
         {
           "name": "Ping",
@@ -74,7 +74,7 @@
           "oneway": true,
           "params": [],
           "returns": [],
-          "transfers": []
+          "objects": []
         },
         {
           "name": "Many",
@@ -108,7 +108,7 @@
               "explicit": true
             }
           ],
-          "transfers": []
+          "objects": []
         }
       ],
       "structs": [

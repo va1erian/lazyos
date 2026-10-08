@@ -1,4 +1,4 @@
-// Conformance case (must be rejected): Handles travel in transfers, never in the body.
+// Conformance case (must be rejected): Handle is not a type; a channel end is Channel<interface>.
 interface os.lazy.conformance.bad.v1 {
     struct P { h: Handle = 1 }
 }

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from midlc_model import Interface
 from midlc_rings import emit_markdown_rings, manifest_rings
-from midlc_transfers import describe, signature
+from midlc_objects import describe, type_text
 
 
 def emit_markdown(interface: Interface) -> str:
@@ -20,16 +20,16 @@ def emit_markdown(interface: Interface) -> str:
         rets = ", ".join(f"{p.name}: {p.ty}" for p in m.returns)
         lines.append(
             f"| {m.name} | {m.method_id} | {'oneway' if m.oneway else 'sync'} "
-            f"| `({args}) -> ({rets}){signature(m)}` |"
+            f"| `({args}) -> ({rets})` |"
         )
-    transferring = [m for m in interface.methods if m.transfers]
-    if transferring:
-        lines += ["", "## Transfers", "", "Objects a request carries outside its body, in the parcel's",
-                  "`handles` and `buffers` vectors.", "",
-                  "| Method | Name | Slot |", "|---|---|---|"]
-        for m in transferring:
-            for t in m.transfers:
-                lines.append(f"| {m.name} | `{t.name}` | {describe(t)} |")
+    carrying = [m for m in interface.methods if m.objects]
+    if carrying:
+        lines += ["", "## Objects", "", "Kernel objects a request carries, in the order of the parcel's",
+                  "object list (the index each field must hold).", "",
+                  "| Method | Field | Type | Object |", "|---|---|---|---|"]
+        for m in carrying:
+            for o in m.objects:
+                lines.append(f"| {m.name} | `{o.dotted}` | `{type_text(o)}` | {describe(o)} |")
     if interface.topics:
         lines += ["", "## Topics", "", "| Topic | Payload | QoS | Retained | Permissions |", "|---|---|---|---|---|"]
         for topic in interface.topics:
@@ -73,17 +73,21 @@ def emit_manifest(interface: Interface) -> dict:
 
 
 def method_entry(method) -> dict:
-    """A manifest method row; `transfers` only when the request declares some."""
+    """A manifest method row; `objects` only when the request carries some."""
     entry = {"name": method.name, "id": method.method_id, "oneway": method.oneway}
-    if method.transfers:
-        entry["transfers"] = [transfer_entry(t) for t in method.transfers]
+    if method.objects:
+        entry["objects"] = [object_entry(o) for o in method.objects]
     return entry
 
 
-def transfer_entry(transfer) -> dict:
-    entry = {"name": transfer.name, "kind": transfer.kind, "slot": transfer.index}
-    if transfer.kind == "channel":
-        entry["interface"] = transfer.interface
-    if transfer.kind == "rings":
-        entry["rings"] = transfer.rings
+def object_entry(obj) -> dict:
+    """One object: its field name, kind and index, the channel's interface or
+    the buffer's rings, and the field path when it sits inside a struct."""
+    entry = {"name": obj.name, "kind": obj.kind, "index": obj.index}
+    if obj.kind == "channel":
+        entry["interface"] = obj.interface
+    if obj.kind == "rings":
+        entry["rings"] = obj.rings
+    if obj.nested:
+        entry["path"] = obj.path
     return entry

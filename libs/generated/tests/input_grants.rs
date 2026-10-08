@@ -83,25 +83,27 @@ fn ping_and_key_state_page_wire() {
     .unwrap();
     let reply = input::decode_ping_reply(&body).unwrap();
     assert_eq!((reply.token, reply.seq), (0xDEAD, 42));
-    // The page travels as exactly one buffer and no handle.
-    assert_eq!(input::ATTACH_KEY_STATE_TRANSFERS.handles, 0);
-    assert_eq!(input::ATTACH_KEY_STATE_TRANSFERS.buffers, 1);
+    // The page travels as exactly one buffer object, the request's `state`.
     assert_eq!(
-        input::request_transfers(input::METHOD_ATTACHKEYSTATE),
-        input::ATTACH_KEY_STATE_TRANSFERS
+        input::ATTACH_KEY_STATE_OBJECTS,
+        &[libmessenger::ObjectKind::Buffer]
     );
-    let (handles, buffers) =
-        input::encode_attach_key_state_transfers(&input::AttachKeyStateTransfers {
-            state: libmessenger::BufferDesc {
-                handle: 4,
-                offset: 0,
-                len: 4096,
-                flags: 0,
-            },
-        });
-    assert!(handles.is_empty());
     assert_eq!(
-        (buffers.len(), buffers[0].handle, buffers[0].len),
-        (1, 4, 4096)
+        messenger_generated::declared_objects(input::INTERFACE_ID, input::METHOD_ATTACHKEYSTATE),
+        input::ATTACH_KEY_STATE_OBJECTS
     );
+    let args = input::AttachKeyStateArgs {
+        session: 9,
+        state: libmessenger::Buffer::whole(4, 4096),
+    };
+    let (body, objects) = input::encode_attach_key_state_args(&args).unwrap();
+    assert_eq!(objects, vec![libmessenger::Object::Buffer(4)]);
+    // The receiver decodes against the installed list: the handle is its own.
+    let installed = [libmessenger::Object::Buffer(17)];
+    let back = input::decode_attach_key_state_args(&body, &installed).unwrap();
+    assert_eq!(back.session, 9);
+    assert_eq!(back.state, libmessenger::Buffer::whole(17, 4096));
+    // A list that does not match the declaration is refused.
+    assert!(input::decode_attach_key_state_args(&body, &[]).is_err());
+    assert!(input::decode_attach_key_state_args(&body, &[libmessenger::Object::Channel(17)]).is_err());
 }

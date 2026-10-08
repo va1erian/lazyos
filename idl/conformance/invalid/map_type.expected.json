@@ -1,3 +1,3 @@
 {
-  "error": "MIDL has no Map type; use an Array of a struct with key and value fields"
+  "error": "line 3: MIDL has no Map type; use an Array of a struct with key and value fields"
 }

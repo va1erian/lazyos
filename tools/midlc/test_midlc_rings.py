@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for `ring` declarations and `Ring<...>` transfers in midlc.
+"""Tests for `ring` declarations and `Ring<...>` parameters in midlc.
 
 Run: python tools/midlc/test_midlc_rings.py
 """
@@ -15,8 +15,7 @@ import midlc  # noqa: E402
 
 NIC = """
 interface os.lazy.nic.v1 {
-    method Attach(slots: U32) -> (ring: U32)
-        transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.nic.v1>);
+    method Attach(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.nic.v1>) -> (ring: U32);
     method Kick(ring: U32) -> () oneway;
     method Notify(ring: U32) -> () oneway;
     method Commit(written: U64) -> (consumed: U64);
@@ -34,21 +33,27 @@ def parse(text: str) -> midlc.Interface:
 
 
 class ParseTests(unittest.TestCase):
-    def test_rings_and_their_transfer(self) -> None:
+    def test_rings_and_their_object(self) -> None:
         nic = parse(NIC)
         self.assertEqual(
             [(r.name, r.layout, r.producer, r.doorbell, r.advance) for r in nic.rings],
             [("Rx", "frames", "server", "Notify", None), ("Tx", "frames", "client", "Kick", None)],
         )
         self.assertEqual(nic.rings[0].doc, "Frames in.")
-        rings = nic.methods[0].transfers[0]
+        rings = nic.methods[0].objects[0]
         self.assertEqual((rings.kind, rings.index, rings.rings), ("rings", 0, ["Rx", "Tx"]))
 
-    def test_a_ring_takes_the_buffer_slot(self) -> None:
+    def test_a_ring_is_a_buffer_object_beside_others(self) -> None:
         text = NIC.replace("Ring<Rx, Tx>, notify", "Ring<Rx, Tx>, extra: Buffer, notify")
+        attach = parse(text).methods[0]
+        self.assertEqual([(o.name, o.kind, o.index) for o in attach.objects],
+                         [("rings", "rings", 0), ("extra", "buffer", 1), ("notify", "channel", 2)])
+
+    def test_one_ring_buffer_per_request(self) -> None:
+        text = NIC.replace("Ring<Rx, Tx>, notify", "Ring<Rx>, more: Ring<Tx>, notify")
         with self.assertRaises(midlc.MidlError) as caught:
             parse(text)
-        self.assertIn("at most one buffer", str(caught.exception))
+        self.assertIn("at most one Ring", str(caught.exception))
 
     def test_rejections(self) -> None:
         cases = {
@@ -63,12 +68,12 @@ class ParseTests(unittest.TestCase):
             ("ring Tx : frames producer=client doorbell=Kick;", "ring Tx : frames producer=client doorbell=Kick colour=red;"): "unknown option",
             ("ring Tx : frames producer=client doorbell=Kick;", "ring Tx : frames producer=client producer=client doorbell=Kick;"): "given twice",
             ("ring Tx : frames producer=client doorbell=Kick;", "ring Tx : frames producer=client doorbell=Kick;\n    ring Tx : frames producer=client doorbell=Kick;"): "declared twice",
-            ("ring Tx : frames producer=client doorbell=Kick;", "ring Tx : frames producer=client doorbell=Kick;\n    ring Spare : frames producer=client doorbell=Kick;"): "no method transfers it",
-            # Transfers.
+            ("ring Tx : frames producer=client doorbell=Kick;", "ring Tx : frames producer=client doorbell=Kick;\n    ring Spare : frames producer=client doorbell=Kick;"): "no method carries it",
+            # Objects.
             ("Ring<Rx, Tx>", "Ring<Rx, Nope>"): "'Nope' is not a ring",
             ("Ring<Rx, Tx>", "Ring<Rx, Rx>"): "listed twice",
             ("Ring<Rx, Tx>", "Ring"): "lists one or more",
-            (", notify: Channel<os.lazy.nic.v1>", ""): "must also transfer a Channel<os.lazy.nic.v1>",
+            (", notify: Channel<os.lazy.nic.v1>", ""): "must also carry a Channel<os.lazy.nic.v1>",
         }
         for (old, new), message in cases.items():
             with self.subTest(new=new):
@@ -81,7 +86,7 @@ class ParseTests(unittest.TestCase):
     def test_client_produced_ring_needs_no_channel(self) -> None:
         text = """
         interface os.lazy.snd.v1 {
-            method Attach(stream: U32) -> () transfers (ring: Ring<Samples>);
+            method Attach(stream: U32, ring: Ring<Samples>) -> ();
             method Commit(written: U64) -> (consumed: U64);
             ring Samples : stream producer=client advance=Commit;
         }
@@ -103,9 +108,9 @@ class EmitTests(unittest.TestCase):
         self.assertIn("pub fn attach_rings(ring_bytes: u64) -> Option<AttachRings> {", rust)
         self.assertIn("tx: rings::offset(1, ring_bytes)?,", rust)
         self.assertIn("total: rings::offset(2, ring_bytes)?,", rust)
-        # The ring buffer is the request's buffer slot.
-        self.assertIn("transfers::Transfers { handles: 1, buffers: 1 }", rust)
-        self.assertIn("pub rings: libmessenger::BufferDesc,", rust)
+        # The ring buffer is a Buffer object of the request.
+        self.assertIn("pub const ATTACH_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer, objects::Kind::Channel];", rust)
+        self.assertIn("pub rings: libmessenger::Buffer,", rust)
 
     def test_runtime(self) -> None:
         self.assertIn("pub mod rings {", midlc.RING_SUPPORT)
@@ -113,7 +118,7 @@ class EmitTests(unittest.TestCase):
 
     def test_docs_and_manifest(self) -> None:
         text = midlc.emit_markdown(self.nic)
-        self.assertIn("transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.nic.v1>)", text)
+        self.assertIn("(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.nic.v1>) -> (ring: U32)", text)
         self.assertIn("| `Rx` | frames | server | doorbell `Notify` | Frames in. |", text)
         self.assertIn("a shared buffer holding the rings `Rx`, `Tx` back to back", text)
         manifest = midlc.emit_manifest(self.nic)
@@ -121,8 +126,8 @@ class EmitTests(unittest.TestCase):
             manifest["rings"][0],
             {"name": "Rx", "layout": "frames", "producer": "server", "doorbell": "Notify"},
         )
-        attach = manifest["methods"][0]["transfers"][0]
-        self.assertEqual(attach, {"name": "rings", "kind": "rings", "slot": 0, "rings": ["Rx", "Tx"]})
+        attach = manifest["methods"][0]["objects"][0]
+        self.assertEqual(attach, {"name": "rings", "kind": "rings", "index": 0, "rings": ["Rx", "Tx"]})
 
     def test_interface_without_rings_has_no_manifest_entry(self) -> None:
         plain = parse("interface os.lazy.plain.v1 { method Ping() -> (); }")

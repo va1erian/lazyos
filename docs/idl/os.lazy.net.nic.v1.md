@@ -8,8 +8,8 @@ service `netd`, which is just another client of this interface and, by
 policy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and
 never parses a payload.
 
-**The client owns the rings.** Replies cannot carry buffers or handles (the
-kernel refuses transfers in a reply), and the driver must not let its device
+**The client owns the rings.** Replies cannot carry buffers or channels (the
+kernel refuses objects in a reply), and the driver must not let its device
 read memory a client can rewrite, so the client creates two shared buffers
 and the driver copies frames between them and its own DMA slots, in both
 directions (the audio rule, see `os.lazy.audio.v1`). A ring is the
@@ -18,16 +18,14 @@ single-producer/single-consumer frame ring of `libs/framering`: fixed
 free-running `u32` indices in a header page. Nothing about the wire lives in
 a request body except the slot count.
 
-`AttachRing` carries, in the parcel's `handles` and `buffers` vectors (its
-`transfers` clause and the `Rx`/`Tx` ring declarations say the same):
+`AttachRing` carries two objects (its `Ring<Rx, Tx>` and `Channel`
+parameters; the ring declarations say the layout):
 
-* `buffers[0]`: one shared buffer holding **both rings**, back to back: the
+* `rings`: one shared buffer holding **both rings**, back to back: the
 **receive ring** (driver produces, client consumes) at byte 0 and the
 **transmit ring** (client produces, driver consumes) at byte
-`framering::ring_bytes(slots)`. (The kernel surfaces only the first
-transferred buffer of a request to its receiver, so two rings cannot
-travel as two buffers.)
-* `handles[0]`: the **notify endpoint**, an endpoint the client holds the
+`framering::ring_bytes(slots)`.
+* `notify`: the **notify endpoint**, an endpoint the client holds the
 receiving side of, to which the driver posts `Notify`.
 
 The buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two
@@ -72,21 +70,21 @@ Failures of calls are returned as the shared structured error field
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: NicInfo)` |
 | SetRxMode | 506115710 | sync | `(mode: U32) -> (ok: Bool)` |
-| AttachRing | 62355614 | sync | `(slots: U32) -> (ring: U32) transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>)` |
+| AttachRing | 62355614 | sync | `(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>) -> (ring: U32)` |
 | DetachRing | 162562056 | sync | `(ring: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: NicStats)` |
 | Kick | 754690623 | oneway | `(ring: U32) -> ()` |
 | Notify | 314575196 | oneway | `(ring: U32, events: U32) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| AttachRing | `rings` | `buffers[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back |
-| AttachRing | `notify` | `handles[0]`, a channel the receiver sends `os.lazy.net.nic.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| AttachRing | `rings` | `Ring<Rx, Tx>` | `objects[0]`, a shared buffer holding the rings `Rx`, `Tx` back to back |
+| AttachRing | `notify` | `Channel<os.lazy.net.nic.v1>` | `objects[1]`, a channel the receiver sends `os.lazy.net.nic.v1` on |
 
 ## Topics
 
