@@ -176,6 +176,12 @@ interface os.lazy.input.shell.v1 {
     /// again, and its key-state page shows nothing held meanwhile
     /// (`inputmap::hold`, issue #648).
     method NoteKeysHeld(held: Bool = 1) -> () = 14 oneway;
+    /// One-way: the logged-in user's own keyboard layout (`confd`'s
+    /// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
+    /// follow the machine default `sys/input/layout` again (the login
+    /// screen, a logout). An unknown name also means the machine default.
+    /// It ends with the compositor (`inputmap::session_layout`).
+    method NoteSessionLayout(layout: Option<String> = 1) -> () = 15 oneway;
     /// Shell event: a registered chord was pressed.
     method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
     /// Shell event: the client owning `surface` asked for a grab of `kind`

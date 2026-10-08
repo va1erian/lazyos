@@ -169,6 +169,8 @@ mod spinner;
 mod surface;
 #[path = "xuid/theme.rs"]
 mod theme;
+#[path = "xuid/layoutfeed.rs"]
+mod layoutfeed;
 #[path = "xuid/themefeed.rs"]
 mod themefeed;
 #[path = "xuid/title.rs"]

@@ -1,6 +1,9 @@
 //! The per-user theme seam (issue #407): a [`ConfigStore`] that redirects the
 //! theme keys (`sys/ui/*`, the desktop picture included) to the caller's own
-//! `user/<uid>/ui/*` and reads them back through the machine default.
+//! `user/<uid>/ui/*` and reads them back through the machine default. The
+//! keyboard layout is personal the same way: `sys/input/layout` maps to
+//! `user/<uid>/input/layout` (`inputmap::session_layout`), which `xuid` hands
+//! `inputd` for the user's session, so choosing one asks nobody.
 //!
 //! The Appearance and Windows pages then edit the user's theme without
 //! knowing it: a write lands on `user/<uid>/ui/<name>`, a read shows the
@@ -34,8 +37,11 @@ impl UserTheme {
         }
     }
 
-    /// The user key shadowing `key`, when `key` is a theme key.
+    /// The user key shadowing `key`, when `key` is a personal key.
     fn own(&self, key: &str) -> Option<String> {
+        if key == inputmap::LAYOUT_KEY {
+            return inputmap::session_layout::user_layout_key(self.uid);
+        }
         is_theme_key(key)
             .then(|| uitheme::user_key(self.uid, key))
             .flatten()
@@ -256,14 +262,32 @@ mod tests {
     }
 
     #[test]
+    fn the_keyboard_layout_is_the_users_own() {
+        let (mem, store) = user_store(Some(1000));
+        mem.set("sys/input/layout", Value::Str("us".into())).unwrap();
+        store.set("sys/input/layout", Value::Str("fr".into())).unwrap();
+        assert_eq!(mem.get("sys/input/layout"), Some(Value::Str("us".into())));
+        assert_eq!(
+            mem.get("user/1000/input/layout"),
+            Some(Value::Str("fr".into()))
+        );
+        assert_eq!(store.get("sys/input/layout"), Some(Value::Str("fr".into())));
+        // Without a choice of its own the account types with the machine's.
+        store.delete("sys/input/layout").unwrap();
+        assert_eq!(store.get("sys/input/layout"), Some(Value::Str("us".into())));
+        // uid 0 sets the machine default itself.
+        let (mem, store) = user_store(Some(0));
+        store.set("sys/input/layout", Value::Str("fr".into())).unwrap();
+        assert_eq!(mem.get("sys/input/layout"), Some(Value::Str("fr".into())));
+    }
+
+    #[test]
     fn other_keys_pass_through() {
         let (mem, store) = user_store(Some(1000));
-        store
-            .set("sys/input/layout", Value::Str("fr".into()))
-            .unwrap();
         store.set(uitheme::KEY_SCALE, Value::U64(2)).unwrap();
-        assert_eq!(mem.get("sys/input/layout"), Some(Value::Str("fr".into())));
+        store.set("sys/time/clock24", Value::Bool(true)).unwrap();
         assert_eq!(mem.get(uitheme::KEY_SCALE), Some(Value::U64(2)));
+        assert_eq!(mem.get("sys/time/clock24"), Some(Value::Bool(true)));
         assert_eq!(store.uid(), Some(1000));
     }
 }

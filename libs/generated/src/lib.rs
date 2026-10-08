@@ -8155,6 +8155,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_NOTEINPUTDONE: u32 = 13;
     /// `NoteKeysHeld` method id.
     pub const METHOD_NOTEKEYSHELD: u32 = 14;
+    /// `NoteSessionLayout` method id.
+    pub const METHOD_NOTESESSIONLAYOUT: u32 = 15;
     /// `HotkeyFired` method id.
     pub const METHOD_HOTKEYFIRED: u32 = 20;
     /// `GrantRequested` method id.
@@ -8618,6 +8620,48 @@ pub mod os_lazy_input_shell_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.held = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// One-way: the logged-in user's own keyboard layout (`confd`'s
+    /// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
+    /// follow the machine default `sys/input/layout` again (the login
+    /// screen, a logout). An unknown name also means the machine default.
+    /// It ends with the compositor (`inputmap::session_layout`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NoteSessionLayoutArgs {
+        pub layout: core::option::Option<alloc::string::String>,
+    }
+
+    pub fn encode_note_session_layout_args(value: &NoteSessionLayoutArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.layout {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_note_session_layout_args(body: &[u8]) -> Result<NoteSessionLayoutArgs, Error> {
+        let mut out = NoteSessionLayoutArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                if field.payload.is_empty() {
+                    out.layout = None;
+                } else {
+                    let mut nested = field.nested(0)?;
+                    let item = nested.next()?.ok_or(Error::BadValue)?;
+                    out.layout = Some(item.as_str()?.into());
+                }
             }
         }
         Ok(out)

@@ -156,12 +156,13 @@ fn the_accounts_page_keeps_you_and_the_last_administrator() {
 }
 
 #[test]
-fn a_keyboard_layout_is_written_once_on_apply_and_never_on_a_refusal() {
+fn a_keyboard_layout_is_the_users_own_and_only_the_default_asks() {
     watchdog(|| {
         let kb = Msg::Keyboard;
         let page = Msg::Section(Section::Keyboard.index());
         let mem = Rc::new(store(Mode::Dark));
         let people = || Rc::new(MemAccounts::default());
+        let own = "user/1000/input/layout";
         // Moving through the list writes nothing.
         let browse = vec![
             page.clone(),
@@ -169,22 +170,38 @@ fn a_keyboard_layout_is_written_once_on_apply_and_never_on_a_refusal() {
             kb(KeyboardMsg::Select(0)),
         ];
         drive(mem.clone(), people(), browse);
-        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        assert!(mem.get(own).is_none() && mem.get(keyboard::KEY_LAYOUT).is_none());
+        // Apply: the account's own layout, the machine's untouched.
         let apply = vec![
             page.clone(),
             kb(KeyboardMsg::Select(1)),
             kb(KeyboardMsg::Apply),
         ];
         drive(mem.clone(), people(), apply);
-        assert_eq!(mem.get(keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
-        // A cancelled prompt leaves the stored layout, and the page shows it.
+        assert_eq!(mem.get(own), Some(Value::Str("fr".into())));
+        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        // A cancelled prompt leaves the machine layout, and the account's.
         *mem.fail_writes.borrow_mut() = Some("cancelled".into());
-        let refused = vec![page, kb(KeyboardMsg::Select(0)), kb(KeyboardMsg::Apply)];
+        let refused = vec![
+            page.clone(),
+            kb(KeyboardMsg::Select(1)),
+            kb(KeyboardMsg::MakeDefault),
+        ];
         save(
             &drive(mem.clone(), people(), refused),
             "settings-keyboard-refused.png",
         );
+        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        assert_eq!(mem.get(own), Some(Value::Str("fr".into())));
+        // An approved one sets the default and the account follows it.
+        *mem.fail_writes.borrow_mut() = None;
+        let default = vec![page, kb(KeyboardMsg::Select(1)), kb(KeyboardMsg::MakeDefault)];
+        save(
+            &drive(mem.clone(), people(), default),
+            "settings-keyboard-default.png",
+        );
         assert_eq!(mem.get(keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
+        assert_eq!(mem.get(own), None);
     });
 }
 

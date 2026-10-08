@@ -432,6 +432,7 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `forget_surface(surface)` | `ForgetSurface(surface: U64) -> () oneway` | One-way `UnregisterSurface` (see `NoteFocus`). |
 | `note_input_done(seq)` | `NoteInputDone(seq: U64) -> () oneway` | One-way: the compositor has handled every `PointerEvent` up to `seq` |
 | `note_keys_held(held)` | `NoteKeysHeld(held: Bool) -> () oneway` | One-way: the shell's panel menu has the keyboard (`held`), or no |
+| `note_session_layout(layout)` | `NoteSessionLayout(layout: Option<String>) -> () oneway` | One-way: the logged-in user's own keyboard layout (`confd`'s |
 | `hotkey_fired(id)` | `HotkeyFired(id: U64) -> () oneway` | Shell event: a registered chord was pressed. |
 | `grant_requested(session, kind, surface)` | `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway` | Shell event: the client owning `surface` asked for a grab of `kind` |
 | `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It |

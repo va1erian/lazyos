@@ -1600,6 +1600,15 @@ pub static INTERFACES: &[Interface] = &[
                 transfers: &[],
             },
             Method {
+                name: "NoteSessionLayout",
+                id: 15,
+                oneway: true,
+                doc: "One-way: the logged-in user's own keyboard layout (`confd`'s\n`user/<uid>/input/layout`, which `inputd` may not read), or absent to\nfollow the machine default `sys/input/layout` again (the login\nscreen, a logout). An unknown name also means the machine default.\nIt ends with the compositor (`inputmap::session_layout`).",
+                params: &[Field { name: "layout", id: 1, ty: Ty::Option(&Ty::String) }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
                 name: "HotkeyFired",
                 id: 20,
                 oneway: true,

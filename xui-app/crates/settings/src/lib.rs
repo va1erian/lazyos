@@ -12,7 +12,9 @@
 //! `user/<uid>/menu/hidden/*` (the apps the start menu leaves out, read by
 //! LazyShell each time the menu opens),
 //! `sys/time/*` (the taskbar clock format, followed live by `xuid`) and
-//! `sys/input/layout` (followed live by `inputd`). The clock, the time zone
+//! the keyboard layout (the user's `user/<uid>/input/layout`, or the
+//! machine's `sys/input/layout` through `elevd`; followed live by `inputd`,
+//! the user's through `xuid`). The clock, the time zone
 //! and the About facts come through [`System`] (`timed`, `sysinfo`); the
 //! Accounts page through [`Accounts`] (`accountsd`, and `elevd` for what an
 //! administrator must approve).

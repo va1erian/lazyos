@@ -11,6 +11,8 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "51bded370a5174ab43a
 # hand-copies the `sys/ui/*` keys or the preset colours.
 uitheme = { path = "../../../libs/uitheme" }
 deskmenu = { path = "../../../libs/deskmenu" }
+# The keyboard layout keys (machine and per user) `inputd` and `xuid` follow.
+inputmap = { path = "../../../libs/inputmap" }
 confd = { path = "../../../libs/confd" }
 # The zone table, civil-date maths and the taskbar clock format keys, shared
 # with `timed` and `xuid`.
