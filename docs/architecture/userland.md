@@ -9,7 +9,7 @@
 | Path | Role |
 |---|---|
 | `user/src/lib.rs` | Runtime modules: `sys`, `dev`, `files`, `sysinfo`, `messenger`, `central`, `messenger_async`, `task_snapshot`, `heap` |
-| `user/src/dev.rs` | Wrappers for the device syscall (23): `list`, `claim`, `map_bar`, `pio_*`, `cfg_*`, `irq_enable`/`irq_ack`, `release`, and `parse_irq` for the kernel's interrupt message (#240) |
+| `user/src/dev.rs` | Wrappers for the device syscall (23): `list`, `claim`/`claim_with_irq`, `map_bar`, `pio_*`, `cfg_*`, `irq_enable`/`irq_ack`, `release`, and `parse_irq` for the kernel's interrupt message (#240); the op codes come from `lazyos_sys::dev` |
 | `user/src/sys.rs` | The native syscalls: `libs/lazyos-sys` re-exported flat, plus this program's `args`/`env` (`sys/args.rs`) and the FUSE provider (`sys/fuse.rs`) |
 | `user::sysinfo` (`libs/lazyos-sys/src/sysinfo/`), `task_snapshot.rs` | Typed decoders for the syscall 14 system snapshot (shared with the xui system monitor) and the syscall 13 task snapshot |
 | `user/src/central.rs` | Topics client that routes service publishes through `messengerd`'s central broker (#169) |

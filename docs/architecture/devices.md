@@ -34,7 +34,7 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/dev/msi.rs`, `dev/msi_hw.rs`, `arch/msi_stubs.rs` | MSI and MSI-X: vectors, the lock-free vector handler, capability programming ([interrupts.md](interrupts.md)) |
 | `kernel/src/mem/mmio.rs`, `mem/cow.rs` | Uncached MMIO mappings tagged with a software PTE bit; fork split out of `mem/mod.rs` |
 | `kernel/src/ipc/channels_kernel.rs` | The interrupt channel kind (`create_irq_channel`, `close_kernel_side`) and `post_from_kernel`: one-way messages from the kernel identity |
-| `user/src/dev.rs` | Userspace wrappers for syscall 23 |
+| `libs/lazyos-sys/src/dev.rs`, `user/src/dev.rs` | The syscall's op codes and `claim` arguments (checked against the kernel by `lazyos-sys`'s `tests/kernel_tables.rs`); the native runtime's driver wrappers for syscall 23 |
 
 **Ownership and generations.** Each table slot carries an `owner` and a
 `generation`. `claim` fails with `Busy` when a device is already owned; it

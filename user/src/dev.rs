@@ -21,35 +21,14 @@ pub mod inspect;
 /// Capability required to list or claim devices at all.
 pub const CAP_DEV_CLAIM: u32 = 1 << 8;
 
-/// `claim`'s "no interrupt endpoint" argument (a polling driver).
-pub const NO_ENDPOINT: u64 = u64::MAX;
-/// `claim`'s "interrupts on a channel the kernel makes" argument (issue #496).
-pub const KERNEL_CHANNEL: u64 = u64::MAX - 1;
-/// `claim` flag: accept sharing the interrupt line with other drivers.
-pub const FLAG_SHARED_IRQ: u64 = 1;
+// The syscall's numbers (op codes, `claim`'s endpoint arguments and flag, the
+// row width) are defined once in `lazyos-sys`, checked against the kernel.
+pub use lazyos_sys::dev::{op, FLAG_SHARED_IRQ, KERNEL_CHANNEL, NO_ENDPOINT, ROW_WORDS};
 
 /// Rows a driver should offer [`list`]: the kernel device table's capacity
 /// (`dev::table::MAX_DEVICES`), so a function late in a large PC's bus order
 /// (an xHCI controller after 40 chipset functions) is never cut off.
 pub const MAX_ROWS: usize = 128;
-
-/// `u64` words per [`list`] row.
-pub const ROW_WORDS: usize = 13;
-
-/// Operation codes, matching `dev::syscall::OP_*`.
-pub mod op {
-    pub const LIST: u64 = 0;
-    pub const CLAIM: u64 = 1;
-    pub const MAP_BAR: u64 = 2;
-    pub const PIO: u64 = 3;
-    pub const CFG_READ: u64 = 4;
-    pub const CFG_WRITE: u64 = 5;
-    pub const IRQ_ENABLE: u64 = 6;
-    pub const IRQ_ACK: u64 = 7;
-    pub const RELEASE: u64 = 8;
-    /// Allocate contiguous DMA memory; see [`dma_alloc`].
-    pub const DMA_ALLOC: u64 = 9;
-}
 
 /// Bits in [`Row::flags`].
 pub mod row_flag {
