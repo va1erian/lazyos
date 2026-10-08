@@ -91,8 +91,11 @@ positions or ring a doorbell.
 
 * An object needs the `TRANSFER` right on the sender's handle.
 * A channel end appears at most once in a message (one handle, one move).
-* The object list must match the method's declared kinds, in order. Servers
-  still check for an exact match (`Message::carries`).
+* The object list must equal the method's declared kinds, in order and in
+  number. Object fields have fixed cardinality (never inside `Option<T>` or
+  `Array<T>`), so the declared list is one static slice per method and the
+  gate is one comparison; the generated decoder repeats it as defence in
+  depth.
 * A reply with objects is refused.
 * On process exit every handle closes; peers see `PeerDied`.
 
@@ -107,7 +110,8 @@ length are data, and the receiving library checks them against the size
 | Hand a service a window buffer | `.midl`: `method Attach(surface: U64, pixels: Buffer) -> ();`. Client: `attach(&AttachRequest { surface, pixels: Buffer::whole(handle, len) })`. Server: `request.pixels.map()?`. |
 | Give a service a way to send me events | `method Open(events: Channel<os.lazy.x.events.v1>) -> ();` create a pair, pass one end, keep the other. |
 | Send bytes larger than a parcel | A buffer plus a `ring` declaration. Never a `Bytes` field over 64 KiB. |
-| Put an object inside a struct or an option | Allowed; it is a field. |
+| Put an object inside a struct | Allowed; it is a field with a fixed place. |
+| Put an object inside an option or an array | Refused by `midlc`: the kernel gate needs a fixed object count per method. Use a separate method, or a `U32` count beside fixed fields. |
 | Check what a request carried | The generated decoder refuses a request whose objects do not match; nothing to do by hand. |
 | See why a call was refused | `LAZYOS_LABEL_TRACE=1` for policy; `msg_stats` `undeclared_refused` for the object gate. |
 | Add a third object kind | Do not, unless it is a new kernel object. Then: one enum variant, one wire tag, one `match` arm in `resolve` and one in `deliver`. |
@@ -171,8 +175,11 @@ takes a size and nothing else.
 ### 3.5 MIDL
 
 The `transfers (...)` clause is removed. `Channel<I>` and `Buffer` are
-parameter types, legal in a request's parameters and inside `struct`,
-`Option<T>` and `Array<T>`, illegal in a reply (`midlc` error). The rules on
+parameter types, legal in a request's parameters and inside a `struct`
+(nested structs included), illegal inside `Option<T>` or `Array<T>`, in a
+reply and in a topic (`midlc` errors). The restriction keeps every method's
+object count fixed, which is what lets the kernel gate compare a static slice
+without reading the body. The rules on
 `I` (declared somewhere, has a one-way method) and on rings (`Ring<A, B>`
 is a `Buffer` parameter with a layout) stay. The fifteen clauses in `idl/`
 become parameters:
@@ -239,9 +246,10 @@ This is the one stage where everything rebuilds together.
   `midlc_schema.py`, `midlc_rhai.py`. The fifteen `.midl` methods. Regenerate
   `libs/generated`, `libs/rhai-lazy/api`, `docs/idl/`, `idl/manifest.json`;
   update `test_midlc_transfers.py` and the conformance corpus (new fixtures:
-  an object in a struct, in an option, in a reply refused, in a topic refused).
+  an object in a struct accepted; in an option, in an array, in a reply and
+  in a topic refused).
 * Kernel: `channels/types.rs` (`Resolved`, `Message.objects`), `support.rs`
-  (`resolve_objects`), `recv.rs` (one loop), `declared.rs` (kind list check),
+  (`resolve_objects`), `recv.rs` (one loop), `declared.rs` (exact kind-list check),
   `syscalls.rs` (3.3), `channels_kernel.rs`.
 * Userspace: `user/src/messenger/message.rs` and `endpoint.rs`, then every
   sender and receiver that `grep -rn "encode_.*_transfers\|first_buffer\|first_handle"`
