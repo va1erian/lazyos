@@ -47,7 +47,6 @@ impl TaskSnapshot {
 
     /// Number of bytes the snapshot occupies on the wire.
     pub const SIZE: usize = Self::WORDS * 8;
-    const _KERNEL_SIZE: () = assert!(Self::SIZE == crate::sys::TASKS_SNAPSHOT_SIZE);
 
     /// The pid of the live task in `slot` of a raw snapshot block, without
     /// decoding (or allocating for) every row. `None` for a free slot, a
@@ -101,6 +100,10 @@ impl TaskSnapshot {
         Some(TaskSnapshot { version, rows })
     }
 }
+
+/// The kernel's snapshot size (`lazyos_sys::stats::tasks` checks buffers
+/// against it) must be this layout's.
+const _: () = assert!(TaskSnapshot::SIZE == crate::sys::TASKS_SNAPSHOT_SIZE);
 
 /// Read the live scheduler snapshot from the kernel.
 pub fn task_snapshot() -> Result<TaskSnapshot> {
