@@ -230,7 +230,13 @@ ISR that performs context switches.
   them.
 - Storage and long syscalls (docs/performance-plan.md P5): a syscall may
   give the CPU away while it holds only locks whose contenders yield
-  (`task::relax::YieldMutex`, and spin locks reached only through one). Block
+  (`task::relax::YieldMutex`, and spin locks reached only through one). A
+  contender *parks* for `relax::PARK_NS` rather than staying runnable:
+  classes are strict, so an `Interactive` contender that only yielded won
+  every pick against the `Normal` holder it was waiting for, and the holder
+  never ran again (issue #609, `relax_suite`). Only a context that cannot
+  park (task table held, short stack, scheduler not started) still yields
+  and halts. Block
   requests from the ext2 volume gate park on deadlines instead of
   busy-waiting (`block::iowait`), and long CPU stretches *breathe*
   (`iowait::breathe`: interrupts in for one instruction, the device bottom
