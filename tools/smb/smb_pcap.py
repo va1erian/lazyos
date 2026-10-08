@@ -27,8 +27,9 @@ sys.path.insert(0, str(HERE.parent / "net"))
 import sockets_pcap  # noqa: E402
 
 NEGOTIATE, SESSION_SETUP, TREE_CONNECT, READ, WRITE = 0, 1, 3, 8, 9
-#: CREATE, READ, WRITE, QUERY_DIRECTORY, SET_INFO: what a refused session must never send.
-FILE_COMMANDS = {5, READ, WRITE, 0x0E, 0x11}
+#: CREATE, CLOSE, FLUSH, READ, WRITE, QUERY_DIRECTORY, QUERY_INFO, SET_INFO:
+#: what a refused session must never send.
+FILE_COMMANDS = {5, 6, 7, READ, WRITE, 0x0E, 0x10, 0x11}
 FLAG_RESPONSE, FLAG_ASYNC, FLAG_SIGNED = 0x1, 0x2, 0x8
 PENDING = 0x00000103
 

@@ -183,7 +183,15 @@ class Connection:
             return self.session_setup(h, message, body)
         if h.command in (p.LOGOFF, p.TREE_DISCONNECT, p.ECHO):
             self.server.event(name)
-            return self.respond(h, p.SUCCESS, bytes([4, 0, 0, 0]))
+            # Respond (signed, if the session signs) before forgetting the
+            # state the response depends on.
+            reply = self.respond(h, p.SUCCESS, bytes([4, 0, 0, 0]))
+            if h.command in (p.LOGOFF, p.TREE_DISCONNECT):
+                self.tree = False
+                self.files.close_all()
+            if h.command == p.LOGOFF:
+                self.logged_on = False
+            return reply
         if h.command == p.TREE_CONNECT:
             return self.tree_connect(h, message, body)
         if not self.tree:
