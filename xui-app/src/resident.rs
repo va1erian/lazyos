@@ -66,12 +66,15 @@ impl Lifecycle {
         let result = Service::try_connect(INIT_APP)
             .ok_or(-errno::ENOENT)
             .and_then(|init| {
+                let (body, objects) =
+                    app_wire::encode_watch_args(&app_wire::WatchArgs { events: sent })
+                        .map_err(|_| -errno::EINVAL)?;
                 init.call_moving_within(
                     app_wire::INTERFACE_ID,
                     app_wire::METHOD_WATCH,
                     ERROR_FIELD,
-                    Vec::new(),
-                    vec![sent],
+                    body,
+                    objects,
                     WATCH_TICKS,
                 )
             });

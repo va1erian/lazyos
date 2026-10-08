@@ -316,8 +316,7 @@ pub fn stuff_inbox(endpoint: u64) -> Result<(), channels::Error> {
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel

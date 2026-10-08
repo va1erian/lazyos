@@ -12,9 +12,7 @@ use super::compositor::Compositor;
 use super::geometry::{self, SizeHints};
 use super::layout::place_window;
 use super::present::attach;
-use super::protocol::{
-    carries_declared, drop_rejected_transfers, empty_reply, error_reply, typed_reply,
-};
+use super::protocol::{empty_reply, error_reply, typed_reply};
 use super::surface::Surface;
 use super::theme::{border, title_h};
 use super::window::{focus_on_create, surface_by_id};
@@ -27,12 +25,10 @@ impl Compositor {
     /// Handle one display request; returns the reply parcel for a synchronous
     /// call.
     pub(super) fn handle_request(&mut self, message: &Message) -> Parcel {
-        // Exactly the declared transfers, or nothing is adopted and the call
-        // is refused: no per-method path can leak what it did not expect.
-        if !carries_declared(message) {
-            drop_rejected_transfers(message);
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        }
+        // A request's objects (`CreateSurface`'s and `Subscribe`'s event
+        // channel, `AttachBuffer*`'s pixels) are the message's until their
+        // decoder claims them, so a refused request leaks nothing into the
+        // compositor's (immortal) handle table: the message closes them.
         if message.interface_id() != display::INTERFACE {
             return empty_reply(message.method());
         }
@@ -80,10 +76,15 @@ impl Compositor {
     }
 
     /// `CreateSurface`: a window, or (shell-only) the desktop or a panel.
-    fn create_surface(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let Ok(args) = wire::decode_create_surface_args(body) else {
-            drop_rejected_transfers(message);
+    fn create_surface(&mut self, message: &Message, _body: &[u8]) -> Parcel {
+        let Ok(args) = message.decode(wire::decode_create_surface_args) else {
             return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        // Decoded, so the event endpoint is ours to close on a refusal.
+        let events = args.events;
+        let refuse = |code| {
+            let _ = Endpoint::from_raw(events).close();
+            error_reply(message.method(), code)
         };
         let (width, height) = (args.width as u64, args.height as u64);
         // An unnamed window still gets a taskbar label.
@@ -100,14 +101,8 @@ impl Compositor {
             self.screen.width().max(0) as u64,
             self.screen.height().max(0) as u64,
         );
-        if width == 0
-            || height == 0
-            || width > max_w
-            || height > max_h
-            || !message.carries(wire::CREATE_SURFACE_TRANSFERS)
-        {
-            drop_rejected_transfers(message);
-            return error_reply(message.method(), messenger::errno::EINVAL);
+        if width == 0 || height == 0 || width > max_w || height > max_h {
+            return refuse(messenger::errno::EINVAL);
         }
         let panels = self.surfaces.iter().filter(|s| s.is_panel()).count();
         let refusal = match role {
@@ -122,8 +117,7 @@ impl Compositor {
             _ => Some(messenger::errno::EINVAL),
         };
         if let Some(code) = refusal {
-            drop_rejected_transfers(message);
-            return error_reply(message.method(), code);
+            return refuse(code);
         }
         let id = self.next_id;
         self.next_id += 1;
@@ -136,8 +130,15 @@ impl Compositor {
             if role == wire::ROLE_DESKTOP {
                 self.replace_desktop();
             }
-            self.surfaces
-                .push(new_surface(message, id, title, (0, 0), (w, h), role));
+            self.surfaces.push(new_surface(
+                message,
+                id,
+                title,
+                (0, 0),
+                (w, h),
+                role,
+                events,
+            ));
             self.notify_surface(id, wire::CHANGE_CREATED);
             self.repaint(Rect::new(0, 0, w, h));
         } else {
@@ -146,8 +147,15 @@ impl Compositor {
             // cell.
             self.finish_opening();
             let origin = place_window(self.work_area(), &self.surfaces, w, h);
-            self.surfaces
-                .push(new_surface(message, id, title, origin, (w, h), role));
+            self.surfaces.push(new_surface(
+                message,
+                id,
+                title,
+                origin,
+                (w, h),
+                role,
+                events,
+            ));
             // A new window comes up on top and focused, so double-clicking a
             // folder in Files shows the new window in front instead of behind
             // the one that opened it. The first window still gets focus.
@@ -193,11 +201,17 @@ impl Compositor {
     }
 
     /// `AttachBuffer`: map the client's pixel buffer as slot 0 and show it.
-    fn attach_buffer(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let id = wire::decode_attach_buffer_args(body)
-            .unwrap_or_default()
-            .surface;
-        match attach(message, &mut self.surfaces, id, None) {
+    fn attach_buffer(&mut self, message: &Message, _body: &[u8]) -> Parcel {
+        let Ok(args) = message.decode(wire::decode_attach_buffer_args) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        match attach(
+            message,
+            &mut self.surfaces,
+            args.surface,
+            None,
+            &args.pixels,
+        ) {
             Ok(()) => {
                 self.repaint_full();
                 empty_reply(message.method())
@@ -208,9 +222,17 @@ impl Compositor {
 
     /// `AttachBufferSlot` (issue #361): register one buffer slot. It is not
     /// the current slot, so nothing on screen changes.
-    fn attach_buffer_slot(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let args = wire::decode_attach_buffer_slot_args(body).unwrap_or_default();
-        match attach(message, &mut self.surfaces, args.surface, Some(args.slot)) {
+    fn attach_buffer_slot(&mut self, message: &Message, _body: &[u8]) -> Parcel {
+        let Ok(args) = message.decode(wire::decode_attach_buffer_slot_args) else {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        match attach(
+            message,
+            &mut self.surfaces,
+            args.surface,
+            Some(args.slot),
+            &args.pixels,
+        ) {
             Ok(()) => empty_reply(message.method()),
             Err(code) => error_reply(message.method(), code),
         }
@@ -357,7 +379,8 @@ impl Compositor {
     }
 }
 
-/// A freshly created, unattached surface for `message`'s sender.
+/// A freshly created, unattached surface for `message`'s sender, with the
+/// event endpoint `events` the request carried.
 fn new_surface(
     message: &Message,
     id: u64,
@@ -365,6 +388,7 @@ fn new_surface(
     origin: (i32, i32),
     size: (i32, i32),
     role: u32,
+    events: u64,
 ) -> Surface {
     Surface {
         id,
@@ -373,7 +397,7 @@ fn new_surface(
         y: origin.1,
         w: size.0,
         h: size.1,
-        events: message.first_handle,
+        events,
         owner: message.sender,
         pixels: 0,
         bytes: 0,

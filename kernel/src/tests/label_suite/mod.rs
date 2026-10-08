@@ -88,7 +88,7 @@ fn read_bytes(va: u64, len: usize) -> Vec<u8> {
 fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
     write_bytes(ARGS, &args.to_bytes());
     let code = process::dispatch_for_test(5, op, ARGS, RESULT);
-    let result = MsgResult::from_bytes(&read_bytes(RESULT, 64))
+    let result = MsgResult::from_bytes(&read_bytes(RESULT, crate::ipc::syscalls::RESULT_SIZE))
         .expect("the kernel wrote a malformed result block");
     (code, result)
 }
@@ -106,8 +106,7 @@ fn parcel_bytes(interface_id: u64, method: u32, body: Vec<u8>) -> Result<Vec<u8>
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel

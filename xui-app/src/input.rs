@@ -9,7 +9,7 @@
 //! the compositor. Without `inputd` (an image built without the service) the
 //! open fails and the window simply stays on the compositor's legacy keys.
 
-use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 use messenger_generated::os_lazy_input_v1 as wire;
 
 use crate::sys::{self, errno, msg_call, msg_create_pair, msg_resolve};
@@ -164,18 +164,18 @@ impl Session {
 
     fn open_on(service: u64, surface: u64) -> Result<Session, i64> {
         let (events, peer) = msg_create_pair()?;
-        let body = match wire::encode_open_args(&wire::OpenArgs {
+        let (body, objects) = match wire::encode_open_args(&wire::OpenArgs {
             surface: Some(surface),
+            events: peer,
         }) {
-            Ok(body) => body,
+            Ok(encoded) => encoded,
             Err(_) => {
                 let _ = crate::display::close(events);
                 let _ = crate::display::close(peer);
                 return Err(-errno::EINVAL);
             }
         };
-        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers { events: peer });
-        let reply = call(service, wire::METHOD_OPEN, body, handles, Vec::new());
+        let reply = call(service, wire::METHOD_OPEN, body, objects);
         match reply
             .and_then(|parcel| wire::decode_open_reply(&parcel.body).map_err(|_| -errno::EINVAL))
         {
@@ -201,7 +201,7 @@ impl Session {
             if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
                 session: self.session,
             }) {
-                let _ = call(service, wire::METHOD_CLOSE, body, Vec::new(), Vec::new());
+                let _ = call(service, wire::METHOD_CLOSE, body, Vec::new());
             }
             let _ = crate::display::release(service);
         }
@@ -210,13 +210,7 @@ impl Session {
 }
 
 /// One synchronous call; a structured error reply becomes its negative errno.
-fn call(
-    service: u64,
-    method: u32,
-    body: Vec<u8>,
-    handles: Vec<u64>,
-    buffers: Vec<BufferDesc>,
-) -> Result<Parcel, i64> {
+fn call(service: u64, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Parcel, i64> {
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -228,8 +222,7 @@ fn call(
             deadline_ns: 0,
         },
         body,
-        handles,
-        buffers,
+        objects,
     };
     let mut buf = [0u8; 256];
     let deadline = sys::clock_ticks().saturating_add(CALL_TICKS);

@@ -87,36 +87,37 @@ impl KeyPages {
 }
 
 impl Hub {
-    /// `AttachKeyState`: adopt the page the caller's own session transferred.
+    /// `AttachKeyState`: adopt the page the caller's own session carried.
     pub(super) fn attach_key_state(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let result = self.attach_key_state_inner(message);
-        if result.is_err() && message.buffers != 0 {
-            let _ = sys::buffer_close(message.first_buffer);
+        let args = message.decode(wire::decode_attach_key_state_args)?;
+        let result = self.attach_key_state_inner(message, &args);
+        if result.is_err() {
+            // Decoded, so the page is ours to close.
+            let _ = sys::buffer_close(args.state.handle);
         }
         result
     }
 
-    fn attach_key_state_inner(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args =
-            wire::decode_attach_key_state_args(&message.parcel.body).map_err(Error::Parcel)?;
-        // The kernel bounds the descriptor by the buffer, so its length is
-        // a floor on what is mapped.
-        let claimed = message.parcel.buffers.first().map_or(0, |b| b.len);
-        if !message.carries(wire::ATTACH_KEY_STATE_TRANSFERS) || claimed < keystate::SIZE as u64 {
+    fn attach_key_state_inner(
+        &mut self,
+        message: &Message,
+        args: &wire::AttachKeyStateArgs,
+    ) -> Result<Vec<u8>> {
+        // The page is the whole buffer from its start; the mapped size is
+        // the truth about how much there is.
+        if args.state.offset != 0 || args.state.len < keystate::SIZE as u64 {
             return Err(Error::Errno(-errno::EINVAL));
         }
         self.own_session(args.session, message.sender)?;
-        let va = sys::buffer_map(message.first_buffer)
-            .map(|(va, _)| va)
-            .map_err(Error::Errno)?;
-        if va == 0 || va % 8 != 0 {
+        let (va, size) = sys::buffer_map(args.state.handle).map_err(Error::Errno)?;
+        if va == 0 || va % 8 != 0 || !args.state.fits(size) {
             return Err(Error::Errno(-errno::EINVAL));
         }
         self.key_pages.forget(args.session);
         self.key_pages.pages.insert(
             args.session,
             Page {
-                handle: message.first_buffer,
+                handle: args.state.handle,
                 va,
                 writer: Writer::new(),
             },

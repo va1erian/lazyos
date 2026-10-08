@@ -12,7 +12,7 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{Header, Parcel, VERSION};
+use libmessenger::{Header, Object, Parcel, VERSION};
 
 use super::services::error_field;
 use super::{create_pair, registry, Endpoint, Error, Message, Result, DEFAULT_BUFFER};
@@ -51,7 +51,7 @@ pub mod mods {
 const CALL_TICKS: u64 = 20;
 
 /// A request parcel for `interface_id`.
-pub fn request(interface_id: u64, method: u32, body: Vec<u8>, handles: Vec<u64>) -> Parcel {
+pub fn request(interface_id: u64, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
@@ -63,8 +63,7 @@ pub fn request(interface_id: u64, method: u32, body: Vec<u8>, handles: Vec<u64>)
             deadline_ns: 0,
         },
         body,
-        handles,
-        ..Parcel::default()
+        objects,
     }
 }
 
@@ -171,15 +170,11 @@ impl ShellLink {
             events,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         };
-        let (handles, _) = shell_wire::encode_attach_transfers(&shell_wire::AttachTransfers {
+        let (body, objects) = shell_wire::encode_attach_args(&shell_wire::AttachArgs {
             events: peer.handle(),
-        });
-        let parcel = request(
-            SHELL_INTERFACE,
-            shell_wire::METHOD_ATTACH,
-            Vec::new(),
-            handles,
-        );
+        })
+        .map_err(Error::Parcel)?;
+        let parcel = request(SHELL_INTERFACE, shell_wire::METHOD_ATTACH, body, objects);
         // `Attach` is the one call on the shared endpoint: the private
         // channel only exists once `inputd` has adopted its end.
         if let Err(error) = call_on(&link.input, &parcel) {
@@ -402,15 +397,13 @@ impl KeySession {
         let (events, peer) = create_pair()?;
         let body = wire::encode_open_args(&wire::OpenArgs {
             surface: Some(surface),
+            events: peer.handle(),
         })
         .map_err(Error::Parcel);
-        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers {
-            events: peer.handle(),
-        });
-        let reply = body.and_then(|body| {
+        let reply = body.and_then(|(body, objects)| {
             call_on(
                 &service,
-                &request(INTERFACE, wire::METHOD_OPEN, body, handles),
+                &request(INTERFACE, wire::METHOD_OPEN, body, objects),
             )
         });
         match reply.and_then(|reply| wire::decode_open_reply(&reply.body).map_err(Error::Parcel)) {

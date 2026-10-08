@@ -47,8 +47,7 @@ pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 

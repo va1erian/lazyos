@@ -19,11 +19,11 @@ use lazyweb::pages::{self, Command as PageCommand, ABOUT, DOWNLOADS, HISTORY};
 use lazyweb::visits::Visits;
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::launcher;
+use xui_blitz::BlitzViewEvent;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::icon::Lucide;
 use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
-use xui_blitz::BlitzViewEvent;
 
 use crate::chrome::{self, Command, Widgets};
 use crate::handoff;

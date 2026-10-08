@@ -203,16 +203,13 @@ impl Endpoint {
         }
         let parcel = Parcel::decode(&buf[..len]).map_err(Error::Parcel)?;
         let caller = decode_caller(&block).ok_or(Error::Errno(-errno::EINVAL))?;
-        Ok(Message {
-            sender: result.aux,
+        Message::new(
+            result.aux,
             caller,
-            txn: (result.value != 0).then_some(result.value),
+            (result.value != 0).then_some(result.value),
             parcel,
-            first_handle: result.reserved[0],
-            handles: result.reserved[1],
-            first_buffer: result.reserved[2],
-            buffers: result.reserved[3],
-        })
+            result.delivered(),
+        )
     }
 
     /// Alias for [`Endpoint::recv_into`], kept for the supervisor services.

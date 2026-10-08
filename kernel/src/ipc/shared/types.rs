@@ -49,8 +49,6 @@ pub enum Error {
     ShareOnly,
     /// The buffer is already gone (a stale object id).
     NotFound,
-    /// A buffer descriptor's `offset`/`len` does not fit the buffer.
-    BadDescriptor,
 }
 
 impl Error {
@@ -70,7 +68,6 @@ impl Error {
             Error::MapFailed => "the buffer could not be mapped into this address space",
             Error::ShareOnly => "this buffer is share-only and is not mapped into this process",
             Error::NotFound => "that shared buffer no longer exists",
-            Error::BadDescriptor => "the buffer descriptor's range does not fit the buffer",
         }
     }
 }

@@ -17,6 +17,8 @@ virtio-snd = { path = "../virtio-snd" }
 # The `midlc`-generated `os.lazy.audio.v1` / `os.lazy.audio.mixer.v1` codecs
 # the wire layer (`service`) decodes and encodes with.
 messenger-generated = { path = "../generated" }
+# The parcel codec: `Object`, the kind an `AttachRing` body is held to.
+libmessenger = { path = "../messenger" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

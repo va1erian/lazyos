@@ -13,6 +13,8 @@ path = "src/lib.rs"
 [dependencies]
 # The `midlc`-generated codecs: no protocol constant is written by hand here.
 messenger-generated = { path = "../generated" }
+# The parcel codec: the `Object` a `Set` request moves to the shell.
+libmessenger = { path = "../messenger" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

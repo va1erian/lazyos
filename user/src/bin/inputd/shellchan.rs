@@ -16,7 +16,7 @@
 use user::messenger::input::{self as api, shell_wire};
 use user::messenger::{errno, Error};
 
-use super::hub::{release_transfers, Hub};
+use super::hub::Hub;
 
 /// Most requests served from the channel per call: the compositor is
 /// trusted, but the raw input bus must never wait behind an unbounded drain.
@@ -42,7 +42,7 @@ pub(super) fn serve(hub: &mut Hub, buffer: &mut [u8]) {
         let reply = if message.interface_id() == api::SHELL_INTERFACE
             && message.method() == shell_wire::METHOD_ATTACH
         {
-            release_transfers(&message);
+            // The endpoint it carried stays the message's and closes with it.
             Hub::error_reply(&message, Error::Errno(-errno::EINVAL))
         } else {
             hub.handle(&message)

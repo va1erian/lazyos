@@ -46,6 +46,8 @@ mod clients;
 mod commands;
 #[path = "messengerctl/names.rs"]
 mod names;
+#[path = "messengerctl/object_tests.rs"]
+mod object_tests;
 #[path = "messengerctl/render.rs"]
 mod render;
 #[path = "messengerctl/selftest.rs"]
@@ -65,7 +67,7 @@ use user::sys;
 
 use commands::{commands, report};
 use render::print_report;
-use selftest::{keyd_selftest, run_forbidden_publish_probe, topic_selftest};
+use selftest::{keyd_selftest, objects_selftest, run_forbidden_publish_probe, topic_selftest};
 use supervisor::{app_selftest, probe_role};
 
 #[no_mangle]
@@ -88,6 +90,7 @@ pub extern "C" fn _start() -> ! {
         Err(error) => report(error.message()),
     }
     topic_selftest();
+    objects_selftest();
     keyd_selftest();
     app_selftest();
     commands()

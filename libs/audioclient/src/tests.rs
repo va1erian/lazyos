@@ -12,7 +12,7 @@ use audiomix::service::{self, Outcome, Request};
 use audiomix::{Config, Mixer};
 
 use crate::{
-    Error, MixerControl, Params, PlaybackStream, Result, RingBuffer, RingRef, Transfers, Transport,
+    Error, MixerControl, Object, Params, PlaybackStream, Result, RingBuffer, RingRef, Transport,
     UNITY_GAIN,
 };
 
@@ -118,16 +118,20 @@ impl Transport for Fake {
         interface: u64,
         method: u32,
         body: Vec<u8>,
-        transfers: Transfers,
+        objects: Vec<Object>,
         deadline: Option<u64>,
     ) -> Result<Vec<u8>> {
         let outcome = {
             let mut state = self.0.borrow_mut();
-            let ring = transfers.buffers.first().and_then(|r| {
-                let ring = state.rings.get(&r.handle)?.clone();
-                let fits = r.len <= ring.bytes.borrow().len() as u64;
-                fits.then_some(ring)
-            });
+            // The ring the request carries: the decoded field names its
+            // object, whose range the receiver checks against the ring.
+            let ring = crate::wire::decode_attach_ring_args(&body, &objects)
+                .ok()
+                .and_then(|args| {
+                    let ring = state.rings.get(&args.ring.handle)?.clone();
+                    let fits = args.ring.fits(ring.bytes.borrow().len() as u64);
+                    fits.then_some(ring)
+                });
             let request = Request {
                 interface,
                 method,

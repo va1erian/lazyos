@@ -11,7 +11,7 @@
 //! ([`frames`]). Input arrives as one-way messages on the event endpoint;
 //! pointer coordinates are surface-relative and presses carry the button id.
 
-use libmessenger::{BufferDesc, Decoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 use messenger_generated::os_lazy_display_v1 as wire;
 
 use crate::sys::{self, errno};
@@ -185,17 +185,16 @@ impl Client {
         events: u64,
         role: u32,
     ) -> Result<u64, i64> {
-        let body = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
+        let (body, objects) = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
             width: u32::try_from(width).unwrap_or(u32::MAX),
             height: u32::try_from(height).unwrap_or(u32::MAX),
             title: title.into(),
             role,
             popup: None,
+            events,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let (handles, buffers) =
-            wire::encode_create_surface_transfers(&wire::CreateSurfaceTransfers { events });
-        let parcel = request(wire::METHOD_CREATESURFACE, body, handles, buffers);
+        let parcel = request(wire::METHOD_CREATESURFACE, body, objects);
         let reply = self.call(&parcel)?;
         match wire::decode_create_surface_reply(&reply.body) {
             // Surface ids start at 1; zero is a missing field.
@@ -213,7 +212,7 @@ impl Client {
             title: title.into(),
         })
         .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_SETTITLE, body, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_SETTITLE, body, Vec::new());
         self.call(&parcel).map(|_| ())
     }
 
@@ -236,7 +235,7 @@ impl Client {
             max_h,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_SETSIZEHINTS, body, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_SETSIZEHINTS, body, Vec::new());
         self.call(&parcel).map(|_| ())
     }
 
@@ -263,7 +262,7 @@ impl Client {
     /// `GetTheme`: the desktop's mode and accent (and chrome palette), bounded
     /// by [`THEME_TICKS`] so a hung compositor cannot stall the app forever.
     pub fn get_theme(&self) -> Result<wire::GetThemeReply, i64> {
-        let parcel = request(wire::METHOD_GETTHEME, Vec::new(), Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_GETTHEME, Vec::new(), Vec::new());
         let deadline = sys::clock_ticks().saturating_add(THEME_TICKS);
         let reply = self.call_until(&parcel, deadline)?;
         wire::decode_get_theme_reply(&reply.body).map_err(|_| -errno::EINVAL)
@@ -273,7 +272,7 @@ impl Client {
     /// (docs/hidpi-plan.md), bounded like [`Client::get_theme`]. An older
     /// compositor answers `EINVAL` and the caller assumes scale 1.
     pub fn get_output(&self) -> Result<wire::GetOutputReply, i64> {
-        let parcel = request(wire::METHOD_GETOUTPUT, Vec::new(), Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_GETOUTPUT, Vec::new(), Vec::new());
         let deadline = sys::clock_ticks().saturating_add(HINT_TICKS);
         let reply = self.call_until(&parcel, deadline)?;
         wire::decode_get_output_reply(&reply.body).map_err(|_| -errno::EINVAL)
@@ -283,7 +282,7 @@ impl Client {
     pub fn destroy_surface(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })
             .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_DESTROYSURFACE, body, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_DESTROYSURFACE, body, Vec::new());
         self.call(&parcel).map(|_| ())
     }
 
@@ -318,12 +317,7 @@ fn request_size_parcel(surface: u64, width: u32, height: u32) -> Result<Parcel, 
         height,
     })
     .map_err(|_| -errno::EINVAL)?;
-    Ok(request(
-        wire::METHOD_REQUESTSIZE,
-        body,
-        Vec::new(),
-        Vec::new(),
-    ))
+    Ok(request(wire::METHOD_REQUESTSIZE, body, Vec::new()))
 }
 
 /// The `HintOpenOrigin` request parcel for `rect` relative to `surface`.
@@ -336,17 +330,12 @@ fn hint_open_origin_parcel(surface: u64, rect: (i32, i32, u32, u32)) -> Result<P
         h: rect.3,
     })
     .map_err(|_| -errno::EINVAL)?;
-    Ok(request(
-        wire::METHOD_HINTOPENORIGIN,
-        body,
-        Vec::new(),
-        Vec::new(),
-    ))
+    Ok(request(wire::METHOD_HINTOPENORIGIN, body, Vec::new()))
 }
 
 /// A request parcel; `ALLOW_NESTED` keeps the app's event receive from
 /// tripping the kernel's per-channel cycle check while a call is in flight.
-fn request(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDesc>) -> Parcel {
+fn request(method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
@@ -358,8 +347,7 @@ fn request(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDes
             deadline_ns: 0,
         },
         body,
-        handles,
-        buffers,
+        objects,
     }
 }
 

@@ -385,10 +385,6 @@ fn run() -> ! {
                 } else if let Some(txn) = message.txn {
                     let reply = comp.handle_request(&message);
                     let _ = server.reply(txn, &reply);
-                } else if !protocol::carries_declared(&message) {
-                    // A one-way message with undeclared transfers is dropped,
-                    // and what it carried is closed rather than leaked.
-                    protocol::drop_rejected_transfers(&message);
                 } else if message.interface_id() == display::INTERFACE
                     && message.method() == display::wire::METHOD_PRESENT
                 {

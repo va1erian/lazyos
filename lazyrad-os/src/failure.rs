@@ -152,8 +152,7 @@ pub fn report_to_init(reason: &str) {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let _ = sys::msg_send(endpoint, &parcel);
 }

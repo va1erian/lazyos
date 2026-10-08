@@ -10,9 +10,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audioclient::{
-    wire, Client, Error, Grant, RingBuffer, RingRef, Transfers, Transport, UNITY_GAIN,
-};
+use audioclient::{wire, Client, Error, Grant, Object, RingBuffer, RingRef, Transport, UNITY_GAIN};
 use user::audio::Native;
 use user::sys;
 
@@ -99,12 +97,13 @@ pub(super) fn run() -> Result<u32, String> {
         "start before attach",
         is_errno(&client.start(stream), EINVAL),
     )?;
-    let no_buffer =
-        wire::encode_attach_ring_args(&wire::AttachRingArgs { stream }).map_err(|_| "encode")?;
+    // An `AttachRing` whose object list is empty: the kernel gate refuses
+    // it before the mixer sees it (the body alone cannot name a ring).
+    let no_buffer = wire::encode_stop_args(&wire::StopArgs { stream }).map_err(|_| "encode")?;
     checks.expect(
         "attach without a buffer",
         is_errno(
-            &client.raw(wire::METHOD_ATTACHRING, no_buffer, Transfers::NONE),
+            &client.raw(wire::METHOD_ATTACHRING, no_buffer, Vec::new()),
             EINVAL,
         ),
     )?;
@@ -262,10 +261,7 @@ fn stray_transfers(
     ring: RingRef,
     checks: &mut Checks,
 ) -> Result<(), String> {
-    let stray = || Transfers {
-        handles: Vec::new(),
-        buffers: alloc::vec![ring.desc()],
-    };
+    let stray = || alloc::vec![Object::Buffer(ring.handle)];
     let position =
         wire::encode_position_args(&wire::PositionArgs { stream }).map_err(|_| "encode")?;
     checks.expect(

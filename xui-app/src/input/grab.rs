@@ -8,7 +8,7 @@
 //! grab: the compositor answers later with an [`super::Event::Grant`]; the
 //! user can always end it with Ctrl+Alt+Esc.
 
-use libmessenger::BufferDesc;
+use libmessenger::Buffer;
 use messenger_generated::os_lazy_input_v1 as wire;
 
 pub use inputmap::keystate::Snapshot;
@@ -53,20 +53,12 @@ impl Session {
         let (handle, va, _) = sys::buffer_create(PAGE_BYTES)?;
         // Dropped on any failure below, which closes the buffer.
         let page = KeyStatePage { handle, va };
-        let body = wire::encode_attach_key_state_args(&wire::AttachKeyStateArgs {
+        let (body, objects) = wire::encode_attach_key_state_args(&wire::AttachKeyStateArgs {
             session: self.session,
+            state: Buffer::whole(handle, PAGE_BYTES),
         })
         .map_err(|_| -errno::EINVAL)?;
-        let (handles, buffers) =
-            wire::encode_attach_key_state_transfers(&wire::AttachKeyStateTransfers {
-                state: BufferDesc {
-                    handle,
-                    offset: 0,
-                    len: PAGE_BYTES,
-                    flags: 0,
-                },
-            });
-        on_service(|service| call(service, wire::METHOD_ATTACHKEYSTATE, body, handles, buffers))?;
+        on_service(|service| call(service, wire::METHOD_ATTACHKEYSTATE, body, objects))?;
         Ok(page)
     }
 
@@ -78,16 +70,7 @@ impl Session {
             kind: wire::GRANT_KIND_KEYBOARD,
         })
         .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| {
-            call(
-                service,
-                wire::METHOD_REQUESTGRANT,
-                body,
-                Vec::new(),
-                Vec::new(),
-            )
-        })
-        .map(|_| ())
+        on_service(|service| call(service, wire::METHOD_REQUESTGRANT, body, Vec::new())).map(|_| ())
     }
 
     /// Give the grab (or a pending request) back.
@@ -96,16 +79,7 @@ impl Session {
             session: self.session,
         })
         .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| {
-            call(
-                service,
-                wire::METHOD_RELEASEGRANT,
-                body,
-                Vec::new(),
-                Vec::new(),
-            )
-        })
-        .map(|_| ())
+        on_service(|service| call(service, wire::METHOD_RELEASEGRANT, body, Vec::new())).map(|_| ())
     }
 
     /// `Ping`: `inputd`'s newest processed raw sequence number while this
@@ -117,8 +91,7 @@ impl Session {
             token,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let reply =
-            on_service(|service| call(service, wire::METHOD_PING, body, Vec::new(), Vec::new()))?;
+        let reply = on_service(|service| call(service, wire::METHOD_PING, body, Vec::new()))?;
         let reply = wire::decode_ping_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
         if reply.token != token {
             return Err(-errno::EINVAL);
