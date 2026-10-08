@@ -12,7 +12,8 @@
 //! already shaped to carry it (the pid field) and nothing else here changes.
 //!
 //! The task list is one syscall and a 22 KiB copy; it is refreshed at most
-//! once per tick, however many requests arrive.
+//! once per tick, however many requests arrive, and once more for a sender
+//! it does not list (a task spawned since it was taken).
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -53,7 +54,20 @@ impl Tasks {
         if !self.refresh(tick) {
             return None;
         }
-        let pid = TaskSnapshot::live_pid(&self.snapshot, usize::try_from(slot).ok()?)?;
+        let index = usize::try_from(slot).ok()?;
+        let pid = match TaskSnapshot::live_pid(&self.snapshot, index) {
+            Some(pid) => pid,
+            // A task started after this tick's snapshot (a daemon's first
+            // call, moments after its spawn) is not in it yet: look again
+            // before refusing it. Only an unknown sender pays for the reread.
+            None => {
+                self.at = None;
+                if !self.refresh(tick) {
+                    return None;
+                }
+                TaskSnapshot::live_pid(&self.snapshot, index)?
+            }
+        };
         Some((pid << 16) | slot)
     }
 

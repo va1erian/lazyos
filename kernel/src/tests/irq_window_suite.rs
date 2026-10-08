@@ -53,6 +53,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "irqwin_soak_serial_drains_stay_bounded",
         soak_serial_drains_stay_bounded,
     ),
+    (
+        "irqwin_deadline_timer_defers_in_window",
+        deadline_timer_defers_in_window,
+    ),
 ];
 
 /// One long serial line (`IRQWIN:SERIAL:` and padding), written as a syscall
@@ -330,6 +334,36 @@ pub fn handlers_take_no_lock() -> Result<(), String> {
     check!(
         !crate::task::diag::table_locked() && !crate::console::locked() && !crate::serial::locked(),
         "a lock stayed held"
+    );
+    Ok(())
+}
+
+/// The APIC deadline timer firing inside a window takes no lock: with the
+/// task table held (as the exit path holds it while it prints, and the
+/// serial drain opens windows), a deadline that comes due is acknowledged and
+/// left to the next ordinary tick. Its expiry, which takes the table, used to
+/// run there and spin forever with interrupts off.
+pub fn deadline_timer_defers_in_window() -> Result<(), String> {
+    calibrated()?;
+    if !crate::arch::event_timer::available() {
+        return Ok(()); // No deadline timer on this machine: nothing to defer.
+    }
+    kernel_task_only();
+    for _ in 0..20 {
+        let (taken, _) = in_syscall(NR_A, || {
+            task::harness::with_table_locked(|| {
+                let now = clock::monotonic_ns();
+                crate::arch::event_timer::program(Some(now + 2_000_000), now);
+                let before = task::ticks();
+                spin_us(25_000, irq_window::poll_point);
+                task::ticks() - before
+            })
+        });
+        check!(taken >= 2, "only {taken} ticks taken with a deadline armed");
+    }
+    check!(
+        !crate::task::diag::table_locked(),
+        "the task table stayed locked"
     );
     Ok(())
 }

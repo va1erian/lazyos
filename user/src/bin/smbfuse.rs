@@ -235,6 +235,11 @@ fn files_owner(opts: &Args) -> Result<(u32, u32), Failed> {
 /// (never its arguments), and return once its mount point answers. A daemon
 /// that fails first has printed why: this command ends with its status.
 fn detach(point: &str, secret: &str) -> Result<(), Failed> {
+    // Something already answers there: its appearing would not prove that
+    // this command mounted anything.
+    if user::files::stat(point).is_ok() {
+        return Err((Failure::Mount, format!("{point} is already mounted")));
+    }
     let argv: Vec<&str> = sys::args().collect();
     let env = format!("{PASSWORD_VAR}={secret}");
     let spawned = sys::spawnv(

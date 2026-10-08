@@ -148,11 +148,18 @@ pub fn program(next: Option<u64>, now: u64) {
 /// run (P1.1). While the tick is masked nothing happens: tests and drivers
 /// that mask line 0 rely on no scheduling activity at all, and the next
 /// unmasked tick re-arms the timer.
+///
+/// Inside an interrupt window (`irq_window`) it does nothing either: the
+/// interrupted syscall may hold the task table (the exit path prints, and
+/// the serial drain opens windows, while holding it), and expiry takes that
+/// lock, so it would spin forever with interrupts off. The deadline is then
+/// honoured by the next ordinary tick, whose scheduler entry expires it and
+/// re-arms the timer (now idle), as the window's PIT tick already defers.
 pub extern "x86-interrupt" fn handler(_stack: InterruptStackFrame) {
     // The timer is idle now; whatever expiry decides re-arms it.
     ARMED.store(u64::MAX, Ordering::Relaxed);
     lapic::eoi();
-    if super::irqchip::is_masked(0) {
+    if super::irqchip::is_masked(0) || super::irq_window::is_open() {
         return;
     }
     crate::task::expire_due();
