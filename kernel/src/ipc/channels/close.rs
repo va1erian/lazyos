@@ -157,16 +157,7 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
 fn discard_queued(message: &Queued, orphans: &mut Vec<u64>) {
     release_queued(message);
     release_queued_quota(message.origin.uid, message.bytes.len());
-    orphans.extend(channel_transfers(message.handles.iter()));
-}
-
-/// The channel endpoints among `transfers`.
-pub(super) fn channel_transfers<'a>(
-    transfers: impl Iterator<Item = &'a Transfer> + 'a,
-) -> impl Iterator<Item = u64> + 'a {
-    transfers
-        .filter(|transfer| transfer.kind == HandleKind::Channel)
-        .map(|transfer| transfer.object_id)
+    orphans.extend(channel_objects(&message.objects));
 }
 
 /// Close every endpoint in `orphans` that no handle names any more: a moved

@@ -9,7 +9,7 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{flags, BufferDesc, Decoder, Encoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{flags, Decoder, Encoder, Header, Kind, Object, Parcel, VERSION};
 
 mod canvas;
 mod client;
@@ -129,7 +129,7 @@ const CONNECT_TICKS: u64 = 100;
 /// A request parcel of `method` carrying an encoded `body`. `ALLOW_NESTED`
 /// keeps an app's event poll from tripping the kernel's per-channel cycle
 /// check while a `Commit` call is in flight.
-fn request(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDesc>) -> Parcel {
+fn request(method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
@@ -141,8 +141,7 @@ fn request(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDes
             deadline_ns: 0,
         },
         body,
-        handles,
-        buffers,
+        objects,
     }
 }
 
@@ -159,8 +158,7 @@ pub fn reply(method: u32, body: Vec<u8>) -> Parcel {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 

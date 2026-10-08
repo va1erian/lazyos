@@ -13,7 +13,7 @@
 use alloc::vec::Vec;
 use core::ptr;
 
-use audioclient::{Error, Result, RingBuffer, RingRef, Transfers, Transport};
+use audioclient::{Error, Object, Result, RingBuffer, RingRef, Transport};
 use libmessenger::{Header, Parcel, VERSION};
 
 use crate::messenger::services::error_field;
@@ -85,7 +85,7 @@ impl Transport for Native {
         interface: u64,
         method: u32,
         body: Vec<u8>,
-        transfers: Transfers,
+        objects: Vec<Object>,
         deadline: Option<u64>,
     ) -> Result<Vec<u8>> {
         let request = Parcel {
@@ -99,8 +99,7 @@ impl Transport for Native {
                 deadline_ns: 0,
             },
             body,
-            handles: transfers.handles,
-            buffers: transfers.buffers,
+            objects,
         };
         let reply = self.endpoint.call(&request, deadline).map_err(error_of)?;
         match error_field(&reply).map_err(error_of)? {

@@ -173,8 +173,7 @@ pub(super) fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut encoded = Vec::new();
     parcel.encode(&mut encoded).map_err(|_| errno::E2BIG)?;

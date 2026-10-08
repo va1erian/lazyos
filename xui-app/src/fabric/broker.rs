@@ -71,8 +71,7 @@ impl Broker {
                 deadline_ns: 0,
             },
             body: Vec::new(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         let mut buf = vec![0u8; 16 * 1024];
         let len = match self.call(&request, &mut buf) {

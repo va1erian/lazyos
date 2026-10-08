@@ -316,9 +316,10 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     }
 }
 
-/// Take the message reference for a buffer moved inside a parcel's handle
-/// list: the sender's handle is closed once the message is queued, and the
-/// message keeps the frame run alive until delivery.
+/// Take the message reference for a buffer a queued parcel shares: the
+/// sender keeps its own handle and mapping, and this reference lives until
+/// [`attach`] turns it into the receiver's handle (or the message is
+/// dropped, [`release`]).
 pub fn retain(object_id: u64) -> Result<(), Error> {
     let mut registry = REGISTRY.lock();
     let Some(buffer) = registry
@@ -328,31 +329,6 @@ pub fn retain(object_id: u64) -> Result<(), Error> {
     else {
         return Err(Error::NotFound);
     };
-    if !share_frames(&buffer.frames) {
-        return Err(Error::NotFound);
-    }
-    buffer.refs += 1;
-    Ok(())
-}
-
-/// Validate a descriptor's range and take the message reference for it.
-///
-/// Called when a parcel carrying the descriptor is queued; the sender keeps its
-/// own handle and mapping, and this reference lives until [`attach`] turns it
-/// into the receiver's handle.
-pub fn retain_descriptor(object_id: u64, offset: u64, len: u64) -> Result<(), Error> {
-    let mut registry = REGISTRY.lock();
-    let Some(buffer) = registry
-        .buffers
-        .iter_mut()
-        .find(|buffer| buffer.object_id == object_id)
-    else {
-        return Err(Error::NotFound);
-    };
-    let end = offset.checked_add(len).ok_or(Error::BadDescriptor)?;
-    if len == 0 || end > buffer.size {
-        return Err(Error::BadDescriptor);
-    }
     if !share_frames(&buffer.frames) {
         return Err(Error::NotFound);
     }

@@ -49,7 +49,10 @@ fn call_arguments_roundtrip() {
     let (body, objects) = encode_attach_ring_args(&attach).unwrap();
     assert_eq!(
         objects,
-        vec![libmessenger::Object::Buffer(4), libmessenger::Object::Channel(5)]
+        vec![
+            libmessenger::Object::Buffer(4),
+            libmessenger::Object::Channel(5)
+        ]
     );
     assert_eq!(decode_attach_ring_args(&body, &objects).unwrap(), attach);
     let reply = AttachRingReply { ring: 7 };
@@ -162,9 +165,12 @@ fn truncated_bodies_are_rejected() {
 
 #[test]
 fn attach_ring_declares_both_rings_and_the_notify_channel() {
-    use messenger_generated::rings::{Layout, Side};
     use libmessenger::ObjectKind;
-    assert_eq!(ATTACH_RING_OBJECTS, &[ObjectKind::Buffer, ObjectKind::Channel]);
+    use messenger_generated::rings::{Layout, Side};
+    assert_eq!(
+        ATTACH_RING_OBJECTS,
+        &[ObjectKind::Buffer, ObjectKind::Channel]
+    );
     assert_eq!(ATTACH_RING_RINGS, [RING_RX, RING_TX]);
     // The driver produces received frames and rings `Notify` on the channel;
     // the client produces frames to send and rings `Kick`.

@@ -58,8 +58,8 @@ pub fn dma_lifetime_transfer() -> Result<(), String> {
     let message = channels::try_recv(server)
         .map_err(|error| error.message().to_string())?
         .ok_or("the transferred buffer never arrived")?;
-    check!(message.buffers.len() == 1, "transferred buffers");
-    let received = message.buffers[0].handle;
+    check!(message.objects.len() == 1, "transferred buffers");
+    let received = message.objects[0];
     let va = crate::ipc::shared::map(received).map_err(|error| error.message().to_string())?;
     // Safety: the client mapping is readable.
     let byte = unsafe { (va as *const u8).read_volatile() };
@@ -107,7 +107,7 @@ pub fn dma_share_only() -> Result<(), String> {
     let message = channels::try_recv(server)
         .map_err(|error| error.message().to_string())?
         .ok_or("the transferred buffer never arrived")?;
-    let received = message.buffers[0].handle;
+    let received = message.objects[0];
     check!(
         crate::ipc::shared::map(received) == Err(crate::ipc::shared::Error::ShareOnly),
         "a SHARE_ONLY buffer was mapped into the client"

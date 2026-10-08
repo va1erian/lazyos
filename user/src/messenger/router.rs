@@ -60,8 +60,7 @@ pub fn parcel(method: u32, body: Encoder) -> Parcel {
     Parcel {
         header: header(method),
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 

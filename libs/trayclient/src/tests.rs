@@ -3,14 +3,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    decode_event, events_wire, lucide, menu_row, pixels, wire, Event, Item, Rect, Transport, Tray,
+    decode_event, events_wire, lucide, menu_row, pixels, wire, Event, Item, Object, Rect,
+    Transport, Tray,
 };
 
 /// A shell in memory: records calls, refuses while `down`.
 #[derive(Default)]
 struct Fake {
     next: u64,
-    calls: Vec<(u32, Vec<u8>, Vec<u64>)>,
+    calls: Vec<(u32, Vec<u8>, Vec<Object>)>,
     closed: Vec<u64>,
     down: bool,
     refuse: Option<i64>,
@@ -22,14 +23,14 @@ impl Transport for Fake {
         Ok((self.next, self.next + 1))
     }
 
-    fn call(&mut self, method: u32, body: Vec<u8>, handles: Vec<u64>) -> crate::Result<Vec<u8>> {
+    fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> crate::Result<Vec<u8>> {
         if self.down {
             return Err(-2);
         }
         if let Some(code) = self.refuse {
             return Err(code);
         }
-        self.calls.push((method, body, handles));
+        self.calls.push((method, body, objects));
         Ok(Vec::new())
     }
 
@@ -49,7 +50,7 @@ fn sets(tray: &mut Tray<Fake>) -> Vec<wire::Item> {
         .calls
         .iter()
         .filter(|(method, _, _)| *method == wire::METHOD_SET)
-        .map(|(_, body, _)| wire::decode_set_args(body).unwrap().item)
+        .map(|(_, body, objects)| wire::decode_set_args(body, objects).unwrap().item)
         .collect()
 }
 
@@ -57,9 +58,9 @@ fn sets(tray: &mut Tray<Fake>) -> Vec<wire::Item> {
 fn set_transfers_one_end_and_keeps_the_other() {
     let mut tray = Tray::new(Fake::default());
     tray.set(item()).unwrap();
-    let (method, _, handles) = tray.transport_mut().calls[0].clone();
+    let (method, _, objects) = tray.transport_mut().calls[0].clone();
     assert_eq!(method, wire::METHOD_SET);
-    assert_eq!(handles, vec![2]);
+    assert_eq!(objects, vec![Object::Channel(2)]);
     assert_eq!(tray.events(), Some(3));
     // A second Set replaces the channel and closes the old end.
     tray.set(item()).unwrap();

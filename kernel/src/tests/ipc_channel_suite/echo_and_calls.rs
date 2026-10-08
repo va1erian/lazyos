@@ -33,7 +33,7 @@ pub fn echo_roundtrip() -> Result<(), String> {
         message.txn
     );
     check!(message.bytes == request, "request bytes changed in flight");
-    check!(message.handles.is_empty(), "request transferred handles");
+    check!(message.objects.is_empty(), "request carried objects");
     check!(
         payload(&message.bytes)? == "ping",
         "request payload changed"

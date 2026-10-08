@@ -1,4 +1,4 @@
-//! Channel vocabulary: errors, transfers, messages, stats and the channel tables.
+//! Channel vocabulary: errors, resolved objects, messages, stats and the channel tables.
 
 use super::*;
 
@@ -27,13 +27,17 @@ pub(super) fn from_shared(error: shared::Error) -> Error {
     }
 }
 
-/// A handle resolved out of the sender's table when a parcel is queued. The
-/// number in the parcel is only meaningful to the sender; the kernel carries
-/// the object identity instead, and the receiver gets a fresh local number.
+/// One entry of a parcel's object list, resolved out of the sender's table
+/// when the parcel is queued (`docs/messenger-core-plan.md` 3.2). The number
+/// in the parcel is only meaningful to the sender; the kernel carries the
+/// object identity instead, and the receiver gets a fresh local number. A
+/// channel end **moves** (the sender's handle closes once the message is
+/// queued); a buffer is **shared** (the message takes one registry
+/// reference, the sender keeps its handle and mapping).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Transfer {
-    /// Kind of the object the handle names.
-    pub kind: HandleKind,
+pub struct Resolved {
+    /// What the entry is: a channel end or a shared buffer.
+    pub kind: ObjectKind,
     /// Rights the receiver's handle gets (equal to the sender's, which must
     /// include `TRANSFER`).
     pub rights: u32,
@@ -41,20 +45,14 @@ pub struct Transfer {
     pub object_id: u64,
 }
 
-/// A shared-buffer descriptor resolved out of the sender's table when a parcel
-/// is queued. Unlike [`Transfer`], the sender keeps its own handle and mapping;
-/// the message takes one reference and delivery installs a new handle.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct BufferTransfer {
-    /// Buffer registry id.
-    pub object_id: u64,
-    /// Byte range of the buffer the message refers to.
-    pub offset: u64,
-    pub len: u64,
-    /// Descriptor flags (metadata; the buffer's creation flags decide mapping).
-    pub flags: u32,
-    /// Rights the receiver's buffer handle gets.
-    pub rights: u32,
+impl Resolved {
+    /// The handle-table kind of the object.
+    pub fn handle_kind(self) -> HandleKind {
+        match self.kind {
+            ObjectKind::Channel => HandleKind::Channel,
+            ObjectKind::Buffer => HandleKind::Buffer,
+        }
+    }
 }
 
 /// Who sent a message, stamped by the kernel when the message is *queued*:
@@ -132,8 +130,8 @@ impl SenderId {
 }
 
 /// One queued message: the encoded parcel plus the kernel-side metadata a
-/// receiver needs to dispatch or answer it. Transfers are still unresolved
-/// here: they become the receiver's handles in [`deliver`].
+/// receiver needs to dispatch or answer it. Its objects are resolved but not
+/// yet installed: they become the receiver's handles in [`deliver`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(super) struct Queued {
     pub(super) sender: usize,
@@ -146,14 +144,14 @@ pub(super) struct Queued {
     pub(super) txn: Option<u64>,
     pub(super) deadline: Option<u64>,
     pub(super) bytes: Vec<u8>,
-    pub(super) handles: Vec<Transfer>,
-    pub(super) buffers: Vec<BufferTransfer>,
+    /// The parcel's object list, resolved, in order.
+    pub(super) objects: Vec<Resolved>,
 }
 
-/// A delivered message: the encoded parcel header plus the handles and buffer
-/// descriptors the receiver now owns, as numbers in the receiving task's
-/// handle table. `bytes` still carries the sender's numbers (the wire form is
-/// immutable); `handles` and `buffers` are the ones to use.
+/// A delivered message: the encoded parcel plus the objects the receiver now
+/// owns, as numbers in the receiving task's handle table. `bytes` still
+/// carries the sender's numbers in its object list (the wire form is
+/// immutable); `objects` are the ones to use, in the same order.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Message {
     /// Task slot that sent the message (kernel-stamped, never forgeable).
@@ -170,11 +168,10 @@ pub struct Message {
     pub deadline: Option<u64>,
     /// The encoded parcel, stored exactly as it was sent.
     pub bytes: Vec<u8>,
-    /// Handles transferred by the sender, rewritten to local numbers.
-    pub handles: Vec<u64>,
-    /// Shared-buffer descriptors transferred by the sender, rewritten to
-    /// local buffer handles. Map them on demand with `ipc::shared::map`.
-    pub buffers: Vec<BufferDesc>,
+    /// The parcel's objects installed in the receiver's table, in object-list
+    /// order: a channel end to receive on, a buffer handle to map on demand
+    /// with `ipc::shared::map`.
+    pub objects: Vec<u64>,
 }
 
 /// Cumulative counters plus live depths, for `msg_stats` and tests.

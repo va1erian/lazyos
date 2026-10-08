@@ -1,4 +1,4 @@
-//! Messenger shared buffers, transfers and fences (issue #67).
+//! Messenger shared buffers and objects (issue #67, `docs/messenger-core-plan.md`).
 
 use super::*;
 use crate::ipc::channels::{self, Error as ChannelError};
@@ -6,7 +6,7 @@ use crate::ipc::handles::{self, rights, Error as HandleError, HandleKind};
 use crate::ipc::shared::{self, Error as BufferError};
 use crate::task::TaskState;
 use alloc::vec;
-use libmessenger::{flags, BufferDesc, Encoder, Header, Parcel, VERSION};
+use libmessenger::{flags, Encoder, Header, Object, Parcel, VERSION};
 
 pub(crate) fn buffer_reason(error: BufferError) -> String {
     error.message().into()
@@ -55,12 +55,11 @@ pub(crate) fn channel_to(slot: usize) -> Result<(u64, u64), String> {
     Ok((client, mirror))
 }
 
-/// Build a one-way parcel carrying `handles` and `buffers`.
-pub(crate) fn parcel_with_transfers(
+/// Build a one-way parcel of the test interface carrying `objects`.
+pub(crate) fn parcel_with_objects(
     method: u32,
     text: &str,
-    handles: Vec<u64>,
-    buffers: Vec<BufferDesc>,
+    objects: Vec<Object>,
 ) -> Result<Vec<u8>, String> {
     let mut body = Encoder::new();
     body.string(1, text).map_err(|error| error.message())?;
@@ -75,24 +74,17 @@ pub(crate) fn parcel_with_transfers(
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles,
-        buffers,
+        objects,
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).map_err(|error| error.message())?;
     Ok(bytes)
 }
 
-/// The descriptor that shares the whole of `handle`'s buffer in a parcel's
-/// `buffers` list: the one way a buffer travels (core plan M2).
-pub(crate) fn share(handle: u64) -> Result<BufferDesc, String> {
-    let size = shared::info(handle).map_err(buffer_reason)?.size;
-    Ok(BufferDesc {
-        handle,
-        offset: 0,
-        len: size,
-        flags: 0,
-    })
+/// A fresh channel end that can be moved: one side of a new pair, the other
+/// side kept open in the caller's table (returned second).
+pub(crate) fn movable_end() -> Result<(u64, u64), String> {
+    channels::create().map_err(channel_reason)
 }
 
 /// Spawn a fork child with an empty handle table; the caller reaps it.
@@ -116,11 +108,13 @@ pub(crate) fn reap(child: usize) -> Result<(), String> {
 }
 
 mod basic;
+mod objects;
 mod transfer;
 mod va_reuse;
 mod window;
 
 pub(super) use basic::*;
+pub(super) use objects::*;
 pub(super) use transfer::*;
 pub(super) use va_reuse::*;
 pub(super) use window::*;
@@ -132,7 +126,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_buffer_handle_transfer_rights",
         buffer_handle_transfer_rights,
     ),
-    ("ipc_buffer_in_handles_refused", buffer_in_handles_refused),
+    (
+        "ipc_object_kind_mismatch_refused",
+        object_kind_mismatch_refused,
+    ),
+    (
+        "ipc_object_duplicate_channel_refused",
+        object_duplicate_channel_refused,
+    ),
+    ("ipc_object_reply_refused", object_reply_refused),
+    (
+        "ipc_object_rollback_on_full_table",
+        object_rollback_on_full_table,
+    ),
+    ("ipc_object_move_share_soak", object_move_share_soak),
     ("ipc_buffer_zero_copy_handoff", buffer_zero_copy_handoff),
     (
         "ipc_buffer_va_reused_after_close",

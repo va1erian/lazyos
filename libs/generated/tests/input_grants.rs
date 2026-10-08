@@ -105,5 +105,7 @@ fn ping_and_key_state_page_wire() {
     assert_eq!(back.state, libmessenger::Buffer::whole(17, 4096));
     // A list that does not match the declaration is refused.
     assert!(input::decode_attach_key_state_args(&body, &[]).is_err());
-    assert!(input::decode_attach_key_state_args(&body, &[libmessenger::Object::Channel(17)]).is_err());
+    assert!(
+        input::decode_attach_key_state_args(&body, &[libmessenger::Object::Channel(17)]).is_err()
+    );
 }

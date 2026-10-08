@@ -6,7 +6,9 @@
 //! close, because a buffer's mapping is recorded against that space.
 
 use super::*;
-use crate::ipc::syscalls::{MsgArgs, MsgResult, OP_BUFFER_CLOSE, OP_BUFFER_CREATE, OP_BUFFER_MAP};
+use crate::ipc::syscalls::{
+    MsgArgs, MsgResult, OP_BUFFER_CLOSE, OP_BUFFER_CREATE, OP_BUFFER_MAP, RESULT_SIZE,
+};
 
 /// A user page for the two blocks.
 const SPACE: u64 = 0x0040_0000;
@@ -32,9 +34,9 @@ pub(crate) fn op(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
     // SAFETY: the block page is mapped writable while the space is installed.
     unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), ARGS as *mut u8, bytes.len()) };
     let code = process::dispatch_for_test(5, op, ARGS, RESULT);
-    let mut block = [0u8; 64];
+    let mut block = [0u8; RESULT_SIZE];
     // SAFETY: as above; the kernel wrote the result block there.
-    unsafe { core::ptr::copy_nonoverlapping(RESULT as *const u8, block.as_mut_ptr(), 64) };
+    unsafe { core::ptr::copy_nonoverlapping(RESULT as *const u8, block.as_mut_ptr(), RESULT_SIZE) };
     let result = MsgResult::from_bytes(&block).expect("the kernel wrote a malformed result block");
     (code, result)
 }

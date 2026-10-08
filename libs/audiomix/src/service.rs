@@ -139,7 +139,12 @@ fn stream_call<R: Ring>(mixer: &mut Mixer<R>, request: Request<'_, R>) -> Answer
             }))
         }
         audio::METHOD_ATTACHRING => {
-            let args = audio::decode_attach_ring_args(body).map_err(bad)?;
+            // The caller mapped the request's ring from its own installed
+            // object list; the body is decoded against a one-buffer list,
+            // which holds it to the declared shape (one `ring` field at
+            // index 0) without a second look at the handle.
+            let args = audio::decode_attach_ring_args(body, &[libmessenger::Object::Buffer(0)])
+                .map_err(bad)?;
             let ring = ring.ok_or(errno::EINVAL)?;
             mixer
                 .attach(args.stream, sender, ring, now)

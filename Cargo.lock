@@ -85,6 +85,7 @@ name = "audiomix"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "libmessenger",
  "messenger-generated",
  "virtio-snd",
 ]
@@ -1298,6 +1299,7 @@ name = "trayclient"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "libmessenger",
  "messenger-generated",
 ]
 

@@ -229,7 +229,10 @@ fn a_cookie_set_by_a_redirect_rides_on_the_next_request() {
         "/login" => respond(
             out,
             "302 Found",
-            &[("Location", "/home"), ("Set-Cookie", "sid=abc; Path=/; HttpOnly")],
+            &[
+                ("Location", "/home"),
+                ("Set-Cookie", "sid=abc; Path=/; HttpOnly"),
+            ],
             b"",
         ),
         _ => respond(out, "200 OK", &[], b"home"),

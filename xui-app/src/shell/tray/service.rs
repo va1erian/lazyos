@@ -72,7 +72,7 @@ impl TrayService {
         // a consistent snapshot, and at most one short call on the UI thread.
         let mut rows: Rows = None;
         for _ in 0..REQUESTS_PER_TICK {
-            let (request, channel) = match server.poll_keeping_channel(&mut buf) {
+            let request = match server.poll(&mut buf) {
                 Ok(Some(received)) => received,
                 Ok(None) => break,
                 Err(code) => {
@@ -82,7 +82,7 @@ impl TrayService {
                     break;
                 }
             };
-            let (reply, did) = answer(ctx, &request, channel, &mut rows);
+            let (reply, did) = answer(ctx, &request, &mut rows);
             changed |= did;
             if let Some(txn) = request.txn {
                 let _ = server.reply(txn, &reply);
@@ -124,16 +124,11 @@ impl TrayService {
     }
 }
 
-/// The reply to one request, and whether the tray changed. A transferred
-/// channel is kept only by a successful `Set`.
-fn answer(
-    ctx: &Rc<Ctx>,
-    request: &Request,
-    channel: Option<u64>,
-    rows: &mut Rows,
-) -> (Parcel, bool) {
+/// The reply to one request, and whether the tray changed. The channel a
+/// `Set` carries is kept only by a successful one; a refused request's
+/// closes with the request.
+fn answer(ctx: &Rc<Ctx>, request: &Request, rows: &mut Rows) -> (Parcel, bool) {
     let method = request.parcel.header.method;
-    let mut channel = channel;
     // An item dropped on the way (a dead app's leftover) is a change too.
     let mut dropped = false;
     let result = if request.parcel.header.interface_id != wire::INTERFACE_ID {
@@ -146,13 +141,9 @@ fn answer(
             })
             .and_then(|app| {
                 let label = request.origin.label_id;
-                dispatch(ctx, &app, label, method, &request.parcel.body, &mut channel)
+                dispatch(ctx, &app, label, method, request)
             })
     };
-    // A channel no successful `Set` took is not kept.
-    if let Some(handle) = channel {
-        let _ = sys::msg_close(handle);
-    }
     match result {
         Ok(changed) => (
             reply_parcel(wire::INTERFACE_ID, method, Vec::new()),
@@ -235,25 +226,30 @@ fn dispatch(
     app: &str,
     label: u32,
     method: u32,
-    body: &[u8],
-    channel: &mut Option<u64>,
+    request: &Request,
 ) -> Result<bool, Failure> {
     let bad = (errno::EINVAL, "malformed request");
     let tray = &ctx.tray;
+    let body = &request.parcel.body;
     match method {
         wire::METHOD_SET => {
-            if channel.is_none() {
-                return Err((errno::EINVAL, "no event channel"));
+            // Decoded, so the event channel is ours: kept by a successful
+            // set, closed on any refusal below.
+            let args = request.decode(wire::decode_set_args).map_err(|_| bad)?;
+            let channel = args.events;
+            let set = Item::from_wire(args.item)
+                .map_err(|why| invalid(app, why.as_str()))
+                .and_then(|item| {
+                    tray.model
+                        .borrow_mut()
+                        .set(app, item)
+                        .map_err(|why| refused(app, why))
+                });
+            if let Err(failure) = set {
+                let _ = sys::msg_close(channel);
+                return Err(failure);
             }
-            let args = wire::decode_set_args(body).map_err(|_| bad)?;
-            let item = Item::from_wire(args.item).map_err(|why| invalid(app, why.as_str()))?;
-            tray.model
-                .borrow_mut()
-                .set(app, item)
-                .map_err(|why| refused(app, why))?;
-            if let Some(handle) = channel.take() {
-                tray.keep_channel(app, handle, label);
-            }
+            tray.keep_channel(app, channel, label);
             let count = tray.model.borrow().len();
             println!("SHELL:TRAY:SET app={app} n={count}");
             tray.generation.borrow().restored(tray);

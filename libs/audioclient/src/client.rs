@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-    control_wire as control, wire, Error, Grant, Info, Result, RingRef, Transfers, Transport,
+    control_wire as control, wire, Error, Grant, Info, Object, Result, RingRef, Transport,
 };
 
 fn malformed<E>(_: E) -> Error {
@@ -26,14 +26,14 @@ impl<T: Transport> Client<T> {
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<Vec<u8>> {
         self.transport
-            .call(wire::INTERFACE_ID, method, body, Transfers::NONE, None)
+            .call(wire::INTERFACE_ID, method, body, Vec::new(), None)
     }
 
     /// Send an arbitrary request (hostile-input tests): `body` and
-    /// `transfers` go out as given, declared or not.
-    pub fn raw(&self, method: u32, body: Vec<u8>, transfers: Transfers) -> Result<Vec<u8>> {
+    /// `objects` go out as given, declared or not.
+    pub fn raw(&self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>> {
         self.transport
-            .call(wire::INTERFACE_ID, method, body, transfers, None)
+            .call(wire::INTERFACE_ID, method, body, objects, None)
     }
 
     /// `Info()`.
@@ -65,14 +65,14 @@ impl<T: Transport> Client<T> {
             .grant)
     }
 
-    /// `AttachRing(stream)` with `ring` as the request's `Ring<Samples>`.
+    /// `AttachRing(stream, ring)` with `ring` as the request's `Ring<Samples>`.
     pub fn attach_ring(&self, stream: u32, ring: RingRef) -> Result<()> {
-        let body =
-            wire::encode_attach_ring_args(&wire::AttachRingArgs { stream }).map_err(malformed)?;
-        let transfers =
-            wire::encode_attach_ring_transfers(&wire::AttachRingTransfers { ring: ring.desc() });
-        self.raw(wire::METHOD_ATTACHRING, body, transfers.into())
-            .map(|_| ())
+        let (body, objects) = wire::encode_attach_ring_args(&wire::AttachRingArgs {
+            stream,
+            ring: ring.buffer(),
+        })
+        .map_err(malformed)?;
+        self.raw(wire::METHOD_ATTACHRING, body, objects).map(|_| ())
     }
 
     /// `Commit(stream, written)`: returns the frames consumed so far.
@@ -108,7 +108,7 @@ impl<T: Transport> Client<T> {
                 wire::INTERFACE_ID,
                 wire::METHOD_DRAIN,
                 body,
-                Transfers::NONE,
+                Vec::new(),
                 deadline,
             )
             .map(|_| ())
@@ -155,7 +155,7 @@ impl<T: Transport> MixerControl<T> {
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<Vec<u8>> {
         self.transport
-            .call(control::INTERFACE_ID, method, body, Transfers::NONE, None)
+            .call(control::INTERFACE_ID, method, body, Vec::new(), None)
     }
 
     /// Every open stream.

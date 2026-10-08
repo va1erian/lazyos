@@ -78,24 +78,15 @@ impl Hub {
     pub(super) fn handle(&mut self, message: &Message) -> Result<Parcel> {
         let interface = message.interface_id();
         let method = message.method();
-        // A request carries exactly what `input.midl` declares for it (`Open`
-        // and `Attach`: one channel); anything else is closed and refused
-        // before dispatch, so no path can leave it in this task's table.
-        let declared = if interface == api::SHELL_INTERFACE {
-            shell_wire::request_transfers(method)
-        } else {
-            wire::request_transfers(method)
-        };
-        if !message.carries(declared) {
-            release_transfers(message);
-            return Err(Error::Errno(-errno::EINVAL));
-        }
+        // A request's objects (`Open`'s and `Attach`'s channel,
+        // `AttachKeyState`'s page) stay the message's until their decoder
+        // claims them, so a refused request leaves nothing in this task's
+        // table: the message closes them when it drops.
         let body = if interface == api::INTERFACE {
             self.client_call(message)?
         } else if interface == api::SHELL_INTERFACE {
             self.shell_call(message)?
         } else {
-            release_transfers(message);
             return Err(Error::Errno(-errno::EINVAL));
         };
         Ok(api::request(interface, method, body, Vec::new()))
@@ -111,7 +102,6 @@ impl Hub {
         if method == shell_wire::METHOD_ATTACH {
             return self.attach(message);
         }
-        release_transfers(message);
         // Everything else is the attached compositor's alone.
         if self.shell.as_ref().map(|shell| shell.sender) != Some(message.sender) {
             return Err(Error::Errno(-errno::EACCES));
@@ -192,17 +182,15 @@ impl Hub {
     /// `Attach`: only the display grant's holder (the compositor) may become
     /// the shell client.
     fn attach(&mut self, message: &Message) -> Result<Vec<u8>> {
-        if !message.carries(shell_wire::ATTACH_TRANSFERS) {
-            return Err(Error::Errno(-errno::EINVAL));
-        }
         if !is_compositor(message.sender) {
-            release_transfers(message);
+            // The message still owns the endpoint: it closes with the message.
             return Err(Error::Errno(-errno::EACCES));
         }
+        let args = message.decode(shell_wire::decode_attach_args)?;
         self.drop_shell();
         self.shell = Some(Shell {
             sender: message.sender,
-            events: Endpoint::from_raw(message.first_handle),
+            events: Endpoint::from_raw(args.events),
             hotkeys: Vec::new(),
         });
         // A re-attaching compositor has forgotten which surfaces take keys
@@ -475,17 +463,6 @@ pub(super) fn route_error(error: RouteError) -> Error {
         RouteError::Full => errno::ENOMEM,
         RouteError::Busy => errno::EBUSY,
     })
-}
-
-/// Close whatever a refused (or non-adopting) request transferred, endpoint
-/// and buffer alike, so neither leaks into this task's handle table.
-pub(super) fn release_transfers(message: &Message) {
-    if message.handles != 0 {
-        let _ = Endpoint::from_raw(message.first_handle).close();
-    }
-    if message.buffers != 0 {
-        let _ = sys::buffer_close(message.first_buffer);
-    }
 }
 
 /// Whether `sender` holds the display grant: the compositor. The kernel says

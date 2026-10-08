@@ -82,12 +82,7 @@ pub(super) fn drag_start_parcel(surface: u64, token: u64, mime: &str) -> Result<
         mime: mime.into(),
     })
     .map_err(|_| -errno::EINVAL)?;
-    Ok(request(
-        wire::METHOD_DRAGSTART,
-        body,
-        Vec::new(),
-        Vec::new(),
-    ))
+    Ok(request(wire::METHOD_DRAGSTART, body, Vec::new()))
 }
 
 impl Client {
@@ -103,7 +98,7 @@ impl Client {
     pub fn drag_cancel(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_drag_cancel_args(&wire::DragCancelArgs { surface })
             .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_DRAGCANCEL, body, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_DRAGCANCEL, body, Vec::new());
         self.call(&parcel).map(|_| ())
     }
 }
@@ -113,7 +108,7 @@ mod tests {
     use super::*;
 
     fn event(method: u32, body: Vec<u8>) -> Parcel {
-        request(method, body, Vec::new(), Vec::new())
+        request(method, body, Vec::new())
     }
 
     #[test]

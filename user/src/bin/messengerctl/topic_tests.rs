@@ -31,8 +31,7 @@ pub(crate) fn test_parcel(text: &str) -> Result<Parcel, String> {
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     })
 }
 

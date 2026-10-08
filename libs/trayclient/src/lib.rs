@@ -31,6 +31,7 @@ mod tests;
 
 pub use build::{item, lucide, menu_row, pixels, Item};
 pub use event::{decode_event, Event, Rect};
+pub use libmessenger::Object;
 pub use messenger_generated::os_lazy_shell_tray_events_v1 as events_wire;
 pub use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
@@ -58,9 +59,10 @@ pub trait Transport {
     /// A fresh channel pair: `(sent, kept)`. `sent` is transferred to the
     /// shell with `Set`; the app receives its events on `kept`.
     fn create_pair(&mut self) -> Result<(u64, u64)>;
-    /// One call to the tray service carrying `handles` (moved to the shell);
-    /// the reply body, or the negative errno of a refusal.
-    fn call(&mut self, method: u32, body: Vec<u8>, handles: Vec<u64>) -> Result<Vec<u8>>;
+    /// One call to the tray service carrying `objects` (`Set`'s event
+    /// channel, moved to the shell); the reply body, or the negative errno
+    /// of a refusal.
+    fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>>;
     /// Close a handle this task holds.
     fn close(&mut self, handle: u64);
 }
@@ -167,12 +169,10 @@ impl<T: Transport> Tray<T> {
         let Some(item) = self.item.clone() else {
             return Ok(());
         };
-        let body = wire::encode_set_args(&wire::SetArgs { item }).map_err(|_| -EINVAL)?;
         let (sent, kept) = self.transport.create_pair()?;
-        match self
-            .transport
-            .call(wire::METHOD_SET, body, alloc::vec![sent])
-        {
+        let (body, objects) =
+            wire::encode_set_args(&wire::SetArgs { item, events: sent }).map_err(|_| -EINVAL)?;
+        match self.transport.call(wire::METHOD_SET, body, objects) {
             Ok(_) => {
                 self.drop_events();
                 self.events = Some(kept);

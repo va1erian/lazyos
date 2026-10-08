@@ -35,11 +35,14 @@ pub fn connect(client: usize, name: &str) -> Result<u64, Error> {
     })
 }
 
-/// The encoded `Connected` notice for `name`. Its handle slot is a
+/// The encoded `Connected` notice for `name`. Its `connection` object is a
 /// placeholder: the kernel installs the real end at delivery.
 fn notice(name: &str) -> Result<Vec<u8>, Error> {
-    let body = wire::encode_connected_args(&wire::ConnectedArgs { name: name.into() })
-        .map_err(|_| Error::BadName)?;
+    let (body, objects) = wire::encode_connected_args(&wire::ConnectedArgs {
+        name: name.into(),
+        connection: 0,
+    })
+    .map_err(|_| Error::BadName)?;
     let parcel = Parcel {
         header: Header {
             version: VERSION,
@@ -51,8 +54,7 @@ fn notice(name: &str) -> Result<Vec<u8>, Error> {
             deadline_ns: 0,
         },
         body,
-        handles: alloc::vec![0],
-        buffers: Vec::new(),
+        objects,
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).map_err(|_| Error::BadName)?;
