@@ -252,10 +252,13 @@ mod tests {
 
     #[test]
     fn panel_keys_and_the_tray_chord_decode() {
-        let body = wire::encode_panel_key_args(&wire::PanelKeyArgs { key: 0x104 }).unwrap();
+        let body = wire::encode_panel_key_args(&wire::PanelKeyArgs {
+            key: sys::key::PAGE_UP,
+        })
+        .unwrap();
         assert_eq!(
             decode_shell_event(&event(wire::METHOD_PANELKEY, body)),
-            Some(ShellEvent::PanelKey(0x104))
+            Some(ShellEvent::PanelKey(sys::key::PAGE_UP))
         );
         assert_eq!(
             decode_shell_event(&event(wire::METHOD_TRAYKEYS, Vec::new())),

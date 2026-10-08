@@ -26,19 +26,14 @@ use super::tray;
 use super::tray::input::Input;
 use crate::sys::key;
 
-/// The modifier bits `xuid` ORs into a forwarded key, and the code mask.
-const MOD_SHIFT: u32 = 1 << 24;
-const MOD_CTRL: u32 = 1 << 25;
-const MOD_ALT: u32 = 1 << 26;
-const CODE_MASK: u32 = 0x00FF_FFFF;
 /// F10, for Shift+F10 (the context-menu chord).
 const F10: u32 = key::F1 + 9;
 
 /// The navigation key `raw` (a forwarded key with modifier bits) means;
 /// `None` for anything else, which the panels ignore.
 pub fn nav_key(raw: u32) -> Option<NavKey> {
-    let code = raw & CODE_MASK;
-    if raw & (MOD_CTRL | MOD_ALT) != 0 {
+    let code = raw & key::CODE_MASK;
+    if raw & (key::MOD_CTRL | key::MOD_ALT) != 0 {
         return None;
     }
     Some(match code {
@@ -50,7 +45,7 @@ pub fn nav_key(raw: u32) -> Option<NavKey> {
         key::END => NavKey::End,
         key::ENTER | key::SPACE => NavKey::Enter,
         key::ESCAPE => NavKey::Escape,
-        F10 if raw & MOD_SHIFT != 0 => NavKey::Menu,
+        F10 if raw & key::MOD_SHIFT != 0 => NavKey::Menu,
         _ => return None,
     })
 }
@@ -160,17 +155,17 @@ mod tests {
     #[test]
     fn arrows_enter_space_and_escape_are_navigation_keys() {
         assert_eq!(nav_key(key::UP), Some(NavKey::Up));
-        assert_eq!(nav_key(key::DOWN | MOD_SHIFT), Some(NavKey::Down));
+        assert_eq!(nav_key(key::DOWN | key::MOD_SHIFT), Some(NavKey::Down));
         assert_eq!(nav_key(key::ENTER), Some(NavKey::Enter));
         assert_eq!(nav_key(key::SPACE), Some(NavKey::Enter));
         assert_eq!(nav_key(key::ESCAPE), Some(NavKey::Escape));
-        assert_eq!(nav_key(F10 | MOD_SHIFT), Some(NavKey::Menu));
+        assert_eq!(nav_key(F10 | key::MOD_SHIFT), Some(NavKey::Menu));
     }
 
     #[test]
     fn chords_and_text_are_not() {
-        assert_eq!(nav_key(key::UP | MOD_CTRL), None);
-        assert_eq!(nav_key(key::LEFT | MOD_ALT), None);
+        assert_eq!(nav_key(key::UP | key::MOD_CTRL), None);
+        assert_eq!(nav_key(key::LEFT | key::MOD_ALT), None);
         assert_eq!(nav_key(F10), None);
         assert_eq!(nav_key(b'a' as u32), None);
     }
