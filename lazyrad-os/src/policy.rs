@@ -18,7 +18,16 @@ use crate::platform::{Home, APPS_ROOT};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PolicySpec {
     root: PathBuf,
-    grants: Vec<(PathBuf, Access)>,
+    grants: Vec<Grant>,
+}
+
+/// One extra grant: a path, its access, and whether a directory is granted
+/// whole or only its listing and the files directly in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Grant {
+    path: PathBuf,
+    access: Access,
+    children_only: bool,
 }
 
 impl PolicySpec {
@@ -32,16 +41,38 @@ impl PolicySpec {
 
     /// Also grants `path` (a file, or a directory and its contents).
     pub fn allow(mut self, path: PathBuf, access: Access) -> PolicySpec {
-        self.grants.push((path, access));
+        self.grants.push(Grant {
+            path,
+            access,
+            children_only: false,
+        });
+        self
+    }
+
+    /// Also grants the directory `dir`'s listing and the files directly in
+    /// it, never its subfolders ([`Sandbox::allow_children`]; nothing for `/`).
+    pub fn allow_children(mut self, dir: PathBuf, access: Access) -> PolicySpec {
+        self.grants.push(Grant {
+            path: dir,
+            access,
+            children_only: true,
+        });
         self
     }
 
     /// A fresh sandbox with these rules.
     pub fn build(&self) -> FsPolicy {
-        let sandbox = self.grants.iter().fold(
-            Sandbox::new(self.root.clone()),
-            |sandbox, (path, access)| sandbox.allow(path.clone(), *access),
-        );
+        let sandbox = self
+            .grants
+            .iter()
+            .fold(Sandbox::new(self.root.clone()), |sandbox, grant| {
+                let path = grant.path.clone();
+                if grant.children_only {
+                    sandbox.allow_children(path, grant.access)
+                } else {
+                    sandbox.allow(path, grant.access)
+                }
+            });
         FsPolicy::Sandboxed(sandbox)
     }
 }
@@ -71,18 +102,20 @@ pub fn data_root(exe: &Path, home: &Home) -> PathBuf {
 
 /// The policy for a player running `project` from `exe`: read/write under
 /// [`data_root`], plus read-only access to the project itself and to each of
-/// `documents` and the folder holding it.
+/// `documents` and the files beside it.
 ///
 /// A document is a file the user asked this app to open (a picture
-/// double-clicked in Files); its folder is granted so a viewer can page
-/// through the file's neighbours, as the user expects of one. A grant
-/// widens nothing the kernel would refuse: the player still runs as the user.
+/// double-clicked in Files); its folder's listing and the files directly in
+/// it are granted so a viewer can page through the file's neighbours, as the
+/// user expects of one. Subfolders stay out, and a document in `/` brings no
+/// folder at all. A grant widens nothing the kernel would refuse: the player
+/// still runs as the user.
 pub fn player_policy(exe: &Path, project: &Path, home: &Home, documents: &[PathBuf]) -> PolicySpec {
     let mut spec = PolicySpec::new(data_root(exe, home)).allow(project.to_path_buf(), Access::Read);
     for document in documents {
         spec = spec.allow(document.clone(), Access::Read);
         if let Some(folder) = document.parent().filter(|p| !p.as_os_str().is_empty()) {
-            spec = spec.allow(folder.to_path_buf(), Access::Read);
+            spec = spec.allow_children(folder.to_path_buf(), Access::Read);
         }
     }
     spec
@@ -194,6 +227,9 @@ mod tests {
         let neighbour = pictures.join("b.png");
         std::fs::write(&opened, "a").unwrap();
         std::fs::write(&neighbour, "b").unwrap();
+        std::fs::create_dir_all(pictures.join("private")).unwrap();
+        let nested = pictures.join("private/d.png");
+        std::fs::write(&nested, "d").unwrap();
         let elsewhere = scratch("doc-elsewhere").join("c.png");
         std::fs::write(&elsewhere, "c").unwrap();
 
@@ -213,6 +249,10 @@ mod tests {
         );
         assert!(policy.resolve(&text(&opened), Access::Write).is_err());
         assert!(policy.resolve(&text(&elsewhere), Access::Read).is_err());
+        assert!(
+            policy.resolve(&text(&nested), Access::Read).is_err(),
+            "a subfolder of the document's folder stays out"
+        );
         for dir in [project, pictures] {
             let _ = std::fs::remove_dir_all(dir);
         }
