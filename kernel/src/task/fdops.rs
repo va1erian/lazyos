@@ -112,6 +112,7 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::Unbound { .. } => FdKind::Unbound,
             Fd::Inet { .. } => FdKind::Inet,
             Fd::Pty { .. } => FdKind::Pty,
+            Fd::Endpoint { .. } => FdKind::Endpoint,
         },
         _ => FdKind::Closed,
     }
@@ -173,7 +174,7 @@ pub fn fd_status(fd: usize) -> Option<u64> {
     let task = tasks[current()].as_ref()?;
     match task.fds.get(fd)? {
         Fd::Closed => None,
-        Fd::Terminal | Fd::File { .. } => Some(0), // O_RDONLY
+        Fd::Terminal | Fd::File { .. } | Fd::Endpoint { .. } => Some(0), // O_RDONLY
         Fd::Vfs { file } => Some(file.status_flags()),
         Fd::Pipe { pipe, end } => {
             let access = match end {
@@ -207,7 +208,8 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
     };
     match entry {
         Fd::Closed => false,
-        Fd::Terminal | Fd::File { .. } | Fd::Vfs { .. } => true,
+        // An endpoint descriptor never blocks: nothing to switch.
+        Fd::Terminal | Fd::File { .. } | Fd::Vfs { .. } | Fd::Endpoint { .. } => true,
         Fd::Pipe { pipe, end } => {
             pipe.set_nonblock(*end, nonblock);
             true

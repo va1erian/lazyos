@@ -90,7 +90,9 @@ dispatched by task, not by binary kind, so the same wrapper is right for both.
 It holds the syscall numbers (`nr`), the single `asm!` (`raw`, `unsafe`
 because an argument may be a pointer the kernel writes), the errno values,
 the Messenger ABI blocks and op table with safe byte-level wrappers (`msg`,
-plus `msg::OwnedHandle`, released on drop), and typed surfaces for each
+plus `msg::OwnedHandle`, released on drop, and `msg::endpoint_fd`/`msg::Pollable`,
+an endpoint as a pollable Linux descriptor: [endpoint-fd.md](endpoint-fd.md)),
+and typed surfaces for each
 syscall above (`display` with `DisplayGrant`, `cred`, `time`, `spawn`, `stats`
 and the decoded `sysinfo` snapshot, `dev`, `input`, `inet`, `storage`,
 `random`, `kill`, `process`). Features: `alloc` (spawn blocks, `sysinfo`),

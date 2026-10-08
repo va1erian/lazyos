@@ -29,6 +29,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `procstress` | `std::process` spawn with pipes, exit status, environment. |
 | `sigstress` | Signal masks, handlers and delivery. |
 | `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
+| `msgpoll` | A Messenger endpoint (`ENDPOINT_FD`, `lazyos_sys::msg::Pollable`) and a `UnixStream` in one `epoll` set: each wakes it alone, a message sent by another thread wakes a blocked `epoll_wait(-1)`, a drained endpoint goes quiet, a closed peer reads `EPOLLIN \| EPOLLHUP` (issue #667). Each step prints `ABI:msgpoll:STEP:<name>`. |
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |
 | `persist` | A file on the persistent `/data` volume: write, `fsync`, `pwrite`/`pread`, `ftruncate`, append, then (second boot, same disk) the bytes are still there. Two boots, see below. |
 | `statxio` | `statx` (path and `AT_EMPTY_PATH`), `preadv`/`pwritev` (positional, hostile count refused), the legacy `getdents`, and `/proc/mounts`, all on `/tmp`. |

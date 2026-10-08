@@ -76,6 +76,9 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
     let (channel_id, side) = split_object_id(entry.object_id);
     handles::close_for_task(slot, handle).map_err(from_handles)?;
     if last_holder_only && handles::object_refs(HandleKind::Channel, entry.object_id) > 0 {
+        // The side stays open for its other holders, but a descriptor made
+        // from this handle now hangs up.
+        ring(channel_id, side);
         return Ok(());
     }
     let orphans = close_side(channel_id, side);
@@ -145,6 +148,7 @@ fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
         }
     }
     wake(woken);
+    pollstate::ring_both(channel_id);
     orphans
 }
 

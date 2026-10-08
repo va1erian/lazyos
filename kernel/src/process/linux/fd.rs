@@ -107,6 +107,7 @@ pub(super) fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
         | FdKind::EventFd
         | FdKind::Epoll
         | FdKind::Listener
+        | FdKind::Endpoint
         | FdKind::Inet
         | FdKind::Unbound => err(ESPIPE),
         FdKind::Closed => err(EBADF),

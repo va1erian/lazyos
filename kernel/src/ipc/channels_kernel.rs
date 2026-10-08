@@ -67,5 +67,6 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
     // opposite side of the inbox we want to fill.
     let receivers = enqueue(channel_id, (side & 1) ^ 1, queued)?;
     wake(receivers.iter());
+    super::ring(channel_id, side & 1);
     Ok(())
 }

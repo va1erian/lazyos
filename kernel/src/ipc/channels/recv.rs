@@ -33,6 +33,8 @@ fn take_or_register(
     let queued = taken?;
     match queued {
         Some(message) => {
+            // Room in this inbox is what the other side's `POLLOUT` reports.
+            ring(channel_id, 1 - side);
             // Delivery takes the message out of the inbox, so the sender's
             // user gets the queue charge back (issue #103).
             release_queued_quota(message.origin.uid, message.bytes.len());

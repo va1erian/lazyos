@@ -176,6 +176,7 @@ mod crypto_suite;
 mod deadline_suite;
 mod dev_suite;
 mod display_suite;
+mod endpoint_fd_suite;
 mod exec_perm_suite;
 mod ext2_suite;
 mod fault_suite;
@@ -268,6 +269,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     waitset_suite::CASES,
     waitset_ext_suite::CASES,
     waitset_call_suite::CASES,
+    endpoint_fd_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,
     label_suite::CASES,

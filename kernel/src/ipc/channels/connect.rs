@@ -74,6 +74,7 @@ pub fn connect(
     match enqueue(listen_id, client_side, queued) {
         Ok(receivers) => {
             wake(receivers.iter());
+            ring(listen_id, 1 - client_side);
             Ok(handle)
         }
         Err(error) => {

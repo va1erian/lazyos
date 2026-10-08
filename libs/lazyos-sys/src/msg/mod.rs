@@ -11,12 +11,16 @@ mod fabric;
 mod handle;
 #[cfg(feature = "parcel")]
 pub mod parcel;
+mod pollfd;
 
 pub use abi::*;
 #[cfg(feature = "alloc")]
 pub use fabric::fabric_stats;
 pub use fabric::{fabric_stats_into, FabricStats, TaskUsage, FABRIC_TASKS};
 pub use handle::{AsRawHandle, OwnedHandle};
+pub use pollfd::endpoint_fd;
+#[cfg(all(feature = "std", unix))]
+pub use pollfd::Pollable;
 
 use crate::errno::E2BIG;
 use crate::nr;

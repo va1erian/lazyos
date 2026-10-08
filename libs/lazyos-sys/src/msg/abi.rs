@@ -49,6 +49,12 @@ pub mod op {
     pub const WAIT: u64 = 19;
     /// Open a private connection to a registered name (issue #483).
     pub const CONNECT: u64 = 20;
+    /// A Linux descriptor `poll`/`epoll` can watch for an endpoint handle
+    /// (issue #667, docs/architecture/endpoint-fd.md); `value` is the
+    /// descriptor.
+    pub const ENDPOINT_FD: u64 = 21;
+    /// `flags` of [`ENDPOINT_FD`]: open the descriptor close-on-exec.
+    pub const ENDPOINT_FD_CLOEXEC: u64 = 1;
     /// `flags` of [`RECV`]: also write the sender's kernel-stamped
     /// [`super::SenderId`] to `parcel_ptr`.
     pub const RECV_SENDER_ID: u64 = 1;

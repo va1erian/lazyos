@@ -535,6 +535,13 @@ stays cheap under load.
   metrics, and graceful shutdown from the interface manifest.
 - A testing harness spins a mock channel so interface tests run without a kernel.
 
+An ordinary event loop (`epoll`, `mio`, tokio, calloop) includes Messenger
+through the `ENDPOINT_FD` op (issue #667): it turns an endpoint handle into a
+Linux descriptor that reads ready while a message is queued or the peer
+closed, and hangs up once the handle is gone (`lazyos_sys::msg::Pollable`
+implements `AsRawFd`). The readiness, edge, lifetime and security rules are
+[architecture/endpoint-fd.md](architecture/endpoint-fd.md).
+
 ---
 
 ## 16. Network transport (future)

@@ -33,6 +33,8 @@ pub const EEXIST: i64 = 17;
 pub const ENODEV: i64 = 19;
 /// Invalid argument.
 pub const EINVAL: i64 = 22;
+/// This task's descriptor table is full.
+pub const EMFILE: i64 = 24;
 /// No space left.
 pub const ENOSPC: i64 = 28;
 /// The peer endpoint is gone.
