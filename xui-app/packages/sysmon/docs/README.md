@@ -22,8 +22,9 @@ time; the list of busiest programs below says what.
 The graph shows the last minute, newest on the right. Each horizontal line is
 a quarter: 25%, 50% and 75%.
 
-Under the number you see how many programs are running and how long the
-computer has been on since it last started.
+Under the number you see how many programs there are, how many of them are
+running (working right now rather than waiting), and how long the computer has
+been on since it last started.
 
 ### Memory
 

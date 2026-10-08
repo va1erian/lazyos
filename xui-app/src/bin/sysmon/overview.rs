@@ -7,9 +7,9 @@ use xui_app::format::bytes;
 use xui_app::sysinfo::{MemoryUse, Snapshot};
 use xui_core::prelude::*;
 
-use crate::Msg;
 use crate::load::ProgramLoad;
 use crate::paint::{self, CpuGraph, History, MemoryBar, Share};
+use crate::Msg;
 
 /// What each share is called and what it means, in [`Share::ALL`] order.
 const SHARES: [(&str, &str); 4] = [
@@ -89,7 +89,7 @@ impl Overview {
     /// Shows a refresh: the machine's CPU load (`None` until two snapshots
     /// were compared), the memory shares and the busiest programs.
     pub(crate) fn show(&mut self, snapshot: &Snapshot, cpu: Option<u32>, programs: &[ProgramLoad]) {
-        let running = programs.len();
+        let running = programs.iter().filter(|program| program.running).count();
         match cpu {
             Some(percent) => {
                 self.history.push(percent);
@@ -99,7 +99,8 @@ impl Overview {
             None => self.cpu_value.get().set_text("–"),
         }
         self.cpu_note.get().set_text(&format!(
-            "{running} programs running · up {}",
+            "{} programs, {running} running · up {}",
+            programs.len(),
             friendly_uptime(snapshot.ticks)
         ));
         self.show_memory(&snapshot.memory_use());
