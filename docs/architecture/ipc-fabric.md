@@ -56,7 +56,7 @@ syscall surface (including the bootstrap channel).
   per-slot rows (version 3 had 64 of each, version 2 had 16). `snapshot()`
   returns a `Box` filled in place: the block is ~10 KiB, too much to pass by
   value through a 32 KiB kernel stack. It aggregates
-  channels/endpoints/queues, message counters, buffers/fences, handles per slot,
+  channels/endpoints/queues, message counters, buffers, handles per slot,
   ACL state, and audit counters and chain head. `snapshot()` takes each subsystem
   lock in turn (never two at once); fields are little-endian `u64` in order.
 

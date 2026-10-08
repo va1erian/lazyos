@@ -43,10 +43,10 @@
 //! A parcel's `buffers` list **shares**: each `BufferDesc` takes one message
 //! reference to the buffer (the sender keeps its handle and mapping) and
 //! delivery installs a receiver-local buffer handle without copying a byte.
-//! The receiver maps it on demand with `ipc::shared::map`, which refuses
-//! `SHARE_ONLY` buffers for anyone but the creator. That list is the only
-//! way a buffer travels: a `Buffer` handle in `handles` is refused with
-//! [`Error::BufferInHandles`] before anything moves
+//! The receiver maps it on demand with `ipc::shared::map` (a driver's
+//! share-only DMA buffer is refused for anyone but the creator). That list
+//! is the only way a buffer travels: a `Buffer` handle in `handles` is
+//! refused with [`Error::BufferInHandles`] before anything moves
 //! (`docs/messenger-core-plan.md` M2).
 //!
 //! Replies carry no transfers yet: a reply parcel with handles or buffers is

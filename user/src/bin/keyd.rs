@@ -18,19 +18,12 @@
 //!
 //! # Isolation status (the honest version)
 //!
-//! The kernel already implements `SHARE_ONLY` shared buffers: a buffer flagged
-//! `SHARE_ONLY` is mapped for its creator and the kernel refuses to map it into
-//! any other task (`kernel/src/ipc/shared.rs`), and the in-kernel test
-//! `ipc_buffer_share_only_not_mappable` proves it. The design intent is for
-//! `keyd` to keep its key table inside such a buffer, so even a kernel bug that
-//! leaks a handle cannot put key bytes in a client's address space.
-//!
-//! There is **no userspace syscall for shared buffers yet** (the `OP_*` table
-//! in `kernel/src/ipc/syscalls.rs` has no create/map op). Until it lands, the
-//! equivalent property holds structurally: the key table never leaves this
-//! task, the wire protocol has no "read key material" method, and replies carry
-//! only ids, tags, blobs and counters. The `SHARE_ONLY` move is mechanical when
-//! the op exists and is called out again at [`Keyd::keys`].
+//! The key table never leaves this task: a shared buffer is mapped by whoever
+//! holds a handle to it (the kernel has no share-only buffer for services,
+//! `docs/messenger-core-plan.md` section 1), so `keyd` never puts key material
+//! in one. The property holds structurally instead: the wire protocol has no
+//! "read key material" method, and replies carry only ids, tags, blobs and
+//! counters ([`Keyd::keys`]).
 //!
 //! # Provisioning
 //!

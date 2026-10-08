@@ -42,7 +42,7 @@ python tools/mcp/debug_bridge.py --image target/lazyos.img
 ## Tools exposed
 
 - `fabric_stats` — live `FabricStats` snapshot: services/channels/endpoints,
-  queue/message counters, buffer and fence stats, ACL/audit counters, and
+  queue/message counters, buffer stats, ACL/audit counters, and
   per-task handle/buffer usage.
 - `list_tasks` — live scheduler task list: one row per live task slot with
   pid/ppid/pgid/sid, scheduler state (runnable/blocked/done), priority class,

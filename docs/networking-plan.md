@@ -46,7 +46,7 @@ Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
 | Driver config keys | specified (`net/<drv>/mtu`, `rx_ring_entries`, `mac_override`, ...) | [driver-config-plan.md](driver-config-plan.md) §2 |
 | Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |
 | BusyBox | `defconfig` static build already runs on the shim; its network applets are compiled in and simply fail at `socket()` | `tools/abi/busybox.py` |
-| Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers + fences, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §6, §7, §10 |
+| Messenger features the design leans on | deferred replies with real deadlines, `begin_call`/`await_reply`, shared buffers, 1 MiB parcels, kernel-stamped credentials, `PeerDied` | [messenger.md](messenger.md) §6, §7, §10 |
 | Known Messenger gaps that matter here | replies cannot carry handles or buffers; per-connection channels exist (`Connect`, #483) but `netd` does not use them yet | [architecture/ipc-core.md](architecture/ipc-core.md) |
 | Time | 100 Hz PIT, 10 ms resolution everywhere | `kernel/src/process/linux/time.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom`; no native wrapper found in `user/src/sys.rs` | `kernel/src/entropy.rs` |
@@ -208,7 +208,7 @@ length byte ring. Revisit with a byte ring only if memory matters.
   header instead of by the kernel: a consumer arms the ring, looks once more,
   then sleeps; a producer clears the flag with one atomic exchange when it sends.
   `netd` therefore waits on a single endpoint for client calls, NIC notices and
-  timeouts. Fences stay unused. See `idl/net.midl` and `libs/framering`.
+  timeouts. No kernel fence is needed (the kernel has none, issue #677). See `idl/net.midl` and `libs/framering`.
 - *Queue size. **Decided (N0).*** `libs/virtio` now caps a queue at
   `MAX_QUEUE = 256` (it was 64), which is the config plan's default
   `rx_ring_entries` and what QEMU's virtio-net offers; the in-struct free list

@@ -26,15 +26,13 @@ pub(super) struct Buffer {
     pub(super) owner_uid: u32,
     /// Page-rounded length in bytes.
     pub(super) size: u64,
-    pub(super) flags: u32,
+    /// Mapped only into its creator: `map` refuses every other task. Set by a
+    /// driver's `dma_alloc(SHARE_ONLY)` (issue #241), never by `create`.
+    pub(super) share_only: bool,
     pub(super) frames: Vec<PhysAddr>,
     /// Live references: handles plus in-flight message transfers.
     pub(super) refs: u64,
     pub(super) mappings: Vec<Mapping>,
-    /// Highest fence sequence submitted.
-    pub(super) submitted: u64,
-    /// Highest fence sequence a waiter has observed.
-    pub(super) waited: u64,
     /// `Some` for a DMA-backed buffer: its frames come from the DMA pool and
     /// its quota is [`Resource::DmaMemory`], not `KernelMemory` (issue #241).
     pub(super) dma: Option<DmaOwner>,
@@ -46,8 +44,6 @@ pub(super) struct Use {
     pub(super) slot: usize,
     pub(super) bytes: u64,
     pub(super) buffers: u64,
-    pub(super) fence_waits: u64,
-    pub(super) fence_timeouts: u64,
 }
 
 /// The kernel's shared-buffer state. One mutex keeps every counter and the
@@ -57,25 +53,16 @@ pub(super) struct Use {
 pub(super) struct Registry {
     pub(super) buffers: Vec<Buffer>,
     pub(super) uses: Vec<Use>,
-    pub(super) fences_submitted: u64,
-    pub(super) fence_waits: u64,
-    pub(super) fence_timeouts: u64,
     pub(super) handoffs: u64,
 }
 
 pub(super) static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     buffers: Vec::new(),
     uses: Vec::new(),
-    fences_submitted: 0,
-    fence_waits: 0,
-    fence_timeouts: 0,
     handoffs: 0,
 });
 /// Buffer ids start at 1 so no handle ever carries object id 0.
 pub(super) static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
-/// Producers wake fence waiters through this queue; wakeups are advisory, so
-/// every waiter re-checks its own buffer's counter.
-pub(super) static FENCES: WaitQueue = WaitQueue::new(WaitKind::Sleep);
 
 /// Borrow (creating on first use) the accounting record for `slot`.
 pub(super) fn use_of(registry: &mut Registry, slot: usize) -> &mut Use {
@@ -127,20 +114,9 @@ pub(super) fn round_up(size: u64) -> Option<u64> {
     size.checked_add(PAGE - 1).map(|value| value & !(PAGE - 1))
 }
 
-/// Page-table flags for a buffer's creation flags.
-pub(super) fn map_flags(flags: u32) -> PageTableFlags {
-    let mut prot = Prot(0);
-    if flags & flags::READ != 0 {
-        prot = prot | Prot::READ;
-    }
-    if flags & flags::WRITE != 0 {
-        prot = prot | Prot::WRITE;
-    }
-    if !prot.has_read() && !prot.has_write() {
-        // A flagless buffer still needs a usable mapping.
-        prot = Prot::READ | Prot::WRITE;
-    }
-    mem::prot_flags(prot)
+/// Page-table flags of every buffer mapping: read/write, never executable.
+pub(super) fn map_flags() -> PageTableFlags {
+    mem::prot_flags(Prot::READ | Prot::WRITE)
 }
 
 /// Undo a (possibly partial) mapping of `[va, va + pages)` in `table`: drop

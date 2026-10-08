@@ -57,8 +57,7 @@ fn parcel(method: u32, parcel_flags: u16, text: &str) -> Result<Vec<u8>, String>
 pub fn snapshot_reflects_objects() -> Result<(), String> {
     fresh()?;
     let (client, server) = channels::create().map_err(reason)?;
-    let buffer =
-        shared::create(4096, shared::flags::READ | shared::flags::WRITE).map_err(buffer_reason)?;
+    let buffer = shared::create(4096).map_err(buffer_reason)?;
     acl::load(&[
         acl::Rule {
             actor: 0,
@@ -150,7 +149,7 @@ pub fn snapshot_reflects_objects() -> Result<(), String> {
 pub fn reset_restores_zeros() -> Result<(), String> {
     fresh()?;
     channels::create().map_err(reason)?;
-    shared::create(4096, shared::flags::READ).map_err(buffer_reason)?;
+    shared::create(4096).map_err(buffer_reason)?;
     acl::load(&[acl::Rule {
         actor: acl::ANY_ACTOR,
         interface_id: acl::ANY_INTERFACE,

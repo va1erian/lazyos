@@ -15,8 +15,7 @@ pub(super) fn op_buffer_create(args: &MsgArgs) -> Result<MsgResult, i64> {
     if args.parcel_len == 0 {
         return Err(errno::EINVAL);
     }
-    let handle = shared::create(args.parcel_len, shared::flags::READ | shared::flags::WRITE)
-        .map_err(buffer_errno)?;
+    let handle = shared::create(args.parcel_len).map_err(buffer_errno)?;
     match mapping_of(handle) {
         Ok((va, size)) => Ok(MsgResult {
             value: handle,

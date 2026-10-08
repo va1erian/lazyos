@@ -104,9 +104,9 @@ pub struct OfferInfo {
     pub tick: u64,
 }
 
-/// The payload a `Request` yields. The kernel's `SHARE_ONLY` shared-buffer
-/// object is the future home of `bytes`; until the userspace mapping
-/// syscall lands the bytes ride in the reply parcel (see module docs).
+/// The payload a `Request` yields. A shared buffer is the future home of
+/// `bytes`; until that path lands the bytes ride in the reply parcel (see
+/// module docs).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BufferHandle {
     /// Token of the offer that was read.

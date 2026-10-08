@@ -6,8 +6,6 @@
 
 use super::*;
 
-const RW: u32 = shared::flags::READ | shared::flags::WRITE;
-
 /// Run as `slot`, on its own page tables.
 fn enter(slot: usize) -> Result<PhysAddr, String> {
     let table = task::harness::pml4(slot).ok_or("the task has no address space")?;
@@ -38,7 +36,7 @@ pub fn buffer_window_private_per_address_space() -> Result<(), String> {
     let kernel = mem::kernel_table();
     let parent = task::spawn_fork().map_err(String::from)?;
     let parent_table = enter(parent)?;
-    let handle = shared::create(4096, RW).map_err(buffer_reason)?;
+    let handle = shared::create(4096).map_err(buffer_reason)?;
     let va = shared::map(handle).map_err(buffer_reason)?;
     // SAFETY: the buffer was just mapped writable in the active table.
     unsafe { (va as *mut u64).write_volatile(0x4C41_5A59) };
@@ -73,9 +71,9 @@ pub fn buffer_window_freed_with_address_space() -> Result<(), String> {
         enter(slot)?;
         // Two buffers a gigabyte apart would need two directories; one
         // large and one small exercise more than one table.
-        let big = shared::create(64 * 4096, RW).map_err(buffer_reason)?;
+        let big = shared::create(64 * 4096).map_err(buffer_reason)?;
         shared::map(big).map_err(buffer_reason)?;
-        let small = shared::create(4096, RW).map_err(buffer_reason)?;
+        let small = shared::create(4096).map_err(buffer_reason)?;
         shared::map(small).map_err(buffer_reason)?;
         if close_first {
             shared::close(big).map_err(buffer_reason)?;

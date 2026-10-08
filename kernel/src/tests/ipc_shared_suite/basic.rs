@@ -1,5 +1,4 @@
-//! Buffer create/write/read, quota accounting, and `SHARE_ONLY`
-//! isolation.
+//! Buffer create/write/read and quota accounting.
 
 use super::*;
 
@@ -8,8 +7,7 @@ use super::*;
 pub fn buffer_create_write_read() -> Result<(), String> {
     fresh()?;
     let size = 3 * 4096;
-    let handle =
-        shared::create(size, shared::flags::READ | shared::flags::WRITE).map_err(buffer_reason)?;
+    let handle = shared::create(size).map_err(buffer_reason)?;
     let info = shared::info(handle).map_err(buffer_reason)?;
     check!(info.size == size, "buffer size is {}", info.size);
     check!(
@@ -97,12 +95,12 @@ pub fn buffer_quota() -> Result<(), String> {
     let small = 4096u64;
     let mut handles = Vec::new();
     for index in 0..shared::MAX_BUFFERS_PER_PROCESS {
-        let handle = shared::create(small, shared::flags::READ | shared::flags::WRITE)
+        let handle = shared::create(small)
             .map_err(|error| format!("buffer {index}: {}", error.message()))?;
         handles.push(handle);
     }
     check!(
-        shared::create(small, shared::flags::READ) == Err(BufferError::Quota),
+        shared::create(small) == Err(BufferError::Quota),
         "the buffer-count quota was not enforced"
     );
     for handle in handles.drain(..) {
@@ -114,13 +112,9 @@ pub fn buffer_quota() -> Result<(), String> {
     );
 
     // Byte quota: one buffer at the limit, then any more is refused.
-    let handle = shared::create(
-        shared::max_bytes_per_process(),
-        shared::flags::READ | shared::flags::WRITE,
-    )
-    .map_err(buffer_reason)?;
+    let handle = shared::create(shared::max_bytes_per_process()).map_err(buffer_reason)?;
     check!(
-        shared::create(small, shared::flags::READ) == Err(BufferError::Quota),
+        shared::create(small) == Err(BufferError::Quota),
         "the buffer-byte quota was not enforced"
     );
     shared::close(handle).map_err(buffer_reason)?;
@@ -128,52 +122,5 @@ pub fn buffer_quota() -> Result<(), String> {
         shared::process_stats(task::current()).bytes == 0,
         "closing did not release the byte quota"
     );
-    Ok(())
-}
-
-/// A `SHARE_ONLY` buffer is mapped for its creator but the kernel refuses
-/// to map it in a receiver that got the handle.
-pub fn buffer_share_only_not_mappable() -> Result<(), String> {
-    fresh()?;
-    let creator = task::current();
-    let child = spawn_receiver()?;
-    let (client, child_server) = channel_to(child)?;
-    let handle = shared::create(4096, shared::flags::READ | shared::flags::SHARE_ONLY)
-        .map_err(buffer_reason)?;
-    let creator_va = shared::map(handle).map_err(buffer_reason)?;
-    check!(
-        raw_entry(mem::kernel_table(), creator_va).is_some(),
-        "the creator's SHARE_ONLY mapping is missing"
-    );
-
-    let bytes = parcel_with_transfers(1, "key material", Vec::new(), vec![share(handle)?])?;
-    channels::send(client, &bytes).map_err(channel_reason)?;
-    // The creator drops its handle; the message keeps the buffer alive.
-    shared::close(handle).map_err(buffer_reason)?;
-    check!(
-        handles::get(handle) == Err(HandleError::InvalidHandle),
-        "the close did not drop the sender's handle"
-    );
-
-    task::harness::switch_current(child);
-    let message = channels::try_recv(child_server)
-        .map_err(channel_reason)?
-        .ok_or("the transferred message is missing")?;
-    check!(
-        message.buffers.len() == 1,
-        "delivered {} buffers, expected 1",
-        message.buffers.len()
-    );
-    check!(
-        shared::map(message.buffers[0].handle) == Err(BufferError::ShareOnly),
-        "a receiver mapped a SHARE_ONLY buffer"
-    );
-
-    // Cleanup: the buffer still has the receiver's reference.
-    shared::reset();
-    handles::reset_for_task(child);
-    task::harness::switch_current(creator);
-    channels::reset();
-    reap(child)?;
     Ok(())
 }

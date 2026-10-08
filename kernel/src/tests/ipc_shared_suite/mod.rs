@@ -4,7 +4,7 @@ use super::*;
 use crate::ipc::channels::{self, Error as ChannelError};
 use crate::ipc::handles::{self, rights, Error as HandleError, HandleKind};
 use crate::ipc::shared::{self, Error as BufferError};
-use crate::task::{TaskState, WakeReason};
+use crate::task::TaskState;
 use alloc::vec;
 use libmessenger::{flags, BufferDesc, Encoder, Header, Parcel, VERSION};
 
@@ -129,15 +129,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_buffer_create_write_read", buffer_create_write_read),
     ("ipc_buffer_quota", buffer_quota),
     (
-        "ipc_buffer_share_only_not_mappable",
-        buffer_share_only_not_mappable,
-    ),
-    (
         "ipc_buffer_handle_transfer_rights",
         buffer_handle_transfer_rights,
     ),
     ("ipc_buffer_in_handles_refused", buffer_in_handles_refused),
-    ("ipc_buffer_fence_submit_wait", buffer_fence_submit_wait),
     ("ipc_buffer_zero_copy_handoff", buffer_zero_copy_handoff),
     (
         "ipc_buffer_va_reused_after_close",

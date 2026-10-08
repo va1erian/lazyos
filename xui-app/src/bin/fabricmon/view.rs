@@ -17,7 +17,7 @@ const KEYS: &str =
     "syscall 5 · registry list · topics broker · [r] refresh  [f] fabric  [n] names  [c] compact  [q] quit";
 
 /// The counters, in reading order; [`counters`] gives their values.
-const COUNTERS: [&str; 26] = [
+const COUNTERS: [&str; 22] = [
     "channels",
     "endpoints",
     "queued messages",
@@ -34,10 +34,6 @@ const COUNTERS: [&str; 26] = [
     "buffer bytes",
     "buffer mappings",
     "zero-copy handoffs",
-    "fences submitted",
-    "fence waits",
-    "fence timeouts",
-    "outstanding fences",
     "kernel services",
     "ACL rules",
     "ACL loaded",
@@ -338,10 +334,6 @@ fn counters(s: &FabricStats) -> [String; COUNTERS.len()] {
         bytes(s.buffer_bytes),
         s.buffer_mappings.to_string(),
         s.handoffs.to_string(),
-        s.fences_submitted.to_string(),
-        s.fence_waits.to_string(),
-        s.fence_timeouts.to_string(),
-        s.outstanding_fences.to_string(),
         s.services.to_string(),
         s.acl_rules.to_string(),
         yes_no(s.acl_loaded).to_string(),

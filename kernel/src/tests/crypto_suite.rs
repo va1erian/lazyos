@@ -1,13 +1,7 @@
-//! Runs the same primitives `keyd` links in ring 3 inside the kernel,
-//! plus the key-material isolation property: a `SHARE_ONLY` buffer is
-//! mapped for its creator and the kernel refuses every other task's
-//! `map`. keyd crypto and SHARE_ONLY key isolation (issue #102).
+//! Runs the same primitives `keyd` links in ring 3 inside the kernel
+//! (issue #102).
 
 use super::*;
-use crate::ipc::channels;
-use crate::ipc::handles::{self, Error as HandleError};
-use crate::ipc::shared::{self, Error as BufferError};
-use alloc::vec;
 use lazyos_crypto::{hex, hmac, sha256, wrap};
 
 /// Friendly text for a crypto failure.
@@ -44,12 +38,9 @@ pub fn sha256_hmac_known_answers() -> Result<(), String> {
     Ok(())
 }
 
-/// A wrap->unwrap round-trip in kernel context, then the same blob handed
-/// to a client inside a `SHARE_ONLY` buffer: the service reads and unwraps
-/// its own mapping first, and the client receives the handle afterwards but
-/// cannot map it.
-pub fn keyd_wrap_roundtrip_share_only() -> Result<(), String> {
-    // Part 1: the wrapper round-trips and refuses tampering.
+/// A wrap->unwrap round-trip in kernel context: the wrapper round-trips and
+/// refuses tampering.
+pub fn keyd_wrap_roundtrip() -> Result<(), String> {
     let key = [0x42u8; 32];
     let nonce = [0x24u8; wrap::NONCE_LEN];
     let secret = b"launch codes: 0000";
@@ -63,86 +54,10 @@ pub fn keyd_wrap_roundtrip_share_only() -> Result<(), String> {
         wrap::unwrap(&key, &tampered) == Err(lazyos_crypto::Error::BadTag),
         "a tampered blob unwrapped"
     );
-
-    // Part 2: the SHARE_ONLY handoff. `fresh` mirrors
-    // `buffer_share_only_not_mappable`: the registry starts empty.
-    ipc_shared_suite::fresh()?;
-    let creator = task::current();
-    let child = ipc_shared_suite::spawn_receiver()?;
-    let (client, child_server) = ipc_shared_suite::channel_to(child)?;
-    let handle = shared::create(
-        blob.len() as u64,
-        shared::flags::READ | shared::flags::WRITE | shared::flags::SHARE_ONLY,
-    )
-    .map_err(ipc_shared_suite::buffer_reason)?;
-    let creator_va = shared::map(handle).map_err(ipc_shared_suite::buffer_reason)?;
-    // The creator (standing in for `keyd`) writes the wrapped blob through
-    // its own mapping and can read it back: material at rest is visible
-    // only to the service.
-    for (offset, byte) in blob.iter().enumerate() {
-        // Safety: the creator's mapping is writable for the buffer size.
-        unsafe { (creator_va as *mut u8).add(offset).write_volatile(*byte) };
-    }
-    let mut readback = vec![0u8; blob.len()];
-    for (offset, slot) in readback.iter_mut().enumerate() {
-        // Safety: the creator's mapping is readable for the buffer size.
-        *slot = unsafe { (creator_va as *const u8).add(offset).read_volatile() };
-    }
-    check!(readback == blob, "the service's own mapping changed");
-    let opened = wrap::unwrap(&key, &readback).map_err(crypto_reason)?;
-    check!(
-        opened == secret,
-        "the service could not unwrap its own blob"
-    );
-
-    // Share the buffer with the client, then drop the creator's handle and
-    // its only mapping; the client gets a handle but the kernel refuses to
-    // map it, so no client address space ever sees the blob.
-    let bytes = ipc_shared_suite::parcel_with_transfers(
-        1,
-        "wrapped key",
-        Vec::new(),
-        vec![ipc_shared_suite::share(handle)?],
-    )?;
-    channels::send(client, &bytes).map_err(ipc_shared_suite::channel_reason)?;
-    shared::close(handle).map_err(ipc_shared_suite::buffer_reason)?;
-    check!(
-        handles::get(handle) == Err(HandleError::InvalidHandle),
-        "the close did not drop the sender's handle"
-    );
-    check!(
-        raw_entry(mem::kernel_table(), creator_va).is_none(),
-        "the creator's mapping outlived its close"
-    );
-
-    task::harness::switch_current(child);
-    let message = channels::try_recv(child_server)
-        .map_err(ipc_shared_suite::channel_reason)?
-        .ok_or("the transferred message is missing")?;
-    check!(
-        message.buffers.len() == 1,
-        "delivered {} buffers, expected 1",
-        message.buffers.len()
-    );
-    check!(
-        shared::map(message.buffers[0].handle) == Err(BufferError::ShareOnly),
-        "a client mapped a SHARE_ONLY key buffer"
-    );
-
-    // Cleanup in the same order as the other shared-buffer tests: the
-    // registries go first so the queued message's references are released.
-    shared::reset();
-    handles::reset_for_task(child);
-    task::harness::switch_current(creator);
-    channels::reset();
-    ipc_shared_suite::reap(child)?;
     Ok(())
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("keyd_sha256_hmac_known_answers", sha256_hmac_known_answers),
-    (
-        "keyd_wrap_roundtrip_share_only",
-        keyd_wrap_roundtrip_share_only,
-    ),
+    ("keyd_wrap_roundtrip", keyd_wrap_roundtrip),
 ];

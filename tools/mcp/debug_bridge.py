@@ -166,7 +166,7 @@ def _run_mcp_server(image: str, out_dir: Path, qemu_path: str | None, accel: str
     def fabric_stats() -> dict:
         """Live snapshot of the LazyOS Messenger/IPC fabric (FabricStats).
 
-        Returns channel/queue counters, buffer/fence stats, ACL/audit
+        Returns channel/queue counters, buffer stats, ACL/audit
         counters, and per-task handle/buffer usage, read from a running
         debug-build LazyOS guest via `messengerctl stats-json` over serial.
         """
