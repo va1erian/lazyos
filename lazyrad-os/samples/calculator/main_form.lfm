@@ -1,0 +1,159 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "Calculator"
+width = 240
+height = 260
+
+[[node]]
+kind = "Label"
+name = "display_label"
+left = 12
+top = 12
+width = 216
+height = 28
+
+[[node]]
+kind = "Button"
+name = "digit_7"
+left = 12
+top = 52
+width = 48
+height = 32
+text = "7"
+
+[[node]]
+kind = "Button"
+name = "digit_8"
+left = 68
+top = 52
+width = 48
+height = 32
+text = "8"
+
+[[node]]
+kind = "Button"
+name = "digit_9"
+left = 124
+top = 52
+width = 48
+height = 32
+text = "9"
+
+[[node]]
+kind = "Button"
+name = "divide_button"
+left = 180
+top = 52
+width = 48
+height = 32
+text = "/"
+
+[[node]]
+kind = "Button"
+name = "digit_4"
+left = 12
+top = 92
+width = 48
+height = 32
+text = "4"
+
+[[node]]
+kind = "Button"
+name = "digit_5"
+left = 68
+top = 92
+width = 48
+height = 32
+text = "5"
+
+[[node]]
+kind = "Button"
+name = "digit_6"
+left = 124
+top = 92
+width = 48
+height = 32
+text = "6"
+
+[[node]]
+kind = "Button"
+name = "multiply_button"
+left = 180
+top = 92
+width = 48
+height = 32
+text = "*"
+
+[[node]]
+kind = "Button"
+name = "digit_1"
+left = 12
+top = 132
+width = 48
+height = 32
+text = "1"
+
+[[node]]
+kind = "Button"
+name = "digit_2"
+left = 68
+top = 132
+width = 48
+height = 32
+text = "2"
+
+[[node]]
+kind = "Button"
+name = "digit_3"
+left = 124
+top = 132
+width = 48
+height = 32
+text = "3"
+
+[[node]]
+kind = "Button"
+name = "subtract_button"
+left = 180
+top = 132
+width = 48
+height = 32
+text = "-"
+
+[[node]]
+kind = "Button"
+name = "digit_0"
+left = 12
+top = 172
+width = 48
+height = 32
+text = "0"
+
+[[node]]
+kind = "Button"
+name = "clear_button"
+left = 68
+top = 172
+width = 104
+height = 32
+text = "C"
+
+[[node]]
+kind = "Button"
+name = "add_button"
+left = 180
+top = 172
+width = 48
+height = 32
+text = "+"
+
+[[node]]
+kind = "Button"
+name = "equals_button"
+left = 12
+top = 212
+width = 216
+height = 32
+text = "="

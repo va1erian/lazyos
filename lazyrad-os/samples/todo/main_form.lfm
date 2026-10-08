@@ -1,0 +1,42 @@
+format = 1
+
+[window]
+name = "main_form"
+title = "To-do"
+width = 260
+height = 240
+
+[[node]]
+kind = "Edit"
+name = "todo_edit"
+left = 12
+top = 12
+width = 160
+height = 24
+cue = "What needs doing?"
+
+[[node]]
+kind = "Button"
+name = "add_button"
+left = 180
+top = 12
+width = 64
+height = 24
+text = "Add"
+
+[[node]]
+kind = "Button"
+name = "remove_button"
+left = 180
+top = 44
+width = 64
+height = 24
+text = "Remove"
+
+[[node]]
+kind = "ListView"
+name = "todo_list"
+left = 12
+top = 80
+width = 232
+height = 140
