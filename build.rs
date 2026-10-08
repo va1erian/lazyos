@@ -33,8 +33,6 @@ mod hosts_embed;
 mod lazyrad_embed;
 #[path = "build_support/lazyweb_embed.rs"]
 mod lazyweb_embed;
-#[path = "build_support/pictures_embed.rs"]
-mod pictures_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]
@@ -49,6 +47,8 @@ mod os_layout;
 mod os_manifest;
 #[path = "build_support/os_recover.rs"]
 mod os_recover;
+#[path = "build_support/pictures_embed.rs"]
+mod pictures_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
