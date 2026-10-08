@@ -43,8 +43,8 @@
 //! A parcel's `buffers` list **shares**: each `BufferDesc` takes one message
 //! reference to the buffer (the sender keeps its handle and mapping) and
 //! delivery installs a receiver-local buffer handle without copying a byte.
-//! The receiver maps it on demand with `ipc::shared::map`, which refuses
-//! `SHARE_ONLY` buffers for anyone but the creator.
+//! The receiver maps it on demand with `ipc::shared::map` (a driver's
+//! share-only DMA buffer is refused for anyone but the creator).
 //!
 //! Replies carry no transfers yet: a reply parcel with handles or buffers is
 //! refused with [`Error::UnsupportedTransfer`].

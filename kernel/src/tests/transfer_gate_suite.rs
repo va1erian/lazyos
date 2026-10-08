@@ -63,8 +63,7 @@ fn object(id: u64) -> Result<u64, String> {
 
 /// A one-page shared buffer and a descriptor for all of it.
 fn buffer() -> Result<(u64, BufferDesc), String> {
-    let handle = shared::create(4096, shared::flags::READ | shared::flags::WRITE)
-        .map_err(|error| String::from(error.message()))?;
+    let handle = shared::create(4096).map_err(|error| String::from(error.message()))?;
     let desc = BufferDesc {
         handle,
         offset: 0,

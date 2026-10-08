@@ -63,9 +63,7 @@ fn refuse(r: &Resolved, code: u32, errno: Errno) -> Errno {
 /// Map a shared-buffer creation failure onto the device errno vocabulary.
 fn map_error(error: shared::Error) -> Errno {
     match error {
-        shared::Error::BadFlags | shared::Error::ExecutableDenied | shared::Error::BadSize => {
-            EINVAL
-        }
+        shared::Error::BadSize => EINVAL,
         shared::Error::MapFailed | shared::Error::OutOfMemory => ENOMEM,
         _ => EMFILE,
     }
@@ -116,16 +114,13 @@ pub fn dma_alloc(r: &Resolved, len: u64, flags: u64, out: u64) -> Result<u64, Er
     let frames: Vec<PhysAddr> = (0..pages)
         .map(|page| PhysAddr::new(phys.as_u64() + page * PAGE))
         .collect();
-    let mut shared_flags = shared::flags::READ | shared::flags::WRITE | shared::flags::PINNED;
-    if flags & flag::SHARE_ONLY != 0 {
-        shared_flags |= shared::flags::SHARE_ONLY;
-    }
+    let share_only = flags & flag::SHARE_ONLY != 0;
     let owner = DmaOwner {
         device: r.id.0,
         generation: r.claim.generation,
         uid,
     };
-    let handle = match shared::create_from_frames(frames, shared_flags, uid, owner) {
+    let handle = match shared::create_from_frames(frames, share_only, uid, owner) {
         Ok(handle) => handle,
         Err(error) => {
             // `create_from_frames` already returned the frames to the pool.

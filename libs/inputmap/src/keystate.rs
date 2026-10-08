@@ -13,9 +13,8 @@
 //! sequence number of the newest edge reflected, flags ([`FOCUSED`]), and 256
 //! bits, one per HID usage on page 0x07 (bit `u & 63` of word `u >> 6`).
 //!
-//! **Trust.** The buffer is the client's, so it is mapped writable on both
-//! sides (the kernel's flags are per buffer, and its `SHARE_ONLY` would keep
-//! `inputd` from mapping it at all). `inputd` therefore only ever *writes* it:
+//! **Trust.** The buffer is the client's, and every shared-buffer mapping is
+//! writable on both sides. `inputd` therefore only ever *writes* it:
 //! the seqlock counter it stores is its own, never read back, so a client
 //! scribbling over the page can confuse nobody but itself. The page carries
 //! only what that session's `KeyEvent`s already told it, and nothing while it

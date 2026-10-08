@@ -198,9 +198,7 @@ pub mod services;
 /// There is deliberately no request that returns key material and no reply
 /// that carries a verifier: a `Wrap` returns a blob the client may store but
 /// cannot open, an `Unwrap` happens inside `keyd`, and `Sign` returns a tag.
-/// The kernel's `SHARE_ONLY` buffers back this contract once the userspace
-/// buffer syscall lands (the kernel test proves the mapping rule today) and
-/// `keyd` documents the interim copy-free path.
+/// The key table never enters a shared buffer (`keyd` documents why).
 ///
 /// The same module is the daemon's protocol layer, so requests, replies and
 /// error shapes round-trip through one implementation.
@@ -314,12 +312,9 @@ pub mod mime;
 ///
 /// # Buffer handle
 ///
-/// There is no userspace shared-buffer syscall yet (the kernel object and its
-/// `SHARE_ONLY` rule live in `kernel/src/ipc/shared.rs`; `keyd` documents the
-/// same gap), so a paste's [`BufferHandle`] currently carries the bytes inside
-/// the reply parcel, bounded by the service's [`MAX_DATA`] on the eager path.
-/// The wire shape is what a mapped `SHARE_ONLY` buffer will carry once the op
-/// lands.
+/// A paste's [`BufferHandle`] currently carries the bytes inside the reply
+/// parcel, bounded by the service's [`MAX_DATA`] on the eager path. The wire
+/// shape is what a mapped shared buffer will carry once the buffer path lands.
 ///
 /// # Policy
 ///

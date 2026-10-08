@@ -24,7 +24,7 @@ Related: [platform-plan.md](platform-plan.md) §4.2 ("Driver model"),
 - DMA: one static 4 KiB bounce page; `virt_to_phys` by page-table walk. No
   contiguous allocator, no pinned user buffers.
 - Messenger has `Endpoint/Channel/Object/Buffer` handles, shared buffers
-  (page-aligned frames mapped into several spaces, fences), kernel-stamped
+  (page-aligned frames mapped into several spaces), kernel-stamped
   credentials, a default-deny ACL with audit, per-uid quotas, and
   `teardown_task` cleanup. `CAP_SYS_ADMIN` is documented as "driver grants";
   `CAP_DEV_CLAIM` (issue #240) is the one device capability.
@@ -291,7 +291,7 @@ data plane.
 **`os.lazy.net.nic.v1`** (link layer only — no IP):
 `Info() → {mac, mtu, link, features}`, `SetRxMode(mode)`,
 `AttachRing(rx_buf, tx_buf, notify_topic)` — two single-producer/
-single-consumer frame rings in shared buffers with fences, `Stats()`. Link
+single-consumer frame rings in shared buffers, `Stats()`. Link
 change published on `system/net/<nic>/link`. A future stack service is just
 another client of this interface (and can be the only holder of the ring
 buffers).

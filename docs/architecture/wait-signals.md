@@ -11,7 +11,6 @@ delivery.
 | `kernel/src/task/wait.rs` | `WaitQueue`, `TERMINAL`, `CHILD_EXIT`, `SLEEP`, `SLOT`, `POLL` |
 | `kernel/src/task/signal.rs` (+ `signal/*.rs`) | Signal state, delivery, frames, `SIGSEGV` hook; constants, types, control, frames, delivery in submodules |
 | `kernel/src/ipc/channels.rs` | `MESSENGER` queue over the same primitive |
-| `kernel/src/ipc/shared/registry.rs` | `FENCES` queue for fence waits |
 | `kernel/src/process/linux/sig.rs` | `rt_sigaction` family |
 | `kernel/src/process/linux/futex.rs` | `futex` dispatch |
 

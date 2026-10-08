@@ -2,7 +2,7 @@
 
 **What it is.** The kernel transport of the Messenger fabric: capability
 handles, duplex channels with synchronous transactions, and zero-copy shared
-buffers with fences. Spec: [messenger.md](../messenger.md) sections 4-10.
+buffers. Spec: [messenger.md](../messenger.md) sections 4-10.
 
 **Key files**
 
@@ -11,7 +11,7 @@ buffers with fences. Spec: [messenger.md](../messenger.md) sections 4-10.
 | `kernel/src/ipc/handles.rs` | Per-process handle tables and rights (issue #64) |
 | `kernel/src/ipc/channels.rs` (+ `channels/*.rs`) | Endpoints, inboxes, transactions (issue #66); the call half (`call.rs`), the indexed registry (`registry.rs`), types, helpers, close, recv, stats, txn timeouts in submodules |
 | `kernel/src/ipc/endpointfd.rs`, `channels/pollstate.rs` | Pollable endpoints: a Linux descriptor `poll`/`epoll` can watch for a channel handle (issue #667, [endpoint-fd.md](endpoint-fd.md)) |
-| `kernel/src/ipc/shared.rs` (+ `shared/{types,registry,fences}.rs`) | Shared buffers, mappings, fences (issue #67) |
+| `kernel/src/ipc/shared.rs` (+ `shared/{types,registry,dma,stats}.rs`) | Shared buffers and mappings (issue #67) |
 | `libs/messenger/src/lib.rs` | Parcel codec shared by kernel and userspace (issue #65) |
 
 **Handles** (`handles.rs`)
@@ -124,23 +124,24 @@ userspace never names another task's handles.
   (`0x0bad_cafe`). Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`,
   with a 20,000-request soak).
 
-**Shared buffers & fences** (`shared.rs`)
+**Shared buffers** (`shared.rs`)
 
 | Item | Value |
 |---|---|
 | Largest buffer / registry | `max_bytes_per_process()` / `MAX_BUFFERS = 256` |
 | Per-process quota / mapping base | `limit.shared_buffer_max` bytes (3 screens, at least 16 MiB; [limits.md](limits.md)) or 64 buffers / `SHARED_WINDOW_BASE = 0x0000_7f80_0000_0000` (PML4 entry 255) |
-| Flags | `READ`, `WRITE`, `SHARE_ONLY`, `EXECUTABLE` (denied), `PINNED` (recorded) |
 
-- `create` zero-fills frames, maps the creator and opens a handle; `map` is
-  idempotent per task and refuses `SHARE_ONLY` for anyone but the creator;
-  `close` unmaps and drops a reference; `info` reports state.
+- `create(size)` zero-fills frames, maps the creator read/write and opens a
+  handle (no flags: every mapping is read/write); `map` is idempotent per task
+  and refuses a driver's share-only DMA buffer (`dma_alloc(SHARE_ONLY)`,
+  [devices.md](devices.md)) for anyone but the creator; `close` unmaps and drops a
+  reference; `info` reports state.
 - Lifetime is refcounted: handles + in-flight messages + mappings. `retain` /
   `retain_descriptor` take the message reference, `attach` converts it into the
   receiver's handle, `release` drops it when a queue is discarded.
-- Fences: `fence_submit` is monotonic (stale -> error) and wakes `FENCES`;
-  `fence_wait` parks until the sequence passes or the deadline expires. Every
-  handoff is zero-copy (`Stats::handoffs`): mappings alias the same frames.
+- Every handoff is zero-copy (`Stats::handoffs`): mappings alias the same
+  frames. Ordering belongs to the protocol (a `Present` reply, audio's
+  `Commit`, a ring's armed flag), never to the kernel.
 
 **Invariants.** `CHANNELS`/`REGISTRY` locks are released before wait-queue
 notifications; waiter parks run with interrupts disabled, so no reply can slip
@@ -172,6 +173,6 @@ name policy is `Resolve`'s. User side: `messenger::registry::connect`. Tests:
 5,000-round connect/call/close soak) and `ipc_registry_syscall_connect`.
 
 **Status.** Working: handle rights, transactions with deadlines/cancel, handle
-move and buffer share, fences, per-connection channels. Open: reply-borne
+move and buffer share, per-connection channels. Open: reply-borne
 transfers, services serving their connections (they still serve the shared
 endpoint), non-buffer object refcounts.

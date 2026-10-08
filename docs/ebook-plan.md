@@ -167,7 +167,7 @@ mechanics:
 - *`Connect`* (`channels/connect.rs`): a per-connection channel to a named
   service.
 
-**7. Moving things between processes: handles, buffers, fences** (16 pp.)
+**7. Moving things between processes: handles and buffers** (16 pp.)
 The chapter the reader is most likely to get wrong, so it is told as a
 step-by-step trace before any generalisation:
 
@@ -191,9 +191,9 @@ step-by-step trace before any generalisation:
   `attach`, `release`), the mapping window at `SHARED_WINDOW_BASE`,
   `SHARE_ONLY`, the per-process quota from `limits.rs`. Same frame-by-frame
   trace, now showing the refcount.
-- *Fences*: monotonic `fence_submit` and waiters; the worked example is a
-  real one, an xui client presenting a frame to `xuid` (chapter 11 picks it
-  up from there).
+- *Ordering without fences*: the kernel has no fence (issue #677); the
+  worked example is a real one, an xui client presenting a frame to `xuid`
+  and waiting for the `Present` reply (chapter 11 picks it up from there).
 - A summary table at the end: for each object kind, whether it moves,
   shares or is refused, in requests, replies and topics.
 

@@ -372,16 +372,21 @@ Rights accompany a handle at creation/duplication time:
 
 ## 10. Shared buffers and zero-copy
 
-- `msg_buffer_create(size, flags)` returns a buffer handle plus a mapping in the
-  creating process. Flags: `READ`, `WRITE`, `SHARE_ONLY` (no direct map),
-  `EXECUTABLE` (denied by default), `PINNED` (DMA for drivers).
-- Buffers are sent as `BUFFER` fields (metadata: handle, offset, length, flags),
+- A buffer is pages. `create(size)` returns a buffer handle plus a read/write
+  mapping in the creating process; `map(handle)` maps a received handle and
+  reports its size; `close(handle)` unmaps and drops the reference. The pages
+  live while any handle or in-flight message references them. There are no
+  flags, no fences and no kinds of buffer (the display syscall family carries
+  these today: `display_create_buffer`, `display_map_buffer`,
+  `display_close_buffer`).
+- Buffers are sent as `BUFFER` fields (metadata: handle, offset, length),
   which the kernel duplicates into the receiver mapping.
-- Writes are synchronized with **fences** (`fence_submit`/`fence_wait`) so the
-  compositor and drivers can order DMA and software access without extra copies.
+- Ordering is the protocol's business: `Present` is a call whose reply says
+  the frame was consumed, audio orders with `Commit`, and the NIC rings use
+  the armed flag in their ring header (`docs/midl.md`, "Rings").
 - The compositor uses this to composite app surfaces with no copy; `netd` uses it
-  for DMA rings; `keyd` uses `SHARE_ONLY` buffers so key material never maps into
-  clients.
+  for DMA rings. A driver's `dma_alloc(SHARE_ONLY)` buffer is the one buffer
+  mapped only into its creator ([architecture/devices.md](architecture/devices.md)).
 
 ---
 
@@ -478,8 +483,8 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 The first kernel-side slice of this surface is live: the native `messenger`
 syscall's `stats` op serves a versioned `FabricStats` snapshot (ABI v2)
-aggregating services/endpoints/channels, message counters, shared buffers and
-fences, handles, ACL/audit state and per-slot usage; the `totals` op keeps the
+aggregating services/endpoints/channels, message counters, shared buffers,
+handles, ACL/audit state and per-slot usage; the `totals` op keeps the
 compact v1 counters. The `messengerctl` tool (`/system/bin/messengerctl`, on the OS
 image) renders the snapshot as a table (boot the demo with
 `LAZYOS_MESSENGERCTL=1`).
@@ -513,7 +518,7 @@ stays cheap under load.
 - **Syscalls** (native ABI), each taking a small op structure validated on entry:
   `msg_endpoint`, `msg_connect`, `msg_register`, `msg_resolve`, `msg_call`,
   `msg_reply`, `msg_send`, `msg_cancel`, `msg_publish`, `msg_subscribe`,
-  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_buffer_create`, `msg_fence`, `msg_stats`, `msg_acl_load`.
+  `msg_recv`, `msg_wait` (`wait_any`: park on up to 8 items, each an endpoint or one of the caller's pending calls (`WAIT_ITEM_CALL`, ready when the transaction ended), plus doorbells; return a ready mask without receiving or awaiting; a subscription joins through its doorbell endpoint or its outstanding `NextEvent` call; `user::messenger::wait`, design note [docs/architecture/wait-any.md](architecture/wait-any.md)), `msg_stats`, `msg_acl_load`.
 - **Service supervision calls:** ahead of the Messenger family, the S2
   supervisor adds four small native calls — `spawn` (start a program as the
   caller's child), `wait` (reap a child exit against a deadline), `clock` (PIT

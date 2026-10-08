@@ -1,5 +1,4 @@
-//! Handle transfer rights across tasks, fence submit/wait, and a
-//! zero-copy handoff.
+//! Handle transfer rights across tasks and a zero-copy handoff.
 
 use super::*;
 
@@ -15,8 +14,7 @@ pub fn buffer_handle_transfer_rights() -> Result<(), String> {
     let movable = handles::open(HandleKind::Object, rights::CALL | rights::TRANSFER, 0xabc)
         .map_err(handle_reason)?;
     let stuck = handles::open(HandleKind::Object, rights::CALL, 0xdef).map_err(handle_reason)?;
-    let buffer =
-        shared::create(4096, shared::flags::READ | shared::flags::WRITE).map_err(buffer_reason)?;
+    let buffer = shared::create(4096).map_err(buffer_reason)?;
 
     // A handle without TRANSFER is refused and nothing moves.
     let refused = parcel_with_transfers(1, "no", vec![stuck], Vec::new())?;
@@ -82,83 +80,6 @@ pub fn buffer_handle_transfer_rights() -> Result<(), String> {
     Ok(())
 }
 
-/// A submitted fence resolves a wait, a park is woken by a later submit,
-/// and a wait past its deadline reports `TimedOut`.
-pub fn buffer_fence_submit_wait() -> Result<(), String> {
-    fresh()?;
-    let handle =
-        shared::create(4096, shared::flags::READ | shared::flags::WRITE).map_err(buffer_reason)?;
-
-    // Nothing submitted yet: an already-expired wait times out.
-    check!(
-        shared::fence_wait(handle, 1, Some(task::ticks())) == Err(BufferError::TimedOut),
-        "fence_wait returned before its sequence was submitted"
-    );
-    check!(
-        task::harness::state(task::current()) == Some(TaskState::Runnable),
-        "the waiter stayed parked after the timeout"
-    );
-
-    // Park without yielding, then submit: the wake path resolves it.
-    let parked = shared::harness::park_wait(handle, 7, None).map_err(buffer_reason)?;
-    check!(!parked, "park_wait claimed the sequence was submitted");
-    check!(
-        matches!(
-            task::harness::state(task::current()),
-            Some(TaskState::Blocked { .. })
-        ),
-        "park_wait did not block the waiter"
-    );
-    shared::fence_submit(handle, 7).map_err(buffer_reason)?;
-    check!(
-        task::harness::state(task::current()) == Some(TaskState::Runnable),
-        "fence_submit did not wake the parked waiter"
-    );
-    check!(
-        task::harness::take_wake_reason(task::current()) == Some(WakeReason::Woken),
-        "the fence wake reason is not Woken"
-    );
-    // The real wait resolves immediately once the sequence is there.
-    shared::fence_wait(handle, 7, None).map_err(buffer_reason)?;
-
-    // A deadline sweep wakes a parked waiter with TimedOut.
-    let deadline = task::ticks() + 10;
-    let parked = shared::harness::park_wait(handle, 9, Some(deadline)).map_err(buffer_reason)?;
-    check!(!parked, "park_wait claimed the sequence was submitted");
-    task::harness::expire_deadlines(deadline);
-    check!(
-        task::harness::state(task::current()) == Some(TaskState::Runnable),
-        "the deadline sweep did not wake the fence waiter"
-    );
-    check!(
-        task::harness::take_wake_reason(task::current()) == Some(WakeReason::TimedOut),
-        "the deadline wake reason is not TimedOut"
-    );
-
-    // Sequences are monotonic and the meters track the waits.
-    check!(
-        shared::fence_submit(handle, 3) == Err(BufferError::StaleSequence),
-        "a stale fence sequence was accepted"
-    );
-    let info = shared::info(handle).map_err(buffer_reason)?;
-    check!(
-        info.submitted == 7 && info.waited == 7,
-        "fence state is {info:?}"
-    );
-    let stats = shared::stats();
-    check!(
-        stats.fence_waits == 1 && stats.fence_timeouts == 1,
-        "fence stats are {stats:?}"
-    );
-    let process = shared::process_stats(task::current());
-    check!(
-        process.fence_waits == 1 && process.fence_timeouts == 1,
-        "process fence stats are {process:?}"
-    );
-    shared::close(handle).map_err(buffer_reason)?;
-    Ok(())
-}
-
 /// A buffer handoff moves no data: the receiver's mapping resolves to the
 /// very frames the creator wrote, and the handoff counter advances.
 pub fn buffer_zero_copy_handoff() -> Result<(), String> {
@@ -168,8 +89,7 @@ pub fn buffer_zero_copy_handoff() -> Result<(), String> {
     let (client, child_server) = channel_to(child)?;
 
     let size = 2 * 4096;
-    let handle =
-        shared::create(size, shared::flags::READ | shared::flags::WRITE).map_err(buffer_reason)?;
+    let handle = shared::create(size).map_err(buffer_reason)?;
     let creator_va = shared::map(handle).map_err(buffer_reason)?;
     let mut creator_frames = Vec::new();
     for page in 0..2u64 {

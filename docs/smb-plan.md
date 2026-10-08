@@ -54,7 +54,7 @@ Related: [networking-plan.md](networking-plan.md),
 | Kernel delta | **One generic `Filesystem` backend** (`kernel/src/fs/fuse/`) and **one provider syscall** (35), a sibling of the block provider (syscall 33). No SMB, NTLM, network or filesystem-specific code |
 | Where SMB runs | A **user-space daemon** (`smbfuse`); the `smb` command links the same library in-process. Never the kernel |
 | Language | **Native `no_std`** in the `user/` workspace, over the existing Messenger socket client (`netsock`), as `ftp` and `nc` are. The mount removes the need for local file I/O in the client, so no musl program is needed |
-| Filesystem data path | A **64 KiB bounce buffer** first (the block provider's model: one copy each way, tiny kernel); a shared fenced buffer is a later optimisation |
+| Filesystem data path | A **64 KiB bounce buffer** first (the block provider's model: one copy each way, tiny kernel); a shared ring buffer is a later optimisation |
 | Blocking | A VFS op parks the calling task while the daemon serves it; `flush`/`writeback` must never block (the flusher rule) |
 | Mount | The daemon registers a provider under a **name**; the bridge mounts it at `/mnt/<name>` in **both** the native and ABI `Vfs` tables, always `nosuid`. Registering needs `CAP_FS_PROVIDER` |
 | Protocol | **SMB2, dialect 2.1 (0x0210)**, over **Direct TCP 445**. Not SMB1 (modern Samba disables it), not SMB3 first |
@@ -121,7 +121,7 @@ that fails returns its error when nothing was transferred yet, and otherwise
 the count so far (a short write, as POSIX allows), since earlier chunks may
 already have reached the server. The kernel copies each chunk into or out of the request: one
 copy each way, no pinning, no mapping, and the daemon never sees caller memory.
-A shared, fenced buffer (as the NIC rings and audio streams use) removes the
+A shared ring buffer (as the NIC rings and audio streams use) removes the
 copies later and is a pure optimisation — it changes no interface.
 
 **Requests and replies.** The records are `libs/fused::wire`, linked by both
@@ -518,7 +518,7 @@ is a daemon on top of it.
 | **F2** (built) | `libs/smbwire` (SMB2.1 + NTLMv2 + signing) and the `smb` command; `LAZYOS_SMB=1`, `smb` in the image, `--smb` in `run_demo.py` and the GUI; harness server + `tools/smb/run.py` | none | `SMB:GET`/`SMB:PUT` byte-exact against the host server, judged from its record and the pcap — **G1 reached directly** |
 | **F3** | `smbfuse`: the SMB daemon over `libs/fused`, `net mount`/`net ls`, the XUI File Manager **Network** view; a VFS cache expiry for FUSE mounts (§3.1) and the daemon's uid/label rule | the cache expiry (generic) | the share is a directory; `cp` in and out round-trips; the file manager walks it — **G2 reached** |
 | **F4** | Name resolution (NBNS, mDNS/LLMNR, DNS ordering) and share listing (`-L` via `IPC$`/`srvsvc`); `--live` against `chatonnas` over a bridge | none | `chatonnas` resolves; `-L` lists the server's shares; live mount and `cp` |
-| **F5** | Hardening: shared fenced data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |
+| **F5** | Hardening: shared ring data plane (remove the bounce copy), attribute timeouts, reconnect, quotas, case-insensitivity rules, long soaks | none | throughput numbers; a soak of reconnects and large trees |
 | **F6** | SMB3: 3.1.1 negotiation, preauth integrity, AES-CMAC/GCM signing, encryption policy | none | dialect 0x0311, encrypted share round-trip |
 
 ACL grants land with the actor that needs them: the provider/mount capability

@@ -1,4 +1,4 @@
-//! The versioned fabric snapshot (stats ABI v4) the `stats` op writes into a
+//! The versioned fabric snapshot (stats ABI v5) the `stats` op writes into a
 //! buffer of [`FabricStats::SIZE`] bytes; mirrors `kernel/src/ipc/stats.rs`.
 
 /// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
@@ -18,7 +18,7 @@ pub struct TaskUsage {
     pub buffer_bytes: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI version 4): channels, messages,
+/// The versioned fabric snapshot (stats ABI version 5): channels, messages,
 /// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
 /// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
 /// decodes the little-endian word stream the kernel writes.
@@ -56,14 +56,6 @@ pub struct FabricStats {
     pub buffer_bytes: u64,
     /// Buffer mappings into task address spaces.
     pub buffer_mappings: u64,
-    /// Cumulative fence submissions.
-    pub fences_submitted: u64,
-    /// Cumulative parked fence waits.
-    pub fence_waits: u64,
-    /// Fence waits that hit their deadline.
-    pub fence_timeouts: u64,
-    /// Submitted fence sequences not yet observed.
-    pub outstanding_fences: u64,
     /// Zero-copy buffer handoffs.
     pub handoffs: u64,
     /// Handles held across every task.
@@ -109,10 +101,6 @@ impl Default for FabricStats {
             buffers: 0,
             buffer_bytes: 0,
             buffer_mappings: 0,
-            fences_submitted: 0,
-            fence_waits: 0,
-            fence_timeouts: 0,
-            outstanding_fences: 0,
             handoffs: 0,
             handles: 0,
             handles_per_task: [0; FABRIC_TASKS],
@@ -130,10 +118,13 @@ impl Default for FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands (4: 256 per-slot rows; 3 had 64, #204).
-    pub const VERSION: u64 = 4;
+    /// The ABI version this mirror understands (5: no fence counters, #677;
+    /// 4: 256 per-slot rows; 3 had 64, #204).
+    pub const VERSION: u64 = 5;
+    /// Scalar words ahead of the per-slot handle counts.
+    const SCALARS: usize = 18;
     /// Number of bytes the kernel writes for a snapshot.
-    pub const SIZE: usize = (22 + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
+    pub const SIZE: usize = (Self::SCALARS + FABRIC_TASKS + 8 + FABRIC_TASKS * 4) * 8;
 
     /// Decode the little-endian word stream written by the `stats` op. `None`
     /// when the length is not exactly [`FabricStats::SIZE`] or the version is
@@ -148,9 +139,9 @@ impl FabricStats {
         };
         let mut handles_per_task = [0u64; FABRIC_TASKS];
         for (index, value) in handles_per_task.iter_mut().enumerate() {
-            *value = word(22 + index)?;
+            *value = word(Self::SCALARS + index)?;
         }
-        let acl = 22 + FABRIC_TASKS;
+        let acl = Self::SCALARS + FABRIC_TASKS;
         let mut tasks = [TaskUsage::default(); FABRIC_TASKS];
         for (index, usage) in tasks.iter_mut().enumerate() {
             let base = acl + 8 + index * 4;
@@ -178,12 +169,8 @@ impl FabricStats {
             buffers: word(13)?,
             buffer_bytes: word(14)?,
             buffer_mappings: word(15)?,
-            fences_submitted: word(16)?,
-            fence_waits: word(17)?,
-            fence_timeouts: word(18)?,
-            outstanding_fences: word(19)?,
-            handoffs: word(20)?,
-            handles: word(21)?,
+            handoffs: word(16)?,
+            handles: word(17)?,
             handles_per_task,
             acl_rules: word(acl)?,
             acl_loaded: word(acl + 1)?,
