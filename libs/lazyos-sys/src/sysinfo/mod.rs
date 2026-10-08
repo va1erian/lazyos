@@ -22,15 +22,17 @@ use alloc::vec::Vec;
 use crate::stats;
 
 mod cpu;
+mod memory;
 
 pub use cpu::{cpu_percent, CpuSample};
+pub use memory::{MemoryUse, PAGE};
 
-/// ABI version this client understands (4: 256 task rows plus the idle tick
-/// counter; 3 had 256 rows, 2 had 64, issue #204).
-pub const VERSION: u64 = 4;
+/// ABI version this client understands (5: the cache and slab frame counts;
+/// 4 added the idle tick counter, 3 had 256 rows, 2 had 64, issue #204).
+pub const VERSION: u64 = 5;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
-pub const HEADER_WORDS: usize = 24;
+pub const HEADER_WORDS: usize = 26;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
@@ -90,6 +92,10 @@ pub mod header {
     pub const TASK_SLOTS: usize = 22;
     /// PIT ticks that found the CPU idle (no task runnable).
     pub const IDLE_TICKS: usize = 23;
+    /// Frames the block caches hold (part of the live frames).
+    pub const CACHE_FRAMES: usize = 24;
+    /// Frames carved into typed-object slabs (part of the live frames).
+    pub const SLAB_FRAMES: usize = 25;
 }
 
 /// Task row word indices (relative to a row's base).
@@ -354,6 +360,11 @@ pub struct Snapshot {
     pub heap_used: u64,
     /// Bytes on the kernel heap's free list.
     pub heap_free: u64,
+    /// Frames the block caches hold (part of [`Snapshot::frames_live`]).
+    pub cache_frames: u64,
+    /// Frames carved into typed-object slabs (part of
+    /// [`Snapshot::frames_live`]).
+    pub slab_frames: u64,
     /// One row per scheduler slot.
     pub tasks: Vec<TaskRow>,
     /// The raw words, so a snapshot can be re-encoded for the wire.
@@ -432,6 +443,8 @@ pub fn decode_words(words: &[u64]) -> Option<Snapshot> {
         heap_total: words[header::HEAP_TOTAL],
         heap_used: words[header::HEAP_USED],
         heap_free: words[header::HEAP_FREE],
+        cache_frames: words[header::CACHE_FRAMES],
+        slab_frames: words[header::SLAB_FRAMES],
         tasks,
         raw: words[..WORDS].to_vec(),
     })
