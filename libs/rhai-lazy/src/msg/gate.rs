@@ -113,7 +113,12 @@ impl Bus for Gate {
         interface_names: &[&str],
     ) -> Result<u64, BusError> {
         let (published, server) = msg::create_pair().map_err(BusError::errno)?;
-        parcel::register(name, published, interfaces, interface_names).map_err(BusError::errno)?;
+        if let Err(code) = parcel::register(name, published, interfaces, interface_names) {
+            // Neither end is reachable without the name: free both slots.
+            let _ = msg::close(published);
+            let _ = msg::close(server);
+            return Err(BusError::errno(code));
+        }
         Ok(server)
     }
 
