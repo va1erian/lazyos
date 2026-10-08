@@ -166,7 +166,10 @@ fn handle<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, event: ShellEvent) {
         ShellEvent::Dismiss => {
             menu::close(ctx);
             super::tray::menu::close(ctx);
+            super::keys::leave_tray(ctx);
         }
+        ShellEvent::PanelKey(key) => super::keys::on_key(ctx, ui, key),
+        ShellEvent::TrayKeys => super::keys::on_tray_keys(ctx),
     }
 }
 

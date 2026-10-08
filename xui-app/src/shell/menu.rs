@@ -16,6 +16,7 @@
 
 use std::rc::Rc;
 
+use lazyshell::keynav::{self, NavKey, RowKind, Step};
 use lazyshell::menu::{Action, Choice, Row, BANNER_W, PAD, ROW_H, WIDTH};
 use lazyshell::Rect as ShellRect;
 use xui_core::app::{App, Ui};
@@ -51,6 +52,8 @@ pub enum MenuMsg {
     Press(i32, i32, bool),
     /// A vertical wheel turn (positive: away from the user, scrolls up).
     Wheel(i16),
+    /// A navigation key from the panel-key grab (`super::keys`).
+    Key(NavKey),
 }
 
 /// Open the menu if it is closed, close it if it is open.
@@ -68,6 +71,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     if ctx.menu_window.borrow().is_some() {
         return;
     }
+    super::keys::leave_tray(ctx);
     ctx.reload_menu();
     let (height, (x, y)) = {
         let menu = ctx.menu.borrow();
@@ -83,6 +87,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
             super::probe::menu(ctx);
             println!("SHELL:MENU:OPEN");
             ctx.repaint_bar();
+            super::keys::sync(ctx);
         }
         Err(error) => ctx.note("menu-open", || format!("SHELL:MENU:FAIL {error}")),
     }
@@ -98,6 +103,19 @@ pub fn close(ctx: &Ctx) {
     ctx.menu_hover.set(None);
     println!("SHELL:MENU:CLOSE");
     ctx.repaint_bar();
+    super::keys::sync(ctx);
+}
+
+/// How each start-menu row navigates: a category opens a submenu, a
+/// disabled row is skipped.
+fn row_kinds(rows: &[Row]) -> Vec<RowKind> {
+    rows.iter()
+        .map(|row| match row.action {
+            _ if !row.enabled => RowKind::Inert,
+            Action::Submenu(_) => RowKind::Parent,
+            _ => RowKind::Item,
+        })
+        .collect()
 }
 
 /// The start menu window's app.
@@ -162,11 +180,44 @@ impl MenuApp {
     /// the banner or a disabled row does nothing. Returns whether the menu
     /// must repaint.
     fn press(&self, x: i32, y: i32, repeat: bool, ui: &Ui<MenuMsg>) -> bool {
+        let Some(index) = self.ctx.menu.borrow().row_at(x, y) else {
+            return false;
+        };
+        self.choose(index, repeat, ui)
+    }
+
+    /// A navigation key (issue #648): move the lit row, open a category's
+    /// submenu and move the keyboard into it, choose a row, or close.
+    fn key(&self, key: NavKey, ui: &Ui<MenuMsg>) -> bool {
+        let kinds = row_kinds(self.ctx.menu.borrow().rows());
+        match keynav::step(&kinds, self.ctx.menu_hover.get(), key, false) {
+            Step::Select(index) => {
+                self.ctx.menu_hover.set(Some(index));
+                submenu::close(&self.ctx);
+                let label = self.ctx.menu.borrow().rows()[index].label.clone();
+                println!("SHELL:MENU:KEY:SELECT row={label}");
+                true
+            }
+            Step::OpenChild(index) => {
+                self.ctx.menu_hover.set(Some(index));
+                submenu::open(&self.ctx, ui, index);
+                submenu::enter_by_key(&self.ctx);
+                true
+            }
+            Step::Activate(index) => self.choose(index, false, ui),
+            Step::Close => {
+                println!("SHELL:MENU:KEY:CLOSE");
+                close(&self.ctx);
+                false
+            }
+            Step::Back | Step::Nothing => false,
+        }
+    }
+
+    /// Choose row `index` (a click, a double click when `repeat`, or Enter).
+    fn choose(&self, index: usize, repeat: bool, ui: &Ui<MenuMsg>) -> bool {
         let (choice, origin) = {
             let mut menu = self.ctx.menu.borrow_mut();
-            let Some(index) = menu.row_at(x, y) else {
-                return false;
-            };
             let (ox, oy) = menu.origin(self.ctx.screen.1);
             let origin = menu.row_rect(index).map(|rect| rect.offset(ox, oy));
             (menu.choose(index, repeat), origin)
@@ -235,6 +286,11 @@ impl App for MenuApp {
             }
             MenuMsg::Press(x, y, repeat) => {
                 if self.press(x, y, repeat, ui) {
+                    ui.invalidate(self.root.id());
+                }
+            }
+            MenuMsg::Key(key) => {
+                if self.key(key, ui) {
                     ui.invalidate(self.root.id());
                 }
             }

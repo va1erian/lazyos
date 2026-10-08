@@ -29,6 +29,7 @@ mod desktop;
 mod failures;
 mod heartbeat;
 mod icons;
+mod keys;
 mod link;
 mod menu;
 mod notice;

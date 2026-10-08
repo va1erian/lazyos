@@ -126,6 +126,8 @@ mod maximize;
 mod opening;
 #[path = "xuid/origin.rs"]
 mod origin;
+#[path = "xuid/panelkeys.rs"]
+mod panelkeys;
 #[path = "xuid/pointer_feed.rs"]
 mod pointer_feed;
 #[path = "xuid/powerfeed.rs"]

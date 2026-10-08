@@ -9,18 +9,23 @@
 //! the app to exit), and drops the item. A press outside every panel
 //! (`Dismiss`), a pick or opening another menu closes it.
 //!
-//! Panels never take keyboard focus in `xuid`, so the menu is driven by the
-//! pointer, as the start menu is.
+//! Panels never take keyboard focus in `xuid`; while a tray menu is open
+//! the shell holds the compositor's panel-key grab instead (issue #648,
+//! `super::super::keys`) and the deepest panel gets the keys: Up/Down move,
+//! Right or Enter open a submenu, Enter picks (check, radio, Open, Quit),
+//! Left or Escape close one level.
 //!
 //! Serial: `SHELL:TRAY:MENU:OPEN app=<id> rows=<n>`, `SHELL:TRAY:MENU:PICK
 //! app=<id> id=<n> checked=<bool>`, `SHELL:TRAY:MENU:CLOSE`,
-//! `SHELL:TRAY:QUIT app=<id> stopped=<n>` (or `:FAIL err=<n>`), and
+//! `SHELL:TRAY:QUIT app=<id> stopped=<n>` (or `:FAIL err=<n>`),
+//! `SHELL:TRAY:MENU:KEY:SELECT row=<label>`, `SHELL:TRAY:MENU:KEY:BACK`, and
 //! `UI:RECT name=traymenu:<label>` per row under the UI probe.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
-use lazyshell::tray::menu::{default_pick, Pick, TrayMenu, WIDTH};
+use lazyshell::keynav::{self, NavKey, RowKind, Step};
+use lazyshell::tray::menu::{default_pick, Kind, Pick, TrayMenu, WIDTH};
 use lazyshell::Rect as ShellRect;
 use messenger_generated::os_lazy_shell_tray_events_v1 as events;
 use xui_core::app::{App, Ui, WindowHandle};
@@ -48,6 +53,8 @@ pub enum PanelMsg {
     Move(i32, i32),
     Leave,
     Press(i32, i32),
+    /// A navigation key from the panel-key grab.
+    Key(NavKey),
 }
 
 /// Open `app`'s menu above its cell, replacing any open tray menu.
@@ -71,6 +78,32 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: &str) {
     if show(ctx, ui, app, rows, origin) {
         println!("SHELL:TRAY:MENU:OPEN app={app} rows={count}");
     }
+    super::super::keys::sync(ctx);
+}
+
+/// Send `key` to the deepest open tray menu panel; whether one was open.
+pub fn key(ctx: &Ctx, key: NavKey) -> bool {
+    let menus = ctx.tray.menus.borrow();
+    let Some(panel) = menus.last() else {
+        return false;
+    };
+    if let Some(handle) = &panel.handle {
+        handle.send(PanelMsg::Key(key));
+    }
+    true
+}
+
+/// How each tray menu row navigates.
+fn row_kinds(rows: &TrayMenu) -> Vec<RowKind> {
+    rows.rows()
+        .iter()
+        .map(|row| match row.kind {
+            _ if !row.enabled => RowKind::Inert,
+            Kind::Separator => RowKind::Inert,
+            Kind::Submenu { .. } => RowKind::Parent,
+            _ => RowKind::Item,
+        })
+        .collect()
 }
 
 /// Close every tray menu panel.
@@ -85,6 +118,7 @@ pub fn close(ctx: &Ctx) {
         }
     }
     println!("SHELL:TRAY:MENU:CLOSE");
+    super::super::keys::sync(ctx);
 }
 
 /// What a `DefaultItem` click does for `app`: run its default row.
@@ -251,12 +285,56 @@ impl PanelApp {
     }
 
     fn press(&self, ui: &Ui<PanelMsg>, x: i32, y: i32) {
+        if let Some(index) = self.row_at(x, y) {
+            self.pick(ui, index);
+        }
+    }
+
+    /// A navigation key on this panel. Returns whether it must repaint.
+    fn key(&self, ui: &Ui<PanelMsg>, key: NavKey) -> bool {
+        let (kinds, lit) = {
+            let menus = self.ctx.tray.menus.borrow();
+            let Some(panel) = menus.get(self.depth) else {
+                return false;
+            };
+            (row_kinds(&panel.rows), panel.hover.get())
+        };
+        match keynav::step(&kinds, lit, key, self.depth > 0) {
+            Step::Select(index) => {
+                let menus = self.ctx.tray.menus.borrow();
+                if let Some(panel) = menus.get(self.depth) {
+                    panel.hover.set(Some(index));
+                    let label = &panel.rows.rows()[index].label;
+                    println!("SHELL:TRAY:MENU:KEY:SELECT row={label}");
+                }
+                true
+            }
+            Step::OpenChild(index) | Step::Activate(index) => {
+                self.pick(ui, index);
+                // A submenu opened from the keyboard starts on its first row.
+                if self.ctx.tray.menus.borrow().len() > self.depth + 1 {
+                    key_into_child(&self.ctx);
+                }
+                false
+            }
+            Step::Back => {
+                println!("SHELL:TRAY:MENU:KEY:BACK");
+                close_from(&self.ctx, self.depth);
+                false
+            }
+            Step::Close => {
+                close(&self.ctx);
+                false
+            }
+            Step::Nothing => false,
+        }
+    }
+
+    /// Pick row `index` (a click or Enter).
+    fn pick(&self, ui: &Ui<PanelMsg>, index: usize) {
         let chosen = {
             let menus = self.ctx.tray.menus.borrow();
             let Some(panel) = menus.get(self.depth) else {
-                return;
-            };
-            let Some(index) = panel.rows.row_at(x, y) else {
                 return;
             };
             let rect = panel.rows.row_rect(index).unwrap_or_default();
@@ -325,6 +403,26 @@ impl PanelApp {
     }
 }
 
+/// Light the first row of the deepest panel (just opened by a key).
+fn key_into_child(ctx: &Ctx) {
+    key(ctx, NavKey::Home);
+}
+
+/// Close the panels from `depth` down (a submenu going back to its parent).
+fn close_from(ctx: &Ctx, depth: usize) {
+    let panels: Vec<Panel> = {
+        let mut menus = ctx.tray.menus.borrow_mut();
+        let at = depth.min(menus.len());
+        menus.drain(at..).collect()
+    };
+    for panel in panels {
+        if let Some(handle) = panel.handle {
+            handle.close();
+        }
+    }
+    super::super::keys::sync(ctx);
+}
+
 impl App for PanelApp {
     type Msg = PanelMsg;
 
@@ -338,6 +436,12 @@ impl App for PanelApp {
             PanelMsg::Press(x, y) => {
                 let (x, y) = self.ctx.to_design(x, y);
                 self.press(ui, x, y);
+                return;
+            }
+            PanelMsg::Key(key) => {
+                if self.key(ui, key) {
+                    ui.invalidate(self.root.id());
+                }
                 return;
             }
         };

@@ -263,6 +263,21 @@ interface os.lazy.display.v1 {
     /// section 7.3). A token works once and only for that task. A compositor
     /// without flyouts answers `EINVAL`.
     method AllowPopup(task: U64 = 1, token: U64 = 2, x: I32 = 3, y: I32 = 4, w: U32 = 5, h: U32 = 6) -> () = 44;
+    /// Shell-only: take the keyboard for the shell's panel menus (issue
+    /// #648; the start menu, its submenus, a tray menu, the tray). While
+    /// `grab` is set every key the compositor does not keep for itself
+    /// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
+    /// a `PanelKey` event instead of to the focused window, which keeps its
+    /// focus; `inputd` is told no window has the keyboard meanwhile. It ends
+    /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
+    /// or under a client's keyboard grab or the trusted prompt, which win.
+    method GrabPanelKeys(grab: Bool = 1) -> () = 45;
+    /// Shell event: a key went down while the shell holds the panel keys
+    /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
+    method PanelKey(key: U32 = 1) -> () = 46 oneway;
+    /// Shell event: Super+B (Win+B) went down: move the keyboard to the
+    /// tray. Super pressed and released alone still sends `StartMenu`.
+    method TrayKeys() -> () = 47 oneway;
 
     /// What a surface is. Numeric values are the wire values. A `Panel`
     /// (issue #157) is a shell-owned, chromeless surface painted above every

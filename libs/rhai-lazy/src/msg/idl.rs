@@ -896,6 +896,33 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 transfers: &[],
             },
+            Method {
+                name: "GrabPanelKeys",
+                id: 45,
+                oneway: false,
+                doc: "Shell-only: take the keyboard for the shell's panel menus (issue\n#648; the start menu, its submenus, a tray menu, the tray). While\n`grab` is set every key the compositor does not keep for itself\n(Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as\na `PanelKey` event instead of to the focused window, which keeps its\nfocus; `inputd` is told no window has the keyboard meanwhile. It ends\nwith `GrabPanelKeys(false)`, when the shell's subscription goes away,\nor under a client's keyboard grab or the trusted prompt, which win.",
+                params: &[Field { name: "grab", id: 1, ty: Ty::Bool }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "PanelKey",
+                id: 46,
+                oneway: true,
+                doc: "Shell event: a key went down while the shell holds the panel keys\n(`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.",
+                params: &[Field { name: "key", id: 1, ty: Ty::U32 }],
+                returns: &[],
+                transfers: &[],
+            },
+            Method {
+                name: "TrayKeys",
+                id: 47,
+                oneway: true,
+                doc: "Shell event: Super+B (Win+B) went down: move the keyboard to the\ntray. Super pressed and released alone still sends `StartMenu`.",
+                params: &[],
+                returns: &[],
+                transfers: &[],
+            },
         ],
         structs: &[
             Struct {

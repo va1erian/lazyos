@@ -42,6 +42,11 @@ pub enum ShellEvent {
     StartMenu,
     /// A press outside every panel: close popups.
     Dismiss,
+    /// A key (modifiers OR-ed in) while the shell holds the panel keys
+    /// (`GrabPanelKeys`, issue #648).
+    PanelKey(u32),
+    /// Super+B: move the keyboard to the tray.
+    TrayKeys,
 }
 
 /// Decode a shell event, or `None` for anything else (an unknown or
@@ -65,6 +70,8 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
         }
         wire::METHOD_STARTMENU => ShellEvent::StartMenu,
         wire::METHOD_DISMISS => ShellEvent::Dismiss,
+        wire::METHOD_PANELKEY => ShellEvent::PanelKey(wire::decode_panel_key_args(body).ok()?.key),
+        wire::METHOD_TRAYKEYS => ShellEvent::TrayKeys,
         _ => return None,
     })
 }
@@ -158,6 +165,14 @@ impl Client {
         self.unit(wire::METHOD_HINTLAUNCHORIGIN, body)
     }
 
+    /// `GrabPanelKeys`: take (or give back) the keyboard for the shell's
+    /// panel menus; keys then arrive as [`ShellEvent::PanelKey`].
+    pub fn grab_panel_keys(&self, grab: bool) -> Result<(), i64> {
+        let body = wire::encode_grab_panel_keys_args(&wire::GrabPanelKeysArgs { grab })
+            .map_err(|_| -errno::EINVAL)?;
+        self.unit(wire::METHOD_GRABPANELKEYS, body)
+    }
+
     /// A bounded call whose reply carries no fields.
     fn unit(&self, method: u32, body: Vec<u8>) -> Result<(), i64> {
         self.shell_call(request(method, body, Vec::new(), Vec::new()))
@@ -232,6 +247,19 @@ mod tests {
         assert_eq!(
             decode_shell_event(&event(wire::METHOD_DISMISS, Vec::new())),
             Some(ShellEvent::Dismiss)
+        );
+    }
+
+    #[test]
+    fn panel_keys_and_the_tray_chord_decode() {
+        let body = wire::encode_panel_key_args(&wire::PanelKeyArgs { key: 0x104 }).unwrap();
+        assert_eq!(
+            decode_shell_event(&event(wire::METHOD_PANELKEY, body)),
+            Some(ShellEvent::PanelKey(0x104))
+        );
+        assert_eq!(
+            decode_shell_event(&event(wire::METHOD_TRAYKEYS, Vec::new())),
+            Some(ShellEvent::TrayKeys)
         );
     }
 

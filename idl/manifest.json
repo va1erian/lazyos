@@ -544,6 +544,21 @@
         "name": "AllowPopup",
         "id": 44,
         "oneway": false
+      },
+      {
+        "name": "GrabPanelKeys",
+        "id": 45,
+        "oneway": false
+      },
+      {
+        "name": "PanelKey",
+        "id": 46,
+        "oneway": true
+      },
+      {
+        "name": "TrayKeys",
+        "id": 47,
+        "oneway": true
       }
     ],
     "topics": []

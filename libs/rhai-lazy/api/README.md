@@ -242,6 +242,9 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
 | `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32)` | The screen in physical pixels and the desktop's integer UI scale |
 | `allow_popup(task, token, x, y, w, h)` | `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: let task `task` create one `Popup` surface with `token` |
+| `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
+| `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
+| `tray_keys()` | `TrayKeys() -> () oneway` | Shell event: Super+B (Win+B) went down: move the keyboard to the |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 

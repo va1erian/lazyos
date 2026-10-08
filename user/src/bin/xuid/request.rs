@@ -74,6 +74,7 @@ impl Compositor {
             wire::METHOD_SETWORKAREA => self.set_work_area(message, body),
             wire::METHOD_SETICONGEOMETRY => self.set_icon_geometry(message, body),
             wire::METHOD_HINTLAUNCHORIGIN => self.hint_launch_origin(message, body),
+            wire::METHOD_GRABPANELKEYS => self.grab_panel_keys(message, body),
             _ => error_reply(message.method(), messenger::errno::EINVAL),
         }
     }

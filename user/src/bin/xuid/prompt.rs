@@ -207,7 +207,8 @@ impl Compositor {
     /// (the prompt's own surface, when it reads its keys from `inputd`).
     pub(super) fn input_focus(&self) -> Option<u64> {
         if self.prompt.is_none() {
-            self.focused
+            // The shell's panel menus have the keys (`panelkeys.rs`).
+            self.focused.filter(|_| !self.panel_keys_active())
         } else if self.prompt_keys_from_inputd() {
             Some(super::prompt_keys::PROMPT_SURFACE)
         } else {

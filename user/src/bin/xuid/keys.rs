@@ -19,16 +19,16 @@ impl Compositor {
                 display::key::CTRL => self.mods.ctrl = true,
                 display::key::ALT => self.mods.alt = true,
                 display::key::SUPER => {
+                    // The start menu opens on the release, if no chord
+                    // (Super+B) used Super meanwhile.
                     self.mods.super_key = true;
-                    // Under a keyboard grab Super is the grabber's key.
-                    if self.input.grab.is_none() {
-                        self.notify_start_menu();
-                    }
+                    self.mods.super_alone = true;
                 }
                 _ => {}
             }
             return;
         }
+        self.mods.super_alone = false;
         // Ctrl+Alt+Esc is the reserved escape chord: `inputd` reverts any
         // keyboard grab and tells us (`GrabChanged`); it is never ours.
         if key == display::key::ESCAPE && self.mods.ctrl && self.mods.alt {
@@ -67,7 +67,17 @@ impl Compositor {
             }
             return;
         }
+        // Super+B: the keyboard goes to the tray (issue #648).
+        if key == super::panelkeys::TRAY_KEY && self.mods.super_key {
+            self.notify_tray_keys();
+            return;
+        }
         let key = self.client_key(key);
+        // The shell's panel menus hold the keyboard (`panelkeys.rs`).
+        if self.panel_keys_active() {
+            self.send_panel_key(key);
+            return;
+        }
         let body = wire::encode_key_down_args(&wire::KeyDownArgs { key });
         let target = self.legacy_key_target();
         forward(
@@ -137,14 +147,25 @@ impl Compositor {
                         self.alt_tab_commit(&tab);
                     }
                 }
-                display::key::SUPER => self.mods.super_key = false,
+                display::key::SUPER => {
+                    self.mods.super_key = false;
+                    // Super alone toggles the start menu; under a keyboard
+                    // grab it is the grabber's key.
+                    if core::mem::take(&mut self.mods.super_alone) && self.input.grab.is_none() {
+                        self.notify_start_menu();
+                    }
+                }
                 _ => {}
             }
             return;
         }
         // The release half of the Ctrl+Esc chord is consumed as well, and
-        // under a grab nothing here is ours.
-        if (key == display::key::ESCAPE && self.mods.ctrl) || self.input.grab.is_some() {
+        // under a grab nothing here is ours; a panel-key release has no
+        // listener (the shell acts on presses).
+        if (key == display::key::ESCAPE && self.mods.ctrl)
+            || self.input.grab.is_some()
+            || self.panel_keys_active()
+        {
             return;
         }
         let key = self.client_key(key);
