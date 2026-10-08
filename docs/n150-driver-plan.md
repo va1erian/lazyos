@@ -143,6 +143,8 @@ socket layer and the tools need nothing. This is exactly driver-plan D7's
 | Intel I225/I226 (`igc`) | Intel's public I225/I226 datasheet; FreeBSD `igc(4)` (BSD-2-Clause) | none (QEMU has `e1000e`/`igb`, related descriptor format) | legacy or advanced descriptors, MSI-X preferred, MSI accepted *inferred* |
 | Realtek RTL8111/8125 | no public datasheet; FreeBSD `re(4)` and OpenBSD `re(4)`/`rge(4)` (BSD) | none (QEMU has only `rtl8139`) | many chip revisions with per-revision PHY setup; RTL8125 may want a PHY firmware blob on some revisions *to confirm* |
 
+The Intel family has its own plan: [i226-driver-plan.md](i226-driver-plan.md).
+
 Licence: Linux's `r8169` and `igc` are GPL-2.0-only, which LazyOS
 (GPL-3.0-or-later) cannot take (wifi-plan §4 has the reasoning). The BSD
 drivers and Intel's datasheet are usable; the Rust driver is written fresh in
