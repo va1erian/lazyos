@@ -125,8 +125,9 @@ Found while bringing it up:
 
 Still open: merging emusic's branch (va1erian/emusic#536; the pin names
 its commit, `--emusic-src <clone>` builds a local one), a LazyOS `FilePicker` (Settings -> Add
-folder answers "cancelled"), a CI workflow like `doom.yml`, and the
-"Later" row.
+folder answers "cancelled"), automatic CI triggers for
+`.github/workflows/emusic.yml` (it runs on manual dispatch only, like
+`doom.yml`), and the "Later" row.
 
 ## Verification
 

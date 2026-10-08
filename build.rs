@@ -21,12 +21,12 @@ mod core_packages;
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]
 mod doom_embed;
-#[path = "build_support/emusic_embed.rs"]
-mod emusic_embed;
 #[path = "build_support/drivers.rs"]
 mod drivers;
 #[path = "build_support/elf_trim.rs"]
 mod elf_trim;
+#[path = "build_support/emusic_embed.rs"]
+mod emusic_embed;
 #[path = "build_support/evidence_embed.rs"]
 mod evidence_embed;
 #[path = "build_support/hosts_embed.rs"]
