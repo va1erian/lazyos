@@ -24,6 +24,7 @@ Advanced tab has a "USB stick image too" box). The stick image is opt-in:
 | `LAZYOS_USB=1` | off | required with `LAZYOS_USB_IMAGE=1`: ships `usbd` and lists it in `init`'s manifest |
 | `LAZYOS_USB_HOME_SIZE` | `1G` | size of the `lazyhome` partition (`16M` minimum; `K`/`M`/`G` suffixes) |
 | `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written |
+| `LAZYOS_DIAG_HOLD` | unset | seconds (1 to 600): `lazyos.cfg` gets `diag.hold=<n>` and `xuid` keeps the console log panes on screen that long before the desktop opens, so the driver lines (`USBD:*`, `NETDRV:*`) of a PC with no serial port can be read and photographed; the panes wrap long lines |
 
 **USB input is mandatory.** The target PC may have no PS/2 port, so the build
 refuses `LAZYOS_USB_IMAGE=1` unless `LAZYOS_USB=1` and a services session

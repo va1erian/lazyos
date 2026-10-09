@@ -225,7 +225,10 @@ fn run() -> ! {
     // A desktop image installs its core apps at the console, before the
     // session takes the screen (`provisioning.rs`).
     #[cfg(lazyos_desktop)]
-    provisioning::wait_for_core_packages();
+    {
+        provisioning::wait_for_core_packages();
+        provisioning::hold_for_diagnosis();
+    }
     // The display grant: on success the mux stops painting and input starts
     // arriving on the poll queue.
     let mut info = sys::DisplayInfo::default();

@@ -74,6 +74,51 @@ pub(super) fn wait_for_core_packages() {
     }
 }
 
+/// Longest hold `diag.hold` may ask for (the build clamps it too).
+const MAX_HOLD_SECS: u64 = 600;
+
+/// Seconds named by a `diag.hold=<n>` line of `lazyos.cfg`, 0 when absent or
+/// not a positive whole number.
+fn diag_hold_secs(cfg: &str) -> u64 {
+    cfg.lines()
+        .filter_map(|line| line.trim().strip_prefix("diag.hold="))
+        .find_map(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+        .min(MAX_HOLD_SECS)
+}
+
+/// A stick built with `LAZYOS_DIAG_HOLD=<seconds>` keeps the console panes on
+/// screen that long before the desktop takes the screen, so the driver lines
+/// printed after the core apps (`USBD:*`, `NETDRV:*`, ...) can be read and
+/// photographed on a PC with no serial port. Everything else opens at once.
+pub(super) fn hold_for_diagnosis() {
+    let Ok(bytes) = user::files::read_up_to("/boot/lazyos.cfg", 4096) else {
+        return;
+    };
+    let seconds = diag_hold_secs(core::str::from_utf8(&bytes).unwrap_or(""));
+    if seconds == 0 {
+        return;
+    }
+    sys::write_str(&format!(
+        "XUID:DIAG:HOLD {seconds} s: the desktop opens after this (diag.hold in lazyos.cfg)\n"
+    ));
+    let end = sys::monotonic_ns() + seconds * 1_000_000_000;
+    let mut next_note = 0;
+    loop {
+        let now = sys::monotonic_ns();
+        if now >= end {
+            break;
+        }
+        let left = (end - now) / 1_000_000_000;
+        if left / 10 != next_note {
+            next_note = left / 10;
+            sys::write_str(&format!("XUID:DIAG:HOLD {left} s left\n"));
+        }
+        let _ = sys::sleep_until_ns(now + 500_000_000);
+    }
+    sys::write_str("XUID:DIAG:HOLD over, opening the desktop\n");
+}
+
 /// A `pkgd` client, retrying until the absolute tick `until`.
 fn connect(until: u64) -> Option<pkgd::Client> {
     loop {

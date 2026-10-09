@@ -25,6 +25,10 @@ use alloc::vec::Vec;
 
 use super::vfs::{Filesystem, MountFlags};
 
+/// Prefix of the lines `xuid` reads itself (`diag.hold=<seconds>`, the boot
+/// log hold of docs/compat/kabylake/B0.md); the kernel skips them.
+const DIAG_PREFIX: &str = "diag.";
+
 /// File name on the FAT volume, and the largest accepted size.
 pub const FILE_NAME: &str = "lazyos.cfg";
 pub const MAX_BYTES: usize = 4096;
@@ -93,6 +97,7 @@ pub fn parse(text: &str) -> Result<BootCfg, CfgError> {
         if line.is_empty()
             || line.starts_with('#')
             || line.starts_with(crate::limits::PREFIX)
+            || line.starts_with(DIAG_PREFIX)
             || line.starts_with(crate::display::modecfg::PREFIX)
         {
             continue;
