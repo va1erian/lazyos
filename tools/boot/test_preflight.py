@@ -78,11 +78,23 @@ class Parsers(unittest.TestCase):
         self.assertEqual(preflight.ext2_label(Mem(bytes(2048)), 0)[0], False)
 
     def test_a_missing_partition_table_fails_without_crashing(self):
-        with tempfile.NamedTemporaryFile() as tmp:
-            tmp.write(b"\0" * 512)
-            tmp.flush()
-            report, _ = preflight.run(Path(tmp.name), 0)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image.bin"
+            path.write_bytes(b"\0" * 512)
+            report, image = preflight.run(path, 0)
+            image.f.close()
         self.assertTrue(any(not row["ok"] for row in report.rows))
+
+    def test_a_zeroed_boot_sector_is_a_failed_check_not_a_traceback(self):
+        data = bytearray(mbr([(0x80, 0x20, 1, 100), (0x80, 0x0C, 2048, 4096), (0, 0x83, 8192, 100)]))
+        data += bytes(2048 * 512 - len(data) + 4096 * 512)  # zeroed sectors under the FAT
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "image.bin"
+            path.write_bytes(bytes(data))
+            report, image = preflight.run(path, 0)
+            image.f.close()
+        failed = [row["check"] for row in report.rows if not row["ok"]]
+        self.assertIn("image structures are readable", failed)
 
 
 if __name__ == "__main__":
