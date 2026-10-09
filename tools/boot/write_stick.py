@@ -7,8 +7,9 @@
 
 Only removable or USB disks are offered or accepted. On Linux a disk with a
 mounted partition is refused (unmount it first); on Windows the system and
-boot disks are refused and the chosen disk is taken offline for the write
-(which dismounts its volumes) and brought back online after. The tool shows
+boot disks are refused and the chosen disk's partition table is cleared for the
+write (which removes its volumes; Windows refuses to take removable media
+offline) and the disk is rescanned after. The tool shows
 the disk's model and size and asks twice, the second time for the device name
 typed back, then writes the whole image and reads it back to compare SHA-256
 digests. Everything on the disk is lost.
@@ -125,34 +126,19 @@ def windows_disks() -> list[Disk]:
     return disks
 
 
-def windows_offline(disk: Disk, offline: bool) -> None:
-    state = "$true" if offline else "$false"
-    powershell(f"Set-Disk -Number {disk.number} -IsOffline {state}")
+def windows_release(disk: Disk) -> None:
+    """Free the stick's volumes before the raw write by clearing its partition table.
 
-
-def windows_release(disk: Disk) -> bool:
-    """Free the stick's volumes before the raw write. Taking a USB disk offline is
-    refused on some systems (and always without an elevated prompt), so on failure
-    say why and fall back to clearing its partition table, which also leaves no
-    volume to hold open. Returns True when the disk was taken offline (and so must
-    be brought back online afterwards)."""
-    try:
-        windows_offline(disk, True)
-        return True
-    except PowerShellError as error:
-        print(f"could not take {disk.path} offline:\n{error}\n"
-              "clearing its partition table instead (the whole stick is about to be "
-              "overwritten anyway)", file=sys.stderr)
+    Taking the disk offline is not an option: Windows refuses it for removable
+    media ("Removable media cannot be set to offline"), which every USB stick the
+    tool accepts is. The stick is about to be overwritten whole anyway, and the
+    caller has already refused system disks and had the user confirm this one."""
     powershell(f"Clear-Disk -Number {disk.number} -RemoveData -RemoveOEM -Confirm:$false")
-    return False
 
 
-def windows_restore(disk: Disk, was_offline: bool) -> None:
-    """Hand the stick back to Windows after the write: online again, or a rescan."""
-    if was_offline:
-        windows_offline(disk, False)
-    else:
-        powershell(f"Update-Disk -Number {disk.number}")
+def windows_restore(disk: Disk) -> None:
+    """Hand the stick back to Windows after the write: rescan it."""
+    powershell(f"Update-Disk -Number {disk.number}")
 
 
 # ----- Common ------------------------------------------------------------
@@ -178,8 +164,8 @@ def confirm(disk: Disk, image: Path) -> bool:
     print(f"\nAbout to write {image} ({image.stat().st_size >> 20} MiB) to:\n  {disk.describe()}")
     print("EVERYTHING on this disk will be destroyed.")
     if os.name == "nt" and disk.mounted:
-        print(f"Its volumes ({', '.join(disk.mounted)}) are dismounted: the disk goes offline "
-              "for the write.")
+        print(f"Its volumes ({', '.join(disk.mounted)}) are removed: the disk's "
+              "partition table is cleared for the write.")
     if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return False
     typed = input(f"Type the device name ({disk.path}) to confirm: ").strip()
@@ -259,12 +245,13 @@ def main(argv: list[str] | None = None) -> int:
     if not args.yes and not confirm(disk, image):
         print("nothing written")
         return 1
-    was_offline = windows_release(disk) if os.name == "nt" else False
+    if os.name == "nt":
+        windows_release(disk)
     try:
         write_and_verify(disk, image)
     finally:
         if os.name == "nt":
-            windows_restore(disk, was_offline)
+            windows_restore(disk)
     print("done: unplug the stick, plug it into the PC and pick it in the boot menu "
           "(F8 on ASUS boards); see docs/usb-stick.md")
     return 0

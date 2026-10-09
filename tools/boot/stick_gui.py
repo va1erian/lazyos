@@ -252,8 +252,8 @@ def main() -> int:
                     else "Install pkexec (polkit) or run this window with sudo.")
             messagebox.showerror("Needs administrator rights", hint)
             return
-        offline = (f"\n\nIts volumes ({', '.join(disk.mounted)}) are dismounted: the disk goes "
-                   "offline for the write." if os.name == "nt" and disk.mounted else "")
+        offline = (f"\n\nIts volumes ({', '.join(disk.mounted)}) are removed: the disk's "
+                   "partition table is cleared for the write." if os.name == "nt" and disk.mounted else "")
         if not messagebox.askyesno(
                 "Erase this disk?",
                 f"Write {image.name} ({image.stat().st_size >> 20} MiB) to:\n\n"

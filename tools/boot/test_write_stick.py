@@ -35,36 +35,26 @@ def fake_powershell(fail_on=()):
 
 class WindowsRelease(unittest.TestCase):
     def test_failure_message_carries_powershells_own_words(self):
-        run, _ = fake_powershell(fail_on=("Set-Disk",))
+        run, _ = fake_powershell(fail_on=("Clear-Disk",))
         with mock.patch.object(subprocess, "run", run):
             with self.assertRaises(write_stick.PowerShellError) as raised:
-                write_stick.windows_offline(DISK, True)
+                write_stick.windows_release(DISK)
         self.assertIn("Access is denied.", str(raised.exception))
-        self.assertIn("Set-Disk -Number 6", str(raised.exception))
+        self.assertIn("Clear-Disk -Number 6", str(raised.exception))
 
-    def test_offline_works_then_comes_back_online(self):
+    def test_release_clears_the_partition_table_and_never_tries_offline(self):
         run, calls = fake_powershell()
         with mock.patch.object(subprocess, "run", run):
-            was_offline = write_stick.windows_release(DISK)
-            write_stick.windows_restore(DISK, was_offline)
-        self.assertTrue(was_offline)
-        self.assertTrue("-IsOffline $true" in calls[0] and "-IsOffline $false" in calls[1])
+            write_stick.windows_release(DISK)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("Clear-Disk -Number 6 -RemoveData", calls[0])
+        self.assertNotIn("IsOffline", calls[0])
 
-    def test_refused_offline_falls_back_to_clearing_the_disk(self):
-        run, calls = fake_powershell(fail_on=("Set-Disk",))
-        with mock.patch.object(subprocess, "run", run), mock.patch("sys.stderr"):
-            was_offline = write_stick.windows_release(DISK)
-            write_stick.windows_restore(DISK, was_offline)
-        self.assertFalse(was_offline)
-        self.assertTrue(any("Clear-Disk -Number 6 -RemoveData" in c for c in calls))
-        self.assertTrue(calls[-1].endswith("Update-Disk -Number 6"))
-        self.assertFalse(any("-IsOffline $false" in c for c in calls))
-
-    def test_if_clearing_fails_too_the_error_stops_the_write(self):
-        run, _ = fake_powershell(fail_on=("Set-Disk", "Clear-Disk"))
-        with mock.patch.object(subprocess, "run", run), mock.patch("sys.stderr"):
-            with self.assertRaises(write_stick.PowerShellError):
-                write_stick.windows_release(DISK)
+    def test_restore_rescans_the_disk(self):
+        run, calls = fake_powershell()
+        with mock.patch.object(subprocess, "run", run):
+            write_stick.windows_restore(DISK)
+        self.assertTrue(calls[0].endswith("Update-Disk -Number 6"))
 
 
 if __name__ == "__main__":

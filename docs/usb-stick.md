@@ -86,8 +86,9 @@ python tools\boot\write_stick.py --device \\.\PhysicalDrive2   # Windows, in an 
 
 The tool offers and accepts only removable or USB disks, refuses one with a
 mounted partition on Linux (unmount it first) and the system or boot disk on
-Windows (where it takes the chosen disk offline for the write, which dismounts
-its volumes, and brings it back online after). It shows the model and size,
+Windows (where it clears the chosen disk's partition table for the write, which
+removes its volumes, and rescans the disk after; Windows will not take removable
+media offline). It shows the model and size,
 asks twice (the second time you type the device name back), writes the whole
 image and reads it back to compare SHA-256 digests.
 
