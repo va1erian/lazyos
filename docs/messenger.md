@@ -167,10 +167,12 @@ per process (configurable quota) to prevent amplification attacks.
 |---|---|---|
 | 0 | `SYNC` | A reply is expected (transaction). |
 | 1 | `ONE_WAY` | Fire-and-forget. |
-| 2 | `NO_REPLY_IF_DEAD` | Do not error if the callee dies before replying. |
-| 3 | `ALLOW_NESTED` | Nested transactions permitted (default: flattened). |
-| 4 | `CRED_REQUIRED` | Callee insists on kernel credentials (always true for system services). |
-| 5 | `TRACE` | Emit trace events for this transaction. |
+| 2 | reserved | Unused. |
+| 3 | `ALLOW_NESTED` | A call that would close a wait cycle is allowed instead of refused with `Deadlock`. |
+| 4 | reserved | Unused (the kernel always stamps credentials, section 9). |
+| 5 | reserved | Unused (tracing is not per-message, section 13). |
+
+Reserved bits are carried and ignored; the kernel acts on none of them.
 
 ### 4.2 TLV value kinds
 
@@ -469,23 +471,12 @@ holds a `code` (stable within a `domain`), a `message` in plain language, a
 `hint` (how to fix it) and a `docs` id; the encoding, and that `detail` is
 not implemented yet, are in [`midl.md`](midl.md), "Errors".
 
-Standard fabric errors (domain `os.lazy.messenger`): `ERR_DENIED`,
-`ERR_NO_METHOD`, `ERR_NO_HANDLE`, `ERR_TIMEOUT`, `ERR_PEER_DIED`,
-`ERR_DEADLOCK`, `ERR_QUOTA`, `ERR_PARSE`, `ERR_VERSION`. POSIX-ish domains map
-`EACCES`, `ENOENT`, `EBUSY` for compatibility.
-
-Example denial:
-
-```
-ERR_DENIED
-  you cannot call os.lazy.fs.reader.Read because app "com.example.editor"
-  was not granted the "files.read" permission
-  hint: approve it in Settings > Apps > Editor > Permissions, or run:
-        lazyosctl grant com.example.editor files.read /home/user/docs
-  docs: err.messenger.denied
-```
-
-`explain <code>` and `doctor` render these; the GUI shows the same text.
+The fabric reports failures as errno values on the syscall (`EINVAL` for a
+refused object list, `EPERM` for policy, `ETIMEDOUT`, `EPIPE` for a dead peer,
+`EDEADLK` for a wait cycle). Named `ERR_*` codes, hint text, an `explain` or
+`doctor` tool and the "docs" id are not implemented; a service that wants
+friendly text puts it in the standard error field itself. To see why a call
+was refused, use `LAZYOS_LABEL_TRACE=1` (section 5).
 
 ---
 
@@ -495,6 +486,23 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 | Interface | Purpose |
 |---|---|
+| `os.lazy.messenger.registry.v1` | ListServices, GetService, ListInterfaces, GetInterface, WhoOwns |
+| `os.lazy.messenger.topics.v1` | ListTopics, ListSubscribers, GetRetained, Tail(filter) |
+
+Both are in `idl/`. The kernel-side slice is live: the `messenger` syscall's
+`STATS` op serves a versioned `FabricStats` snapshot (services, endpoints,
+channels, message counters, shared buffers, handles, ACL/audit state,
+per-slot usage) and `TOTALS` the compact counters. `messengerctl`
+(`LAZYOS_MESSENGERCTL=1`) renders them: `list`, `services`, `health`,
+`sessions`, `apps`, `topics`, `tail <topic>`, `stats`, `stats-json`,
+`tasks-json`, `log`, `keys`, `clipboard`. Per-service `stats`, `trace`,
+`health` and `audit` interfaces, per-transaction tracing and the
+`iface`/`trace`/`why`/`graph`/`policy check` subcommands do not exist and are
+not planned; heartbeats live in `healthd`. The declared-gate refusal count
+(`channels/declared.rs::refused()`) is a kernel diagnostic read by kernel
+tests only; it is not exported.
+
+---|---|
 | `os.lazy.messenger.registry.v1` | ListServices, GetService, ListInterfaces, GetInterface (methods, types, docs), WhoOwns |
 | `os.lazy.messenger.topics.v1` | ListTopics, ListSubscribers, GetRetained, Tail(filter) |
 | `os.lazy.messenger.stats.v1` | per-service and global call counts, error rates, p50/p99 latency, queue depth, drops, handle counts |
@@ -579,9 +587,9 @@ implements `AsRawFd`). The readiness, edge, lifetime and security rules are
 
 ---
 
-## 16. Network transport (future)
+## 16. Network transport (not planned)
 
-Remote messaging would frame the same parcels over TLS (`keyd`-issued
+Nothing here is implemented, and no issue tracks it. Remote messaging would frame the same parcels over TLS (`keyd`-issued
 identities, `(host, uid, label)` under the same ACL model) and let
 `messengerd` bridge topics across hosts; no change at the parcel level.
 
@@ -595,7 +603,6 @@ identities, `(host, uid, label)` under the same ACL model) and let
 | Throughput, small messages, one channel | > 200k msg/s |
 | Shared-buffer 1080p surface handoff | 0 copies; < 50 us metadata |
 | Topic fanout, 100 subscribers, small msg | < 1 ms p99 |
-| Trace overhead when disabled | < 1% |
 | Handle create/destroy | > 1M/s |
 
 The first two rows are measured by `/system/bin/msgbench` through
