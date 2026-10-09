@@ -75,6 +75,20 @@ struct Live {
     port: Port,
     /// The controller, to cut its bus mastering if a port cannot be stopped.
     address: pci::Address,
+    /// The controller's number (the slot of its first port), the index into
+    /// [`DEAD`].
+    controller: usize,
+}
+
+/// Controllers whose bus mastering was cut because a port would not stop,
+/// by controller number. Every port on one fails at once: the HBA can no
+/// longer move data, so a request would only wait out its timeout.
+static DEAD: [AtomicBool; MAX_AHCI] = [const { AtomicBool::new(false) }; MAX_AHCI];
+
+impl Live {
+    fn controller_dead(&self) -> bool {
+        DEAD[self.controller].load(Ordering::Acquire)
+    }
 }
 
 /// One driven port: its DMA memory and the registry-facing device.
@@ -164,6 +178,8 @@ pub fn attach_function(
         );
         return disks;
     }
+    // The controller's number: the slot of its first port that came up.
+    let mut controller: Option<usize> = None;
     for index in 0..=highest.unwrap_or(0) {
         if !hba.has_port(index) {
             continue;
@@ -172,8 +188,12 @@ pub fn attach_function(
             serial_println!("ahci: more than {MAX_AHCI} disks; port {index} ignored");
             break;
         };
-        match open_port(slot, &hba, &hw, function.address, index) {
-            Some(device) => disks.push(device),
+        let number = controller.unwrap_or(slot.device.index);
+        match open_port(slot, &hba, &hw, function.address, number, index) {
+            Some(device) => {
+                controller = Some(number);
+                disks.push(device);
+            }
             None => {
                 slot.claimed.store(false, Ordering::Release);
             }
@@ -199,6 +219,7 @@ fn open_port(
     hba: &Hba,
     hw: &Hw,
     address: pci::Address,
+    controller: usize,
     index: usize,
 ) -> Option<&'static dyn BlockDevice> {
     let name = NAMES[slot.device.index];
@@ -252,6 +273,7 @@ fn open_port(
         hw: *hw,
         port,
         address,
+        controller,
     });
     Some(device)
 }
@@ -264,6 +286,9 @@ pub fn flush_all() {
         let Some(live) = guard.as_mut() else {
             continue;
         };
+        if live.controller_dead() {
+            continue;
+        }
         let mut wait = |ready: &dyn Fn() -> bool| {
             iowait::wait_until(Wait::Spin, &device.expect_write, POWER_TIMEOUT_NS, ready)
         };
@@ -283,6 +308,10 @@ pub fn standby_all() {
         let Some(live) = guard.as_mut() else {
             continue;
         };
+        if live.controller_dead() {
+            *guard = None;
+            continue;
+        }
         let mut wait = |ready: &dyn Fn() -> bool| {
             iowait::wait_until(Wait::Spin, &device.expect_write, POWER_TIMEOUT_NS, ready)
         };
@@ -330,6 +359,9 @@ impl AhciDisk {
         }
         let mut guard = self.state.lock();
         let live = guard.as_mut().ok_or(BlockError::Io)?;
+        if live.controller_dead() {
+            return Err(BlockError::Io);
+        }
         let aligned = segments
             .iter()
             .all(|&(address, len)| address.is_multiple_of(2) && len.is_multiple_of(2));
@@ -358,6 +390,7 @@ impl AhciDisk {
                     // the caller's buffers: cut the controller's DMA (every
                     // port on it) before they are handed back.
                     pci::clear_command(live.address, pci::COMMAND_BUS_MASTER);
+                    DEAD[live.controller].store(true, Ordering::Release);
                     serial_println!(
                         "{}: port would not stop; bus mastering disabled on its controller",
                         NAMES[self.index]

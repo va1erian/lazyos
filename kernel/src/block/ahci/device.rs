@@ -60,6 +60,9 @@ impl BlockDevice for AhciDisk {
     fn flush(&self) -> Result<(), BlockError> {
         let mut guard = self.state.lock();
         let live = guard.as_mut().ok_or(BlockError::Io)?;
+        if live.controller_dead() {
+            return Err(BlockError::Io);
+        }
         let expect = &self.expect_write;
         let mut waiter =
             |ready: &dyn Fn() -> bool| iowait::wait_until(Wait::Spin, expect, TIMEOUT_NS, ready);

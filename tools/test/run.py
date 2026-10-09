@@ -69,6 +69,10 @@ def build_test_image(image: Path) -> None:
         sys.exit(f"build succeeded but {image} does not exist")
 
 
+# What ahci_suite prints when no scratch AHCI disk is attached.
+AHCI_SKIPPED = "no scratch AHCI disk; skipped"
+
+
 def parse_serial(text: str) -> dict:
     """Parse TEST: lines into a report payload."""
     results: list[dict] = []
@@ -405,6 +409,14 @@ def main() -> int:
             )
         return 1
     if failed:
+        return 1
+    if args.ahci and any(AHCI_SKIPPED in line for line in payload["info"]):
+        # The suite skips (and passes) without a scratch disk; a run that
+        # asked for one must not.
+        print(
+            "error: --ahci requested but the AHCI scratch disk was not attached",
+            file=sys.stderr,
+        )
         return 1
     if payload["reported"]["pass"] != passed or payload["reported"]["fail"] != failed:
         print(
