@@ -1,6 +1,16 @@
 # AHCI (SATA) block driver — plan
 
-> **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
+> **Status: revision 2 (2026-10-09). A1 (`libs/ahci`: model HBA tests, fuzz,
+> clippy) and the code of A2/A3 (kernel adapter, `--ahci`, `--media ahci`,
+> `--disk ahci`, flush and standby in the power path, CI jobs) are written.
+> The kernel suite and the CI jobs have not run yet (no QEMU where this was
+> written), and A0 (checking offsets against the specification) and A4 (the
+> box) are open: the *to confirm* marks stand.**
+>
+> Deviations from revision 1: `run_demo.py` already had `--disk
+> {virtio,ata}`, so AHCI is a third value of it (`--disk ahci`), not a new
+> `--disk-bus`; the AHCI test disk sits on its own `-device ahci` rather
+> than q35's built-in controller, so it works on every machine type.
 > The disk driver for the Kaby Lake box ([kabylake-box-plan.md](kabylake-box-plan.md):
 > a 512 GB SATA SSD on a Sunrise Point-LP AHCI controller, `8086:9d03`, no
 > NVMe), and for any PC whose SATA runs in AHCI mode. It follows NVMe N1

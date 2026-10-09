@@ -1,4 +1,4 @@
-# Block devices: ATA, PCI, virtio, NVMe
+# Block devices: ATA, PCI, virtio, NVMe, AHCI
 
 **What it is.** The storage abstraction filesystems sit on: a `BlockDevice`
 trait, a fixed registry with a selected boot device, and four drivers.
@@ -12,6 +12,7 @@ trait, a fixed registry with a selected boot device, and four drivers.
 | `kernel/src/block/mem.rs` | `MemDisk` over a memory region; the bootloader ramdisk registers as `ram0` (#5) |
 | `kernel/src/dev/pci.rs` | PCI config-space access (0xCF8/0xCFC); moved here from `block/pci.rs` by the device core (#239) |
 | `kernel/src/block/virtio.rs` (+ `virtio/plan.rs`, `ring.rs`, `queue.rs`, `io.rs`, `modern.rs`, `regs.rs`) | virtio-blk driver, read/write; one instance per PCI function, through the modern (1.x) transport when the function has one, the legacy (0.9.5) I/O window otherwise (issue #497, [drivers.md](drivers.md)) |
+| `kernel/src/block/ahci.rs` (+ `libs/ahci`) | AHCI (SATA) driver (docs/ahci-plan.md A2): one block device per port with an ATA disk, polled READ/WRITE DMA EXT with up to 8 slots in flight, flush and standby at power-off |
 | `kernel/src/block/nvme.rs` (+ `libs/nvme`) | NVMe driver (docs/nvme-install-plan.md N1): one polled I/O queue pair per controller, namespace 1, read/write/flush, shutdown notification |
 | `kernel/src/block/iowait.rs` | How a request waits: park on deadlines (`Wait::MaySleep`) or spin (`Wait::Spin`); `breathe` for long CPU stretches |
 
@@ -46,6 +47,7 @@ trait, a fixed registry with a selected boot device, and four drivers.
 |---|---|---|---|---|
 | `ata` | PIO, ports 0x1F0-0x1F7 | yes | no (default `ReadOnly`) | 28-bit LBA, polled, `IDENTIFY DEVICE` for geometry; `IO` mutex serializes |
 | `virtio` | modern PCI (capabilities, memory BAR, `libs/virtio`) or legacy BAR0 I/O window | yes | yes | per function (up to 4, `virtio0`..`virtio3`): own queue 0 split virtqueue in static memory, up to 8 requests in flight (up to 256 KiB each, DMA straight to and from the caller's buffers), polled, `is_writable` = attached |
+| `ahci` | PCIe, class 01:06 prog-if 01 (any vendor), ABAR (BAR 5) mapped uncached | yes | yes | up to 4 ports across all controllers (`ahci0`..`ahci3`, port order): command list, received-FIS area and one command table per slot in static memory, polled (no interrupts), up to 8 commands of 256 KiB in flight, PRDT entries straight to the caller's buffers (a bounce page for odd addresses, and for pages above 4 GiB on an HBA without `CAP.S64A`), `FLUSH CACHE EXT` after the power path's sync, `STANDBY IMMEDIATE` at power-off; only 512-byte logical sectors with LBA48 and `FLUSH CACHE EXT` are served; ATAPI and RAID-mode controllers are skipped |
 | `nvme` | PCIe, class 01:08:02, BAR0 mapped uncached (`mem::mmio::map_kernel`) | yes | yes | up to 2 controllers (`nvme0`, `nvme1`): admin and one I/O queue pair in static memory, polled (no interrupts), up to 8 commands of 64 KiB in flight (fewer when `MDTS` says so), PRP entries straight to the caller's buffers (a bounce page for buffers that are not dword aligned), Flush when the controller has a volatile write cache, `CC.SHN` after the power path's sync; only 512-byte LBA formats are served |
 | `pci` | config mechanism 1 (`kernel/src/dev/pci.rs`) | - | - | enumerate bus/device/function, match vendor/device, decode + size BARs (32/64-bit), command register, capability walk, interrupt line; no MMCONFIG/MSI |
 
@@ -200,7 +202,20 @@ transfer, so a `Wait::MaySleep` caller parks in `iowait` while commands run.
 Tests: `nvme_suite` against a scratch disk (`tools/test/run.py --nvme`), and
 `tools/boot/run.py --media nvme` boots an image from QEMU's `-device nvme`.
 
-**User-space block providers (`block/provider.rs`).** A ring-3 driver
+**AHCI (`block/ahci.rs`, docs/ahci-plan.md A2/A3).** The protocol is
+`libs/ahci`, a pure `no_std` crate host-tested against a model HBA (handoff,
+empty/ATAPI/unknown ports, IDENTIFY variants, every PRDT shape, task file
+errors with commands in flight, COMRESET, a port that will not stop, short
+`PRDBC`, hung commands) with seeded fuzz of IDENTIFY, the PRDT planner and a
+fully hostile HBA. Errors are read from `PxIS` only (`PxTFD.ERR` keeps the
+last error until another command overwrites it); a port is detached after two
+failed recoveries in a row, not after media errors. The kernel supplies the
+`Platform` as for NVMe and shares its DMA page and bounce helpers
+(`block/dma.rs`). Tests: `ahci_suite` against a scratch disk
+(`tools/test/run.py --ahci`), `tools/boot/run.py --media ahci`, and
+`tools/run_demo.py --disk ahci` (also on the launcher) to try it by hand.
+
+**User-space block providers (`block/provider.rs`).** A ring-3 driver A ring-3 driver
 holding `CAP_BLOCK_PROVIDER` (only `usbd`, for a USB stick) registers a
 `UserDisk` through syscall 33; it joins the registry as `usb<n>` and is driven
 like any other device, one request at a time through a kernel bounce buffer,

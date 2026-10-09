@@ -348,6 +348,12 @@ def main(argv: list[str]) -> int:
     if args.disk == "virtio":
         command += ["-drive", f"format=raw,file={image},if=none,id=boot",
                     "-device", "virtio-blk-pci,drive=boot"]
+    elif args.disk == "ahci":
+        # Its own AHCI controller (works on every machine type), the image the
+        # only disk on it: the kernel must find it as ahci0.
+        command += ["-device", "ahci,id=ahcib",
+                    "-drive", f"format=raw,file={image},if=none,id=boot",
+                    "-device", "ide-hd,drive=boot,bus=ahcib.0"]
     else:
         command += ["-drive", f"format=raw,file={image}"]
     # Same order as the screenshot tools: boot, data, then home.

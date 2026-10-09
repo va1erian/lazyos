@@ -28,6 +28,20 @@ from lazygui.test_assets import AssetDirTests  # noqa: E402,F401
 from lazygui.test_drivers import DriverChoiceTests  # noqa: E402,F401
 
 
+class BootDiskBusTests(unittest.TestCase):
+    def test_every_bus_the_launcher_offers_is_one_run_demo_accepts(self) -> None:
+        import demo_args  # noqa: PLC0415
+        parser = demo_args.make_parser("test", Path("img"))
+        for bus in catalog.DISKS:
+            argv = demo_argv(disk=bus)
+            self.assertEqual(argv[argv.index("--disk") + 1], bus)
+            args, _ = parser.parse_known_args(["--disk", bus])
+            self.assertEqual(args.disk, bus)
+
+    def test_ahci_is_offered(self) -> None:
+        self.assertIn("ahci", catalog.DISKS)
+
+
 class HomeDiskPlanTests(unittest.TestCase):
     def test_attached_by_default_at_the_standard_path(self) -> None:
         argv = demo_argv()
