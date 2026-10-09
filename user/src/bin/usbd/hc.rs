@@ -219,6 +219,15 @@ impl Hc {
         Ok(hc)
     }
 
+    /// `USBCMD`/`USBSTS` in one short string, for failure snapshots.
+    pub(super) fn state_text(&self) -> alloc::string::String {
+        alloc::format!(
+            "usbcmd={:#x} usbsts={:#x}",
+            self.opreg(op::USBCMD),
+            self.opreg(op::USBSTS)
+        )
+    }
+
     fn opreg(&self, offset: usize) -> u32 {
         self.bar.read32(self.op + offset)
     }
