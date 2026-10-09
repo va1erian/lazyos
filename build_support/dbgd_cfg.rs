@@ -25,7 +25,7 @@ pub fn enabled() -> bool {
 /// `key` as it must be written: 16..=64 bytes of hex.
 pub fn validate_key(key: &str) -> Result<(), String> {
     let ok = (32..=128).contains(&key.len())
-        && key.len() % 2 == 0
+        && key.len().is_multiple_of(2)
         && key.bytes().all(|b| b.is_ascii_hexdigit());
     if ok {
         Ok(())

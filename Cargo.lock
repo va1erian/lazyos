@@ -200,6 +200,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "getrandom",
  "lazyos-crypto",
  "passwd",
  "webpki-root-certs",
