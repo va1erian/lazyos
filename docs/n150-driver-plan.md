@@ -1,6 +1,9 @@
 # Drivers for Intel N150 mini PCs — exploration and plan
 
 > **Status: exploratory, revision 1 (2026-10-04). Nothing here is built.**
+> The box bought for it turned out to be a Kaby Lake i3-7100U; its plan is
+> [kabylake-box-plan.md](kabylake-box-plan.md). This plan still applies to a
+> real N150.
 > One question: what does LazyOS need, driver-wise, to run full time on a small
 > Intel N150 ("Twin Lake") mini PC? Companion plans own the neighbouring
 > pieces: installing to the internal NVMe disk and updating an installed system
