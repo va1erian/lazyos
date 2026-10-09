@@ -65,6 +65,8 @@ class Fat:
         bpb = image.read(base, SECTOR)
         (self.bps, self.spc, self.reserved, self.nfats, self.root_entries,
          total16, _media, fatsz16) = struct.unpack("<HBHBHHBH", bpb[11:24])
+        if not self.bps or not self.spc:
+            raise ValueError("invalid BPB: zero bytes per sector or sectors per cluster")
         total32 = struct.unpack("<I", bpb[32:36])[0]
         fatsz32 = struct.unpack("<I", bpb[36:40])[0]
         self.fatsz = fatsz16 or fatsz32
@@ -189,8 +191,18 @@ def ext2_label(image, offset):
 
 
 def run(path, stick_bytes):
+    """Run every check; a malformed structure becomes a failed check, not a traceback."""
     image = Image(path)
     r = Report()
+    try:
+        check_image(image, r, stick_bytes)
+    except (ValueError, ArithmeticError, IndexError, struct.error) as exc:
+        r.check("image structures are readable", False, f"{type(exc).__name__}: {exc}")
+    return r, image
+
+
+def check_image(image, r, stick_bytes):
+    """The checks proper, appended to `r` as they pass or fail."""
     mbr = image.read(0, SECTOR)
     r.check("MBR boot signature 55AA", mbr[510:512] == b"\x55\xaa")
     parts = mbr_entries(mbr)
@@ -199,7 +211,7 @@ def run(path, stick_bytes):
             sorted(by_type) == [0x0C, 0x20, 0x83] and len(parts) == 3,
             ", ".join(f"{p['index']}:{p['type']:#04x}" for p in parts))
     if sorted(by_type) != [0x0C, 0x20, 0x83]:
-        return r, image
+        return
     boot, home = by_type[0x0C], by_type[0x83]
     r.check("FAT partition is the active one", boot["active"] and not home["active"])
     r.check("home partition starts on a 1 MiB boundary", home["start"] * SECTOR % MIB == 0,
@@ -262,7 +274,6 @@ def run(path, stick_bytes):
 
     ok, label = ext2_label(image, home["start"] * SECTOR)
     r.check("home partition is ext2 'lazyhome'", ok and label == "lazyhome", f"ext2={ok} label={label!r}")
-    return r, image
 
 
 def main():

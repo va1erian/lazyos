@@ -10,7 +10,10 @@
 # ./survey-<hostname>-<date>) and a .tar.gz next to it. Nothing is changed on
 # the machine: every command is read-only, and a missing tool or a refused
 # command only leaves a note in its file. Commit the directory (or the parts
-# worth keeping) as docs/compat/<machine>/.
+# worth keeping) as docs/compat/<machine>/ -- but first REDACT the machine
+# identifiers it holds (DMI serials and UUIDs, disk serials, filesystem UUIDs,
+# MAC addresses, lspci serial numbers; docs/compat/kabylake/B0.md step 1) and
+# do not commit the .tar.gz.
 #
 # Packages that add the optional tools on Debian/Ubuntu:
 #     apt install pciutils usbutils dmidecode efibootmgr ethtool acpica-tools \
