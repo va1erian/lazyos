@@ -11,7 +11,11 @@ shots/
 *.ppm
 
 # Generated ABI conformance output (tools/abi); CI publishes it to the wiki
-docs/compat/
+docs/compat/*
+# ...except the hand-written real-hardware evidence (docs/compat/hardware.md,
+# docs/compat/<machine>/; real-pc-boot-plan.md, kabylake-box-plan.md)
+!docs/compat/hardware.md
+!docs/compat/kabylake/
 
 # A static BusyBox binary is a fetched/built artifact (issue #254), never
 # committed; `tools/abi/busybox.py` rebuilds it, the image embeds it.
