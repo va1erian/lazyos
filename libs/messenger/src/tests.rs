@@ -84,7 +84,10 @@ fn round_trip_parcel() {
 fn header_is_forty_eight_bytes_in_the_plan_order() {
     let bytes = encoded(&sample_parcel());
     assert_eq!(&bytes[0..2], &2u16.to_le_bytes());
-    assert_eq!(&bytes[2..4], &(flags::SYNC | flags::ALLOW_NESTED).to_le_bytes());
+    assert_eq!(
+        &bytes[2..4],
+        &(flags::SYNC | flags::ALLOW_NESTED).to_le_bytes()
+    );
     assert_eq!(&bytes[4..8], &2u32.to_le_bytes(), "object_count");
     assert_eq!(&bytes[8..16], &0x1234_5678_9abc_def0u64.to_le_bytes());
     assert_eq!(&bytes[16..20], &9u32.to_le_bytes(), "method");
